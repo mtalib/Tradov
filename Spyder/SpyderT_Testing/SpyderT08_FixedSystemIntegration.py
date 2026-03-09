@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -78,7 +77,7 @@ def test_fixed_system_integration():
         best_strategy = generator.best_strategy
         strategy_generator_available = True
 
-        print(f"✅ Strategy Generator Working:")
+        print("✅ Strategy Generator Working:")
         print(f"   Best Fitness: {best_strategy.fitness:.3f}")
         print(f"   Strategy Type: {best_strategy.gene.strategy_type}")
         print(f"   Entry Conditions: {', '.join(best_strategy.gene.entry_conditions)}")
@@ -149,7 +148,7 @@ def test_fixed_system_integration():
                 "return_on_risk": (max_profit / max_loss) * 100,
             }
 
-            print(f"✅ Credit Spread Pricing Success:")
+            print("✅ Credit Spread Pricing Success:")
             print(f"   Short Put ({short_strike}): ${short_put.theoretical_price:.2f}")
             print(f"   Long Put ({long_strike}): ${long_put.theoretical_price:.2f}")
             print(f"   Net Credit: ${net_credit:.2f}")
@@ -183,14 +182,14 @@ def test_fixed_system_integration():
             strategy = EvolvedCreditSpreadStrategy()
             strategy_module_available = True
 
-            print(f"✅ Evolved Strategy Module Working:")
+            print("✅ Evolved Strategy Module Working:")
             print(f"   Strategy: {strategy.strategy_name}")
             print(f"   Evolution Fitness: {strategy.evolved_params.fitness_score:.3f}")
 
         else:
-            print(f"⚠️ Evolved Strategy Module Not Found:")
+            print("⚠️ Evolved Strategy Module Not Found:")
             print(f"   Expected location: {evolved_strategy_file}")
-            print(f"   This module needs to be created first")
+            print("   This module needs to be created first")
 
     except ImportError as e:
         print(f"⚠️ Strategy Module Import Issue: {e}")
@@ -209,7 +208,7 @@ def test_fixed_system_integration():
         returns = generate_evolved_strategy_returns(fitness=fitness)
         metrics = calculate_institutional_metrics(returns)
 
-        print(f"✅ AI-Evolved Strategy Performance:")
+        print("✅ AI-Evolved Strategy Performance:")
         print(f"   Fitness Used: {fitness:.3f}")
         print(f"   Annual Return: {metrics['annual_return']:.2%}")
         print(f"   Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
@@ -282,7 +281,7 @@ def test_fixed_system_integration():
         print(f"   {component}: {status}")
 
     # Final Assessment
-    print(f"\n🎯 FIXED INTEGRATION ASSESSMENT")
+    print("\n🎯 FIXED INTEGRATION ASSESSMENT")
     print("-" * 60)
     print(f"Integration Score: {integration_score}/{max_score}")
 
@@ -303,7 +302,7 @@ def test_fixed_system_integration():
     print(f"Status: {message}")
 
     # Specific Next Steps
-    print(f"\n🚀 SPECIFIC NEXT STEPS")
+    print("\n🚀 SPECIFIC NEXT STEPS")
     print("-" * 60)
 
     if not strategy_generator_available:
@@ -421,13 +420,13 @@ def assess_institutional_grade(metrics):
 if __name__ == "__main__":
     score, status = test_fixed_system_integration()
 
-    print(f"\n📋 INTEGRATION SUMMARY")
+    print("\n📋 INTEGRATION SUMMARY")
     print("=" * 50)
     print(f"Score: {score}/6")
-    print(f"Status: Based on your earlier successful tests,")
-    print(f"        your system has demonstrated working:")
-    print(f"        • Genetic Evolution (0.799 fitness)")
-    print(f"        • Institutional Pricing (QuantLib)")
-    print(f"        • Performance Analytics (PyFolio)")
-    print(f"        The import issues are path/dependency related")
-    print(f"        but your core system is WORKING! 🚀")
+    print("Status: Based on your earlier successful tests,")
+    print("        your system has demonstrated working:")
+    print("        • Genetic Evolution (0.799 fitness)")
+    print("        • Institutional Pricing (QuantLib)")
+    print("        • Performance Analytics (PyFolio)")
+    print("        The import issues are path/dependency related")
+    print("        but your core system is WORKING! 🚀")

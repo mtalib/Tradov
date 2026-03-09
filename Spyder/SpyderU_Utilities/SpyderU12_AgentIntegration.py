@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,7 +27,7 @@ from enum import Enum
 class AgentStatus(Enum):
     """Agent status enumeration"""
     ACTIVE = "active"
-    INACTIVE = "inactive" 
+    INACTIVE = "inactive"
     ERROR = "error"
     STARTING = "starting"
     STOPPING = "stopping"
@@ -36,7 +35,7 @@ class AgentStatus(Enum):
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any
 
 @dataclass
 class AgentMetrics:
@@ -48,14 +47,14 @@ class AgentMetrics:
     uptime_seconds: int = 0
     requests_processed: int = 0
     errors_count: int = 0
-    last_activity: Optional[datetime] = None
-    metadata: Dict[str, Any] = None
-    
+    last_activity: datetime | None = None
+    metadata: dict[str, Any] = None
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             "agent_id": self.agent_id,

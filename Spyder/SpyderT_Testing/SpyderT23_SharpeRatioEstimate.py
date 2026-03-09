@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -96,28 +95,28 @@ def display_sharpe_ratio_estimate():
     print("SPYDER PERFORMANCE METRICS ESTIMATE")
     print("=" * 80)
 
-    print(f"\n📊 RETURNS:")
+    print("\n📊 RETURNS:")
     print(f"   Total Return:        {report.total_return:.2%}")
     print(f"   Annualized Return:   {report.annualized_return:.2%}")
 
-    print(f"\n📈 RISK-ADJUSTED METRICS:")
+    print("\n📈 RISK-ADJUSTED METRICS:")
     print(f"   Sharpe Ratio:        {report.sharpe_ratio:.3f}")
     print(f"   Sortino Ratio:       {report.sortino_ratio:.3f}")
     print(f"   Calmar Ratio:        {report.calmar_ratio:.3f}")
 
-    print(f"\n⚠️  RISK METRICS:")
+    print("\n⚠️  RISK METRICS:")
     print(f"   Volatility:          {report.volatility:.2%}")
     print(f"   Max Drawdown:        {report.max_drawdown:.2%}")
     print(f"   Max DD Duration:     {report.max_drawdown_duration} days")
 
-    print(f"\n💰 TRADING STATISTICS:")
+    print("\n💰 TRADING STATISTICS:")
     print(f"   Win Rate:            {report.win_rate:.1f}%")
     print(f"   Profit Factor:       {report.profit_factor:.2f}")
     print(f"   Total Trades:        {report.total_trades}")
     print(f"   Winning Trades:      {report.winning_trades}")
     print(f"   Losing Trades:       {report.losing_trades}")
 
-    print(f"\n🎯 OVERALL RATING:")
+    print("\n🎯 OVERALL RATING:")
     print(f"   Performance Rating:  {report.rating.value.upper()}")
 
     # Interpret Sharpe Ratio

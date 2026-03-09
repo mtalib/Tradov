@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,19 +25,16 @@ Change Log:
 import os
 import re
 from datetime import date, datetime, time
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from decimal import Decimal, InvalidOperation
 import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
 EMAIL_PATTERN = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 PHONE_PATTERN = r"^\+?1?\d{10,15}$"
@@ -80,7 +76,7 @@ class ValidationError(Exception):
 
 
 def is_valid_string(
-    value: Any, min_length: int = 0, max_length: Optional[int] = None, allow_empty: bool = False
+    value: Any, min_length: int = 0, max_length: int | None = None, allow_empty: bool = False
 ) -> bool:
     """
     Validate string value.
@@ -103,16 +99,13 @@ def is_valid_string(
     if len(value) < min_length:
         return False
 
-    if max_length is not None and len(value) > max_length:
-        return False
-
-    return True
+    return not (max_length is not None and len(value) > max_length)
 
 
 def is_valid_number(
     value: Any,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
     allow_negative: bool = True,
     allow_zero: bool = True,
 ) -> bool:
@@ -141,17 +134,14 @@ def is_valid_number(
         if min_value is not None and num < min_value:
             return False
 
-        if max_value is not None and num > max_value:
-            return False
-
-        return True
+        return not (max_value is not None and num > max_value)
 
     except (TypeError, ValueError):
         return False
 
 
 def is_valid_integer(
-    value: Any, min_value: Optional[int] = None, max_value: Optional[int] = None
+    value: Any, min_value: int | None = None, max_value: int | None = None
 ) -> bool:
     """
     Validate integer value.
@@ -173,10 +163,7 @@ def is_valid_integer(
         if min_value is not None and num < min_value:
             return False
 
-        if max_value is not None and num > max_value:
-            return False
-
-        return True
+        return not (max_value is not None and num > max_value)
 
     except (TypeError, ValueError):
         return False
@@ -198,8 +185,8 @@ def is_valid_boolean(value: Any) -> bool:
 def is_valid_list(
     value: Any,
     min_length: int = 0,
-    max_length: Optional[int] = None,
-    item_validator: Optional[Callable] = None,
+    max_length: int | None = None,
+    item_validator: Callable | None = None,
 ) -> bool:
     """
     Validate list value.
@@ -229,7 +216,7 @@ def is_valid_list(
 
 
 def is_valid_dict(
-    value: Any, required_keys: Optional[List[str]] = None, optional_keys: Optional[List[str]] = None
+    value: Any, required_keys: list[str] | None = None, optional_keys: list[str] | None = None
 ) -> bool:
     """
     Validate dictionary value.
@@ -252,7 +239,7 @@ def is_valid_dict(
 
     if required_keys is not None and optional_keys is not None:
         allowed_keys = set(required_keys) | set(optional_keys)
-        for key in value.keys():
+        for key in value:
             if key not in allowed_keys:
                 return False
 
@@ -337,7 +324,7 @@ def is_valid_url(value: Any) -> bool:
 
 
 def is_valid_date(
-    value: Any, min_date: Optional[date] = None, max_date: Optional[date] = None
+    value: Any, min_date: date | None = None, max_date: date | None = None
 ) -> bool:
     """
     Validate date value.
@@ -370,10 +357,7 @@ def is_valid_date(
     if min_date and value < min_date:
         return False
 
-    if max_date and value > max_date:
-        return False
-
-    return True
+    return not (max_date and value > max_date)
 
 
 def is_valid_time(value: Any) -> bool:
@@ -403,7 +387,7 @@ def is_valid_time(value: Any) -> bool:
 
 
 def is_valid_datetime(
-    value: Any, min_dt: Optional[datetime] = None, max_dt: Optional[datetime] = None
+    value: Any, min_dt: datetime | None = None, max_dt: datetime | None = None
 ) -> bool:
     """
     Validate datetime value.
@@ -428,10 +412,7 @@ def is_valid_datetime(
     if min_dt and value < min_dt:
         return False
 
-    if max_dt and value > max_dt:
-        return False
-
-    return True
+    return not (max_dt and value > max_dt)
 
 
 # ==============================================================================
@@ -552,7 +533,7 @@ def is_valid_percentage(value: Any, min_pct: float = 0.0, max_pct: float = 100.0
 # ==============================================================================
 
 
-def validate_order_data(order_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+def validate_order_data(order_data: dict[str, Any]) -> tuple[bool, str | None]:
     """
     Validate complete order data.
 
@@ -607,7 +588,7 @@ def validate_order_data(order_data: Dict[str, Any]) -> Tuple[bool, Optional[str]
     return True, None
 
 
-def validate_position_data(position_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+def validate_position_data(position_data: dict[str, Any]) -> tuple[bool, str | None]:
     """
     Validate position data.
 
@@ -650,8 +631,8 @@ def validate_position_data(position_data: Dict[str, Any]) -> Tuple[bool, Optiona
 
 
 def validate_config_value(
-    key: str, value: Any, schema: Dict[str, Any]
-) -> Tuple[bool, Optional[str]]:
+    key: str, value: Any, schema: dict[str, Any]
+) -> tuple[bool, str | None]:
     """
     Validate configuration value against schema.
 
@@ -707,7 +688,7 @@ def validate_config_value(
 
 
 def sanitize_string(
-    value: str, max_length: Optional[int] = None, allowed_chars: Optional[str] = None
+    value: str, max_length: int | None = None, allowed_chars: str | None = None
 ) -> str:
     """
     Sanitize string input.
@@ -846,18 +827,10 @@ class DataValidators:
 __all__ = ["DataValidators"]
 if __name__ == "__main__":
     # Test validators
-    print("Testing Validators...")
 
     # Test basic validators
-    print(f"\nIs '123' a valid integer? {is_valid_integer('123')}")
-    print(f"Is 'abc' a valid integer? {is_valid_integer('abc')}")
-    print(f"Is 450.50 a valid price? {is_valid_price(450.50)}")
-    print(f"Is -10 a valid price? {is_valid_price(-10)}")
 
     # Test pattern validators
-    print(f"\nIs 'user@example.com' a valid email? {is_valid_email('user@example.com')}")
-    print(f"Is 'SPY' a valid symbol? {is_valid_symbol('SPY')}")
-    print(f"Is '192.168.1.1' a valid IP? {is_valid_ip_address('192.168.1.1')}")
 
     # Test complex validators
     order = {
@@ -869,12 +842,10 @@ if __name__ == "__main__":
     }
 
     valid, error = validate_order_data(order)
-    print(f"\nIs order valid? {valid}")
     if error:
-        print(f"Error: {error}")
+        pass
 
     # Test sanitization
-    print(f"\nSanitized filename: {sanitize_filename('my<file>name?.txt')}")
 
 # ==============================================================================
 # BACKWARDS COMPATIBILITY ALIASES
@@ -888,10 +859,8 @@ __all__ = [
     "Validators",  # Alias
     "validate_order_data",
     "validate_position_data",
-    "validate_account_data",
     "is_valid_string",
     "is_valid_integer",
-    "is_valid_float",
     "is_valid_boolean",
     "is_valid_date",
     "is_valid_time",
@@ -901,15 +870,12 @@ __all__ = [
     "is_valid_url",
     "is_valid_ip_address",
     "is_valid_symbol",
-    "is_valid_option_symbol",
     "is_valid_number",
     "is_valid_price",
     "is_valid_quantity",
     "is_valid_percentage",
     "is_valid_order_type",
     "is_valid_time_in_force",
-    "is_valid_account_number",
-    "is_valid_leverage",
     "sanitize_string",
     "sanitize_filename",
     "validate_input",

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,12 +23,11 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from functools import lru_cache
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import math
 import statistics
 from decimal import ROUND_HALF_UP, Decimal
 import numpy as np
@@ -101,7 +99,7 @@ def calculate_percentage_change(old_value: float, new_value: float) -> float:
     return ((new_value - old_value) / abs(old_value)) * 100
 
 
-def calculate_compound_return(returns: List[float]) -> float:
+def calculate_compound_return(returns: list[float]) -> float:
     """
     Calculate compound return from a series of returns.
 
@@ -122,7 +120,7 @@ def calculate_compound_return(returns: List[float]) -> float:
 # ==============================================================================
 
 
-def calculate_mean(values: List[float]) -> float:
+def calculate_mean(values: list[float]) -> float:
     """
     Calculate arithmetic mean.
 
@@ -137,7 +135,7 @@ def calculate_mean(values: List[float]) -> float:
     return statistics.mean(values)
 
 
-def calculate_std_dev(values: List[float], sample: bool = True) -> float:
+def calculate_std_dev(values: list[float], sample: bool = True) -> float:
     """
     Calculate standard deviation.
 
@@ -158,7 +156,7 @@ def calculate_std_dev(values: List[float], sample: bool = True) -> float:
 
 
 def calculate_sharpe_ratio(
-    returns: List[float],
+    returns: list[float],
     risk_free_rate: float = 0.02,
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> float:
@@ -197,7 +195,7 @@ def calculate_sharpe_ratio(
 
 
 def calculate_sortino_ratio(
-    returns: List[float],
+    returns: list[float],
     risk_free_rate: float = 0.02,
     target_return: float = 0.0,
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
@@ -242,7 +240,7 @@ def calculate_sortino_ratio(
     return float(sortino)
 
 
-def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, int, int]:
+def calculate_max_drawdown(equity_curve: list[float]) -> tuple[float, int, int]:
     """
     Calculate maximum drawdown.
 
@@ -275,7 +273,7 @@ def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, int, int]:
 
 
 def calculate_var(
-    returns: List[float], confidence_level: float = 0.95, method: str = "historical"
+    returns: list[float], confidence_level: float = 0.95, method: str = "historical"
 ) -> float:
     """
     Calculate Value at Risk (VaR).
@@ -308,7 +306,7 @@ def calculate_var(
         raise ValueError(f"Unknown VaR method: {method}")
 
 
-def calculate_cvar(returns: List[float], confidence_level: float = 0.95) -> float:
+def calculate_cvar(returns: list[float], confidence_level: float = 0.95) -> float:
     """
     Calculate Conditional Value at Risk (CVaR).
 
@@ -451,7 +449,7 @@ def find_root(
     b: float,
     tol: float = CONVERGENCE_THRESHOLD,
     max_iter: int = MAX_ITERATIONS,
-) -> Optional[float]:
+) -> float | None:
     """
     Find root using Brent's method.
 
@@ -476,8 +474,8 @@ def find_root(
 
 
 def minimize_scalar(
-    func: Callable[[float], float], bounds: Tuple[float, float], tol: float = CONVERGENCE_THRESHOLD
-) -> Tuple[Optional[float], Optional[float]]:
+    func: Callable[[float], float], bounds: tuple[float, float], tol: float = CONVERGENCE_THRESHOLD
+) -> tuple[float | None, float | None]:
     """
     Minimize scalar function.
 
@@ -611,8 +609,8 @@ def linear_interpolation(x: float, x1: float, y1: float, x2: float, y2: float) -
 
 
 def cubic_spline_interpolation(
-    x_points: List[float], y_points: List[float], x_new: Union[float, List[float]]
-) -> Union[float, List[float]]:
+    x_points: list[float], y_points: list[float], x_new: Union[float, list[float]]
+) -> Union[float, list[float]]:
     """
     Cubic spline interpolation.
 
@@ -642,8 +640,8 @@ def cubic_spline_interpolation(
 
 
 def rolling_window(
-    data: List[float], window_size: int, func: Callable[[List[float]], float]
-) -> List[float]:
+    data: list[float], window_size: int, func: Callable[[list[float]], float]
+) -> list[float]:
     """
     Apply function over rolling window.
 
@@ -666,7 +664,7 @@ def rolling_window(
     return results
 
 
-def exponential_moving_average(data: List[float], period: int) -> List[float]:
+def exponential_moving_average(data: list[float], period: int) -> list[float]:
     """
     Calculate exponential moving average.
 
@@ -761,27 +759,13 @@ class MathUtils:
 __all__ = ["MathUtils"]
 if __name__ == "__main__":
     # Test mathematical utilities
-    print("Testing Mathematical Utilities...")
 
     # Test basic functions
-    print(f"\nRound price 123.456: {round_price(123.456)}")
-    print(f"Round to tick 123.456 (0.25): {round_to_tick(123.456, 0.25)}")
-    print(f"Percentage change 100->110: {calculate_percentage_change(100, 110):.2f}%")
 
     # Test statistical functions
     returns = [0.01, -0.02, 0.015, 0.005, -0.01, 0.02, -0.005, 0.01]
-    print(f"\nReturns: {returns}")
-    print(f"Mean: {calculate_mean(returns):.4f}")
-    print(f"Std Dev: {calculate_std_dev(returns):.4f}")
-    print(f"Sharpe Ratio: {calculate_sharpe_ratio(returns):.2f}")
-    print(f"VaR (95%): {calculate_var(returns, 0.95):.4f}")
 
     # Test probability functions
-    print(
-        f"\nProbability of touch (450->460, 20% vol, 30 days): "
-        f"{calculate_probability_touch(450, 460, 0.20, 30):.2%}"
-    )
 
     # Test position sizing
     position = calculate_position_size(100000, 1.0, 5.0, 100)
-    print(f"\nPosition size ($100k, 1% risk, $5 stop): {position} contracts")

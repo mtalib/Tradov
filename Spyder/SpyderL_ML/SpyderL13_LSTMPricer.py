@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -27,13 +26,12 @@ import asyncio
 import logging
 import warnings
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pickle
 import numpy as np
 import pandas as pd
 import torch
@@ -41,7 +39,7 @@ import torch.nn as nn
 import torch.optim as optim
 from scipy.stats import norm
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 warnings.filterwarnings("ignore")
@@ -93,7 +91,7 @@ class OptionsLSTM(nn.Module):
     """
 
     def __init__(self, config: LSTMConfig):
-        super(OptionsLSTM, self).__init__()
+        super().__init__()
         self.config = config
         # Input batch normalization
         self.input_bn = nn.BatchNorm1d(config.input_features)
@@ -203,7 +201,7 @@ class SpyderLSTMPricer:
     - Performance comparison vs traditional models
     """
 
-    def __init__(self, config: Optional[LSTMConfig] = None):
+    def __init__(self, config: LSTMConfig | None = None):
         """Initialize LSTM pricer."""
         self.config = config or LSTMConfig()
         self.model = OptionsLSTM(self.config).to(device)
@@ -269,7 +267,7 @@ class SpyderLSTMPricer:
 
     def create_sequences(
         self, features: np.ndarray, targets: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Create sequences for LSTM training.
         Args:
@@ -564,7 +562,7 @@ class SpyderLSTMPricer:
         self.model_version = checkpoint["model_version"]
         self.training_history = checkpoint["training_history"]
 
-    def analyze_feature_importance(self, validation_data: pd.DataFrame) -> Dict[str, float]:
+    def analyze_feature_importance(self, validation_data: pd.DataFrame) -> dict[str, float]:
         """
         Analyze feature importance using permutation.
         Args:
@@ -583,7 +581,7 @@ class SpyderLSTMPricer:
         feature_names = list(self.FEATURE_CONFIG.values())
         feature_names = [item for sublist in feature_names for item in sublist]
         # Permutation importance
-        for i, feature_group in enumerate(self.FEATURE_CONFIG.keys()):
+        for _i, feature_group in enumerate(self.FEATURE_CONFIG.keys()):
             # Permute feature group
             permuted_data = validation_data.copy()
             # Shuffle relevant columns
@@ -605,7 +603,7 @@ class SpyderLSTMPricer:
         self.feature_importance = feature_importance
         return feature_importance
 
-    def get_model_diagnostics(self) -> Dict[str, Any]:
+    def get_model_diagnostics(self) -> dict[str, Any]:
         """Get comprehensive model diagnostics."""
         diagnostics = {
             "model_info": {
@@ -706,7 +704,7 @@ async def main():
     # Train model
     logging.info("\n=== Training Model ===")
     metrics = await lstm_pricer.train(training_data, validation_split=0.2)
-    logging.info(f"\nTraining Results:")
+    logging.info("\nTraining Results:")
     logging.info(f"Final Validation RMSE: ${metrics.val_rmse:.3f}")
     logging.info(f"Improvement vs Black-Scholes: {metrics.improvement_vs_bs:.1f}%")
     logging.info(f"Training Time: {metrics.training_time:.1f} seconds")

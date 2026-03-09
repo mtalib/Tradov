@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -55,7 +54,7 @@ class ReportGenerator:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def generate_report(self, report_type: str, data: Dict[str, Any]) -> str:
+    def generate_report(self, report_type: str, data: dict[str, Any]) -> str:
         """Generate a report of specified type."""
         self.logger.info(f"Generating {report_type} report")
 
@@ -66,11 +65,11 @@ class ReportGenerator:
         else:
             return f"Report type '{report_type}' not implemented"
 
-    def _generate_daily_report(self, data: Dict[str, Any]) -> str:
+    def _generate_daily_report(self, data: dict[str, Any]) -> str:
         """Generate daily trading report."""
         return f"Daily Report for {datetime.now().strftime('%Y-%m-%d')}"
 
-    def _generate_performance_report(self, data: Dict[str, Any]) -> str:
+    def _generate_performance_report(self, data: dict[str, Any]) -> str:
         """Generate performance report."""
         return f"Performance Report generated at {datetime.now()}"
 

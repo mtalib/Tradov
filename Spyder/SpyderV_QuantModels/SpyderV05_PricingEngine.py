@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -29,18 +28,14 @@ Consolidation Notes:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union, Callable
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import math
 
@@ -48,10 +43,6 @@ import math
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats
-from scipy.optimize import minimize_scalar, brentq
-from scipy.stats import norm
 from numba import jit
 
 # ==============================================================================
@@ -210,13 +201,13 @@ class PricingResult:
     theoretical_price: float
     greeks: Greeks
     model_used: PricingModel
-    exercise_boundary: Optional[float] = None
-    early_exercise_premium: Optional[float] = None
+    exercise_boundary: float | None = None
+    early_exercise_premium: float | None = None
     calculation_time_ms: float = 0.0
     convergence_achieved: bool = True
     accuracy_estimate: float = 1.0
-    warnings: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -228,7 +219,7 @@ class ModelPerformance:
     avg_calculation_time: float = 0.0
     max_calculation_time: float = 0.0
     min_calculation_time: float = float("inf")
-    accuracy_scores: List[float] = field(default_factory=list)
+    accuracy_scores: list[float] = field(default_factory=list)
     convergence_failures: int = 0
     cache_hits: int = 0
     last_used: datetime = field(default_factory=datetime.now)
@@ -367,7 +358,7 @@ class SpyderPricingEngine:
     """
 
     def __init__(
-        self, config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
     ):
         """Initialize consolidated pricing engine."""
         self.config = config or {}
@@ -375,11 +366,11 @@ class SpyderPricingEngine:
         self.logger = logging.getLogger(__name__)
 
         # Performance tracking
-        self.model_performance: Dict[PricingModel, ModelPerformance] = {}
+        self.model_performance: dict[PricingModel, ModelPerformance] = {}
         self._initialize_performance_tracking()
 
         # Pricing cache for performance
-        self.price_cache: Dict[str, PricingResult] = {}
+        self.price_cache: dict[str, PricingResult] = {}
         self.cache_expiry_seconds = self.config.get("cache_expiry", 60)
         self.max_cache_size = self.config.get("max_cache_size", 10000)
 
@@ -479,8 +470,8 @@ class SpyderPricingEngine:
             return self._create_default_result(contract, e)
 
     async def price_portfolio(
-        self, contracts: List[OptionContract], parameters: PricingParameters = None
-    ) -> List[PricingResult]:
+        self, contracts: list[OptionContract], parameters: PricingParameters = None
+    ) -> list[PricingResult]:
         """
         Price multiple options efficiently with parallel processing.
 
@@ -701,7 +692,7 @@ class SpyderPricingEngine:
         # Critical price approximation (simplified)
         if is_call:
             S_star = K * beta_plus / (beta_plus - 1)
-            if S >= S_star:
+            if S_star <= S:
                 return S - K
             else:
                 return european_price + (S / S_star) ** beta_plus * (
@@ -709,7 +700,7 @@ class SpyderPricingEngine:
                 )
         else:
             S_star = K * beta_minus / (beta_minus - 1)
-            if S <= S_star:
+            if S_star >= S:
                 return K - S
             else:
                 return european_price + (S / S_star) ** beta_minus * (
@@ -929,14 +920,14 @@ class SpyderPricingEngine:
         )  # Vega/vol
 
         charm = (
-            q * np.exp(-q * T) * _norm_cdf(d1 if is_call else -d1)
+            q * np.exp(-q * T) * _norm_cdf(d1)
             - np.exp(-q * T)
             * _norm_pdf(d1)
             * (2 * (r - q) * T - d2 * sigma * np.sqrt(T))
             / (2 * T * sigma * np.sqrt(T))
-            if is_call
-            else -charm
-        )  # Delta/time
+        )  # call charm
+        if not is_call:
+            charm = -charm
 
         veta = (
             -S
@@ -1058,9 +1049,7 @@ class SpyderPricingEngine:
         contract_dict[parameter] = getattr(contract, parameter) + bump_amount
 
         # Ensure positive values
-        if parameter == "time_to_expiry":
-            contract_dict[parameter] = max(contract_dict[parameter], 0.001)
-        elif parameter in ["underlying_price", "strike_price", "volatility"]:
+        if parameter == "time_to_expiry" or parameter in ["underlying_price", "strike_price", "volatility"]:
             contract_dict[parameter] = max(contract_dict[parameter], 0.001)
 
         return OptionContract(**contract_dict)
@@ -1251,7 +1240,7 @@ class SpyderPricingEngine:
             warnings=[f"Pricing failed: {str(error)[:100]}"],
         )
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get comprehensive performance summary."""
         summary = {
             "total_calculations": self.total_calculations,
@@ -1297,7 +1286,7 @@ class SpyderPricingEngine:
 class ModelSelector:
     """Intelligent model selection based on contract characteristics."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
 
         # Selection criteria thresholds
@@ -1340,7 +1329,7 @@ class ModelSelector:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_pricing_engine(
-    config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
 ) -> SpyderPricingEngine:
     """Factory function to create SpyderPricingEngine."""
     return SpyderPricingEngine(config, data_manager)
@@ -1441,7 +1430,7 @@ async def main():
             logging.info(f"{model.value:<20} ERROR: {str(e)[:50]}")
 
     # Test intelligent model selection
-    logging.info(f"\n--- Intelligent Model Selection ---")
+    logging.info("\n--- Intelligent Model Selection ---")
     for i, contract in enumerate(test_contracts):
         try:
             result = await pricing_engine.price_option(contract)
@@ -1462,7 +1451,7 @@ async def main():
             logging.info(f"Contract {i+1}: ERROR - {e}")
 
     # Test portfolio pricing
-    logging.info(f"\n--- Portfolio Pricing (Parallel Processing) ---")
+    logging.info("\n--- Portfolio Pricing (Parallel Processing) ---")
     try:
         start_time = time.time()
         results = await pricing_engine.price_portfolio(test_contracts)
@@ -1484,7 +1473,7 @@ async def main():
         logging.info(f"   ERROR: {e}")
 
     # Test Greeks calculations
-    logging.info(f"\n--- Comprehensive Greeks Analysis ---")
+    logging.info("\n--- Comprehensive Greeks Analysis ---")
     greeks_contract = test_contracts[0]  # Use first contract
 
     try:
@@ -1500,14 +1489,14 @@ async def main():
             f"({greeks_contract.time_to_expiry*365:.0f} days)"
         )
         logging.info(f"   Price: ${result.theoretical_price:.4f}")
-        logging.info(f"\n   First Order Greeks:")
+        logging.info("\n   First Order Greeks:")
         logging.info(f"     Delta:  {greeks.delta:>8.4f}  (Price sensitivity to underlying)")
-        logging.info(f"\n   Second Order Greeks:")
+        logging.info("\n   Second Order Greeks:")
         logging.info(f"     Gamma:  {greeks.gamma:>8.4f}  (Delta sensitivity)")
         logging.info(f"     Vega:   {greeks.vega:>8.4f}  (Volatility sensitivity)")
         logging.info(f"     Theta:  {greeks.theta:>8.4f}  (Time decay per day)")
         logging.info(f"     Rho:    {greeks.rho:>8.4f}  (Rate sensitivity)")
-        logging.info(f"\n   Cross Derivatives:")
+        logging.info("\n   Cross Derivatives:")
         logging.info(f"     Vanna:  {greeks.vanna:>8.4f}  (Delta-Vol sensitivity)")
         logging.info(f"     Volga:  {greeks.volga:>8.4f}  (Vega-Vol sensitivity)")
         logging.info(f"     Charm:  {greeks.charm:>8.4f}  (Delta-Time sensitivity)")
@@ -1517,7 +1506,7 @@ async def main():
         logging.info(f"   ERROR: {e}")
 
     # Performance summary
-    logging.info(f"\n--- Performance Summary ---")
+    logging.info("\n--- Performance Summary ---")
     try:
         performance = pricing_engine.get_performance_summary()
 
@@ -1527,7 +1516,7 @@ async def main():
         logging.info(f"   Cache Size: {performance['cache_size']} entries")
 
         if performance["models"]:
-            logging.info(f"\n   Model Performance:")
+            logging.info("\n   Model Performance:")
             for model_name, stats in performance["models"].items():
                 logging.info(
                     f"     {model_name:<20}: {stats['calculations']:>3} calls, "

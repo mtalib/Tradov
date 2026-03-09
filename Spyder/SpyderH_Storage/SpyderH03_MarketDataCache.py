@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,8 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, TypeVar, Generic
+from typing import Any, TypeVar
 from dataclasses import dataclass, field
 from collections import OrderedDict
 from enum import Enum
@@ -35,8 +33,6 @@ import threading
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import hashlib
-import numpy as np
 
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -99,7 +95,7 @@ class CacheDataType(Enum):
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class CacheEntry(Generic[T]):
+class CacheEntry[T]:
     """Cache entry with metadata."""
     key: str
     value: T
@@ -279,7 +275,7 @@ class MarketDataCache:
         key: str,
         value: Any,
         data_type: CacheDataType = CacheDataType.CUSTOM,
-        ttl: Optional[int] = None
+        ttl: int | None = None
     ) -> None:
         """
         Store a value in the cache.
@@ -352,7 +348,7 @@ class MarketDataCache:
             self._stats.hits += 1
             return entry.value
 
-    def get_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_quote(self, symbol: str) -> dict[str, Any] | None:
         """
         Get cached quote for a symbol.
 
@@ -365,7 +361,7 @@ class MarketDataCache:
         key = self._generate_key(symbol, CacheDataType.QUOTE)
         return self.get(key)
 
-    def set_quote(self, symbol: str, quote: Dict[str, Any]) -> None:
+    def set_quote(self, symbol: str, quote: dict[str, Any]) -> None:
         """
         Cache a quote for a symbol.
 
@@ -380,7 +376,7 @@ class MarketDataCache:
         self,
         symbol: str,
         timeframe: str = "1m"
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get cached bar data for a symbol.
 
@@ -397,7 +393,7 @@ class MarketDataCache:
     def set_bar(
         self,
         symbol: str,
-        bar: Dict[str, Any],
+        bar: dict[str, Any],
         timeframe: str = "1m"
     ) -> None:
         """
@@ -415,8 +411,8 @@ class MarketDataCache:
     def get_option_chain(
         self,
         underlying: str,
-        expiration: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        expiration: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Get cached option chain.
 
@@ -434,8 +430,8 @@ class MarketDataCache:
     def set_option_chain(
         self,
         underlying: str,
-        chain: Dict[str, Any],
-        expiration: Optional[str] = None
+        chain: dict[str, Any],
+        expiration: str | None = None
     ) -> None:
         """
         Cache option chain data.
@@ -449,7 +445,7 @@ class MarketDataCache:
         key = self._generate_key(underlying, CacheDataType.OPTION_CHAIN, suffix)
         self.set(key, chain, CacheDataType.OPTION_CHAIN)
 
-    def get_greeks(self, option_symbol: str) -> Optional[Dict[str, float]]:
+    def get_greeks(self, option_symbol: str) -> dict[str, float] | None:
         """
         Get cached Greeks for an option.
 
@@ -465,7 +461,7 @@ class MarketDataCache:
     def set_greeks(
         self,
         option_symbol: str,
-        greeks: Dict[str, float]
+        greeks: dict[str, float]
     ) -> None:
         """
         Cache Greeks for an option.
@@ -483,7 +479,7 @@ class MarketDataCache:
         start_date: str,
         end_date: str,
         timeframe: str = "1d"
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Get cached historical data.
 
@@ -503,7 +499,7 @@ class MarketDataCache:
     def set_historical(
         self,
         symbol: str,
-        data: List[Dict[str, Any]],
+        data: list[dict[str, Any]],
         start_date: str,
         end_date: str,
         timeframe: str = "1d"
@@ -553,7 +549,7 @@ class MarketDataCache:
         """
         with self._lock:
             keys_to_remove = [
-                key for key in self._cache.keys()
+                key for key in self._cache
                 if f":{symbol}" in key or f":{symbol}:" in key
             ]
             for key in keys_to_remove:
@@ -634,7 +630,7 @@ class MarketDataCache:
                 memory_bytes=self._stats.memory_bytes
             )
 
-    def get_keys(self, pattern: Optional[str] = None) -> List[str]:
+    def get_keys(self, pattern: str | None = None) -> list[str]:
         """
         Get all cache keys, optionally filtered by pattern.
 
@@ -646,15 +642,13 @@ class MarketDataCache:
         """
         with self._lock:
             if pattern:
-                return [key for key in self._cache.keys() if pattern in key]
+                return [key for key in self._cache if pattern in key]
             return list(self._cache.keys())
 
     def _estimate_size(self, value: Any) -> int:
         """Estimate memory size of a value in bytes."""
         try:
-            if isinstance(value, dict):
-                return len(json.dumps(value))
-            elif isinstance(value, list):
+            if isinstance(value, (dict, list)):
                 return len(json.dumps(value))
             elif isinstance(value, str):
                 return len(value)

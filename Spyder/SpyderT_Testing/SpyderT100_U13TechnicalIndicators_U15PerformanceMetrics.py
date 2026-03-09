@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Test Suite T100
 Tests: SpyderU13_TechnicalIndicators + SpyderU15_PerformanceMetrics

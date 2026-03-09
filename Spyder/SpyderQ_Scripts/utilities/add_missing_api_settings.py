@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,7 +22,6 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
 import sys
 import re
 from datetime import datetime
@@ -101,10 +99,9 @@ class AddMissingAPISettings:
         self.log_info("Adding missing API settings...")
 
         try:
-            with open(self.jts_ini_path, "r") as f:
+            with open(self.jts_ini_path) as f:
                 content = f.read()
 
-            original_content = content
 
             # Add ReadOnlyApi=false to IBGateway section if not present
             if "ReadOnlyApi=" not in content:
@@ -181,7 +178,7 @@ class AddMissingAPISettings:
         self.log_info("Verifying API settings...")
 
         try:
-            with open(self.jts_ini_path, "r") as f:
+            with open(self.jts_ini_path) as f:
                 content = f.read()
 
             required_settings = [

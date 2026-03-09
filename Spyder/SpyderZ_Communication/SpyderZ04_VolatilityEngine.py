@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,25 +22,20 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
-import json
 import threading
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Any, Tuple, Set
+from typing import Any
 from dataclasses import dataclass, field, asdict
-from enum import Enum, auto
-from collections import defaultdict, deque
+from enum import Enum
+from collections import defaultdict, deque, OrderedDict
+import hashlib
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import multiprocessing as mp
-from multiprocessing import shared_memory
-import pickle
-import struct
 
 warnings.filterwarnings('ignore')
 
@@ -49,18 +43,15 @@ warnings.filterwarnings('ignore')
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats, optimize, interpolate
+from scipy import interpolate
 from scipy.stats import norm
-import zmq
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ07_MultiProcessManager import SpyderEngineProcess, SharedTickData
-from SpyderZ03_TradingCoordinator import EngineType, CommandType, create_engine_client
+from SpyderZ07_MultiProcessManager import SpyderEngineProcess
+from SpyderZ03_TradingCoordinator import EngineType
 from SpyderZ02_MessageProtocol import (
-    MessageFactory, ProtocolManager, SerializationFormat,
     MessageCategory, ProtocolMessage, PRIORITY_HIGH
 )
 
@@ -165,21 +156,21 @@ class VolatilitySurface:
     risk_free_rate: float
     dividend_yield: float
     timestamp: float
-    expiries: List[float]  # Time to expiry in years
-    strikes: List[float]
+    expiries: list[float]  # Time to expiry in years
+    strikes: list[float]
     ivs: np.ndarray  # 2D array of implied volatilities
     model_type: VolatilityModel = VolatilityModel.BLACK_SCHOLES
-    
+
     def get_iv(self, strike: float, expiry: float) -> float:
         """Interpolate IV for given strike and expiry."""
         if len(self.strikes) == 1 or len(self.expiries) == 1:
             return float(self.ivs[0, 0])
-        
+
         # Create interpolation function
         f = interpolate.RectBivariateSpline(
             self.expiries, self.strikes, self.ivs, kx=1, ky=1
         )
-        
+
         return float(f(expiry, strike)[0, 0])
 
 @dataclass
@@ -192,7 +183,7 @@ class VolatilityMetrics:
     realized_vol: float
     vol_of_vol: float
     skew: float  # 25-delta put IV - 25-delta call IV
-    term_structure: Dict[float, float]  # expiry -> ATM IV
+    term_structure: dict[float, float]  # expiry -> ATM IV
     regime: str
     timestamp: float = field(default_factory=time.time)
 
@@ -201,20 +192,20 @@ class VolatilityMetrics:
 # ==============================================================================
 class CalculationCache:
     """LRU cache for expensive calculations."""
-    
+
     def __init__(self, max_size: int = CACHE_SIZE, ttl: float = CACHE_TTL):
         self.max_size = max_size
         self.ttl = ttl
         self.cache = OrderedDict()
         self.timestamps = {}
         self._lock = threading.Lock()
-    
+
     def _make_key(self, *args, **kwargs) -> str:
         """Create cache key from arguments."""
         key_data = (args, tuple(sorted(kwargs.items())))
         return hashlib.md5(str(key_data).encode()).hexdigest()
-    
-    def get(self, key: str) -> Optional[Any]:
+
+    def get(self, key: str) -> Any | None:
         """Get value from cache."""
         with self._lock:
             if key in self.cache:
@@ -223,13 +214,13 @@ class CalculationCache:
                     del self.cache[key]
                     del self.timestamps[key]
                     return None
-                
+
                 # Move to end (most recently used)
                 self.cache.move_to_end(key)
                 return self.cache[key]
-            
+
             return None
-    
+
     def put(self, key: str, value: Any):
         """Put value in cache."""
         with self._lock:
@@ -238,10 +229,10 @@ class CalculationCache:
                 oldest = next(iter(self.cache))
                 del self.cache[oldest]
                 del self.timestamps[oldest]
-            
+
             self.cache[key] = value
             self.timestamps[key] = time.time()
-    
+
     def clear(self):
         """Clear cache."""
         with self._lock:
@@ -253,96 +244,96 @@ class CalculationCache:
 # ==============================================================================
 class BlackScholesCalculator:
     """Black-Scholes option pricing and Greeks calculations."""
-    
+
     @staticmethod
-    def calculate_d1_d2(S: float, K: float, r: float, q: float, 
-                        sigma: float, T: float) -> Tuple[float, float]:
+    def calculate_d1_d2(S: float, K: float, r: float, q: float,
+                        sigma: float, T: float) -> tuple[float, float]:
         """Calculate d1 and d2 for Black-Scholes formula."""
         if T <= 0:
             return 0.0, 0.0
-        
+
         if sigma <= 0:
             sigma = 0.01  # Use minimum volatility
-        
+
         d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
-        
+
         return d1, d2
-    
+
     @staticmethod
-    def call_price(S: float, K: float, r: float, q: float, 
+    def call_price(S: float, K: float, r: float, q: float,
                    sigma: float, T: float) -> float:
         """Calculate call option price."""
         if T <= 0:
             return max(S - K, 0)
-        
+
         d1, d2 = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         price = S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
         return max(price, 0)
-    
+
     @staticmethod
-    def put_price(S: float, K: float, r: float, q: float, 
+    def put_price(S: float, K: float, r: float, q: float,
                   sigma: float, T: float) -> float:
         """Calculate put option price."""
         if T <= 0:
             return max(K - S, 0)
-        
+
         d1, d2 = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         price = K * np.exp(-r * T) * norm.cdf(-d2) - S * np.exp(-q * T) * norm.cdf(-d1)
         return max(price, 0)
-    
+
     @staticmethod
-    def calculate_vega(S: float, K: float, r: float, q: float, 
+    def calculate_vega(S: float, K: float, r: float, q: float,
                        sigma: float, T: float) -> float:
         """Calculate vega (sensitivity to volatility)."""
         if T <= 0:
             return 0.0
-        
+
         d1, _ = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         vega = S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T)
         return vega / 100  # Return vega per 1% change in volatility
-    
+
     @staticmethod
-    def implied_volatility(option_price: float, S: float, K: float, 
-                          r: float, q: float, T: float, 
+    def implied_volatility(option_price: float, S: float, K: float,
+                          r: float, q: float, T: float,
                           option_type: str = "CALL") -> float:
         """
         Calculate implied volatility using Newton-Raphson method.
         """
         if T <= 0:
             return 0.0
-        
+
         # Check for intrinsic value violations
         intrinsic = max(S - K, 0) if option_type == "CALL" else max(K - S, 0)
         if option_price < intrinsic:
             return 0.0
-        
+
         # Initial guess using Brenner-Subrahmanyam approximation
         sigma = np.sqrt(2 * np.pi / T) * option_price / S
         sigma = max(MIN_VOLATILITY, min(sigma, MAX_VOLATILITY))
-        
+
         price_func = BlackScholesCalculator.call_price if option_type == "CALL" else BlackScholesCalculator.put_price
-        
+
         # Newton-Raphson iteration
-        for i in range(MAX_ITERATIONS):
+        for _i in range(MAX_ITERATIONS):
             price = price_func(S, K, r, q, sigma, T)
             vega = BlackScholesCalculator.calculate_vega(S, K, r, q, sigma, T) * 100
-            
+
             if abs(vega) < 1e-10:
                 break
-            
+
             price_diff = option_price - price
-            
+
             if abs(price_diff) < IV_TOLERANCE:
                 break
-            
+
             # Update sigma
             sigma = sigma + price_diff / vega
             sigma = max(MIN_VOLATILITY, min(sigma, MAX_VOLATILITY))
-        
+
         return sigma
 
 # ==============================================================================
@@ -350,13 +341,13 @@ class BlackScholesCalculator:
 # ==============================================================================
 class GreeksCalculator:
     """Comprehensive Greeks calculation."""
-    
+
     def __init__(self):
         self.bs = BlackScholesCalculator()
         self.cache = CalculationCache()
-    
-    def calculate_all_greeks(self, option: OptionContract, 
-                           iv: Optional[float] = None,
+
+    def calculate_all_greeks(self, option: OptionContract,
+                           iv: float | None = None,
                            r: float = RISK_FREE_RATE,
                            q: float = 0.0) -> Greeks:
         """Calculate all Greeks for an option."""
@@ -364,15 +355,15 @@ class GreeksCalculator:
         cache_key = self.cache._make_key(
             option.symbol, option.underlying_price, iv, r, q
         )
-        
+
         cached = self.cache.get(cache_key)
         if cached:
             return cached
-        
+
         # Time to expiry
         T = (option.expiry - date.today()).days / DAYS_IN_YEAR
         T = max(T, 1/DAYS_IN_YEAR)  # Minimum 1 day
-        
+
         # Use provided IV or calculate it
         if iv is None:
             mid_price = (option.bid + option.ask) / 2
@@ -380,13 +371,13 @@ class GreeksCalculator:
                 mid_price, option.underlying_price, option.strike,
                 r, q, T, option.option_type
             )
-        
+
         S = option.underlying_price
         K = option.strike
-        
+
         # Calculate d1 and d2
         d1, d2 = self.bs.calculate_d1_d2(S, K, r, q, iv, T)
-        
+
         # Calculate Greeks based on option type
         if option.option_type == "CALL":
             delta = np.exp(-q * T) * norm.cdf(d1)
@@ -394,22 +385,22 @@ class GreeksCalculator:
         else:  # PUT
             delta = -np.exp(-q * T) * norm.cdf(-d1)
             theta = self._calculate_put_theta(S, K, r, q, iv, T, d1, d2)
-        
+
         # Common Greeks
         gamma = self._calculate_gamma(S, K, r, q, iv, T, d1)
         vega = self.bs.calculate_vega(S, K, r, q, iv, T)
         rho = self._calculate_rho(S, K, r, q, iv, T, d2, option.option_type)
-        
+
         # Lambda (leverage)
         option_price = (option.bid + option.ask) / 2
         lambda_ = delta * S / option_price if option_price > 0 else 0
-        
+
         # Second-order Greeks
         vanna = self._calculate_vanna(S, K, r, q, iv, T, d1, d2)
         volga = self._calculate_volga(S, K, r, q, iv, T, d1)
         charm = self._calculate_charm(S, K, r, q, iv, T, d1, d2, option.option_type)
         veta = self._calculate_veta(S, K, r, q, iv, T, d1)
-        
+
         greeks = Greeks(
             delta=delta,
             gamma=gamma,
@@ -422,108 +413,108 @@ class GreeksCalculator:
             charm=charm,
             veta=veta
         )
-        
+
         # Cache result
         self.cache.put(cache_key, greeks)
-        
+
         return greeks
-    
+
     def _calculate_gamma(self, S: float, K: float, r: float, q: float,
                         sigma: float, T: float, d1: float) -> float:
         """Calculate gamma."""
         if T <= 0:
             return 0.0
-        
+
         gamma = np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
         return gamma
-    
+
     def _calculate_call_theta(self, S: float, K: float, r: float, q: float,
                              sigma: float, T: float, d1: float, d2: float) -> float:
         """Calculate theta for call option."""
         if T <= 0:
             return 0.0
-        
+
         term1 = -S * np.exp(-q * T) * norm.pdf(d1) * sigma / (2 * np.sqrt(T))
         term2 = q * S * np.exp(-q * T) * norm.cdf(d1)
         term3 = -r * K * np.exp(-r * T) * norm.cdf(d2)
-        
+
         theta = (term1 + term2 + term3) / DAYS_IN_YEAR
         return theta
-     
+
     def _calculate_put_theta(self, S: float, K: float, r: float, q: float,
                             sigma: float, T: float, d1: float, d2: float) -> float:
         """Calculate theta for put option."""
         if T <= 0:
             return 0.0
-        
+
         term1 = -S * np.exp(-q * T) * norm.pdf(d1) * sigma / (2 * np.sqrt(T))
         term2 = -q * S * np.exp(-q * T) * norm.cdf(-d1)
         term3 = r * K * np.exp(-r * T) * norm.cdf(-d2)
-        
+
         theta = (term1 + term2 + term3) / DAYS_IN_YEAR
         return theta
-    
+
     def _calculate_rho(self, S: float, K: float, r: float, q: float,
                       sigma: float, T: float, d2: float, option_type: str) -> float:
         """Calculate rho."""
         if T <= 0:
             return 0.0
-        
+
         if option_type == "CALL":
             rho = K * T * np.exp(-r * T) * norm.cdf(d2) / 100
         else:
             rho = -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
-        
+
         return rho
-    
+
     def _calculate_vanna(self, S: float, K: float, r: float, q: float,
                         sigma: float, T: float, d1: float, d2: float) -> float:
         """Calculate vanna (dDelta/dVol)."""
         if T <= 0:
             return 0.0
-        
+
         vanna = -np.exp(-q * T) * norm.pdf(d1) * d2 / sigma
         return vanna / 100  # Per 1% change in volatility
-    
+
     def _calculate_volga(self, S: float, K: float, r: float, q: float,
                         sigma: float, T: float, d1: float) -> float:
         """Calculate volga (dVega/dVol)."""
         if T <= 0:
             return 0.0
-        
+
         d2 = d1 - sigma * np.sqrt(T)
         volga = S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T) * d1 * d2 / sigma
         return volga / 10000  # Per 1% change in volatility squared
-    
+
     def _calculate_charm(self, S: float, K: float, r: float, q: float,
-                        sigma: float, T: float, d1: float, d2: float, 
+                        sigma: float, T: float, d1: float, d2: float,
                         option_type: str) -> float:
         """Calculate charm (dDelta/dTime)."""
         if T <= 0:
             return 0.0
-        
+
         term1 = -np.exp(-q * T) * norm.pdf(d1) * (2 * (r - q) * T - d2 * sigma * np.sqrt(T))
         term2 = 2 * sigma * T * np.sqrt(T)
-        
+
         if option_type == "CALL":
             charm = q * np.exp(-q * T) * norm.cdf(d1) - term1 / term2
         else:
             charm = -q * np.exp(-q * T) * norm.cdf(-d1) - term1 / term2
-        
+
         return charm / DAYS_IN_YEAR
-    
+
     def _calculate_veta(self, S: float, K: float, r: float, q: float,
                        sigma: float, T: float, d1: float) -> float:
         """Calculate veta (dVega/dTime)."""
         if T <= 0:
             return 0.0
-        
+
         d2 = d1 - sigma * np.sqrt(T)
-        
+
         term1 = S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T)
         term2 = q + (r - q) * d1 / (sigma * np.sqrt(T))
         term3 = (1 + d1 * d2) / (2 * T)
-        
+
         veta = term1 * (term2 - term3) / DAYS_IN_YEAR
         return veta / 100  # Per 1% change in volatility
 
@@ -532,65 +523,65 @@ class GreeksCalculator:
 # ==============================================================================
 class VolatilityAnalyzer:
     """Comprehensive volatility analysis."""
-    
+
     def __init__(self):
         self.historical_data = defaultdict(deque)
         self.max_history = 252 * 2  # 2 years of data
-    
-    def calculate_historical_volatility(self, prices: np.ndarray, 
+
+    def calculate_historical_volatility(self, prices: np.ndarray,
                                       window: int = VOLATILITY_WINDOW) -> float:
         """Calculate historical volatility from price series."""
         if len(prices) < window + 1:
             return 0.0
-        
+
         # Calculate log returns
         returns = np.diff(np.log(prices))[-window:]
-        
+
         # Annualized volatility
         vol = np.std(returns) * np.sqrt(DAYS_IN_YEAR)
-        
+
         return vol
-    
-    def calculate_realized_volatility(self, prices: np.ndarray, 
+
+    def calculate_realized_volatility(self, prices: np.ndarray,
                                     timestamps: np.ndarray) -> float:
         """Calculate realized volatility using high-frequency data."""
         if len(prices) < 2:
             return 0.0
-        
+
         # Calculate time-weighted returns
         returns = np.diff(np.log(prices))
         time_diffs = np.diff(timestamps)
-        
+
         # Normalize to daily
         daily_factor = 86400 / np.mean(time_diffs) if np.mean(time_diffs) > 0 else 1
-        
+
         # Realized volatility
         rv = np.sqrt(np.sum(returns**2) * daily_factor * DAYS_IN_YEAR)
-        
+
         return rv
-    
-    def calculate_volatility_metrics(self, option_chain: List[OptionContract],
+
+    def calculate_volatility_metrics(self, option_chain: list[OptionContract],
                                    spot_price: float) -> VolatilityMetrics:
         """Calculate comprehensive volatility metrics."""
         # Current ATM IV
         atm_options = self._find_atm_options(option_chain, spot_price)
         current_iv = self._calculate_atm_iv(atm_options)
-        
+
         # Historical volatility (would use actual price history in production)
         historical_vol = 0.20  # Placeholder
-        
+
         # IV rank and percentile
         iv_rank, iv_percentile = self._calculate_iv_statistics(current_iv)
-        
+
         # Volatility skew
         skew = self._calculate_skew(option_chain, spot_price)
-        
+
         # Term structure
         term_structure = self._calculate_term_structure(option_chain, spot_price)
-        
+
         # Volatility regime
         regime = self._classify_volatility_regime(current_iv)
-        
+
         return VolatilityMetrics(
             current_iv=current_iv,
             historical_vol=historical_vol,
@@ -602,31 +593,31 @@ class VolatilityAnalyzer:
             term_structure=term_structure,
             regime=regime
         )
-    
-    def _find_atm_options(self, option_chain: List[OptionContract], 
-                         spot_price: float) -> List[OptionContract]:
+
+    def _find_atm_options(self, option_chain: list[OptionContract],
+                         spot_price: float) -> list[OptionContract]:
         """Find at-the-money options."""
         atm_options = []
-        
+
         for option in option_chain:
             moneyness = option.strike / spot_price
             if 0.95 <= moneyness <= 1.05:  # Within 5% of ATM
                 atm_options.append(option)
-        
+
         return atm_options
-    
-    def _calculate_atm_iv(self, atm_options: List[OptionContract]) -> float:
+
+    def _calculate_atm_iv(self, atm_options: list[OptionContract]) -> float:
         """Calculate average ATM implied volatility."""
         if not atm_options:
             return 0.20  # Default
-        
+
         bs = BlackScholesCalculator()
         ivs = []
-        
+
         for option in atm_options:
             mid_price = (option.bid + option.ask) / 2
             T = (option.expiry - date.today()).days / DAYS_IN_YEAR
-            
+
             if T > 0 and mid_price > 0:
                 iv = bs.implied_volatility(
                     mid_price, option.underlying_price, option.strike,
@@ -634,90 +625,90 @@ class VolatilityAnalyzer:
                 )
                 if MIN_VOLATILITY <= iv <= MAX_VOLATILITY:
                     ivs.append(iv)
-        
+
         return np.mean(ivs) if ivs else 0.20
-    
-    def _calculate_skew(self, option_chain: List[OptionContract], 
+
+    def _calculate_skew(self, option_chain: list[OptionContract],
                        spot_price: float) -> float:
         """Calculate volatility skew."""
         # Find 25-delta options
         put_ivs = []
         call_ivs = []
-        
+
         for option in option_chain:
             moneyness = option.strike / spot_price
-            
+
             if 0.90 <= moneyness <= 0.95 and option.option_type == "PUT":
                 # 25-delta put approximation
                 iv = self._get_option_iv(option)
                 if iv > 0:
                     put_ivs.append(iv)
-            
+
             elif 1.05 <= moneyness <= 1.10 and option.option_type == "CALL":
                 # 25-delta call approximation
                 iv = self._get_option_iv(option)
                 if iv > 0:
                     call_ivs.append(iv)
-        
+
         if put_ivs and call_ivs:
             return np.mean(put_ivs) - np.mean(call_ivs)
-        
+
         return 0.0
-    
-    def _calculate_term_structure(self, option_chain: List[OptionContract],
-                                spot_price: float) -> Dict[float, float]:
+
+    def _calculate_term_structure(self, option_chain: list[OptionContract],
+                                spot_price: float) -> dict[float, float]:
         """Calculate volatility term structure."""
         term_structure = defaultdict(list)
-        
+
         for option in option_chain:
             # Only use near-ATM options
             moneyness = option.strike / spot_price
             if 0.95 <= moneyness <= 1.05:
                 T = (option.expiry - date.today()).days / DAYS_IN_YEAR
                 iv = self._get_option_iv(option)
-                
+
                 if T > 0 and iv > 0:
                     # Round to nearest standard expiry
                     bucket = round(T * 12) / 12  # Monthly buckets
                     term_structure[bucket].append(iv)
-        
+
         # Average IVs for each expiry
         result = {}
         for expiry, ivs in term_structure.items():
             if ivs:
                 result[expiry] = np.mean(ivs)
-        
+
         return dict(sorted(result.items()))
-    
+
     def _get_option_iv(self, option: OptionContract) -> float:
         """Get implied volatility for a single option."""
         bs = BlackScholesCalculator()
         mid_price = (option.bid + option.ask) / 2
         T = (option.expiry - date.today()).days / DAYS_IN_YEAR
-        
+
         if T > 0 and mid_price > 0:
             return bs.implied_volatility(
                 mid_price, option.underlying_price, option.strike,
                 RISK_FREE_RATE, 0, T, option.option_type
             )
-        
+
         return 0.0
-    
-    def _calculate_iv_statistics(self, current_iv: float) -> Tuple[float, float]:
+
+    def _calculate_iv_statistics(self, current_iv: float) -> tuple[float, float]:
         """Calculate IV rank and percentile."""
         # In production, would use historical IV data
         # For now, return placeholder values
         iv_rank = min(100, max(0, (current_iv - 0.10) / (0.40 - 0.10) * 100))
         iv_percentile = 50.0  # Placeholder
-        
+
         return iv_rank, iv_percentile
-    
+
     def _classify_volatility_regime(self, iv: float) -> str:
         """Classify current volatility regime."""
         for regime, (low, high) in VOLATILITY_REGIMES.items():
             if low <= iv < high:
                 return regime
-        
+
         return "UNKNOWN"
 
 # ==============================================================================
@@ -725,47 +716,47 @@ class VolatilityAnalyzer:
 # ==============================================================================
 class VolatilitySurfaceBuilder:
     """Build and interpolate volatility surfaces."""
-    
+
     def __init__(self):
         self.model = VolatilityModel.BLACK_SCHOLES
         self.bs = BlackScholesCalculator()
-    
-    def build_surface(self, option_chain: List[OptionContract],
+
+    def build_surface(self, option_chain: list[OptionContract],
                      spot_price: float,
                      risk_free_rate: float = RISK_FREE_RATE,
                      dividend_yield: float = 0.0) -> VolatilitySurface:
         """Build volatility surface from option chain."""
         # Organize options by expiry and strike
         surface_data = defaultdict(lambda: defaultdict(list))
-        
+
         for option in option_chain:
             T = (option.expiry - date.today()).days / DAYS_IN_YEAR
             if T <= 0:
                 continue
-            
+
             mid_price = (option.bid + option.ask) / 2
             if mid_price <= 0:
                 continue
-            
+
             # Calculate IV
             iv = self.bs.implied_volatility(
                 mid_price, spot_price, option.strike,
                 risk_free_rate, dividend_yield, T, option.option_type
             )
-            
+
             if MIN_VOLATILITY <= iv <= MAX_VOLATILITY:
                 surface_data[T][option.strike].append(iv)
-        
+
         # Create arrays for surface
         expiries = sorted(surface_data.keys())
         all_strikes = set()
         for strikes_dict in surface_data.values():
             all_strikes.update(strikes_dict.keys())
         strikes = sorted(all_strikes)
-        
+
         # Build IV matrix
         ivs = np.zeros((len(expiries), len(strikes)))
-        
+
         for i, T in enumerate(expiries):
             for j, K in enumerate(strikes):
                 if K in surface_data[T]:
@@ -775,10 +766,10 @@ class VolatilitySurfaceBuilder:
                     ivs[i, j] = self._interpolate_iv(
                         surface_data[T], K, spot_price, T
                     )
-        
+
         # Smooth surface
         ivs = self._smooth_surface(ivs)
-        
+
         return VolatilitySurface(
             underlying="SPY",  # Would be dynamic in production
             spot_price=spot_price,
@@ -790,45 +781,45 @@ class VolatilitySurfaceBuilder:
             ivs=ivs,
             model_type=self.model
         )
-    
-    def _interpolate_iv(self, strike_iv_dict: Dict[float, List[float]],
+
+    def _interpolate_iv(self, strike_iv_dict: dict[float, list[float]],
                        target_strike: float, spot_price: float, T: float) -> float:
         """Interpolate IV for missing strike."""
         if not strike_iv_dict:
             return 0.20  # Default
-        
+
         strikes = sorted(strike_iv_dict.keys())
         ivs = [np.mean(strike_iv_dict[K]) for K in strikes]
-        
+
         if len(strikes) == 1:
             return ivs[0]
-        
+
         # Use cubic spline interpolation
         if len(strikes) >= 4:
             f = interpolate.CubicSpline(strikes, ivs, extrapolate=True)
         else:
-            f = interpolate.interp1d(strikes, ivs, kind='linear', 
+            f = interpolate.interp1d(strikes, ivs, kind='linear',
                                     fill_value='extrapolate')
-        
+
         interpolated = float(f(target_strike))
-        
+
         # Apply bounds
         return max(MIN_VOLATILITY, min(interpolated, MAX_VOLATILITY))
-    
+
     def _smooth_surface(self, ivs: np.ndarray) -> np.ndarray:
         """Smooth volatility surface to remove arbitrage."""
         # Simple Gaussian smoothing
         from scipy.ndimage import gaussian_filter
-        
+
         # Different smoothing for different regions
         smoothed = ivs.copy()
-        
+
         # Mild smoothing to preserve features
         smoothed = gaussian_filter(smoothed, sigma=0.5)
-        
+
         # Ensure no negative values
         smoothed = np.maximum(smoothed, MIN_VOLATILITY)
-        
+
         return smoothed
 
 # ==============================================================================
@@ -837,7 +828,7 @@ class VolatilitySurfaceBuilder:
 class VolatilityEngine(SpyderEngineProcess):
     """
     Production-ready volatility analysis engine.
-    
+
     Features:
         - Real-time implied volatility calculation
         - Complete Greeks computation
@@ -845,74 +836,74 @@ class VolatilityEngine(SpyderEngineProcess):
         - Performance optimization with caching
         - Shared memory tick data access
     """
-    
-    def __init__(self, engine_type: EngineType, stop_event: mp.Event, 
+
+    def __init__(self, engine_type: EngineType, stop_event: mp.Event,
                  engine_id: str = None):
         super().__init__(engine_type, stop_event, engine_id)
-        
+
         # Calculators
         self.bs_calculator = BlackScholesCalculator()
         self.greeks_calculator = GreeksCalculator()
         self.vol_analyzer = VolatilityAnalyzer()
         self.surface_builder = VolatilitySurfaceBuilder()
-        
+
         # State
         self.current_surface = None
         self.last_surface_update = 0
         self.surface_update_interval = 60  # seconds
-        
+
         # Performance tracking
         self.calculation_times = deque(maxlen=1000)
         self.calculation_count = 0
-        
+
         # Option chain cache
         self.option_chain_cache = {}
         self.cache_timestamp = 0
-        
+
     def initialize(self) -> bool:
         """Initialize volatility engine."""
         self.logger.info("Initializing Volatility Engine")
-        
+
         # Initialize base class
         if not super().initialize():
             return False
-        
+
         # Warm up caches
         self._warm_up_caches()
-        
+
         self.logger.info("Volatility Engine initialized successfully")
         return True
-    
+
     def process_work(self) -> None:
         """Main processing loop for volatility calculations."""
         try:
             # Check for commands
             if self.dealer_socket.poll(0):
                 self._process_command()
-            
+
             # Update volatility surface periodically
             if time.time() - self.last_surface_update > self.surface_update_interval:
                 self._update_volatility_surface()
-            
+
             # Process any pending calculations
             self._process_calculation_queue()
-            
+
             # Small delay to prevent CPU spinning
             time.sleep(0.01)
-            
+
         except Exception as e:
             self.logger.error(f"Processing error: {e}")
             self.error_handler.handle_critical_error(e, "VolatilityEngine")
-    
+
     def _process_command(self):
         """Process incoming command."""
         try:
             # Receive message
             message_data = self.dealer_socket.recv()
             message = self.protocol_manager.deserialize_message(message_data)
-            
+
             self.logger.info(f"Received command: {message.message_type}")
-            
+
             # Route based on command type
             if message.data.get("action") == "calculate_iv":
                 self._handle_iv_calculation(message)
@@ -924,30 +915,30 @@ class VolatilityEngine(SpyderEngineProcess):
                 self._handle_volatility_analysis(message)
             else:
                 self.logger.warning(f"Unknown action: {message.data.get('action')}")
-            
+
         except Exception as e:
             self.logger.error(f"Command processing error: {e}")
-    
+
     def _handle_iv_calculation(self, message: ProtocolMessage):
         """Handle implied volatility calculation request."""
         start_time = time.time()
-        
+
         try:
             data = message.data
-            
+
             # Extract parameters
             option_price = data.get("option_price")
             spot_price = data.get("spot_price")
             strike = data.get("strike")
             time_to_expiry = data.get("time_to_expiry")
             option_type = data.get("option_type", "CALL")
-            
+
             # Calculate IV
             iv = self.bs_calculator.implied_volatility(
                 option_price, spot_price, strike,
                 RISK_FREE_RATE, 0, time_to_expiry, option_type
             )
-            
+
             # Send response
             response = self.protocol_manager.create_message(
                 category=MessageCategory.SYSTEM,
@@ -963,24 +954,24 @@ class VolatilityEngine(SpyderEngineProcess):
                     "execution_time": time.time() - start_time
                 }
             )
-            
+
             self._send_response(response)
-            
+
             # Track performance
             self.calculation_times.append(time.time() - start_time)
             self.calculation_count += 1
-            
+
         except Exception as e:
             self.logger.error(f"IV calculation error: {e}")
             self._send_error_response(message, str(e))
-    
+
     def _handle_greeks_calculation(self, message: ProtocolMessage):
         """Handle Greeks calculation request."""
         start_time = time.time()
-        
+
         try:
             data = message.data
-            
+
             # Create option contract from data
             option = OptionContract(
                 symbol=data.get("symbol"),
@@ -995,11 +986,11 @@ class VolatilityEngine(SpyderEngineProcess):
                 open_interest=data.get("open_interest", 0),
                 underlying_price=data.get("underlying_price")
             )
-            
+
             # Calculate Greeks
             iv = data.get("implied_volatility")
             greeks = self.greeks_calculator.calculate_all_greeks(option, iv)
-            
+
             # Send response
             response = self.protocol_manager.create_message(
                 category=MessageCategory.SYSTEM,
@@ -1012,19 +1003,19 @@ class VolatilityEngine(SpyderEngineProcess):
                     "execution_time": time.time() - start_time
                 }
             )
-            
+
             self._send_response(response)
-            
+
         except Exception as e:
             self.logger.error(f"Greeks calculation error: {e}")
             self._send_error_response(message, str(e))
-    
+
     def _handle_surface_request(self, message: ProtocolMessage):
         """Handle volatility surface request."""
         try:
             if self.current_surface is None:
                 self._update_volatility_surface()
-            
+
             if self.current_surface:
                 # Send surface data
                 response = self.protocol_manager.create_message(
@@ -1044,25 +1035,25 @@ class VolatilityEngine(SpyderEngineProcess):
                 response = self._create_error_response(
                     message, "No volatility surface available"
                 )
-            
+
             self._send_response(response)
-            
+
         except Exception as e:
             self.logger.error(f"Surface request error: {e}")
             self._send_error_response(message, str(e))
-    
+
     def _handle_volatility_analysis(self, message: ProtocolMessage):
         """Handle comprehensive volatility analysis request."""
         try:
             # Get option chain (would come from market data in production)
             option_chain = self._get_option_chain()
             spot_price = message.data.get("spot_price", 450.0)
-            
+
             # Perform analysis
             metrics = self.vol_analyzer.calculate_volatility_metrics(
                 option_chain, spot_price
             )
-            
+
             # Send response
             response = self.protocol_manager.create_message(
                 category=MessageCategory.SYSTEM,
@@ -1074,68 +1065,68 @@ class VolatilityEngine(SpyderEngineProcess):
                     "result": asdict(metrics)
                 }
             )
-            
+
             self._send_response(response)
-            
+
         except Exception as e:
             self.logger.error(f"Volatility analysis error: {e}")
             self._send_error_response(message, str(e))
-    
+
     def _update_volatility_surface(self):
         """Update volatility surface."""
         try:
             self.logger.info("Updating volatility surface")
-            
+
             # Get current option chain
             option_chain = self._get_option_chain()
             if not option_chain:
                 return
-            
+
             # Get spot price from shared memory or use default
             spot_price = self._get_spot_price()
-            
+
             # Build surface
             self.current_surface = self.surface_builder.build_surface(
                 option_chain, spot_price
             )
-            
+
             self.last_surface_update = time.time()
-            
+
             # Broadcast update
             self._broadcast_surface_update()
-            
+
         except Exception as e:
             self.logger.error(f"Surface update error: {e}")
-    
-    def _get_option_chain(self) -> List[OptionContract]:
+
+    def _get_option_chain(self) -> list[OptionContract]:
         """Get current option chain (placeholder implementation)."""
         # In production, this would fetch real option chain data
         # For now, return cached or generated data
-        
+
         if time.time() - self.cache_timestamp < 60:
             return list(self.option_chain_cache.values())
-        
+
         # Generate sample option chain for testing
         return self._generate_sample_option_chain()
-    
-    def _generate_sample_option_chain(self) -> List[OptionContract]:
+
+    def _generate_sample_option_chain(self) -> list[OptionContract]:
         """Generate sample option chain for testing."""
         options = []
         spot_price = 450.0
-        
+
         # Generate options for multiple expiries
         expiry_days = [7, 14, 30, 60, 90]
         strikes = np.arange(420, 481, 5)
-        
+
         for days in expiry_days:
             expiry = date.today() + timedelta(days=days)
-            
+
             for strike in strikes:
                 for option_type in ["CALL", "PUT"]:
                     # Generate realistic bid/ask based on Black-Scholes
                     T = days / DAYS_IN_YEAR
                     iv = 0.20 + np.random.normal(0, 0.02)  # 20% ± 2%
-                    
+
                     if option_type == "CALL":
                         theo = self.bs_calculator.call_price(
                             spot_price, strike, RISK_FREE_RATE, 0, iv, T
@@ -1144,12 +1135,12 @@ class VolatilityEngine(SpyderEngineProcess):
                         theo = self.bs_calculator.put_price(
                             spot_price, strike, RISK_FREE_RATE, 0, iv, T
                         )
-                    
+
                     # Add spread
                     spread = max(0.05, theo * 0.02)
                     bid = max(0.01, theo - spread/2)
                     ask = theo + spread/2
-                    
+
                     option = OptionContract(
                         symbol=f"SPY{expiry.strftime('%y%m%d')}{option_type[0]}{int(strike)}",
                         underlying="SPY",
@@ -1163,11 +1154,11 @@ class VolatilityEngine(SpyderEngineProcess):
                         open_interest=np.random.randint(0, 50000),
                         underlying_price=spot_price
                     )
-                    
+
                     options.append(option)
-        
+
         return options
-    
+
     def _get_spot_price(self) -> float:
         """Get current spot price from shared memory."""
         try:
@@ -1179,11 +1170,11 @@ class VolatilityEngine(SpyderEngineProcess):
                 return 450.0
         except Exception:
             return 450.0
-    
+
     def _broadcast_surface_update(self):
         """Broadcast volatility surface update."""
         try:
-            update_msg = self.protocol_manager.create_message(
+            self.protocol_manager.create_message(
                 category=MessageCategory.MARKET,
                 message_type="VOLATILITY_SURFACE_UPDATE",
                 source=self.engine_id,
@@ -1194,26 +1185,26 @@ class VolatilityEngine(SpyderEngineProcess):
                 },
                 priority=PRIORITY_HIGH
             )
-            
+
             # Send via publisher if available
             # self.pub_socket.send(update_msg.serialize())
-            
+
         except Exception as e:
             self.logger.error(f"Broadcast error: {e}")
-    
+
     def _warm_up_caches(self):
         """Warm up calculation caches."""
         self.logger.info("Warming up caches")
-        
+
         # Pre-calculate common values
         sample_options = self._generate_sample_option_chain()[:10]
-        
+
         for option in sample_options:
             try:
                 self.greeks_calculator.calculate_all_greeks(option)
             except Exception:
                 pass
-    
+
     def _send_response(self, response: ProtocolMessage):
         """Send response message."""
         try:
@@ -1221,7 +1212,7 @@ class VolatilityEngine(SpyderEngineProcess):
             self.dealer_socket.send(data)
         except Exception as e:
             self.logger.error(f"Failed to send response: {e}")
-    
+
     def _send_error_response(self, original_message: ProtocolMessage, error: str):
         """Send error response."""
         response = self.protocol_manager.create_message(
@@ -1235,19 +1226,19 @@ class VolatilityEngine(SpyderEngineProcess):
             }
         )
         self._send_response(response)
-    
+
     def _process_calculation_queue(self):
         """Process any queued calculations."""
         # Implementation would process batched calculations
         pass
-    
-    def get_metrics(self) -> Dict[str, Any]:
+
+    def get_metrics(self) -> dict[str, Any]:
         """Get engine metrics."""
         metrics = super().get_metrics()
-        
+
         # Add volatility-specific metrics
         avg_calc_time = np.mean(self.calculation_times) if self.calculation_times else 0
-        
+
         metrics.update({
             "calculation_count": self.calculation_count,
             "avg_calculation_time": avg_calc_time,
@@ -1255,41 +1246,41 @@ class VolatilityEngine(SpyderEngineProcess):
             "surface_age": time.time() - self.last_surface_update if self.last_surface_update else None,
             "surface_available": self.current_surface is not None
         })
-        
+
         return metrics
 
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
-def create_test_option_chain() -> List[OptionContract]:
+def create_test_option_chain() -> list[OptionContract]:
     """Create test option chain for examples."""
     options = []
     spot_price = 450.0
-    
+
     # Create options for 30-day expiry
     expiry = date.today() + timedelta(days=30)
     strikes = [440, 445, 450, 455, 460]
-    
+
     for strike in strikes:
         for option_type in ["CALL", "PUT"]:
             # Simple IV based on moneyness
             moneyness = strike / spot_price
             base_iv = 0.20
-            
+
             if option_type == "CALL":
                 iv = base_iv * (1 + 0.1 * (moneyness - 1))
             else:
                 iv = base_iv * (1 + 0.1 * (1 - moneyness))
-            
+
             # Calculate theoretical price
             T = 30 / DAYS_IN_YEAR
             bs = BlackScholesCalculator()
-            
+
             if option_type == "CALL":
                 theo = bs.call_price(spot_price, strike, RISK_FREE_RATE, 0, iv, T)
             else:
                 theo = bs.put_price(spot_price, strike, RISK_FREE_RATE, 0, iv, T)
-            
+
             # Create option
             option = OptionContract(
                 symbol=f"SPY{expiry.strftime('%y%m%d')}{option_type[0]}{int(strike)}",
@@ -1304,9 +1295,9 @@ def create_test_option_chain() -> List[OptionContract]:
                 open_interest=5000,
                 underlying_price=spot_price
             )
-            
+
             options.append(option)
-    
+
     return options
 
 # ==============================================================================
@@ -1317,36 +1308,36 @@ def example_iv_calculation():
     logging.info("\n" + "="*60)
     logging.info("Example: Implied Volatility Calculation")
     logging.info("="*60)
-    
+
     bs = BlackScholesCalculator()
-    
+
     # Option parameters
     spot = 450.0
     strike = 455.0
     option_price = 5.25
     time_to_expiry = 30 / DAYS_IN_YEAR
     option_type = "CALL"
-    
-    logging.info(f"\nOption Parameters:")
+
+    logging.info("\nOption Parameters:")
     logging.info(f"  Spot Price: ${spot}")
     logging.info(f"  Strike: ${strike}")
     logging.info(f"  Option Price: ${option_price}")
-    logging.info(f"  Days to Expiry: 30")
+    logging.info("  Days to Expiry: 30")
     logging.info(f"  Option Type: {option_type}")
-    
+
     # Calculate IV
     iv = bs.implied_volatility(
-        option_price, spot, strike, RISK_FREE_RATE, 0, 
+        option_price, spot, strike, RISK_FREE_RATE, 0,
         time_to_expiry, option_type
     )
-    
+
     logging.info(f"\nCalculated Implied Volatility: {iv:.2%}")
-    
+
     # Verify with price calculation
     calculated_price = bs.call_price(
         spot, strike, RISK_FREE_RATE, 0, iv, time_to_expiry
     )
-    
+
     logging.info(f"Verification - Calculated Price: ${calculated_price:.2f}")
     logging.info(f"Price Difference: ${abs(calculated_price - option_price):.4f}")
 
@@ -1355,7 +1346,7 @@ def example_greeks_calculation():
     logging.info("\n" + "="*60)
     logging.info("Example: Greeks Calculation")
     logging.info("="*60)
-    
+
     # Create test option
     option = OptionContract(
         symbol="SPY240730C450",
@@ -1370,25 +1361,25 @@ def example_greeks_calculation():
         open_interest=5000,
         underlying_price=450.0
     )
-    
+
     logging.info(f"\nOption: {option.symbol}")
     logging.info(f"  Strike: ${option.strike}")
     logging.info(f"  Spot: ${option.underlying_price}")
     logging.info(f"  Mid Price: ${(option.bid + option.ask) / 2:.2f}")
-    
+
     # Calculate Greeks
     calculator = GreeksCalculator()
     greeks = calculator.calculate_all_greeks(option)
-    
-    logging.info(f"\nGreeks:")
+
+    logging.info("\nGreeks:")
     logging.info(f"  Delta: {greeks.delta:.4f}")
     logging.info(f"  Gamma: {greeks.gamma:.4f}")
     logging.info(f"  Theta: ${greeks.theta:.2f}/day")
     logging.info(f"  Vega: ${greeks.vega:.2f}/1% vol")
     logging.info(f"  Rho: ${greeks.rho:.2f}/1% rate")
     logging.info(f"  Lambda: {greeks.lambda_:.2f}x")
-    
-    logging.info(f"\nSecond-Order Greeks:")
+
+    logging.info("\nSecond-Order Greeks:")
     logging.info(f"  Vanna: {greeks.vanna:.4f}")
     logging.info(f"  Volga: {greeks.volga:.4f}")
     logging.info(f"  Charm: {greeks.charm:.4f}")
@@ -1399,10 +1390,10 @@ def example_volatility_surface():
     logging.info("\n" + "="*60)
     logging.info("Example: Volatility Surface")
     logging.info("="*60)
-    
+
     # Create option chain
     option_chain = create_test_option_chain()
-    
+
     # Add more expiries
     for days in [7, 14, 60, 90]:
         expiry = date.today() + timedelta(days=days)
@@ -1411,13 +1402,13 @@ def example_volatility_surface():
                 # Generate option with some randomness
                 iv = 0.20 + np.random.normal(0, 0.02)
                 T = days / DAYS_IN_YEAR
-                
+
                 bs = BlackScholesCalculator()
                 if opt_type == "CALL":
                     theo = bs.call_price(450, strike, RISK_FREE_RATE, 0, iv, T)
                 else:
                     theo = bs.put_price(450, strike, RISK_FREE_RATE, 0, iv, T)
-                
+
                 option = OptionContract(
                     symbol=f"SPY{expiry.strftime('%y%m%d')}{opt_type[0]}{int(strike)}",
                     underlying="SPY",
@@ -1432,27 +1423,27 @@ def example_volatility_surface():
                     underlying_price=450.0
                 )
                 option_chain.append(option)
-    
+
     logging.info(f"\nOption Chain Size: {len(option_chain)} options")
-    
+
     # Build surface
     builder = VolatilitySurfaceBuilder()
     surface = builder.build_surface(option_chain, 450.0)
-    
-    logging.info(f"\nVolatility Surface:")
+
+    logging.info("\nVolatility Surface:")
     logging.info(f"  Expiries: {len(surface.expiries)}")
     logging.info(f"  Strikes: {len(surface.strikes)}")
     logging.info(f"  Surface Shape: {surface.ivs.shape}")
-    
+
     # Sample some IVs
-    logging.info(f"\nSample IVs:")
+    logging.info("\nSample IVs:")
     test_points = [
         (30/DAYS_IN_YEAR, 445),
         (30/DAYS_IN_YEAR, 450),
         (30/DAYS_IN_YEAR, 455),
         (60/DAYS_IN_YEAR, 450),
     ]
-    
+
     for T, K in test_points:
         iv = surface.get_iv(K, T)
         logging.info(f"  T={T*DAYS_IN_YEAR:.0f} days, K=${K}: IV={iv:.2%}")
@@ -1462,25 +1453,25 @@ def example_volatility_analysis():
     logging.info("\n" + "="*60)
     logging.info("Example: Volatility Analysis")
     logging.info("="*60)
-    
+
     # Create analyzer
     analyzer = VolatilityAnalyzer()
-    
+
     # Create option chain
     option_chain = create_test_option_chain()
-    
+
     # Analyze
     metrics = analyzer.calculate_volatility_metrics(option_chain, 450.0)
-    
-    logging.info(f"\nVolatility Metrics:")
+
+    logging.info("\nVolatility Metrics:")
     logging.info(f"  Current IV: {metrics.current_iv:.2%}")
     logging.info(f"  Historical Vol: {metrics.historical_vol:.2%}")
     logging.info(f"  IV Rank: {metrics.iv_rank:.1f}")
     logging.info(f"  IV Percentile: {metrics.iv_percentile:.1f}")
     logging.info(f"  Skew: {metrics.skew:.4f}")
     logging.info(f"  Regime: {metrics.regime}")
-    
-    logging.info(f"\nTerm Structure:")
+
+    logging.info("\nTerm Structure:")
     for expiry, iv in sorted(metrics.term_structure.items()):
         logging.info(f"  {expiry*12:.1f} months: {iv:.2%}")
 
@@ -1489,7 +1480,7 @@ def example_engine_operation():
     logging.info("\n" + "="*60)
     logging.info("Example: Volatility Engine Operation")
     logging.info("="*60)
-    
+
     # Create engine
     stop_event = mp.Event()
     engine = VolatilityEngine(
@@ -1497,27 +1488,27 @@ def example_engine_operation():
         stop_event,
         "VOL_ENGINE_001"
     )
-    
+
     logging.info("✅ Volatility Engine created")
-    
+
     # Simulate initialization
     logging.info("\nInitializing engine...")
     # engine.initialize()  # Would connect to coordinator
-    
+
     # Show capabilities
     logging.info("\nEngine Capabilities:")
     logging.info("  • Real-time IV calculation")
-    logging.info("  • Complete Greeks computation") 
+    logging.info("  • Complete Greeks computation")
     logging.info("  • Volatility surface modeling")
     logging.info("  • Historical volatility analysis")
     logging.info("  • Volatility regime detection")
-    
+
     # Get metrics
     metrics = engine.get_metrics()
     logging.info("\nEngine Metrics:")
     for key, value in metrics.items():
         logging.info(f"  {key}: {value}")
-    
+
     logging.info("\n✅ Engine demonstration complete")
 
 # ==============================================================================
@@ -1530,21 +1521,11 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
-    print("\n🚀 SPYDER Volatility Engine - Production Implementation")
-    print("=" * 60)
-    
-    print("\nSelect example to run:")
-    print("1. Implied Volatility Calculation")
-    print("2. Greeks Calculation")
-    print("3. Volatility Surface")
-    print("4. Volatility Analysis")
-    print("5. Engine Operation")
-    print("6. Run all examples")
-    print("7. Exit")
-    
+
+
+
     choice = input("\nSelect example (1-7): ")
-    
+
     if choice == "1":
         example_iv_calculation()
     elif choice == "2":
@@ -1562,18 +1543,8 @@ if __name__ == "__main__":
         example_volatility_analysis()
         example_engine_operation()
     else:
-        print("Exiting...")
-    
-    print("\n✅ Volatility Engine Features Implemented:")
-    print("   • Newton-Raphson IV calculation with convergence guarantees")
-    print("   • Complete Greeks including second-order (Vanna, Volga, Charm)")
-    print("   • Volatility surface construction with interpolation")
-    print("   • Volatility smile and skew detection")
-    print("   • Historical and realized volatility computation")
-    print("   • Volatility regime classification")
-    print("   • Performance optimization with caching")
-    print("   • Comprehensive error handling and validation")
-    print("   • Production-ready with monitoring and metrics")#!/usr/bin/env python3
+        pass
+
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
@@ -1601,20 +1572,12 @@ Date: 2025-01-03
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
-import json
-import threading
 import multiprocessing as mp
-from multiprocessing import shared_memory
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Any, Tuple, Set
-from dataclasses import dataclass, field, asdict
-from enum import Enum, auto
-from collections import defaultdict, deque
-import pickle
-import struct
+from datetime import date
+from typing import Any
+from dataclasses import dataclass, field
+from enum import Enum
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -1622,19 +1585,14 @@ warnings.filterwarnings('ignore')
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats, optimize, interpolate
-from scipy.stats import norm
-import zmq
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ07_MultiProcessManager import SpyderEngineProcess, SharedTickData
-from SpyderZ03_TradingCoordinator import EngineType, CommandType, create_engine_client
+from SpyderZ07_MultiProcessManager import SpyderEngineProcess
+from SpyderZ03_TradingCoordinator import EngineType
 from SpyderZ02_MessageProtocol import (
-    MessageFactory, ProtocolManager, SerializationFormat,
-    MessageCategory, ProtocolMessage, PRIORITY_HIGH
+    ProtocolMessage
 )
 import logging
 
@@ -1686,7 +1644,7 @@ class VolatilityModel(Enum):
     SVI = "SVI"
     POLYNOMIAL = "POLYNOMIAL"
 
-class GreekType(Enum):
+class GreekType(Enum):  # noqa: F811
     """Types of Greeks."""
     DELTA = "DELTA"
     GAMMA = "GAMMA"
@@ -1739,21 +1697,21 @@ class VolatilitySurface:
     risk_free_rate: float
     dividend_yield: float
     timestamp: float
-    expiries: List[float]  # Time to expiry in years
-    strikes: List[float]
+    expiries: list[float]  # Time to expiry in years
+    strikes: list[float]
     ivs: np.ndarray  # 2D array of implied volatilities
     model_type: VolatilityModel = VolatilityModel.BLACK_SCHOLES
-    
+
     def get_iv(self, strike: float, expiry: float) -> float:
         """Interpolate IV for given strike and expiry."""
         if len(self.strikes) == 1 or len(self.expiries) == 1:
             return float(self.ivs[0, 0])
-        
+
         # Create interpolation function
         f = interpolate.RectBivariateSpline(
             self.expiries, self.strikes, self.ivs, kx=1, ky=1
         )
-        
+
         return float(f(expiry, strike)[0, 0])
 
 @dataclass
@@ -1766,29 +1724,29 @@ class VolatilityMetrics:
     realized_vol: float
     vol_of_vol: float
     skew: float  # 25-delta put IV - 25-delta call IV
-    term_structure: Dict[float, float]  # expiry -> ATM IV
+    term_structure: dict[float, float]  # expiry -> ATM IV
     regime: str
     timestamp: float = field(default_factory=time.time)
 
 # ==============================================================================
 # CACHE IMPLEMENTATION
 # ==============================================================================
-class CalculationCache:
+class CalculationCache:  # noqa: F811
     """LRU cache for expensive calculations."""
-    
+
     def __init__(self, max_size: int = CACHE_SIZE, ttl: float = CACHE_TTL):
         self.max_size = max_size
         self.ttl = ttl
         self.cache = OrderedDict()
         self.timestamps = {}
         self._lock = threading.Lock()
-    
+
     def _make_key(self, *args, **kwargs) -> str:
         """Create cache key from arguments."""
         key_data = (args, tuple(sorted(kwargs.items())))
         return hashlib.md5(str(key_data).encode()).hexdigest()
-    
-    def get(self, key: str) -> Optional[Any]:
+
+    def get(self, key: str) -> Any | None:
         """Get value from cache."""
         with self._lock:
             if key in self.cache:
@@ -1797,13 +1755,13 @@ class CalculationCache:
                     del self.cache[key]
                     del self.timestamps[key]
                     return None
-                
+
                 # Move to end (most recently used)
                 self.cache.move_to_end(key)
                 return self.cache[key]
-            
+
             return None
-    
+
     def put(self, key: str, value: Any):
         """Put value in cache."""
         with self._lock:
@@ -1812,10 +1770,10 @@ class CalculationCache:
                 oldest = next(iter(self.cache))
                 del self.cache[oldest]
                 del self.timestamps[oldest]
-            
+
             self.cache[key] = value
             self.timestamps[key] = time.time()
-    
+
     def clear(self):
         """Clear cache."""
         with self._lock:
@@ -1825,112 +1783,112 @@ class CalculationCache:
 # ==============================================================================
 # BLACK-SCHOLES CALCULATIONS
 # ==============================================================================
-class BlackScholesCalculator:
+class BlackScholesCalculator:  # noqa: F811
     """Black-Scholes option pricing and Greeks calculations."""
-    
+
     @staticmethod
-    def calculate_d1_d2(S: float, K: float, r: float, q: float, 
-                        sigma: float, T: float) -> Tuple[float, float]:
+    def calculate_d1_d2(S: float, K: float, r: float, q: float,
+                        sigma: float, T: float) -> tuple[float, float]:
         """Calculate d1 and d2 for Black-Scholes formula."""
         if T <= 0:
             return 0.0, 0.0
-        
+
         if sigma <= 0:
             sigma = 0.01  # Use minimum volatility
-        
+
         d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
-        
+
         return d1, d2
-    
+
     @staticmethod
-    def call_price(S: float, K: float, r: float, q: float, 
+    def call_price(S: float, K: float, r: float, q: float,
                    sigma: float, T: float) -> float:
         """Calculate call option price."""
         if T <= 0:
             return max(S - K, 0)
-        
+
         d1, d2 = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         price = S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
         return max(price, 0)
-    
+
     @staticmethod
-    def put_price(S: float, K: float, r: float, q: float, 
+    def put_price(S: float, K: float, r: float, q: float,
                   sigma: float, T: float) -> float:
         """Calculate put option price."""
         if T <= 0:
             return max(K - S, 0)
-        
+
         d1, d2 = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         price = K * np.exp(-r * T) * norm.cdf(-d2) - S * np.exp(-q * T) * norm.cdf(-d1)
         return max(price, 0)
-    
+
     @staticmethod
-    def calculate_vega(S: float, K: float, r: float, q: float, 
+    def calculate_vega(S: float, K: float, r: float, q: float,
                        sigma: float, T: float) -> float:
         """Calculate vega (sensitivity to volatility)."""
         if T <= 0:
             return 0.0
-        
+
         d1, _ = BlackScholesCalculator.calculate_d1_d2(S, K, r, q, sigma, T)
-        
+
         vega = S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T)
         return vega / 100  # Return vega per 1% change in volatility
-    
+
     @staticmethod
-    def implied_volatility(option_price: float, S: float, K: float, 
-                          r: float, q: float, T: float, 
+    def implied_volatility(option_price: float, S: float, K: float,
+                          r: float, q: float, T: float,
                           option_type: str = "CALL") -> float:
         """
         Calculate implied volatility using Newton-Raphson method.
         """
         if T <= 0:
             return 0.0
-        
+
         # Check for intrinsic value violations
         intrinsic = max(S - K, 0) if option_type == "CALL" else max(K - S, 0)
         if option_price < intrinsic:
             return 0.0
-        
+
         # Initial guess using Brenner-Subrahmanyam approximation
         sigma = np.sqrt(2 * np.pi / T) * option_price / S
         sigma = max(MIN_VOLATILITY, min(sigma, MAX_VOLATILITY))
-        
+
         price_func = BlackScholesCalculator.call_price if option_type == "CALL" else BlackScholesCalculator.put_price
-        
+
         # Newton-Raphson iteration
-        for i in range(MAX_ITERATIONS):
+        for _i in range(MAX_ITERATIONS):
             price = price_func(S, K, r, q, sigma, T)
             vega = BlackScholesCalculator.calculate_vega(S, K, r, q, sigma, T) * 100
-            
+
             if abs(vega) < 1e-10:
                 break
-            
+
             price_diff = option_price - price
-            
+
             if abs(price_diff) < IV_TOLERANCE:
                 break
-            
+
             # Update sigma
             sigma = sigma + price_diff / vega
             sigma = max(MIN_VOLATILITY, min(sigma, MAX_VOLATILITY))
-        
+
         return sigma
 
 # ==============================================================================
 # GREEKS CALCULATOR
 # ==============================================================================
-class GreeksCalculator:
+class GreeksCalculator:  # noqa: F811
     """Comprehensive Greeks calculation."""
-    
+
     def __init__(self):
         self.bs = BlackScholesCalculator()
         self.cache = CalculationCache()
-    
-    def calculate_all_greeks(self, option: OptionContract, 
-                           iv: Optional[float] = None,
+
+    def calculate_all_greeks(self, option: OptionContract,
+                           iv: float | None = None,
                            r: float = RISK_FREE_RATE,
                            q: float = 0.0) -> Greeks:
         """Calculate all Greeks for an option."""
@@ -1938,15 +1896,15 @@ class GreeksCalculator:
         cache_key = self.cache._make_key(
             option.symbol, option.underlying_price, iv, r, q
         )
-        
+
         cached = self.cache.get(cache_key)
         if cached:
             return cached
-        
+
         # Time to expiry
         T = (option.expiry - date.today()).days / DAYS_IN_YEAR
         T = max(T, 1/DAYS_IN_YEAR)  # Minimum 1 day
-        
+
         # Use provided IV or calculate it
         if iv is None:
             mid_price = (option.bid + option.ask) / 2
@@ -1954,13 +1912,13 @@ class GreeksCalculator:
                 mid_price, option.underlying_price, option.strike,
                 r, q, T, option.option_type
             )
-        
+
         S = option.underlying_price
         K = option.strike
-        
+
         # Calculate d1 and d2
         d1, d2 = self.bs.calculate_d1_d2(S, K, r, q, iv, T)
-        
+
         # Calculate Greeks based on option type
         if option.option_type == "CALL":
             delta = np.exp(-q * T) * norm.cdf(d1)
@@ -1968,22 +1926,22 @@ class GreeksCalculator:
         else:  # PUT
             delta = -np.exp(-q * T) * norm.cdf(-d1)
             theta = self._calculate_put_theta(S, K, r, q, iv, T, d1, d2)
-        
+
         # Common Greeks
         gamma = self._calculate_gamma(S, K, r, q, iv, T, d1)
         vega = self.bs.calculate_vega(S, K, r, q, iv, T)
         rho = self._calculate_rho(S, K, r, q, iv, T, d2, option.option_type)
-        
+
         # Lambda (leverage)
         option_price = (option.bid + option.ask) / 2
         lambda_ = delta * S / option_price if option_price > 0 else 0
-        
+
         # Second-order Greeks
         vanna = self._calculate_vanna(S, K, r, q, iv, T, d1, d2)
         volga = self._calculate_volga(S, K, r, q, iv, T, d1)
         charm = self._calculate_charm(S, K, r, q, iv, T, d1, d2, option.option_type)
         veta = self._calculate_veta(S, K, r, q, iv, T, d1)
-        
+
         greeks = Greeks(
             delta=delta,
             gamma=gamma,
@@ -1996,34 +1954,34 @@ class GreeksCalculator:
             charm=charm,
             veta=veta
         )
-        
+
         # Cache result
         self.cache.put(cache_key, greeks)
-        
+
         return greeks
-    
+
     def _calculate_gamma(self, S: float, K: float, r: float, q: float,
                         sigma: float, T: float, d1: float) -> float:
         """Calculate gamma."""
         if T <= 0:
             return 0.0
-        
+
         gamma = np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
         return gamma
-    
+
     def _calculate_call_theta(self, S: float, K: float, r: float, q: float,
                              sigma: float, T: float, d1: float, d2: float) -> float:
         """Calculate theta for call option."""
         if T <= 0:
             return 0.0
-        
+
         term1 = -S * np.exp(-q * T) * norm.pdf(d1) * sigma / (2 * np.sqrt(T))
         term2 = q * S * np.exp(-q * T) * norm.cdf(d1)
         term3 = -r * K * np.exp(-r * T) * norm.cdf(d2)
-        
+
         theta = (term1 + term2 + term3) / DAYS_IN_YEAR
         return theta
-    
+
     def _calculate_put_theta(self, S: float, K: float, r: float, q: float,
                             sigma: float, T: float, d1: float, d2: float) -> float:
         """Calculate theta for put option."""

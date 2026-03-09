@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,11 +22,13 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum, auto
+from dataclasses import field
+from datetime import datetime
+from enum import Enum
+import json
+from collections import deque
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -52,10 +53,103 @@ except ImportError:
         Dropout = None  # type: ignore
         HAS_TENSORFLOW = False
 
+# Keras callbacks and model persistence
+try:
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+    from tensorflow.keras.models import load_model
+except ImportError:
+    try:
+        from keras.callbacks import EarlyStopping, ModelCheckpoint
+        from keras.models import load_model
+    except ImportError:
+        EarlyStopping = None  # type: ignore
+        ModelCheckpoint = None  # type: ignore
+        load_model = None  # type: ignore
+
+# scikit-learn (optional)
+try:
+    import joblib
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.preprocessing import StandardScaler, RobustScaler
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.metrics import (
+        accuracy_score,
+        precision_score,
+        recall_score,
+        f1_score,
+        mean_squared_error,
+    )
+    HAS_SKLEARN = True
+except ImportError:
+    joblib = None  # type: ignore
+    RandomForestClassifier = None  # type: ignore
+    RandomForestRegressor = None  # type: ignore
+    StandardScaler = None  # type: ignore
+    RobustScaler = None  # type: ignore
+    TimeSeriesSplit = None  # type: ignore
+    accuracy_score = None  # type: ignore
+    precision_score = None  # type: ignore
+    recall_score = None  # type: ignore
+    f1_score = None  # type: ignore
+    mean_squared_error = None  # type: ignore
+    HAS_SKLEARN = False
+
+# XGBoost (optional)
+try:
+    import xgboost as xgb
+    HAS_XGBOOST = True
+except ImportError:
+    xgb = None  # type: ignore
+    HAS_XGBOOST = False
+
+# LightGBM (optional)
+try:
+    import lightgbm as lgb
+    HAS_LIGHTGBM = True
+except ImportError:
+    lgb = None  # type: ignore
+    HAS_LIGHTGBM = False
+
+# Optuna hyperparameter optimization (optional)
+try:
+    import optuna
+    HAS_OPTUNA = True
+except ImportError:
+    optuna = None  # type: ignore
+    HAS_OPTUNA = False
 # ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+
+try:
+    from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+except ImportError:
+    def get_config_manager():
+        return None  # type: ignore
+
+try:
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
+except ImportError:
+    def get_event_manager():
+        return None  # type: ignore
+
+try:
+    from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import get_data_feed_manager
+except ImportError:
+    def get_data_feed_manager():
+        return None  # type: ignore
+
+try:
+    from Spyder.SpyderF_Analysis.SpyderF01_Indicators import get_indicators
+except ImportError:
+    def get_indicators():
+        return None  # type: ignore
+
+try:
+    from Spyder.SpyderH_Storage.SpyderH02_DatabaseManager import get_database_manager
+except ImportError:
+    def get_database_manager():
+        return None  # type: ignore
 
 FEATURE_DIR = Path.home() / ".spyder" / "models" / "features"
 CHECKPOINT_DIR = Path.home() / ".spyder" / "models" / "checkpoints"
@@ -187,7 +281,7 @@ class Prediction:
     target: PredictionTarget
     value: Union[float, int, str]
     confidence: float
-    feature_importance: Optional[dict[str, float]] = None
+    feature_importance: dict[str, float] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -206,14 +300,14 @@ class ModelPerformance:
         confusion_matrix: Confusion matrix
     """
 
-    accuracy: Optional[float] = None
-    precision: Optional[float] = None
-    recall: Optional[float] = None
-    f1: Optional[float] = None
-    mse: Optional[float] = None
-    sharpe: Optional[float] = None
+    accuracy: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
+    mse: float | None = None
+    sharpe: float | None = None
     feature_importance: dict[str, float] = field(default_factory=dict)
-    confusion_matrix: Optional[np.ndarray] = None
+    confusion_matrix: np.ndarray | None = None
 
 
 # =============================================================================
@@ -331,7 +425,7 @@ class MLPredictor:
     # Public Methods - Predictions
     # =========================================================================
 
-    def predict(self, model_name: str, features: Optional[pd.DataFrame] = None) -> Prediction:
+    def predict(self, model_name: str, features: pd.DataFrame | None = None) -> Prediction:
         """
         Make prediction using specified model.
 
@@ -405,7 +499,7 @@ class MLPredictor:
             raise
 
     def predict_ensemble(
-        self, model_names: list[str], features: Optional[pd.DataFrame] = None
+        self, model_names: list[str], features: pd.DataFrame | None = None
     ) -> Prediction:
         """
         Make ensemble prediction using multiple models.
@@ -497,7 +591,7 @@ class MLPredictor:
 
             if config.algorithm == Algorithm.LSTM:
                 # LSTM training
-                history = model.fit(
+                model.fit(
                     X_train_scaled.reshape((X_train_scaled.shape[0], 1, X_train_scaled.shape[1])),
                     y_train,
                     epochs=50,
@@ -552,7 +646,7 @@ class MLPredictor:
         """
         results = {}
 
-        for model_name in self.model_configs.keys():
+        for model_name in self.model_configs:
             try:
                 performance = self.train_model(model_name, data)
                 results[model_name] = performance
@@ -844,7 +938,7 @@ class MLPredictor:
         # Feature importance
         if hasattr(model, "feature_importances_"):
             feature_names = self.model_configs[config.model_type.value].features
-            performance.feature_importance = dict(zip(feature_names, model.feature_importances_))
+            performance.feature_importance = dict(zip(feature_names, model.feature_importances_, strict=False))
 
         return performance
 
@@ -857,7 +951,7 @@ class MLPredictor:
 
         if hasattr(model, "feature_importances_"):
             feature_names = self.model_configs[model_name].features
-            return dict(zip(feature_names, model.feature_importances_))
+            return dict(zip(feature_names, model.feature_importances_, strict=False))
 
         # Use SHAP for models without built-in importance
         try:
@@ -939,7 +1033,7 @@ class MLPredictor:
                 # Load config
                 config_path = saved_dir / f"{model_name}_config.json"
                 if config_path.exists():
-                    with open(config_path, "r") as f:
+                    with open(config_path) as f:
                         config_dict = json.load(f)
 
                     config = ModelConfig(
@@ -1072,4 +1166,4 @@ def generate_trading_signals(data: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 # Module Initialization
 # =============================================================================
-_ML_PREDICTOR_INSTANCE: Optional[MLPredictor] = None
+_ML_PREDICTOR_INSTANCE: MLPredictor | None = None

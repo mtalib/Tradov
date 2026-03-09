@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,6 +22,8 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+from typing import Any
+
 try:
     import orjson as _orjson  # 3-10x faster JSON serialization
     def _json_dumps(obj) -> bytes:
@@ -36,10 +37,9 @@ except ImportError:
     def _json_loads(data) -> Any:  # type: ignore[misc]
         return _json_std.loads(data)
 import time
-from datetime import datetime, date
-from typing import Dict, List, Optional, Any, Union, Type, Callable, Set
+from typing import Any, Union
 from dataclasses import dataclass, asdict, field
-from enum import Enum, auto
+from enum import Enum
 import uuid
 import logging
 from collections import defaultdict
@@ -50,17 +50,15 @@ import warnings
 # ==============================================================================
 import zlib
 import hashlib
-import base64
-from decimal import Decimal
 import jsonschema
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError
 
 try:
     import msgpack
     MSGPACK_AVAILABLE = True
 except ImportError:
     MSGPACK_AVAILABLE = False
-    warnings.warn("msgpack not installed. Using JSON serialization.")
+    warnings.warn("msgpack not installed. Using JSON serialization.", stacklevel=2)
 
 # Optional encryption
 try:
@@ -68,7 +66,7 @@ try:
     ENCRYPTION_AVAILABLE = True
 except ImportError:
     ENCRYPTION_AVAILABLE = False
-    warnings.warn("cryptography not installed. Encryption disabled.")
+    warnings.warn("cryptography not installed. Encryption disabled.", stacklevel=2)
 
 # ==============================================================================
 # CONSTANTS
@@ -129,7 +127,7 @@ class ValidationLevel(Enum):
 # ==============================================================================
 class MessageSchemas:
     """JSON schemas for message validation."""
-    
+
     # Base message schema
     BASE_MESSAGE = {
         "type": "object",
@@ -181,7 +179,7 @@ class MessageSchemas:
             }
         }
     }
-    
+
     # Market data schema
     MARKET_DATA = {
         "type": "object",
@@ -220,7 +218,7 @@ class MessageSchemas:
             }
         }
     }
-    
+
     # Order schema
     ORDER = {
         "type": "object",
@@ -258,7 +256,7 @@ class MessageSchemas:
             }
         }
     }
-    
+
     # Risk metrics schema
     RISK_METRICS = {
         "type": "object",
@@ -300,12 +298,12 @@ class MessageMetadata:
     """Metadata for message tracking and debugging."""
     created_at: float = field(default_factory=time.time)
     version: str = PROTOCOL_VERSION
-    compression: Optional[str] = None
-    encryption: Optional[str] = None
-    size_bytes: Optional[int] = None
-    checksum: Optional[str] = None
-    route: List[str] = field(default_factory=list)
-    tags: Set[str] = field(default_factory=set)
+    compression: str | None = None
+    encryption: str | None = None
+    size_bytes: int | None = None
+    checksum: str | None = None
+    route: list[str] = field(default_factory=list)
+    tags: set[str] = field(default_factory=set)
 
 @dataclass
 class ProtocolMessage:
@@ -313,19 +311,19 @@ class ProtocolMessage:
     category: MessageCategory
     message_type: str
     source: str
-    data: Dict[str, Any]
-    destination: Optional[str] = None
-    correlation_id: Optional[str] = None
+    data: dict[str, Any]
+    destination: str | None = None
+    correlation_id: str | None = None
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: float = field(default_factory=time.time)
     priority: int = PRIORITY_NORMAL
     metadata: MessageMetadata = field(default_factory=MessageMetadata)
-    
+
     def __post_init__(self):
         """Validate message after initialization."""
         if not isinstance(self.category, MessageCategory):
             self.category = MessageCategory(self.category)
-        
+
         # Validate timestamp
         if VALIDATE_TIMESTAMPS:
             current_time = time.time()
@@ -333,12 +331,12 @@ class ProtocolMessage:
                 raise ValueError(f"Timestamp too far in future: {self.timestamp}")
             if self.timestamp < 0:
                 raise ValueError(f"Invalid timestamp: {self.timestamp}")
-        
+
         # Validate priority
         if not 1 <= self.priority <= 10:
             raise ValueError(f"Priority must be between 1 and 10: {self.priority}")
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "version": self.metadata.version,
@@ -353,13 +351,13 @@ class ProtocolMessage:
             "priority": self.priority,
             "metadata": asdict(self.metadata)
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ProtocolMessage':
+    def from_dict(cls, data: dict[str, Any]) -> 'ProtocolMessage':
         """Create from dictionary."""
         metadata_dict = data.pop("metadata", {})
         metadata = MessageMetadata(**metadata_dict)
-        
+
         return cls(
             category=MessageCategory(data["category"]),
             message_type=data["type"],
@@ -378,48 +376,48 @@ class ProtocolMessage:
 # ==============================================================================
 class SchemaValidator:
     """Schema validation with caching and performance optimization."""
-    
+
     def __init__(self):
         self.schemas = {}
         self.validators = {}
         self._load_schemas()
-        
+
     def _load_schemas(self):
         """Load all schemas."""
         self.schemas["BASE"] = MessageSchemas.BASE_MESSAGE
         self.schemas["MARKET_DATA"] = MessageSchemas.MARKET_DATA
         self.schemas["ORDER"] = MessageSchemas.ORDER
         self.schemas["RISK_METRICS"] = MessageSchemas.RISK_METRICS
-        
+
         # Create validators
         for name, schema in self.schemas.items():
             self.validators[name] = jsonschema.Draft7Validator(schema)
-    
-    def validate(self, data: Dict[str, Any], schema_name: str) -> Tuple[bool, Optional[str]]:
+
+    def validate(self, data: dict[str, Any], schema_name: str) -> tuple[bool, str | None]:
         """
         Validate data against schema.
-        
+
         Returns:
             Tuple of (is_valid, error_message)
         """
         if schema_name not in self.validators:
             return False, f"Unknown schema: {schema_name}"
-        
+
         try:
             self.validators[schema_name].validate(data)
             return True, None
         except ValidationError as e:
             return False, str(e)
-    
-    def validate_message(self, message: ProtocolMessage) -> Tuple[bool, Optional[str]]:
+
+    def validate_message(self, message: ProtocolMessage) -> tuple[bool, str | None]:
         """Validate a protocol message."""
         # First validate base message structure
         message_dict = message.to_dict()
         valid, error = self.validate(message_dict, "BASE")
-        
+
         if not valid:
             return False, f"Base validation failed: {error}"
-        
+
         # Then validate data based on message type
         if message.message_type == "MARKET_DATA":
             return self.validate(message.data, "MARKET_DATA")
@@ -427,7 +425,7 @@ class SchemaValidator:
             return self.validate(message.data, "ORDER")
         elif message.message_type == "RISK_UPDATE":
             return self.validate(message.data, "RISK_METRICS")
-        
+
         return True, None
 
 # ==============================================================================
@@ -435,46 +433,46 @@ class SchemaValidator:
 # ==============================================================================
 class SerializationManager:
     """Handles message serialization with compression and encryption."""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  default_format: SerializationFormat = SerializationFormat.COMPRESSED_JSON,
-                 encryption_key: Optional[bytes] = None):
+                 encryption_key: bytes | None = None):
         self.default_format = default_format
         self.encryption_key = encryption_key
         self.fernet = None
-        
+
         if encryption_key and ENCRYPTION_AVAILABLE:
             self.fernet = Fernet(encryption_key)
-        
+
         self.logger = logging.getLogger("SerializationManager")
-    
-    def serialize(self, 
-                  message: ProtocolMessage, 
-                  format: Optional[SerializationFormat] = None) -> bytes:
+
+    def serialize(self,
+                  message: ProtocolMessage,
+                  format: SerializationFormat | None = None) -> bytes:
         """Serialize message to bytes."""
         format = format or self.default_format
-        
+
         # Convert to dict
         data = message.to_dict()
-        
+
         # Choose serialization method
-        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
+        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON,
                       SerializationFormat.ENCRYPTED_JSON]:
             serialized = _json_dumps(data)
-        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
+        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK,
                                                SerializationFormat.COMPRESSED_MSGPACK,
                                                SerializationFormat.ENCRYPTED_MSGPACK]:
             serialized = msgpack.packb(data)
         else:
             # Fallback to JSON
             serialized = _json_dumps(data)
-        
+
         # Apply compression if needed
         if format in [SerializationFormat.COMPRESSED_JSON, SerializationFormat.COMPRESSED_MSGPACK]:
             if len(serialized) > COMPRESSION_THRESHOLD:
                 serialized = zlib.compress(serialized)
                 message.metadata.compression = "zlib"
-        
+
         # Apply encryption if needed
         if format in [SerializationFormat.ENCRYPTED_JSON, SerializationFormat.ENCRYPTED_MSGPACK]:
             if self.fernet:
@@ -482,30 +480,30 @@ class SerializationManager:
                 message.metadata.encryption = "fernet"
             else:
                 self.logger.warning("Encryption requested but not available")
-        
+
         # Update metadata
         message.metadata.size_bytes = len(serialized)
         message.metadata.checksum = hashlib.sha256(serialized).hexdigest()
-        
+
         # Check size limit
         if len(serialized) > MAX_MESSAGE_SIZE:
             raise ValueError(f"Message too large: {len(serialized)} bytes")
-        
+
         return serialized
-    
-    def deserialize(self, 
-                    data: bytes, 
-                    format: Optional[SerializationFormat] = None) -> ProtocolMessage:
+
+    def deserialize(self,
+                    data: bytes,
+                    format: SerializationFormat | None = None) -> ProtocolMessage:
         """Deserialize bytes to message."""
         format = format or self.default_format
-        
+
         # Decrypt if needed
         if format in [SerializationFormat.ENCRYPTED_JSON, SerializationFormat.ENCRYPTED_MSGPACK]:
             if self.fernet:
                 data = self.fernet.decrypt(data)
             else:
                 raise ValueError("Cannot decrypt: encryption not available")
-        
+
         # Decompress if needed
         if format in [SerializationFormat.COMPRESSED_JSON, SerializationFormat.COMPRESSED_MSGPACK]:
             try:
@@ -513,19 +511,19 @@ class SerializationManager:
             except zlib.error:
                 # Not compressed, continue
                 pass
-        
+
         # Deserialize
-        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
+        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON,
                       SerializationFormat.ENCRYPTED_JSON]:
             message_dict = _json_loads(data)
-        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
+        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK,
                                                SerializationFormat.COMPRESSED_MSGPACK,
                                                SerializationFormat.ENCRYPTED_MSGPACK]:
             message_dict = msgpack.unpackb(data, raw=False)
         else:
             # Try JSON as fallback
             message_dict = _json_loads(data)
-        
+
         return ProtocolMessage.from_dict(message_dict)
 
 # ==============================================================================
@@ -533,7 +531,7 @@ class SerializationManager:
 # ==============================================================================
 class VersionManager:
     """Handles protocol version compatibility and migration."""
-    
+
     def __init__(self):
         self.current_version = PROTOCOL_VERSION
         self.supported_versions = set(PROTOCOL_VERSIONS)
@@ -542,79 +540,79 @@ class VersionManager:
             ("1.1", "2.0"): self._migrate_1_1_to_2_0,
             ("1.0", "2.0"): self._migrate_1_0_to_2_0,
         }
-    
+
     def is_version_supported(self, version: str) -> bool:
         """Check if version is supported."""
         return version in self.supported_versions
-    
-    def migrate_message(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+
+    def migrate_message(self, message_dict: dict[str, Any]) -> dict[str, Any]:
         """Migrate message to current version."""
         message_version = message_dict.get("version", "1.0")
-        
+
         if message_version == self.current_version:
             return message_dict
-        
+
         if not self.is_version_supported(message_version):
             raise ValueError(f"Unsupported version: {message_version}")
-        
+
         # Find migration path
         migration_key = (message_version, self.current_version)
         if migration_key in self.migration_functions:
             return self.migration_functions[migration_key](message_dict)
-        
+
         # Try multi-step migration
         return self._multi_step_migration(message_dict, message_version)
-    
-    def _multi_step_migration(self, message_dict: Dict[str, Any], from_version: str) -> Dict[str, Any]:
+
+    def _multi_step_migration(self, message_dict: dict[str, Any], from_version: str) -> dict[str, Any]:
         """Perform multi-step migration."""
         current = from_version
         result = message_dict.copy()
-        
+
         # Find path from current to target version
         version_order = ["1.0", "1.1", "2.0"]
         start_idx = version_order.index(current)
         target_idx = version_order.index(self.current_version)
-        
+
         for i in range(start_idx, target_idx):
             from_ver = version_order[i]
             to_ver = version_order[i + 1]
             migration_key = (from_ver, to_ver)
-            
+
             if migration_key in self.migration_functions:
                 result = self.migration_functions[migration_key](result)
-        
+
         return result
-    
-    def _migrate_1_0_to_1_1(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _migrate_1_0_to_1_1(self, message_dict: dict[str, Any]) -> dict[str, Any]:
         """Migrate from version 1.0 to 1.1."""
         result = message_dict.copy()
         result["version"] = "1.1"
-        
+
         # Add priority if missing
         if "priority" not in result:
             result["priority"] = PRIORITY_NORMAL
-        
+
         return result
-    
-    def _migrate_1_1_to_2_0(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _migrate_1_1_to_2_0(self, message_dict: dict[str, Any]) -> dict[str, Any]:
         """Migrate from version 1.1 to 2.0."""
         result = message_dict.copy()
         result["version"] = "2.0"
-        
+
         # Add metadata if missing
         if "metadata" not in result:
             result["metadata"] = asdict(MessageMetadata(version="2.0"))
-        
+
         # Ensure category is valid
         if "category" in result:
             try:
                 MessageCategory(result["category"])
             except ValueError:
                 result["category"] = MessageCategory.SYSTEM.value
-        
+
         return result
-    
-    def _migrate_1_0_to_2_0(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _migrate_1_0_to_2_0(self, message_dict: dict[str, Any]) -> dict[str, Any]:
         """Direct migration from 1.0 to 2.0."""
         # First migrate to 1.1
         result = self._migrate_1_0_to_1_1(message_dict)
@@ -626,18 +624,18 @@ class VersionManager:
 # ==============================================================================
 class MessageFactory:
     """Factory for creating validated messages."""
-    
+
     def __init__(self, validator: SchemaValidator):
         self.validator = validator
         self.logger = logging.getLogger("MessageFactory")
-    
-    def create_market_data(self, 
+
+    def create_market_data(self,
                           symbol: str,
                           source: str,
-                          bid: Optional[float] = None,
-                          ask: Optional[float] = None,
-                          last: Optional[float] = None,
-                          volume: Optional[int] = None,
+                          bid: float | None = None,
+                          ask: float | None = None,
+                          last: float | None = None,
+                          volume: int | None = None,
                           **kwargs) -> ProtocolMessage:
         """Create validated market data message."""
         data = {
@@ -650,7 +648,7 @@ class MessageFactory:
             "bid_size": kwargs.get("bid_size"),
             "ask_size": kwargs.get("ask_size")
         }
-        
+
         message = ProtocolMessage(
             category=MessageCategory.MARKET,
             message_type="MARKET_DATA",
@@ -658,21 +656,21 @@ class MessageFactory:
             data=data,
             priority=kwargs.get("priority", PRIORITY_HIGH)
         )
-        
+
         # Validate
         valid, error = self.validator.validate_message(message)
         if not valid:
             raise ValueError(f"Invalid market data: {error}")
-        
+
         return message
-    
+
     def create_order(self,
                      symbol: str,
                      action: str,
                      quantity: int,
                      order_type: str,
                      source: str,
-                     price: Optional[float] = None,
+                     price: float | None = None,
                      **kwargs) -> ProtocolMessage:
         """Create validated order message."""
         data = {
@@ -685,7 +683,7 @@ class MessageFactory:
             "stop_price": kwargs.get("stop_price"),
             "time_in_force": kwargs.get("time_in_force", "DAY")
         }
-        
+
         message = ProtocolMessage(
             category=MessageCategory.TRADE,
             message_type="TRADE_ORDER",
@@ -693,20 +691,20 @@ class MessageFactory:
             data=data,
             priority=kwargs.get("priority", PRIORITY_CRITICAL)
         )
-        
+
         # Validate
         valid, error = self.validator.validate_message(message)
         if not valid:
             raise ValueError(f"Invalid order: {error}")
-        
+
         return message
-    
+
     def create_risk_update(self,
                           source: str,
-                          portfolio_delta: Optional[float] = None,
-                          portfolio_gamma: Optional[float] = None,
-                          portfolio_theta: Optional[float] = None,
-                          portfolio_vega: Optional[float] = None,
+                          portfolio_delta: float | None = None,
+                          portfolio_gamma: float | None = None,
+                          portfolio_theta: float | None = None,
+                          portfolio_vega: float | None = None,
                           **kwargs) -> ProtocolMessage:
         """Create validated risk update message."""
         data = {
@@ -719,7 +717,7 @@ class MessageFactory:
             "var_95": kwargs.get("var_95"),
             "max_drawdown": kwargs.get("max_drawdown")
         }
-        
+
         message = ProtocolMessage(
             category=MessageCategory.RISK,
             message_type="RISK_UPDATE",
@@ -727,14 +725,14 @@ class MessageFactory:
             data=data,
             priority=kwargs.get("priority", PRIORITY_HIGH)
         )
-        
+
         # Validate
         valid, error = self.validator.validate_message(message)
         if not valid:
             raise ValueError(f"Invalid risk update: {error}")
-        
+
         return message
-    
+
     def create_alert(self,
                      alert_type: str,
                      message: str,
@@ -749,7 +747,7 @@ class MessageFactory:
             "timestamp": time.time(),
             "details": kwargs.get("details", {})
         }
-        
+
         # Set priority based on severity
         priority_map = {
             "CRITICAL": PRIORITY_CRITICAL,
@@ -757,7 +755,7 @@ class MessageFactory:
             "WARNING": PRIORITY_NORMAL,
             "INFO": PRIORITY_LOW
         }
-        
+
         message_obj = ProtocolMessage(
             category=MessageCategory.ALERT,
             message_type="ALERT",
@@ -765,7 +763,7 @@ class MessageFactory:
             data=data,
             priority=priority_map.get(severity, PRIORITY_NORMAL)
         )
-        
+
         return message_obj
 
 # ==============================================================================
@@ -773,31 +771,31 @@ class MessageFactory:
 # ==============================================================================
 class ProtocolManager:
     """Central manager for protocol operations."""
-    
+
     def __init__(self,
                  validation_level: ValidationLevel = ValidationLevel.STRICT,
                  default_format: SerializationFormat = SerializationFormat.COMPRESSED_JSON,
-                 encryption_key: Optional[bytes] = None):
+                 encryption_key: bytes | None = None):
         self.validation_level = validation_level
         self.validator = SchemaValidator()
         self.serializer = SerializationManager(default_format, encryption_key)
         self.version_manager = VersionManager()
         self.factory = MessageFactory(self.validator)
         self.logger = logging.getLogger("ProtocolManager")
-        
+
         # Statistics
         self.stats = defaultdict(int)
-    
+
     def create_message(self,
                       category: Union[str, MessageCategory],
                       message_type: str,
                       source: str,
-                      data: Dict[str, Any],
+                      data: dict[str, Any],
                       **kwargs) -> ProtocolMessage:
         """Create a new protocol message."""
         if isinstance(category, str):
             category = MessageCategory(category)
-        
+
         message = ProtocolMessage(
             category=category,
             message_type=message_type,
@@ -805,19 +803,19 @@ class ProtocolManager:
             data=data,
             **kwargs
         )
-        
+
         # Validate if required
         if self.validation_level >= ValidationLevel.STANDARD:
             valid, error = self.validator.validate_message(message)
             if not valid:
                 raise ValueError(f"Message validation failed: {error}")
-        
+
         self.stats["messages_created"] += 1
         return message
-    
+
     def serialize_message(self,
                          message: ProtocolMessage,
-                         format: Optional[SerializationFormat] = None) -> bytes:
+                         format: SerializationFormat | None = None) -> bytes:
         """Serialize a message to bytes."""
         try:
             serialized = self.serializer.serialize(message, format)
@@ -828,34 +826,34 @@ class ProtocolManager:
             self.stats["serialization_errors"] += 1
             self.logger.error(f"Serialization error: {e}")
             raise
-    
+
     def deserialize_message(self,
                            data: bytes,
-                           format: Optional[SerializationFormat] = None) -> ProtocolMessage:
+                           format: SerializationFormat | None = None) -> ProtocolMessage:
         """Deserialize bytes to message."""
         try:
             message = self.serializer.deserialize(data, format)
-            
+
             # Check version and migrate if needed
             if hasattr(message, 'metadata') and message.metadata.version != PROTOCOL_VERSION:
                 message_dict = message.to_dict()
                 migrated_dict = self.version_manager.migrate_message(message_dict)
                 message = ProtocolMessage.from_dict(migrated_dict)
-            
+
             # Validate if required
             if self.validation_level >= ValidationLevel.BASIC:
                 valid, error = self.validator.validate_message(message)
                 if not valid and self.validation_level >= ValidationLevel.STRICT:
                     raise ValueError(f"Message validation failed: {error}")
-            
+
             self.stats["messages_deserialized"] += 1
             return message
         except Exception as e:
             self.stats["deserialization_errors"] += 1
             self.logger.error(f"Deserialization error: {e}")
             raise
-    
-    def get_stats(self) -> Dict[str, int]:
+
+    def get_stats(self) -> dict[str, int]:
         """Get protocol statistics."""
         return dict(self.stats)
 
@@ -872,7 +870,7 @@ class SystemStatusMessage:
     active_connections: int
     uptime_seconds: float
     last_update: float = field(default_factory=time.time)
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class HeartbeatMessage:
@@ -880,7 +878,7 @@ class HeartbeatMessage:
     source: str
     timestamp: float = field(default_factory=time.time)
     sequence: int = 0
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ErrorMessage:
@@ -890,8 +888,8 @@ class ErrorMessage:
     source: str
     severity: str  # CRITICAL, ERROR, WARNING
     timestamp: float = field(default_factory=time.time)
-    stack_trace: Optional[str] = None
-    context: Dict[str, Any] = field(default_factory=dict)
+    stack_trace: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
 
 # ==============================================================================
 # EXAMPLE USAGE
@@ -901,16 +899,16 @@ def example_usage():
     logging.info("\n" + "="*60)
     logging.info("SPYDER Message Protocol - Enhanced Version")
     logging.info("="*60)
-    
+
     # Create protocol manager
     manager = ProtocolManager(
         validation_level=ValidationLevel.STRICT,
         default_format=SerializationFormat.COMPRESSED_JSON
     )
-    
+
     logging.info("\n1. Creating Messages with Validation")
     logging.info("-" * 40)
-    
+
     try:
         # Create market data message
         market_msg = manager.factory.create_market_data(
@@ -924,7 +922,7 @@ def example_usage():
             ask_size=150
         )
         logging.info(f"✅ Market data message created: {market_msg.message_id}")
-        
+
         # Create order message
         order_msg = manager.factory.create_order(
             symbol="SPY",
@@ -935,7 +933,7 @@ def example_usage():
             source="StrategyEngine"
         )
         logging.info(f"✅ Order message created: {order_msg.message_id}")
-        
+
         # Create risk update
         risk_msg = manager.factory.create_risk_update(
             source="RiskEngine",
@@ -946,32 +944,32 @@ def example_usage():
             portfolio_value=1000000.0
         )
         logging.info(f"✅ Risk update created: {risk_msg.message_id}")
-        
+
     except ValueError as e:
         logging.info(f"❌ Validation error: {e}")
-    
+
     logging.info("\n2. Message Serialization")
     logging.info("-" * 40)
-    
+
     # Test different formats
     formats = [
         SerializationFormat.JSON,
         SerializationFormat.COMPRESSED_JSON,
     ]
-    
+
     if MSGPACK_AVAILABLE:
         formats.extend([
             SerializationFormat.MSGPACK,
             SerializationFormat.COMPRESSED_MSGPACK
         ])
-    
+
     for format in formats:
         serialized = manager.serialize_message(market_msg, format)
         logging.info(f"   {format.value}: {len(serialized)} bytes")
-    
+
     logging.info("\n3. Message Priorities")
     logging.info("-" * 40)
-    
+
     # Create messages with different priorities
     critical_alert = manager.factory.create_alert(
         alert_type="RISK_BREACH",
@@ -980,7 +978,7 @@ def example_usage():
         severity="CRITICAL"
     )
     logging.info(f"   Critical alert priority: {critical_alert.priority}")
-    
+
     info_alert = manager.factory.create_alert(
         alert_type="SYSTEM_INFO",
         message="Market data feed connected",
@@ -988,10 +986,10 @@ def example_usage():
         severity="INFO"
     )
     logging.info(f"   Info alert priority: {info_alert.priority}")
-    
+
     logging.info("\n4. Version Migration")
     logging.info("-" * 40)
-    
+
     # Simulate old version message
     old_message = {
         "version": "1.0",
@@ -1001,19 +999,19 @@ def example_usage():
         "timestamp": time.time(),
         "data": {"symbol": "SPY", "last": 450.0}
     }
-    
+
     migrated = manager.version_manager.migrate_message(old_message)
     logging.info(f"   Migrated from v{old_message['version']} to v{migrated['version']}")
     logging.info(f"   Added fields: {set(migrated.keys()) - set(old_message.keys())}")
-    
+
     logging.info("\n5. Protocol Statistics")
     logging.info("-" * 40)
-    
+
     stats = manager.get_stats()
     for key, value in stats.items():
         if value > 0:
             logging.info(f"   {key}: {value}")
-    
+
     logging.info("\n✅ Enhanced Protocol Features:")
     logging.info("   • Strict JSON Schema validation")
     logging.info("   • Multiple serialization formats")
@@ -1032,6 +1030,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
     example_usage()
-                                
+

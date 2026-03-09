@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -81,7 +80,7 @@ except ImportError:
     import json
 import asyncio
 import threading
-from typing import Optional, Dict, Any, List, Callable
+from typing import Any, Callable
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -103,8 +102,7 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit, acquire_tradier
+from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
 from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 
 # ==============================================================================
@@ -275,8 +273,8 @@ class AccountEvent:
     """
     event_type: str = ""
     timestamp: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
-    order_id: Optional[int] = None
+    data: dict[str, Any] = field(default_factory=dict)
+    order_id: int | None = None
     symbol: str = ""
     status: str = ""
 
@@ -335,7 +333,7 @@ def build_option_symbol(
     return f"{underlying}{exp_str}{opt_char}{strike_int:08d}"
 
 
-def parse_option_symbol(symbol: str) -> Dict[str, Any]:
+def parse_option_symbol(symbol: str) -> dict[str, Any]:
     """
     Parse a Tradier/OCC-format option symbol into components.
 
@@ -477,10 +475,10 @@ class TradierClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
-        json_data: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Make HTTP request to Tradier API.
 
@@ -567,7 +565,7 @@ class TradierClient:
     # USER & ACCOUNT ENDPOINTS
     # ==========================================================================
 
-    def get_user_profile(self) -> Dict[str, Any]:
+    def get_user_profile(self) -> dict[str, Any]:
         """
         Get user profile information.
 
@@ -581,7 +579,7 @@ class TradierClient:
         logger.info("Fetching user profile")
         return self._make_request("GET", "/user/profile")
 
-    def get_account_balances(self) -> Dict[str, Any]:
+    def get_account_balances(self) -> dict[str, Any]:
         """
         Get account balances and buying power.
 
@@ -595,7 +593,7 @@ class TradierClient:
         logger.info(f"Fetching balances for account {self.account_id}")
         return self._make_request("GET", f"/accounts/{self.account_id}/balances")
 
-    def get_positions(self) -> Dict[str, Any]:
+    def get_positions(self) -> dict[str, Any]:
         """
         Get current positions.
 
@@ -610,7 +608,7 @@ class TradierClient:
         logger.info(f"Fetching positions for account {self.account_id}")
         return self._make_request("GET", f"/accounts/{self.account_id}/positions")
 
-    def get_history(self, limit: int = 100) -> Dict[str, Any]:
+    def get_history(self, limit: int = 100) -> dict[str, Any]:
         """
         Get trade history.
 
@@ -638,10 +636,10 @@ class TradierClient:
         quantity: int,
         order_type: OrderType = OrderType.MARKET,
         duration: OrderDuration = OrderDuration.DAY,
-        limit_price: Optional[float] = None,
-        stop_price: Optional[float] = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
         order_class: OrderClass = OrderClass.EQUITY
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Place an order.
 
@@ -694,7 +692,7 @@ class TradierClient:
             data=payload
         )
 
-    def get_order(self, order_id: int) -> Dict[str, Any]:
+    def get_order(self, order_id: int) -> dict[str, Any]:
         """
         Get order details by ID.
 
@@ -707,7 +705,7 @@ class TradierClient:
         logger.info(f"Fetching order {order_id}")
         return self._make_request("GET", f"/accounts/{self.account_id}/orders/{order_id}")
 
-    def cancel_order(self, order_id: int) -> Dict[str, Any]:
+    def cancel_order(self, order_id: int) -> dict[str, Any]:
         """
         Cancel an order.
 
@@ -720,7 +718,7 @@ class TradierClient:
         logger.info(f"Canceling order {order_id}")
         return self._make_request("DELETE", f"/accounts/{self.account_id}/orders/{order_id}")
 
-    def get_orders(self) -> Dict[str, Any]:
+    def get_orders(self) -> dict[str, Any]:
         """
         Get all orders (open and recent closed).
 
@@ -734,7 +732,7 @@ class TradierClient:
     # MARKET DATA ENDPOINTS
     # ==========================================================================
 
-    def get_quotes(self, symbols: List[str]) -> Dict[str, Any]:
+    def get_quotes(self, symbols: list[str]) -> dict[str, Any]:
         """
         Get real-time quotes for symbols.
 
@@ -756,7 +754,7 @@ class TradierClient:
         logger.debug(f"Fetching quotes for {symbols_str}")
         return self._make_request("GET", "/markets/quotes", params={"symbols": symbols_str})
 
-    def get_option_chain(self, symbol: str, expiration: str) -> Dict[str, Any]:
+    def get_option_chain(self, symbol: str, expiration: str) -> dict[str, Any]:
         """
         Get option chain for a symbol.
 
@@ -774,7 +772,7 @@ class TradierClient:
             params={"symbol": symbol, "expiration": expiration}
         )
 
-    def get_option_expirations(self, symbol: str) -> Dict[str, Any]:
+    def get_option_expirations(self, symbol: str) -> dict[str, Any]:
         """
         Get available option expiration dates.
 
@@ -791,7 +789,7 @@ class TradierClient:
         self,
         symbol: str,
         expiration: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get available strikes for an underlying on a specific expiration.
 
@@ -817,8 +815,8 @@ class TradierClient:
         self,
         symbol: str,
         expiration: str,
-        option_type: Optional[str] = None,
-    ) -> List[GreekData]:
+        option_type: str | None = None,
+    ) -> list[GreekData]:
         """
         Get option chain with parsed Greeks as structured GreekData objects.
 
@@ -850,9 +848,9 @@ class TradierClient:
 
     @staticmethod
     def _parse_greeks_from_chain(
-        response: Dict[str, Any],
+        response: dict[str, Any],
         underlying: str,
-    ) -> List[GreekData]:
+    ) -> list[GreekData]:
         """
         Parse Greeks from Tradier option chain response.
 
@@ -909,7 +907,7 @@ class TradierClient:
         target_delta: float,
         option_type: str = "call",
         tolerance: float = 0.05,
-    ) -> List[GreekData]:
+    ) -> list[GreekData]:
         """
         Find option contracts closest to a target delta.
 
@@ -955,12 +953,12 @@ class TradierClient:
     def place_multileg_order(
         self,
         symbol: str,
-        legs: List[OptionLeg],
+        legs: list[OptionLeg],
         order_type: str = "market",
         duration: OrderDuration = OrderDuration.DAY,
-        price: Optional[float] = None,
-        tag: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        price: float | None = None,
+        tag: str | None = None,
+    ) -> dict[str, Any]:
         """
         Place a multileg option order (spreads, Iron Condors, etc.).
 
@@ -1066,9 +1064,9 @@ class TradierClient:
         call_buy_strike: float,
         quantity: int = 1,
         order_type: str = "credit",
-        price: Optional[float] = None,
+        price: float | None = None,
         duration: OrderDuration = OrderDuration.DAY,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Place an Iron Condor order (convenience wrapper for place_multileg_order).
 
@@ -1146,9 +1144,9 @@ class TradierClient:
         buy_strike: float,
         option_type: str = "P",
         quantity: int = 1,
-        price: Optional[float] = None,
+        price: float | None = None,
         duration: OrderDuration = OrderDuration.DAY,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Place a credit spread (bull put or bear call).
 
@@ -1207,11 +1205,11 @@ class TradierClient:
     def modify_order(
         self,
         order_id: int,
-        order_type: Optional[str] = None,
-        duration: Optional[str] = None,
-        price: Optional[float] = None,
-        stop: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        order_type: str | None = None,
+        duration: str | None = None,
+        price: float | None = None,
+        stop: float | None = None,
+    ) -> dict[str, Any]:
         """
         Modify an existing order.
 
@@ -1246,7 +1244,7 @@ class TradierClient:
     # STREAMING SESSION
     # ==========================================================================
 
-    def create_streaming_session(self) -> Optional[str]:
+    def create_streaming_session(self) -> str | None:
         """
         Create a streaming session for Tradier SSE events.
 
@@ -1305,10 +1303,10 @@ class TradierClient:
         quantity: int,
         order_type: OrderType = OrderType.MARKET,
         duration: OrderDuration = OrderDuration.DAY,
-        limit_price: Optional[float] = None,
-        stop_price: Optional[float] = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
         order_class: OrderClass = OrderClass.EQUITY
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Place an order asynchronously with rate limiting and circuit breaker.
 
@@ -1358,7 +1356,7 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
-    async def get_quotes_async(self, symbols: List[str]) -> Dict[str, Any]:
+    async def get_quotes_async(self, symbols: list[str]) -> dict[str, Any]:
         """
         Get real-time quotes asynchronously with rate limiting and circuit breaker.
 
@@ -1387,7 +1385,7 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
-    async def get_account_balances_async(self) -> Dict[str, Any]:
+    async def get_account_balances_async(self) -> dict[str, Any]:
         """
         Get account balances asynchronously with protection.
 
@@ -1404,7 +1402,7 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
-    async def get_positions_async(self) -> Dict[str, Any]:
+    async def get_positions_async(self) -> dict[str, Any]:
         """
         Get current positions asynchronously with protection.
 
@@ -1421,7 +1419,7 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
-    async def cancel_order_async(self, order_id: int) -> Dict[str, Any]:
+    async def cancel_order_async(self, order_id: int) -> dict[str, Any]:
         """
         Cancel an order asynchronously with protection.
 
@@ -1442,7 +1440,7 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
-    async def get_option_chain_async(self, symbol: str, expiration: str) -> Dict[str, Any]:
+    async def get_option_chain_async(self, symbol: str, expiration: str) -> dict[str, Any]:
         """
         Get option chain asynchronously with protection.
 
@@ -1469,7 +1467,7 @@ class TradierClient:
     # ==========================================================================
 
     @staticmethod
-    def get_circuit_breaker_status() -> Dict[str, Any]:
+    def get_circuit_breaker_status() -> dict[str, Any]:
         """
         Get current circuit breaker status for monitoring.
 
@@ -1505,12 +1503,12 @@ class TradierClient:
     async def place_multileg_order_async(
         self,
         symbol: str,
-        legs: List[OptionLeg],
+        legs: list[OptionLeg],
         order_type: str = "market",
         duration: OrderDuration = OrderDuration.DAY,
-        price: Optional[float] = None,
-        tag: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        price: float | None = None,
+        tag: str | None = None,
+    ) -> dict[str, Any]:
         """
         Place a multileg order asynchronously with rate limiting and circuit breaker.
 
@@ -1541,8 +1539,8 @@ class TradierClient:
         self,
         symbol: str,
         expiration: str,
-        option_type: Optional[str] = None,
-    ) -> List[GreekData]:
+        option_type: str | None = None,
+    ) -> list[GreekData]:
         """
         Get option chain with parsed Greeks asynchronously.
 
@@ -1570,7 +1568,7 @@ class TradierClient:
         self,
         symbol: str,
         expiration: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get option strikes asynchronously.
 
@@ -1596,11 +1594,11 @@ class TradierClient:
     async def modify_order_async(
         self,
         order_id: int,
-        order_type: Optional[str] = None,
-        duration: Optional[str] = None,
-        price: Optional[float] = None,
-        stop: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        order_type: str | None = None,
+        duration: str | None = None,
+        price: float | None = None,
+        stop: float | None = None,
+    ) -> dict[str, Any]:
         """
         Modify an order asynchronously.
 
@@ -1666,17 +1664,17 @@ class TradierAccountStream:
         """
         self.client = client
         self._running = False
-        self._thread: Optional[threading.Thread] = None
-        self._session_id: Optional[str] = None
+        self._thread: threading.Thread | None = None
+        self._session_id: str | None = None
         self._reconnect_attempts = 0
         self._max_reconnect = 10
         self._reconnect_delay = 2.0
 
         # Callbacks
-        self.on_event: Optional[Callable[[AccountEvent], None]] = None
-        self.on_order: Optional[Callable[[AccountEvent], None]] = None
-        self.on_trade: Optional[Callable[[AccountEvent], None]] = None
-        self.on_error: Optional[Callable[[str], None]] = None
+        self.on_event: Callable[[AccountEvent], None] | None = None
+        self.on_order: Callable[[AccountEvent], None] | None = None
+        self.on_trade: Callable[[AccountEvent], None] | None = None
+        self.on_error: Callable[[str], None] | None = None
 
         logger.info("TradierAccountStream initialized")
 
@@ -1884,37 +1882,28 @@ def create_tradier_client_from_env(environment: TradingEnvironment = TradingEnvi
 if __name__ == "__main__":
     """Test Tradier client connection."""
 
-    print("Tradier Client Test")
-    print("=" * 60)
 
     # Load from environment
     try:
         client = create_tradier_client_from_env(TradingEnvironment.SANDBOX)
-        print(f"✓ Client created: {client}")
 
         # Test connection
         if client.test_connection():
-            print("✓ Connection test passed")
 
             # Get user profile
             profile = client.get_user_profile()
-            print(f"✓ User: {profile.get('profile', {}).get('name', 'Unknown')}")
 
             # Get account balances
             balances = client.get_account_balances()
-            print(f"✓ Balance retrieved")
 
             # Get positions
             positions = client.get_positions()
-            print(f"✓ Positions retrieved")
 
             # Get quotes
             quotes = client.get_quotes(["SPY"])
-            print(f"✓ Quote retrieved for SPY")
 
-            print("\n✓ All tests passed!")
         else:
-            print("✗ Connection test failed")
+            pass
 
-    except Exception as e:
-        print(f"✗ Error: {str(e)}")
+    except Exception:
+        pass

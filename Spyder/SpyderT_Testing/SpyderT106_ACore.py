@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -586,23 +585,23 @@ class TestConfigManagerInit:
 class TestA04Constants:
     def test_eastern_tz(self):
         import pytz
-        assert EASTERN_TZ == pytz.timezone("US/Eastern")
+        assert pytz.timezone("US/Eastern") == EASTERN_TZ
 
     def test_market_open(self):
         import datetime as dt
-        assert DEFAULT_MARKET_OPEN == dt.time(9, 30)
+        assert dt.time(9, 30) == DEFAULT_MARKET_OPEN
 
     def test_market_close(self):
         import datetime as dt
-        assert DEFAULT_MARKET_CLOSE == dt.time(16, 0)
+        assert dt.time(16, 0) == DEFAULT_MARKET_CLOSE
 
     def test_premarket_open(self):
         import datetime as dt
-        assert DEFAULT_PREMARKET_OPEN == dt.time(4, 0)
+        assert dt.time(4, 0) == DEFAULT_PREMARKET_OPEN
 
     def test_afterhours_close(self):
         import datetime as dt
-        assert DEFAULT_AFTERHOURS_CLOSE == dt.time(20, 0)
+        assert dt.time(20, 0) == DEFAULT_AFTERHOURS_CLOSE
 
 
 class TestScheduleTypeEnum:
@@ -1002,7 +1001,8 @@ class TestEventFilter:
 
     def test_remove_filter(self):
         ef = EventFilter()
-        f = lambda ev: False
+        def f(ev):
+            return False
         ef.add_filter(f)
         ef.remove_filter(f)
         e = Event()
@@ -1233,7 +1233,8 @@ class TestEventManagerSubscribeEmit:
 
     def test_remove_global_filter(self):
         em = self._make_em()
-        f = lambda ev: False
+        def f(ev):
+            return False
         em.add_global_filter(f)
         em.remove_global_filter(f)
         result = em.emit(EventType.SYSTEM, {})
@@ -1264,7 +1265,8 @@ class TestEventBus:
     def test_unsubscribe_specific_callback(self):
         eb = EventBus()
         received = []
-        cb = lambda data: received.append(data)
+        def cb(data):
+            return received.append(data)
         eb.subscribe("trade", cb)
         eb.unsubscribe("trade", cb)
         eb.publish("trade", {"k": "v"})

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -35,17 +34,16 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -96,7 +94,7 @@ class ModelPerformance:
     correct_today: int = 0
     last_retrained: str = ""
     drift_detected: bool = False
-    feature_importance: Dict[str, float] = field(default_factory=dict)
+    feature_importance: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -109,7 +107,7 @@ class ResearchTask:
     status: str = "pending"   # pending | running | completed | failed
     result: str = ""
     created: datetime = field(default_factory=datetime.now)
-    completed: Optional[datetime] = None
+    completed: datetime | None = None
 
 
 # ==============================================================================
@@ -162,29 +160,29 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
         super().__init__(**kwargs)
 
         # Model tracking
-        self._models: Dict[str, ModelPerformance] = {}
-        self._research_queue: List[ResearchTask] = []
-        self._completed_research: List[ResearchTask] = []
+        self._models: dict[str, ModelPerformance] = {}
+        self._research_queue: list[ResearchTask] = []
+        self._completed_research: list[ResearchTask] = []
         self._predictions: deque = deque(maxlen=500)
         self._tick_count: int = 0
-        self._last_retrain_date: Optional[str] = None
+        self._last_retrain_date: str | None = None
 
         # Delegates
-        self._x05_agent: Optional[Any] = None
+        self._x05_agent: Any | None = None
         if X05_AVAILABLE:
             try:
                 self._x05_agent = SpyderX05_MLResearchAgent()
             except Exception:
                 pass
 
-        self._ml_predictor: Optional[Any] = None
+        self._ml_predictor: Any | None = None
         if ML_PREDICTOR_AVAILABLE:
             try:
                 self._ml_predictor = SpyderL01_MLPredictor()
             except Exception:
                 pass
 
-        self._feature_store: Optional[Any] = None
+        self._feature_store: Any | None = None
         if FEATURE_STORE_AVAILABLE:
             try:
                 self._feature_store = SpyderL18_FeatureStore()
@@ -513,7 +511,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "last_retrain_date": self._last_retrain_date,
@@ -529,7 +527,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             "completed_research_count": len(self._completed_research),
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._last_retrain_date = state.get("last_retrain_date")
         for name, data in state.get("models", {}).items():

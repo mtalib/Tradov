@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -19,27 +18,20 @@ Description:
     N11 which tracks Greeks flow, this module focuses on calculation and analysis.
 """
 
-import json
 import math
-import os
 import sys
 import threading
 import warnings
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable
 
-import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
-import pandas as pd
+import matplotlib.pyplot as plt
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
 from scipy import stats
-from scipy.optimize import minimize, minimize_scalar
 
 try:
     from numba import njit
@@ -109,7 +101,7 @@ TIME_SCENARIOS = [0, 1, 2, 5, 10, 20]  # Days forward
 @njit(cache=True)
 def _bsm_greeks_kernel(
     S: float, K: float, T: float, sigma: float, r: float, is_call: bool, q: float
-) -> Tuple[float, float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     """
     Black-Scholes-Merton Greeks kernel, JIT-compiled by numba for maximum throughput.
 
@@ -262,10 +254,10 @@ class PortfolioGreeks:
     total_veta: float = 0.0
 
     # Greeks by expiry
-    greeks_by_expiry: Dict[datetime, Dict[str, float]] = field(default_factory=dict)
+    greeks_by_expiry: dict[datetime, dict[str, float]] = field(default_factory=dict)
 
     # Greeks by strike
-    greeks_by_strike: Dict[float, Dict[str, float]] = field(default_factory=dict)
+    greeks_by_strike: dict[float, dict[str, float]] = field(default_factory=dict)
 
     # Risk metrics
     delta_dollars: float = 0.0  # Dollar delta exposure
@@ -283,7 +275,7 @@ class ScenarioResult:
     """Result of scenario analysis"""
 
     scenario_type: ScenarioType
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     pnl: float
     new_delta: float
     new_gamma: float
@@ -299,9 +291,9 @@ class HedgeRecommendation:
     """Hedging recommendation"""
 
     hedge_type: HedgeType
-    current_exposure: Dict[str, float]
-    target_exposure: Dict[str, float]
-    hedge_trades: List[Dict[str, Any]]
+    current_exposure: dict[str, float]
+    target_exposure: dict[str, float]
+    hedge_trades: list[dict[str, Any]]
     cost_estimate: float
     effectiveness: float  # 0-100%
 
@@ -324,7 +316,7 @@ class OptionsGreeksCalculator:
         - Greeks surfaces visualization
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: dict | None = None):
         """
         Initialize the Greeks Calculator
 
@@ -343,17 +335,17 @@ class OptionsGreeksCalculator:
         self.pricer = OptionsPricer() if PRICER_AVAILABLE else None
 
         # Portfolio storage
-        self.positions: List[PositionGreeks] = []
+        self.positions: list[PositionGreeks] = []
         self.portfolio_greeks = PortfolioGreeks()
 
         # Market data
-        self.spot_prices: Dict[str, float] = {}
-        self.volatilities: Dict[str, float] = {}
+        self.spot_prices: dict[str, float] = {}
+        self.volatilities: dict[str, float] = {}
         self.risk_free_rate: float = 0.05
 
         # Cache
-        self.cache: Dict[str, Any] = {}
-        self.cache_timestamp: Dict[str, datetime] = {}
+        self.cache: dict[str, Any] = {}
+        self.cache_timestamp: dict[str, datetime] = {}
 
         # Threading
         self.lock = threading.Lock()
@@ -361,7 +353,7 @@ class OptionsGreeksCalculator:
         # Monitoring
         self.monitoring_active = False
         self.monitoring_thread = None
-        self.update_callbacks: List[Callable] = []
+        self.update_callbacks: list[Callable] = []
 
         self.logger.info("OptionsGreeksCalculator initialized")
 
@@ -378,7 +370,7 @@ class OptionsGreeksCalculator:
         risk_free_rate: float,
         option_type: str = "CALL",
         dividend_yield: float = 0.0,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calculate all Greeks for an option
 
@@ -427,7 +419,7 @@ class OptionsGreeksCalculator:
 
     def _calculate_bs_greeks(
         self, S: float, K: float, T: float, sigma: float, r: float, option_type: str, q: float = 0.0
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Internal Black-Scholes Greeks calculation
 
@@ -472,7 +464,7 @@ class OptionsGreeksCalculator:
         risk_free_rate: float,
         option_type: str,
         dividend_yield: float = 0.0,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calculate second-order Greeks using finite differences
 
@@ -684,8 +676,8 @@ class OptionsGreeksCalculator:
         expiry: datetime,
         option_type: str,
         quantity: int,
-        spot: Optional[float] = None,
-        volatility: Optional[float] = None,
+        spot: float | None = None,
+        volatility: float | None = None,
     ) -> PositionGreeks:
         """
         Add position to portfolio and calculate Greeks
@@ -832,8 +824,8 @@ class OptionsGreeksCalculator:
     # ==========================================================================
 
     def run_scenario_analysis(
-        self, scenario_type: ScenarioType, parameters: Optional[Dict] = None
-    ) -> List[ScenarioResult]:
+        self, scenario_type: ScenarioType, parameters: dict | None = None
+    ) -> list[ScenarioResult]:
         """
         Run scenario analysis on portfolio
 
@@ -863,7 +855,7 @@ class OptionsGreeksCalculator:
 
         return results
 
-    def _run_spot_scenarios(self, parameters: Optional[Dict] = None) -> List[ScenarioResult]:
+    def _run_spot_scenarios(self, parameters: dict | None = None) -> list[ScenarioResult]:
         """Run spot price scenarios"""
         results = []
         spot_moves = parameters.get("spot_moves", SPOT_SCENARIOS) if parameters else SPOT_SCENARIOS
@@ -921,7 +913,7 @@ class OptionsGreeksCalculator:
 
         return results
 
-    def _run_vol_scenarios(self, parameters: Optional[Dict] = None) -> List[ScenarioResult]:
+    def _run_vol_scenarios(self, parameters: dict | None = None) -> list[ScenarioResult]:
         """Run volatility scenarios"""
         results = []
         vol_changes = parameters.get("vol_changes", VOL_SCENARIOS) if parameters else VOL_SCENARIOS
@@ -978,7 +970,7 @@ class OptionsGreeksCalculator:
 
         return results
 
-    def _run_time_scenarios(self, parameters: Optional[Dict] = None) -> List[ScenarioResult]:
+    def _run_time_scenarios(self, parameters: dict | None = None) -> list[ScenarioResult]:
         """Run time decay scenarios"""
         results = []
         days_forward = (
@@ -1034,7 +1026,7 @@ class OptionsGreeksCalculator:
 
         return results
 
-    def _run_stress_test(self, parameters: Optional[Dict] = None) -> List[ScenarioResult]:
+    def _run_stress_test(self, parameters: dict | None = None) -> list[ScenarioResult]:
         """Run stress test scenarios"""
         results = []
 
@@ -1092,7 +1084,7 @@ class OptionsGreeksCalculator:
         probability = 1 - stats.norm.cdf(abs(z_score))
         return probability
 
-    def _run_combined_scenarios(self, parameters: Optional[Dict] = None) -> List[ScenarioResult]:
+    def _run_combined_scenarios(self, parameters: dict | None = None) -> list[ScenarioResult]:
         """Run combined scenarios"""
         results = []
 
@@ -1143,7 +1135,7 @@ class OptionsGreeksCalculator:
     # ==========================================================================
 
     def get_hedge_recommendation(
-        self, hedge_type: HedgeType, target_greeks: Optional[Dict[str, float]] = None
+        self, hedge_type: HedgeType, target_greeks: dict[str, float] | None = None
     ) -> HedgeRecommendation:
         """
         Get hedging recommendation
@@ -1217,7 +1209,7 @@ class OptionsGreeksCalculator:
 
         return recommendation
 
-    def _calculate_delta_hedge(self, current_delta: float, target_delta: float) -> List[Dict]:
+    def _calculate_delta_hedge(self, current_delta: float, target_delta: float) -> list[dict]:
         """Calculate delta hedge trades"""
         hedge_trades = []
         delta_to_hedge = target_delta - current_delta
@@ -1236,7 +1228,7 @@ class OptionsGreeksCalculator:
 
         return hedge_trades
 
-    def _calculate_gamma_hedge(self, current_gamma: float, target_gamma: float) -> List[Dict]:
+    def _calculate_gamma_hedge(self, current_gamma: float, target_gamma: float) -> list[dict]:
         """Calculate gamma hedge trades"""
         hedge_trades = []
         gamma_to_hedge = target_gamma - current_gamma
@@ -1261,7 +1253,7 @@ class OptionsGreeksCalculator:
 
         return hedge_trades
 
-    def _calculate_vega_hedge(self, current_vega: float, target_vega: float) -> List[Dict]:
+    def _calculate_vega_hedge(self, current_vega: float, target_vega: float) -> list[dict]:
         """Calculate vega hedge trades"""
         hedge_trades = []
         vega_to_hedge = target_vega - current_vega
@@ -1286,8 +1278,8 @@ class OptionsGreeksCalculator:
         return hedge_trades
 
     def _calculate_delta_gamma_hedge(
-        self, current_exposure: Dict, target_greeks: Dict
-    ) -> List[Dict]:
+        self, current_exposure: dict, target_greeks: dict
+    ) -> list[dict]:
         """Calculate delta-gamma hedge using two instruments"""
         hedge_trades = []
 
@@ -1335,7 +1327,7 @@ class OptionsGreeksCalculator:
 
         return hedge_trades
 
-    def _calculate_full_hedge(self, current_exposure: Dict, target_greeks: Dict) -> List[Dict]:
+    def _calculate_full_hedge(self, current_exposure: dict, target_greeks: dict) -> list[dict]:
         """Calculate full hedge for all Greeks"""
         # This would use optimization to find best combination
         # Simplified version combines individual hedges
@@ -1363,8 +1355,8 @@ class OptionsGreeksCalculator:
     def plot_greeks_surface(
         self,
         greek_type: GreekType = GreekType.DELTA,
-        spot_range: Optional[Tuple[float, float]] = None,
-        vol_range: Optional[Tuple[float, float]] = None,
+        spot_range: tuple[float, float] | None = None,
+        vol_range: tuple[float, float] | None = None,
     ) -> None:
         """
         Plot 3D surface of Greek values
@@ -1426,7 +1418,7 @@ class OptionsGreeksCalculator:
         fig.colorbar(surf)
         plt.show()
 
-    def plot_scenario_results(self, results: List[ScenarioResult]) -> None:
+    def plot_scenario_results(self, results: list[ScenarioResult]) -> None:
         """
         Plot scenario analysis results
 
@@ -1473,7 +1465,7 @@ class OptionsGreeksCalculator:
     # UTILITY METHODS
     # ==========================================================================
 
-    def get_portfolio_summary(self) -> Dict[str, Any]:
+    def get_portfolio_summary(self) -> dict[str, Any]:
         """
         Get comprehensive portfolio summary
 
@@ -1588,9 +1580,6 @@ class OptionsGreeksCalculator:
 # TEST/DEMO CODE
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print(" SPYDER OPTIONS GREEKS CALCULATOR TEST")
-    print("=" * 80)
 
     # Create calculator
     calculator = OptionsGreeksCalculator()
@@ -1600,7 +1589,6 @@ if __name__ == "__main__":
     calculator.risk_free_rate = 0.05
 
     # Test 1: Calculate Greeks for single option
-    print("\n1. Single Option Greeks Calculation...")
     greeks = calculator.calculate_greeks(
         spot=585.0,
         strike=590.0,
@@ -1610,16 +1598,13 @@ if __name__ == "__main__":
         option_type="CALL",
     )
 
-    print("\nFirst-Order Greeks:")
-    for greek in ["delta", "gamma", "theta", "vega", "rho"]:
-        print(f"  {greek.capitalize()}: {greeks[greek]:.4f}")
+    for _greek in ["delta", "gamma", "theta", "vega", "rho"]:
+        pass
 
-    print("\nSecond-Order Greeks:")
-    for greek in ["vanna", "charm", "vomma", "veta", "color", "speed"]:
-        print(f"  {greek.capitalize()}: {greeks[greek]:.6f}")
+    for _greek in ["vanna", "charm", "vomma", "veta", "color", "speed"]:
+        pass
 
     # Test 2: Portfolio Greeks
-    print("\n2. Building Options Portfolio...")
 
     # Add iron condor position
     expiry = datetime.now() + timedelta(days=30)
@@ -1632,75 +1617,47 @@ if __name__ == "__main__":
     calculator.add_position("SPY", 595, expiry, "CALL", -1)  # Short call
     calculator.add_position("SPY", 600, expiry, "CALL", 1)  # Long call
 
-    print(f"Added Iron Condor with {len(calculator.positions)} legs")
 
     # Get portfolio Greeks
-    print("\n3. Portfolio Greeks:")
     portfolio = calculator.get_portfolio_summary()
-    for greek, value in portfolio["portfolio_greeks"].items():
-        print(f"  Total {greek}: {value:.2f}")
+    for _greek, _value in portfolio["portfolio_greeks"].items():
+        pass
 
-    print("\n4. Dollar Exposures:")
-    for exposure, value in portfolio["dollar_exposures"].items():
-        print(f"  {exposure}: ${value:.2f}")
+    for _exposure, _value in portfolio["dollar_exposures"].items():
+        pass
 
     # Test 3: Scenario Analysis
-    print("\n5. Running Scenario Analysis...")
 
     # Spot scenarios
     spot_results = calculator.run_scenario_analysis(ScenarioType.SPOT_MOVE)
-    print("\nSpot Move Scenarios:")
     for result in spot_results[::2]:  # Show every other result
         move = result.parameters["spot_move"]
-        print(f"  {move:+3.0f}% move: P&L=${result.pnl:,.0f}, " f"New Delta={result.new_delta:.0f}")
 
     # Volatility scenarios
     vol_results = calculator.run_scenario_analysis(ScenarioType.VOL_CHANGE)
-    print("\nVolatility Scenarios:")
     for result in vol_results[::2]:
         vol_change = result.parameters["vol_change"]
-        print(
-            f"  {vol_change:+3.0f}% vol: P&L=${result.pnl:,.0f}, " f"New Vega={result.new_vega:.0f}"
-        )
 
     # Stress test
     stress_results = calculator.run_scenario_analysis(ScenarioType.STRESS_TEST)
-    print("\nStress Test Results:")
     for result in stress_results:
         scenario = result.parameters["name"]
-        print(f"  {scenario}: P&L=${result.pnl:,.0f}")
 
     # Test 4: Hedging Recommendations
-    print("\n6. Hedging Recommendations...")
 
     # Delta hedge
     delta_hedge = calculator.get_hedge_recommendation(HedgeType.DELTA_HEDGE)
-    print(f"\nDelta Hedge:")
-    print(f"  Current Delta: {delta_hedge.current_exposure['delta']:.0f}")
-    print(f"  Target Delta: {delta_hedge.target_exposure['delta']:.0f}")
     if delta_hedge.hedge_trades:
-        for trade in delta_hedge.hedge_trades:
-            print(f"  Trade: {trade['instrument']} {trade['quantity']} units")
-    print(f"  Cost Estimate: ${delta_hedge.cost_estimate:,.0f}")
-    print(f"  Effectiveness: {delta_hedge.effectiveness:.0f}%")
+        for _trade in delta_hedge.hedge_trades:
+            pass
 
     # Delta-Gamma hedge
     dg_hedge = calculator.get_hedge_recommendation(HedgeType.DELTA_GAMMA)
-    print(f"\nDelta-Gamma Hedge:")
-    print(f"  Current Gamma: {dg_hedge.current_exposure['gamma']:.2f}")
-    print(f"  Trades Required: {len(dg_hedge.hedge_trades)}")
 
     # Test 5: Risk Metrics
-    print("\n7. Risk Metrics:")
-    print(f"  1-Std VaR: ${portfolio['risk_metrics']['max_loss_1std']:,.0f}")
-    print(f"  2-Std VaR: ${portfolio['risk_metrics']['max_loss_2std']:,.0f}")
-    print(f"  Daily Theta: ${portfolio['risk_metrics']['theta_per_day']:,.0f}")
 
     # Test visualization (commented out for non-interactive environment)
     # print("\n8. Generating Greeks Surface Plot...")
     # calculator.plot_greeks_surface(GreekType.DELTA)
     # calculator.plot_scenario_results(spot_results)
 
-    print("\n" + "=" * 80)
-    print(" ALL TESTS COMPLETED SUCCESSFULLY!")
-    print("=" * 80)

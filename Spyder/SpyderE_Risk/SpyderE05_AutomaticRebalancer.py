@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -30,7 +29,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -248,7 +247,7 @@ class SpyderAutomaticRebalancer:
             total_greeks.notional_value += position["notional_value"]
         return total_greeks
 
-    def _check_rebalance_requirements(self, greeks: PortfolioGreeks) -> List[RebalanceAction]:
+    def _check_rebalance_requirements(self, greeks: PortfolioGreeks) -> list[RebalanceAction]:
         """Check if rebalancing is required based on thresholds."""
         actions = []
         # Normalize Greeks per $1M notional
@@ -289,14 +288,14 @@ class SpyderAutomaticRebalancer:
 
     def _create_delta_hedge(
         self, greeks: PortfolioGreeks, urgency: str
-    ) -> Optional[RebalanceAction]:
+    ) -> RebalanceAction | None:
         """Create delta hedging action."""
         # Determine optimal hedging instrument
         hedge_instrument = self._select_hedge_instrument(
             greek="delta", size=abs(greeks.delta), urgency=urgency
         )
         # Calculate hedge quantity
-        instrument_chars = self.HEDGE_CHARACTERISTICS[hedge_instrument]
+        self.HEDGE_CHARACTERISTICS[hedge_instrument]
         if hedge_instrument in [HedgeInstrument.SPY_SHARES]:
             hedge_quantity = round(abs(greeks.delta))
         elif hedge_instrument == HedgeInstrument.ES_FUTURES:
@@ -326,7 +325,7 @@ class SpyderAutomaticRebalancer:
 
     def _create_gamma_hedge(
         self, greeks: PortfolioGreeks, urgency: str
-    ) -> Optional[RebalanceAction]:
+    ) -> RebalanceAction | None:
         """Create gamma hedging action."""
         # Gamma hedging requires options
         hedge_instrument = HedgeInstrument.SPY_OPTIONS
@@ -356,7 +355,7 @@ class SpyderAutomaticRebalancer:
 
     def _create_vega_hedge(
         self, greeks: PortfolioGreeks, urgency: str
-    ) -> Optional[RebalanceAction]:
+    ) -> RebalanceAction | None:
         """Create vega hedging action."""
         # Vega hedging typically uses VIX options or SPY options
         hedge_instrument = HedgeInstrument.VIX_OPTIONS
@@ -385,7 +384,7 @@ class SpyderAutomaticRebalancer:
 
     def _create_theta_adjustment(
         self, greeks: PortfolioGreeks, urgency: str
-    ) -> Optional[RebalanceAction]:
+    ) -> RebalanceAction | None:
         """Create theta adjustment action (typically rolling positions)."""
         # Theta adjustment usually involves rolling to longer-dated options
         return RebalanceAction(
@@ -458,7 +457,7 @@ class SpyderAutomaticRebalancer:
             return False
         return True
 
-    async def _execute_rebalancing(self, actions: List[RebalanceAction], greeks: PortfolioGreeks):
+    async def _execute_rebalancing(self, actions: list[RebalanceAction], greeks: PortfolioGreeks):
         """Execute rebalancing actions."""
         logger.info(f"Executing {len(actions)} rebalancing actions")
         # Sort by urgency
@@ -522,7 +521,7 @@ class SpyderAutomaticRebalancer:
                 "order_type": "LIMIT",
                 "time_in_force": "IOC",
                 "limit_price": "MIDPOINT",
-                "reason": f"Delta hedge via futures",
+                "reason": "Delta hedge via futures",
             }
         await self.order_manager.submit_order(order)
 
@@ -586,7 +585,7 @@ class SpyderAutomaticRebalancer:
         }
         self.rebalance_history.append(record)
 
-    def get_rebalancing_stats(self, period_days: int = 30) -> Dict[str, Any]:
+    def get_rebalancing_stats(self, period_days: int = 30) -> dict[str, Any]:
         """Get rebalancing statistics for period."""
         if not self.rebalance_history:
             return {"no_data": True}
@@ -721,7 +720,7 @@ class SpyderAutomaticRebalancer:
 
         return RebalancingEnvironment()
 
-    def train_rebalancing_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+    def train_rebalancing_policy(self, total_timesteps: int = 50000) -> Any | None:
         """
         Train a PPO policy for cost-aware rebalancing.
 

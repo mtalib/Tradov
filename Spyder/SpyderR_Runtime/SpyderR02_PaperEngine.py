@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -50,29 +49,25 @@ Installation Note:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import time
+import logging
 import threading
 import datetime
-from typing import Dict, List, Optional, Any, Callable, Tuple
+from typing import Any
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from collections import defaultdict, deque
 import uuid
-import json
-import asyncio
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS - Modern ib_async (DEPRECATED)
 # ==============================================================================
-import pandas as pd
 import numpy as np
 
 # ⚠️ DEPRECATED: ib_async is no longer used by Spyder trading system
 # For paper trading, use Tradier sandbox mode via SpyderB40_TradierClient
 # This import remains for backward compatibility only.
 try:
-    from ib_async import Contract, Order, Trade, LimitOrder, MarketOrder
-    from ib_async import Stock, Option, Future, IB, Ticker
+    from ib_async import Contract, Order, Trade, LimitOrder, MarketOrder  # noqa: F401
+    from ib_async import Stock, Option, Future, IB, Ticker  # noqa: F401
     HAS_IB_ASYNC = True
 except ImportError:
     logging.info("⚠️ ib_async not available - running in simulation mode")
@@ -133,7 +128,7 @@ DEFAULT_OUTSIDE_RTH = False
 # Order status mapping for ib_async
 ORDER_STATUS_MAPPING = {
     "Submitted": "SUBMITTED",
-    "Filled": "FILLED", 
+    "Filled": "FILLED",
     "Cancelled": "CANCELLED",
     "Inactive": "INACTIVE",
     "PendingSubmit": "PENDING",
@@ -190,10 +185,10 @@ class PaperAccount:
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
     total_commissions: float = 0.0
-    positions: Dict[str, Any] = field(default_factory=dict)
-    orders: Dict[str, Any] = field(default_factory=dict)
+    positions: dict[str, Any] = field(default_factory=dict)
+    orders: dict[str, Any] = field(default_factory=dict)
 
-@dataclass 
+@dataclass
 class PaperPosition:
     """Paper trading position"""
     symbol: str
@@ -202,7 +197,7 @@ class PaperPosition:
     market_price: float = 0.0
     unrealized_pnl: float = 0.0
     position_value: float = 0.0
-    contract: Optional[Contract] = None
+    contract: Contract | None = None
 
 @dataclass
 class PaperOrder:
@@ -212,14 +207,14 @@ class PaperOrder:
     action: str  # BUY/SELL
     quantity: int
     order_type: str  # MKT/LMT/STP
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
+    limit_price: float | None = None
+    stop_price: float | None = None
     status: OrderStatus = OrderStatus.PENDING
     filled_quantity: int = 0
     avg_fill_price: float = 0.0
     commission: float = 0.0
     created_time: datetime.datetime = field(default_factory=datetime.datetime.now)
-    filled_time: Optional[datetime.datetime] = None
+    filled_time: datetime.datetime | None = None
 
 @dataclass
 class PaperFill:
@@ -239,12 +234,12 @@ class PaperFill:
 class PaperTradingEngine:
     """
     Comprehensive paper trading engine with modern ib_async integration.
-    
+
     This class provides a realistic paper trading environment that simulates
     live trading operations using real market data from Interactive Brokers.
     Features include realistic order fills, commission calculations, position
     tracking, and comprehensive performance analytics.
-    
+
     Key Features:
     - Modern ib_async integration
     - Real market data simulation
@@ -254,10 +249,10 @@ class PaperTradingEngine:
     - Performance metrics and reporting
     """
 
-    def __init__(self, ib_client=None, config: Dict[str, Any] = None):
+    def __init__(self, ib_client=None, config: dict[str, Any] = None):
         """
         Initialize the paper trading engine.
-        
+
         Args:
             ib_client: Optional IB client connection
             config: Configuration dictionary
@@ -265,34 +260,34 @@ class PaperTradingEngine:
         # Core components
         self.ib_client = ib_client
         self.config = config or {}
-        
+
         # Logging and error handling
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Paper trading account
         self.account = PaperAccount()
-        
+
         # Order and position tracking
-        self.orders: Dict[str, PaperOrder] = {}
-        self.positions: Dict[str, PaperPosition] = {}
-        self.fills: List[PaperFill] = []
-        
+        self.orders: dict[str, PaperOrder] = {}
+        self.positions: dict[str, PaperPosition] = {}
+        self.fills: list[PaperFill] = []
+
         # Market data cache
-        self.market_data: Dict[str, Ticker] = {}
+        self.market_data: dict[str, Ticker] = {}
         self.price_lock = threading.Lock()
-        
+
         # Engine state
         self.is_running = False
         self.execution_mode = ExecutionMode.PAPER
         self.order_counter = 0
         self.order_lock = threading.Lock()
-        
+
         # Performance tracking
         self.trades_executed = 0
         self.total_pnl = 0.0
-        self.start_time: Optional[datetime.datetime] = None
-        
+        self.start_time: datetime.datetime | None = None
+
         self.logger.info("PaperTradingEngine initialized with ib_async")
 
     # ==========================================================================
@@ -302,7 +297,7 @@ class PaperTradingEngine:
     def start(self) -> bool:
         """
         Start the paper trading engine.
-        
+
         Returns:
             bool: True if started successfully
         """
@@ -310,19 +305,19 @@ class PaperTradingEngine:
             if self.is_running:
                 self.logger.warning("Paper trading engine already running")
                 return True
-                
+
             self.logger.info("🚀 Starting paper trading engine...")
-            
+
             # Initialize market data connection if available
             if self.ib_client and HAS_IB_ASYNC:
                 self._setup_market_data()
-            
+
             self.is_running = True
             self.start_time = datetime.datetime.now()
-            
+
             self.logger.info("✅ Paper trading engine started successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to start paper trading engine: {e}")
             self.error_handler.handle_error(e)
@@ -331,7 +326,7 @@ class PaperTradingEngine:
     def stop(self) -> bool:
         """
         Stop the paper trading engine.
-        
+
         Returns:
             bool: True if stopped successfully
         """
@@ -339,21 +334,21 @@ class PaperTradingEngine:
             if not self.is_running:
                 self.logger.warning("Paper trading engine not running")
                 return True
-                
+
             self.logger.info("🛑 Stopping paper trading engine...")
-            
+
             # Cancel all pending orders
             self._cancel_all_orders()
-            
+
             # Cleanup market data subscriptions
             if self.ib_client and HAS_IB_ASYNC:
                 self._cleanup_market_data()
-            
+
             self.is_running = False
-            
+
             self.logger.info("✅ Paper trading engine stopped successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to stop paper trading engine: {e}")
             self.error_handler.handle_error(e)
@@ -366,11 +361,11 @@ class PaperTradingEngine:
     def place_order(self, contract: Contract, order: Order) -> str:
         """
         Place a paper trading order.
-        
+
         Args:
             contract: Contract object
             order: Order object
-            
+
         Returns:
             str: Order ID
         """
@@ -378,7 +373,7 @@ class PaperTradingEngine:
             with self.order_lock:
                 self.order_counter += 1
                 order_id = f"PAPER_{self.order_counter:06d}"
-            
+
             # Create paper order
             paper_order = PaperOrder(
                 order_id=order_id,
@@ -390,19 +385,19 @@ class PaperTradingEngine:
                 stop_price=getattr(order, 'auxPrice', None),
                 status=OrderStatus.SUBMITTED
             )
-            
+
             # Store order
             self.orders[order_id] = paper_order
-            
+
             # Try to fill immediately for market orders
             if order.orderType == "MKT":
                 self._attempt_fill(order_id)
             elif order.orderType == "LMT":
                 self._check_limit_order(order_id)
-            
+
             self.logger.info(f"📝 Paper order placed: {order_id} - {order.action} {order.totalQuantity} {contract.symbol}")
             return order_id
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to place paper order: {e}")
             self.error_handler.handle_error(e)
@@ -411,10 +406,10 @@ class PaperTradingEngine:
     def cancel_order(self, order_id: str) -> bool:
         """
         Cancel a paper trading order.
-        
+
         Args:
             order_id: Order ID to cancel
-            
+
         Returns:
             bool: True if cancelled successfully
         """
@@ -422,18 +417,18 @@ class PaperTradingEngine:
             if order_id not in self.orders:
                 self.logger.warning(f"Order {order_id} not found")
                 return False
-                
+
             order = self.orders[order_id]
-            
+
             if order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED]:
                 self.logger.warning(f"Order {order_id} already {order.status.name}")
                 return False
-                
+
             order.status = OrderStatus.CANCELLED
-            
+
             self.logger.info(f"❌ Paper order cancelled: {order_id}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to cancel paper order {order_id}: {e}")
             self.error_handler.handle_error(e)
@@ -442,35 +437,35 @@ class PaperTradingEngine:
     def _attempt_fill(self, order_id: str) -> bool:
         """
         Attempt to fill a paper order.
-        
+
         Args:
             order_id: Order ID to fill
-            
+
         Returns:
             bool: True if filled successfully
         """
         try:
             if order_id not in self.orders:
                 return False
-                
+
             order = self.orders[order_id]
-            
+
             if order.status != OrderStatus.SUBMITTED:
                 return False
-            
+
             # Get market price
             market_price = self._get_market_price(order.symbol, order.action)
-            
+
             if market_price <= 0:
                 self.logger.warning(f"No market price available for {order.symbol}")
                 return False
-            
+
             # Apply slippage for realism
             fill_price = self._apply_slippage(market_price, order.action)
-            
+
             # Calculate commission
             commission = self._calculate_commission(order.symbol, order.quantity)
-            
+
             # Fill the order
             fill_id = f"FILL_{uuid.uuid4().hex[:8]}"
             fill = PaperFill(
@@ -481,27 +476,27 @@ class PaperTradingEngine:
                 price=fill_price,
                 commission=commission
             )
-            
+
             # Update order
             order.status = OrderStatus.FILLED
             order.filled_quantity = order.quantity
             order.avg_fill_price = fill_price
             order.commission = commission
             order.filled_time = datetime.datetime.now()
-            
+
             # Update position
             self._update_position(order.symbol, order.action, order.quantity, fill_price)
-            
+
             # Update account
             self._update_account(order, fill)
-            
+
             # Store fill
             self.fills.append(fill)
             self.trades_executed += 1
-            
+
             self.logger.info(f"✅ Paper order filled: {order_id} - {order.quantity} @ ${fill_price:.2f}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to fill paper order {order_id}: {e}")
             self.error_handler.handle_error(e)
@@ -510,39 +505,37 @@ class PaperTradingEngine:
     def _check_limit_order(self, order_id: str) -> bool:
         """
         Check if a limit order can be filled.
-        
+
         Args:
             order_id: Order ID to check
-            
+
         Returns:
             bool: True if limit order conditions are met
         """
         try:
             if order_id not in self.orders:
                 return False
-                
+
             order = self.orders[order_id]
-            
+
             if order.status != OrderStatus.SUBMITTED or order.limit_price is None:
                 return False
-            
+
             market_price = self._get_market_price(order.symbol, order.action)
-            
+
             if market_price <= 0:
                 return False
-            
+
             # Check if limit order can be filled
             can_fill = False
-            if order.action == "BUY" and market_price <= order.limit_price:
+            if order.action == "BUY" and market_price <= order.limit_price or order.action == "SELL" and market_price >= order.limit_price:
                 can_fill = True
-            elif order.action == "SELL" and market_price >= order.limit_price:
-                can_fill = True
-            
+
             if can_fill:
                 return self._attempt_fill(order_id)
-                
+
             return False
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to check limit order {order_id}: {e}")
             return False
@@ -560,14 +553,14 @@ class PaperTradingEngine:
                     quantity=0,
                     avg_price=0.0
                 )
-            
+
             position = self.positions[symbol]
-            
+
             # Calculate new position
             if action == "BUY":
                 new_quantity = position.quantity + quantity
                 if new_quantity != 0:
-                    new_avg_price = ((position.quantity * position.avg_price) + 
+                    new_avg_price = ((position.quantity * position.avg_price) +
                                    (quantity * price)) / new_quantity
                 else:
                     new_avg_price = price
@@ -577,27 +570,27 @@ class PaperTradingEngine:
                     new_avg_price = 0.0
                 else:
                     new_avg_price = position.avg_price  # Keep existing average
-            
+
             position.quantity = new_quantity
             position.avg_price = new_avg_price
-            
+
             # Update market value
             market_price = self._get_market_price(symbol, "MID")
             if market_price > 0:
                 position.market_price = market_price
                 position.position_value = position.quantity * market_price
                 position.unrealized_pnl = (market_price - position.avg_price) * position.quantity
-            
+
             self.logger.debug(f"📊 Position updated: {symbol} - {position.quantity} @ ${position.avg_price:.2f}")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to update position for {symbol}: {e}")
 
-    def get_positions(self) -> Dict[str, PaperPosition]:
+    def get_positions(self) -> dict[str, PaperPosition]:
         """Get current positions."""
         return self.positions.copy()
 
-    def get_position(self, symbol: str) -> Optional[PaperPosition]:
+    def get_position(self, symbol: str) -> PaperPosition | None:
         """Get position for specific symbol."""
         return self.positions.get(symbol)
 
@@ -613,22 +606,22 @@ class PaperTradingEngine:
                 cash_impact = -(fill.quantity * fill.price + fill.commission)
             else:  # SELL
                 cash_impact = (fill.quantity * fill.price - fill.commission)
-            
+
             self.account.cash_balance += cash_impact
             self.account.total_commissions += fill.commission
-            
+
             # Calculate realized P&L for closing trades
             if order.action == "SELL" and order.symbol in self.positions:
                 position = self.positions[order.symbol]
                 if position.quantity > 0:  # Closing long position
                     realized_pnl = (fill.price - position.avg_price) * min(fill.quantity, position.quantity)
                     self.account.realized_pnl += realized_pnl
-            
+
             # Update net liquidation value
             self._update_net_liquidation()
-            
+
             self.logger.debug(f"💰 Account updated: Cash=${self.account.cash_balance:.2f}, NetLiq=${self.account.net_liquidation:.2f}")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to update account: {e}")
 
@@ -637,19 +630,19 @@ class PaperTradingEngine:
         try:
             # Start with cash
             net_liq = self.account.cash_balance
-            
+
             # Add position values
             for position in self.positions.values():
                 if position.quantity != 0:
                     market_price = self._get_market_price(position.symbol, "MID")
                     if market_price > 0:
                         net_liq += position.quantity * market_price
-            
+
             self.account.net_liquidation = net_liq
-            
+
             # Update unrealized P&L
             self.account.unrealized_pnl = sum(pos.unrealized_pnl for pos in self.positions.values())
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to update net liquidation: {e}")
 
@@ -667,12 +660,12 @@ class PaperTradingEngine:
         try:
             if not self.ib_client or not HAS_IB_ASYNC:
                 return
-                
+
             # Setup event handlers for market data
             self.ib_client.pendingTickersEvent += self._on_ticker_update
-            
+
             self.logger.info("📡 Market data setup complete")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to setup market data: {e}")
 
@@ -681,12 +674,12 @@ class PaperTradingEngine:
         try:
             if not self.ib_client or not HAS_IB_ASYNC:
                 return
-                
+
             # Remove event handlers
             self.ib_client.pendingTickersEvent -= self._on_ticker_update
-            
+
             self.logger.info("📡 Market data cleanup complete")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to cleanup market data: {e}")
 
@@ -697,7 +690,7 @@ class PaperTradingEngine:
                 for ticker in tickers:
                     if ticker.contract and ticker.contract.symbol:
                         self.market_data[ticker.contract.symbol] = ticker
-                        
+
                         # Update position market values
                         if ticker.contract.symbol in self.positions:
                             position = self.positions[ticker.contract.symbol]
@@ -705,18 +698,18 @@ class PaperTradingEngine:
                                 position.market_price = ticker.last
                                 position.position_value = position.quantity * ticker.last
                                 position.unrealized_pnl = (ticker.last - position.avg_price) * position.quantity
-            
+
         except Exception as e:
             self.logger.error(f"❌ Error processing ticker update: {e}")
 
     def _get_market_price(self, symbol: str, side: str = "MID") -> float:
         """
         Get market price for symbol.
-        
+
         Args:
             symbol: Symbol to get price for
             side: BUY/SELL/MID
-            
+
         Returns:
             float: Market price or 0.0 if not available
         """
@@ -725,9 +718,9 @@ class PaperTradingEngine:
                 if symbol not in self.market_data:
                     # Mock price if no real data available
                     return 400.0 if symbol == "SPY" else 100.0
-                
+
                 ticker = self.market_data[symbol]
-                
+
                 if side == "BUY":
                     return ticker.ask if ticker.ask and not np.isnan(ticker.ask) else ticker.last
                 elif side == "SELL":
@@ -737,7 +730,7 @@ class PaperTradingEngine:
                         return (ticker.bid + ticker.ask) / 2
                     else:
                         return ticker.last if ticker.last and not np.isnan(ticker.last) else 0.0
-                        
+
         except Exception as e:
             self.logger.error(f"❌ Failed to get market price for {symbol}: {e}")
             return 0.0
@@ -750,12 +743,12 @@ class PaperTradingEngine:
         """Apply realistic slippage to order fills."""
         try:
             slippage_factor = DEFAULT_SLIPPAGE_BPS / 10000.0  # Convert basis points
-            
+
             if action == "BUY":
                 return price * (1 + slippage_factor)  # Pay slightly more
             else:  # SELL
                 return price * (1 - slippage_factor)  # Receive slightly less
-                
+
         except Exception as e:
             self.logger.error(f"❌ Failed to apply slippage: {e}")
             return price
@@ -768,7 +761,7 @@ class PaperTradingEngine:
                 return quantity * DEFAULT_OPTION_COMMISSION
             else:  # Stocks
                 return quantity * DEFAULT_STOCK_COMMISSION
-                
+
         except Exception as e:
             self.logger.error(f"❌ Failed to calculate commission: {e}")
             return 0.0
@@ -776,14 +769,14 @@ class PaperTradingEngine:
     def _cancel_all_orders(self):
         """Cancel all pending orders."""
         try:
-            pending_orders = [oid for oid, order in self.orders.items() 
+            pending_orders = [oid for oid, order in self.orders.items()
                             if order.status == OrderStatus.SUBMITTED]
-            
+
             for order_id in pending_orders:
                 self.cancel_order(order_id)
-                
+
             self.logger.info(f"❌ Cancelled {len(pending_orders)} pending orders")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to cancel all orders: {e}")
 
@@ -791,16 +784,16 @@ class PaperTradingEngine:
     # REPORTING AND ANALYTICS
     # ==========================================================================
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get performance summary."""
         try:
             self._update_net_liquidation()
-            
+
             total_return = self.account.net_liquidation - self.account.initial_balance
             return_pct = (total_return / self.account.initial_balance) * 100
-            
+
             runtime = (datetime.datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0
-            
+
             return {
                 'initial_balance': self.account.initial_balance,
                 'current_balance': self.account.net_liquidation,
@@ -813,21 +806,21 @@ class PaperTradingEngine:
                 'runtime_hours': runtime,
                 'positions_count': len([p for p in self.positions.values() if p.quantity != 0])
             }
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to generate performance summary: {e}")
             return {}
 
-    def get_open_orders(self) -> Dict[str, PaperOrder]:
+    def get_open_orders(self) -> dict[str, PaperOrder]:
         """Get open orders."""
-        return {oid: order for oid, order in self.orders.items() 
+        return {oid: order for oid, order in self.orders.items()
                 if order.status == OrderStatus.SUBMITTED}
 
-    def get_order_history(self) -> Dict[str, PaperOrder]:
+    def get_order_history(self) -> dict[str, PaperOrder]:
         """Get order history."""
         return self.orders.copy()
 
-    def get_fill_history(self) -> List[PaperFill]:
+    def get_fill_history(self) -> list[PaperFill]:
         """Get fill history."""
         return self.fills.copy()
 
@@ -835,7 +828,7 @@ class PaperTradingEngine:
     # STATUS AND DIAGNOSTICS
     # ==========================================================================
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get engine status."""
         return {
             'running': self.is_running,
@@ -855,10 +848,10 @@ class PaperTradingEngine:
             now = datetime.datetime.now()
             market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
             market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
-            
+
             return (now.weekday() < 5 and  # Monday-Friday
                    market_open <= now <= market_close)
-                   
+
         except Exception as e:
             self.logger.error(f"❌ Failed to check market hours: {e}")
             return False
@@ -868,14 +861,14 @@ class PaperTradingEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 
-def create_paper_engine(ib_client=None, config: Dict[str, Any] = None) -> PaperTradingEngine:
+def create_paper_engine(ib_client=None, config: dict[str, Any] = None) -> PaperTradingEngine:
     """
     Create paper trading engine with default configuration.
-    
+
     Args:
         ib_client: Optional IB client connection
         config: Configuration dictionary
-        
+
     Returns:
         PaperTradingEngine instance
     """
@@ -891,51 +884,50 @@ def get_paper_engine() -> PaperTradingEngine:
 
 if __name__ == "__main__":
     # Example usage and testing
-    import sys
-    
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    
+
     logger.info("PaperTradingEngine - Enhanced with ib_async")
     logger.info("=" * 50)
-    
+
     try:
         # Create paper engine
         engine = get_paper_engine()
-        
+
         # Start engine
         if engine.start():
             logger.info("✅ Paper engine started successfully")
-            
+
             # Show status
             status = engine.get_status()
             logger.info(f"📊 Status: {status}")
-            
+
             # Test contract creation and order placement
             if HAS_IB_ASYNC:
                 spy_contract = Stock('SPY', 'SMART', 'USD')
                 market_order = MarketOrder('BUY', 100)
-                
+
                 order_id = engine.place_order(spy_contract, market_order)
                 logger.info(f"📝 Test order placed: {order_id}")
-            
+
             # Show account info
             account = engine.get_account_info()
             logger.info(f"💰 Account: ${account.net_liquidation:,.2f}")
-            
+
             # Show performance
             performance = engine.get_performance_summary()
             logger.info(f"📈 Performance: {performance}")
-            
+
             # Stop engine
             engine.stop()
             logger.info("✅ Paper engine stopped successfully")
-            
+
         else:
             logger.error("❌ Failed to start paper engine")
-            
+
     except Exception as e:
         logger.error(f"Error in main: {e}")
-        
-    logger.info(f"\n🎉 PaperTradingEngine ready with ib_async!")
+
+    logger.info("\n🎉 PaperTradingEngine ready with ib_async!")
     logger.info(f"Library available: {HAS_IB_ASYNC}")

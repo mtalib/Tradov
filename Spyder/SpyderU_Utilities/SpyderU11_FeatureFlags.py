@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,19 +24,17 @@ Change Log:
 # ==============================================================================
 import json
 import os
-import random
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import hashlib
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -131,13 +128,13 @@ class FeatureFlag:
     description: str = ""
     rollout_percentage: float = 100.0
     rollout_strategy: RolloutStrategy = RolloutStrategy.ALL
-    enabled_users: List[str] = field(default_factory=list)
-    environments: List[str] = field(default_factory=lambda: ["all"])
+    enabled_users: list[str] = field(default_factory=list)
+    environments: list[str] = field(default_factory=lambda: ["all"])
     created_date: datetime = field(default_factory=datetime.now)
     modified_date: datetime = field(default_factory=datetime.now)
-    expires_date: Optional[datetime] = None
-    dependencies: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    expires_date: datetime | None = None
+    dependencies: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Post-initialization validation."""
@@ -173,7 +170,7 @@ class FeatureFlag:
 
         return self.enabled
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "name": self.name,
@@ -227,7 +224,7 @@ class FeatureFlags:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config_file = config_file
-        self.features: Dict[str, FeatureFlag] = {}
+        self.features: dict[str, FeatureFlag] = {}
         self.cache_timestamp = 0.0
         self.lock = threading.RLock()
         self.environment = os.getenv("SPYDER_ENV", "development")
@@ -243,7 +240,7 @@ class FeatureFlags:
     # ==========================================================================
     # PUBLIC METHODS - FEATURE CHECKING
     # ==========================================================================
-    def is_enabled(self, feature_name: str, user_id: Optional[str] = None) -> bool:
+    def is_enabled(self, feature_name: str, user_id: str | None = None) -> bool:
         """
         Check if a feature is enabled.
 
@@ -286,7 +283,7 @@ class FeatureFlags:
             self.logger.error(f"Error checking feature {feature_name}: {e}")
             return False
 
-    def check_feature_enabled(self, feature_name: str, user_id: Optional[str] = None) -> bool:
+    def check_feature_enabled(self, feature_name: str, user_id: str | None = None) -> bool:
         """
         Alias for is_enabled method for backward compatibility.
 
@@ -299,7 +296,7 @@ class FeatureFlags:
         """
         return self.is_enabled(feature_name, user_id)
 
-    def get_enabled_features(self, user_id: Optional[str] = None) -> List[str]:
+    def get_enabled_features(self, user_id: str | None = None) -> list[str]:
         """
         Get list of all enabled features for a user.
 
@@ -467,7 +464,7 @@ class FeatureFlags:
             self.logger.error(f"Failed to create feature {name}: {e}")
             return False
 
-    def get_feature_info(self, feature_name: str) -> Optional[Dict[str, Any]]:
+    def get_feature_info(self, feature_name: str) -> dict[str, Any] | None:
         """
         Get detailed information about a feature.
 
@@ -481,7 +478,7 @@ class FeatureFlags:
             return self.features[feature_name].to_dict()
         return None
 
-    def list_features(self, feature_type: Optional[FeatureType] = None) -> List[Dict[str, Any]]:
+    def list_features(self, feature_type: FeatureType | None = None) -> list[dict[str, Any]]:
         """
         List all features with optional filtering.
 
@@ -506,7 +503,7 @@ class FeatureFlags:
         try:
             # Load from file if exists
             if os.path.exists(self.config_file):
-                with open(self.config_file, "r") as f:
+                with open(self.config_file) as f:
                     config_data = json.load(f)
 
                 for name, data in config_data.items():
@@ -608,7 +605,7 @@ class FeatureFlags:
 # ==============================================================================
 
 
-def check_feature_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
+def check_feature_enabled(feature_name: str, user_id: str | None = None) -> bool:
     """
     Quick check for feature enablement.
 
@@ -623,7 +620,7 @@ def check_feature_enabled(feature_name: str, user_id: Optional[str] = None) -> b
     return flags.check_feature_enabled(feature_name, user_id)
 
 
-def is_feature_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
+def is_feature_enabled(feature_name: str, user_id: str | None = None) -> bool:
     """
     Alias for check_feature_enabled.
 
@@ -669,7 +666,7 @@ def disable_feature(feature_name: str) -> bool:
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_feature_flags_instance: Optional[FeatureFlags] = None
+_feature_flags_instance: FeatureFlags | None = None
 
 
 def get_feature_flags() -> FeatureFlags:
@@ -686,13 +683,13 @@ def get_feature_flags() -> FeatureFlags:
 
 
 # Aliases for backward compatibility
-def is_spyderx_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
+def is_spyderx_enabled(feature_name: str, user_id: str | None = None) -> bool:
     """Check if a SpyderX feature is enabled (alias for is_feature_enabled)."""
     return is_feature_enabled(feature_name, user_id)
 
 
 # Default SpyderX feature flags dictionary
-SPYDERX_FEATURE_FLAGS: Dict[str, bool] = {
+SPYDERX_FEATURE_FLAGS: dict[str, bool] = {
     "USE_AI_RISK": False,
     "USE_AI_FLOW": False,
     "ENABLE_SPYDERX_SHADOW": False,
@@ -706,40 +703,23 @@ SPYDERX_FEATURE_FLAGS: Dict[str, bool] = {
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U11 - Feature Flags Test")
-    print("=" * 80)
 
     flags = FeatureFlags()
 
     # Test basic functionality
-    print("\n1. Testing basic feature checking...")
-    print(f"   ML Strategy Selection: {flags.is_enabled('ml_strategy_selection')}")
-    print(f"   Risk Management: {flags.is_enabled('advanced_risk_management')}")
-    print(f"   Unknown Feature: {flags.is_enabled('unknown_feature')}")
 
     # Test feature management
-    print("\n2. Testing feature management...")
     flags.create_feature("test_feature", enabled=False, description="Test feature")
-    print(f"   Test feature created: {flags.is_enabled('test_feature')}")
 
     flags.enable_feature("test_feature", save=False)
-    print(f"   Test feature enabled: {flags.is_enabled('test_feature')}")
 
     # Test rollout percentage
-    print("\n3. Testing rollout percentage...")
     flags.set_rollout_percentage("test_feature", 50.0, save=False)
     enabled_count = 0
     for i in range(100):
         if flags.is_enabled("test_feature", f"user_{i}"):
             enabled_count += 1
-    print(f"   50% rollout resulted in {enabled_count}% enabled users")
 
     # Test enabled features list
-    print("\n4. Testing enabled features list...")
     enabled_features = flags.get_enabled_features()
-    print(f"   Total enabled features: {len(enabled_features)}")
-    print(f"   First 5: {enabled_features[:5]}")
 
-    print("\n" + "=" * 80)
-    print("✅ Feature Flags test completed!")

@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderV_QuantModels  
+Series: SpyderV_QuantModels
 Module: SpyderV02_ModelManager.py
 Purpose: Enhanced model lifecycle management for consolidated V-series architecture
 
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-31 Time: 23:15:00  
+Year Created: 2025
+Last Updated: 2025-08-31 Time: 23:15:00
 
 Module Description:
     Enhanced model manager that coordinates the entire consolidated V-series architecture.
     Manages intelligent model selection across V04 (Risk), V05 (Pricing), V06 (Volatility),
-    V07 (Advanced Models), and V08 (AI Models). Provides unified interface for V01 
+    V07 (Advanced Models), and V08 (AI Models). Provides unified interface for V01
     orchestrator with performance monitoring, adaptive routing, and seamless integration.
     Acts as the "brain" of the quantitative modeling system.
 
@@ -33,24 +32,19 @@ Enhancement Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Union, Tuple
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
-import pickle
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
-from collections import deque, defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 import time
 import uuid
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS  
+# THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -61,7 +55,7 @@ try:
     from SpyderV06_VolatilityEngine import SpyderVolatilityEngine, VolatilityRequest, VolatilityResult
     from SpyderV07_AdvancedModels import SpyderAdvancedModels, AdvancedModelRequest, AdvancedModelResult
     from SpyderV08_AIModels import SpyderAIModels, PricingRequest, TradingSignal
-    
+
     CONSOLIDATED_MODULES_AVAILABLE = True
 except ImportError:
     logging.info("Warning: Consolidated V-series modules not available")
@@ -143,7 +137,7 @@ class EngineConfig:
     priority: int = 1  # 1 = highest priority
     performance_threshold: float = 0.85
     max_response_time_ms: float = 1000.0
-    initialization_params: Dict[str, Any] = field(default_factory=dict)
+    initialization_params: dict[str, Any] = field(default_factory=dict)
     calibration_schedule: str = "daily"  # hourly, daily, weekly, never
 
 @dataclass
@@ -156,7 +150,7 @@ class EnginePerformance:
     error_rate: float
     success_count: int
     error_count: int
-    last_calibration: Optional[datetime]
+    last_calibration: datetime | None
     uptime_percentage: float
     throughput_per_second: float
 
@@ -165,11 +159,11 @@ class ModelSelectionContext:
     """Context for intelligent model selection."""
     market_regime: MarketRegime
     volatility_level: float
-    time_to_expiry: Optional[float]
-    option_type: Optional[str]
+    time_to_expiry: float | None
+    option_type: str | None
     urgency: str = "normal"  # low, normal, high
     accuracy_requirement: str = "standard"  # fast, standard, high_precision
-    user_preference: Optional[str] = None
+    user_preference: str | None = None
 
 @dataclass
 class EngineRecommendation:
@@ -177,8 +171,8 @@ class EngineRecommendation:
     engine_type: EngineType
     confidence: float
     reasoning: str
-    fallback_engines: List[EngineType]
-    expected_performance: Dict[str, float]
+    fallback_engines: list[EngineType]
+    expected_performance: dict[str, float]
 
 @dataclass
 class ConsolidatedRequest:
@@ -186,7 +180,7 @@ class ConsolidatedRequest:
     request_id: str
     engine_type: EngineType
     operation: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     context: ModelSelectionContext
     timestamp: datetime
     priority: int = 1
@@ -199,10 +193,10 @@ class ConsolidatedResponse:
     operation: str
     success: bool
     result: Any
-    error_message: Optional[str]
+    error_message: str | None
     execution_time_ms: float
     confidence: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 # ==============================================================================
 # ENHANCED MODEL MANAGER
@@ -210,7 +204,7 @@ class ConsolidatedResponse:
 class SpyderModelManager:
     """
     Enhanced model manager for consolidated V-series architecture.
-    
+
     Features:
     - Manages all consolidated engines (V04-V08)
     - Intelligent model selection across engines
@@ -219,241 +213,241 @@ class SpyderModelManager:
     - Unified interface for V01 orchestration
     - Market regime-aware model switching
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None, data_manager=None):
+
+    def __init__(self, config: dict[str, Any] | None = None, data_manager=None):
         self.data_manager = data_manager
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+
         # Engine configurations
         self.engine_configs = self._create_default_engine_configs(config)
-        
+
         # Engine instances
-        self.engines: Dict[EngineType, Any] = {}
-        self.engine_status: Dict[EngineType, EngineStatus] = {}
-        
+        self.engines: dict[EngineType, Any] = {}
+        self.engine_status: dict[EngineType, EngineStatus] = {}
+
         # Performance tracking
-        self.performance_history: Dict[EngineType, deque] = {
+        self.performance_history: dict[EngineType, deque] = {
             engine_type: deque(maxlen=1000) for engine_type in EngineType
         }
-        self.current_performance: Dict[EngineType, EnginePerformance] = {}
-        
+        self.current_performance: dict[EngineType, EnginePerformance] = {}
+
         # Model selection intelligence
         self.model_selector = ModelSelector(self)
         self.market_regime_detector = MarketRegimeDetector()
-        
+
         # Request routing
         self.request_queue = asyncio.Queue()
-        self.response_cache: Dict[str, ConsolidatedResponse] = {}
+        self.response_cache: dict[str, ConsolidatedResponse] = {}
         self.cache_lock = threading.Lock()
-        
+
         # Monitoring and health
         self.health_checker = EngineHealthChecker(self)
         self.performance_monitor = PerformanceMonitor(self)
-        
+
         # Threading
         self.executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="ModelManager")
         self.shutdown_event = asyncio.Event()
-        
+
         self.logger.info("Enhanced SpyderModelManager initialized for consolidated architecture")
-    
+
     # ==========================================================================
     # CORE ENGINE MANAGEMENT
     # ==========================================================================
-    async def initialize_all_engines(self) -> Dict[EngineType, bool]:
+    async def initialize_all_engines(self) -> dict[EngineType, bool]:
         """Initialize all consolidated engines."""
         initialization_results = {}
-        
+
         try:
             self.logger.info("Initializing all consolidated engines...")
-            
+
             # Initialize V04 Risk Manager
             if self.engine_configs[EngineType.RISK_MANAGER].enabled:
                 result = await self._initialize_risk_manager()
                 initialization_results[EngineType.RISK_MANAGER] = result
-            
+
             # Initialize V05 Pricing Engine
             if self.engine_configs[EngineType.PRICING_ENGINE].enabled:
                 result = await self._initialize_pricing_engine()
                 initialization_results[EngineType.PRICING_ENGINE] = result
-            
+
             # Initialize V06 Volatility Engine
             if self.engine_configs[EngineType.VOLATILITY_ENGINE].enabled:
                 result = await self._initialize_volatility_engine()
                 initialization_results[EngineType.VOLATILITY_ENGINE] = result
-            
+
             # Initialize V07 Advanced Models
             if self.engine_configs[EngineType.ADVANCED_MODELS].enabled:
                 result = await self._initialize_advanced_models()
                 initialization_results[EngineType.ADVANCED_MODELS] = result
-            
+
             # Initialize V08 AI Models
             if self.engine_configs[EngineType.AI_MODELS].enabled:
                 result = await self._initialize_ai_models()
                 initialization_results[EngineType.AI_MODELS] = result
-            
+
             # Start monitoring tasks
             asyncio.create_task(self.health_checker.start_monitoring())
             asyncio.create_task(self.performance_monitor.start_monitoring())
             asyncio.create_task(self._request_processor())
-            
+
             successful_engines = sum(initialization_results.values())
             total_engines = len(initialization_results)
-            
+
             self.logger.info(f"Engine initialization complete: {successful_engines}/{total_engines} engines ready")
-            
+
             return initialization_results
-            
+
         except Exception as e:
             self.logger.error(f"Error initializing engines: {e}")
             return {engine_type: False for engine_type in EngineType}
-    
+
     async def _initialize_risk_manager(self) -> bool:
         """Initialize V04 Risk Manager."""
         try:
             if not CONSOLIDATED_MODULES_AVAILABLE:
                 self.logger.warning("V04 RiskManager module not available")
                 return False
-            
+
             config = self.engine_configs[EngineType.RISK_MANAGER].initialization_params
             risk_manager = SpyderRiskManager(config, self.data_manager)
-            
+
             # Test basic functionality
             await risk_manager.initialize()
-            
+
             self.engines[EngineType.RISK_MANAGER] = risk_manager
             self.engine_status[EngineType.RISK_MANAGER] = EngineStatus.READY
-            
+
             self.logger.info("V04 RiskManager initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize V04 RiskManager: {e}")
             self.engine_status[EngineType.RISK_MANAGER] = EngineStatus.ERROR
             return False
-    
+
     async def _initialize_pricing_engine(self) -> bool:
         """Initialize V05 Pricing Engine."""
         try:
             if not CONSOLIDATED_MODULES_AVAILABLE:
                 self.logger.warning("V05 PricingEngine module not available")
                 return False
-            
+
             config = self.engine_configs[EngineType.PRICING_ENGINE].initialization_params
             pricing_engine = SpyderPricingEngine(config, self.data_manager)
-            
+
             # Test basic functionality
             await pricing_engine.initialize()
-            
+
             self.engines[EngineType.PRICING_ENGINE] = pricing_engine
             self.engine_status[EngineType.PRICING_ENGINE] = EngineStatus.READY
-            
+
             self.logger.info("V05 PricingEngine initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize V05 PricingEngine: {e}")
             self.engine_status[EngineType.PRICING_ENGINE] = EngineStatus.ERROR
             return False
-    
+
     async def _initialize_volatility_engine(self) -> bool:
         """Initialize V06 Volatility Engine."""
         try:
             if not CONSOLIDATED_MODULES_AVAILABLE:
                 self.logger.warning("V06 VolatilityEngine module not available")
                 return False
-            
+
             config = self.engine_configs[EngineType.VOLATILITY_ENGINE].initialization_params
             volatility_engine = SpyderVolatilityEngine(config, self.data_manager)
-            
+
             # Test basic functionality
             await volatility_engine.initialize()
-            
+
             self.engines[EngineType.VOLATILITY_ENGINE] = volatility_engine
             self.engine_status[EngineType.VOLATILITY_ENGINE] = EngineStatus.READY
-            
+
             self.logger.info("V06 VolatilityEngine initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize V06 VolatilityEngine: {e}")
             self.engine_status[EngineType.VOLATILITY_ENGINE] = EngineStatus.ERROR
             return False
-    
+
     async def _initialize_advanced_models(self) -> bool:
         """Initialize V07 Advanced Models."""
         try:
             if not CONSOLIDATED_MODULES_AVAILABLE:
                 self.logger.warning("V07 AdvancedModels module not available")
                 return False
-            
+
             config = self.engine_configs[EngineType.ADVANCED_MODELS].initialization_params
             advanced_models = SpyderAdvancedModels(config, self.data_manager)
-            
+
             # Test basic functionality
             await advanced_models.initialize()
-            
+
             self.engines[EngineType.ADVANCED_MODELS] = advanced_models
             self.engine_status[EngineType.ADVANCED_MODELS] = EngineStatus.READY
-            
+
             self.logger.info("V07 AdvancedModels initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize V07 AdvancedModels: {e}")
             self.engine_status[EngineType.ADVANCED_MODELS] = EngineStatus.ERROR
             return False
-    
+
     async def _initialize_ai_models(self) -> bool:
         """Initialize V08 AI Models."""
         try:
             if not CONSOLIDATED_MODULES_AVAILABLE:
                 self.logger.warning("V08 AIModels module not available")
                 return False
-            
+
             config = self.engine_configs[EngineType.AI_MODELS].initialization_params
             ai_models = SpyderAIModels(config, self.data_manager)
-            
+
             # Test basic functionality (no training required for initialization)
             self.engines[EngineType.AI_MODELS] = ai_models
             self.engine_status[EngineType.AI_MODELS] = EngineStatus.READY
-            
+
             self.logger.info("V08 AIModels initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize V08 AIModels: {e}")
             self.engine_status[EngineType.AI_MODELS] = EngineStatus.ERROR
             return False
-    
+
     # ==========================================================================
     # INTELLIGENT MODEL SELECTION INTERFACE
     # ==========================================================================
-    async def select_optimal_engine(self, 
-                                  operation: str, 
+    async def select_optimal_engine(self,
+                                  operation: str,
                                   context: ModelSelectionContext) -> EngineRecommendation:
         """Select optimal engine for operation based on context and performance."""
         return await self.model_selector.select_engine(operation, context)
-    
+
     async def execute_operation(self, request: ConsolidatedRequest) -> ConsolidatedResponse:
         """Execute operation on selected engine with intelligent routing."""
         try:
             # Get engine recommendation
             recommendation = await self.select_optimal_engine(request.operation, request.context)
-            
+
             # Override engine type if recommended engine differs
             if recommendation.engine_type != request.engine_type:
                 self.logger.info(f"Model selector recommended {recommendation.engine_type.value} "
                                f"over {request.engine_type.value}: {recommendation.reasoning}")
                 request.engine_type = recommendation.engine_type
-            
+
             # Execute on selected engine
             response = await self._execute_on_engine(request)
-            
+
             # Update performance metrics
             self._update_performance_metrics(request.engine_type, response)
-            
+
             return response
-            
+
         except Exception as e:
             self.logger.error(f"Error executing operation {request.operation}: {e}")
             return ConsolidatedResponse(
@@ -466,17 +460,17 @@ class SpyderModelManager:
                 execution_time_ms=0.0,
                 confidence=0.0
             )
-    
+
     # ==========================================================================
     # ENGINE-SPECIFIC OPERATION INTERFACES
     # ==========================================================================
-    async def calculate_risk_metrics(self, 
+    async def calculate_risk_metrics(self,
                                    risk_params: RiskParameters,
-                                   context: Optional[ModelSelectionContext] = None) -> ConsolidatedResponse:
+                                   context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
         """Calculate risk metrics using V04 RiskManager."""
         if context is None:
             context = self._create_default_context()
-        
+
         request = ConsolidatedRequest(
             request_id=str(uuid.uuid4()),
             engine_type=EngineType.RISK_MANAGER,
@@ -485,17 +479,17 @@ class SpyderModelManager:
             context=context,
             timestamp=datetime.now()
         )
-        
+
         return await self.execute_operation(request)
-    
-    async def price_option(self, 
+
+    async def price_option(self,
                          option_contract: OptionContract,
                          pricing_params: PricingParameters,
-                         context: Optional[ModelSelectionContext] = None) -> ConsolidatedResponse:
+                         context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
         """Price option using V05 PricingEngine."""
         if context is None:
             context = self._create_default_context()
-        
+
         request = ConsolidatedRequest(
             request_id=str(uuid.uuid4()),
             engine_type=EngineType.PRICING_ENGINE,
@@ -504,16 +498,16 @@ class SpyderModelManager:
             context=context,
             timestamp=datetime.now()
         )
-        
+
         return await self.execute_operation(request)
-    
-    async def calculate_volatility(self, 
+
+    async def calculate_volatility(self,
                                  volatility_request: Any,
-                                 context: Optional[ModelSelectionContext] = None) -> ConsolidatedResponse:
+                                 context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
         """Calculate volatility using V06 VolatilityEngine."""
         if context is None:
             context = self._create_default_context()
-        
+
         request = ConsolidatedRequest(
             request_id=str(uuid.uuid4()),
             engine_type=EngineType.VOLATILITY_ENGINE,
@@ -522,16 +516,16 @@ class SpyderModelManager:
             context=context,
             timestamp=datetime.now()
         )
-        
+
         return await self.execute_operation(request)
-    
-    async def analyze_market_regime(self, 
-                                  market_data: Dict[str, Any],
-                                  context: Optional[ModelSelectionContext] = None) -> ConsolidatedResponse:
+
+    async def analyze_market_regime(self,
+                                  market_data: dict[str, Any],
+                                  context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
         """Analyze market regime using V07 AdvancedModels."""
         if context is None:
             context = self._create_default_context()
-        
+
         request = ConsolidatedRequest(
             request_id=str(uuid.uuid4()),
             engine_type=EngineType.ADVANCED_MODELS,
@@ -540,16 +534,16 @@ class SpyderModelManager:
             context=context,
             timestamp=datetime.now()
         )
-        
+
         return await self.execute_operation(request)
-    
-    async def generate_ai_signal(self, 
-                               market_state: Dict[str, Any],
-                               context: Optional[ModelSelectionContext] = None) -> ConsolidatedResponse:
+
+    async def generate_ai_signal(self,
+                               market_state: dict[str, Any],
+                               context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
         """Generate AI trading signal using V08 AIModels."""
         if context is None:
             context = self._create_default_context()
-        
+
         request = ConsolidatedRequest(
             request_id=str(uuid.uuid4()),
             engine_type=EngineType.AI_MODELS,
@@ -558,25 +552,25 @@ class SpyderModelManager:
             context=context,
             timestamp=datetime.now()
         )
-        
+
         return await self.execute_operation(request)
-    
+
     # ==========================================================================
     # PERFORMANCE AND MONITORING
     # ==========================================================================
-    def get_engine_performance(self, engine_type: Optional[EngineType] = None) -> Dict[EngineType, EnginePerformance]:
+    def get_engine_performance(self, engine_type: EngineType | None = None) -> dict[EngineType, EnginePerformance]:
         """Get performance metrics for engines."""
         if engine_type:
             return {engine_type: self.current_performance.get(engine_type)}
         return self.current_performance.copy()
-    
-    def get_engine_status(self, engine_type: Optional[EngineType] = None) -> Dict[EngineType, EngineStatus]:
+
+    def get_engine_status(self, engine_type: EngineType | None = None) -> dict[EngineType, EngineStatus]:
         """Get status of engines."""
         if engine_type:
             return {engine_type: self.engine_status.get(engine_type)}
         return self.engine_status.copy()
-    
-    def get_consolidated_health_report(self) -> Dict[str, Any]:
+
+    def get_consolidated_health_report(self) -> dict[str, Any]:
         """Get comprehensive health report for all engines."""
         return {
             "timestamp": datetime.now(),
@@ -590,16 +584,16 @@ class SpyderModelManager:
                 } for k, v in self.current_performance.items()
             },
             "total_engines": len(self.engines),
-            "healthy_engines": sum(1 for status in self.engine_status.values() 
+            "healthy_engines": sum(1 for status in self.engine_status.values()
                                  if status == EngineStatus.READY),
             "market_regime": self.market_regime_detector.get_current_regime().value,
             "system_load": self._calculate_system_load()
         }
-    
+
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================
-    def _create_default_engine_configs(self, config: Optional[Dict[str, Any]]) -> Dict[EngineType, EngineConfig]:
+    def _create_default_engine_configs(self, config: dict[str, Any] | None) -> dict[EngineType, EngineConfig]:
         """Create default engine configurations."""
         default_configs = {
             EngineType.RISK_MANAGER: EngineConfig(
@@ -643,7 +637,7 @@ class SpyderModelManager:
                 calibration_schedule="weekly"
             )
         }
-        
+
         # Apply user config overrides
         if config:
             for engine_type, user_config in config.items():
@@ -652,9 +646,9 @@ class SpyderModelManager:
                 if engine_type in default_configs:
                     for key, value in user_config.items():
                         setattr(default_configs[engine_type], key, value)
-        
+
         return default_configs
-    
+
     def _create_default_context(self) -> ModelSelectionContext:
         """Create default model selection context."""
         return ModelSelectionContext(
@@ -663,24 +657,24 @@ class SpyderModelManager:
             urgency="normal",
             accuracy_requirement="standard"
         )
-    
+
     async def _execute_on_engine(self, request: ConsolidatedRequest) -> ConsolidatedResponse:
         """Execute request on specific engine."""
         start_time = time.time()
-        
+
         try:
             engine = self.engines.get(request.engine_type)
             if not engine:
                 raise ValueError(f"Engine {request.engine_type.value} not available")
-            
+
             if self.engine_status.get(request.engine_type) != EngineStatus.READY:
                 raise ValueError(f"Engine {request.engine_type.value} not ready")
-            
+
             # Execute operation based on engine type and operation
             result = await self._dispatch_operation(engine, request)
-            
+
             execution_time = (time.time() - start_time) * 1000
-            
+
             return ConsolidatedResponse(
                 request_id=request.request_id,
                 engine_type=request.engine_type,
@@ -692,7 +686,7 @@ class SpyderModelManager:
                 confidence=0.9,  # Default confidence
                 metadata={"engine_version": "2.0"}
             )
-            
+
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
             return ConsolidatedResponse(
@@ -705,7 +699,7 @@ class SpyderModelManager:
                 execution_time_ms=execution_time,
                 confidence=0.0
             )
-    
+
     async def _dispatch_operation(self, engine: Any, request: ConsolidatedRequest) -> Any:
         """Dispatch operation to appropriate engine method."""
         operation_map = {
@@ -715,13 +709,13 @@ class SpyderModelManager:
             (EngineType.ADVANCED_MODELS, "analyze_market_regime"): lambda e, p: e.detect_market_regime(p["market_data"]),
             (EngineType.AI_MODELS, "generate_trading_signal"): lambda e, p: e.generate_trading_signal(p["market_state"])
         }
-        
+
         operation_key = (request.engine_type, request.operation)
         if operation_key in operation_map:
             return await operation_map[operation_key](engine, request.parameters)
         else:
             raise ValueError(f"Unsupported operation: {request.operation} for engine {request.engine_type.value}")
-    
+
     async def _request_processor(self):
         """Background task to process queued requests."""
         while not self.shutdown_event.is_set():
@@ -730,7 +724,7 @@ class SpyderModelManager:
                 await asyncio.sleep(0.1)
             except Exception as e:
                 self.logger.error(f"Error in request processor: {e}")
-    
+
     def _update_performance_metrics(self, engine_type: EngineType, response: ConsolidatedResponse):
         """Update performance metrics for engine."""
         if engine_type not in self.current_performance:
@@ -746,15 +740,15 @@ class SpyderModelManager:
                 uptime_percentage=100.0,
                 throughput_per_second=0.0
             )
-        
+
         perf = self.current_performance[engine_type]
-        
+
         # Update metrics
         if response.success:
             perf.success_count += 1
         else:
             perf.error_count += 1
-        
+
         # Update response time (simple moving average)
         total_requests = perf.success_count + perf.error_count
         if total_requests > 0:
@@ -762,11 +756,11 @@ class SpyderModelManager:
                 (perf.response_time_avg_ms * (total_requests - 1) + response.execution_time_ms) / total_requests
             )
             perf.error_rate = perf.error_count / total_requests
-    
+
     def _calculate_system_load(self) -> float:
         """Calculate overall system load."""
         # Simplified system load calculation
-        active_engines = sum(1 for status in self.engine_status.values() 
+        active_engines = sum(1 for status in self.engine_status.values()
                            if status == EngineStatus.READY)
         total_engines = len(self.engine_status)
         return active_engines / total_engines if total_engines > 0 else 0.0
@@ -776,14 +770,14 @@ class SpyderModelManager:
 # ==============================================================================
 class ModelSelector:
     """Intelligent model selection logic."""
-    
+
     def __init__(self, model_manager):
         self.model_manager = model_manager
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
-    
+
     async def select_engine(self, operation: str, context: ModelSelectionContext) -> EngineRecommendation:
         """Select optimal engine based on context and performance."""
-        
+
         # Default engine mapping
         operation_engine_map = {
             "calculate_risk_metrics": EngineType.RISK_MANAGER,
@@ -792,9 +786,9 @@ class ModelSelector:
             "analyze_market_regime": EngineType.ADVANCED_MODELS,
             "generate_trading_signal": EngineType.AI_MODELS
         }
-        
+
         default_engine = operation_engine_map.get(operation, EngineType.PRICING_ENGINE)
-        
+
         # Check if default engine is available and performing well
         engine_status = self.model_manager.engine_status.get(default_engine)
         if engine_status == EngineStatus.READY:
@@ -807,11 +801,11 @@ class ModelSelector:
                     fallback_engines=[],
                     expected_performance={"accuracy": performance.accuracy, "response_time": performance.response_time_avg_ms}
                 )
-        
+
         # If default engine has issues, recommend fallback
         fallback_engines = self._get_fallback_engines(default_engine)
         best_fallback = fallback_engines[0] if fallback_engines else default_engine
-        
+
         return EngineRecommendation(
             engine_type=best_fallback,
             confidence=0.7,
@@ -819,8 +813,8 @@ class ModelSelector:
             fallback_engines=fallback_engines[1:],
             expected_performance={"accuracy": 0.8, "response_time": 500.0}
         )
-    
-    def _get_fallback_engines(self, primary_engine: EngineType) -> List[EngineType]:
+
+    def _get_fallback_engines(self, primary_engine: EngineType) -> list[EngineType]:
         """Get fallback engines for primary engine."""
         # Simplified fallback logic
         fallback_map = {
@@ -830,16 +824,16 @@ class ModelSelector:
             EngineType.ADVANCED_MODELS: [EngineType.VOLATILITY_ENGINE],
             EngineType.AI_MODELS: [EngineType.PRICING_ENGINE]
         }
-        
+
         return fallback_map.get(primary_engine, [])
 
 class MarketRegimeDetector:
     """Market regime detection logic."""
-    
+
     def __init__(self):
         self.current_regime = MarketRegime.NORMAL
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
-    
+
     def get_current_regime(self) -> MarketRegime:
         """Get current market regime."""
         # Simplified regime detection
@@ -848,11 +842,11 @@ class MarketRegimeDetector:
 
 class EngineHealthChecker:
     """Engine health monitoring."""
-    
+
     def __init__(self, model_manager):
         self.model_manager = model_manager
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
-    
+
     async def start_monitoring(self):
         """Start health monitoring loop."""
         while not self.model_manager.shutdown_event.is_set():
@@ -861,7 +855,7 @@ class EngineHealthChecker:
                 await asyncio.sleep(60)  # Check every minute
             except Exception as e:
                 self.logger.error(f"Error in health checker: {e}")
-    
+
     async def _check_all_engines(self):
         """Check health of all engines."""
         for engine_type, engine in self.model_manager.engines.items():
@@ -876,18 +870,18 @@ class EngineHealthChecker:
                     perf = self.model_manager.current_performance.get(engine_type)
                     if perf and perf.error_rate > 0.5:
                         self.model_manager.engine_status[engine_type] = EngineStatus.DEGRADED
-                    
+
             except Exception as e:
                 self.logger.error(f"Health check failed for {engine_type.value}: {e}")
                 self.model_manager.engine_status[engine_type] = EngineStatus.ERROR
 
 class PerformanceMonitor:
     """Performance monitoring and optimization."""
-    
+
     def __init__(self, model_manager):
         self.model_manager = model_manager
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
-    
+
     async def start_monitoring(self):
         """Start performance monitoring loop."""
         while not self.model_manager.shutdown_event.is_set():
@@ -896,7 +890,7 @@ class PerformanceMonitor:
                 await asyncio.sleep(300)  # Analyze every 5 minutes
             except Exception as e:
                 self.logger.error(f"Error in performance monitor: {e}")
-    
+
     async def _analyze_performance(self):
         """Analyze and optimize performance."""
         for engine_type, performance in self.model_manager.current_performance.items():
@@ -907,15 +901,15 @@ class PerformanceMonitor:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_enhanced_model_manager(config: Optional[Dict[str, Any]] = None, 
+def create_enhanced_model_manager(config: dict[str, Any] | None = None,
                                 data_manager=None) -> SpyderModelManager:
     """
     Factory function to create enhanced model manager.
-    
+
     Args:
         config: Configuration dictionary
         data_manager: Data manager instance
-        
+
     Returns:
         Configured SpyderModelManager instance
     """
@@ -929,29 +923,29 @@ async def main():
     logging.info("=" * 80)
     logging.info("SPYDER V02 ENHANCED MODEL MANAGER DEMONSTRATION")
     logging.info("=" * 80)
-    
+
     # Initialize enhanced model manager
     model_manager = create_enhanced_model_manager()
-    
+
     logging.info("\nEnhanced Model Manager Initialized")
     logging.info("   • Manages all consolidated V-series engines (V04-V08)")
     logging.info("   • Intelligent model selection and routing")
     logging.info("   • Performance-based adaptive optimization")
     logging.info("   • Real-time monitoring and health checks")
-    
+
     # Test 1: Initialize all engines
-    logging.info(f"\n--- Test 1: Engine Initialization ---")
-    
+    logging.info("\n--- Test 1: Engine Initialization ---")
+
     initialization_results = await model_manager.initialize_all_engines()
-    
+
     logging.info("Engine Initialization Results:")
     for engine_type, success in initialization_results.items():
         status_icon = "✅" if success else "❌"
         logging.info(f"   {status_icon} {engine_type.value}: {'Ready' if success else 'Failed'}")
-    
+
     # Test 2: Model Selection Intelligence
-    logging.info(f"\n--- Test 2: Intelligent Model Selection ---")
-    
+    logging.info("\n--- Test 2: Intelligent Model Selection ---")
+
     # Test different contexts
     contexts = [
         ("Normal Market", ModelSelectionContext(
@@ -973,53 +967,53 @@ async def main():
             accuracy_requirement="fast"
         ))
     ]
-    
+
     for context_name, context in contexts:
         logging.info(f"\n{context_name} Context:")
-        
+
         # Test pricing operation selection
         recommendation = await model_manager.select_optimal_engine("price_option", context)
         logging.info(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
         logging.info(f"   Reasoning: {recommendation.reasoning}")
-        
+
         # Test risk analysis selection
         recommendation = await model_manager.select_optimal_engine("calculate_risk_metrics", context)
         logging.info(f"   Risk: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
-    
+
     # Test 3: Performance Monitoring
-    logging.info(f"\n--- Test 3: Performance Monitoring ---")
-    
+    logging.info("\n--- Test 3: Performance Monitoring ---")
+
     health_report = model_manager.get_consolidated_health_report()
-    
-    logging.info(f"System Health Report:")
+
+    logging.info("System Health Report:")
     logging.info(f"   Total Engines: {health_report['total_engines']}")
     logging.info(f"   Healthy Engines: {health_report['healthy_engines']}")
     logging.info(f"   System Load: {health_report['system_load']:.1%}")
     logging.info(f"   Market Regime: {health_report['market_regime']}")
-    
+
     logging.info("\nEngine Status:")
     for engine_name, status in health_report['engine_status'].items():
         status_icon = "✅" if status == "ready" else "⚠️" if status == "degraded" else "❌"
         logging.info(f"   {status_icon} {engine_name}: {status}")
-    
+
     # Test 4: Unified Operations Interface
-    logging.info(f"\n--- Test 4: Unified Operations Interface ---")
-    
+    logging.info("\n--- Test 4: Unified Operations Interface ---")
+
     logging.info("Available Operations:")
     operations = [
         "calculate_risk_metrics - V04 Risk Manager",
-        "price_option - V05 Pricing Engine", 
+        "price_option - V05 Pricing Engine",
         "calculate_volatility - V06 Volatility Engine",
         "analyze_market_regime - V07 Advanced Models",
         "generate_trading_signal - V08 AI Models"
     ]
-    
+
     for operation in operations:
         logging.info(f"   • {operation}")
-    
+
     # Test 5: Configuration Display
-    logging.info(f"\n--- Test 5: Engine Configurations ---")
-    
+    logging.info("\n--- Test 5: Engine Configurations ---")
+
     for engine_type, config in model_manager.engine_configs.items():
         logging.info(f"\n{engine_type.value.upper()}:")
         logging.info(f"   Enabled: {config.enabled}")
@@ -1027,27 +1021,27 @@ async def main():
         logging.info(f"   Performance Threshold: {config.performance_threshold:.1%}")
         logging.info(f"   Max Response Time: {config.max_response_time_ms:.0f}ms")
         logging.info(f"   Calibration Schedule: {config.calibration_schedule}")
-    
+
     # Test 6: Architecture Summary
-    logging.info(f"\n--- Consolidated V-Series Architecture ---")
-    
+    logging.info("\n--- Consolidated V-Series Architecture ---")
+
     architecture = [
         "V01_QuantEngine2 (Orchestrator)",
         "├── V02_ModelManager2 (Enhanced - This Module)",
         "├── V04_RiskManager2 (Risk Calculations)",
-        "├── V05_PricingEngine2 (Options Pricing)",  
+        "├── V05_PricingEngine2 (Options Pricing)",
         "├── V06_VolatilityEngine2 (Volatility Modeling)",
         "├── V07_AdvancedModels2 (Jump-Diffusion + Regime)",
         "├── V08_AIModels2 (Transformer + RL)",
         "└── V03_DataInterface (Data Bridge)"
     ]
-    
+
     for line in architecture:
         logging.info(f"   {line}")
-    
-    logging.info(f"\n🎯 CONSOLIDATED V-SERIES COMPLETE!")
+
+    logging.info("\n🎯 CONSOLIDATED V-SERIES COMPLETE!")
     logging.info("   • 8 modules with zero duplications")
-    logging.info("   • Intelligent model selection across all engines") 
+    logging.info("   • Intelligent model selection across all engines")
     logging.info("   • Performance-based adaptive optimization")
     logging.info("   • Unified interface for seamless integration")
 

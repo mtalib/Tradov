@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -80,9 +79,9 @@ class _TestStrategy(BaseStrategy):
             config=config,
         )
         # Track calls for verification
-        self._generated_signals: List[TradingSignal] = []
+        self._generated_signals: list[TradingSignal] = []
 
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         return self._generated_signals
 
     def validate_signal(self, signal: TradingSignal) -> bool:
@@ -93,7 +92,7 @@ class _TestStrategy(BaseStrategy):
 
     def should_exit_position(
         self, position: StrategyPosition, market_data: pd.DataFrame
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if position.unrealized_pnl < -(position.entry_price * position.position_size * 0.05):
             return True, "stop_loss"
         return False, ""
@@ -302,7 +301,8 @@ class TestEventManager(unittest.TestCase):
         """After unsubscribe, callback no longer receives events."""
         em = EventManager()
         received = []
-        callback = lambda e: received.append(e)
+        def callback(e):
+            return received.append(e)
         em.subscribe(EventType.SIGNAL_GENERATED, callback)
         em.unsubscribe(EventType.SIGNAL_GENERATED, callback)
 

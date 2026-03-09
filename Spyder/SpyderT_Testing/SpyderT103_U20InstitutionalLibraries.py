@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -66,7 +65,6 @@ import pytest
 import numpy as np
 import pandas as pd
 
-import warnings
 warnings.filterwarnings("ignore")   # suppress library-availability warnings globally
 
 from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (

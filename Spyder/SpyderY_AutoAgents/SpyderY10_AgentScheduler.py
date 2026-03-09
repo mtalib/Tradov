@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -25,13 +24,11 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 import logging
 import signal
-import sys
 import threading
 import time
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -39,7 +36,6 @@ from typing import Any, Dict, List, Optional, Type
 from .SpyderY00_BaseAutoAgent import (
     BaseAutoAgent,
     AgentState,
-    MarketSession,
     OllamaConfig,
 )
 
@@ -86,19 +82,19 @@ class AgentScheduler:
 
     def __init__(
         self,
-        ollama_config: Optional[OllamaConfig] = None,
-        message_bus: Optional[Any] = None,
-        state_dir: Optional[Path] = None,
+        ollama_config: OllamaConfig | None = None,
+        message_bus: Any | None = None,
+        state_dir: Path | None = None,
     ):
         self.ollama_config = ollama_config or OllamaConfig.from_env()
         self.message_bus = message_bus
         self.state_dir = state_dir or Path("data/agent_state")
 
-        self._agents: Dict[str, BaseAutoAgent] = {}
-        self._agent_classes: Dict[str, Type[BaseAutoAgent]] = {}
-        self._restart_counts: Dict[str, int] = {}
+        self._agents: dict[str, BaseAutoAgent] = {}
+        self._agent_classes: dict[str, type[BaseAutoAgent]] = {}
+        self._restart_counts: dict[str, int] = {}
         self._stop_event = threading.Event()
-        self._health_thread: Optional[threading.Thread] = None
+        self._health_thread: threading.Thread | None = None
         self._started = False
 
         logger.info("AgentScheduler initialized")
@@ -108,7 +104,7 @@ class AgentScheduler:
     # ==========================================================================
     def register(
         self,
-        agent_class: Type[BaseAutoAgent],
+        agent_class: type[BaseAutoAgent],
         **kwargs: Any,
     ) -> BaseAutoAgent:
         """Register and instantiate an agent.
@@ -157,7 +153,7 @@ class AgentScheduler:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-        for agent_id, agent in self._agents.items():
+        for _agent_id, agent in self._agents.items():
             try:
                 agent.start()
                 logger.info(f"  ✓ {agent.AGENT_NAME} started")
@@ -298,7 +294,7 @@ class AgentScheduler:
     # ==========================================================================
     # STATUS & DASHBOARD
     # ==========================================================================
-    def get_all_status(self) -> Dict[str, Any]:
+    def get_all_status(self) -> dict[str, Any]:
         """Return aggregated status of all agents for the dashboard."""
         session = BaseAutoAgent.get_current_session()
         agents_status = {}
@@ -335,11 +331,11 @@ class AgentScheduler:
             "agents": agents_status,
         }
 
-    def get_agent(self, agent_id: str) -> Optional[BaseAutoAgent]:
+    def get_agent(self, agent_id: str) -> BaseAutoAgent | None:
         """Get an agent instance by ID."""
         return self._agents.get(agent_id)
 
-    def list_agents(self) -> List[Dict[str, str]]:
+    def list_agents(self) -> list[dict[str, str]]:
         """List all registered agents with basic info."""
         return [
             {

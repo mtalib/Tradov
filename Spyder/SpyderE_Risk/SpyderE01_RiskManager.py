@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -38,30 +37,18 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import sys
 import time
 import threading
 import asyncio
-import json
-import uuid
-import warnings
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple
-from dataclasses import dataclass, field, asdict
-from collections import defaultdict, deque
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass, field
 from enum import Enum, auto
-from pathlib import Path
-import copy
-import queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from threading import Lock, Event as ThreadEvent, RLock
+from threading import Event as ThreadEvent, RLock
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -119,7 +106,7 @@ class RiskCheckResult(Enum):
 @dataclass
 class RiskConfig:
     """Configuration for risk management"""
-    risk_limits: Dict[str, Any] = field(default_factory=lambda: DEFAULT_RISK_LIMITS.copy())
+    risk_limits: dict[str, Any] = field(default_factory=lambda: DEFAULT_RISK_LIMITS.copy())
     enable_real_time_monitoring: bool = True
     risk_check_interval: float = RISK_CHECK_INTERVAL
     position_update_interval: float = POSITION_UPDATE_INTERVAL
@@ -138,9 +125,9 @@ class Position:
     realized_pnl: float
     currency: str = "USD"
     security_type: str = "STK"
-    expiry: Optional[str] = None
-    strike: Optional[float] = None
-    right: Optional[str] = None  # CALL/PUT
+    expiry: str | None = None
+    strike: float | None = None
+    right: str | None = None  # CALL/PUT
     last_updated: datetime = field(default_factory=datetime.now)
 
 @dataclass
@@ -156,8 +143,8 @@ class RiskMetrics:
     concentration_symbol: str
     options_exposure: float
     risk_level: RiskLevel
-    warnings: List[str] = field(default_factory=list)
-    blocked_orders: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    blocked_orders: list[str] = field(default_factory=list)
 
 @dataclass
 class RiskProfile:
@@ -171,9 +158,9 @@ class RiskProfile:
 class RiskCheckResponse:
     """Risk check response"""
     result: RiskCheckResult
-    order_id: Optional[str] = None
-    reason: Optional[str] = None
-    risk_metrics: Optional[RiskMetrics] = None
+    order_id: str | None = None
+    reason: str | None = None
+    risk_metrics: RiskMetrics | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 # ==============================================================================
@@ -204,7 +191,7 @@ class RiskManager:
         self,
         config: RiskConfig,
         connect_api: ConnectAPI,
-        order_manager: Optional[Any] = None
+        order_manager: Any | None = None
     ):
         """
         Initialize the risk manager.
@@ -226,14 +213,14 @@ class RiskManager:
         self.order_manager = order_manager
 
         # Risk management
-        self._positions: Dict[str, Position] = {}
-        self._risk_metrics: Optional[RiskMetrics] = None
+        self._positions: dict[str, Position] = {}
+        self._risk_metrics: RiskMetrics | None = None
         self._risk_lock = RLock()
         self._shutdown_event = ThreadEvent()
 
         # Monitoring
-        self._risk_thread: Optional[threading.Thread] = None
-        self._position_thread: Optional[threading.Thread] = None
+        self._risk_thread: threading.Thread | None = None
+        self._position_thread: threading.Thread | None = None
 
         # Daily tracking
         self._daily_start_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -336,6 +323,14 @@ class RiskManager:
 
         Returns:
             Risk check response
+
+        Note on TOCTOU:
+            The entire check is performed inside a single _risk_lock acquisition
+            so that position state cannot change mid-check.  However, a window
+            still exists between this method returning ALLOWED and the order
+            actually reaching the broker.  Callers must re-verify critical limits
+            (e.g. daily loss) at submission time using the broker's own risk
+            filters, or hold the lock externally across check + submit.
         """
         try:
             with self._risk_lock:
@@ -441,7 +436,7 @@ class RiskManager:
     # POSITION MONITORING
     # ==========================================================================
 
-    def get_positions(self) -> Dict[str, Position]:
+    def get_positions(self) -> dict[str, Position]:
         """
         Get current positions.
 
@@ -451,7 +446,7 @@ class RiskManager:
         with self._risk_lock:
             return dict(self._positions)
 
-    def get_position(self, symbol: str) -> Optional[Position]:
+    def get_position(self, symbol: str) -> Position | None:
         """
         Get position for a symbol.
 
@@ -461,7 +456,7 @@ class RiskManager:
         with self._risk_lock:
             return self._positions.get(symbol)
 
-    def get_risk_metrics(self) -> Optional[RiskMetrics]:
+    def get_risk_metrics(self) -> RiskMetrics | None:
         """
         Get current risk metrics.
 
@@ -510,7 +505,7 @@ class RiskManager:
         await self.connect_api.send_message(message)
         self.logger.debug(f"Requested account summary updates for account {account_id}")
 
-    async def _handle_position_update(self, data: Dict[str, Any]):
+    async def _handle_position_update(self, data: dict[str, Any]):
         """
         Handle position update message.
 
@@ -554,7 +549,7 @@ class RiskManager:
             self.logger.error(f"Error handling position update: {e}")
             self.error_handler.handle_error(e, "_handle_position_update")
 
-    async def _handle_account_summary_update(self, data: Dict[str, Any]):
+    async def _handle_account_summary_update(self, data: dict[str, Any]):
         """
         Handle account summary update message.
 
@@ -766,7 +761,7 @@ class RiskManager:
     # PUBLIC UTILITY METHODS
     # ==========================================================================
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         Get current risk manager status.
 
@@ -796,7 +791,7 @@ class RiskManager:
                 'start_time': self.metrics['start_time'].isoformat()
             }
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         Get risk manager metrics.
 
@@ -829,7 +824,7 @@ class RiskManager:
 def create_risk_manager(
     config: RiskConfig,
     connect_api: ConnectAPI,
-    order_manager: Optional[Any] = None
+    order_manager: Any | None = None
 ) -> RiskManager:
     """
     Factory function to create a risk manager instance.
@@ -850,13 +845,7 @@ def create_risk_manager(
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("="*80)
-    print("SPYDER Risk Manager Test")
-    print("="*80)
 
     # This would require actual Connect API to test
-    print("Risk manager module loaded successfully")
 
-    print("\n" + "="*80)
-    print("Module testing completed.")
-    print("="*80)
+    pass

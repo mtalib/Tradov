@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -40,12 +39,11 @@ Change Log:
 # IMPORTS
 # ==============================================================================
 import json
-from typing import Dict, List, Optional, Any, Union
-from datetime import datetime, timedelta
+from typing import Any
+from datetime import datetime
 import pandas as pd
-import numpy as np
 from dataclasses import dataclass, asdict
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import logging
 
@@ -72,7 +70,7 @@ class IndicatorUpdate:
     timestamp: str
     name: str
     value: float
-    color: Optional[str] = None
+    color: str | None = None
 
 
 @dataclass
@@ -80,8 +78,8 @@ class PlotlyUpdatePacket:
     """Complete update packet for Plotly chart."""
 
     action: str  # 'extend', 'restyle', 'relayout'
-    data: Dict[str, Any]
-    trace_indices: List[int]
+    data: dict[str, Any]
+    trace_indices: list[int]
 
 
 # ==============================================================================
@@ -91,7 +89,7 @@ class SpyderToPlotlyConverter:
     """Converts Spyder data formats to Plotly-compatible structures."""
 
     @staticmethod
-    def convert_market_data(spyder_data: Dict[str, Any]) -> MarketDataPoint:
+    def convert_market_data(spyder_data: dict[str, Any]) -> MarketDataPoint:
         """Convert Spyder market data to Plotly format."""
         # Handle both dict and object formats
         if hasattr(spyder_data, "__dict__"):
@@ -116,7 +114,7 @@ class SpyderToPlotlyConverter:
         )
 
     @staticmethod
-    def convert_dataframe_to_plotly(df: pd.DataFrame) -> Dict[str, List]:
+    def convert_dataframe_to_plotly(df: pd.DataFrame) -> dict[str, list]:
         """Convert DataFrame to Plotly trace data format."""
         plotly_data = {}
 
@@ -230,7 +228,7 @@ class PlotlyDataBridge(QObject):
         if hasattr(worker, "indicator_updated"):
             worker.indicator_updated.connect(self.handle_indicator_update)
 
-    def handle_market_data_update(self, market_data: Dict[str, Any]):
+    def handle_market_data_update(self, market_data: dict[str, Any]):
         """Handle incoming market data updates."""
         if self.symbol not in market_data:
             return
@@ -310,7 +308,7 @@ class PlotlyDataBridge(QObject):
         except Exception as e:
             logging.info(f"Error sending chart update: {e}")
 
-    def batch_update_indicators(self, indicators: Dict[str, float]):
+    def batch_update_indicators(self, indicators: dict[str, float]):
         """Send batch update for multiple indicators."""
         updates = []
 
@@ -354,7 +352,7 @@ class PlotlyDataBridge(QObject):
         self.indicator_buffer.clear()
         self.performance_stats["buffer_size"] = 0
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """Get performance statistics."""
         return self.performance_stats.copy()
 
@@ -533,8 +531,6 @@ if __name__ == "__main__":
     js_generator = JavaScriptBridgeGenerator()
     js_code = js_generator.generate_update_functions()
 
-    print("JavaScript bridge code generated:")
-    print("Code length:", len(js_code), "characters")
 
     # Example data conversion
     converter = SpyderToPlotlyConverter()
@@ -553,10 +549,7 @@ if __name__ == "__main__":
 
     # Convert to Plotly format
     market_point = converter.convert_market_data(sample_data)
-    print("Converted market data:", market_point)
 
     # Create update packet
     update_packet = converter.create_candlestick_update(market_point)
-    print("Update packet:", update_packet)
 
-    print("Data bridge ready for integration!")

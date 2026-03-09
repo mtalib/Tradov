@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -33,11 +32,10 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -58,13 +56,13 @@ class AgentStatus:
     """Health status of a Y-series agent."""
     agent_id: str = ""
     state: str = "unknown"        # running | paused | stopped | error
-    last_heartbeat: Optional[datetime] = None
+    last_heartbeat: datetime | None = None
     outputs_today: int = 0
     errors_today: int = 0
     avg_tick_ms: float = 0.0
     health_score: float = 1.0    # 0-1
     last_output_topic: str = ""
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -74,7 +72,7 @@ class SystemDecision:
     timestamp: datetime = field(default_factory=datetime.now)
     category: str = ""      # conflict_resolution | threshold_adj | escalation | coordination
     description: str = ""
-    agents_involved: List[str] = field(default_factory=list)
+    agents_involved: list[str] = field(default_factory=list)
     action_taken: str = ""
     reasoning: str = ""
     confidence: float = 0.0
@@ -83,8 +81,8 @@ class SystemDecision:
 @dataclass
 class ConflictRecord:
     """Record of a conflict between agent outputs."""
-    agents: List[str] = field(default_factory=list)
-    topics: List[str] = field(default_factory=list)
+    agents: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)
     description: str = ""
     resolution: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
@@ -153,12 +151,12 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         super().__init__(**kwargs)
 
         # Agent health tracking
-        self._agent_status: Dict[str, AgentStatus] = {
+        self._agent_status: dict[str, AgentStatus] = {
             aid: AgentStatus(agent_id=aid) for aid in self.MANAGED_AGENTS
         }
-        self._conflicts: List[ConflictRecord] = []
-        self._decisions: List[SystemDecision] = []
-        self._message_counts: Dict[str, int] = defaultdict(int)
+        self._conflicts: list[ConflictRecord] = []
+        self._decisions: list[SystemDecision] = []
+        self._message_counts: dict[str, int] = defaultdict(int)
         self._current_regime: str = "unknown"
         self._circuit_breaker: str = "normal"
         self._tick_count: int = 0
@@ -219,7 +217,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         """Update health scores for all managed agents."""
         now = datetime.now()
 
-        for agent_id, status in self._agent_status.items():
+        for _agent_id, status in self._agent_status.items():
             warnings = []
 
             # Check heartbeat freshness
@@ -464,7 +462,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     # ==========================================================================
     # HELPERS
     # ==========================================================================
-    def _get_health_summary(self) -> Dict[str, float]:
+    def _get_health_summary(self) -> dict[str, float]:
         """Get a dict of agent_id -> health_score."""
         return {
             aid: round(s.health_score, 2)
@@ -474,7 +472,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming messages for orchestration."""
         self._message_counts[topic] += 1
 
@@ -502,7 +500,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "current_regime": self._current_regime,
@@ -514,7 +512,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             "message_counts": dict(self._message_counts),
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._current_regime = state.get("current_regime", "unknown")
         self._circuit_breaker = state.get("circuit_breaker", "normal")
@@ -527,10 +525,10 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
 
     def orchestrate_agents_distributed(
         self,
-        market_context: Dict[str, Any],
-        agent_configs: Optional[List[Dict[str, Any]]] = None,
-        num_cpus: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        market_context: dict[str, Any],
+        agent_configs: list[dict[str, Any]] | None = None,
+        num_cpus: int | None = None,
+    ) -> dict[str, Any]:
         """
         Distribute autonomous agent tasks across Ray workers.
 
@@ -564,7 +562,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         context_ref = ray.put(market_context)
 
         @ray.remote
-        def _agent_task(context_ref, config: dict) -> Dict:
+        def _agent_task(context_ref, config: dict) -> dict:
             """Run an autonomous agent task on a Ray worker."""
             import numpy as _np
             import time as _time
@@ -574,7 +572,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             _np.random.seed(hash(config.get('agent_id', '')) % (2**32))
 
             role = config.get('role', 'general')
-            price = ctx.get('price', 450)
+            ctx.get('price', 450)
 
             # Role-specific analysis
             if role == 'risk':

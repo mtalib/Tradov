@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -32,22 +31,19 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
 import time
 import threading
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Optional, Any, Callable
 from enum import Enum
 from datetime import datetime, date, timedelta
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
-import requests
 
 # stumpy: Matrix Profile for pattern discovery in order flow time series
 try:
@@ -68,7 +64,6 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
@@ -180,7 +175,7 @@ class OptionsFlow:
                 return FlowDirection.BULLISH
         return FlowDirection.NEUTRAL
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -207,10 +202,10 @@ class GammaExposure:
     total_gex: float  # Net gamma exposure
     call_gex: float  # Call gamma exposure
     put_gex: float  # Put gamma exposure
-    gex_by_strike: Dict[float, float] = field(default_factory=dict)
-    flip_level: Optional[float] = None  # Price where GEX flips sign
-    support_levels: List[float] = field(default_factory=list)
-    resistance_levels: List[float] = field(default_factory=list)
+    gex_by_strike: dict[float, float] = field(default_factory=dict)
+    flip_level: float | None = None  # Price where GEX flips sign
+    support_levels: list[float] = field(default_factory=list)
+    resistance_levels: list[float] = field(default_factory=list)
 
     @property
     def is_positive(self) -> bool:
@@ -229,7 +224,7 @@ class GammaExposure:
         else:
             return "high_negative"  # Strong trending expected
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -259,7 +254,7 @@ class DarkPoolPrint:
         """Check if this is a significant print."""
         return self.size >= DARK_POOL_MIN_SIZE
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -312,7 +307,7 @@ class BaseTickDataSource(ABC):
     @abstractmethod
     def fetch_options_trades(
         self, symbol: str, lookback_minutes: int
-    ) -> List['OptionsFlow']:
+    ) -> list['OptionsFlow']:
         """
         Fetch recent options trade prints.
 
@@ -328,7 +323,7 @@ class BaseTickDataSource(ABC):
     @abstractmethod
     def fetch_dark_pool_prints(
         self, symbol: str, lookback_days: int
-    ) -> List['DarkPoolPrint']:
+    ) -> list['DarkPoolPrint']:
         """
         Fetch recent dark pool / block trade prints.
 
@@ -385,7 +380,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
     _PRICE_DIVISOR: float = 1_000_000_000.0
 
     # Aggressor-side codes → bid/ask labels
-    _SIDE_MAP: Dict[str, str] = {"A": "ask", "B": "bid"}
+    _SIDE_MAP: dict[str, str] = {"A": "ask", "B": "bid"}
 
     def __init__(self, api_key: str) -> None:
         """
@@ -412,7 +407,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
 
     def fetch_options_trades(
         self, symbol: str, lookback_minutes: int
-    ) -> List['OptionsFlow']:
+    ) -> list['OptionsFlow']:
         """
         Fetch OPRA options trades from Databento.
 
@@ -432,7 +427,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
                 end=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             )
 
-            flows: List[OptionsFlow] = []
+            flows: list[OptionsFlow] = []
             for record in data:
                 try:
                     flow = self._record_to_options_flow(record, symbol)
@@ -514,7 +509,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
 
     def fetch_dark_pool_prints(
         self, symbol: str, lookback_days: int
-    ) -> List['DarkPoolPrint']:
+    ) -> list['DarkPoolPrint']:
         """
         Fetch large equity block trades from Databento as dark-pool proxies.
 
@@ -534,7 +529,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
                 end=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             )
 
-            prints: List[DarkPoolPrint] = []
+            prints: list[DarkPoolPrint] = []
             for record in data:
                 try:
                     dp = self._record_to_dark_pool_print(record, symbol)
@@ -596,7 +591,7 @@ class FlowSummary:
     unusual_count: int
     bullish_flow_count: int
     bearish_flow_count: int
-    largest_trade: Optional[OptionsFlow] = None
+    largest_trade: OptionsFlow | None = None
 
     @property
     def sentiment(self) -> FlowSentiment:
@@ -628,7 +623,7 @@ class FlowSummary:
         else:
             return FlowSentiment.VERY_BEARISH
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -653,8 +648,8 @@ class MaxPainAnalysis:
     max_pain_strike: float
     current_price: float
     distance_to_max_pain: float  # percentage
-    call_pain_by_strike: Dict[float, float] = field(default_factory=dict)
-    put_pain_by_strike: Dict[float, float] = field(default_factory=dict)
+    call_pain_by_strike: dict[float, float] = field(default_factory=dict)
+    put_pain_by_strike: dict[float, float] = field(default_factory=dict)
     total_open_interest: int = 0
 
     @property
@@ -668,7 +663,7 @@ class MaxPainAnalysis:
         else:
             return "strong"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -709,9 +704,9 @@ class OrderFlowAnalyzer:
     def __init__(
         self,
         data_provider: Optional['OptionsDataProvider'] = None,
-        symbols: Optional[List[str]] = None,
+        symbols: list[str] | None = None,
         enable_realtime: bool = False,
-        tick_data_source: Optional[BaseTickDataSource] = None,
+        tick_data_source: BaseTickDataSource | None = None,
     ):
         """
         Initialize Order Flow Analyzer.
@@ -739,28 +734,28 @@ class OrderFlowAnalyzer:
         else:
             self._data_provider = None
         self.enable_realtime = enable_realtime
-        self._tick_data_source: Optional[BaseTickDataSource] = tick_data_source
+        self._tick_data_source: BaseTickDataSource | None = tick_data_source
 
         # Flow storage
-        self._flow_history: Dict[str, deque] = defaultdict(
+        self._flow_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=MAX_FLOW_HISTORY)
         )
-        self._dark_pool_history: Dict[str, deque] = defaultdict(
+        self._dark_pool_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=MAX_FLOW_HISTORY)
         )
 
         # Cached calculations
-        self._gex_cache: Dict[str, GammaExposure] = {}
-        self._gex_cache_time: Dict[str, datetime] = {}
-        self._max_pain_cache: Dict[Tuple[str, date], MaxPainAnalysis] = {}
+        self._gex_cache: dict[str, GammaExposure] = {}
+        self._gex_cache_time: dict[str, datetime] = {}
+        self._max_pain_cache: dict[tuple[str, date], MaxPainAnalysis] = {}
 
         # Callbacks
-        self._flow_callbacks: List[Callable[[OptionsFlow], None]] = []
-        self._unusual_callbacks: List[Callable[[OptionsFlow], None]] = []
+        self._flow_callbacks: list[Callable[[OptionsFlow], None]] = []
+        self._unusual_callbacks: list[Callable[[OptionsFlow], None]] = []
 
         # Threading
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         logger.info(f"OrderFlowAnalyzer initialized for symbols: {self.symbols}")
 
@@ -859,7 +854,7 @@ class OrderFlowAnalyzer:
         """
         call_gex = 0.0
         put_gex = 0.0
-        gex_by_strike: Dict[float, float] = {}
+        gex_by_strike: dict[float, float] = {}
 
         contract_multiplier = 100  # Standard options
 
@@ -908,9 +903,9 @@ class OrderFlowAnalyzer:
 
     def _find_gex_flip_level(
         self,
-        gex_by_strike: Dict[float, float],
+        gex_by_strike: dict[float, float],
         current_price: float
-    ) -> Optional[float]:
+    ) -> float | None:
         """Find the price level where GEX flips from positive to negative."""
         if not gex_by_strike:
             return None
@@ -930,10 +925,10 @@ class OrderFlowAnalyzer:
 
     def _find_gex_levels(
         self,
-        gex_by_strike: Dict[float, float],
+        gex_by_strike: dict[float, float],
         current_price: float,
         num_levels: int = 3
-    ) -> Tuple[List[float], List[float]]:
+    ) -> tuple[list[float], list[float]]:
         """Find support and resistance levels based on GEX concentration."""
         if not gex_by_strike:
             return [], []
@@ -948,7 +943,7 @@ class OrderFlowAnalyzer:
         support = []
         resistance = []
 
-        for strike, gex in sorted_strikes:
+        for strike, _gex in sorted_strikes:
             if strike < current_price:
                 support.append(strike)
             else:
@@ -966,7 +961,7 @@ class OrderFlowAnalyzer:
         min_premium: float = 50000,
         min_size: int = 100,
         lookback_minutes: int = 60
-    ) -> List[OptionsFlow]:
+    ) -> list[OptionsFlow]:
         """
         Detect unusual options activity for a symbol.
 
@@ -1117,7 +1112,7 @@ class OrderFlowAnalyzer:
         symbol: str,
         lookback_days: int = 5,
         min_value: float = 1_000_000
-    ) -> List[DarkPoolPrint]:
+    ) -> list[DarkPoolPrint]:
         """
         Get significant dark pool prints that serve as support/resistance.
 
@@ -1159,7 +1154,7 @@ class OrderFlowAnalyzer:
         symbol: str,
         current_price: float,
         lookback_days: int = 5
-    ) -> Tuple[List[float], List[float]]:
+    ) -> tuple[list[float], list[float]]:
         """
         Get support and resistance levels from dark pool prints.
 
@@ -1177,7 +1172,7 @@ class OrderFlowAnalyzer:
             return [], []
 
         # Group prints by price level (within $0.50)
-        price_clusters: Dict[float, float] = defaultdict(float)
+        price_clusters: dict[float, float] = defaultdict(float)
         for p in prints:
             rounded_price = round(p.price * 2) / 2  # Round to nearest $0.50
             price_clusters[rounded_price] += p.value
@@ -1201,7 +1196,7 @@ class OrderFlowAnalyzer:
     def calculate_max_pain(
         self,
         symbol: str,
-        expiry: Optional[date] = None
+        expiry: date | None = None
     ) -> MaxPainAnalysis:
         """
         Calculate max pain strike for an expiration.
@@ -1253,9 +1248,9 @@ class OrderFlowAnalyzer:
             call_oi = chain[chain['contract_type'].str.lower() == 'call'].set_index('strike')['open_interest']
             put_oi = chain[chain['contract_type'].str.lower() == 'put'].set_index('strike')['open_interest']
 
-            call_pain: Dict[float, float] = {}
-            put_pain: Dict[float, float] = {}
-            total_pain: Dict[float, float] = {}
+            call_pain: dict[float, float] = {}
+            put_pain: dict[float, float] = {}
+            total_pain: dict[float, float] = {}
 
             for test_price in strikes:
                 # Call pain: For each strike below test price, calls are ITM
@@ -1327,7 +1322,7 @@ class OrderFlowAnalyzer:
         symbol: str,
         lookback_minutes: int = 60,
         use_volume: bool = True
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calculate put/call ratio.
 
@@ -1391,7 +1386,7 @@ class OrderFlowAnalyzer:
     def get_comprehensive_analysis(
         self,
         symbol: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get comprehensive order flow analysis combining all metrics.
 
@@ -1538,7 +1533,7 @@ class OrderFlowAnalyzer:
         self,
         symbol: str,
         lookback_minutes: int
-    ) -> List['OptionsFlow']:
+    ) -> list['OptionsFlow']:
         """
         Fetch recent options trades via the configured tick data source.
 
@@ -1561,7 +1556,7 @@ class OrderFlowAnalyzer:
         self,
         symbol: str,
         lookback_days: int
-    ) -> List['DarkPoolPrint']:
+    ) -> list['DarkPoolPrint']:
         """
         Fetch dark pool / block trade prints via the configured tick data source.
 
@@ -1652,7 +1647,7 @@ class OrderFlowAnalyzer:
         symbol: str,
         window: int = 20,
         top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Use the stumpy Matrix Profile to find anomalous (discord) patterns in
         net delta order flow.  Discords have the highest 1-nearest-neighbour
@@ -1743,7 +1738,7 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
             logger.warning(f"Could not create OptionsDataProvider: {e}")
 
     # Wire Databento tick data source when key is present
-    tick_source: Optional[BaseTickDataSource] = None
+    tick_source: BaseTickDataSource | None = None
     databento_key = os.getenv("DATABENTO_API_KEY")
     if databento_key:
         if HAS_DATABENTO:
@@ -1771,36 +1766,18 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    import os
 
-    print("Order Flow Analyzer Test")
-    print("=" * 60)
 
     analyzer = OrderFlowAnalyzer(symbols=["SPY"])
 
     # Test GEX
-    print("\n=== Gamma Exposure ===")
     gex = analyzer.get_gamma_exposure("SPY")
-    print(f"Total GEX: ${gex.total_gex:,.0f}")
-    print(f"Regime: {gex.regime}")
-    print(f"Flip Level: ${gex.flip_level:.2f}" if gex.flip_level else "Flip Level: N/A")
 
     # Test Flow Summary
-    print("\n=== Flow Summary ===")
     flow = analyzer.get_flow_summary("SPY")
-    print(f"Net Premium: ${flow.net_premium:,.0f}")
-    print(f"P/C Ratio: {flow.put_call_ratio:.2f}")
-    print(f"Sentiment: {flow.sentiment.value}")
 
     # Test Max Pain
-    print("\n=== Max Pain ===")
     max_pain = analyzer.calculate_max_pain("SPY")
-    print(f"Max Pain: ${max_pain.max_pain_strike:.2f}")
-    print(f"Current: ${max_pain.current_price:.2f}")
-    print(f"Distance: {max_pain.distance_to_max_pain:.2f}%")
 
     # Test Comprehensive
-    print("\n=== Comprehensive Analysis ===")
     analysis = analyzer.get_comprehensive_analysis("SPY")
-    print(f"Overall Bias: {analysis['overall_bias']}")
-    print(f"Bias Score: {analysis['bias_score']}")

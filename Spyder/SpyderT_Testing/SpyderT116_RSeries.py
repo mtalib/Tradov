@@ -1,0 +1,462 @@
+#!/usr/bin/env python3
+"""
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: SpyderT116_RSeries.py
+Purpose: Unit tests for SpyderR01_BacktestEngine and SpyderR04_LiveEngine
+
+Coverage targets:
+    R01 BacktestEngine:
+        - @dataclass fix: BacktestConfig / BacktestTrade / BacktestResults all
+          accept keyword arguments (regression guard for missing-decorator bug)
+        - BacktestResults default_factory fields initialise correctly
+        - print_warning() does not raise
+    R04 LiveEngine:
+        - LiveTradingConfig has close_positions_on_emergency field
+        - emergency_stop_all sets emergency_stop flag and EMERGENCY_STOP mode
+        - emergency_stop_all calls _emergency_close_all_positions when configured
+        - execute_order rejected when engine is not in TRADING state
+        - execute_order rejected when daily trade limit reached
+        - execute_order rejected when order quantity exceeds position size limit
+        - _verify_broker_connection / _verify_account_access return False on
+          ordinary Exception (not BaseException) — regression guard for bare
+          except-BaseException bug
+        - KeyboardInterrupt propagates from _verify_broker_connection and
+          _verify_account_access (confirms except Exception, not BaseException)
+        - pause_trading / resume_trading state transitions
+        - get_execution_status returns expected top-level keys
+        - _cancel_all_pending_orders iterates a snapshot (no RuntimeError on
+          mutation of pending_orders during iteration)
+        - _should_trigger_stop_loss returns True when loss >= stop_loss_pct
+"""
+
+import unittest
+from datetime import datetime
+from unittest.mock import MagicMock
+
+# ---------------------------------------------------------------------------
+# Module-level setup: SpyderR01_BacktestEngine imports `Signal` from D01, but
+# D01 only exports `TradingSignal`.  Inject the alias before the module loads.
+# ---------------------------------------------------------------------------
+import Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy as _d01_mod
+if not hasattr(_d01_mod, "Signal"):
+    _d01_mod.Signal = _d01_mod.TradingSignal
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_broker(account_id: str = "ACC_001"):
+    """Return a MagicMock broker that satisfies LiveEngine's expectations."""
+    broker = MagicMock()
+    broker.is_connected.return_value = True
+    broker.get_account_info.return_value = {
+        "account_id": account_id,
+        "trading_enabled": True,
+        "buying_power": 100_000.0,
+    }
+    broker.get_positions.return_value = []
+    broker.heartbeat.return_value = True
+    broker.cancel_order.return_value = True
+    broker.submit_order.return_value = {"status": "filled", "fill_time_ms": 50, "slippage": 0.0}
+    broker.close_position.return_value = True
+    return broker
+
+
+def _make_mock_risk_manager():
+    rm = MagicMock()
+    rm.check_daily_limits.return_value = True
+    return rm
+
+
+def _make_live_engine(account_id: str = "ACC_001", close_on_emergency: bool = False):
+    """Construct a LiveEngine with mocked dependencies (no threads started)."""
+    from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import LiveEngine, LiveTradingConfig
+
+    config = LiveTradingConfig(
+        account_id=account_id,
+        close_positions_on_emergency=close_on_emergency,
+    )
+    broker = _make_mock_broker(account_id)
+    risk_manager = _make_mock_risk_manager()
+    engine = LiveEngine(broker, risk_manager, config)
+    return engine, broker, risk_manager
+
+
+# ---------------------------------------------------------------------------
+# R01 - BacktestEngine
+# ---------------------------------------------------------------------------
+
+
+class TestR01BacktestConfigDataclass(unittest.TestCase):
+    """BacktestConfig must be a proper dataclass (keyword-arg instantiation)."""
+
+    def _make_strategy_mock(self):
+        from unittest.mock import MagicMock
+        return MagicMock()
+
+    def test_backtest_config_keyword_instantiation(self):
+        """BacktestConfig(start_date=...) must not raise TypeError."""
+        import datetime as dt
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestConfig
+
+        cfg = BacktestConfig(
+            start_date=dt.date(2025, 1, 1),
+            end_date=dt.date(2025, 3, 31),
+            initial_capital=50_000.0,
+            strategies=[self._make_strategy_mock()],
+        )
+        self.assertEqual(cfg.initial_capital, 50_000.0)
+        self.assertFalse(cfg.partial_fills)
+
+    def test_backtest_config_defaults(self):
+        """Default parameters are accessible."""
+        import datetime as dt
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import (
+            BacktestConfig, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE,
+        )
+
+        cfg = BacktestConfig(
+            start_date=dt.date(2025, 1, 1),
+            end_date=dt.date(2025, 6, 30),
+            initial_capital=10_000.0,
+            strategies=[],
+        )
+        self.assertEqual(cfg.slippage, DEFAULT_SLIPPAGE)
+        self.assertEqual(cfg.commission, DEFAULT_COMMISSION)
+        self.assertTrue(cfg.debug_mode)
+
+
+class TestR01BacktestTradeDataclass(unittest.TestCase):
+    """BacktestTrade must be a proper dataclass."""
+
+    def test_backtest_trade_keyword_instantiation(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestTrade
+        from unittest.mock import MagicMock
+
+        signal_mock = MagicMock()
+        trade = BacktestTrade(
+            trade_id="T_001",
+            strategy="test_strat",
+            signal=signal_mock,
+            entry_time=datetime(2025, 3, 1, 10, 0),
+            entry_price=450.0,
+        )
+        self.assertEqual(trade.trade_id, "T_001")
+        self.assertEqual(trade.status, "OPEN")
+        self.assertTrue(trade.perfect_fill)
+
+    def test_backtest_trade_optional_fields_default_none(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestTrade
+        from unittest.mock import MagicMock
+
+        trade = BacktestTrade(
+            trade_id="T_002",
+            strategy="s",
+            signal=MagicMock(),
+            entry_time=datetime.now(),
+            entry_price=100.0,
+        )
+        self.assertIsNone(trade.exit_time)
+        self.assertIsNone(trade.exit_price)
+
+
+class TestR01BacktestResultsDataclass(unittest.TestCase):
+    """BacktestResults must initialise with default_factory fields."""
+
+    def test_results_default_instantiation(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
+
+        results = BacktestResults()
+        self.assertIsInstance(results, object)
+        self.assertIsInstance(results.trades, list)
+        self.assertIsInstance(results.logic_errors, list)
+        self.assertIsInstance(results.strategy_signals, dict)
+
+    def test_results_warning_field_is_non_empty_string(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults, BACKTEST_WARNING
+
+        results = BacktestResults()
+        self.assertIsInstance(results.warning, str)
+        self.assertGreater(len(results.warning), 0)
+        self.assertEqual(results.warning, BACKTEST_WARNING)
+
+    def test_results_is_not_realistic(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
+
+        self.assertFalse(BacktestResults().is_realistic)
+
+    def test_results_print_warning_does_not_raise(self):
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
+
+        try:
+            BacktestResults().print_warning()
+        except Exception as exc:
+            self.fail(f"print_warning() raised unexpectedly: {exc}")
+
+    def test_results_trades_lists_are_independent(self):
+        """Two BacktestResults instances must not share list references."""
+        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
+
+        r1 = BacktestResults()
+        r2 = BacktestResults()
+        r1.trades.append("trade_x")
+        self.assertEqual(r2.trades, [], "Shared default_factory list detected")
+
+
+# ---------------------------------------------------------------------------
+# R04 - LiveEngine / LiveTradingConfig
+# ---------------------------------------------------------------------------
+
+
+class TestR04LiveTradingConfig(unittest.TestCase):
+    """LiveTradingConfig must have close_positions_on_emergency."""
+
+    def test_close_positions_on_emergency_field_exists(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import LiveTradingConfig
+
+        cfg = LiveTradingConfig(account_id="ACC_001")
+        self.assertFalse(cfg.close_positions_on_emergency)
+
+    def test_close_positions_on_emergency_can_be_set_true(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import LiveTradingConfig
+
+        cfg = LiveTradingConfig(account_id="ACC_001", close_positions_on_emergency=True)
+        self.assertTrue(cfg.close_positions_on_emergency)
+
+
+class TestR04LiveEngineInstantiation(unittest.TestCase):
+    """LiveEngine.__init__ must complete without errors."""
+
+    def test_instantiation_sets_initial_state(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState, TradingMode
+
+        engine, _, _ = _make_live_engine()
+        self.assertEqual(engine.state, ExecutionState.INITIALIZED)
+        self.assertEqual(engine.mode, TradingMode.LIVE)
+        self.assertFalse(engine.emergency_stop)
+        self.assertEqual(engine.daily_trades, 0)
+
+    def test_config_stored_on_engine(self):
+        engine, _, _ = _make_live_engine(account_id="MY_ACCT")
+        self.assertEqual(engine.config.account_id, "MY_ACCT")
+
+
+class TestR04EmergencyStop(unittest.TestCase):
+    """emergency_stop_all must set flag, switch mode, and conditionally close positions."""
+
+    def test_emergency_stop_sets_emergency_flag(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        engine, broker, _ = _make_live_engine()
+        engine.emergency_stop_all("unit test")
+        self.assertTrue(engine.emergency_stop)
+        self.assertEqual(engine.mode, TradingMode.EMERGENCY_STOP)
+
+    def test_emergency_stop_without_close_does_not_call_close_position(self):
+        engine, broker, _ = _make_live_engine(close_on_emergency=False)
+        # Pre-populate active positions to confirm they are NOT closed
+        engine.active_positions = {"SPY": {"id": 1, "symbol": "SPY"}}
+        engine.emergency_stop_all("no-close test")
+        broker.close_position.assert_not_called()
+
+    def test_emergency_stop_with_close_calls_close_position(self):
+        engine, broker, _ = _make_live_engine(close_on_emergency=True)
+        engine.active_positions = {"SPY": {"id": 1, "symbol": "SPY"}}
+        engine.emergency_stop_all("close test")
+        broker.close_position.assert_called()
+
+    def test_emergency_stop_drains_order_queue(self):
+        """Order queue must be empty after emergency stop."""
+        engine, _, _ = _make_live_engine()
+        # Push dummy orders into the queue
+        for i in range(5):
+            engine.order_queue.put({"order_id": f"ORD_{i}"})
+        engine.emergency_stop_all("drain test")
+        self.assertTrue(engine.order_queue.empty())
+
+    def test_emergency_stop_returns_true(self):
+        engine, _, _ = _make_live_engine()
+        result = engine.emergency_stop_all("return test")
+        self.assertTrue(result)
+
+
+class TestR04ExecuteOrderRejections(unittest.TestCase):
+    """execute_order must reject orders for various safety-check failures."""
+
+    def test_rejected_when_not_in_trading_state(self):
+        """Engine starts in INITIALIZED — every order must be rejected."""
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        self.assertEqual(engine.state, ExecutionState.INITIALIZED)
+        result = engine.execute_order({"symbol": "SPY", "quantity": 1})
+        self.assertEqual(result["status"], "rejected")
+
+    def test_rejected_when_daily_trade_limit_reached(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        engine.daily_trades = engine.config.max_daily_trades  # exhaust limit
+        result = engine.execute_order({"symbol": "SPY", "quantity": 1})
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("daily", result["reason"].lower())
+
+    def test_rejected_when_position_size_too_large(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        oversized_qty = engine.config.max_position_size + 1
+        result = engine.execute_order({"symbol": "SPY", "quantity": oversized_qty})
+        self.assertEqual(result["status"], "rejected")
+
+
+class TestR04VerifyConnectionExceptionHandling(unittest.TestCase):
+    """_verify_broker_connection and _verify_account_access must catch Exception but
+    let KeyboardInterrupt / SystemExit propagate (i.e. they use except Exception,
+    not except BaseException)."""
+
+    def test_verify_broker_connection_returns_false_on_exception(self):
+        engine, broker, _ = _make_live_engine()
+        broker.is_connected.side_effect = RuntimeError("connection refused")
+        result = engine._verify_broker_connection()
+        self.assertFalse(result)
+
+    def test_verify_account_access_returns_false_on_exception(self):
+        engine, broker, _ = _make_live_engine()
+        broker.get_account_info.side_effect = RuntimeError("auth failure")
+        result = engine._verify_account_access()
+        self.assertFalse(result)
+
+    def test_verify_broker_connection_propagates_keyboard_interrupt(self):
+        """KeyboardInterrupt must NOT be swallowed by _verify_broker_connection."""
+        engine, broker, _ = _make_live_engine()
+        broker.is_connected.side_effect = KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            engine._verify_broker_connection()
+
+    def test_verify_account_access_propagates_keyboard_interrupt(self):
+        """KeyboardInterrupt must NOT be swallowed by _verify_account_access."""
+        engine, broker, _ = _make_live_engine()
+        broker.get_account_info.side_effect = KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            engine._verify_account_access()
+
+
+class TestR04PauseResume(unittest.TestCase):
+    """pause_trading / resume_trading must transition state correctly."""
+
+    def test_pause_from_trading_succeeds(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        self.assertTrue(engine.pause_trading())
+        self.assertEqual(engine.state, ExecutionState.PAUSED)
+
+    def test_pause_from_non_trading_fails(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        # State is INITIALIZED by default
+        self.assertFalse(engine.pause_trading())
+
+    def test_resume_from_paused_succeeds(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.PAUSED
+        self.assertTrue(engine.resume_trading())
+        self.assertEqual(engine.state, ExecutionState.TRADING)
+
+    def test_resume_from_non_paused_fails(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        self.assertFalse(engine.resume_trading())
+
+
+class TestR04GetExecutionStatus(unittest.TestCase):
+    """get_execution_status must return a dict with expected top-level keys."""
+
+    def test_status_structure(self):
+        engine, _, _ = _make_live_engine()
+        status = engine.get_execution_status()
+        for key in ("state", "mode", "emergency_stop", "session", "daily_stats",
+                    "pending_orders", "active_positions", "metrics"):
+            self.assertIn(key, status, f"Missing key: {key}")
+
+    def test_status_emergency_stop_is_false_initially(self):
+        engine, _, _ = _make_live_engine()
+        self.assertFalse(engine.get_execution_status()["emergency_stop"])
+
+    def test_status_reflects_emergency_flag(self):
+        engine, _, _ = _make_live_engine()
+        engine.emergency_stop_all("status test")
+        self.assertTrue(engine.get_execution_status()["emergency_stop"])
+
+
+class TestR04CancelPendingOrders(unittest.TestCase):
+    """_cancel_all_pending_orders must not raise even if dict is mutated."""
+
+    def test_cancel_all_clears_pending_orders(self):
+        engine, broker, _ = _make_live_engine()
+        engine.pending_orders = {
+            "ORD_001": {"order": {}, "result": None},
+            "ORD_002": {"order": {}, "result": None},
+        }
+        engine._cancel_all_pending_orders()
+        self.assertEqual(engine.pending_orders, {})
+        self.assertEqual(broker.cancel_order.call_count, 2)
+
+    def test_cancel_all_tolerates_broker_errors(self):
+        """Broker errors during cancellation must not abort the loop."""
+        engine, broker, _ = _make_live_engine()
+        broker.cancel_order.side_effect = RuntimeError("network error")
+        engine.pending_orders = {
+            "ORD_001": {"order": {}, "result": None},
+            "ORD_002": {"order": {}, "result": None},
+        }
+        try:
+            engine._cancel_all_pending_orders()
+        except RuntimeError:
+            self.fail("_cancel_all_pending_orders raised RuntimeError to the caller")
+
+
+class TestR04StopLoss(unittest.TestCase):
+    """_should_trigger_stop_loss must evaluate position correctly."""
+
+    def test_stop_triggered_when_loss_exceeds_threshold(self):
+        engine, _, _ = _make_live_engine()
+        position = {
+            "symbol": "SPY",
+            "entry_price": 100.0,
+            "current_price": 94.0,  # -6% loss
+            "stop_loss_pct": 0.05,   # 5% threshold
+        }
+        self.assertTrue(engine._should_trigger_stop_loss(position))
+
+    def test_stop_not_triggered_when_loss_below_threshold(self):
+        engine, _, _ = _make_live_engine()
+        position = {
+            "symbol": "SPY",
+            "entry_price": 100.0,
+            "current_price": 97.0,  # -3% loss
+            "stop_loss_pct": 0.05,   # 5% threshold
+        }
+        self.assertFalse(engine._should_trigger_stop_loss(position))
+
+    def test_stop_not_triggered_when_no_stop_loss_pct(self):
+        engine, _, _ = _make_live_engine()
+        position = {"symbol": "SPY", "entry_price": 100.0, "current_price": 50.0}
+        self.assertFalse(engine._should_trigger_stop_loss(position))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -89,7 +88,7 @@ def _make_ohlcv(n: int = 100, base_price: float = 450.0,
         prices.append(prices[-1] * (1 + trend + rng.normal(0, 0.005)))
 
     closes = np.array(prices)
-    noise = rng.uniform(0.1, vol, n)
+    rng.uniform(0.1, vol, n)
     highs = closes + rng.uniform(0.1, vol, n)
     lows = closes - rng.uniform(0.1, vol, n)
     opens = closes + rng.uniform(-vol / 2, vol / 2, n)
@@ -775,7 +774,7 @@ class TestGenerateSignals:
 
     def test_rsi_signal_on_oversold_data(self):
         # Build a declining series to push RSI < 30
-        prices = [450.0 - i * 1.5 for i in range(100)]
+        [450.0 - i * 1.5 for i in range(100)]
         df = _make_ohlcv(n=100, base_price=450.0, trend=-0.008, seed=10)
         # Force the close series to look oversold
         df["close"] = pd.Series([450.0 - i * 1.0 for i in range(100)])

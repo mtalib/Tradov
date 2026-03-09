@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -32,9 +31,9 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 from enum import Enum
 import threading
 import json
@@ -63,7 +62,7 @@ try:
     )
     from SpyderH_Storage.SpyderH07_PerformanceAnalytics import (
         PerformanceAnalytics,
-        TimeFrame
+        TimeFrame  # noqa: F401
     )
     LOCAL_IMPORTS = True
 except ImportError:
@@ -164,18 +163,18 @@ class SharpeDashboardReport:
     """Complete Sharpe dashboard report."""
     report_timestamp: datetime
     overall_metrics: UnifiedSharpeMetrics
-    strategy_metrics: Dict[str, UnifiedSharpeMetrics]
-    active_alerts: List[SharpeAlert]
-    historical_sharpe: List[Tuple[datetime, float]]
+    strategy_metrics: dict[str, UnifiedSharpeMetrics]
+    active_alerts: list[SharpeAlert]
+    historical_sharpe: list[tuple[datetime, float]]
 
     # Summary statistics
     num_strategies: int
     avg_sharpe_all_strategies: float
-    best_performing_strategy: Optional[str]
-    worst_performing_strategy: Optional[str]
+    best_performing_strategy: str | None
+    worst_performing_strategy: str | None
 
     # Recommendations
-    recommendations: List[str]
+    recommendations: list[str]
 
 # ==============================================================================
 # UNIFIED SHARPE DASHBOARD
@@ -230,9 +229,9 @@ class UnifiedSharpeDashboard:
         self._lock = threading.RLock()
 
         # Cache
-        self.metrics_cache: Dict[str, UnifiedSharpeMetrics] = {}
-        self.sharpe_history: Dict[str, List[Tuple[datetime, float]]] = {}
-        self.alert_history: List[SharpeAlert] = []
+        self.metrics_cache: dict[str, UnifiedSharpeMetrics] = {}
+        self.sharpe_history: dict[str, list[tuple[datetime, float]]] = {}
+        self.alert_history: list[SharpeAlert] = []
 
         # Alert thresholds
         self.degradation_threshold = SHARPE_DEGRADATION_THRESHOLD
@@ -246,9 +245,9 @@ class UnifiedSharpeDashboard:
         self,
         strategy_id: str,
         strategy_name: str,
-        returns: List[float],
-        equity_curve: List[float],
-        benchmark_returns: Optional[List[float]] = None
+        returns: list[float],
+        equity_curve: list[float],
+        benchmark_returns: list[float] | None = None
     ) -> UnifiedSharpeMetrics:
         """
         Calculate unified Sharpe metrics for a strategy.
@@ -338,7 +337,7 @@ class UnifiedSharpeDashboard:
 
     def generate_dashboard_report(
         self,
-        strategy_metrics: Optional[Dict[str, UnifiedSharpeMetrics]] = None
+        strategy_metrics: dict[str, UnifiedSharpeMetrics] | None = None
     ) -> SharpeDashboardReport:
         """
         Generate comprehensive dashboard report.
@@ -491,7 +490,7 @@ class UnifiedSharpeDashboard:
             self.alert_history.append(alert)
             self.logger.warning(f"Unrealistic Sharpe alert: {alert.message}")
 
-    def _get_active_alerts(self, hours: int = 24) -> List[SharpeAlert]:
+    def _get_active_alerts(self, hours: int = 24) -> list[SharpeAlert]:
         """Get active alerts from last N hours."""
         cutoff = datetime.now() - timedelta(hours=hours)
         return [
@@ -541,7 +540,7 @@ class UnifiedSharpeDashboard:
         self,
         strategy_id: str,
         current_sharpe: float
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """Calculate 30d, 90d, 1y average Sharpe."""
         history = self.sharpe_history.get(strategy_id, [])
 
@@ -574,7 +573,7 @@ class UnifiedSharpeDashboard:
         self,
         strategy_id: str,
         current_sharpe: float
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """Calculate 1d, 7d, 30d Sharpe changes."""
         history = self.sharpe_history.get(strategy_id, [])
 
@@ -584,7 +583,7 @@ class UnifiedSharpeDashboard:
         now = datetime.now()
 
         # Find historical values
-        def find_sharpe_at_date(days_ago: int) -> Optional[float]:
+        def find_sharpe_at_date(days_ago: int) -> float | None:
             target_date = now - timedelta(days=days_ago)
             # Find closest historical point
             closest = min(
@@ -607,9 +606,9 @@ class UnifiedSharpeDashboard:
     def _generate_recommendations(
         self,
         overall_metrics: UnifiedSharpeMetrics,
-        strategy_metrics: Dict[str, UnifiedSharpeMetrics],
-        active_alerts: List[SharpeAlert]
-    ) -> List[str]:
+        strategy_metrics: dict[str, UnifiedSharpeMetrics],
+        active_alerts: list[SharpeAlert]
+    ) -> list[str]:
         """Generate actionable recommendations."""
         recommendations = []
 
@@ -722,7 +721,7 @@ class UnifiedSharpeDashboard:
 
     def _create_overall_metrics(
         self,
-        strategy_metrics: Dict[str, UnifiedSharpeMetrics],
+        strategy_metrics: dict[str, UnifiedSharpeMetrics],
         overall_sharpe: float,
         avg_psr: float
     ) -> UnifiedSharpeMetrics:
@@ -730,7 +729,7 @@ class UnifiedSharpeDashboard:
         # This would be more sophisticated in production
         # For now, return a representative metric
         if strategy_metrics:
-            first_metric = next(iter(strategy_metrics.values()))
+            next(iter(strategy_metrics.values()))
             overall = self._create_empty_metrics("overall", "Overall Portfolio")
             overall.consensus_sharpe = overall_sharpe
             overall.probabilistic_sharpe.probabilistic_sharpe_ratio = avg_psr
@@ -747,7 +746,7 @@ class UnifiedSharpeDashboard:
         self,
         report: SharpeDashboardReport,
         format: str = "text",
-        output_path: Optional[Path] = None
+        output_path: Path | None = None
     ) -> str:
         """
         Export dashboard report.
@@ -864,7 +863,7 @@ class UnifiedSharpeDashboard:
     def compute_validated_sharpe(self, returns: pd.Series,
                                  rolling_window: int = 63,
                                  risk_free_rate: float = 0.05,
-                                 ) -> Dict[str, Any]:
+                                 ) -> dict[str, Any]:
         """
         Compute validated Sharpe ratio using empyrical library.
 
@@ -927,13 +926,9 @@ __all__ = [
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER K11 - Unified Sharpe Dashboard Test")
-    print("=" * 80)
 
     if not LOCAL_IMPORTS:
-        print("WARNING: Local imports not available. Limited functionality.")
-        print("Install required modules for full functionality.")
+        pass
     else:
         # Create dashboard
         dashboard = UnifiedSharpeDashboard()
@@ -946,7 +941,6 @@ if __name__ == "__main__":
             equity_curve1.append(equity_curve1[-1] * (1 + r))
 
         # Calculate metrics
-        print("\nCalculating unified Sharpe metrics...")
         metrics = dashboard.calculate_unified_metrics(
             strategy_id="strategy_1",
             strategy_name="Test Strategy 1",
@@ -954,18 +948,10 @@ if __name__ == "__main__":
             equity_curve=equity_curve1
         )
 
-        print(f"\nConsensus Sharpe Ratio: {metrics.consensus_sharpe:.3f}")
-        print(f"Status: {metrics.status.value}")
-        print(f"Probabilistic Sharpe: {metrics.probabilistic_sharpe.probabilistic_sharpe_ratio:.1%}")
-        print(f"Options-Adjusted: {metrics.options_adjusted_sharpe.adjusted_sharpe:.3f}")
 
         # Generate report
-        print("\nGenerating dashboard report...")
         report = dashboard.generate_dashboard_report()
 
         # Export as text
         text_report = dashboard.export_report(report, format="text")
-        print("\n" + text_report)
 
-    print("\n" + "=" * 80)
-    print("✅ Unified Sharpe Dashboard test completed!")

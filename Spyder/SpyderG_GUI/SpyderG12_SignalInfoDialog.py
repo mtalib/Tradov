@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -24,10 +23,9 @@ Description:
 # ==============================================================================
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QPalette
+from PySide6.QtGui import QCursor
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================

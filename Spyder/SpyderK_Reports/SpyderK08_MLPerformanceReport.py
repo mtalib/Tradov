@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,38 +22,26 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Any, Tuple, Union
-from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta
+from typing import Any
+from dataclasses import dataclass, asdict
 from enum import Enum
 import json
-from pathlib import Path
-from collections import defaultdict, deque
-import warnings
+from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pickle
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import seaborn as sns
 from scipy import stats
-from scipy.stats import ks_2samp, chi2_contingency
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 from sklearn.metrics import (
 
     accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix, classification_report,
-    mean_squared_error, mean_absolute_error, r2_score
+    roc_auc_score, mean_squared_error, mean_absolute_error, r2_score
 )
-from sklearn.model_selection import cross_val_score
 from sklearn.inspection import permutation_importance
 
 # ==============================================================================
@@ -120,17 +107,17 @@ class ModelPerformanceMetrics:
     model_id: str
     timestamp: datetime
     model_type: ModelType
-    accuracy: Optional[float] = None
-    precision: Optional[float] = None
-    recall: Optional[float] = None
-    f1_score: Optional[float] = None
-    auc_roc: Optional[float] = None
-    mse: Optional[float] = None
-    mae: Optional[float] = None
-    r2: Optional[float] = None
+    accuracy: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1_score: float | None = None
+    auc_roc: float | None = None
+    mse: float | None = None
+    mae: float | None = None
+    r2: float | None = None
     sample_size: int = 0
-    prediction_distribution: Optional[Dict[str, float]] = None
-    
+    prediction_distribution: dict[str, float] | None = None
+
 @dataclass
 class FeatureImportance:
     """Feature importance tracking"""
@@ -138,8 +125,8 @@ class FeatureImportance:
     importance_score: float
     rank: int
     importance_type: str  # 'gain', 'permutation', 'shap'
-    std_deviation: Optional[float] = None
-    
+    std_deviation: float | None = None
+
 @dataclass
 class ModelDriftReport:
     """Model drift detection report"""
@@ -150,9 +137,9 @@ class ModelDriftReport:
     test_statistic: float
     test_name: str
     severity: str  # 'warning', 'critical'
-    affected_features: List[str]
+    affected_features: list[str]
     recommendation: str
-    
+
 @dataclass
 class ABTestResult:
     """A/B test results between models"""
@@ -160,7 +147,7 @@ class ABTestResult:
     model_a_id: str
     model_b_id: str
     start_date: datetime
-    end_date: Optional[datetime]
+    end_date: datetime | None
     status: ABTestStatus
     metric_tested: str
     model_a_performance: float
@@ -168,21 +155,21 @@ class ABTestResult:
     sample_size_a: int
     sample_size_b: int
     p_value: float
-    confidence_interval: Tuple[float, float]
-    winner: Optional[str] = None
-    improvement: Optional[float] = None
-    
+    confidence_interval: tuple[float, float]
+    winner: str | None = None
+    improvement: float | None = None
+
 @dataclass
 class ModelComparisonReport:
     """Comprehensive model comparison"""
-    models: List[str]
+    models: list[str]
     comparison_date: datetime
     best_model: str
     metrics_comparison: pd.DataFrame
-    ranking: Dict[str, int]
-    recommendations: List[str]
-    visualizations: Dict[str, Any]
-    
+    ranking: dict[str, int]
+    recommendations: list[str]
+    visualizations: dict[str, Any]
+
 @dataclass
 class PerformanceTrend:
     """Performance trend analysis"""
@@ -193,18 +180,18 @@ class PerformanceTrend:
     trend_significance: float
     forecast_7_days: float
     forecast_30_days: float
-    
+
 @dataclass
 class MLPerformanceSummary:
     """Overall ML performance summary"""
     total_models: int
     active_models: int
-    models_in_production: List[str]
+    models_in_production: list[str]
     average_accuracy: float
-    models_with_drift: List[str]
-    recent_ab_tests: List[ABTestResult]
-    feature_importance_changes: Dict[str, List[str]]
-    recommendations: List[str]
+    models_with_drift: list[str]
+    recent_ab_tests: list[ABTestResult]
+    feature_importance_changes: dict[str, list[str]]
+    recommendations: list[str]
 
 # ==============================================================================
 # MAIN CLASS
@@ -212,81 +199,81 @@ class MLPerformanceSummary:
 class MLPerformanceReport:
     """
     Machine Learning model performance tracking and reporting engine.
-    
+
     This class provides comprehensive ML model performance analysis including
     accuracy tracking, drift detection, feature importance monitoring, A/B testing,
     and comparative analysis across multiple models.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
         dal: Data access layer for ML data
         ml_framework: ML framework for model access
-        
+
     Example:
         >>> ml_report = MLPerformanceReport()
         >>> performance = ml_report.track_model_performance('model_001')
         >>> drift_report = ml_report.detect_model_drift('model_001')
         >>> ml_report.generate_ml_report('ml_performance_report.html')
     """
-    
+
     def __init__(self):
         """Initialize the ML performance report module."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.dal = get_data_access_layer()
         self.ml_framework = MLFramework()
-        
+
         # Performance tracking
-        self.performance_history: Dict[str, List[ModelPerformanceMetrics]] = defaultdict(list)
-        self.feature_importance_history: Dict[str, List[Dict[str, FeatureImportance]]] = defaultdict(list)
-        self.drift_reports: List[ModelDriftReport] = []
-        self.ab_tests: Dict[str, ABTestResult] = {}
-        
+        self.performance_history: dict[str, list[ModelPerformanceMetrics]] = defaultdict(list)
+        self.feature_importance_history: dict[str, list[dict[str, FeatureImportance]]] = defaultdict(list)
+        self.drift_reports: list[ModelDriftReport] = []
+        self.ab_tests: dict[str, ABTestResult] = {}
+
         # Configuration
         self.tracking_window = 90  # days
         self.evaluation_frequency = 'daily'
-        
+
         self.logger.info("MLPerformanceReport initialized")
-        
+
     # ==========================================================================
     # PERFORMANCE TRACKING METHODS
     # ==========================================================================
-    def track_model_performance(self, model_id: str, 
-                              evaluation_data: Optional[pd.DataFrame] = None) -> ModelPerformanceMetrics:
+    def track_model_performance(self, model_id: str,
+                              evaluation_data: pd.DataFrame | None = None) -> ModelPerformanceMetrics:
         """
         Track performance metrics for a model.
-        
+
         Args:
             model_id: Unique model identifier
             evaluation_data: Data to evaluate model on (if None, uses recent data)
-            
+
         Returns:
             ModelPerformanceMetrics object
         """
         try:
             # Get model
             model_info = self.ml_framework.get_model(model_id)
-            
+
             if not model_info:
                 self.logger.error(f"Model {model_id} not found")
                 return None
-                
+
             # Get evaluation data if not provided
             if evaluation_data is None:
                 evaluation_data = self._get_recent_evaluation_data(model_id)
-                
+
             if evaluation_data.empty:
                 self.logger.warning(f"No evaluation data available for {model_id}")
                 return None
-                
+
             # Make predictions
             X = evaluation_data.drop(columns=['target'], errors='ignore')
             y_true = evaluation_data.get('target')
-            
+
             model = model_info['model']
             y_pred = model.predict(X)
-            
+
             # Calculate metrics based on model type
             model_type = ModelType(model_info.get('model_type', 'classification'))
             metrics = ModelPerformanceMetrics(
@@ -295,59 +282,59 @@ class MLPerformanceReport:
                 model_type=model_type,
                 sample_size=len(y_true)
             )
-            
+
             if model_type == ModelType.CLASSIFICATION:
                 metrics.accuracy = accuracy_score(y_true, y_pred)
                 metrics.precision = precision_score(y_true, y_pred, average='weighted')
                 metrics.recall = recall_score(y_true, y_pred, average='weighted')
                 metrics.f1_score = f1_score(y_true, y_pred, average='weighted')
-                
+
                 # ROC-AUC for binary classification
                 if len(np.unique(y_true)) == 2:
                     if hasattr(model, 'predict_proba'):
                         y_proba = model.predict_proba(X)[:, 1]
                         metrics.auc_roc = roc_auc_score(y_true, y_proba)
-                        
+
                 # Prediction distribution
                 unique, counts = np.unique(y_pred, return_counts=True)
-                metrics.prediction_distribution = dict(zip(unique, counts / len(y_pred)))
-                
+                metrics.prediction_distribution = dict(zip(unique, counts / len(y_pred), strict=False))
+
             elif model_type == ModelType.REGRESSION:
                 metrics.mse = mean_squared_error(y_true, y_pred)
                 metrics.mae = mean_absolute_error(y_true, y_pred)
                 metrics.r2 = r2_score(y_true, y_pred)
-                
+
             # Store in history
             self.performance_history[model_id].append(metrics)
-            
+
             # Trim old history
             cutoff_date = datetime.now() - timedelta(days=self.tracking_window)
             self.performance_history[model_id] = [
                 m for m in self.performance_history[model_id]
                 if m.timestamp > cutoff_date
             ]
-            
+
             # Save to database
             self._save_performance_metrics(metrics)
-            
+
             return metrics
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'track_model_performance',
                 'model_id': model_id
             })
             return None
-            
-    def track_feature_importance(self, model_id: str, 
-                               method: str = 'permutation') -> List[FeatureImportance]:
+
+    def track_feature_importance(self, model_id: str,
+                               method: str = 'permutation') -> list[FeatureImportance]:
         """
         Track feature importance for a model.
-        
+
         Args:
             model_id: Model identifier
             method: Method to calculate importance ('permutation', 'native', 'shap')
-            
+
         Returns:
             List of FeatureImportance objects
         """
@@ -356,32 +343,32 @@ class MLPerformanceReport:
             model_info = self.ml_framework.get_model(model_id)
             if not model_info:
                 return []
-                
+
             model = model_info['model']
             feature_names = model_info.get('feature_names', [])
-            
+
             # Get evaluation data
             eval_data = self._get_recent_evaluation_data(model_id)
             if eval_data.empty:
                 return []
-                
+
             X = eval_data.drop(columns=['target'], errors='ignore')
             y = eval_data.get('target')
-            
+
             importance_scores = {}
-            
+
             if method == 'permutation':
                 # Permutation importance
                 perm_importance = permutation_importance(
                     model, X, y, n_repeats=10, random_state=42
                 )
-                
+
                 for idx, feature in enumerate(feature_names[:len(perm_importance.importances_mean)]):
                     importance_scores[feature] = {
                         'score': perm_importance.importances_mean[idx],
                         'std': perm_importance.importances_std[idx]
                     }
-                    
+
             elif method == 'native' and hasattr(model, 'feature_importances_'):
                 # Native feature importance (e.g., tree-based models)
                 for idx, feature in enumerate(feature_names[:len(model.feature_importances_)]):
@@ -389,14 +376,14 @@ class MLPerformanceReport:
                         'score': model.feature_importances_[idx],
                         'std': None
                     }
-                    
+
             # Create FeatureImportance objects
             sorted_features = sorted(
                 importance_scores.items(),
                 key=lambda x: x[1]['score'],
                 reverse=True
             )
-            
+
             feature_importance_list = []
             for rank, (feature, scores) in enumerate(sorted_features[:TOP_FEATURES_TO_TRACK], 1):
                 fi = FeatureImportance(
@@ -407,78 +394,78 @@ class MLPerformanceReport:
                     std_deviation=scores.get('std')
                 )
                 feature_importance_list.append(fi)
-                
+
             # Store in history
             timestamp = datetime.now()
             self.feature_importance_history[model_id].append({
                 'timestamp': timestamp,
                 'features': feature_importance_list
             })
-            
+
             # Detect significant changes
             self._detect_feature_importance_changes(model_id)
-            
+
             return feature_importance_list
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'track_feature_importance',
                 'model_id': model_id
             })
             return []
-            
+
     # ==========================================================================
     # DRIFT DETECTION METHODS
     # ==========================================================================
-    def detect_model_drift(self, model_id: str) -> Optional[ModelDriftReport]:
+    def detect_model_drift(self, model_id: str) -> ModelDriftReport | None:
         """
         Detect various types of model drift.
-        
+
         Args:
             model_id: Model identifier
-            
+
         Returns:
             ModelDriftReport if drift detected, None otherwise
         """
         try:
             # Get historical data
             history = self.performance_history.get(model_id, [])
-            
+
             if len(history) < 10:  # Need sufficient history
                 self.logger.warning(f"Insufficient history for drift detection: {model_id}")
                 return None
-                
+
             # Split into reference and recent periods
             mid_point = len(history) // 2
             reference_metrics = history[:mid_point]
             recent_metrics = history[mid_point:]
-            
+
             # Check performance drift
             perf_drift = self._detect_performance_drift(reference_metrics, recent_metrics)
             if perf_drift:
                 return perf_drift
-                
+
             # Check prediction drift
             pred_drift = self._detect_prediction_drift(reference_metrics, recent_metrics)
             if pred_drift:
                 return pred_drift
-                
+
             # Check data drift (requires access to input features)
             data_drift = self._detect_data_drift(model_id)
             if data_drift:
                 return data_drift
-                
+
             return None
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'detect_model_drift',
                 'model_id': model_id
             })
             return None
-            
-    def _detect_performance_drift(self, reference: List[ModelPerformanceMetrics],
-                                 recent: List[ModelPerformanceMetrics]) -> Optional[ModelDriftReport]:
+
+    def _detect_performance_drift(self, reference: list[ModelPerformanceMetrics],
+                                 recent: list[ModelPerformanceMetrics]) -> ModelDriftReport | None:
         """Detect performance-based drift."""
         try:
             # Get primary metric based on model type
@@ -490,21 +477,21 @@ class MLPerformanceReport:
                 ref_scores = [m.r2 for m in reference if m.r2 is not None]
                 rec_scores = [m.r2 for m in recent if m.r2 is not None]
                 metric_name = 'r2_score'
-                
+
             if not ref_scores or not rec_scores:
                 return None
-                
+
             # Statistical test for performance difference
             t_stat, p_value = stats.ttest_ind(ref_scores, rec_scores)
-            
+
             # Check if performance dropped significantly
             ref_mean = np.mean(ref_scores)
             rec_mean = np.mean(rec_scores)
             performance_drop = (ref_mean - rec_mean) / ref_mean
-            
+
             if p_value < DRIFT_WARNING_THRESHOLD and performance_drop > PERFORMANCE_DROP_THRESHOLD:
                 severity = 'critical' if p_value < DRIFT_CRITICAL_THRESHOLD else 'warning'
-                
+
                 return ModelDriftReport(
                     model_id=reference[0].model_id,
                     drift_type=DriftType.PERFORMANCE_DRIFT,
@@ -516,50 +503,50 @@ class MLPerformanceReport:
                     affected_features=[metric_name],
                     recommendation=f"Performance degraded by {performance_drop:.1%}. Consider retraining or investigating data quality."
                 )
-                
+
             return None
-            
+
         except Exception:
             return None
-            
-    def _detect_prediction_drift(self, reference: List[ModelPerformanceMetrics],
-                               recent: List[ModelPerformanceMetrics]) -> Optional[ModelDriftReport]:
+
+    def _detect_prediction_drift(self, reference: list[ModelPerformanceMetrics],
+                               recent: list[ModelPerformanceMetrics]) -> ModelDriftReport | None:
         """Detect drift in prediction distributions."""
         try:
             # Get prediction distributions
             ref_dists = [m.prediction_distribution for m in reference if m.prediction_distribution]
             rec_dists = [m.prediction_distribution for m in recent if m.prediction_distribution]
-            
+
             if not ref_dists or not rec_dists:
                 return None
-                
+
             # Aggregate distributions
             ref_agg = defaultdict(float)
             rec_agg = defaultdict(float)
-            
+
             for dist in ref_dists:
                 for key, value in dist.items():
                     ref_agg[key] += value / len(ref_dists)
-                    
+
             for dist in rec_dists:
                 for key, value in dist.items():
                     rec_agg[key] += value / len(rec_dists)
-                    
+
             # Chi-square test for distribution difference
             all_keys = sorted(set(ref_agg.keys()) | set(rec_agg.keys()))
             ref_values = [ref_agg.get(k, 0) for k in all_keys]
             rec_values = [rec_agg.get(k, 0) for k in all_keys]
-            
+
             # Scale to counts for chi-square
             total_samples = 1000
             ref_counts = [int(v * total_samples) for v in ref_values]
             rec_counts = [int(v * total_samples) for v in rec_values]
-            
+
             chi2, p_value = stats.chisquare(rec_counts, ref_counts)
-            
+
             if p_value < DRIFT_WARNING_THRESHOLD:
                 severity = 'critical' if p_value < DRIFT_CRITICAL_THRESHOLD else 'warning'
-                
+
                 return ModelDriftReport(
                     model_id=reference[0].model_id,
                     drift_type=DriftType.PREDICTION_DRIFT,
@@ -571,39 +558,39 @@ class MLPerformanceReport:
                     affected_features=['prediction_distribution'],
                     recommendation="Prediction distribution has shifted. Investigate feature changes or concept drift."
                 )
-                
+
             return None
-            
+
         except Exception:
             return None
-            
-    def _detect_data_drift(self, model_id: str) -> Optional[ModelDriftReport]:
+
+    def _detect_data_drift(self, model_id: str) -> ModelDriftReport | None:
         """Detect drift in input data distributions."""
         # This would require access to historical feature distributions
         # Placeholder for now
         return None
-        
+
     # ==========================================================================
     # A/B TESTING METHODS
     # ==========================================================================
     def start_ab_test(self, model_a_id: str, model_b_id: str,
-                     metric: str = 'f1_score', test_id: Optional[str] = None) -> str:
+                     metric: str = 'f1_score', test_id: str | None = None) -> str:
         """
         Start an A/B test between two models.
-        
+
         Args:
             model_a_id: First model ID
             model_b_id: Second model ID
             metric: Metric to compare
             test_id: Optional test ID (generated if not provided)
-            
+
         Returns:
             Test ID
         """
         try:
             if test_id is None:
                 test_id = f"ab_test_{model_a_id}_{model_b_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                
+
             ab_test = ABTestResult(
                 test_id=test_id,
                 model_a_id=model_a_id,
@@ -619,12 +606,12 @@ class MLPerformanceReport:
                 p_value=1.0,
                 confidence_interval=(0.0, 0.0)
             )
-            
+
             self.ab_tests[test_id] = ab_test
             self.logger.info(f"Started A/B test: {test_id}")
-            
+
             return test_id
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'start_ab_test',
@@ -632,14 +619,14 @@ class MLPerformanceReport:
                 'model_b': model_b_id
             })
             return ""
-            
+
     def update_ab_test(self, test_id: str) -> ABTestResult:
         """
         Update A/B test results with latest data.
-        
+
         Args:
             test_id: Test identifier
-            
+
         Returns:
             Updated ABTestResult
         """
@@ -647,50 +634,50 @@ class MLPerformanceReport:
             if test_id not in self.ab_tests:
                 self.logger.error(f"Test {test_id} not found")
                 return None
-                
+
             ab_test = self.ab_tests[test_id]
-            
+
             if ab_test.status != ABTestStatus.RUNNING:
                 return ab_test
-                
+
             # Get performance metrics for both models
             model_a_metrics = [
                 m for m in self.performance_history[ab_test.model_a_id]
                 if m.timestamp >= ab_test.start_date
             ]
-            
+
             model_b_metrics = [
                 m for m in self.performance_history[ab_test.model_b_id]
                 if m.timestamp >= ab_test.start_date
             ]
-            
+
             if not model_a_metrics or not model_b_metrics:
                 return ab_test
-                
+
             # Extract metric values
             metric_name = ab_test.metric_tested
             a_values = [getattr(m, metric_name) for m in model_a_metrics if getattr(m, metric_name) is not None]
             b_values = [getattr(m, metric_name) for m in model_b_metrics if getattr(m, metric_name) is not None]
-            
+
             if len(a_values) < MIN_SAMPLE_SIZE_AB_TEST or len(b_values) < MIN_SAMPLE_SIZE_AB_TEST:
                 return ab_test
-                
+
             # Update performance
             ab_test.model_a_performance = np.mean(a_values)
             ab_test.model_b_performance = np.mean(b_values)
             ab_test.sample_size_a = len(a_values)
             ab_test.sample_size_b = len(b_values)
-            
+
             # Statistical test
             t_stat, p_value = stats.ttest_ind(a_values, b_values)
             ab_test.p_value = p_value
-            
+
             # Confidence interval for difference
             diff = ab_test.model_b_performance - ab_test.model_a_performance
             se = np.sqrt(np.var(a_values)/len(a_values) + np.var(b_values)/len(b_values))
             ci_margin = 1.96 * se  # 95% confidence
             ab_test.confidence_interval = (diff - ci_margin, diff + ci_margin)
-            
+
             # Determine winner if significant
             if p_value < 0.05:
                 if ab_test.model_b_performance > ab_test.model_a_performance:
@@ -699,45 +686,45 @@ class MLPerformanceReport:
                 else:
                     ab_test.winner = ab_test.model_a_id
                     ab_test.improvement = (ab_test.model_a_performance - ab_test.model_b_performance) / ab_test.model_b_performance
-                    
+
                 ab_test.status = ABTestStatus.COMPLETED
                 ab_test.end_date = datetime.now()
-                
+
             return ab_test
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'update_ab_test',
                 'test_id': test_id
             })
             return None
-            
+
     # ==========================================================================
     # MODEL COMPARISON METHODS
     # ==========================================================================
-    def compare_models(self, model_ids: List[str]) -> ModelComparisonReport:
+    def compare_models(self, model_ids: list[str]) -> ModelComparisonReport:
         """
         Compare multiple models across various metrics.
-        
+
         Args:
             model_ids: List of model IDs to compare
-            
+
         Returns:
             ModelComparisonReport with comprehensive comparison
         """
         try:
             # Collect metrics for all models
             comparison_data = []
-            
+
             for model_id in model_ids:
                 # Get latest metrics
                 history = self.performance_history.get(model_id, [])
                 if not history:
                     continue
-                    
+
                 latest = history[-1]
                 avg_metrics = self._calculate_average_metrics(history[-30:])  # Last 30 days
-                
+
                 model_data = {
                     'model_id': model_id,
                     'latest_accuracy': latest.accuracy,
@@ -749,36 +736,36 @@ class MLPerformanceReport:
                     'stability': self._calculate_stability(history[-30:]),
                     'trend': self._calculate_trend(history[-30:])
                 }
-                
+
                 comparison_data.append(model_data)
-                
+
             if not comparison_data:
                 return self._empty_comparison_report(model_ids)
-                
+
             # Create comparison DataFrame
             comparison_df = pd.DataFrame(comparison_data)
-            
+
             # Rank models
             ranking_metrics = ['avg_f1', 'avg_accuracy', 'stability']
             rankings = {}
-            
+
             for metric in ranking_metrics:
                 sorted_models = comparison_df.sort_values(metric, ascending=False)['model_id'].tolist()
                 for rank, model_id in enumerate(sorted_models, 1):
                     if model_id not in rankings:
                         rankings[model_id] = 0
                     rankings[model_id] += rank
-                    
+
             # Overall ranking (lower is better)
             final_ranking = sorted(rankings.items(), key=lambda x: x[1])
             best_model = final_ranking[0][0] if final_ranking else None
-            
+
             # Generate visualizations
             visualizations = self._generate_comparison_charts(comparison_df)
-            
+
             # Generate recommendations
             recommendations = self._generate_model_recommendations(comparison_df, rankings)
-            
+
             return ModelComparisonReport(
                 models=model_ids,
                 comparison_date=datetime.now(),
@@ -788,27 +775,27 @@ class MLPerformanceReport:
                 recommendations=recommendations,
                 visualizations=visualizations
             )
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'compare_models',
                 'model_ids': model_ids
             })
             return self._empty_comparison_report(model_ids)
-            
+
     # ==========================================================================
     # REPORTING METHODS
     # ==========================================================================
     def generate_ml_report(self, output_path: str, format: str = 'html',
-                         include_models: Optional[List[str]] = None) -> bool:
+                         include_models: list[str] | None = None) -> bool:
         """
         Generate comprehensive ML performance report.
-        
+
         Args:
             output_path: Path for output file
             format: Output format ('html', 'pdf', 'json')
             include_models: Specific models to include (None for all)
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -816,34 +803,34 @@ class MLPerformanceReport:
             # Get models to report on
             if include_models is None:
                 include_models = list(self.performance_history.keys())
-                
+
             # Gather data for each model
             model_reports = []
-            
+
             for model_id in include_models:
                 # Get performance history
                 perf_history = self.performance_history.get(model_id, [])
                 if not perf_history:
                     continue
-                    
+
                 # Get feature importance
                 feature_history = self.feature_importance_history.get(model_id, [])
-                
+
                 # Get drift reports
                 model_drift_reports = [
                     d for d in self.drift_reports
                     if d.model_id == model_id
                 ]
-                
+
                 # Get A/B tests
                 model_ab_tests = [
                     test for test in self.ab_tests.values()
                     if model_id in [test.model_a_id, test.model_b_id]
                 ]
-                
+
                 # Calculate trends
                 trends = self._analyze_performance_trends(perf_history)
-                
+
                 model_report = {
                     'model_id': model_id,
                     'latest_performance': asdict(perf_history[-1]) if perf_history else None,
@@ -856,15 +843,15 @@ class MLPerformanceReport:
                         model_id, perf_history, model_drift_reports
                     )
                 }
-                
+
                 model_reports.append(model_report)
-                
+
             # Generate summary
             summary = self._generate_ml_summary(model_reports)
-            
+
             # Generate visualizations
             charts = self._generate_ml_charts(model_reports)
-            
+
             # Compile report
             report_data = {
                 'report_date': datetime.now().isoformat(),
@@ -873,7 +860,7 @@ class MLPerformanceReport:
                 'charts': charts,
                 'generated_by': 'SpyderK08_MLPerformanceReport'
             }
-            
+
             # Export report
             if format == 'html':
                 return self._export_html_ml_report(report_data, output_path)
@@ -884,7 +871,7 @@ class MLPerformanceReport:
             else:
                 self.logger.error(f"Unsupported format: {format}")
                 return False
-                
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'generate_ml_report',
@@ -892,7 +879,7 @@ class MLPerformanceReport:
                 'format': format
             })
             return False
-            
+
     # ==========================================================================
     # PRIVATE HELPER METHODS
     # ==========================================================================
@@ -904,138 +891,138 @@ class MLPerformanceReport:
             return pd.DataFrame()
         except Exception:
             return pd.DataFrame()
-            
+
     def _save_performance_metrics(self, metrics: ModelPerformanceMetrics) -> None:
         """Save performance metrics to database."""
         try:
             self.dal.save_ml_performance(asdict(metrics))
         except Exception as e:
             self.logger.error(f"Error saving metrics: {e}")
-            
+
     def _detect_feature_importance_changes(self, model_id: str) -> None:
         """Detect significant changes in feature importance."""
         try:
             history = self.feature_importance_history.get(model_id, [])
-            
+
             if len(history) < 2:
                 return
-                
+
             # Compare recent to previous
             recent = history[-1]['features']
             previous = history[-2]['features']
-            
+
             recent_dict = {f.feature_name: f for f in recent}
             previous_dict = {f.feature_name: f for f in previous}
-            
+
             # Check for significant changes
             for feature_name, recent_fi in recent_dict.items():
                 if feature_name in previous_dict:
                     prev_fi = previous_dict[feature_name]
-                    
+
                     # Check rank change
                     rank_change = abs(recent_fi.rank - prev_fi.rank)
-                    
+
                     # Check importance change
                     if prev_fi.importance_score > 0:
                         importance_change = abs(
-                            (recent_fi.importance_score - prev_fi.importance_score) / 
+                            (recent_fi.importance_score - prev_fi.importance_score) /
                             prev_fi.importance_score
                         )
                     else:
                         importance_change = 1.0
-                        
+
                     if importance_change > FEATURE_IMPORTANCE_CHANGE_THRESHOLD or rank_change > 5:
                         self.logger.warning(
                             f"Significant feature importance change for {feature_name} in {model_id}: "
                             f"Rank {prev_fi.rank} -> {recent_fi.rank}, "
                             f"Importance {prev_fi.importance_score:.3f} -> {recent_fi.importance_score:.3f}"
                         )
-                        
+
         except Exception as e:
             self.logger.error(f"Error detecting feature changes: {e}")
-            
-    def _calculate_average_metrics(self, metrics_list: List[ModelPerformanceMetrics]) -> Dict[str, float]:
+
+    def _calculate_average_metrics(self, metrics_list: list[ModelPerformanceMetrics]) -> dict[str, float]:
         """Calculate average metrics from a list."""
         if not metrics_list:
             return {}
-            
+
         avg_metrics = {}
-        
+
         # Define metrics to average
         metric_names = ['accuracy', 'precision', 'recall', 'f1_score', 'auc_roc', 'mse', 'mae', 'r2']
-        
+
         for metric in metric_names:
             values = [getattr(m, metric) for m in metrics_list if getattr(m, metric) is not None]
             if values:
                 avg_metrics[metric] = np.mean(values)
-                
+
         return avg_metrics
-        
-    def _calculate_stability(self, metrics_list: List[ModelPerformanceMetrics]) -> float:
+
+    def _calculate_stability(self, metrics_list: list[ModelPerformanceMetrics]) -> float:
         """Calculate stability score (lower std dev = higher stability)."""
         if not metrics_list:
             return 0.0
-            
+
         # Use primary metric
         if metrics_list[0].model_type == ModelType.CLASSIFICATION:
             values = [m.f1_score for m in metrics_list if m.f1_score is not None]
         else:
             values = [m.r2 for m in metrics_list if m.r2 is not None]
-            
+
         if len(values) < 2:
             return 1.0
-            
+
         # Convert std dev to stability score (0-1, higher is better)
         std_dev = np.std(values)
         stability = 1.0 / (1.0 + std_dev * 10)  # Scale factor
-        
+
         return stability
-        
-    def _calculate_trend(self, metrics_list: List[ModelPerformanceMetrics]) -> str:
+
+    def _calculate_trend(self, metrics_list: list[ModelPerformanceMetrics]) -> str:
         """Calculate performance trend."""
         if len(metrics_list) < 3:
             return 'stable'
-            
+
         # Use primary metric
         if metrics_list[0].model_type == ModelType.CLASSIFICATION:
             values = [m.f1_score for m in metrics_list if m.f1_score is not None]
         else:
             values = [m.r2 for m in metrics_list if m.r2 is not None]
-            
+
         if len(values) < 3:
             return 'stable'
-            
+
         # Simple linear regression for trend
         x = np.arange(len(values))
         slope, _ = np.polyfit(x, values, 1)
-        
+
         if slope > 0.001:
             return 'improving'
         elif slope < -0.001:
             return 'degrading'
         else:
             return 'stable'
-            
-    def _analyze_performance_trends(self, history: List[ModelPerformanceMetrics]) -> Dict[str, PerformanceTrend]:
+
+    def _analyze_performance_trends(self, history: list[ModelPerformanceMetrics]) -> dict[str, PerformanceTrend]:
         """Analyze performance trends for various metrics."""
         trends = {}
-        
+
         if len(history) < 7:
             return trends
-            
+
         # Analyze each metric
         metrics_to_analyze = ['accuracy', 'f1_score', 'precision', 'recall']
-        
+
         for metric_name in metrics_to_analyze:
             values = [getattr(m, metric_name) for m in history if getattr(m, metric_name) is not None]
-            
+
             if len(values) < 7:
                 continue
-                
+
             # Calculate trend
             x = np.arange(len(values))
             slope, intercept = np.polyfit(x, values, 1)
-            
+
             # Determine direction
             if slope > 0.001:
                 direction = 'improving'
@@ -1043,17 +1030,17 @@ class MLPerformanceReport:
                 direction = 'degrading'
             else:
                 direction = 'stable'
-                
+
             # Simple forecast
             forecast_7 = intercept + slope * (len(values) + 7)
             forecast_30 = intercept + slope * (len(values) + 30)
-            
+
             # Calculate significance (R-squared)
             y_pred = slope * x + intercept
             ss_res = np.sum((values - y_pred) ** 2)
             ss_tot = np.sum((values - np.mean(values)) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-            
+
             trends[metric_name] = PerformanceTrend(
                 model_id=history[0].model_id,
                 metric=metric_name,
@@ -1063,20 +1050,20 @@ class MLPerformanceReport:
                 forecast_7_days=max(0, min(1, forecast_7)),  # Bound between 0 and 1
                 forecast_30_days=max(0, min(1, forecast_30))
             )
-            
+
         return trends
-        
-    def _format_feature_importance(self, feature_history: List[Dict]) -> Dict[str, Any]:
+
+    def _format_feature_importance(self, feature_history: list[dict]) -> dict[str, Any]:
         """Format feature importance history for reporting."""
         if not feature_history:
             return {}
-            
+
         # Get latest
         latest = feature_history[-1]
-        
+
         # Track changes over time
         feature_trends = defaultdict(list)
-        
+
         for entry in feature_history[-10:]:  # Last 10 entries
             for fi in entry['features']:
                 feature_trends[fi.feature_name].append({
@@ -1084,35 +1071,35 @@ class MLPerformanceReport:
                     'rank': fi.rank,
                     'importance': fi.importance_score
                 })
-                
+
         return {
             'latest': [asdict(f) for f in latest['features'][:10]],  # Top 10
             'trends': dict(feature_trends)
         }
-        
+
     def _generate_model_specific_recommendations(self, model_id: str,
-                                               perf_history: List[ModelPerformanceMetrics],
-                                               drift_reports: List[ModelDriftReport]) -> List[str]:
+                                               perf_history: list[ModelPerformanceMetrics],
+                                               drift_reports: list[ModelDriftReport]) -> list[str]:
         """Generate recommendations for a specific model."""
         recommendations = []
-        
+
         # Check performance
         if perf_history:
             latest = perf_history[-1]
-            
+
             if latest.model_type == ModelType.CLASSIFICATION:
                 if latest.accuracy and latest.accuracy < ACCURACY_THRESHOLD:
                     recommendations.append(
                         f"Accuracy ({latest.accuracy:.2f}) below threshold ({ACCURACY_THRESHOLD}). "
                         "Consider feature engineering or model architecture changes."
                     )
-                    
+
                 if latest.f1_score and latest.f1_score < F1_THRESHOLD:
                     recommendations.append(
                         f"F1 score ({latest.f1_score:.2f}) below threshold ({F1_THRESHOLD}). "
                         "Check class imbalance or adjust classification threshold."
                     )
-                    
+
         # Check for drift
         if drift_reports:
             recent_drift = [d for d in drift_reports if (datetime.now() - d.detection_date).days < 7]
@@ -1121,7 +1108,7 @@ class MLPerformanceReport:
                     f"Recent drift detected ({recent_drift[0].drift_type.value}). "
                     "Immediate retraining recommended."
                 )
-                
+
         # Check stability
         if len(perf_history) > 10:
             stability = self._calculate_stability(perf_history[-10:])
@@ -1130,50 +1117,50 @@ class MLPerformanceReport:
                     "Model showing high variance in performance. "
                     "Consider ensemble methods or regularization."
                 )
-                
+
         return recommendations
-        
-    def _generate_ml_summary(self, model_reports: List[Dict]) -> MLPerformanceSummary:
+
+    def _generate_ml_summary(self, model_reports: list[dict]) -> MLPerformanceSummary:
         """Generate overall ML performance summary."""
         total_models = len(model_reports)
-        
+
         # Active models (with recent data)
         active_models = sum(
             1 for report in model_reports
             if report.get('performance_history')
         )
-        
+
         # Models in production (placeholder logic)
         models_in_production = [
             report['model_id'] for report in model_reports
             if report.get('latest_performance')
         ]
-        
+
         # Average accuracy
         accuracies = []
         for report in model_reports:
             if report.get('latest_performance', {}).get('accuracy'):
                 accuracies.append(report['latest_performance']['accuracy'])
-                
+
         avg_accuracy = np.mean(accuracies) if accuracies else 0.0
-        
+
         # Models with drift
         models_with_drift = list(set(
             report['model_id'] for report in model_reports
             if report.get('drift_reports')
         ))
-        
+
         # Recent A/B tests
         all_ab_tests = []
         for report in model_reports:
             all_ab_tests.extend(report.get('ab_tests', []))
-            
+
         recent_ab_tests = sorted(
             all_ab_tests,
             key=lambda x: x.get('start_date', ''),
             reverse=True
         )[:5]
-        
+
         # Feature importance changes
         feature_changes = {}
         for report in model_reports:
@@ -1181,26 +1168,26 @@ class MLPerformanceReport:
                 feature_changes[report['model_id']] = list(
                     report['feature_importance']['trends'].keys()
                 )[:5]
-                
+
         # Overall recommendations
         recommendations = []
-        
+
         if avg_accuracy < 0.7:
             recommendations.append(
                 "Overall model accuracy below 70%. Review data quality and feature engineering."
             )
-            
+
         if len(models_with_drift) > total_models * 0.3:
             recommendations.append(
                 f"{len(models_with_drift)} models showing drift. "
                 "Consider implementing automated retraining pipeline."
             )
-            
+
         if active_models < total_models * 0.8:
             recommendations.append(
                 "Several models inactive. Review model lifecycle management."
             )
-            
+
         return MLPerformanceSummary(
             total_models=total_models,
             active_models=active_models,
@@ -1211,17 +1198,17 @@ class MLPerformanceReport:
             feature_importance_changes=feature_changes,
             recommendations=recommendations
         )
-        
-    def _generate_comparison_charts(self, comparison_df: pd.DataFrame) -> Dict[str, Any]:
+
+    def _generate_comparison_charts(self, comparison_df: pd.DataFrame) -> dict[str, Any]:
         """Generate model comparison charts."""
         charts = {}
-        
+
         try:
             # Model performance radar chart
             metrics = ['avg_accuracy', 'avg_f1', 'stability']
-            
+
             fig_radar = go.Figure()
-            
+
             for _, row in comparison_df.iterrows():
                 values = [row.get(m, 0) for m in metrics]
                 fig_radar.add_trace(go.Scatterpolar(
@@ -1230,7 +1217,7 @@ class MLPerformanceReport:
                     fill='toself',
                     name=row['model_id']
                 ))
-                
+
             fig_radar.update_layout(
                 polar=dict(
                     radialaxis=dict(
@@ -1241,22 +1228,22 @@ class MLPerformanceReport:
                 title='Model Performance Comparison',
                 showlegend=True
             )
-            
+
             charts['performance_radar'] = fig_radar.to_json()
-            
+
             # Performance over time (if we have history)
             # This would show line charts of metrics over time
-            
+
         except Exception as e:
             self.logger.error(f"Error generating comparison charts: {e}")
-            
+
         return charts
-        
+
     def _generate_model_recommendations(self, comparison_df: pd.DataFrame,
-                                      rankings: Dict[str, int]) -> List[str]:
+                                      rankings: dict[str, int]) -> list[str]:
         """Generate recommendations based on model comparison."""
         recommendations = []
-        
+
         # Find underperforming models
         low_performers = comparison_df[comparison_df['avg_f1'] < 0.6]['model_id'].tolist()
         if low_performers:
@@ -1264,10 +1251,10 @@ class MLPerformanceReport:
                 f"Models {', '.join(low_performers)} showing poor performance. "
                 "Consider deprecation or significant improvements."
             )
-            
+
         # Check for similar models
         # This would require more sophisticated similarity analysis
-        
+
         # Suggest best model for production
         if rankings:
             best_model = min(rankings, key=rankings.get)
@@ -1275,23 +1262,23 @@ class MLPerformanceReport:
                 f"Model {best_model} shows best overall performance. "
                 "Consider promoting to primary production model."
             )
-            
+
         return recommendations
-        
-    def _generate_ml_charts(self, model_reports: List[Dict]) -> Dict[str, Any]:
+
+    def _generate_ml_charts(self, model_reports: list[dict]) -> dict[str, Any]:
         """Generate ML performance charts."""
         charts = {}
-        
+
         try:
             # Overall accuracy distribution
             accuracies = []
             model_names = []
-            
+
             for report in model_reports:
                 if report.get('latest_performance', {}).get('accuracy'):
                     accuracies.append(report['latest_performance']['accuracy'])
                     model_names.append(report['model_id'])
-                    
+
             if accuracies:
                 fig_acc = go.Figure(data=[go.Bar(
                     x=model_names,
@@ -1299,16 +1286,16 @@ class MLPerformanceReport:
                     text=[f'{a:.2f}' for a in accuracies],
                     textposition='auto'
                 )])
-                
+
                 fig_acc.update_layout(
                     title='Model Accuracy Comparison',
                     xaxis_title='Model',
                     yaxis_title='Accuracy',
                     yaxis=dict(range=[0, 1])
                 )
-                
+
                 charts['accuracy_comparison'] = fig_acc.to_json()
-                
+
             # Drift timeline
             drift_data = []
             for report in model_reports:
@@ -1319,10 +1306,10 @@ class MLPerformanceReport:
                         'type': drift['drift_type'],
                         'severity': drift['severity']
                     })
-                    
+
             if drift_data:
                 df_drift = pd.DataFrame(drift_data)
-                
+
                 fig_drift = px.scatter(
                     df_drift,
                     x='date',
@@ -1331,15 +1318,15 @@ class MLPerformanceReport:
                     symbol='type',
                     title='Model Drift Detection Timeline'
                 )
-                
+
                 charts['drift_timeline'] = fig_drift.to_json()
-                
+
         except Exception as e:
             self.logger.error(f"Error generating ML charts: {e}")
-            
+
         return charts
-        
-    def _empty_comparison_report(self, model_ids: List[str]) -> ModelComparisonReport:
+
+    def _empty_comparison_report(self, model_ids: list[str]) -> ModelComparisonReport:
         """Return empty comparison report."""
         return ModelComparisonReport(
             models=model_ids,
@@ -1350,8 +1337,8 @@ class MLPerformanceReport:
             recommendations=["Insufficient data for model comparison"],
             visualizations={}
         )
-        
-    def _export_html_ml_report(self, report_data: Dict[str, Any], output_path: str) -> bool:
+
+    def _export_html_ml_report(self, report_data: dict[str, Any], output_path: str) -> bool:
         """Export ML report as HTML."""
         try:
             # HTML template
@@ -1384,7 +1371,7 @@ class MLPerformanceReport:
                 <div class="container">
                     <h1>Machine Learning Performance Report</h1>
                     <p>Generated: {report_date}</p>
-                    
+
                     <div class="summary">
                         <h2>Executive Summary</h2>
                         <div class="metric-card">
@@ -1404,16 +1391,16 @@ class MLPerformanceReport:
                             <div class="metric-label">Models with Drift</div>
                         </div>
                     </div>
-                    
+
                     <h2>Overall Recommendations</h2>
                     {overall_recommendations}
-                    
+
                     <h2>Model Performance Details</h2>
                     {model_details}
-                    
+
                     <h2>Recent A/B Tests</h2>
                     {ab_tests}
-                    
+
                     <div class="chart-container">
                         <h3>Performance Visualizations</h3>
                         <p>Interactive charts are available in the full dashboard.</p>
@@ -1422,22 +1409,22 @@ class MLPerformanceReport:
             </body>
             </html>
             """
-            
+
             # Extract summary data
             summary = report_data['summary']
-            
+
             # Format recommendations
             overall_recommendations = '\n'.join([
                 f'<div class="recommendation">{rec}</div>'
                 for rec in summary.get('recommendations', [])
             ])
-            
+
             # Format model details
             model_details = self._format_model_details_html(report_data.get('model_reports', []))
-            
+
             # Format A/B tests
             ab_tests = self._format_ab_tests_html(summary.get('recent_ab_tests', []))
-            
+
             # Fill template
             html_content = html_template.format(
                 report_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -1449,47 +1436,47 @@ class MLPerformanceReport:
                 model_details=model_details,
                 ab_tests=ab_tests
             )
-            
+
             # Write to file
             with open(output_path, 'w') as f:
                 f.write(html_content)
-                
+
             self.logger.info(f"ML report exported to {output_path}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error exporting HTML report: {e}")
             return False
-            
-    def _export_pdf_ml_report(self, report_data: Dict[str, Any], output_path: str) -> bool:
+
+    def _export_pdf_ml_report(self, report_data: dict[str, Any], output_path: str) -> bool:
         """Export ML report as PDF."""
         self.logger.warning("PDF export not yet implemented")
         return False
-        
-    def _export_json_ml_report(self, report_data: Dict[str, Any], output_path: str) -> bool:
+
+    def _export_json_ml_report(self, report_data: dict[str, Any], output_path: str) -> bool:
         """Export ML report as JSON."""
         try:
             with open(output_path, 'w') as f:
                 json.dump(report_data, f, indent=2, default=str)
-                
+
             self.logger.info(f"JSON report exported to {output_path}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error exporting JSON report: {e}")
             return False
-            
-    def _format_model_details_html(self, model_reports: List[Dict]) -> str:
+
+    def _format_model_details_html(self, model_reports: list[dict]) -> str:
         """Format model details as HTML."""
         if not model_reports:
             return "<p>No model data available.</p>"
-            
+
         html = ""
-        
+
         for report in model_reports:
             model_id = report['model_id']
             latest_perf = report.get('latest_performance', {})
-            
+
             # Determine performance class
             accuracy = latest_perf.get('accuracy', 0)
             if accuracy >= 0.8:
@@ -1498,7 +1485,7 @@ class MLPerformanceReport:
                 perf_class = 'performance-warning'
             else:
                 perf_class = 'performance-bad'
-                
+
             html += f"""
             <div class="model-section">
                 <h3>{model_id}</h3>
@@ -1525,7 +1512,7 @@ class MLPerformanceReport:
                     </tr>
                 </table>
             """
-            
+
             # Add drift alerts
             drift_reports = report.get('drift_reports', [])
             if drift_reports:
@@ -1533,7 +1520,7 @@ class MLPerformanceReport:
                 for drift in drift_reports[:3]:  # Show max 3
                     html += f"{drift['drift_type']} (p={drift['p_value']:.3f}) "
                 html += '</div>'
-                
+
             # Add recommendations
             recommendations = report.get('recommendations', [])
             if recommendations:
@@ -1541,16 +1528,16 @@ class MLPerformanceReport:
                 for rec in recommendations[:3]:  # Show max 3
                     html += f'<li>{rec}</li>'
                 html += '</ul>'
-                
+
             html += '</div>'
-            
+
         return html
-        
-    def _format_ab_tests_html(self, ab_tests: List[Dict]) -> str:
+
+    def _format_ab_tests_html(self, ab_tests: list[dict]) -> str:
         """Format A/B test results as HTML."""
         if not ab_tests:
             return "<p>No recent A/B tests.</p>"
-            
+
         html = """
         <table>
             <tr>
@@ -1564,17 +1551,17 @@ class MLPerformanceReport:
                 <th>Status</th>
             </tr>
         """
-        
+
         for test in ab_tests:
             winner = test.get('winner', 'N/A')
             improvement = test.get('improvement', 0)
-            
+
             # Format improvement
             if improvement:
                 improvement_str = f"{improvement*100:+.1f}%"
             else:
                 improvement_str = "-"
-                
+
             html += f"""
             <tr>
                 <td>{test['test_id'][:20]}...</td>
@@ -1587,7 +1574,7 @@ class MLPerformanceReport:
                 <td>{test['status']}</td>
             </tr>
             """
-            
+
         html += "</table>"
         return html
 
@@ -1597,7 +1584,7 @@ class MLPerformanceReport:
 def get_ml_performance_report() -> MLPerformanceReport:
     """
     Get singleton instance of MLPerformanceReport.
-    
+
     Returns:
         MLPerformanceReport instance
     """
@@ -1609,7 +1596,7 @@ def get_ml_performance_report() -> MLPerformanceReport:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_ml_report_instance: Optional[MLPerformanceReport] = None
+_ml_report_instance: MLPerformanceReport | None = None
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -1617,27 +1604,22 @@ _ml_report_instance: Optional[MLPerformanceReport] = None
 if __name__ == "__main__":
     # Example usage
     ml_report = get_ml_performance_report()
-    
+
     # Track performance for a model
     model_id = "price_predictor_v2"
     performance = ml_report.track_model_performance(model_id)
-    
+
     if performance:
-        print(f"Model {model_id} Performance:")
-        print(f"  Accuracy: {performance.accuracy:.3f}")
-        print(f"  F1 Score: {performance.f1_score:.3f}")
-        
+        pass
+
     # Check for drift
     drift_report = ml_report.detect_model_drift(model_id)
-    
+
     if drift_report:
-        print(f"\nDrift Detected!")
-        print(f"  Type: {drift_report.drift_type.value}")
-        print(f"  Severity: {drift_report.severity}")
-        print(f"  Recommendation: {drift_report.recommendation}")
-        
+        pass
+
     # Generate report
     success = ml_report.generate_ml_report("ml_performance_report.html", format='html')
-    
+
     if success:
-        print("\nML Performance report generated successfully")
+        pass

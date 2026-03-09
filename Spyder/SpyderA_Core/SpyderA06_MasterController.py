@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,27 +22,21 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import json
 import logging
 import os
 import sys
 import threading
 import time
-from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import time as dt_time
-from datetime import timedelta
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pickle
 import signal
 import traceback
 import psutil
@@ -121,14 +114,14 @@ class ModuleInfo:
     group: str
     name: str
     status: ModuleStatus
-    dependencies: List[str]
+    dependencies: list[str]
     priority: int  # Startup priority (lower = earlier)
-    health_check: Optional[Callable] = None
+    health_check: Callable | None = None
     restart_attempts: int = 0
-    last_restart: Optional[datetime] = None
+    last_restart: datetime | None = None
     error_count: int = 0
-    last_error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    last_error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -140,9 +133,9 @@ class SystemConfig:
     portfolio_value: float
     max_daily_loss: float
     max_positions: int
-    risk_limits: Dict[str, float]
-    ib_gateway: Dict[str, Any]
-    database: Dict[str, Any]
+    risk_limits: dict[str, float]
+    ib_gateway: dict[str, Any]
+    database: dict[str, Any]
     ml_models_path: str
     data_path: str
     logs_path: str
@@ -161,7 +154,7 @@ class HealthMetrics:
     memory_usage: float
     disk_usage: float
     network_latency: float
-    module_health: Dict[str, str]
+    module_health: dict[str, str]
     active_positions: int
     daily_pnl: float
     risk_utilization: float
@@ -173,7 +166,7 @@ class StartupSequence:
     """Startup sequence definition"""
 
     phase: str
-    modules: List[str]
+    modules: list[str]
     parallel: bool
     timeout: int  # seconds
     critical: bool  # If True, failure stops startup
@@ -201,7 +194,7 @@ class MasterController:
         self.trading_enabled = False
 
         # Module registry
-        self.modules: Dict[str, ModuleInfo] = {}
+        self.modules: dict[str, ModuleInfo] = {}
         self._initialize_module_registry()
 
         # Component references
@@ -231,7 +224,7 @@ class MasterController:
 
         # Try to load from file
         if os.path.exists(config_path):
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 config_data = yaml.safe_load(f)
         else:
             # Use default configuration
@@ -259,7 +252,7 @@ class MasterController:
             enable_risk_management=config_data.get("enable_risk_management", True),
         )
 
-    def _get_default_config(self) -> Dict[str, Any]:
+    def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration"""
         return {
             "trading_mode": "paper",
@@ -438,7 +431,7 @@ class MasterController:
             self._emergency_shutdown()
             return False
 
-    def _get_startup_sequence(self) -> List[StartupSequence]:
+    def _get_startup_sequence(self) -> list[StartupSequence]:
         """Define the startup sequence"""
 
         return [
@@ -587,7 +580,7 @@ class MasterController:
 
         except Exception as e:
             logger.error(f"Phase {phase.phase} failed: {e}")
-            return False if phase.critical else True
+            return not phase.critical
 
     def _start_module(self, module_id: str) -> bool:
         """Start an individual module"""
@@ -630,7 +623,7 @@ class MasterController:
             module.error_count += 1
             return False
 
-    def _initialize_component(self, module_id: str) -> Optional[Any]:
+    def _initialize_component(self, module_id: str) -> Any | None:
         """Initialize actual component (placeholder for real implementation)"""
 
         # This is where you would actually import and initialize the module
@@ -702,7 +695,7 @@ class MasterController:
             self._emergency_shutdown()
             return False
 
-    def _get_shutdown_sequence(self) -> List[Dict[str, Any]]:
+    def _get_shutdown_sequence(self) -> list[dict[str, Any]]:
         """Get shutdown sequence (reverse of startup)"""
 
         return [
@@ -738,7 +731,7 @@ class MasterController:
             },
         ]
 
-    def _shutdown_phase(self, module_ids: List[str]):
+    def _shutdown_phase(self, module_ids: list[str]):
         """Shutdown a phase of modules"""
 
         for module_id in module_ids:
@@ -1217,7 +1210,7 @@ class MasterController:
     # EVENT HANDLING
     # ==================================================================================
 
-    def _broadcast_event(self, event_type: str, data: Dict[str, Any]):
+    def _broadcast_event(self, event_type: str, data: dict[str, Any]):
         """Broadcast event to all modules"""
 
         if "I06_AgentMessageBus" in self.components:
@@ -1239,7 +1232,7 @@ class MasterController:
     # PUBLIC API
     # ==================================================================================
 
-    def get_system_status(self) -> Dict[str, Any]:
+    def get_system_status(self) -> dict[str, Any]:
         """Get current system status"""
 
         return {
@@ -1263,7 +1256,7 @@ class MasterController:
             },
         }
 
-    def get_module_status(self, module_id: str) -> Optional[Dict[str, Any]]:
+    def get_module_status(self, module_id: str) -> dict[str, Any] | None:
         """Get status of specific module"""
 
         if module_id not in self.modules:
@@ -1319,7 +1312,7 @@ class MasterController:
 # ==================================================================================
 
 
-def create_master_controller(config_path: Optional[str] = None) -> MasterController:
+def create_master_controller(config_path: str | None = None) -> MasterController:
     """Factory function to create master controller"""
 
     if config_path:
@@ -1338,33 +1331,16 @@ if __name__ == "__main__":
     Main entry point for Spyder Autonomous Trading System
     """
 
-    print(
-        """
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                                                              ║
-    ║         🕷️  SPYDER AUTONOMOUS TRADING SYSTEM 🕷️              ║
-    ║                                                              ║
-    ║                     Version 1.0                              ║
-    ║                                                              ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """
-    )
 
     # Create master controller
     master = create_master_controller()
 
     # Start system
     if master.start_system():
-        print("\n✅ System started successfully!")
-        print("\nSystem Status:")
         status = master.get_system_status()
-        for key, value in status.items():
-            print(f"  {key}: {value}")
+        for _key, _value in status.items():
+            pass
 
-        print("\n📊 Commands:")
-        print("  - Press Ctrl+C to shutdown")
-        print("  - Check logs at: ./logs/spyder_master.log")
-        print("  - Dashboard at: http://localhost:8080 (if GUI enabled)")
 
         try:
             # Keep the system running
@@ -1386,9 +1362,7 @@ if __name__ == "__main__":
                         master.handle_market_close()
 
         except KeyboardInterrupt:
-            print("\n\nShutdown requested...")
             master.shutdown_system("User interrupted")
 
     else:
-        print("\n❌ System failed to start. Check logs for details.")
         sys.exit(1)

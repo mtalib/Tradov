@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -12,8 +11,8 @@ Last Updated: 2025-09-04 Time: 17:00:00
 
 Module Description:
     Iron Butterfly strategy implementation focused on strategy-specific entry/exit logic
-    and ATM-centered market analysis. Generic multi-leg construction, order management, 
-    and Greeks calculations have been moved to SpyderD32_MultiLegStrategyCoordinator for 
+    and ATM-centered market analysis. Generic multi-leg construction, order management,
+    and Greeks calculations have been moved to SpyderD32_MultiLegStrategyCoordinator for
     consolidation and code reuse across all multi-leg strategies.
 
 CONSOLIDATION UPDATE:
@@ -21,7 +20,7 @@ CONSOLIDATION UPDATE:
     This module now focuses exclusively on Iron Butterfly specific trading logic:
     - Iron Butterfly entry criteria and neutral market outlook analysis
     - ATM strike selection methodology specific to Iron Butterfly
-    - Profit targets and stop loss rules for Iron Butterfly  
+    - Profit targets and stop loss rules for Iron Butterfly
     - Adjustment techniques specific to Iron Butterfly strategy
     - Exit criteria and time decay management for Iron Butterfly
 
@@ -30,14 +29,14 @@ Key Features:
     • ATM strike selection with equidistant wing placement
     • Profit targets at 25% of maximum profit potential
     • Stop loss at delta breach or 75% of max profit
-    • Time decay optimization (close at 10-15 DTE)  
+    • Time decay optimization (close at 10-15 DTE)
     • Iron Butterfly specific adjustment techniques
     • Integration with D26 for multi-leg execution
 
 Removed Infrastructure:
     • Generic multi-leg order management - Now in D26
     • Combined Greeks calculations - Now in D26
-    • Multi-leg position sizing - Now in D26  
+    • Multi-leg position sizing - Now in D26
     • Generic P&L calculations - Now in D26
     • Position group validation - Now in D26
 """
@@ -45,12 +44,9 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import json
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union
-from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum, auto
 
 # ==============================================================================
@@ -70,7 +66,7 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
 # Integration with consolidated multi-leg coordinator
 try:
     from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
-        MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator
+        MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator  # noqa: F401
     )
     MULTILEG_COORDINATOR_AVAILABLE = True
 except ImportError:
@@ -78,7 +74,7 @@ except ImportError:
 
 # Integration with event management
 try:
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+    from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType  # noqa: F401
     EVENT_MANAGER_AVAILABLE = True
 except ImportError:
     EVENT_MANAGER_AVAILABLE = False
@@ -166,15 +162,15 @@ class IronButterflyAnalysis:
     """Iron Butterfly market analysis results"""
     market_suitable: bool
     neutral_outlook_confirmed: bool
-    atm_analysis: Dict[str, float]
-    iv_analysis: Dict[str, float]
-    time_decay_analysis: Dict[str, float]
-    expected_move_analysis: Dict[str, float]
-    optimal_wing_width: Optional[float]
-    atm_strike_recommendation: Optional[float]
+    atm_analysis: dict[str, float]
+    iv_analysis: dict[str, float]
+    time_decay_analysis: dict[str, float]
+    expected_move_analysis: dict[str, float]
+    optimal_wing_width: float | None
+    atm_strike_recommendation: float | None
     setup_recommendation: str
     confidence_score: float
-    risk_warnings: List[str]
+    risk_warnings: list[str]
 
 # ==============================================================================
 # MAIN IRON BUTTERFLY STRATEGY CLASS
@@ -182,10 +178,10 @@ class IronButterflyAnalysis:
 class IronButterflyStrategy(BaseStrategy):
     """
     Iron Butterfly Strategy with consolidated multi-leg infrastructure.
-    
+
     Focuses exclusively on Iron Butterfly specific trading logic while leveraging
     the consolidated multi-leg coordinator (D26) for infrastructure operations.
-    
+
     This implementation handles:
     - Iron Butterfly specific entry criteria (neutral outlook)
     - ATM strike selection and wing placement
@@ -193,11 +189,11 @@ class IronButterflyStrategy(BaseStrategy):
     - Strategy-specific adjustments
     - Exit criteria and time decay optimization
     """
-    
-    def __init__(self, event_manager: EventManager = None, 
-                 risk_profile: RiskProfile = None, config: Dict[str, Any] = None):
+
+    def __init__(self, event_manager: EventManager = None,
+                 risk_profile: RiskProfile = None, config: dict[str, Any] = None):
         """Initialize Iron Butterfly strategy"""
-        
+
         # Initialize base strategy
         super().__init__(
             name="Iron Butterfly Strategy",
@@ -206,10 +202,10 @@ class IronButterflyStrategy(BaseStrategy):
             risk_profile=risk_profile,
             config=config or {}
         )
-        
+
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Initialize multi-leg coordinator integration
         self.multileg_coordinator = None
         if MULTILEG_COORDINATOR_AVAILABLE:
@@ -220,7 +216,7 @@ class IronButterflyStrategy(BaseStrategy):
                 self.logger.error(f"Failed to connect to coordinator: {e}")
         else:
             self.logger.warning("MultiLegStrategyCoordinator not available")
-        
+
         # Iron Butterfly specific configuration
         self.min_iv_rank = self.config.get('min_iv_rank', IB_MIN_IV_RANK)
         self.profit_target = self.config.get('profit_target', IB_PROFIT_TARGET)
@@ -229,12 +225,12 @@ class IronButterflyStrategy(BaseStrategy):
         self.max_dte = self.config.get('max_dte', IB_MAX_DTE)
         self.wing_width = self.config.get('wing_width', IB_OPTIMAL_WING_WIDTH)
         self.atm_tolerance = self.config.get('atm_tolerance', IB_ATM_TOLERANCE)
-        
+
         # Strategy state
-        self.current_analysis: Optional[IronButterflyAnalysis] = None
-        self.active_setups: List[IronButterflySetup] = []
+        self.current_analysis: IronButterflyAnalysis | None = None
+        self.active_setups: list[IronButterflySetup] = []
         self.strategy_state = IronButterflyState.ANALYZING
-        
+
         # Performance tracking
         self.performance_metrics = {
             'total_ib_trades': 0,
@@ -248,50 +244,50 @@ class IronButterflyStrategy(BaseStrategy):
             'worst_ib_trade': 0.0,
             'avg_time_to_profit': 0.0
         }
-        
+
         self.logger.info("Iron Butterfly Strategy initialized with D26 integration")
-    
+
     # ==========================================================================
     # IRON BUTTERFLY SPECIFIC MARKET ANALYSIS
     # ==========================================================================
-    
-    async def analyze_iron_butterfly_opportunity(self, market_data: pd.DataFrame, 
+
+    async def analyze_iron_butterfly_opportunity(self, market_data: pd.DataFrame,
                                                option_chain: pd.DataFrame = None) -> IronButterflyAnalysis:
         """
         Analyze market conditions for Iron Butterfly entry.
-        
+
         This is Iron Butterfly specific analysis - generic analysis is in D26.
         """
         try:
             current_price = market_data['close'].iloc[-1]
-            
+
             # Neutral outlook analysis (critical for Iron Butterfly)
             neutral_outlook_confirmed = self._confirm_neutral_market_outlook(market_data)
-            
+
             # ATM analysis (Iron Butterfly centers on ATM)
             atm_analysis = self._analyze_atm_conditions(market_data, current_price)
-            
+
             # IV Analysis (Iron Butterfly specific requirements)
             iv_analysis = self._analyze_iv_for_iron_butterfly(market_data)
-            
+
             # Time decay analysis (critical for Iron Butterfly profitability)
             time_decay_analysis = self._analyze_time_decay_potential(market_data)
-            
+
             # Expected move analysis (must be smaller than wing width)
             expected_move_analysis = self._analyze_expected_move_for_ib(market_data, current_price)
-            
+
             # Overall suitability
             market_suitable = self._assess_market_suitability_for_ib(
                 neutral_outlook_confirmed, iv_analysis, expected_move_analysis, time_decay_analysis
             )
-            
+
             # Find optimal setup if suitable
             optimal_wing_width = None
             atm_strike_recommendation = None
             setup_recommendation = ""
             confidence_score = 0.0
             risk_warnings = []
-            
+
             if market_suitable and option_chain is not None:
                 optimal_wing_width = self._find_optimal_wing_width(
                     current_price, option_chain, expected_move_analysis
@@ -305,7 +301,7 @@ class IronButterflyStrategy(BaseStrategy):
                 risk_warnings = self._identify_ib_risk_warnings(
                     neutral_outlook_confirmed, iv_analysis, expected_move_analysis
                 )
-            
+
             analysis = IronButterflyAnalysis(
                 market_suitable=market_suitable,
                 neutral_outlook_confirmed=neutral_outlook_confirmed,
@@ -319,14 +315,14 @@ class IronButterflyStrategy(BaseStrategy):
                 confidence_score=confidence_score,
                 risk_warnings=risk_warnings
             )
-            
+
             self.current_analysis = analysis
             return analysis
-            
+
         except Exception as e:
             self.logger.error(f"Iron Butterfly analysis failed: {e}")
             self.error_handler.handle_error(e, {"method": "analyze_iron_butterfly_opportunity"})
-            
+
             return IronButterflyAnalysis(
                 market_suitable=False,
                 neutral_outlook_confirmed=False,
@@ -340,60 +336,60 @@ class IronButterflyStrategy(BaseStrategy):
                 confidence_score=0.0,
                 risk_warnings=["Analysis error occurred"]
             )
-    
+
     def _confirm_neutral_market_outlook(self, market_data: pd.DataFrame) -> bool:
         """Confirm neutral market outlook (essential for Iron Butterfly)"""
         try:
             # Analyze trend strength over multiple timeframes
             closes = market_data['close']
-            
+
             # Short-term trend (5 days)
             short_term_change = (closes.iloc[-1] - closes.iloc[-6]) / closes.iloc[-6]
-            
-            # Medium-term trend (10 days) 
+
+            # Medium-term trend (10 days)
             medium_term_change = (closes.iloc[-1] - closes.iloc[-11]) / closes.iloc[-11]
-            
+
             # Range analysis (20 days)
             high_20 = market_data['high'].tail(20).max()
             low_20 = market_data['low'].tail(20).min()
             current_position = (closes.iloc[-1] - low_20) / (high_20 - low_20)
-            
+
             # Volatility of returns
             returns = closes.pct_change().dropna().tail(10)
             return_volatility = returns.std()
-            
+
             # Neutral outlook criteria
             trend_neutral = (
                 abs(short_term_change) < IB_NEUTRAL_OUTLOOK_THRESHOLD and
                 abs(medium_term_change) < IB_NEUTRAL_OUTLOOK_THRESHOLD * 1.5
             )
-            
+
             position_centered = 0.3 <= current_position <= 0.7  # Not at extremes
             volatility_stable = return_volatility < 0.02  # Low return volatility
-            
+
             return trend_neutral and position_centered and volatility_stable
-            
+
         except Exception as e:
             self.logger.error(f"Neutral outlook analysis failed: {e}")
             return False
-    
-    def _analyze_atm_conditions(self, market_data: pd.DataFrame, current_price: float) -> Dict[str, float]:
+
+    def _analyze_atm_conditions(self, market_data: pd.DataFrame, current_price: float) -> dict[str, float]:
         """Analyze ATM conditions for Iron Butterfly"""
         try:
             # Price stability around current level
             closes = market_data['close'].tail(10)
             price_stability = closes.std() / closes.mean()
-            
+
             # ATM attractiveness score
             atm_score = max(0.0, 1.0 - price_stability * 10)  # Penalize instability
-            
+
             return {
                 'current_price': current_price,
                 'price_stability': price_stability,
                 'atm_attractiveness_score': atm_score,
                 'suitable_for_atm_strategy': price_stability < 0.01  # Less than 1% daily std
             }
-            
+
         except Exception as e:
             self.logger.error(f"ATM analysis failed: {e}")
             return {
@@ -402,17 +398,17 @@ class IronButterflyStrategy(BaseStrategy):
                 'atm_attractiveness_score': 0.5,
                 'suitable_for_atm_strategy': False
             }
-    
-    def _analyze_iv_for_iron_butterfly(self, market_data: pd.DataFrame) -> Dict[str, float]:
+
+    def _analyze_iv_for_iron_butterfly(self, market_data: pd.DataFrame) -> dict[str, float]:
         """Analyze implied volatility specifically for Iron Butterfly strategy"""
         try:
             # Get IV data
             current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
-            
+
             # Calculate IV rank
             iv_history = market_data.get('iv', pd.Series([0.20] * 100)).tail(252)
             iv_rank = (current_iv > iv_history).sum() / len(iv_history) * 100
-            
+
             # Iron Butterfly IV analysis (different from Iron Condor)
             iv_analysis = {
                 'current_iv': current_iv,
@@ -422,9 +418,9 @@ class IronButterflyStrategy(BaseStrategy):
                 'iv_trend': 'rising' if current_iv > iv_history.mean() else 'falling',
                 'time_decay_potential': current_iv * 0.1  # Simplified theta estimate
             }
-            
+
             return iv_analysis
-            
+
         except Exception as e:
             self.logger.error(f"IB IV analysis failed: {e}")
             return {
@@ -435,7 +431,7 @@ class IronButterflyStrategy(BaseStrategy):
                 'iv_trend': 'unknown',
                 'time_decay_potential': 0.02
             }
-    
+
     def _calculate_ib_iv_quality_score(self, current_iv: float, iv_rank: float) -> float:
         """Calculate IV quality score for Iron Butterfly (0.0 to 1.0)"""
         try:
@@ -447,7 +443,7 @@ class IronButterflyStrategy(BaseStrategy):
             else:
                 # Score peaks around 50
                 iv_rank_score = 1.0 - abs(iv_rank - IB_OPTIMAL_IV_RANK) / IB_OPTIMAL_IV_RANK
-            
+
             # Prefer moderate IV levels for Iron Butterfly
             if current_iv < 0.15:
                 iv_level_score = 0.0
@@ -455,27 +451,27 @@ class IronButterflyStrategy(BaseStrategy):
                 iv_level_score = 0.5
             else:
                 iv_level_score = min(1.0, current_iv / 0.25)
-            
+
             return (iv_rank_score * 0.7 + iv_level_score * 0.3)
-            
+
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
             self.logger.warning(f"Iron Butterfly calculation failed: {e}")
             return 0.0
-    
-    def _analyze_time_decay_potential(self, market_data: pd.DataFrame) -> Dict[str, float]:
+
+    def _analyze_time_decay_potential(self, market_data: pd.DataFrame) -> dict[str, float]:
         """Analyze time decay potential for Iron Butterfly"""
         try:
             current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
-            
+
             # Estimate theta decay rate
             estimated_theta = current_iv * 0.1  # Simplified calculation
-            
+
             # Days to optimal close
             optimal_close_days = 15  # Iron Butterfly typically closed around 15 DTE
-            
+
             # Total expected time decay
             expected_time_decay = estimated_theta * optimal_close_days
-            
+
             analysis = {
                 'estimated_daily_theta': estimated_theta,
                 'optimal_close_dte': optimal_close_days,
@@ -483,9 +479,9 @@ class IronButterflyStrategy(BaseStrategy):
                 'decay_rate_suitable': estimated_theta >= IB_MIN_TIME_DECAY_RATE,
                 'time_decay_quality_score': min(1.0, estimated_theta / 0.05)
             }
-            
+
             return analysis
-            
+
         except Exception as e:
             self.logger.error(f"Time decay analysis failed: {e}")
             return {
@@ -495,22 +491,22 @@ class IronButterflyStrategy(BaseStrategy):
                 'decay_rate_suitable': True,
                 'time_decay_quality_score': 0.4
             }
-    
-    def _analyze_expected_move_for_ib(self, market_data: pd.DataFrame, 
-                                    current_price: float) -> Dict[str, float]:
+
+    def _analyze_expected_move_for_ib(self, market_data: pd.DataFrame,
+                                    current_price: float) -> dict[str, float]:
         """Analyze expected move for Iron Butterfly (must be smaller than wings)"""
         try:
             current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
             days_to_expiry = 25  # Default assumption
-            
+
             # Expected move calculation
             expected_move = current_price * current_iv * np.sqrt(days_to_expiry / 365)
             expected_move_pct = expected_move / current_price
-            
+
             # Iron Butterfly specific analysis - move should be small
             wing_width = self.wing_width
             expected_move_vs_wings = expected_move / wing_width
-            
+
             analysis = {
                 'expected_move_dollars': expected_move,
                 'expected_move_percent': expected_move_pct,
@@ -518,9 +514,9 @@ class IronButterflyStrategy(BaseStrategy):
                 'expected_move_suitable_for_ib': expected_move_vs_wings <= IB_MAX_EXPECTED_MOVE_RATIO,
                 'move_quality_score': self._calculate_ib_move_quality_score(expected_move_vs_wings)
             }
-            
+
             return analysis
-            
+
         except Exception as e:
             self.logger.error(f"Expected move analysis failed: {e}")
             return {
@@ -530,26 +526,26 @@ class IronButterflyStrategy(BaseStrategy):
                 'expected_move_suitable_for_ib': True,
                 'move_quality_score': 0.6
             }
-    
+
     def _calculate_ib_move_quality_score(self, move_vs_wings: float) -> float:
         """Calculate expected move quality for Iron Butterfly"""
         try:
             # Optimal move is about 60% of wing width
             optimal_ratio = 0.6
-            
+
             if move_vs_wings <= IB_MAX_EXPECTED_MOVE_RATIO:
                 deviation = abs(move_vs_wings - optimal_ratio)
                 return max(0.0, 1.0 - deviation / 0.3)
             else:
                 # Move too large for Iron Butterfly
                 return 0.0
-                
+
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
             self.logger.warning(f"Iron Butterfly calculation failed: {e}")
             return 0.0
-    
-    def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: Dict,
-                                        expected_move_analysis: Dict, time_decay_analysis: Dict) -> bool:
+
+    def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: dict,
+                                        expected_move_analysis: dict, time_decay_analysis: dict) -> bool:
         """Assess overall market suitability for Iron Butterfly"""
         try:
             # All conditions must be met for Iron Butterfly
@@ -557,154 +553,154 @@ class IronButterflyStrategy(BaseStrategy):
             iv_suitable = iv_analysis.get('iv_suitable_for_ib', False)
             move_suitable = expected_move_analysis.get('expected_move_suitable_for_ib', False)
             decay_suitable = time_decay_analysis.get('decay_rate_suitable', False)
-            
+
             return outlook_suitable and iv_suitable and move_suitable and decay_suitable
-            
+
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
             self.logger.warning(f"Iron Butterfly validation failed: {e}")
             return False
-    
+
     # ==========================================================================
-    # IRON BUTTERFLY SPECIFIC STRIKE SELECTION  
+    # IRON BUTTERFLY SPECIFIC STRIKE SELECTION
     # ==========================================================================
-    
-    def _find_optimal_atm_strike(self, current_price: float, 
-                               option_chain: pd.DataFrame) -> Optional[float]:
+
+    def _find_optimal_atm_strike(self, current_price: float,
+                               option_chain: pd.DataFrame) -> float | None:
         """Find optimal ATM strike for Iron Butterfly center"""
         try:
             if option_chain is None or option_chain.empty:
                 return None
-            
+
             # Get available strikes
             available_strikes = sorted(option_chain['strike'].unique())
-            
+
             # Find closest strike to current price
             closest_strike = min(available_strikes, key=lambda x: abs(x - current_price))
-            
+
             # Ensure it's within ATM tolerance
             if abs(closest_strike - current_price) <= self.atm_tolerance:
                 return closest_strike
             else:
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"ATM strike selection failed: {e}")
             return None
-    
+
     def _find_optimal_wing_width(self, current_price: float, option_chain: pd.DataFrame,
-                               expected_move_analysis: Dict) -> Optional[float]:
+                               expected_move_analysis: dict) -> float | None:
         """Find optimal wing width for Iron Butterfly"""
         try:
             expected_move = expected_move_analysis.get('expected_move_dollars', 10.0)
-            
+
             # Wing width should be wider than expected move
             min_width = max(IB_WING_WIDTH_MIN, expected_move * 1.2)
             max_width = min(IB_WING_WIDTH_MAX, current_price * 0.05)  # 5% of underlying
-            
+
             # Choose optimal width
             optimal_width = min(max_width, max(min_width, IB_OPTIMAL_WING_WIDTH))
-            
+
             # Validate against available strikes
             atm_strike = self._find_optimal_atm_strike(current_price, option_chain)
             if not atm_strike:
                 return None
-            
+
             # Check if wing strikes exist
             available_strikes = sorted(option_chain['strike'].unique())
             upper_wing = atm_strike + optimal_width
             lower_wing = atm_strike - optimal_width
-            
+
             # Find closest available strikes
             upper_available = min(available_strikes, key=lambda x: abs(x - upper_wing))
             lower_available = min(available_strikes, key=lambda x: abs(x - lower_wing))
-            
+
             # Calculate actual wing width
             actual_upper_width = abs(upper_available - atm_strike)
             actual_lower_width = abs(atm_strike - lower_available)
-            
+
             # Use symmetric width (average of both sides)
             actual_wing_width = (actual_upper_width + actual_lower_width) / 2
-            
+
             return actual_wing_width if IB_WING_WIDTH_MIN <= actual_wing_width <= IB_WING_WIDTH_MAX else None
-            
+
         except Exception as e:
             self.logger.error(f"Wing width selection failed: {e}")
             return None
-    
+
     # ==========================================================================
     # IRON BUTTERFLY SPECIFIC EXECUTION INTERFACE
     # ==========================================================================
-    
-    async def create_iron_butterfly_position(self, setup: IronButterflySetup) -> Optional[str]:
+
+    async def create_iron_butterfly_position(self, setup: IronButterflySetup) -> str | None:
         """Create Iron Butterfly position using D26 coordinator"""
         try:
             if not self.multileg_coordinator:
                 self.logger.error("MultiLegStrategyCoordinator not available")
                 return None
-            
+
             # Create the Iron Butterfly structure using D26
             structure = await self.multileg_coordinator.analyze_multileg_opportunity(
                 market_data=None,  # Would need market data
                 strategy_type=MultiLegStrategyType.IRON_BUTTERFLY
             )
-            
+
             if not structure:
                 self.logger.warning("Could not create Iron Butterfly structure")
                 return None
-            
+
             # Execute the position through D26
             position_id = await self.multileg_coordinator.execute_multileg_strategy(structure)
-            
+
             if position_id:
                 self.active_setups.append(setup)
                 self.strategy_state = IronButterflyState.ACTIVE
                 self.logger.info(f"Iron Butterfly position created: {position_id}")
-            
+
             return position_id
-            
+
         except Exception as e:
             self.logger.error(f"Iron Butterfly position creation failed: {e}")
             return None
-    
+
     # ==========================================================================
     # IRON BUTTERFLY SPECIFIC MANAGEMENT
     # ==========================================================================
-    
-    def should_close_iron_butterfly(self, position_data: Dict) -> Tuple[bool, str]:
+
+    def should_close_iron_butterfly(self, position_data: dict) -> tuple[bool, str]:
         """Iron Butterfly specific exit criteria"""
         try:
             current_pnl_pct = position_data.get('pnl_percent', 0.0)
             days_held = position_data.get('days_held', 0)
             dte = position_data.get('days_to_expiry', 25)
             position_delta = position_data.get('position_delta', 0.0)
-            
+
             # Profit target hit (25% of max profit)
             if current_pnl_pct >= self.profit_target:
                 return True, "Profit target achieved"
-            
+
             # Stop loss hit (75% of max profit loss)
             if current_pnl_pct <= -self.stop_loss:
                 return True, "Stop loss triggered"
-            
+
             # Delta breach (position no longer neutral)
             if abs(position_delta) > IB_MAX_DELTA_THRESHOLD:
                 return True, "Delta breach - position no longer neutral"
-            
+
             # Time-based exit (close with 10-15 DTE for Iron Butterfly)
             if dte <= 10:
                 return True, "Time decay exit - approaching expiration"
-            
+
             # Early profit taking if very profitable quickly
             if current_pnl_pct >= IB_EARLY_CLOSE_PROFIT and days_held >= 3:
                 return True, "Early profit taking - 15% profit achieved"
-            
+
             return False, "Hold position"
-            
+
         except Exception as e:
             self.logger.error(f"Exit criteria analysis failed: {e}")
             return True, "Exit due to analysis error"
-    
-    def suggest_iron_butterfly_adjustment(self, position_data: Dict) -> Optional[IronButterflyAdjustmentType]:
+
+    def suggest_iron_butterfly_adjustment(self, position_data: dict) -> IronButterflyAdjustmentType | None:
         """Suggest Iron Butterfly specific adjustments"""
         try:
             underlying_price = position_data.get('underlying_price', 0)
@@ -712,47 +708,47 @@ class IronButterflyStrategy(BaseStrategy):
             current_pnl_pct = position_data.get('pnl_percent', 0.0)
             dte = position_data.get('days_to_expiry', 25)
             position_delta = position_data.get('position_delta', 0.0)
-            
+
             # Only consider adjustments if losing money and have time
             if current_pnl_pct >= -0.20 or dte <= 14:
                 return None
-            
+
             # Price moved away from ATM significantly
             price_move_pct = abs(underlying_price - atm_strike) / atm_strike
-            
+
             if price_move_pct > 0.03:  # 3% move from ATM
                 # Convert to Iron Condor for better risk management
                 return IronButterflyAdjustmentType.CONVERT_TO_CONDOR
-            
+
             # Delta imbalance
             if abs(position_delta) > IB_MAX_DELTA_THRESHOLD:
                 return IronButterflyAdjustmentType.DELTA_HEDGE
-            
+
             # If still near ATM but losing, consider rolling strikes
             if price_move_pct < 0.02:
                 return IronButterflyAdjustmentType.ROLL_ATM_STRIKES
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.error(f"Adjustment analysis failed: {e}")
             return None
-    
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    
-    def _generate_ib_recommendation(self, iv_analysis: Dict, expected_move_analysis: Dict,
-                                  time_decay_analysis: Dict) -> Tuple[str, float]:
+
+    def _generate_ib_recommendation(self, iv_analysis: dict, expected_move_analysis: dict,
+                                  time_decay_analysis: dict) -> tuple[str, float]:
         """Generate Iron Butterfly setup recommendation"""
         try:
             iv_score = iv_analysis.get('iv_quality_score', 0.0)
             move_score = expected_move_analysis.get('move_quality_score', 0.0)
             decay_score = time_decay_analysis.get('time_decay_quality_score', 0.0)
-            
+
             # Weight time decay heavily for Iron Butterfly
             overall_score = (iv_score * 0.3 + move_score * 0.3 + decay_score * 0.4)
-            
+
             if overall_score >= 0.8:
                 recommendation = "Excellent Iron Butterfly opportunity - optimal neutral conditions"
             elif overall_score >= 0.6:
@@ -761,42 +757,42 @@ class IronButterflyStrategy(BaseStrategy):
                 recommendation = "Marginal Iron Butterfly opportunity - monitor closely"
             else:
                 recommendation = "Poor Iron Butterfly opportunity - consider Iron Condor instead"
-            
+
             return recommendation, overall_score
-            
+
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
             self.logger.warning(f"Iron Butterfly recommendation failed: {e}")
             return "Analysis incomplete", 0.0
-    
-    def _identify_ib_risk_warnings(self, neutral_outlook: bool, iv_analysis: Dict,
-                                 expected_move_analysis: Dict) -> List[str]:
+
+    def _identify_ib_risk_warnings(self, neutral_outlook: bool, iv_analysis: dict,
+                                 expected_move_analysis: dict) -> list[str]:
         """Identify risk warnings for Iron Butterfly"""
         warnings = []
-        
+
         try:
             # Neutral outlook warnings
             if not neutral_outlook:
                 warnings.append("Market showing directional bias - Iron Butterfly may not be optimal")
-            
+
             # IV warnings
             iv_rank = iv_analysis.get('iv_rank', 50)
             if iv_rank < 25:
                 warnings.append("Low IV rank - limited time decay potential")
             elif iv_rank > 70:
                 warnings.append("High IV rank - consider Iron Condor for better risk management")
-            
+
             # Expected move warnings
             move_vs_wings = expected_move_analysis.get('expected_move_vs_wing_width', 0.5)
             if move_vs_wings > 0.8:
                 warnings.append("Expected move approaching wing width - higher risk of loss")
-            
+
             return warnings
-            
+
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
             self.logger.warning(f"Iron Butterfly risk analysis failed: {e}")
             return ["Risk analysis incomplete"]
-    
-    def get_strategy_performance(self) -> Dict[str, Any]:
+
+    def get_strategy_performance(self) -> dict[str, Any]:
         """Get Iron Butterfly strategy performance metrics"""
         return {
             'strategy_name': 'Iron Butterfly',
@@ -819,7 +815,7 @@ class IronButterflyStrategy(BaseStrategy):
 # ==============================================================================
 def create_iron_butterfly_strategy(event_manager: EventManager = None,
                                   risk_profile: RiskProfile = None,
-                                  config: Dict[str, Any] = None) -> IronButterflyStrategy:
+                                  config: dict[str, Any] = None) -> IronButterflyStrategy:
     """Factory function to create Iron Butterfly strategy"""
     return IronButterflyStrategy(event_manager, risk_profile, config)
 
@@ -828,10 +824,7 @@ def create_iron_butterfly_strategy(event_manager: EventManager = None,
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER D10 - IRON BUTTERFLY STRATEGY (UPDATED - INFRASTRUCTURE CONSOLIDATED)")
-    print("=" * 80)
-    
+
     # Test configuration
     test_config = {
         'min_iv_rank': 30,
@@ -842,61 +835,16 @@ if __name__ == "__main__":
         'wing_width': 10.0,
         'atm_tolerance': 0.50
     }
-    
+
     # Create strategy
     strategy = create_iron_butterfly_strategy(config=test_config)
-    
-    print(f"\nIron Butterfly Strategy initialized")
-    print(f"   Strategy Name: {strategy.name}")
-    print(f"   Strategy Type: {strategy.strategy_type}")
-    print(f"   MultiLeg Coordinator: {'Connected' if strategy.multileg_coordinator else 'Not available'}")
-    
-    print(f"\nCONSOLIDATION CHANGES:")
-    print(f"   Generic multi-leg order management REMOVED")
-    print(f"   Combined Greeks calculations REMOVED") 
-    print(f"   Multi-leg position sizing REMOVED")
-    print(f"   Generic P&L calculations REMOVED")
-    print(f"   Iron Butterfly specific neutral outlook analysis RETAINED")
-    print(f"   ATM strike selection methodology RETAINED")
-    print(f"   IB profit targets and stop loss RETAINED")
-    print(f"   IB adjustment techniques RETAINED")
-    print(f"   Integration with D26 coordinator ADDED")
-    
+
+
+
     # Show strategy configuration
-    print(f"\nIRON BUTTERFLY CONFIGURATION:")
-    print(f"   Min IV Rank: {strategy.min_iv_rank}%")
-    print(f"   Profit Target: {strategy.profit_target:.1%}")
-    print(f"   Stop Loss: {strategy.stop_loss:.1%}")
-    print(f"   DTE Range: {strategy.min_dte}-{strategy.max_dte} days")
-    print(f"   Wing Width: ${strategy.wing_width}")
-    print(f"   ATM Tolerance: ${strategy.atm_tolerance}")
-    
-    print(f"\nIRON BUTTERFLY SPECIFIC FEATURES:")
-    print(f"   • ATM-centered strategy with equidistant wings")
-    print(f"   • Neutral market outlook requirement")
-    print(f"   • Time decay optimization (close at 10-15 DTE)")
-    print(f"   • Expected move analysis vs wing width")
-    print(f"   • Delta breach monitoring for neutrality")
-    print(f"   • Conversion to Iron Condor when directional")
-    print(f"   • Strategy-specific adjustment techniques")
-    
+
+
     # Show performance metrics
     performance = strategy.get_strategy_performance()
-    print(f"\nPERFORMANCE STATUS:")
-    print(f"   Total IB Trades: {performance['performance_metrics']['total_ib_trades']}")
-    print(f"   IB Win Rate: {performance['performance_metrics']['ib_win_rate']:.1%}")
-    print(f"   Current State: {performance['current_state']}")
-    print(f"   Active Setups: {performance['active_setups']}")
-    
-    print(f"\nBENEFITS ACHIEVED:")
-    print(f"   ~350 lines of duplicate infrastructure code REMOVED")
-    print(f"   Clear separation of strategy logic vs infrastructure")
-    print(f"   Unified multi-leg execution through D26")
-    print(f"   Focused Iron Butterfly specific analysis")
-    print(f"   Improved maintainability and testing")
-    print(f"   Enhanced performance through consolidation")
-    
-    print(f"\n" + "=" * 80)
-    print("IRON BUTTERFLY STRATEGY CONSOLIDATION COMPLETE!")
-    print("Infrastructure moved to D26, strategy logic enhanced and focused")
-    print("=" * 80)
+
+

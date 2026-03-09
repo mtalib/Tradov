@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -7,8 +6,8 @@ Series: SpyderS_Signals
 Module: SpyderS07_CustomMetricsOrchestrator.py
 Purpose: Central orchestrator for all custom market metrics (Updated - Regime Detection Removed)
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-09-04 Time: 14:30:00  
+Year Created: 2025
+Last Updated: 2025-09-04 Time: 14:30:00
 
 Module Description:
     Central orchestrator that coordinates all custom metric calculations and
@@ -17,13 +16,13 @@ Module Description:
     and manages update scheduling for all metrics.
 
 CONSOLIDATION UPDATE:
-    Regime detection functions have been REMOVED and consolidated into 
-    SpyderL09_UnifiedRegimeEngine.py. This module now focuses exclusively 
+    Regime detection functions have been REMOVED and consolidated into
+    SpyderL09_UnifiedRegimeEngine.py. This module now focuses exclusively
     on metric calculation, orchestration, and Qt signal emission.
 
 Key Features:
     • Unified interface for all S-Series signal calculations (S01-S06)
-    • Real-time metric updates with dynamic frequency adjustment  
+    • Real-time metric updates with dynamic frequency adjustment
     • Qt signal emission for GUI integration
     • IB Client 10 compatibility and connection management
     • Intelligent error handling and fallback values
@@ -44,18 +43,15 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, List, Tuple, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from enum import Enum, auto
-import json
-import warnings
+from enum import Enum
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS  
+# THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from PySide6.QtCore import QObject, QTimer, Signal, QThread
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 # ==============================================================================
@@ -69,7 +65,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # ==============================================================================
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import (
-        DIXCalculator, get_calculator_instance)
+        DIXCalculator, get_calculator_instance)  # noqa: F401
     DIX_AVAILABLE = True
 except ImportError:
     DIX_AVAILABLE = False
@@ -77,7 +73,7 @@ except ImportError:
 
 try:
     from SpyderS_Signals.SpyderS03_BlackSwanIndicator import (
-        BlackSwanIndicator, get_black_swan_indicator)
+        BlackSwanIndicator, get_black_swan_indicator)  # noqa: F401
     SWAN_AVAILABLE = True
 except ImportError:
     SWAN_AVAILABLE = False
@@ -92,7 +88,7 @@ except ImportError:
 
 try:
     from SpyderS_Signals.SpyderS06_SKEWCalculator import (
-        SpyderS06_SKEWCalculator, get_skew_calculator)
+        SpyderS06_SKEWCalculator, get_skew_calculator)  # noqa: F401
     SKEW_AVAILABLE = True
 except ImportError:
     SKEW_AVAILABLE = False
@@ -131,7 +127,7 @@ class MetricSnapshot:
     timestamp: datetime = field(default_factory=datetime.now)
     update_frequency: int = UPDATE_INTERVAL
 
-@dataclass  
+@dataclass
 class MetricQuality:
     """Quality assessment of metric calculations"""
     metric_name: str
@@ -144,7 +140,7 @@ class MetricQuality:
 class StressLevel(Enum):
     """Market stress level classifications"""
     LOW = "low"
-    MEDIUM = "medium" 
+    MEDIUM = "medium"
     HIGH = "high"
     CRISIS = "crisis"
 
@@ -154,11 +150,11 @@ class StressLevel(Enum):
 class CustomMetricsOrchestrator(QObject):
     """
     Central orchestrator for all custom market metrics.
-    
+
     Coordinates S01-S06 calculators and serves as IB Client 10.
     Provides unified interface for metric calculations with dynamic
     update frequency based on market conditions.
-    
+
     NOTE: Regime detection functionality removed - now handled by
     SpyderL09_UnifiedRegimeEngine for consolidation.
     """
@@ -174,8 +170,8 @@ class CustomMetricsOrchestrator(QObject):
     connection_status_changed = Signal(bool, str)
     error_occurred = Signal(str)
     stress_level_changed = Signal(str)  # New signal for stress level changes
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """Initialize custom metrics orchestrator"""
         super().__init__()
 
@@ -191,7 +187,7 @@ class CustomMetricsOrchestrator(QObject):
         self._metrics_lock = threading.RLock()
         self.current_metrics = {
             "GEX": 0.0,
-            "DEX": 0.0, 
+            "DEX": 0.0,
             "OGL": 0.0,
             "DIX": 0.0,
             "SWAN": 1.0,
@@ -199,21 +195,21 @@ class CustomMetricsOrchestrator(QObject):
         }
 
         # Metrics history for trend analysis
-        self.metrics_history: List[MetricSnapshot] = []
+        self.metrics_history: list[MetricSnapshot] = []
         self.max_history_size = self.config.get('max_history_size', 1000)
-        
+
         # Quality tracking
-        self.metric_quality: Dict[str, MetricQuality] = {}
+        self.metric_quality: dict[str, MetricQuality] = {}
         self._init_quality_tracking()
-        
+
         # Stress level tracking
         self.current_stress_level = StressLevel.LOW
-        self.stress_history: List[Tuple[datetime, StressLevel]] = []
-        
+        self.stress_history: list[tuple[datetime, StressLevel]] = []
+
         # Update frequency management
         self.current_update_interval = UPDATE_INTERVAL
         self.last_frequency_change = datetime.now()
-        
+
         # IB connection status
         self.ib_connected = False
         self.connection_attempts = 0
@@ -280,7 +276,7 @@ class CustomMetricsOrchestrator(QObject):
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
         metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW']
-        
+
         for metric in metrics:
             self.metric_quality[metric] = MetricQuality(
                 metric_name=metric,
@@ -294,17 +290,17 @@ class CustomMetricsOrchestrator(QObject):
     # ==========================================================================
     # MAIN ORCHESTRATOR METHODS
     # ==========================================================================
-    
+
     def start(self):
         """Start the orchestrator"""
         try:
             self.update_timer.start()
             self.update_all_metrics()  # Initial update
             self.ib_connected = True
-            
+
             self.logger.info("✅ Orchestrator started successfully")
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to start orchestrator: {e}")
             self.error_occurred.emit(f"Startup failed: {str(e)}")
@@ -314,17 +310,17 @@ class CustomMetricsOrchestrator(QObject):
         try:
             self.update_timer.stop()
             self.ib_connected = False
-            
+
             self.logger.info("⏹️ Orchestrator stopped")
             self.connection_status_changed.emit(False, f"Client {CLIENT_ID} Stopped")
-            
+
         except Exception as e:
             self.logger.error(f"Error stopping orchestrator: {e}")
 
     def update_all_metrics(self):
         """Update all metrics from S-Series calculators"""
         start_time = time.time()
-        
+
         try:
             with self._metrics_lock:
                 updated_metrics = {}
@@ -332,22 +328,22 @@ class CustomMetricsOrchestrator(QObject):
 
                 # S05 - GEX/DEX/OGL Updates
                 gex_success = self._update_gex_metrics(updated_metrics, update_errors)
-                
-                # S01 - DIX Updates  
+
+                # S01 - DIX Updates
                 dix_success = self._update_dix_metrics(updated_metrics, update_errors)
-                
+
                 # S03 - SWAN Updates
                 swan_success = self._update_swan_metrics(updated_metrics, update_errors)
-                
+
                 # S06 - SKEW Updates
                 skew_success = self._update_skew_metrics(updated_metrics, update_errors)
 
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
-                
+
                 # Update quality tracking
                 self._update_quality_metrics(updated_metrics, update_errors)
-                
+
                 # Create metrics snapshot for history
                 snapshot = MetricSnapshot(
                     gex=updated_metrics.get('GEX', 0.0),
@@ -358,7 +354,7 @@ class CustomMetricsOrchestrator(QObject):
                     skew=updated_metrics.get('SKEW', 100.0),
                     update_frequency=self.current_update_interval
                 )
-                
+
                 self._add_to_history(snapshot)
 
                 # Analyze stress level and adjust frequency
@@ -371,11 +367,11 @@ class CustomMetricsOrchestrator(QObject):
                 # Log successful update
                 calculation_time = time.time() - start_time
                 success_count = sum([gex_success, dix_success, swan_success, skew_success])
-                
+
                 self.logger.info(
                     f"📊 Metrics updated: {success_count}/4 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
-                    f"DIX={updated_metrics.get('DIX', 0):.1f}%, " 
+                    f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
                     f"SKEW={updated_metrics.get('SKEW', 100):.1f}) "
                     f"[{calculation_time:.2f}s]"
@@ -385,13 +381,13 @@ class CustomMetricsOrchestrator(QObject):
             self.logger.error(f"Critical error updating metrics: {e}")
             self.error_occurred.emit(str(e))
 
-    def _update_gex_metrics(self, updated_metrics: Dict, errors: List) -> bool:
+    def _update_gex_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update GEX, DEX, OGL metrics"""
         try:
             if self.gex_calculator:
                 gex_data = self.gex_calculator.calculate_all()
                 updated_metrics["GEX"] = gex_data.get("gex", 0) / 1e9  # Convert to billions
-                updated_metrics["DEX"] = gex_data.get("dex", 0) / 1e6  # Convert to millions  
+                updated_metrics["DEX"] = gex_data.get("dex", 0) / 1e6  # Convert to millions
                 updated_metrics["OGL"] = gex_data.get("ogl", 585.5)
                 self.gex_updated.emit(gex_data)
                 return True
@@ -409,12 +405,12 @@ class CustomMetricsOrchestrator(QObject):
             # Use previous values
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
-                "DEX": self.current_metrics.get("DEX", 850), 
+                "DEX": self.current_metrics.get("DEX", 850),
                 "OGL": self.current_metrics.get("OGL", 585.5)
             })
             return False
 
-    def _update_dix_metrics(self, updated_metrics: Dict, errors: List) -> bool:
+    def _update_dix_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update DIX metrics"""
         try:
             if self.dix_calculator:
@@ -436,13 +432,13 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
             return False
 
-    def _update_swan_metrics(self, updated_metrics: Dict, errors: List) -> bool:
-        """Update SWAN metrics"""  
+    def _update_swan_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update SWAN metrics"""
         try:
             if self.swan_indicator:
                 swan_result = self.swan_indicator.calculate_swan_score()
                 updated_metrics["SWAN"] = swan_result.overall_score
-                
+
                 # Emit detailed SWAN signal
                 self.swan_updated.emit({
                     "score": swan_result.overall_score,
@@ -451,7 +447,7 @@ class CustomMetricsOrchestrator(QObject):
                 })
                 return True
             else:
-                # Simulation fallback 
+                # Simulation fallback
                 current_swan = self.current_metrics.get("SWAN", 1.85)
                 updated_metrics["SWAN"] = max(1.0, min(5.0, current_swan + np.random.normal(0, 0.1)))
                 return False
@@ -461,7 +457,7 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["SWAN"] = self.current_metrics.get("SWAN", 1.85)
             return False
 
-    def _update_skew_metrics(self, updated_metrics: Dict, errors: List) -> bool:
+    def _update_skew_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update SKEW metrics"""
         try:
             if self.skew_calculator:
@@ -483,34 +479,34 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
 
-    def _update_quality_metrics(self, updated_metrics: Dict, errors: List):
+    def _update_quality_metrics(self, updated_metrics: dict, errors: list):
         """Update quality tracking for all metrics"""
-        for metric_name, value in updated_metrics.items():
+        for metric_name, _value in updated_metrics.items():
             if metric_name in self.metric_quality:
                 quality = self.metric_quality[metric_name]
-                
+
                 # Check if this metric had errors
                 metric_had_error = any(metric_name.lower() in error.lower() for error in errors)
-                
+
                 if metric_had_error:
                     quality.error_count += 1
                     quality.quality_score = max(0.0, quality.quality_score - 0.1)
                 else:
                     quality.last_successful_update = datetime.now()
-                    quality.data_points += 1 
+                    quality.data_points += 1
                     # Gradually improve quality score on successful updates
                     quality.quality_score = min(1.0, quality.quality_score + 0.01)
 
-    def _analyze_and_adjust_frequency(self, metrics: Dict):
+    def _analyze_and_adjust_frequency(self, metrics: dict):
         """Analyze market stress and adjust update frequency"""
         swan_score = metrics.get("SWAN", 1.0)
-        
+
         # Determine stress level
         if swan_score >= SWAN_HIGH_STRESS:
             new_stress_level = StressLevel.CRISIS
             new_interval = FAST_UPDATE
         elif swan_score >= SWAN_MEDIUM_STRESS:
-            new_stress_level = StressLevel.HIGH  
+            new_stress_level = StressLevel.HIGH
             new_interval = FAST_UPDATE
         elif swan_score >= 1.5:
             new_stress_level = StressLevel.MEDIUM
@@ -524,7 +520,7 @@ class CustomMetricsOrchestrator(QObject):
             self.current_stress_level = new_stress_level
             self.stress_history.append((datetime.now(), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
-            
+
             self.logger.info(f"🎯 Market stress level changed to: {new_stress_level.value.upper()}")
 
         # Adjust update frequency if needed
@@ -532,13 +528,13 @@ class CustomMetricsOrchestrator(QObject):
             self.current_update_interval = new_interval
             self.update_timer.setInterval(new_interval * 1000)
             self.last_frequency_change = datetime.now()
-            
+
             self.logger.info(f"⚡ Update frequency adjusted to {new_interval}s (stress: {new_stress_level.value})")
 
-    def _format_metrics(self, metrics: Dict) -> Dict:
+    def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
         timestamp = datetime.now()
-        
+
         return {
             "GEX": {
                 "value": metrics.get("GEX", 0),
@@ -548,7 +544,7 @@ class CustomMetricsOrchestrator(QObject):
             },
             "DEX": {
                 "value": metrics.get("DEX", 0),
-                "formatted": f"{metrics.get('DEX', 0):.0f}M", 
+                "formatted": f"{metrics.get('DEX', 0):.0f}M",
                 "timestamp": timestamp,
                 "quality": self.metric_quality['DEX'].quality_score
             },
@@ -587,7 +583,7 @@ class CustomMetricsOrchestrator(QObject):
     def _add_to_history(self, snapshot: MetricSnapshot):
         """Add snapshot to history with size management"""
         self.metrics_history.append(snapshot)
-        
+
         # Trim history if too large
         if len(self.metrics_history) > self.max_history_size:
             self.metrics_history = self.metrics_history[-self.max_history_size:]
@@ -595,8 +591,8 @@ class CustomMetricsOrchestrator(QObject):
     # ==========================================================================
     # PUBLIC ACCESS METHODS
     # ==========================================================================
-    
-    def get_all_metrics(self) -> Dict:
+
+    def get_all_metrics(self) -> dict:
         """Get all current metrics thread-safely"""
         with self._metrics_lock:
             return self.current_metrics.copy()
@@ -630,12 +626,12 @@ class CustomMetricsOrchestrator(QObject):
         """Get current market stress level"""
         return self.current_stress_level
 
-    def get_metrics_history(self, lookback_minutes: int = 60) -> List[MetricSnapshot]:
+    def get_metrics_history(self, lookback_minutes: int = 60) -> list[MetricSnapshot]:
         """Get metrics history for specified lookback period"""
         cutoff_time = datetime.now() - timedelta(minutes=lookback_minutes)
         return [s for s in self.metrics_history if s.timestamp >= cutoff_time]
 
-    def get_quality_report(self) -> Dict[str, Any]:
+    def get_quality_report(self) -> dict[str, Any]:
         """Get comprehensive quality report for all metrics"""
         return {
             'overall_quality': np.mean([q.quality_score for q in self.metric_quality.values()]),
@@ -661,11 +657,11 @@ class CustomMetricsOrchestrator(QObject):
     # INTEGRATION METHODS (For other modules)
     # ==========================================================================
 
-    def get_current_market_conditions(self) -> Dict[str, Any]:
+    def get_current_market_conditions(self) -> dict[str, Any]:
         """
         Get current market conditions for integration with other modules.
-        
-        NOTE: This method provides data for L09_UnifiedRegimeEngine 
+
+        NOTE: This method provides data for L09_UnifiedRegimeEngine
         but does NOT perform regime detection itself.
         """
         with self._metrics_lock:
@@ -680,7 +676,7 @@ class CustomMetricsOrchestrator(QObject):
                 'update_frequency': self.current_update_interval,
                 'timestamp': datetime.now(),
                 'data_quality': {
-                    name: quality.quality_score 
+                    name: quality.quality_score
                     for name, quality in self.metric_quality.items()
                 }
             }
@@ -700,7 +696,7 @@ def get_metrics_orchestrator() -> CustomMetricsOrchestrator:
     return _orchestrator_instance
 
 
-def create_metrics_orchestrator(config: Optional[Dict] = None) -> CustomMetricsOrchestrator:
+def create_metrics_orchestrator(config: dict | None = None) -> CustomMetricsOrchestrator:
     """Create new instance of metrics orchestrator with config"""
     return CustomMetricsOrchestrator(config)
 
@@ -714,73 +710,35 @@ get_custom_metrics_orchestrator = get_metrics_orchestrator
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing and demonstration
-    print("=" * 80)
-    print("SPYDER S07 - CUSTOM METRICS ORCHESTRATOR (UPDATED)")
-    print("=" * 80)
-    
+
     # Test configuration
     test_config = {
         'auto_start': True,
         'max_history_size': 500
     }
-    
+
     # Create Qt application for signal testing
     import sys
     app = QApplication(sys.argv) if not QApplication.instance() else QApplication.instance()
-    
+
     # Create orchestrator
     orchestrator = create_metrics_orchestrator(test_config)
-    
-    print(f"\n✅ Metrics Orchestrator initialized successfully")
-    print(f"   Client ID: {orchestrator.client_id}")
-    print(f"   Available calculators:")
-    print(f"     • DIX (S01): {'✅' if orchestrator.dix_calculator else '❌'}")
-    print(f"     • SWAN (S03): {'✅' if orchestrator.swan_indicator else '❌'}")  
-    print(f"     • GEX (S05): {'✅' if orchestrator.gex_calculator else '❌'}")
-    print(f"     • SKEW (S06): {'✅' if orchestrator.skew_calculator else '❌'}")
-    
-    print(f"\n🔄 CONSOLIDATION CHANGES:")
-    print(f"   ❌ Regime detection functions REMOVED")
-    print(f"   ➡️ Regime detection now handled by L09_UnifiedRegimeEngine")  
-    print(f"   ✅ Pure metrics calculation and orchestration focus")
-    print(f"   ✅ Enhanced stress level tracking and dynamic updates")
-    print(f"   ✅ Improved quality metrics and error handling")
-    
+
+
+
     # Wait for initial update
-    print(f"\n⏳ Waiting for initial metrics update...")
     QTimer.singleShot(2000, lambda: None)
     app.processEvents()
-    
+
     # Show current metrics
     metrics = orchestrator.get_all_metrics()
-    print(f"\n📊 CURRENT METRICS:")
-    for name, value in metrics.items():
+    for name, _value in metrics.items():
         unit = {'GEX': 'B', 'DEX': 'M', 'DIX': '%', 'SWAN': '', 'SKEW': '', 'OGL': ''}[name]
-        print(f"   • {name}: {value:.2f}{unit}")
-    
+
     # Show market conditions for integration
     conditions = orchestrator.get_current_market_conditions()
-    print(f"\n🌐 MARKET CONDITIONS FOR INTEGRATION:")
-    print(f"   Stress Level: {conditions['stress_level'].upper()}")
-    print(f"   Update Frequency: {conditions['update_frequency']}s")
-    print(f"   Overall Data Quality: {np.mean(list(conditions['data_quality'].values())):.1%}")
-    
+
     # Show quality report
     quality_report = orchestrator.get_quality_report()
-    print(f"\n📈 QUALITY REPORT:")
-    print(f"   Overall Quality: {quality_report['overall_quality']:.1%}")
-    print(f"   Connection Status: {'✅ Connected' if quality_report['system_status']['connection_status'] else '❌ Disconnected'}")
-    
-    print(f"\n⚡ PERFORMANCE OPTIMIZATIONS:")
-    print(f"   • Dynamic update frequency based on market stress")
-    print(f"   • Thread-safe metrics access with locking")
-    print(f"   • Quality tracking and error resilience") 
-    print(f"   • Comprehensive metrics history management")
-    print(f"   • Integration-ready for L09 regime detection")
-    
-    print(f"\n{'=' * 80}")
-    print("S07 CustomMetricsOrchestrator updated successfully!")
-    print("✅ Regime detection functions removed")
-    print("✅ Focus on pure metrics orchestration")  
-    print("✅ Enhanced integration capabilities")
-    print("=" * 80)
+
+

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -973,7 +972,8 @@ class TestSimpleETDisplay:
         result_default = display.get_time_string()
         result_explicit = display.get_time_string(include_tz=True)
         # Both should have timezone abbreviation
-        has_tz = lambda s: ("EDT" in s or "EST" in s or "ET" in s)
+        def has_tz(s):
+            return ("EDT" in s or "EST" in s or "ET" in s)
         assert has_tz(result_default) and has_tz(result_explicit)
 
     def test_get_time_string_error_fallback(self):

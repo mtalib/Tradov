@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -40,7 +39,6 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
 import json
 import os
 import threading
@@ -48,12 +46,10 @@ import time
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any
 
-import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -72,8 +68,6 @@ TickType = None  # type: ignore
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
-from Spyder.SpyderU_Utilities.SpyderU09_DataTypes import MarketDataType
 
 # ==============================================================================
 # CONSTANTS
@@ -177,16 +171,16 @@ class MarketDataSubscription:
     contract: Any
     tier: str
     status: SubscriptionStatus = SubscriptionStatus.PENDING
-    last_update: Optional[datetime] = None
+    last_update: datetime | None = None
     error_count: int = 0
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class MarketDataUpdate:
     """Market data update event"""
     symbol: str
     timestamp: datetime
-    data: Dict[str, float]
+    data: dict[str, float]
     quality: DataQuality
     tier: str
 
@@ -206,7 +200,7 @@ class MarketDataHub:
         self,
         ib_client: SpyderClient,
         event_manager: EventManager,
-        config_path: Optional[str] = None,
+        config_path: str | None = None,
     ):
         """
         Initialize Market Data Hub.
@@ -225,14 +219,14 @@ class MarketDataHub:
         self.config = self._load_config(config_path)
 
         # Subscription management
-        self.subscriptions: Dict[str, MarketDataSubscription] = {}
-        self.symbol_to_req_id: Dict[str, int] = {}
-        self.req_id_to_symbol: Dict[int, str] = {}
+        self.subscriptions: dict[str, MarketDataSubscription] = {}
+        self.symbol_to_req_id: dict[str, int] = {}
+        self.req_id_to_symbol: dict[int, str] = {}
         self.next_req_id = 1000
 
         # Threading and concurrency
         self.running = False
-        self.worker_thread: Optional[threading.Thread] = None
+        self.worker_thread: threading.Thread | None = None
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="MDH")
         self.lock = threading.RLock()
 
@@ -242,8 +236,8 @@ class MarketDataHub:
         self.tier_last_update = defaultdict(float)
 
         # Error tracking
-        self.error_counts: Dict[str, int] = defaultdict(int)
-        self.error_timestamps: Dict[str, deque] = defaultdict(lambda: deque(maxlen=10))
+        self.error_counts: dict[str, int] = defaultdict(int)
+        self.error_timestamps: dict[str, deque] = defaultdict(lambda: deque(maxlen=10))
 
         # Initialize
         self._setup_callbacks()
@@ -252,10 +246,10 @@ class MarketDataHub:
     # ==========================================================================
     # INITIALIZATION METHODS
     # ==========================================================================
-    def _load_config(self, config_path: Optional[str]) -> Dict[str, Any]:
+    def _load_config(self, config_path: str | None) -> dict[str, Any]:
         """Load configuration from file or use defaults"""
         if config_path and os.path.exists(config_path):
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 return json.load(f)
         return MARKET_DATA_CONFIG
 
@@ -427,7 +421,7 @@ class MarketDataHub:
             self.logger.error(f"Error unsubscribing from {symbol}: {e}")
             return False
 
-    def get_latest_data(self, symbol: str) -> Optional[Dict[str, float]]:
+    def get_latest_data(self, symbol: str) -> dict[str, float] | None:
         """
         Get the latest market data for a symbol.
 
@@ -444,7 +438,7 @@ class MarketDataHub:
                     return subscription.data.copy()
         return None
 
-    def get_subscription_status(self) -> Dict[str, Any]:
+    def get_subscription_status(self) -> dict[str, Any]:
         """
         Get comprehensive subscription status.
 
@@ -474,7 +468,7 @@ class MarketDataHub:
     # ==========================================================================
     # PRIVATE METHODS - CONTRACT CREATION
     # ==========================================================================
-    def _create_contract(self, symbol: str) -> Optional[Any]:
+    def _create_contract(self, symbol: str) -> Any | None:
         """Create IBKR contract for symbol"""
         try:
             spec = SYMBOL_SPECS.get(symbol)
@@ -498,17 +492,17 @@ class MarketDataHub:
             self.logger.error(f"Error creating contract for {symbol}: {e}")
             return None
 
-    def _build_stock_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
+    def _build_stock_contract(self, symbol: str, spec: dict[str, Any]) -> Any:
         """Build a stock contract (legacy IB method — not used after IB Gateway removal)"""
         self.logger.warning("_build_stock_contract: ib_async removed, returning None")
         return None
 
-    def _build_index_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
+    def _build_index_contract(self, symbol: str, spec: dict[str, Any]) -> Any:
         """Build an index contract (legacy IB method — not used after IB Gateway removal)"""
         self.logger.warning("_build_index_contract: ib_async removed, returning None")
         return None
 
-    def _build_future_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
+    def _build_future_contract(self, symbol: str, spec: dict[str, Any]) -> Any:
         """Build a futures contract (legacy IB method — not used after IB Gateway removal)"""
         self.logger.warning("_build_future_contract: ib_async removed, returning None")
         return None
@@ -600,7 +594,7 @@ class MarketDataHub:
 
     def _check_subscription_health(self):
         """Check health of active subscriptions"""
-        current_time = time.time()
+        time.time()
 
         with self.lock:
             for subscription in list(self.subscriptions.values()):
@@ -642,7 +636,7 @@ class MarketDataHub:
         error_window = self.config.get("error_thresholds", {}).get("error_window", 60)
 
         # Clean up old error timestamps
-        for symbol, timestamps in self.error_timestamps.items():
+        for _symbol, timestamps in self.error_timestamps.items():
             while timestamps and current_time - timestamps[0] > error_window:
                 timestamps.popleft()
 
@@ -818,7 +812,7 @@ class MarketDataHub:
     # ==========================================================================
     # PRIVATE METHODS - EVENT PUBLISHING
     # ==========================================================================
-    def _publish_market_update(self, subscription: MarketDataSubscription, data: Dict[str, Any]):
+    def _publish_market_update(self, subscription: MarketDataSubscription, data: dict[str, Any]):
         """Publish market data update event"""
         try:
             update = MarketDataUpdate(
@@ -847,7 +841,7 @@ class MarketDataHub:
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    def _count_subscriptions_by_tier(self) -> Dict[str, int]:
+    def _count_subscriptions_by_tier(self) -> dict[str, int]:
         """Count active subscriptions by tier"""
         counts = defaultdict(int)
         for sub in self.subscriptions.values():
@@ -884,8 +878,7 @@ if __name__ == "__main__":
         # Subscribe to events
         @event_manager.subscribe(EventType.MARKET_DATA_TICK)
         def on_market_data(event: Event):
-            update = event.data["update"]
-            print(f"📊 {update.symbol}: {update.data}")
+            event.data["update"]
 
         # Start hub
         hub.start()
@@ -900,10 +893,9 @@ if __name__ == "__main__":
 
         # Check status
         status = hub.get_subscription_status()
-        print(f"\n📈 Subscription Status: {json.dumps(status, indent=2)}")
 
         # Stop hub
         hub.stop()
         ib_client.disconnect()
     else:
-        print("Failed to connect to IBKR")
+        pass

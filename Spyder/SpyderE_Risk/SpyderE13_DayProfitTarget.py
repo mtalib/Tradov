@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 SPYDER - Autonomous Options Trading System v1.0
@@ -47,35 +46,26 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import json
 import logging
-import os
 import statistics
-import sys
 import threading
-import time
 import uuid
-from collections import defaultdict, deque
-from datetime import datetime, timedelta, time as dt_time
+from collections import defaultdict
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
-from enum import Enum, auto
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union, Callable, Set
+from enum import Enum
+from typing import Any, Callable
 import copy
-import heapq
 import numpy as np
-import pandas as pd
-from scipy import stats, optimize
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pytz
 
 # ⚠️ DEPRECATED: ib_async integration should be replaced with Tradier API
 # TODO: Migrate to SpyderB40_TradierClient for order execution
 # Current implementation uses legacy IBKR integration
-from ib_async import IB, Contract, Order, Trade, Fill, OrderStatus
+from ib_async import IB, Contract, Order, Fill
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -83,26 +73,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QTextEdit,
     QProgressBar,
     QGroupBox,
     QCheckBox,
     QMessageBox,
-    QTabWidget,
     QListWidget,
     QListWidgetItem,
-    QTableWidget,
-    QTableWidgetItem,
-    QSplitter,
-    QFrame,
-    QScrollArea,
     QComboBox,
     QSpinBox,
-    QDoubleSpinBox,
-    QSlider,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QHeaderView,
     QLineEdit,
     QFormLayout,
     QGridLayout,
@@ -110,17 +88,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     QTimer,
-    QThread,
     Signal,
-    Qt,
-    QAbstractTableModel,
-    QModelIndex,
 )
-from PySide6.QtGui import QFont, QColor, QIcon, QPalette, QPixmap
+from PySide6.QtGui import QColor
 import plotly.graph_objects as go
-import plotly.express as px
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import plotly.graph_objects as go
+from matplotlib.figure import Figure
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -130,14 +103,14 @@ try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import (
         SpyderErrorHandler,
-        TradingError,
+        TradingError,  # noqa: F401
     )
-    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics  # noqa: F401
     from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
     # Broker integration
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-    from SpyderB_Broker.SpyderB02_OrderManager import OrderManager
+    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient  # noqa: F401
+    from SpyderB_Broker.SpyderB02_OrderManager import OrderManager  # noqa: F401
     from SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import (
         IntegratedConnectivityManager,
     )
@@ -146,7 +119,7 @@ try:
     from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 
     # Event management
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType  # noqa: F401
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -278,7 +251,7 @@ class ProfitTargetConfig:
     slicing_algorithm: SlicingAlgorithm = SlicingAlgorithm.ADAPTIVE
     child_order_size: int = DEFAULT_CHILD_ORDER_SIZE
     max_market_impact_bps: float = MAX_MARKET_IMPACT_BPS
-    preferred_venues: List[OrderExecutionVenue] = field(
+    preferred_venues: list[OrderExecutionVenue] = field(
         default_factory=lambda: [OrderExecutionVenue.SMART]
     )
     enable_dark_pools: bool = True
@@ -296,10 +269,10 @@ class ChildOrderSpec:
     action: str  # BUY/SELL
     quantity: int
     order_type: str
-    limit_price: Optional[float]
+    limit_price: float | None
     time_in_force: str
     venue: OrderExecutionVenue
-    algorithm_params: Dict[str, Any]
+    algorithm_params: dict[str, Any]
     scheduled_time: datetime
     priority_score: float
     risk_allocation: float
@@ -317,7 +290,7 @@ class ExecutionMetrics:
     total_slippage_bps: float = 0.0
     market_impact_bps: float = 0.0
     execution_quality_score: float = 0.0
-    venue_performance: Dict[str, float] = field(default_factory=dict)
+    venue_performance: dict[str, float] = field(default_factory=dict)
     total_commission: float = 0.0
     total_fees: float = 0.0
 
@@ -330,7 +303,7 @@ class ProfitTargetProgress:
     current_profit: float
     progress_percentage: float
     time_elapsed_minutes: int
-    estimated_completion_time: Optional[datetime]
+    estimated_completion_time: datetime | None
     orders_executed: int
     orders_pending: int
     risk_utilization_pct: float
@@ -379,23 +352,23 @@ class AlgorithmicSlicingManager:
     with minimal market impact across multiple venues.
     """
 
-    def __init__(self, ib_client: IB, logger: Optional[logging.Logger] = None):
+    def __init__(self, ib_client: IB, logger: logging.Logger | None = None):
         self.ib = ib_client
         self.logger = logger or logging.getLogger(__name__)
 
         # Order tracking
-        self.parent_orders: Dict[str, Order] = {}
-        self.child_orders: Dict[str, ChildOrderSpec] = {}
+        self.parent_orders: dict[str, Order] = {}
+        self.child_orders: dict[str, ChildOrderSpec] = {}
         self.execution_queue = []
-        self.active_orders: Dict[str, Order] = {}
+        self.active_orders: dict[str, Order] = {}
 
         # Performance tracking
-        self.venue_performance: Dict[str, ExecutionMetrics] = {}
-        self.algorithm_performance: Dict[SlicingAlgorithm, ExecutionMetrics] = {}
+        self.venue_performance: dict[str, ExecutionMetrics] = {}
+        self.algorithm_performance: dict[SlicingAlgorithm, ExecutionMetrics] = {}
 
         # Market analysis
-        self.market_depth_cache: Dict[str, Dict] = {}
-        self.liquidity_analysis: Dict[str, float] = {}
+        self.market_depth_cache: dict[str, dict] = {}
+        self.liquidity_analysis: dict[str, float] = {}
 
         # Threading
         self.execution_thread = None
@@ -408,7 +381,7 @@ class AlgorithmicSlicingManager:
         risk_allocation: float,
         algorithm: SlicingAlgorithm,
         time_window_minutes: int,
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """
         Create comprehensive slicing execution plan.
 
@@ -470,7 +443,7 @@ class AlgorithmicSlicingManager:
 
     def _create_twap_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create Time-Weighted Average Price execution plan"""
         child_orders = []
 
@@ -518,7 +491,7 @@ class AlgorithmicSlicingManager:
 
     def _create_vwap_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create Volume-Weighted Average Price execution plan"""
         child_orders = []
 
@@ -526,7 +499,7 @@ class AlgorithmicSlicingManager:
         volume_profile = self._get_volume_profile()
 
         # Distribute orders based on expected volume
-        child_order_size = min(DEFAULT_CHILD_ORDER_SIZE, total_contracts // 8)
+        min(DEFAULT_CHILD_ORDER_SIZE, total_contracts // 8)
         num_periods = len(volume_profile)
 
         start_time = datetime.now()
@@ -563,7 +536,7 @@ class AlgorithmicSlicingManager:
 
     def _create_adaptive_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create adaptive ML-driven execution plan"""
         # This would integrate with machine learning models to optimize execution
         # For now, we'll use a hybrid approach combining TWAP and VWAP
@@ -592,7 +565,7 @@ class AlgorithmicSlicingManager:
 
     def _create_sor_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create Smart Order Routing execution plan"""
         child_orders = []
 
@@ -653,7 +626,7 @@ class AlgorithmicSlicingManager:
 
     def _create_pov_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create Percentage of Volume execution plan"""
         child_orders = []
 
@@ -706,7 +679,7 @@ class AlgorithmicSlicingManager:
 
     def _create_liquidity_seeking_plan(
         self, total_contracts: int, time_window_minutes: int
-    ) -> List[ChildOrderSpec]:
+    ) -> list[ChildOrderSpec]:
         """Create liquidity-seeking execution plan"""
         child_orders = []
 
@@ -780,12 +753,12 @@ class AlgorithmicSlicingManager:
             right="C",  # Call option, would be strategy-dependent
         )
 
-    def _get_volume_profile(self) -> List[float]:
+    def _get_volume_profile(self) -> list[float]:
         """Get historical volume profile weights"""
         # Simplified volume profile - would use real market data
         return [0.05, 0.08, 0.12, 0.15, 0.20, 0.18, 0.12, 0.10]
 
-    def _get_expected_volume_per_minute(self) -> Dict[int, int]:
+    def _get_expected_volume_per_minute(self) -> dict[int, int]:
         """Get expected volume per minute"""
         # Simplified - would use real-time market data
         base_volume = 2000
@@ -829,10 +802,10 @@ class DayProfitTargetEngine:
 
     def __init__(
         self,
-        ib_client: Optional[IB] = None,
-        strategy_orchestrator: Optional[StrategyOrchestrator] = None,
-        connectivity_manager: Optional[IntegratedConnectivityManager] = None,
-        event_manager: Optional[EventManager] = None,
+        ib_client: IB | None = None,
+        strategy_orchestrator: StrategyOrchestrator | None = None,
+        connectivity_manager: IntegratedConnectivityManager | None = None,
+        event_manager: EventManager | None = None,
     ):
         """
         Initialize Day Profit Target Engine.
@@ -862,7 +835,7 @@ class DayProfitTargetEngine:
 
         # Current state
         self.status = ProfitTargetStatus.INACTIVE
-        self.current_config: Optional[ProfitTargetConfig] = None
+        self.current_config: ProfitTargetConfig | None = None
         self.current_progress = ProfitTargetProgress(
             target_amount=0.0,
             current_profit=0.0,
@@ -876,17 +849,17 @@ class DayProfitTargetEngine:
         )
 
         # Risk monitoring
-        self.risk_alerts: List[RiskAlert] = []
+        self.risk_alerts: list[RiskAlert] = []
         self.circuit_breaker_active = False
         self.max_account_balance = 0.0
         self.daily_start_balance = 0.0
         self.current_account_balance = 0.0
 
         # Execution tracking
-        self.parent_order_id: Optional[str] = None
-        self.active_child_orders: Dict[str, Order] = {}
-        self.completed_orders: List[Fill] = []
-        self.execution_start_time: Optional[datetime] = None
+        self.parent_order_id: str | None = None
+        self.active_child_orders: dict[str, Order] = {}
+        self.completed_orders: list[Fill] = []
+        self.execution_start_time: datetime | None = None
 
         # Performance analytics
         self.market_impact_analyzer = MarketImpactAnalyzer()
@@ -908,9 +881,9 @@ class DayProfitTargetEngine:
             self.trading_calendar = None
 
         # Callbacks
-        self.progress_callbacks: List[Callable] = []
-        self.risk_alert_callbacks: List[Callable] = []
-        self.completion_callbacks: List[Callable] = []
+        self.progress_callbacks: list[Callable] = []
+        self.risk_alert_callbacks: list[Callable] = []
+        self.completion_callbacks: list[Callable] = []
 
         self.logger.info("🎯 Day Profit Target Engine initialized")
 
@@ -920,7 +893,7 @@ class DayProfitTargetEngine:
 
     async def validate_profit_target(
         self, target_amount: float
-    ) -> Tuple[bool, str, float]:
+    ) -> tuple[bool, str, float]:
         """
         Validate if profit target is achievable with current account balance.
 
@@ -1216,7 +1189,7 @@ class DayProfitTargetEngine:
         """Get current progress information"""
         return copy.deepcopy(self.current_progress)
 
-    def get_risk_alerts(self) -> List[RiskAlert]:
+    def get_risk_alerts(self) -> list[RiskAlert]:
         """Get current risk alerts"""
         return copy.deepcopy(self.risk_alerts)
 
@@ -1224,7 +1197,7 @@ class DayProfitTargetEngine:
     # PRIVATE METHODS - EXECUTION AND MONITORING
     # ==========================================================================
 
-    def _execute_slicing_plan(self, child_orders: List[ChildOrderSpec]):
+    def _execute_slicing_plan(self, child_orders: list[ChildOrderSpec]):
         """Execute the slicing plan in a separate thread"""
         try:
             self.logger.info(f"Executing slicing plan with {len(child_orders)} orders")
@@ -1291,7 +1264,7 @@ class DayProfitTargetEngine:
                 order.parentId = int(self.parent_order_id)
 
             # Place order
-            trade = self.ib.placeOrder(contract, order)
+            self.ib.placeOrder(contract, order)
 
             # Track order
             self.active_child_orders[child_order_spec.order_id] = order
@@ -1520,7 +1493,7 @@ class MarketImpactAnalyzer:
     """Analyzes market impact of order execution"""
 
     def __init__(self):
-        self.impact_history: List[MarketImpactAnalysis] = []
+        self.impact_history: list[MarketImpactAnalysis] = []
 
     def analyze_impact(
         self, pre_price: float, post_price: float, volume: int
@@ -1557,8 +1530,8 @@ class ExecutionQualityTracker:
     """Tracks execution quality metrics"""
 
     def __init__(self):
-        self.execution_history: List[Dict] = []
-        self.venue_performance: Dict[str, List[float]] = defaultdict(list)
+        self.execution_history: list[dict] = []
+        self.venue_performance: dict[str, list[float]] = defaultdict(list)
 
     def record_execution(
         self, venue: str, fill_price: float, target_price: float, fill_time: float
@@ -1578,7 +1551,7 @@ class ExecutionQualityTracker:
         self.execution_history.append(execution_record)
         self.venue_performance[venue].append(slippage)
 
-    def get_venue_performance(self, venue: str) -> Dict[str, float]:
+    def get_venue_performance(self, venue: str) -> dict[str, float]:
         """Get performance statistics for a venue"""
         if venue not in self.venue_performance:
             return {"avg_slippage": 0.0, "fill_rate": 0.0}
@@ -1613,7 +1586,7 @@ class DayProfitTargetWidget(QWidget):
     progressUpdated = Signal(dict)  # progress_data
     riskAlert = Signal(dict)  # alert_data
 
-    def __init__(self, profit_engine: Optional[DayProfitTargetEngine] = None):
+    def __init__(self, profit_engine: DayProfitTargetEngine | None = None):
         super().__init__()
 
         self.profit_engine = profit_engine or DayProfitTargetEngine()
@@ -1936,8 +1909,8 @@ class DayProfitTargetWidget(QWidget):
             target_amount = float(self.target_amount_input.text().strip())
             algorithm_text = self.algorithm_combo.currentText().lower()
             algorithm = SlicingAlgorithm(algorithm_text)
-            time_window = self.time_window_spin.value()
-            child_order_size = self.child_order_size_spin.value()
+            self.time_window_spin.value()
+            self.child_order_size_spin.value()
 
             # Configure the engine (simplified for demo)
             self.configure_btn.setEnabled(False)
@@ -2122,8 +2095,8 @@ class DayProfitTargetWidget(QWidget):
     def update_display(self):
         """Update display with current data"""
         # Update account balance display
-        self.account_balance_label.setText(f"Account Balance: $500,000")  # Demo value
-        self.max_risk_label.setText(f"Max Risk Amount: $100,000")  # Demo value
+        self.account_balance_label.setText("Account Balance: $500,000")  # Demo value
+        self.max_risk_label.setText("Max Risk Amount: $100,000")  # Demo value
 
         # Update analytics chart (placeholder)
         self._update_analytics_chart()
@@ -2184,7 +2157,7 @@ class DayProfitTargetWidget(QWidget):
         while self.risk_alerts_list.count() > 5:
             self.risk_alerts_list.takeItem(5)
 
-    def on_execution_complete(self, status: ProfitTargetStatus, report: Dict):
+    def on_execution_complete(self, status: ProfitTargetStatus, report: dict):
         """Handle execution completion from engine"""
         reason = status.value
         self._execution_complete(reason)
@@ -2196,16 +2169,16 @@ class DayProfitTargetWidget(QWidget):
 
 
 def create_day_profit_target_engine(
-    ib_client: Optional[IB] = None,
-    strategy_orchestrator: Optional[StrategyOrchestrator] = None,
-    connectivity_manager: Optional[IntegratedConnectivityManager] = None,
+    ib_client: IB | None = None,
+    strategy_orchestrator: StrategyOrchestrator | None = None,
+    connectivity_manager: IntegratedConnectivityManager | None = None,
 ) -> DayProfitTargetEngine:
     """Factory function to create day profit target engine"""
     return DayProfitTargetEngine(ib_client, strategy_orchestrator, connectivity_manager)
 
 
 def create_day_profit_target_widget(
-    profit_engine: Optional[DayProfitTargetEngine] = None,
+    profit_engine: DayProfitTargetEngine | None = None,
 ) -> DayProfitTargetWidget:
     """Factory function to create day profit target widget"""
     return DayProfitTargetWidget(profit_engine)
@@ -2243,14 +2216,14 @@ def main():
             else:
                 logging.info(f"    ❌ Too high - Max achievable: ${max_achievable:,.2f}")
 
-        logging.info(f"\n🎯 Test Results:")
+        logging.info("\n🎯 Test Results:")
         logging.info(f"  Engine Status: {engine.status.value}")
         logging.info(
             f"  Supported Algorithms: {', '.join([a.value for a in SlicingAlgorithm])}"
         )
         logging.info(f"  Supported Venues: {len(SUPPORTED_VENUES)} venues")
 
-        logging.info(f"\n✅ Day Profit Target Engine test completed!")
+        logging.info("\n✅ Day Profit Target Engine test completed!")
 
     except Exception as e:
         logging.info(f"❌ Error during testing: {e}")

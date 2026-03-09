@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -22,12 +21,9 @@ Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
-import json
-import pickle
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import warnings
@@ -38,15 +34,11 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from scipy import interpolate, optimize, stats
+from scipy import optimize
 from scipy.interpolate import RBFInterpolator, griddata
 from scipy.ndimage import gaussian_filter
 import plotly.graph_objects as go
-import plotly.express as px
-from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
-import plotly.graph_objects as go
-import plotly.express as px
+import matplotlib.pyplot as plt
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -152,23 +144,23 @@ class VolatilitySurface:
     underlying_price: float
     risk_free_rate: float
     dividend_yield: float
-    
+
     # Surface data
     strikes: np.ndarray
     expiries: np.ndarray
     moneyness_grid: np.ndarray
     time_grid: np.ndarray
     iv_surface: np.ndarray
-    
+
     # Interpolation
     interpolation_method: InterpolationMethod
-    interpolator: Optional[Any] = None
-    
+    interpolator: Any | None = None
+
     # Analytics
     atm_term_structure: np.ndarray = field(default_factory=lambda: np.array([]))
-    skew_parameters: Dict[datetime, float] = field(default_factory=dict)
-    smile_parameters: Dict[datetime, Dict] = field(default_factory=dict)
-    
+    skew_parameters: dict[datetime, float] = field(default_factory=dict)
+    smile_parameters: dict[datetime, dict] = field(default_factory=dict)
+
     # Quality metrics
     data_points: int = 0
     interpolation_error: float = 0.0
@@ -178,14 +170,14 @@ class VolatilitySurface:
 class ArbitrageOpportunity:
     """Arbitrage opportunity in volatility surface"""
     arbitrage_type: ArbitrageType
-    strikes: List[float]
-    expiries: List[datetime]
-    current_ivs: List[float]
+    strikes: list[float]
+    expiries: list[datetime]
+    current_ivs: list[float]
     theoretical_bound: float
     violation_amount: float
     profit_potential: float
     confidence: float
-    trade_setup: Dict[str, Any]
+    trade_setup: dict[str, Any]
 
 @dataclass
 class SurfaceAnalytics:
@@ -193,28 +185,28 @@ class SurfaceAnalytics:
     # Term structure
     term_structure_shape: str  # 'contango', 'backwardation', 'flat'
     term_structure_slope: float
-    
+
     # Skew analysis
     skew_pattern: SkewPattern
     skew_steepness: float
     put_wing_slope: float
     call_wing_slope: float
-    
+
     # Smile metrics
     smile_curvature: float
     atm_volatility: float
     risk_reversal_25d: float
     butterfly_25d: float
-    
+
     # Surface quality
     smoothness_score: float
     data_coverage: float
     interpolation_quality: float
-    
+
     # Trading signals
-    rich_strikes: List[Tuple[float, datetime]]
-    cheap_strikes: List[Tuple[float, datetime]]
-    arbitrage_opportunities: List[ArbitrageOpportunity]
+    rich_strikes: list[tuple[float, datetime]]
+    cheap_strikes: list[tuple[float, datetime]]
+    arbitrage_opportunities: list[ArbitrageOpportunity]
 
 # ==============================================================================
 # VOLATILITY SURFACE BUILDER CLASS
@@ -222,7 +214,7 @@ class SurfaceAnalytics:
 class VolatilitySurfaceBuilder:
     """
     3D Volatility surface construction and analysis.
-    
+
     Features:
         - Multi-dimensional surface fitting
         - Advanced interpolation methods (RBF, SVI, SABR)
@@ -232,63 +224,63 @@ class VolatilitySurfaceBuilder:
         - Interactive 3D visualization
         - Surface quality metrics
     """
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """
         Initialize the Volatility Surface Builder
-        
+
         Args:
             config: Configuration dictionary
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Configuration
         self.config = config or {}
         self.interpolation_method = InterpolationMethod(
             self.config.get('interpolation', 'rbf')
         )
         self.smoothing = self.config.get('smoothing', SMOOTHING_FACTOR)
-        
+
         # Data storage
-        self.surfaces: Dict[str, VolatilitySurface] = {}
-        self.surface_history: Dict[str, List[VolatilitySurface]] = {}
-        self.arbitrage_opportunities: List[ArbitrageOpportunity] = []
-        
+        self.surfaces: dict[str, VolatilitySurface] = {}
+        self.surface_history: dict[str, list[VolatilitySurface]] = {}
+        self.arbitrage_opportunities: list[ArbitrageOpportunity] = []
+
         # Analytics modules
         self.pricer = OptionsPricer() if ANALYTICS_AVAILABLE else None
         self.iv_engine = ImpliedVolatilityEngine() if ANALYTICS_AVAILABLE else None
         self.chain_manager = OptionsChainManager() if ANALYTICS_AVAILABLE else None
-        
+
         # Threading
         self.lock = threading.Lock()
         self.update_thread = None
         self.monitoring = False
-        
+
         # Cache
         self.cache = {}
         self.cache_timestamp = {}
-        
+
         self.logger.info("VolatilitySurfaceBuilder initialized")
-    
+
     # ==========================================================================
     # SURFACE CONSTRUCTION
     # ==========================================================================
-    
+
     def build_surface(self, symbol: str, options_data: pd.DataFrame,
                      underlying_price: float,
                      risk_free_rate: float = 0.05,
                      dividend_yield: float = 0.0) -> VolatilitySurface:
         """
         Build volatility surface from options data
-        
+
         Args:
             symbol: Underlying symbol
             options_data: DataFrame with options data
             underlying_price: Current underlying price
             risk_free_rate: Risk-free rate
             dividend_yield: Dividend yield
-            
+
         Returns:
             VolatilitySurface object
         """
@@ -298,24 +290,24 @@ class VolatilitySurfaceBuilder:
                 surface_points = self._prepare_surface_data(
                     options_data, underlying_price
                 )
-                
+
                 if len(surface_points) < MIN_STRIKES * MIN_EXPIRIES:
                     raise ValueError(f"Insufficient data points: {len(surface_points)}")
-                
+
                 # Create grids
                 strikes, expiries, moneyness_grid, time_grid = self._create_grids(
                     surface_points, underlying_price
                 )
-                
+
                 # Build IV surface
                 iv_surface = self._interpolate_surface(
                     surface_points, moneyness_grid, time_grid
                 )
-                
+
                 # Apply smoothing
                 if self.smoothing > 0:
                     iv_surface = self._smooth_surface(iv_surface)
-                
+
                 # Create surface object
                 surface = VolatilitySurface(
                     symbol=symbol,
@@ -332,48 +324,48 @@ class VolatilitySurfaceBuilder:
                     interpolation_method=self.interpolation_method,
                     data_points=len(surface_points)
                 )
-                
+
                 # Add analytics
                 surface = self._add_surface_analytics(surface)
-                
+
                 # Check for arbitrage
                 surface.arbitrage_violations = self._detect_arbitrage(surface)
-                
+
                 # Store surface
                 self.surfaces[symbol] = surface
-                
+
                 # Add to history
                 if symbol not in self.surface_history:
                     self.surface_history[symbol] = []
                 self.surface_history[symbol].append(surface)
-                
+
                 # Limit history size
                 if len(self.surface_history[symbol]) > 100:
                     self.surface_history[symbol].pop(0)
-                
+
                 self.logger.info(f"Built volatility surface for {symbol}")
-                
+
                 return surface
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to build surface: {e}")
                 raise
-    
+
     def _prepare_surface_data(self, options_data: pd.DataFrame,
-                             underlying_price: float) -> List[SurfacePoint]:
+                             underlying_price: float) -> list[SurfacePoint]:
         """Prepare surface data points from options data"""
         surface_points = []
-        
+
         for _, row in options_data.iterrows():
             # Calculate moneyness and time
             moneyness = row['strike'] / underlying_price
             time_to_expiry = (row['expiry'] - datetime.now()).days / 365.0
-            
+
             # Skip if outside reasonable bounds
             if (moneyness < 1/MAX_MONEYNESS or moneyness > MAX_MONEYNESS or
                 time_to_expiry <= 0):
                 continue
-            
+
             # Create surface point
             point = SurfacePoint(
                 strike=row['strike'],
@@ -387,41 +379,41 @@ class VolatilitySurfaceBuilder:
                 open_interest=row.get('open_interest', 0),
                 underlying_price=underlying_price
             )
-            
+
             surface_points.append(point)
-        
+
         return surface_points
-    
-    def _create_grids(self, surface_points: List[SurfacePoint],
-                     underlying_price: float) -> Tuple[np.ndarray, ...]:
+
+    def _create_grids(self, surface_points: list[SurfacePoint],
+                     underlying_price: float) -> tuple[np.ndarray, ...]:
         """Create moneyness and time grids for surface"""
         # Extract unique values
         strikes = sorted(list(set(p.strike for p in surface_points)))
         expiries = sorted(list(set(p.expiry for p in surface_points)))
-        
+
         # Create moneyness grid
         min_moneyness = min(p.moneyness for p in surface_points)
         max_moneyness = max(p.moneyness for p in surface_points)
         moneyness_range = np.linspace(min_moneyness, max_moneyness, 50)
-        
+
         # Create time grid
         min_time = min(p.time_to_expiry for p in surface_points)
         max_time = max(p.time_to_expiry for p in surface_points)
         time_range = np.linspace(min_time, max_time, 30)
-        
+
         # Create 2D grids
         moneyness_grid, time_grid = np.meshgrid(moneyness_range, time_range)
-        
+
         return np.array(strikes), np.array(expiries), moneyness_grid, time_grid
-    
-    def _interpolate_surface(self, surface_points: List[SurfacePoint],
+
+    def _interpolate_surface(self, surface_points: list[SurfacePoint],
                             moneyness_grid: np.ndarray,
                             time_grid: np.ndarray) -> np.ndarray:
         """Interpolate volatility surface"""
         # Prepare data for interpolation
         points = np.array([[p.moneyness, p.time_to_expiry] for p in surface_points])
         values = np.array([p.implied_volatility for p in surface_points])
-        
+
         # Choose interpolation method
         if self.interpolation_method == InterpolationMethod.RBF:
             surface = self._rbf_interpolation(points, values, moneyness_grid, time_grid)
@@ -432,60 +424,62 @@ class VolatilitySurfaceBuilder:
         else:
             # Default to linear
             surface = self._linear_interpolation(points, values, moneyness_grid, time_grid)
-        
+
         # Ensure reasonable bounds
         surface = np.clip(surface, MIN_IV, MAX_IV)
-        
+
         return surface
-    
+
     def _rbf_interpolation(self, points: np.ndarray, values: np.ndarray,
                           moneyness_grid: np.ndarray,
                           time_grid: np.ndarray) -> np.ndarray:
         """Radial Basis Function interpolation"""
         # Create RBF interpolator
         rbf = RBFInterpolator(points, values, kernel='thin_plate_spline')
-        
+
         # Interpolate on grid
         grid_points = np.column_stack([moneyness_grid.ravel(), time_grid.ravel()])
         surface = rbf(grid_points).reshape(moneyness_grid.shape)
-        
+
         return surface
-    
+
     def _svi_interpolation(self, points: np.ndarray, values: np.ndarray,
                           moneyness_grid: np.ndarray,
                           time_grid: np.ndarray) -> np.ndarray:
         """SVI (Stochastic Volatility Inspired) parameterization"""
         # SVI parameterization: w(k) = a + b(ρ(k-m) + sqrt((k-m)² + σ²))
         # where w is total variance, k is log-moneyness
-        
+
         surface = np.zeros_like(moneyness_grid)
-        
+
         # Fit SVI for each time slice
         unique_times = np.unique(points[:, 1])
-        
-        for t_idx, t in enumerate(unique_times):
+
+        for _t_idx, t in enumerate(unique_times):
             # Get data for this time slice
             mask = points[:, 1] == t
             moneyness = points[mask, 0]
             ivs = values[mask]
-            
+
             if len(moneyness) < 5:
                 continue
-            
+
             # Convert to log-moneyness
             log_moneyness = np.log(moneyness)
-            
+
             # Fit SVI parameters (simplified)
-            def svi_objective(params):
+            # Bind loop variables explicitly via default arguments to avoid
+            # the closure-over-loop-variable bug.
+            def svi_objective(params, _lm=log_moneyness, _t=t, _ivs=ivs):
                 a, b, rho, m, sigma = params
-                k = log_moneyness - m
+                k = _lm - m
                 w_model = a + b * (rho * k + np.sqrt(k**2 + sigma**2))
-                iv_model = np.sqrt(w_model / t) if t > 0 else 0
-                return np.sum((iv_model - ivs)**2)
-            
+                iv_model = np.sqrt(w_model / _t) if _t > 0 else 0
+                return np.sum((iv_model - _ivs)**2)
+
             # Initial guess
             x0 = [np.mean(ivs)**2 * t, 0.1, 0.0, 0.0, 0.1]
-            
+
             # Bounds
             bounds = [
                 (0, None),  # a >= 0
@@ -494,30 +488,30 @@ class VolatilitySurfaceBuilder:
                 (-1, 1),    # m
                 (0.01, 1)   # σ
             ]
-            
+
             try:
                 result = optimize.minimize(svi_objective, x0, bounds=bounds, method='L-BFGS-B')
                 a, b, rho, m, sigma = result.x
-                
+
                 # Apply to grid
                 time_mask = np.abs(time_grid - t) < 0.01
                 if np.any(time_mask):
                     k_grid = np.log(moneyness_grid[time_mask]) - m
                     w_grid = a + b * (rho * k_grid + np.sqrt(k_grid**2 + sigma**2))
                     surface[time_mask] = np.sqrt(np.maximum(0, w_grid / t))
-            except:
+            except Exception:
                 # Fallback to linear interpolation for this slice
                 pass
-        
+
         # Fill any missing values
         mask = surface == 0
         if np.any(mask):
-            surface[mask] = griddata(points, values, 
+            surface[mask] = griddata(points, values,
                                     np.column_stack([moneyness_grid[mask], time_grid[mask]]),
                                     method='linear')
-        
+
         return surface
-    
+
     def _cubic_interpolation(self, points: np.ndarray, values: np.ndarray,
                             moneyness_grid: np.ndarray,
                             time_grid: np.ndarray) -> np.ndarray:
@@ -525,16 +519,16 @@ class VolatilitySurfaceBuilder:
         grid_points = np.column_stack([moneyness_grid.ravel(), time_grid.ravel()])
         surface = griddata(points, values, grid_points, method='cubic')
         surface = surface.reshape(moneyness_grid.shape)
-        
+
         # Fill NaN values with linear interpolation
         mask = np.isnan(surface)
         if np.any(mask):
             surface[mask] = griddata(points, values,
                                    np.column_stack([moneyness_grid[mask], time_grid[mask]]),
                                    method='linear')
-        
+
         return surface
-    
+
     def _linear_interpolation(self, points: np.ndarray, values: np.ndarray,
                              moneyness_grid: np.ndarray,
                              time_grid: np.ndarray) -> np.ndarray:
@@ -542,50 +536,50 @@ class VolatilitySurfaceBuilder:
         grid_points = np.column_stack([moneyness_grid.ravel(), time_grid.ravel()])
         surface = griddata(points, values, grid_points, method='linear')
         surface = surface.reshape(moneyness_grid.shape)
-        
+
         # Fill NaN values with nearest neighbor
         mask = np.isnan(surface)
         if np.any(mask):
             surface[mask] = griddata(points, values,
                                    np.column_stack([moneyness_grid[mask], time_grid[mask]]),
                                    method='nearest')
-        
+
         return surface
-    
+
     def _smooth_surface(self, surface: np.ndarray) -> np.ndarray:
         """Apply smoothing to surface"""
         # Use Gaussian filter for smoothing
         smoothed = gaussian_filter(surface, sigma=self.smoothing)
-        
+
         # Preserve original values at data points (optional)
         # This would require keeping track of original point locations
-        
+
         return smoothed
-    
+
     # ==========================================================================
     # SURFACE ANALYTICS
     # ==========================================================================
-    
+
     def _add_surface_analytics(self, surface: VolatilitySurface) -> VolatilitySurface:
         """Add analytics to surface"""
         # Calculate ATM term structure
         surface.atm_term_structure = self._calculate_atm_term_structure(surface)
-        
+
         # Calculate skew parameters
         surface.skew_parameters = self._calculate_skew_parameters(surface)
-        
+
         # Calculate smile parameters
         surface.smile_parameters = self._calculate_smile_parameters(surface)
-        
+
         # Calculate interpolation error
         surface.interpolation_error = self._calculate_interpolation_error(surface)
-        
+
         return surface
-    
+
     def _calculate_atm_term_structure(self, surface: VolatilitySurface) -> np.ndarray:
         """Calculate ATM volatility term structure"""
         atm_vols = []
-        
+
         # For each time slice, find ATM volatility
         for t_idx in range(surface.time_grid.shape[0]):
             # Find moneyness closest to 1.0 (ATM)
@@ -593,113 +587,113 @@ class VolatilitySurfaceBuilder:
             atm_idx = np.argmin(np.abs(moneyness_slice - 1.0))
             atm_vol = surface.iv_surface[t_idx, atm_idx]
             atm_vols.append(atm_vol)
-        
+
         return np.array(atm_vols)
-    
-    def _calculate_skew_parameters(self, surface: VolatilitySurface) -> Dict[datetime, float]:
+
+    def _calculate_skew_parameters(self, surface: VolatilitySurface) -> dict[datetime, float]:
         """Calculate skew for each expiry"""
         skew_params = {}
-        
+
         unique_times = np.unique(surface.time_grid)
-        
+
         for t in unique_times:
             # Get slice for this time
             t_idx = np.where(np.abs(surface.time_grid[:, 0] - t) < 0.001)[0]
-            
+
             if len(t_idx) == 0:
                 continue
-            
+
             t_idx = t_idx[0]
             moneyness = surface.moneyness_grid[t_idx, :]
             ivs = surface.iv_surface[t_idx, :]
-            
+
             # Calculate 25-delta skew (simplified)
             otm_put_idx = np.argmin(np.abs(moneyness - 0.95))
             otm_call_idx = np.argmin(np.abs(moneyness - 1.05))
-            
+
             skew = ivs[otm_put_idx] - ivs[otm_call_idx]
-            
+
             # Convert time to expiry date (approximate)
             expiry = datetime.now() + timedelta(days=int(t * 365))
             skew_params[expiry] = skew
-        
+
         return skew_params
-    
-    def _calculate_smile_parameters(self, surface: VolatilitySurface) -> Dict[datetime, Dict]:
+
+    def _calculate_smile_parameters(self, surface: VolatilitySurface) -> dict[datetime, dict]:
         """Calculate smile parameters for each expiry"""
         smile_params = {}
-        
+
         unique_times = np.unique(surface.time_grid)
-        
+
         for t in unique_times:
             # Get slice for this time
             t_idx = np.where(np.abs(surface.time_grid[:, 0] - t) < 0.001)[0]
-            
+
             if len(t_idx) == 0:
                 continue
-            
+
             t_idx = t_idx[0]
             moneyness = surface.moneyness_grid[t_idx, :]
             ivs = surface.iv_surface[t_idx, :]
-            
+
             # Fit quadratic to get smile parameters
             try:
                 # Use log-moneyness for fitting
                 log_moneyness = np.log(moneyness)
                 coeffs = np.polyfit(log_moneyness, ivs, 2)
-                
+
                 params = {
                     'curvature': coeffs[0],  # Smile curvature
                     'slope': coeffs[1],      # Skew
                     'level': coeffs[2]       # ATM level
                 }
-                
+
                 expiry = datetime.now() + timedelta(days=int(t * 365))
                 smile_params[expiry] = params
-            except:
+            except Exception:
                 pass
-        
+
         return smile_params
-    
+
     def _calculate_interpolation_error(self, surface: VolatilitySurface) -> float:
         """Calculate interpolation error metric"""
         # This would compare interpolated values with actual data points
         # For now, return a placeholder
         return 0.01
-    
+
     # ==========================================================================
     # ARBITRAGE DETECTION
     # ==========================================================================
-    
+
     def _detect_arbitrage(self, surface: VolatilitySurface) -> int:
         """Detect arbitrage opportunities in surface"""
         violations = 0
         self.arbitrage_opportunities = []
-        
+
         # Check calendar spread arbitrage
         violations += self._check_calendar_arbitrage(surface)
-        
+
         # Check butterfly arbitrage
         violations += self._check_butterfly_arbitrage(surface)
-        
+
         # Check vertical spread arbitrage
         violations += self._check_vertical_arbitrage(surface)
-        
+
         return violations
-    
+
     def _check_calendar_arbitrage(self, surface: VolatilitySurface) -> int:
         """Check for calendar spread arbitrage"""
         violations = 0
-        
+
         # Total variance should be increasing with time
         for m_idx in range(surface.moneyness_grid.shape[1]):
             total_variance = surface.iv_surface[:, m_idx]**2 * surface.time_grid[:, 0]
-            
+
             # Check if variance is increasing
             for t_idx in range(1, len(total_variance)):
                 if total_variance[t_idx] < total_variance[t_idx-1] - CALENDAR_SPREAD_THRESHOLD:
                     violations += 1
-                    
+
                     # Create arbitrage opportunity
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.CALENDAR,
@@ -714,28 +708,28 @@ class VolatilitySurfaceBuilder:
                         trade_setup={'action': 'Buy near, sell far calendar spread'}
                     )
                     self.arbitrage_opportunities.append(opp)
-        
+
         return violations
-    
+
     def _check_butterfly_arbitrage(self, surface: VolatilitySurface) -> int:
         """Check for butterfly spread arbitrage"""
         violations = 0
-        
+
         # Convexity condition: d²σ/dK² >= 0
         for t_idx in range(surface.time_grid.shape[0]):
             moneyness = surface.moneyness_grid[t_idx, :]
             ivs = surface.iv_surface[t_idx, :]
-            
+
             # Check convexity (simplified using finite differences)
             for m_idx in range(1, len(moneyness)-1):
                 butterfly = ivs[m_idx-1] - 2*ivs[m_idx] + ivs[m_idx+1]
-                
+
                 if butterfly < -BUTTERFLY_THRESHOLD:
                     violations += 1
-                    
+
                     # Create arbitrage opportunity
                     strikes = [surface.underlying_price * moneyness[i] for i in [m_idx-1, m_idx, m_idx+1]]
-                    
+
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.BUTTERFLY,
                         strikes=strikes,
@@ -748,53 +742,53 @@ class VolatilitySurfaceBuilder:
                         trade_setup={'action': 'Buy butterfly spread'}
                     )
                     self.arbitrage_opportunities.append(opp)
-        
+
         return violations
-    
+
     def _check_vertical_arbitrage(self, surface: VolatilitySurface) -> int:
         """Check for vertical spread arbitrage"""
         violations = 0
-        
+
         # IV should be positive and reasonable
         mask = (surface.iv_surface < MIN_IV) | (surface.iv_surface > MAX_IV)
         violations = np.sum(mask)
-        
+
         return violations
-    
+
     # ==========================================================================
     # ANALYSIS METHODS
     # ==========================================================================
-    
+
     def analyze_surface(self, symbol: str) -> SurfaceAnalytics:
         """
         Comprehensive surface analysis
-        
+
         Args:
             symbol: Symbol to analyze
-            
+
         Returns:
             SurfaceAnalytics object
         """
         if symbol not in self.surfaces:
             raise ValueError(f"No surface available for {symbol}")
-        
+
         surface = self.surfaces[symbol]
-        
+
         # Analyze term structure
         term_shape, term_slope = self._analyze_term_structure(surface)
-        
+
         # Analyze skew
         skew_pattern, skew_metrics = self._analyze_skew(surface)
-        
+
         # Analyze smile
         smile_metrics = self._analyze_smile(surface)
-        
+
         # Calculate surface quality
         quality_metrics = self._calculate_surface_quality(surface)
-        
+
         # Find rich/cheap strikes
         rich_strikes, cheap_strikes = self._find_mispricings(surface)
-        
+
         analytics = SurfaceAnalytics(
             term_structure_shape=term_shape,
             term_structure_slope=term_slope,
@@ -813,20 +807,20 @@ class VolatilitySurfaceBuilder:
             cheap_strikes=cheap_strikes,
             arbitrage_opportunities=self.arbitrage_opportunities
         )
-        
+
         return analytics
-    
-    def _analyze_term_structure(self, surface: VolatilitySurface) -> Tuple[str, float]:
+
+    def _analyze_term_structure(self, surface: VolatilitySurface) -> tuple[str, float]:
         """Analyze term structure shape"""
         atm_vols = surface.atm_term_structure
-        
+
         if len(atm_vols) < 2:
             return 'flat', 0.0
-        
+
         # Calculate slope
         times = np.unique(surface.time_grid[:, 0])
         slope = np.polyfit(times, atm_vols, 1)[0]
-        
+
         # Determine shape
         if slope > 0.05:
             shape = 'contango'
@@ -834,14 +828,14 @@ class VolatilitySurfaceBuilder:
             shape = 'backwardation'
         else:
             shape = 'flat'
-        
+
         return shape, slope
-    
-    def _analyze_skew(self, surface: VolatilitySurface) -> Tuple[SkewPattern, Dict]:
+
+    def _analyze_skew(self, surface: VolatilitySurface) -> tuple[SkewPattern, dict]:
         """Analyze volatility skew"""
         # Average skew across time
         avg_skew = np.mean(list(surface.skew_parameters.values()))
-        
+
         # Determine pattern
         if avg_skew > 0.02:
             pattern = SkewPattern.NORMAL
@@ -849,17 +843,17 @@ class VolatilitySurfaceBuilder:
             pattern = SkewPattern.REVERSE
         else:
             pattern = SkewPattern.FLAT
-        
+
         # Calculate wing slopes
         metrics = {
             'steepness': abs(avg_skew),
             'put_wing': 0.0,  # Would calculate from surface
             'call_wing': 0.0  # Would calculate from surface
         }
-        
+
         return pattern, metrics
-    
-    def _analyze_smile(self, surface: VolatilitySurface) -> Dict:
+
+    def _analyze_smile(self, surface: VolatilitySurface) -> dict:
         """Analyze volatility smile"""
         # Average smile parameters
         if surface.smile_parameters:
@@ -868,68 +862,68 @@ class VolatilitySurfaceBuilder:
         else:
             avg_curvature = 0.0
             avg_level = 0.20
-        
+
         metrics = {
             'curvature': avg_curvature,
             'atm_vol': avg_level,
             'risk_reversal': 0.0,  # Would calculate 25-delta risk reversal
             'butterfly': 0.0       # Would calculate 25-delta butterfly
         }
-        
+
         return metrics
-    
-    def _calculate_surface_quality(self, surface: VolatilitySurface) -> Dict:
+
+    def _calculate_surface_quality(self, surface: VolatilitySurface) -> dict:
         """Calculate surface quality metrics"""
         # Smoothness: measure of second derivatives
         dx = np.gradient(surface.iv_surface, axis=1)
         dy = np.gradient(surface.iv_surface, axis=0)
         smoothness = 1.0 / (1.0 + np.std(dx) + np.std(dy))
-        
+
         # Coverage: percentage of grid with data
         coverage = surface.data_points / (surface.iv_surface.size * 0.1)
         coverage = min(1.0, coverage)
-        
+
         # Interpolation quality
         interp_quality = 1.0 / (1.0 + surface.interpolation_error)
-        
+
         return {
             'smoothness': smoothness,
             'coverage': coverage,
             'interpolation': interp_quality
         }
-    
-    def _find_mispricings(self, surface: VolatilitySurface) -> Tuple[List, List]:
+
+    def _find_mispricings(self, surface: VolatilitySurface) -> tuple[list, list]:
         """Find rich and cheap strikes"""
         rich_strikes = []
         cheap_strikes = []
-        
+
         # This would compare surface with theoretical values
         # For now, return empty lists
-        
+
         return rich_strikes, cheap_strikes
-    
+
     # ==========================================================================
     # VISUALIZATION
     # ==========================================================================
-    
+
     def plot_surface_3d(self, symbol: str, interactive: bool = True) -> None:
         """
         Plot 3D volatility surface
-        
+
         Args:
             symbol: Symbol to plot
             interactive: Use interactive plotly (True) or static matplotlib (False)
         """
         if symbol not in self.surfaces:
             raise ValueError(f"No surface available for {symbol}")
-        
+
         surface = self.surfaces[symbol]
-        
+
         if interactive:
             self._plot_interactive_surface(surface)
         else:
             self._plot_static_surface(surface)
-    
+
     def _plot_interactive_surface(self, surface: VolatilitySurface) -> None:
         """Create interactive 3D surface plot using plotly"""
         fig = go.Figure(data=[go.Surface(
@@ -939,7 +933,7 @@ class VolatilitySurfaceBuilder:
             colorscale='Viridis',
             name='IV Surface'
         )])
-        
+
         fig.update_layout(
             title=f'{surface.symbol} Implied Volatility Surface',
             scene=dict(
@@ -953,14 +947,14 @@ class VolatilitySurfaceBuilder:
             width=1000,
             height=800
         )
-        
+
         fig.show()
-    
+
     def _plot_static_surface(self, surface: VolatilitySurface) -> None:
         """Create static 3D surface plot using matplotlib"""
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
-        
+
         # Plot surface
         surf = ax.plot_surface(
             surface.moneyness_grid,
@@ -969,26 +963,26 @@ class VolatilitySurfaceBuilder:
             cmap='viridis',
             alpha=0.8
         )
-        
+
         # Labels and title
         ax.set_xlabel('Moneyness (K/S)')
         ax.set_ylabel('Time to Expiry (Years)')
         ax.set_zlabel('Implied Volatility')
         ax.set_title(f'{surface.symbol} Implied Volatility Surface')
-        
+
         # Add colorbar
         fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
-        
+
         plt.show()
-    
+
     def plot_term_structure(self, symbol: str) -> None:
         """Plot ATM term structure"""
         if symbol not in self.surfaces:
             raise ValueError(f"No surface available for {symbol}")
-        
+
         surface = self.surfaces[symbol]
         times = np.unique(surface.time_grid[:, 0])
-        
+
         plt.figure(figsize=(10, 6))
         plt.plot(times * 365, surface.atm_term_structure, 'b-', linewidth=2)
         plt.xlabel('Days to Expiry')
@@ -996,20 +990,20 @@ class VolatilitySurfaceBuilder:
         plt.title(f'{symbol} ATM Volatility Term Structure')
         plt.grid(True, alpha=0.3)
         plt.show()
-    
+
     def plot_smile(self, symbol: str, time_to_expiry: float) -> None:
         """Plot volatility smile for specific expiry"""
         if symbol not in self.surfaces:
             raise ValueError(f"No surface available for {symbol}")
-        
+
         surface = self.surfaces[symbol]
-        
+
         # Find closest time slice
         t_idx = np.argmin(np.abs(surface.time_grid[:, 0] - time_to_expiry))
-        
+
         moneyness = surface.moneyness_grid[t_idx, :]
         ivs = surface.iv_surface[t_idx, :]
-        
+
         plt.figure(figsize=(10, 6))
         plt.plot(moneyness, ivs, 'b-', linewidth=2)
         plt.xlabel('Moneyness (K/S)')
@@ -1024,16 +1018,12 @@ class VolatilitySurfaceBuilder:
 # TEST/DEMO CODE
 # ==============================================================================
 if __name__ == "__main__":
-    print("="*80)
-    print(" SPYDER VOLATILITY SURFACE BUILDER TEST")
-    print("="*80)
-    
+
     # Create builder
     builder = VolatilitySurfaceBuilder()
-    
+
     # Generate synthetic options data for testing
-    print("\n1. Generating synthetic options data...")
-    
+
     # Create sample data
     strikes = np.arange(550, 621, 5)
     expiries = [
@@ -1043,25 +1033,25 @@ if __name__ == "__main__":
         datetime.now() + timedelta(days=60),
         datetime.now() + timedelta(days=90)
     ]
-    
+
     options_data = []
     underlying_price = 585.0
-    
+
     for expiry in expiries:
         time_to_exp = (expiry - datetime.now()).days / 365.0
-        
+
         for strike in strikes:
             # Generate IV with smile
             moneyness = strike / underlying_price
             base_iv = 0.15 + 0.05 * time_to_exp  # Term structure
-            
+
             # Add smile
             smile = 0.02 * (np.log(moneyness))**2
             skew = -0.05 * (moneyness - 1.0)
-            
+
             iv = base_iv + smile + skew + np.random.normal(0, 0.005)
             iv = max(0.05, min(0.50, iv))  # Bounds
-            
+
             options_data.append({
                 'strike': strike,
                 'expiry': expiry,
@@ -1070,55 +1060,28 @@ if __name__ == "__main__":
                 'volume': np.random.randint(100, 5000),
                 'open_interest': np.random.randint(1000, 10000)
             })
-    
+
     df = pd.DataFrame(options_data)
-    print(f"Generated {len(df)} option contracts")
-    
+
     # Build surface
-    print("\n2. Building volatility surface...")
     surface = builder.build_surface(
         symbol='SPY',
         options_data=df,
         underlying_price=underlying_price,
         risk_free_rate=0.05
     )
-    
-    print(f"Surface built with {surface.data_points} data points")
-    print(f"Interpolation method: {surface.interpolation_method.value}")
-    print(f"Arbitrage violations: {surface.arbitrage_violations}")
-    
+
+
     # Analyze surface
-    print("\n3. Analyzing surface...")
     analytics = builder.analyze_surface('SPY')
-    
-    print(f"\nTerm Structure:")
-    print(f"  Shape: {analytics.term_structure_shape}")
-    print(f"  Slope: {analytics.term_structure_slope:.4f}")
-    
-    print(f"\nSkew Analysis:")
-    print(f"  Pattern: {analytics.skew_pattern.value}")
-    print(f"  Steepness: {analytics.skew_steepness:.4f}")
-    
-    print(f"\nSmile Metrics:")
-    print(f"  ATM Vol: {analytics.atm_volatility:.2%}")
-    print(f"  Curvature: {analytics.smile_curvature:.4f}")
-    
-    print(f"\nSurface Quality:")
-    print(f"  Smoothness: {analytics.smoothness_score:.2f}")
-    print(f"  Coverage: {analytics.data_coverage:.2f}")
-    print(f"  Interpolation: {analytics.interpolation_quality:.2f}")
-    
+
+
+
+
+
     # Check arbitrage
-    print(f"\n4. Arbitrage Opportunities Found: {len(analytics.arbitrage_opportunities)}")
-    for opp in analytics.arbitrage_opportunities[:3]:
-        print(f"  {opp.arbitrage_type.value}: Profit potential ${opp.profit_potential:.2f}")
-    
+    for _opp in analytics.arbitrage_opportunities[:3]:
+        pass
+
     # Plot surface (commented for non-interactive environment)
-    print("\n5. Visualization available:")
-    print("  - 3D Surface: builder.plot_surface_3d('SPY')")
-    print("  - Term Structure: builder.plot_term_structure('SPY')")
-    print("  - Smile: builder.plot_smile('SPY', 0.08)")
-    
-    print("\n" + "="*80)
-    print(" ALL TESTS COMPLETED SUCCESSFULLY!")
-    print("="*80)
+

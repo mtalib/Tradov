@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,9 +24,9 @@ Change Log:
 # ==============================================================================
 import asyncio
 import time
-from typing import Optional, Callable, Any
+from typing import Callable, Any
 from enum import Enum, auto
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import wraps
 import threading
 
@@ -52,7 +51,7 @@ class CircuitBreakerConfig:
     failure_threshold: int = 5  # Failures before opening
     recovery_timeout: float = 60.0  # Seconds before testing recovery
     success_threshold: int = 1  # Successes in HALF_OPEN before closing
-    timeout: Optional[float] = None  # Per-call timeout
+    timeout: float | None = None  # Per-call timeout
 
 
 class CircuitBreakerError(Exception):
@@ -83,9 +82,9 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: float = 60.0,
         success_threshold: int = 1,
-        timeout: Optional[float] = None,
-        name: Optional[str] = None,
-        expected_exception: Optional[type] = None
+        timeout: float | None = None,
+        name: str | None = None,
+        expected_exception: type | None = None
     ):
         """
         Initialize circuit breaker.
@@ -109,7 +108,7 @@ class CircuitBreaker:
         self.state = CircuitState.CLOSED
         self.failure_count = 0
         self.success_count = 0
-        self.last_failure_time: Optional[float] = None
+        self.last_failure_time: float | None = None
         self.lock = threading.Lock()
         self.expected_exception = expected_exception or Exception
 
@@ -158,7 +157,7 @@ class CircuitBreaker:
             self._on_success()
             return result
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             self._on_failure(e)
             raise
         except Exception as e:
@@ -299,8 +298,8 @@ def circuit_breaker(
     failure_threshold: int = 5,
     recovery_timeout: float = 60.0,
     success_threshold: int = 2,
-    timeout: Optional[float] = None,
-    name: Optional[str] = None
+    timeout: float | None = None,
+    name: str | None = None
 ):
     """
     Decorator for creating circuit breaker.

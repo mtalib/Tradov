@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -513,12 +512,12 @@ sys.modules.setdefault("SpyderL14_RealTimePredictor", _l14_mod)
 # ---------------------------------------------------------------------------
 # Load L15 — MOmentPredictor (imports L10/L13/L11/U07)
 # ---------------------------------------------------------------------------
-_l15_key = "Spyder.SpyderL_ML.SpyderL15_MOmentPredictor"
+_l15_key = "Spyder.SpyderL_ML.SpyderL15_MomentPredictor"
 if _l15_key not in sys.modules:
-    _l15_mod = _load_l_module("SpyderL15_MOmentPredictor.py", _l15_key)
+    _l15_mod = _load_l_module("SpyderL15_MomentPredictor.py", _l15_key)
 else:
     _l15_mod = sys.modules[_l15_key]
-sys.modules.setdefault("SpyderL15_MOmentPredictor", _l15_mod)
+sys.modules.setdefault("SpyderL15_MomentPredictor", _l15_mod)
 
 # ---------------------------------------------------------------------------
 # Load L16 — OptionsAdjustmentRL (gym/sb3 try/except guarded)
@@ -653,7 +652,7 @@ from Spyder.SpyderL_ML.SpyderL14_RealTimePredictor import (
 )
 
 # --- L15 ---
-from Spyder.SpyderL_ML.SpyderL15_MOmentPredictor import (
+from Spyder.SpyderL_ML.SpyderL15_MomentPredictor import (
     MomentTask,
     MultiTaskResult,
     EnsemblePrediction,
@@ -1354,7 +1353,7 @@ class TestL17FederatedManagers(unittest.TestCase):
         self.assertIsInstance(coord, FederatedCoordinator)
 
     def test_federated_learning_manager_instantiation(self):
-        mock_mgr = MagicMock()
+        MagicMock()
         with patch.object(FederatedLearningManager, "_initialize_components", return_value=None, create=True), \
              patch.object(FederatedLearningManager, "_setup_network", return_value=None, create=True):
             mgr = FederatedLearningManager()

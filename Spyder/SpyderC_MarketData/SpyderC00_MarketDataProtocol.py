@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,7 +25,7 @@ Last Updated: 2026-03-03 Time: 00:00:00
 # ==============================================================================
 import os
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from typing import Protocol, runtime_checkable
@@ -59,7 +58,7 @@ class OptionsDataProvider(Protocol):
         get_option_expirations: Retrieve available expiration dates for a symbol.
     """
 
-    def get_quotes(self, symbols: List[str]) -> Dict[str, Any]:
+    def get_quotes(self, symbols: list[str]) -> dict[str, Any]:
         """Return current quote data for one or more symbols."""
         ...
 
@@ -67,12 +66,12 @@ class OptionsDataProvider(Protocol):
         self,
         symbol: str,
         expiration: str,
-        option_type: Optional[str] = None,
+        option_type: str | None = None,
     ) -> list:
         """Return options chain (calls and/or puts) with Greeks for a given expiry."""
         ...
 
-    def get_option_expirations(self, symbol: str) -> Dict[str, Any]:
+    def get_option_expirations(self, symbol: str) -> dict[str, Any]:
         """Return available option expiration dates for a symbol."""
         ...
 

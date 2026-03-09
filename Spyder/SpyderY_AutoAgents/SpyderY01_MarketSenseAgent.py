@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -31,17 +30,16 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -115,8 +113,8 @@ class DailyBrief:
     regime_start: str = ""
     regime_end: str = ""
     regime_transitions: int = 0
-    key_events: List[str] = field(default_factory=list)
-    next_day_levels: Dict[str, float] = field(default_factory=dict)
+    key_events: list[str] = field(default_factory=list)
+    next_day_levels: dict[str, float] = field(default_factory=dict)
     narrative: str = ""
 
 
@@ -174,14 +172,14 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         self._current_regime: str = "unknown"
         self._regime_confidence: float = 0.0
         self._snapshots: deque = deque(maxlen=self.MAX_SNAPSHOT_HISTORY)
-        self._daily_briefs: List[Dict[str, Any]] = []
-        self._last_regime_change: Optional[datetime] = None
-        self._regime_history: List[Dict[str, Any]] = []
+        self._daily_briefs: list[dict[str, Any]] = []
+        self._last_regime_change: datetime | None = None
+        self._regime_history: list[dict[str, Any]] = []
         self._tick_count: int = 0
         self._daily_brief_sent: bool = False
 
         # X-agent delegate (on-demand, stateless)
-        self._x13_agent: Optional[Any] = None
+        self._x13_agent: Any | None = None
         if X13_AVAILABLE:
             try:
                 self._x13_agent = SpyderX13_MarketAnalysisAgent()
@@ -495,7 +493,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         """Return state for disk persistence."""
         return {
             "current_regime": self._current_regime,
@@ -505,7 +503,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
             "daily_briefs": self._daily_briefs[-30:],      # Last 30 days
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore state from disk."""
         self._current_regime = state.get("current_regime", "unknown")
         self._regime_confidence = state.get("regime_confidence", 0.0)

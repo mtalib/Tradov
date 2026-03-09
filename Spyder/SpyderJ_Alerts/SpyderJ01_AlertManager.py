@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,26 +23,19 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import json
-import asyncio
 import threading
 import queue
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple, Any, Callable, Union
+from typing import Any
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 import time
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import hashlib
-import pickle
-import math
 import numpy as np
-import pandas as pd
-from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 import joblib
 
@@ -51,7 +43,7 @@ import joblib
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
@@ -123,15 +115,15 @@ class PredictiveAlert:
     time_horizon: int  # Minutes until predicted event
     probability: float  # 0.0 to 1.0
     impact_severity: str  # "low", "medium", "high", "critical"
-    affected_strategies: List[str]
-    affected_positions: List[str]
-    recommended_actions: List[str]
+    affected_strategies: list[str]
+    affected_positions: list[str]
+    recommended_actions: list[str]
     model_version: str
-    features_used: Dict[str, float]
+    features_used: dict[str, float]
     created_at: datetime = field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     triggered: bool = False
-    false_positive: Optional[bool] = None  # For model learning
+    false_positive: bool | None = None  # For model learning
 
 @dataclass
 class PredictionModel:
@@ -139,7 +131,7 @@ class PredictionModel:
     prediction_type: PredictionType
     model: Any  # sklearn model or similar
     scaler: StandardScaler
-    feature_names: List[str]
+    feature_names: list[str]
     accuracy: float
     last_trained: datetime
     version: str
@@ -153,7 +145,7 @@ class AdaptiveThreshold:
     adjustment_factor: float  # Multiplier based on market regime
     volatility_adjustment: float
     last_updated: datetime
-    regime_adjustments: Dict[str, float]  # Regime -> adjustment factor
+    regime_adjustments: dict[str, float]  # Regime -> adjustment factor
 
 # =============================================================================
 # ENHANCED ALERT MANAGER CLASS
@@ -161,7 +153,7 @@ class AdaptiveThreshold:
 class AlertManager:
     """
     Enhanced Alert Manager with ML-powered predictive capabilities.
-    
+
     New Features:
     - Predictive alerts using machine learning models
     - Risk zone breach prediction before they happen
@@ -169,10 +161,10 @@ class AlertManager:
     - Adaptive thresholds based on market conditions
     - Model accuracy tracking and auto-retraining
     - False positive learning for model improvement
-    
+
     Maintains all existing functionality while adding predictive layer.
     """
-    
+
     def __init__(self):
         """Initialize enhanced alert manager with predictive capabilities."""
         # Core components
@@ -182,36 +174,36 @@ class AlertManager:
         self.event_manager = get_event_manager()
         self.data_access = get_data_access_layer()
         self.datetime_utils = DateTimeUtils()
-        
+
         # Basic alert configuration
         self.enabled = self.config.get('alerts.enabled', True)
         self.rate_limit = self.config.get('alerts.rate_limit', 10)
-        
+
         # Predictive alerts configuration
         self.predictive_enabled = self.config.get('alerts.predictive.enabled', True)
         self.prediction_horizon = self.config.get('alerts.predictive.horizon_minutes', 30)
         self.min_confidence = self.config.get('alerts.predictive.min_confidence', 0.7)
-        
+
         # ML Components (if available)
         self.ml_available = ML_AVAILABLE
-        self.prediction_models: Dict[PredictionType, PredictionModel] = {}
+        self.prediction_models: dict[PredictionType, PredictionModel] = {}
         self.ml_predictor = None
         self.regime_classifier = None
         self.realtime_predictor = None
-        
+
         # Enhanced data structures
-        self.predictive_alerts: Dict[str, PredictiveAlert] = {}
-        self.adaptive_thresholds: Dict[str, AdaptiveThreshold] = {}
+        self.predictive_alerts: dict[str, PredictiveAlert] = {}
+        self.adaptive_thresholds: dict[str, AdaptiveThreshold] = {}
         self.prediction_history: deque = deque(maxlen=1000)
-        
+
         # Alert queues
         self.alert_queue: queue.Queue = queue.Queue(maxsize=1000)
         self.predictive_queue: queue.Queue = queue.Queue(maxsize=500)
-        
+
         # Strategy registrations
-        self.registered_strategies: Dict[str, Dict[str, Any]] = {}
-        self.strategy_contexts: Dict[str, Dict[str, Any]] = {}
-        
+        self.registered_strategies: dict[str, dict[str, Any]] = {}
+        self.strategy_contexts: dict[str, dict[str, Any]] = {}
+
         # Performance tracking
         self.prediction_stats = {
             'total_predictions': 0,
@@ -221,19 +213,19 @@ class AlertManager:
             'by_type': defaultdict(lambda: {'total': 0, 'accurate': 0}),
             'by_confidence': defaultdict(lambda: {'total': 0, 'accurate': 0})
         }
-        
+
         # Threading
         self._stop_event = threading.Event()
         self._worker_thread = None
         self._prediction_thread = None
-        
+
         # Initialize components
         self._initialize_ml_components()
         self._initialize_adaptive_thresholds()
         self._start_processing()
-        
+
         self.logger.info("✅ Enhanced AlertManager with predictive capabilities initialized")
-    
+
     # ==========================================================================
     # ML INTEGRATION METHODS
     # ==========================================================================
@@ -244,40 +236,40 @@ class AlertManager:
                 self.logger.warning("ML modules not available - predictive alerts disabled")
                 self.predictive_enabled = False
                 return
-            
+
             # Initialize ML predictors
             if self.predictive_enabled:
                 self.ml_predictor = MLPredictor(
                     model_type="ensemble",
                     prediction_horizon="short_term"
                 )
-                
+
                 self.regime_classifier = RegimeClassifier()
-                
+
                 self.realtime_predictor = RealTimePredictor(
                     strategy_focus="alert_generation",
                     update_frequency="1min"
                 )
-                
+
                 # Load or initialize prediction models
                 self._load_prediction_models()
-                
+
                 self.logger.info("🤖 ML components initialized for predictive alerts")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_initialize_ml_components'
             })
             self.predictive_enabled = False
-    
+
     def _load_prediction_models(self) -> None:
         """Load or create prediction models for different alert types."""
         try:
             model_dir = self.config.get('alerts.predictive.model_dir', 'models/alerts/')
-            
+
             for prediction_type in PredictionType:
                 model_path = f"{model_dir}/{prediction_type.value}_model.joblib"
-                
+
                 try:
                     # Try to load existing model
                     if os.path.exists(model_path):
@@ -287,16 +279,16 @@ class AlertManager:
                     else:
                         # Create new model
                         self._create_prediction_model(prediction_type)
-                        
+
                 except Exception as e:
                     self.logger.warning(f"Failed to load model for {prediction_type.value}: {e}")
                     self._create_prediction_model(prediction_type)
-        
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_load_prediction_models'
             })
-    
+
     def _create_prediction_model(self, prediction_type: PredictionType) -> None:
         """Create a new prediction model for specific alert type."""
         try:
@@ -319,11 +311,11 @@ class AlertManager:
                     'underlying_velocity', 'position_concentration'
                 ]
             }
-            
+
             features = feature_sets.get(prediction_type, [
                 'price_change', 'volume', 'volatility', 'time_factor'
             ])
-            
+
             # Create simple model (would be trained with historical data)
             from sklearn.ensemble import RandomForestClassifier
             model = RandomForestClassifier(
@@ -331,9 +323,9 @@ class AlertManager:
                 max_depth=10,
                 random_state=42
             )
-            
+
             scaler = StandardScaler()
-            
+
             prediction_model = PredictionModel(
                 prediction_type=prediction_type,
                 model=model,
@@ -344,17 +336,17 @@ class AlertManager:
                 version="1.0",
                 training_samples=0
             )
-            
+
             self.prediction_models[prediction_type] = prediction_model
-            
+
             self.logger.info(f"📈 Created new prediction model for {prediction_type.value}")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_create_prediction_model',
                 'prediction_type': prediction_type.value
             })
-    
+
     # ==========================================================================
     # ADAPTIVE THRESHOLDS
     # ==========================================================================
@@ -402,51 +394,51 @@ class AlertManager:
                     }
                 )
             }
-            
+
             self.adaptive_thresholds.update(default_thresholds)
-            
+
             self.logger.info("🎯 Adaptive thresholds initialized")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_initialize_adaptive_thresholds'
             })
-    
+
     def update_adaptive_thresholds(self, market_regime: str, volatility_level: float) -> None:
         """Update adaptive thresholds based on market conditions."""
         try:
-            for threshold_name, threshold in self.adaptive_thresholds.items():
+            for _threshold_name, threshold in self.adaptive_thresholds.items():
                 # Get regime adjustment
                 regime_adj = threshold.regime_adjustments.get(market_regime, 1.0)
-                
+
                 # Calculate volatility adjustment (higher vol = higher thresholds)
                 vol_adj = min(2.0, max(0.5, volatility_level / 20.0))  # Normalized to VIX ~20
-                
+
                 # Update threshold
                 threshold.adjustment_factor = regime_adj
                 threshold.volatility_adjustment = vol_adj
                 threshold.current_threshold = (
-                    threshold.base_threshold * 
-                    threshold.adjustment_factor * 
+                    threshold.base_threshold *
+                    threshold.adjustment_factor *
                     threshold.volatility_adjustment
                 )
                 threshold.last_updated = datetime.now()
-            
+
             self.logger.debug(f"📊 Updated adaptive thresholds for regime: {market_regime}")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'update_adaptive_thresholds'
             })
-    
+
     # ==========================================================================
     # STRATEGY REGISTRATION METHODS
     # ==========================================================================
-    def register_strategy_for_predictions(self, strategy_id: str, 
-                                        prediction_config: Dict[str, Any]) -> None:
+    def register_strategy_for_predictions(self, strategy_id: str,
+                                        prediction_config: dict[str, Any]) -> None:
         """
         Register a strategy for predictive alerts.
-        
+
         Args:
             strategy_id: Strategy identifier
             prediction_config: Configuration for predictions
@@ -461,71 +453,71 @@ class AlertManager:
                 'alert_channels': prediction_config.get('channels', ['telegram']),
                 'context_callback': prediction_config.get('context_callback')
             }
-            
+
             self.logger.info(f"📋 Registered strategy {strategy_id} for predictive alerts")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'register_strategy_for_predictions',
                 'strategy_id': strategy_id
             })
-    
-    def update_strategy_context(self, strategy_id: str, context: Dict[str, Any]) -> None:
+
+    def update_strategy_context(self, strategy_id: str, context: dict[str, Any]) -> None:
         """Update strategy context for better predictions."""
         try:
             self.strategy_contexts[strategy_id] = {
                 **context,
                 'updated_at': datetime.now()
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'update_strategy_context',
                 'strategy_id': strategy_id
             })
-    
+
     # ==========================================================================
     # PREDICTIVE ALERT GENERATION
     # ==========================================================================
-    def generate_predictive_alerts(self, market_data: Dict[str, Any]) -> List[PredictiveAlert]:
+    def generate_predictive_alerts(self, market_data: dict[str, Any]) -> list[PredictiveAlert]:
         """
         Generate predictive alerts based on current market conditions.
-        
+
         Args:
             market_data: Current market data
-            
+
         Returns:
             List of predictive alerts
         """
         if not self.predictive_enabled:
             return []
-        
+
         alerts = []
-        
+
         try:
             # Update adaptive thresholds first
             market_regime = self._get_market_regime(market_data)
             volatility_level = market_data.get('vix', 20.0)
             self.update_adaptive_thresholds(market_regime, volatility_level)
-            
+
             # Generate predictions for each registered strategy
             for strategy_id, registration in self.registered_strategies.items():
                 strategy_context = self.strategy_contexts.get(strategy_id, {})
-                
+
                 # Get strategy-specific predictions
                 strategy_alerts = self._generate_strategy_predictions(
                     strategy_id, market_data, strategy_context, registration
                 )
-                
+
                 alerts.extend(strategy_alerts)
-            
+
             # Generate market-wide predictions
             market_alerts = self._generate_market_predictions(market_data)
             alerts.extend(market_alerts)
-            
+
             # Filter by confidence and relevance
             filtered_alerts = self._filter_predictions(alerts)
-            
+
             # Store predictions
             for alert in filtered_alerts:
                 self.predictive_alerts[alert.id] = alert
@@ -535,77 +527,77 @@ class AlertManager:
                     'confidence': alert.confidence.value,
                     'probability': alert.probability
                 })
-            
+
             if filtered_alerts:
                 self.logger.info(f"🔮 Generated {len(filtered_alerts)} predictive alerts")
-            
+
             return filtered_alerts
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'generate_predictive_alerts'
             })
             return []
-    
-    def _generate_strategy_predictions(self, strategy_id: str, market_data: Dict[str, Any],
-                                     strategy_context: Dict[str, Any],
-                                     registration: Dict[str, Any]) -> List[PredictiveAlert]:
+
+    def _generate_strategy_predictions(self, strategy_id: str, market_data: dict[str, Any],
+                                     strategy_context: dict[str, Any],
+                                     registration: dict[str, Any]) -> list[PredictiveAlert]:
         """Generate predictions specific to a strategy."""
         alerts = []
-        
+
         try:
             prediction_types = registration['prediction_types']
-            
+
             for pred_type_str in prediction_types:
                 try:
                     pred_type = PredictionType(pred_type_str)
-                    
+
                     if pred_type in self.prediction_models:
                         prediction = self._make_prediction(
                             pred_type, strategy_id, market_data, strategy_context
                         )
-                        
+
                         if prediction:
                             alerts.append(prediction)
-                            
+
                 except ValueError:
                     self.logger.warning(f"Unknown prediction type: {pred_type_str}")
                 except Exception as e:
                     self.logger.error(f"Error generating {pred_type_str} prediction: {e}")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_generate_strategy_predictions',
                 'strategy_id': strategy_id
             })
-        
+
         return alerts
-    
+
     def _make_prediction(self, prediction_type: PredictionType, strategy_id: str,
-                        market_data: Dict[str, Any], 
-                        strategy_context: Dict[str, Any]) -> Optional[PredictiveAlert]:
+                        market_data: dict[str, Any],
+                        strategy_context: dict[str, Any]) -> PredictiveAlert | None:
         """Make a specific prediction using ML model."""
         try:
             model_info = self.prediction_models.get(prediction_type)
             if not model_info:
                 return None
-            
+
             # Extract features
             features = self._extract_features(
                 prediction_type, market_data, strategy_context
             )
-            
+
             if not features:
                 return None
-            
+
             # Prepare feature vector
             feature_vector = np.array([
                 features.get(name, 0.0) for name in model_info.feature_names
             ]).reshape(1, -1)
-            
+
             # Scale features
             scaled_features = model_info.scaler.transform(feature_vector)
-            
+
             # Make prediction
             if hasattr(model_info.model, 'predict_proba'):
                 probabilities = model_info.model.predict_proba(scaled_features)[0]
@@ -614,24 +606,24 @@ class AlertManager:
             else:
                 prediction = model_info.model.predict(scaled_features)[0]
                 probability = 0.7 if prediction else 0.3  # Default probabilities
-            
+
             # Only create alert if prediction is positive and meets confidence threshold
             if prediction and probability >= self.min_confidence:
                 confidence = self._probability_to_confidence(probability)
-                
+
                 # Calculate time horizon based on prediction type
                 time_horizon = self._calculate_time_horizon(prediction_type, features)
-                
+
                 # Determine impact severity
                 impact_severity = self._assess_impact_severity(
                     prediction_type, probability, features
                 )
-                
+
                 # Generate recommended actions
                 recommended_actions = self._generate_recommendations(
                     prediction_type, strategy_id, features
                 )
-                
+
                 alert = PredictiveAlert(
                     id=f"{strategy_id}_{prediction_type.value}_{int(time.time())}",
                     prediction_type=prediction_type,
@@ -646,75 +638,75 @@ class AlertManager:
                     features_used=features,
                     expires_at=datetime.now() + timedelta(minutes=time_horizon * 2)
                 )
-                
+
                 return alert
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_make_prediction',
                 'prediction_type': prediction_type.value,
                 'strategy_id': strategy_id
             })
-        
+
         return None
-    
+
     def _extract_features(self, prediction_type: PredictionType,
-                         market_data: Dict[str, Any],
-                         strategy_context: Dict[str, Any]) -> Dict[str, float]:
+                         market_data: dict[str, Any],
+                         strategy_context: dict[str, Any]) -> dict[str, float]:
         """Extract features for ML prediction."""
         try:
             features = {}
-            
+
             # Common market features
             features['underlying_price'] = market_data.get('underlying_price', 0.0)
             features['iv_rank'] = market_data.get('iv_rank', 50.0)
             features['vix_level'] = market_data.get('vix', 20.0)
             features['volume_ratio'] = market_data.get('volume_ratio', 1.0)
-            
+
             # Price change features
             current_price = market_data.get('underlying_price', 0.0)
             previous_price = market_data.get('previous_price', current_price)
             if previous_price > 0:
                 features['price_change_pct'] = (current_price - previous_price) / previous_price
-            
+
             # Strategy-specific features
             features['gamma_exposure'] = strategy_context.get('gamma_exposure', 0.0)
             features['delta_exposure'] = strategy_context.get('delta_exposure', 0.0)
             features['current_pnl'] = strategy_context.get('current_pnl', 0.0)
             features['days_held'] = strategy_context.get('days_held', 0)
             features['time_to_expiry'] = strategy_context.get('days_to_expiry', 30)
-            
+
             # Prediction-type specific features
             if prediction_type == PredictionType.RISK_ZONE_BREACH:
                 features['distance_to_danger'] = strategy_context.get('distance_to_danger', 1.0)
                 features['price_velocity'] = market_data.get('price_velocity', 0.0)
-                
+
             elif prediction_type == PredictionType.VOLATILITY_SPIKE:
                 features['vix_change'] = market_data.get('vix_change', 0.0)
                 features['iv_percentile'] = market_data.get('iv_percentile', 50.0)
-                
+
             elif prediction_type == PredictionType.OPTIMAL_EXIT:
                 features['profit_velocity'] = strategy_context.get('profit_velocity', 0.0)
                 features['theta_decay'] = strategy_context.get('theta_decay', 0.0)
-            
+
             return features
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_extract_features',
                 'prediction_type': prediction_type.value
             })
             return {}
-    
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    def _get_market_regime(self, market_data: Dict[str, Any]) -> str:
+    def _get_market_regime(self, market_data: dict[str, Any]) -> str:
         """Get current market regime."""
         try:
             if self.regime_classifier:
                 return self.regime_classifier.classify(market_data)
-            
+
             # Simple fallback based on VIX
             vix = market_data.get('vix', 20.0)
             if vix < 15:
@@ -725,10 +717,10 @@ class AlertManager:
                 return 'high_vol'
             else:
                 return 'crisis'
-                
+
         except Exception:
             return 'normal'
-    
+
     def _probability_to_confidence(self, probability: float) -> PredictionConfidence:
         """Convert probability to confidence enum."""
         if probability >= 0.95:
@@ -739,9 +731,9 @@ class AlertManager:
             return PredictionConfidence.MEDIUM
         else:
             return PredictionConfidence.LOW
-    
-    def _calculate_time_horizon(self, prediction_type: PredictionType, 
-                               features: Dict[str, float]) -> int:
+
+    def _calculate_time_horizon(self, prediction_type: PredictionType,
+                               features: dict[str, float]) -> int:
         """Calculate time horizon for prediction in minutes."""
         base_horizons = {
             PredictionType.RISK_ZONE_BREACH: 15,
@@ -750,27 +742,27 @@ class AlertManager:
             PredictionType.GAMMA_RISK: 10,
             PredictionType.MARKET_REGIME_CHANGE: 120
         }
-        
+
         base_horizon = base_horizons.get(prediction_type, 30)
-        
+
         # Adjust based on features
         if 'price_velocity' in features:
             velocity_factor = min(2.0, max(0.5, abs(features['price_velocity']) * 10))
             base_horizon = int(base_horizon / velocity_factor)
-        
+
         return max(5, min(240, base_horizon))  # 5 min to 4 hours
-    
+
     def _assess_impact_severity(self, prediction_type: PredictionType,
-                               probability: float, features: Dict[str, float]) -> str:
+                               probability: float, features: dict[str, float]) -> str:
         """Assess the potential impact severity."""
         base_severity = "medium"
-        
+
         if prediction_type in [PredictionType.RISK_ZONE_BREACH, PredictionType.GAMMA_RISK]:
             if probability > 0.9:
                 base_severity = "critical"
             elif probability > 0.8:
                 base_severity = "high"
-        
+
         # Adjust based on exposure
         gamma_exposure = features.get('gamma_exposure', 0.0)
         if gamma_exposure > 20:
@@ -778,21 +770,15 @@ class AlertManager:
                 base_severity = "high"
             elif base_severity == "low":
                 base_severity = "medium"
-        
+
         return base_severity
-    
+
     def _generate_recommendations(self, prediction_type: PredictionType,
-                                strategy_id: str, features: Dict[str, float]) -> List[str]:
+                                strategy_id: str, features: dict[str, float]) -> list[str]:
         """Generate recommended actions for prediction."""
-        recommendations = []
-        
+
         try:
             if prediction_type == PredictionType.RISK_ZONE_BREACH:
-                recommendations = [
-                    "Consider reducing position size",
-                    "Set tighter stop losses",
-                    "Monitor price movements closely",
-                ]
+                pass
         except Exception as e:
-            recommendations = ["Error generating recommendations"]
             self.logger.warning(f"Error generating recommendations: {e}")

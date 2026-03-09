@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -1078,29 +1077,26 @@ class TestOptimizeTcpKeepalive:
 
     def test_root_success(self):
         opt = SystemOptimizer()
-        with patch.object(_u27.os, "geteuid", return_value=0):
-            with patch.object(_u27.subprocess, "run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                with patch.object(opt, "_update_sysctl_conf"):
-                    result = opt.optimize_tcp_keepalive()
+        with patch.object(_u27.os, "geteuid", return_value=0), patch.object(_u27.subprocess, "run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch.object(opt, "_update_sysctl_conf"):
+                result = opt.optimize_tcp_keepalive()
         assert result.component == SystemComponent.NETWORK
 
     def test_root_subprocess_failure(self):
         opt = SystemOptimizer()
-        with patch.object(_u27.os, "geteuid", return_value=0):
-            with patch.object(_u27.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "sysctl")):
-                result = opt.optimize_tcp_keepalive()
+        with patch.object(_u27.os, "geteuid", return_value=0), patch.object(_u27.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "sysctl")):
+            result = opt.optimize_tcp_keepalive()
         assert isinstance(result, OptimizationResult)
 
     def test_appended_to_applied_after_subprocess(self):
         """Verify that a completed optimization is appended to applied_optimizations."""
         opt = SystemOptimizer()
         # Run with root + successful subprocess so it appends
-        with patch.object(_u27.os, "geteuid", return_value=0):
-            with patch.object(_u27.subprocess, "run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                with patch.object(opt, "_update_sysctl_conf"):
-                    result = opt.optimize_tcp_keepalive()
+        with patch.object(_u27.os, "geteuid", return_value=0), patch.object(_u27.subprocess, "run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch.object(opt, "_update_sysctl_conf"):
+                result = opt.optimize_tcp_keepalive()
         assert result in opt.applied_optimizations
 
 
@@ -1122,29 +1118,26 @@ class TestConfigureFirewall:
 
     def test_ufw_success(self):
         opt = SystemOptimizer()
-        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"):
-            with patch.object(_u27.subprocess, "run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                result = opt.configure_firewall()
+        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"), patch.object(_u27.subprocess, "run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = opt.configure_firewall()
         assert isinstance(result, OptimizationResult)
         assert result.component == SystemComponent.FIREWALL
 
     def test_ufw_subprocess_failure(self):
         opt = SystemOptimizer()
-        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"):
-            with patch.object(
-                _u27.subprocess, "run",
-                side_effect=subprocess.CalledProcessError(1, "ufw")
-            ):
-                result = opt.configure_firewall()
+        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"), patch.object(
+            _u27.subprocess, "run",
+            side_effect=subprocess.CalledProcessError(1, "ufw")
+        ):
+            result = opt.configure_firewall()
         assert result.component == SystemComponent.FIREWALL
 
     def test_appended_to_applied(self):
         opt = SystemOptimizer()
-        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"):
-            with patch.object(_u27.subprocess, "run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                result = opt.configure_firewall()
+        with patch.object(_u27.shutil, "which", return_value="/usr/sbin/ufw"), patch.object(_u27.subprocess, "run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = opt.configure_firewall()
         assert result in opt.applied_optimizations
 
 
@@ -1154,7 +1147,7 @@ class TestOptimizeIbGatewayJvm:
     def test_success_creates_file(self):
         opt = SystemOptimizer()
         with tempfile.TemporaryDirectory() as tmpdir:
-            mock_path = Path(tmpdir) / ".ibgateway" / "jvm_args.txt"
+            Path(tmpdir) / ".ibgateway" / "jvm_args.txt"
             with patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
                 result = opt.optimize_ib_gateway_jvm()
         assert result.success is True
@@ -1162,17 +1155,15 @@ class TestOptimizeIbGatewayJvm:
 
     def test_result_has_jvm_args_in_details(self):
         opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
-                result = opt.optimize_ib_gateway_jvm()
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
+            result = opt.optimize_ib_gateway_jvm()
         assert result.details is not None
         assert "jvm_args" in result.details
 
     def test_appended_to_applied(self):
         opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
-                result = opt.optimize_ib_gateway_jvm()
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
+            result = opt.optimize_ib_gateway_jvm()
         assert result in opt.applied_optimizations
 
     def test_failure_on_exception(self):
@@ -1189,11 +1180,9 @@ class TestGenerateDockerCompose:
     def test_success_with_yaml_mocked(self):
         opt = SystemOptimizer()
         mock_yaml = MagicMock()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(_u27.Path, "cwd", return_value=Path(tmpdir)):
-                with patch.dict("sys.modules", {"yaml": mock_yaml}):
-                    # Patch the open call inside yaml.dump  or use real file
-                    result = opt.generate_docker_compose()
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "cwd", return_value=Path(tmpdir)), patch.dict("sys.modules", {"yaml": mock_yaml}):
+            # Patch the open call inside yaml.dump  or use real file
+            result = opt.generate_docker_compose()
         # Whether success or not depends on yaml availability; just check type
         assert isinstance(result, OptimizationResult)
         assert result.component == SystemComponent.DOCKER
@@ -1241,17 +1230,14 @@ class TestOptimizeAll:
 
     def test_basic_level_returns_empty_results(self):
         opt = SystemOptimizer(OptimizationLevel.BASIC)
-        with patch.object(_u27.os, "geteuid", return_value=1000):
-            with patch.object(_u27.shutil, "which", return_value=None):
-                results = opt.optimize_all()
+        with patch.object(_u27.os, "geteuid", return_value=1000), patch.object(_u27.shutil, "which", return_value=None):
+            results = opt.optimize_all()
         assert isinstance(results, list)
 
     def test_standard_level_calls_three_methods(self):
         opt = SystemOptimizer(OptimizationLevel.STANDARD)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")) as m1:
-            with patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")) as m2:
-                with patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")) as m3:
-                    results = opt.optimize_all()
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")) as m1, patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")) as m2, patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")) as m3:
+            results = opt.optimize_all()
         m1.assert_called_once()
         m2.assert_called_once()
         m3.assert_called_once()
@@ -1259,21 +1245,15 @@ class TestOptimizeAll:
 
     def test_aggressive_level_includes_docker(self):
         opt = SystemOptimizer(OptimizationLevel.AGGRESSIVE)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")):
-            with patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")):
-                with patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")):
-                    with patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")) as m_docker:
-                        results = opt.optimize_all()
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")), patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")), patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")) as m_docker:
+            results = opt.optimize_all()
         m_docker.assert_called_once()
         assert len(results) == 4
 
     def test_ultra_level_same_as_aggressive(self):
         opt = SystemOptimizer(OptimizationLevel.ULTRA)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")):
-            with patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")):
-                with patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")):
-                    with patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")):
-                        results = opt.optimize_all()
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")), patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")), patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")):
+            results = opt.optimize_all()
         assert len(results) == 4
 
 
@@ -1401,17 +1381,13 @@ class TestOptimizeSystemForTrading:
     """Tests for optimize_system_for_trading module function."""
 
     def test_returns_list(self):
-        with patch.object(_u27.os, "geteuid", return_value=1000):
-            with patch.object(_u27.shutil, "which", return_value=None):
-                with patch.object(_u27.Path, "home", return_value=Path(tempfile.gettempdir())):
-                    results = optimize_system_for_trading()
+        with patch.object(_u27.os, "geteuid", return_value=1000), patch.object(_u27.shutil, "which", return_value=None), patch.object(_u27.Path, "home", return_value=Path(tempfile.gettempdir())):
+            results = optimize_system_for_trading()
         assert isinstance(results, list)
 
     def test_results_are_optimization_result(self):
-        with patch.object(_u27.os, "geteuid", return_value=1000):
-            with patch.object(_u27.shutil, "which", return_value=None):
-                with patch.object(_u27.Path, "home", return_value=Path(tempfile.gettempdir())):
-                    results = optimize_system_for_trading()
+        with patch.object(_u27.os, "geteuid", return_value=1000), patch.object(_u27.shutil, "which", return_value=None), patch.object(_u27.Path, "home", return_value=Path(tempfile.gettempdir())):
+            results = optimize_system_for_trading()
         for r in results:
             assert isinstance(r, OptimizationResult)
 
@@ -1475,9 +1451,8 @@ class TestU27IntegrationDiagnostics:
 
     def test_optimize_all_basic_level_skips_tcp_and_firewall(self):
         opt = SystemOptimizer(OptimizationLevel.BASIC)
-        with patch.object(opt, "optimize_tcp_keepalive") as m1:
-            with patch.object(opt, "configure_firewall") as m2:
-                results = opt.optimize_all()
+        with patch.object(opt, "optimize_tcp_keepalive") as m1, patch.object(opt, "configure_firewall") as m2:
+            results = opt.optimize_all()
         m1.assert_not_called()
         m2.assert_not_called()
         assert results == []

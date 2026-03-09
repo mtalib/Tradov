@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -35,14 +34,13 @@ Key Features:
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Set
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
-from enum import Enum, auto
+from enum import Enum
 import threading
 from pathlib import Path
-import json
 from types import SimpleNamespace
 import warnings
 warnings.filterwarnings('ignore')
@@ -51,7 +49,6 @@ warnings.filterwarnings('ignore')
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from scipy import stats
-from scipy.signal import find_peaks
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
@@ -65,7 +62,7 @@ except ImportError:
     HAS_EMPYRICAL = False
 
 try:
-    import riskfolio as rp
+    import riskfolio as rp  # noqa: F401
     HAS_RISKFOLIO = True
 except ImportError:
     HAS_RISKFOLIO = False
@@ -75,8 +72,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import AgentMessageBus, Message, MessagePriority
-from Spyder.SpyderP_PortfolioMgmt.SpyderP05_MultiStrategyAllocator import MultiStrategyAllocator
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority
 
 try:
     from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
@@ -213,14 +209,14 @@ class RegimeState:
     """Current market regime state"""
     regime: MarketRegime
     confidence: float
-    indicators: Dict[RegimeIndicator, float]
+    indicators: dict[RegimeIndicator, float]
     start_time: datetime
     duration_days: int
     strength: float  # 0-1 regime strength
     volatility: float
     trend: float
-    features: Dict[str, float]
-    
+    features: dict[str, float]
+
 @dataclass
 class RegimeTransition:
     """Regime transition event"""
@@ -230,7 +226,7 @@ class RegimeTransition:
     confidence: float
     transition_type: TransitionType
     expected_duration: int  # Days
-    indicators_changed: List[RegimeIndicator]
+    indicators_changed: list[RegimeIndicator]
 
 @dataclass
 class StrategyPerformance:
@@ -252,11 +248,11 @@ class RotationPlan:
     """Plan for strategy rotation"""
     timestamp: datetime
     reason: RotationReason
-    current_strategies: List[str]
-    target_strategies: List[str]
+    current_strategies: list[str]
+    target_strategies: list[str]
     transition_type: TransitionType
     transition_speed: float
-    position_adjustments: Dict[str, float]  # strategy -> scale factor
+    position_adjustments: dict[str, float]  # strategy -> scale factor
     expected_impact: float
     risk_score: float
     approved: bool = False
@@ -266,12 +262,12 @@ class RotationEvent:
     """Record of completed rotation"""
     plan: RotationPlan
     execution_time: datetime
-    strategies_added: List[str]
-    strategies_removed: List[str]
-    strategies_scaled: Dict[str, float]
+    strategies_added: list[str]
+    strategies_removed: list[str]
+    strategies_scaled: dict[str, float]
     actual_impact: float
     success: bool
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 # ==============================================================================
 # MAIN STRATEGY ROTATION CLASS
@@ -279,61 +275,61 @@ class RotationEvent:
 class StrategyRotation:
     """
     Intelligent strategy rotation based on market regime detection.
-    
+
     Analyzes market conditions to identify regimes and automatically
     rotates strategies to optimize performance in each regime.
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize Strategy Rotation system"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Market data
         self.market_data = deque(maxlen=REGIME_LOOKBACK)
         self.price_data = deque(maxlen=REGIME_LOOKBACK)
         self.volume_data = deque(maxlen=REGIME_LOOKBACK)
         self.vix_data = deque(maxlen=REGIME_LOOKBACK)
-        
+
         # Regime detection
         self.current_regime = MarketRegime.RANGE_BOUND
         self.regime_confidence = 0.5
         self.regime_history = deque(maxlen=1000)
         self.regime_start = datetime.now()
         self.regime_features = {}
-        
+
         # Strategy performance tracking
         self.strategy_performance = defaultdict(lambda: defaultdict(list))
         self.regime_performance = defaultdict(list)
         self.active_strategies = []
-        
+
         # Rotation management
         self.rotation_history = deque(maxlen=100)
         self.pending_rotations = []
         self.in_transition = False
         self.transition_progress = {}
-        
+
         # Machine learning models
         self.regime_classifier = None
         self.performance_predictor = None
         self.scaler = StandardScaler()
-        
+
         # Integration
         self.allocator = None
         self.coordinator = None
         self.message_bus = None
-        
+
         # Threading
         self._lock = threading.RLock()
         self._shutdown = threading.Event()
-        
+
         # Initialize components
         self._initialize_models()
         self._load_historical_data()
-        
+
         self.logger.info("Strategy Rotation system initialized")
-    
+
     def _initialize_models(self):
         """Initialize machine learning models"""
         try:
@@ -343,19 +339,19 @@ class StrategyRotation:
                 max_depth=10,
                 random_state=42
             )
-            
+
             # GMM for volatility regimes
             self.volatility_model = GaussianMixture(
                 n_components=3,  # Low, Normal, High volatility
                 covariance_type='full',
                 random_state=42
             )
-            
+
             self.logger.info("ML models initialized")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize models: {e}")
-    
+
     def _load_historical_data(self):
         """Load historical regime and performance data"""
         try:
@@ -371,7 +367,7 @@ class StrategyRotation:
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'r', encoding='utf-8') as f:
+                with open(history_file, encoding='utf-8') as f:
                     data = json.load(f)
                     self.regime_history = deque(
                         (_ns(item) for item in data['regimes']), maxlen=1000
@@ -383,21 +379,21 @@ class StrategyRotation:
                     # Load performance data
                     if 'performance' in data:
                         self.strategy_performance = data['performance']
-                    
+
                     self.logger.info(f"Loaded {len(self.regime_history)} historical regimes")
         except Exception as e:
             self.logger.warning(f"Could not load historical data: {e}")
-    
+
     def update_market_data(
         self,
         price: float,
         volume: float,
         vix: float,
-        additional_data: Optional[Dict[str, float]] = None
+        additional_data: dict[str, float] | None = None
     ):
         """
         Update market data for regime detection.
-        
+
         Args:
             price: Current SPY price
             volume: Trading volume
@@ -406,12 +402,12 @@ class StrategyRotation:
         """
         with self._lock:
             timestamp = datetime.now()
-            
+
             # Store raw data
             self.price_data.append(price)
             self.volume_data.append(volume)
             self.vix_data.append(vix)
-            
+
             # Store complete market data
             market_point = {
                 'timestamp': timestamp,
@@ -419,25 +415,25 @@ class StrategyRotation:
                 'volume': volume,
                 'vix': vix
             }
-            
+
             if additional_data:
                 market_point.update(additional_data)
-            
+
             self.market_data.append(market_point)
-            
+
             # Check for regime change if enough data
             if len(self.price_data) >= 20:
                 self._detect_regime_change()
-    
+
     def _detect_regime_change(self):
         """Detect if market regime has changed"""
         try:
             # Calculate regime features
             features = self._calculate_regime_features()
-            
+
             # Get regime prediction
             regime, confidence = self._predict_regime(features)
-            
+
             # Check if regime changed
             if regime != self.current_regime:
                 # Check persistence requirement
@@ -446,78 +442,78 @@ class StrategyRotation:
             else:
                 # Update confidence in current regime
                 self.regime_confidence = confidence
-                
+
         except Exception as e:
             self.logger.error(f"Regime detection failed: {e}")
-    
-    def _calculate_regime_features(self) -> Dict[str, float]:
+
+    def _calculate_regime_features(self) -> dict[str, float]:
         """Calculate features for regime detection"""
         features = {}
-        
+
         try:
             prices = np.array(self.price_data)
             volumes = np.array(self.volume_data)
             vix = np.array(self.vix_data)
-            
+
             # Returns
             returns = np.diff(prices) / prices[:-1]
             features['return_mean'] = np.mean(returns)
             features['return_std'] = np.std(returns)
-            
+
             # Trend
             if len(prices) >= 20:
                 sma_20 = np.mean(prices[-20:])
                 sma_50 = np.mean(prices[-50:]) if len(prices) >= 50 else sma_20
                 features['trend'] = (prices[-1] - sma_20) / sma_20
                 features['trend_strength'] = (sma_20 - sma_50) / sma_50 if sma_50 > 0 else 0
-            
+
             # Volatility
             features['volatility'] = np.std(returns) * np.sqrt(252)
             features['vix_level'] = vix[-1] if len(vix) > 0 else 20
             features['vix_change'] = (vix[-1] - np.mean(vix[-5:])) / np.mean(vix[-5:]) if len(vix) >= 5 else 0
-            
+
             # Volume
             features['volume_ratio'] = volumes[-1] / np.mean(volumes) if len(volumes) > 0 else 1
             features['volume_trend'] = np.polyfit(range(len(volumes)), volumes, 1)[0] if len(volumes) > 1 else 0
-            
+
             # Momentum
             if len(prices) >= 14:
                 rsi = talib.RSI(prices, timeperiod=14)
                 features['rsi'] = rsi[-1] if not np.isnan(rsi[-1]) else 50
-                
+
                 macd, signal, _ = talib.MACD(prices)
                 features['macd_signal'] = (macd[-1] - signal[-1]) if len(macd) > 0 and not np.isnan(macd[-1]) else 0
-            
+
             # Mean reversion
             if len(prices) >= 20:
                 bb_upper, bb_middle, bb_lower = talib.BBANDS(prices, timeperiod=20)
                 features['bb_position'] = (prices[-1] - bb_middle[-1]) / (bb_upper[-1] - bb_lower[-1]) if not np.isnan(bb_middle[-1]) else 0
-            
+
             # Distribution
             if len(returns) > 0:
                 features['skew'] = stats.skew(returns)
                 features['kurtosis'] = stats.kurtosis(returns)
-            
+
             # Regime strength indicators
             features['trend_consistency'] = self._calculate_trend_consistency(prices)
             features['volatility_regime'] = self._classify_volatility_regime(returns)
-            
+
             self.regime_features = features
             return features
-            
+
         except Exception as e:
             self.logger.error(f"Feature calculation failed: {e}")
             return {}
-    
+
     def _calculate_trend_consistency(self, prices: np.ndarray) -> float:
         """Calculate trend consistency metric"""
         if len(prices) < 10:
             return 0.5
-        
+
         # Count consecutive up/down days
         returns = np.diff(prices)
         positive = returns > 0
-        
+
         # Find runs of same sign
         runs = []
         current_run = 1
@@ -528,106 +524,103 @@ class StrategyRotation:
                 runs.append(current_run)
                 current_run = 1
         runs.append(current_run)
-        
+
         # Longer runs indicate stronger trend
         avg_run = np.mean(runs)
         consistency = min(avg_run / 5, 1.0)  # Normalize to 0-1
-        
+
         return consistency
-    
+
     def _classify_volatility_regime(self, returns: np.ndarray) -> float:
         """Classify volatility regime using GMM"""
         if len(returns) < 30:
             return 0.5
-        
+
         try:
             # Fit GMM if not fitted
             vol_data = np.abs(returns).reshape(-1, 1)
             if not hasattr(self.volatility_model, 'converged_'):
                 self.volatility_model.fit(vol_data)
-            
+
             # Predict current volatility regime
             current_vol = np.std(returns[-10:]).reshape(1, -1)
             probs = self.volatility_model.predict_proba(current_vol)[0]
-            
+
             # Return weighted score (0=low, 0.5=normal, 1=high)
             regime_score = probs[0] * 0 + probs[1] * 0.5 + probs[2] * 1.0
             return regime_score
-            
-        except:
+
+        except Exception:
             return 0.5
-    
-    def _predict_regime(self, features: Dict[str, float]) -> Tuple[MarketRegime, float]:
+
+    def _predict_regime(self, features: dict[str, float]) -> tuple[MarketRegime, float]:
         """Predict market regime from features"""
         # Rule-based regime detection (can be replaced with ML model)
-        
+
         trend = features.get('trend', 0)
         volatility = features.get('volatility', 0.15)
         vix = features.get('vix_level', 20)
         rsi = features.get('rsi', 50)
         trend_consistency = features.get('trend_consistency', 0.5)
-        
+
         confidence = 0.5
-        
+
         # Crisis detection
         if vix > 35 or volatility > 0.35:
             regime = MarketRegime.CRISIS
             confidence = min(vix / 40, 1.0)
-        
+
         # High volatility
         elif vix > 25 or volatility > 0.25:
             regime = MarketRegime.HIGH_VOLATILITY
             confidence = 0.7
-        
+
         # Low volatility
         elif vix < 15 and volatility < 0.12:
             regime = MarketRegime.LOW_VOLATILITY
             confidence = 0.7
-        
+
         # Trending up
         elif trend > 0.02 and trend_consistency > 0.6 and rsi > 50:
             regime = MarketRegime.TRENDING_UP
             confidence = min(trend_consistency, 0.85)
-        
+
         # Trending down
         elif trend < -0.02 and trend_consistency > 0.6 and rsi < 50:
             regime = MarketRegime.TRENDING_DOWN
             confidence = min(trend_consistency, 0.85)
-        
+
         # Recovery
         elif self.current_regime == MarketRegime.CRISIS and vix < 25:
             regime = MarketRegime.RECOVERY
             confidence = 0.6
-        
+
         # Range bound (default)
         else:
             regime = MarketRegime.RANGE_BOUND
             confidence = 0.6
-        
+
         return regime, confidence
-    
+
     def _check_regime_persistence(self, new_regime: MarketRegime, confidence: float) -> bool:
         """Check if regime change meets persistence requirements"""
         # Need minimum confidence
         if confidence < REGIME_CONFIDENCE_THRESHOLD:
             return False
-        
+
         # Check if we've been in current regime long enough
         days_in_regime = (datetime.now() - self.regime_start).days
-        if days_in_regime < MIN_REGIME_DAYS:
-            return False
-        
         # Look for confirmation over multiple periods
         # This is simplified - would check recent predictions
-        return True
-    
+        return days_in_regime >= MIN_REGIME_DAYS
+
     def _initiate_regime_change(self, new_regime: MarketRegime, confidence: float):
         """Initiate regime change and strategy rotation"""
         self.logger.info(
             f"Regime change detected: {self.current_regime.value} -> {new_regime.value} "
             f"(confidence: {confidence:.2%})"
         )
-        
+
         # Record transition
         transition = RegimeTransition(
             from_regime=self.current_regime,
@@ -638,13 +631,13 @@ class StrategyRotation:
             expected_duration=self._estimate_regime_duration(new_regime),
             indicators_changed=self._get_changed_indicators()
         )
-        
+
         # Update regime
         old_regime = self.current_regime
         self.current_regime = new_regime
         self.regime_confidence = confidence
         self.regime_start = datetime.now()
-        
+
         # Record in history
         regime_state = RegimeState(
             regime=new_regime,
@@ -658,16 +651,16 @@ class StrategyRotation:
             features=self.regime_features.copy()
         )
         self.regime_history.append(regime_state)
-        
+
         # Plan strategy rotation
         rotation_plan = self._create_rotation_plan(old_regime, new_regime, transition)
-        
+
         # Execute rotation
         self._execute_rotation(rotation_plan)
-        
+
         # Send notification
         self._broadcast_regime_change(new_regime, confidence)
-    
+
     def _determine_transition_type(self, new_regime: MarketRegime) -> TransitionType:
         """Determine type of transition based on regime"""
         if new_regime == MarketRegime.CRISIS:
@@ -676,7 +669,7 @@ class StrategyRotation:
             return TransitionType.HEDGED
         else:
             return TransitionType.GRADUAL
-    
+
     def _estimate_regime_duration(self, regime: MarketRegime) -> int:
         """Estimate expected duration of regime in days"""
         # Based on historical averages
@@ -690,12 +683,12 @@ class StrategyRotation:
             MarketRegime.RECOVERY: 35
         }
         return historical_durations.get(regime, 30)
-    
-    def _get_changed_indicators(self) -> List[RegimeIndicator]:
+
+    def _get_changed_indicators(self) -> list[RegimeIndicator]:
         """Get indicators that triggered regime change"""
         # Simplified - would analyze which indicators changed most
         return [RegimeIndicator.TREND, RegimeIndicator.VOLATILITY]
-    
+
     def _create_rotation_plan(
         self,
         from_regime: MarketRegime,
@@ -705,14 +698,14 @@ class StrategyRotation:
         """Create strategy rotation plan"""
         # Get optimal strategies for new regime
         target_strategies = self._get_optimal_strategies(to_regime)
-        
+
         # Determine position adjustments
         adjustments = self._calculate_position_adjustments(
             self.active_strategies,
             target_strategies,
             transition.transition_type
         )
-        
+
         # Calculate transition speed
         speed_map = {
             TransitionType.IMMEDIATE: TRANSITION_SPEED['IMMEDIATE'],
@@ -721,13 +714,13 @@ class StrategyRotation:
             TransitionType.HEDGED: TRANSITION_SPEED['FAST']
         }
         speed = speed_map.get(transition.transition_type, TRANSITION_SPEED['MODERATE'])
-        
+
         # Estimate impact
         impact = self._estimate_rotation_impact(adjustments)
-        
+
         # Calculate risk score
         risk_score = self._calculate_rotation_risk(from_regime, to_regime, adjustments)
-        
+
         plan = RotationPlan(
             timestamp=datetime.now(),
             reason=RotationReason.REGIME_CHANGE,
@@ -740,48 +733,48 @@ class StrategyRotation:
             risk_score=risk_score,
             approved=risk_score < 0.7  # Auto-approve if risk acceptable
         )
-        
+
         return plan
-    
-    def _get_optimal_strategies(self, regime: MarketRegime) -> List[str]:
+
+    def _get_optimal_strategies(self, regime: MarketRegime) -> list[str]:
         """Get optimal strategies for a regime"""
         # Get base strategies for regime
         regime_key = regime.value.upper()
         base_strategies = REGIME_STRATEGY_MAP.get(regime_key, [])
-        
+
         # Rank by historical performance in this regime
         if regime in self.regime_performance:
             performance_data = self.regime_performance[regime]
-            
+
             # Sort by Sharpe ratio in regime
             ranked = sorted(
                 performance_data,
                 key=lambda x: x.sharpe_ratio,
                 reverse=True
             )
-            
+
             # Take top performers
             optimal = [p.strategy_id for p in ranked[:7]]
-            
+
             # Add base strategies if not enough
             for strategy in base_strategies:
                 if strategy not in optimal and len(optimal) < 10:
                     optimal.append(strategy)
-            
+
             return optimal[:10]  # Max 10 strategies
-        
+
         # Default to mapped strategies
         return base_strategies[:7]
-    
+
     def _calculate_position_adjustments(
         self,
-        current: List[str],
-        target: List[str],
+        current: list[str],
+        target: list[str],
         transition_type: TransitionType
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate position adjustments for rotation"""
         adjustments = {}
-        
+
         # Strategies to remove
         for strategy in current:
             if strategy not in target:
@@ -789,7 +782,7 @@ class StrategyRotation:
                     adjustments[strategy] = 0.0  # Close immediately
                 else:
                     adjustments[strategy] = 0.5  # Scale down 50%
-        
+
         # Strategies to add
         for strategy in target:
             if strategy not in current:
@@ -797,65 +790,65 @@ class StrategyRotation:
                     adjustments[strategy] = 1.0  # Full position
                 else:
                     adjustments[strategy] = 0.5  # Start with 50%
-        
+
         # Strategies to maintain
         for strategy in set(current) & set(target):
             adjustments[strategy] = 1.0  # Keep full position
-        
+
         return adjustments
-    
-    def _estimate_rotation_impact(self, adjustments: Dict[str, float]) -> float:
+
+    def _estimate_rotation_impact(self, adjustments: dict[str, float]) -> float:
         """Estimate market impact of rotation"""
         # Simplified impact model
         changes = sum(abs(1.0 - adj) for adj in adjustments.values())
         impact = changes * 0.001  # 10 bps per full position change
         return min(impact, 0.01)  # Cap at 1%
-    
+
     def _calculate_rotation_risk(
         self,
         from_regime: MarketRegime,
         to_regime: MarketRegime,
-        adjustments: Dict[str, float]
+        adjustments: dict[str, float]
     ) -> float:
         """Calculate risk score for rotation"""
         risk = 0.0
-        
+
         # Risk from regime uncertainty
         risk += (1 - self.regime_confidence) * 0.3
-        
+
         # Risk from transition magnitude
         transition_size = len([a for a in adjustments.values() if a < 1.0])
         risk += (transition_size / 10) * 0.3
-        
+
         # Risk from market conditions
         if self.regime_features.get('volatility', 0) > 0.25:
             risk += 0.2
-        
+
         # Risk from regime type
         if to_regime in [MarketRegime.CRISIS, MarketRegime.HIGH_VOLATILITY]:
             risk += 0.2
-        
+
         return min(risk, 1.0)
-    
+
     def _execute_rotation(self, plan: RotationPlan):
         """Execute strategy rotation plan"""
         if not plan.approved:
             self.logger.warning(f"Rotation plan not approved (risk: {plan.risk_score:.2f})")
             return
-        
+
         try:
             self.logger.info(
                 f"Executing rotation: {len(plan.current_strategies)} -> "
                 f"{len(plan.target_strategies)} strategies"
             )
-            
+
             # Mark as in transition
             self.in_transition = True
-            
+
             # Initialize transition progress
             for strategy in plan.position_adjustments:
                 self.transition_progress[strategy] = 0.0
-            
+
             # Create rotation event
             event = RotationEvent(
                 plan=plan,
@@ -866,7 +859,7 @@ class StrategyRotation:
                 actual_impact=0.0,
                 success=False
             )
-            
+
             # Execute adjustments
             for strategy, adjustment in plan.position_adjustments.items():
                 if adjustment == 0.0:
@@ -874,44 +867,44 @@ class StrategyRotation:
                     if strategy in self.active_strategies:
                         self.active_strategies.remove(strategy)
                         event.strategies_removed.append(strategy)
-                
+
                 elif adjustment == 1.0 and strategy not in self.active_strategies:
                     # Add strategy
                     self.active_strategies.append(strategy)
                     event.strategies_added.append(strategy)
-                
+
                 else:
                     # Scale strategy
                     event.strategies_scaled[strategy] = adjustment
                     self.transition_progress[strategy] = adjustment
-            
+
             # Update allocator if available
             if self.allocator:
                 self._update_allocator(plan.target_strategies)
-            
+
             # Mark success
             event.success = True
             event.actual_impact = plan.expected_impact  # Would measure actual
-            
+
             # Record event
             self.rotation_history.append(event)
-            
+
             # Clear transition state
             self.in_transition = False
             self.transition_progress.clear()
-            
+
             self.logger.info(
                 f"Rotation completed: Added {len(event.strategies_added)}, "
                 f"Removed {len(event.strategies_removed)}, "
                 f"Scaled {len(event.strategies_scaled)}"
             )
-            
+
         except Exception as e:
             self.logger.error(f"Rotation execution failed: {e}")
             self.error_handler.handle_error(e, {"plan": asdict(plan)})
             self.in_transition = False
-    
-    def _update_allocator(self, strategies: List[str]):
+
+    def _update_allocator(self, strategies: list[str]):
         """Update allocator with new strategy list"""
         try:
             # This would interface with P05_MultiStrategyAllocator
@@ -919,7 +912,7 @@ class StrategyRotation:
             pass
         except Exception as e:
             self.logger.error(f"Allocator update failed: {e}")
-    
+
     def _broadcast_regime_change(self, regime: MarketRegime, confidence: float):
         """Broadcast regime change via message bus"""
         if self.message_bus:
@@ -936,7 +929,7 @@ class StrategyRotation:
                 }
             )
             self.message_bus.publish(message)
-    
+
     def update_strategy_performance(
         self,
         strategy_id: str,
@@ -946,7 +939,7 @@ class StrategyRotation:
     ):
         """
         Update strategy performance in regime.
-        
+
         Args:
             strategy_id: Strategy identifier
             regime: Current regime
@@ -960,20 +953,20 @@ class StrategyRotation:
                 'return': daily_return,
                 'trades': trades
             })
-            
+
             # Update aggregated performance
             self._update_regime_performance(strategy_id, regime)
-    
+
     def _update_regime_performance(self, strategy_id: str, regime: MarketRegime):
         """Update aggregated performance metrics"""
         perf_data = self.strategy_performance[strategy_id][regime]
-        
+
         if len(perf_data) < 5:
             return  # Need minimum data
-        
+
         # Calculate metrics
         returns = [p['return'] for p in perf_data]
-        
+
         perf = StrategyPerformance(
             strategy_id=strategy_id,
             regime=regime,
@@ -986,14 +979,14 @@ class StrategyRotation:
             trade_count=sum(p['trades'] for p in perf_data),
             days_active=len(perf_data)
         )
-        
+
         # Calculate Sharpe
         if perf.volatility > 0:
             perf.sharpe_ratio = (perf.avg_daily_return * 252) / perf.volatility
-        
+
         # Store or update
         regime_perfs = self.regime_performance[regime]
-        
+
         # Find and update or append
         updated = False
         for i, existing in enumerate(regime_perfs):
@@ -1001,18 +994,18 @@ class StrategyRotation:
                 regime_perfs[i] = perf
                 updated = True
                 break
-        
+
         if not updated:
             regime_perfs.append(perf)
-    
-    def _calculate_max_drawdown(self, returns: List[float]) -> float:
+
+    def _calculate_max_drawdown(self, returns: list[float]) -> float:
         """Calculate maximum drawdown from returns"""
         cumulative = np.cumprod([1 + r for r in returns])
         running_max = np.maximum.accumulate(cumulative)
         drawdown = (cumulative - running_max) / running_max
         return float(np.min(drawdown))
-    
-    def get_regime_analysis(self) -> Dict[str, Any]:
+
+    def get_regime_analysis(self) -> dict[str, Any]:
         """Get comprehensive regime analysis"""
         # Calculate regime statistics
         regime_stats = {}
@@ -1025,10 +1018,10 @@ class StrategyRotation:
                     'avg_confidence': 0,
                     'transitions_to': defaultdict(int)
                 }
-            
+
             regime_stats[regime]['count'] += 1
             regime_stats[regime]['total_days'] += regime_state.duration_days
-        
+
         # Get performance by regime
         performance_summary = {}
         for regime, perfs in self.regime_performance.items():
@@ -1045,7 +1038,7 @@ class StrategyRotation:
                     'avg_sharpe': np.mean([p.sharpe_ratio for p in perfs]),
                     'avg_return': np.mean([p.avg_daily_return * 252 for p in perfs])
                 }
-        
+
         return {
             'current_regime': self.current_regime.value,
             'confidence': self.regime_confidence,
@@ -1061,28 +1054,28 @@ class StrategyRotation:
             'recent_rotations': len(self.rotation_history),
             'transition_progress': self.transition_progress
         }
-    
+
     def get_strategy_recommendations(
         self,
-        regime: Optional[MarketRegime] = None
-    ) -> List[Dict[str, Any]]:
+        regime: MarketRegime | None = None
+    ) -> list[dict[str, Any]]:
         """
         Get strategy recommendations for regime.
-        
+
         Args:
             regime: Specific regime or use current
-            
+
         Returns:
             List of recommended strategies with scores
         """
         if regime is None:
             regime = self.current_regime
-        
+
         recommendations = []
-        
+
         # Get strategies for regime
         strategies = self._get_optimal_strategies(regime)
-        
+
         for i, strategy_id in enumerate(strategies):
             # Get performance in regime
             perf_in_regime = None
@@ -1091,7 +1084,7 @@ class StrategyRotation:
                     if perf.strategy_id == strategy_id:
                         perf_in_regime = perf
                         break
-            
+
             recommendation = {
                 'rank': i + 1,
                 'strategy': strategy_id,
@@ -1101,28 +1094,28 @@ class StrategyRotation:
                 'confidence': self.regime_confidence * (1.0 - i/20),
                 'recommended_allocation': 1.0 / len(strategies)  # Equal weight default
             }
-            
+
             recommendations.append(recommendation)
-        
+
         return recommendations
-    
+
     def force_rotation(
         self,
-        target_strategies: List[str],
+        target_strategies: list[str],
         reason: RotationReason = RotationReason.MANUAL
     ) -> RotationEvent:
         """
         Force strategy rotation (manual override).
-        
+
         Args:
             target_strategies: Target strategy list
             reason: Reason for rotation
-            
+
         Returns:
             RotationEvent with results
         """
         self.logger.info(f"Manual rotation initiated: {reason.value}")
-        
+
         # Create rotation plan
         plan = RotationPlan(
             timestamp=datetime.now(),
@@ -1140,43 +1133,43 @@ class StrategyRotation:
             risk_score=0.3,
             approved=True  # Manual override approved
         )
-        
+
         # Execute
         self._execute_rotation(plan)
-        
+
         # Return last event
         return self.rotation_history[-1] if self.rotation_history else None
-    
+
     def backtest_regime_strategy(
         self,
         start_date: datetime,
         end_date: datetime
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Backtest regime-based strategy selection.
-        
+
         Uses empyrical for validated performance metrics when available.
-        
+
         Args:
             start_date: Backtest start
             end_date: Backtest end
-            
+
         Returns:
             Backtest results with validated metrics.
         """
         # Filter regime/rotation history to date range
-        regime_changes = [r for r in self.regime_history 
+        regime_changes = [r for r in self.regime_history
                          if r.start_time >= start_date and r.start_time <= end_date]
         rotations = [r for r in self.rotation_history
                     if r.execution_time >= start_date and r.execution_time <= end_date]
-        
+
         results = {
             'period': f"{start_date.date()} to {end_date.date()}",
             'total_regimes': len(self.regime_history),
             'regime_changes': len(regime_changes),
             'rotations': len(rotations),
         }
-        
+
         # Calculate real metrics from strategy performance history
         all_returns = []
         for perf_data in self.strategy_performance.values():
@@ -1184,10 +1177,10 @@ class StrategyRotation:
                 all_returns.extend(perf_data['returns'])
             elif hasattr(perf_data, 'returns_history'):
                 all_returns.extend(list(perf_data.returns_history))
-        
+
         if all_returns and len(all_returns) >= 10:
             ret_series = pd.Series(all_returns)
-            
+
             if HAS_EMPYRICAL:
                 # Institutional-grade metrics via empyrical
                 results['sharpe_ratio'] = float(empyrical.sharpe_ratio(ret_series, period='daily'))
@@ -1206,19 +1199,19 @@ class StrategyRotation:
                 annual_vol = float(ret_series.std() * np.sqrt(252))
                 annual_return = float(ret_series.mean() * 252)
                 sharpe = annual_return / annual_vol if annual_vol > 0 else 0
-                
+
                 # Max drawdown
                 cumulative = (1 + ret_series).cumprod()
                 running_max = cumulative.cummax()
                 drawdown = (cumulative - running_max) / running_max
                 max_dd = float(drawdown.min())
-                
+
                 results['sharpe_ratio'] = sharpe
                 results['max_drawdown'] = max_dd
                 results['total_return'] = total_return
                 results['annual_return'] = annual_return
                 results['annual_volatility'] = annual_vol
-            
+
             # Win rate from actual trades
             winning = sum(1 for r in all_returns if r > 0)
             results['win_rate'] = winning / len(all_returns)
@@ -1231,13 +1224,13 @@ class StrategyRotation:
             results['max_drawdown'] = 0.0
             results['total_return'] = 0.0
             results['metrics_source'] = 'insufficient_data'
-        
+
         return results
-    
+
     def shutdown(self):
         """Shutdown rotation system and save state"""
         self._shutdown.set()
-        
+
         # Save history
         try:
             history_file = Path("data/portfolio/regime_history.json")
@@ -1250,18 +1243,18 @@ class StrategyRotation:
                     'performance': dict(self.strategy_performance),
                     'timestamp': datetime.now()
                 }, f, default=_json_default, indent=2)
-            
+
             self.logger.info("Regime history saved")
         except Exception as e:
             self.logger.error(f"Failed to save history: {e}")
-        
+
         self.logger.info("Strategy Rotation shutdown complete")
 
 
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_strategy_rotation(config: Optional[Dict[str, Any]] = None) -> StrategyRotation:
+def create_strategy_rotation(config: dict[str, Any] | None = None) -> StrategyRotation:
     """Create and initialize StrategyRotation instance"""
     return StrategyRotation(config)
 
@@ -1272,76 +1265,51 @@ def create_strategy_rotation(config: Optional[Dict[str, Any]] = None) -> Strateg
 if __name__ == "__main__":
     # Create rotation system
     rotation = create_strategy_rotation()
-    
-    print("\n" + "="*60)
-    print("STRATEGY ROTATION SYSTEM TEST")
-    print("="*60)
-    
+
+
     # Simulate market data updates
-    print("\nSimulating market conditions...")
-    
+
     # Normal market
-    for i in range(20):
+    for _ in range(20):
         rotation.update_market_data(
             price=450 + np.random.normal(0, 2),
             volume=100000000 + np.random.normal(0, 10000000),
             vix=18 + np.random.normal(0, 1)
         )
-    
+
     # Trending up
-    print("\nSimulating uptrend...")
     for i in range(20):
         rotation.update_market_data(
             price=450 + i * 0.5 + np.random.normal(0, 1),
             volume=120000000,
             vix=15 + np.random.normal(0, 0.5)
         )
-    
+
     # High volatility
-    print("\nSimulating high volatility...")
-    for i in range(20):
+    for _ in range(20):
         rotation.update_market_data(
             price=460 + np.random.normal(0, 5),
             volume=150000000,
             vix=28 + np.random.normal(0, 2)
         )
-    
+
     # Get regime analysis
     analysis = rotation.get_regime_analysis()
-    
-    print("\n" + "="*40)
-    print("REGIME ANALYSIS")
-    print("="*40)
-    print(f"Current Regime: {analysis['current_regime']}")
-    print(f"Confidence: {analysis['confidence']:.2%}")
-    print(f"Days in Regime: {analysis['days_in_regime']}")
-    print(f"Active Strategies: {len(analysis['active_strategies'])}")
-    
+
+
     # Get recommendations
     recommendations = rotation.get_strategy_recommendations()
-    
-    print("\n" + "="*40)
-    print("STRATEGY RECOMMENDATIONS")
-    print("="*40)
-    for rec in recommendations[:5]:
-        print(f"{rec['rank']}. {rec['strategy']}")
-        print(f"   Regime Fit: {rec['regime_fit']:.2f}")
-        print(f"   Confidence: {rec['confidence']:.2%}")
-        print(f"   Allocation: {rec['recommended_allocation']:.1%}")
-    
+
+    for _rec in recommendations[:5]:
+        pass
+
     # Test forced rotation
-    print("\n" + "="*40)
-    print("MANUAL ROTATION TEST")
-    print("="*40)
-    
+
     new_strategies = ['D02_IronCondor', 'D05_Straddle', 'D14_CalendarSpread']
     event = rotation.force_rotation(new_strategies, RotationReason.MANUAL)
-    
+
     if event:
-        print(f"Rotation executed at {event.execution_time}")
-        print(f"Added: {event.strategies_added}")
-        print(f"Removed: {event.strategies_removed}")
-        print(f"Success: {event.success}")
-    
+        pass
+
     # Shutdown
     rotation.shutdown()

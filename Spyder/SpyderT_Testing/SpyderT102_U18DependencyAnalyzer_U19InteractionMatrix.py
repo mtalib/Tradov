@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -467,7 +466,7 @@ class TestDependencyAnalyzerWithTempDir:
 
     def test_analyze_dependencies_force_refresh(self):
         self.da.analyze_dependencies()
-        initial_count = len(self.da.modules)
+        len(self.da.modules)
         self.da.analyze_dependencies(force_refresh=True)
         # Should still have modules after refresh
         assert len(self.da.modules) >= 0
@@ -970,7 +969,8 @@ class TestAnalyzeMatrixMethod:
     def setup_method(self):
         self.im = InteractionMatrix(max_modules=50)
         modules = ["ModA", "ModB", "ModC"]
-        import random; random.seed(42)
+        import random
+        random.seed(42)
         for i in range(30):
             src = modules[i % 3]
             dst = modules[(i + 1) % 3]

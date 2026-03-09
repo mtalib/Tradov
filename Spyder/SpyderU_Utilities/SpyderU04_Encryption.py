@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,8 +22,6 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from pathlib import Path
-from typing import Any, Dict, Optional
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -71,7 +68,7 @@ class CredentialManager:
         self.credentials[key] = value
         return True
 
-    def get_credential(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get_credential(self, key: str, default: str | None = None) -> str | None:
         """Retrieve a credential."""
         return self.credentials.get(key, default)
 
@@ -147,13 +144,9 @@ __all__ = [
 ]
 
 if __name__ == "__main__":
-    print("SpyderU04_Encryption stub module loaded successfully")
 
     # Test encryption
     em = EncryptionManager()
     test_data = "Hello, World!"
     encrypted = em.encrypt(test_data)
     decrypted = em.decrypt(encrypted)
-    print(f"Original: {test_data}")
-    print(f"Encrypted: {encrypted}")
-    print(f"Decrypted: {decrypted}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -38,19 +37,16 @@ Module Description:
 import time
 import threading
 import datetime
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import Any
 from enum import Enum
 from dataclasses import dataclass, field
 from collections import defaultdict
-import bisect
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from scipy.stats import norm
 
 # ib_async Contract removed — use Tradier API (SpyderB40_TradierClient.get_options_chain())
 Contract = None  # type: ignore
@@ -58,7 +54,6 @@ Contract = None  # type: ignore
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU09_DataTypes import OptionData
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
@@ -131,72 +126,72 @@ class OptionContract:
     expiry: datetime.date
     strike: float
     option_type: OptionType
-    
+
     # Market data
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    last: Optional[float] = None
+    bid: float | None = None
+    ask: float | None = None
+    last: float | None = None
     volume: int = 0
     open_interest: int = 0
-    
+
     # Greeks
-    delta: Optional[float] = None
-    gamma: Optional[float] = None
-    theta: Optional[float] = None
-    vega: Optional[float] = None
-    rho: Optional[float] = None
-    implied_volatility: Optional[float] = None
-    
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    rho: float | None = None
+    implied_volatility: float | None = None
+
     # Derived metrics
-    intrinsic_value: Optional[float] = None
-    time_value: Optional[float] = None
-    moneyness: Optional[float] = None
-    
+    intrinsic_value: float | None = None
+    time_value: float | None = None
+    moneyness: float | None = None
+
     # IB specific (legacy, unused after IB Gateway removal)
-    contract_id: Optional[int] = None
-    ib_contract: Optional[Any] = None
-    ticker_id: Optional[int] = None
+    contract_id: int | None = None
+    ib_contract: Any | None = None
+    ticker_id: int | None = None
     last_update: datetime.datetime = field(default_factory=datetime.datetime.now)
-    
+
     @property
-    def mid_price(self) -> Optional[float]:
+    def mid_price(self) -> float | None:
         """Calculate mid price"""
         if self.bid is not None and self.ask is not None:
             return (self.bid + self.ask) / 2.0
         return self.last
-    
+
     @property
-    def spread(self) -> Optional[float]:
+    def spread(self) -> float | None:
         """Calculate bid-ask spread"""
         if self.bid is not None and self.ask is not None:
             return self.ask - self.bid
         return None
-    
+
     @property
-    def spread_percent(self) -> Optional[float]:
+    def spread_percent(self) -> float | None:
         """Calculate spread as percentage of mid price"""
         if self.spread is not None and self.mid_price is not None and self.mid_price > 0:
             return (self.spread / self.mid_price) * 100.0
         return None
-    
+
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiry"""
         today = datetime.date.today()
         return (self.expiry - today).days
-    
+
     def is_otm(self, underlying_price: float) -> bool:
         """Check if option is out of the money"""
         if self.option_type == OptionType.CALL:
             return self.strike > underlying_price
         else:
             return self.strike < underlying_price
-    
+
     def is_itm(self, underlying_price: float) -> bool:
         """Check if option is in the money"""
         return not self.is_otm(underlying_price)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'symbol': self.symbol,
@@ -230,16 +225,16 @@ class OptionChain:
     symbol: str
     expiry: datetime.date
     underlying_price: float
-    calls: Dict[float, OptionContract] = field(default_factory=dict)
-    puts: Dict[float, OptionContract] = field(default_factory=dict)
+    calls: dict[float, OptionContract] = field(default_factory=dict)
+    puts: dict[float, OptionContract] = field(default_factory=dict)
     last_update: datetime.datetime = field(default_factory=datetime.datetime.now)
     status: ChainStatus = ChainStatus.LOADING
-    
+
     @property
-    def all_strikes(self) -> List[float]:
+    def all_strikes(self) -> list[float]:
         """Get all available strikes sorted"""
         return sorted(set(list(self.calls.keys()) + list(self.puts.keys())))
-    
+
     @property
     def atm_strike(self) -> float:
         """Get at-the-money strike"""
@@ -247,108 +242,108 @@ class OptionChain:
         if not strikes:
             return self.underlying_price
         return min(strikes, key=lambda x: abs(x - self.underlying_price))
-    
+
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiry"""
         today = datetime.date.today()
         return (self.expiry - today).days
-    
-    def get_otm_options(self) -> Tuple[List[OptionContract], List[OptionContract]]:
+
+    def get_otm_options(self) -> tuple[list[OptionContract], list[OptionContract]]:
         """Get OTM calls and puts"""
         otm_calls = []
         otm_puts = []
-        
+
         for strike, call in self.calls.items():
             if strike > self.underlying_price:
                 otm_calls.append(call)
-        
+
         for strike, put in self.puts.items():
             if strike < self.underlying_price:
                 otm_puts.append(put)
-        
+
         return otm_calls, otm_puts
-    
+
     def get_liquid_options(self, min_volume: int = MIN_VOLUME_THRESHOLD,
                           min_oi: int = MIN_OPEN_INTEREST_THRESHOLD,
-                          max_spread_pct: float = MAX_BID_ASK_SPREAD_PCT) -> List[OptionContract]:
+                          max_spread_pct: float = MAX_BID_ASK_SPREAD_PCT) -> list[OptionContract]:
         """Get liquid options based on volume, OI, and spread criteria"""
         liquid_options = []
-        
+
         for option in list(self.calls.values()) + list(self.puts.values()):
-            if (option.volume >= min_volume and 
+            if (option.volume >= min_volume and
                 option.open_interest >= min_oi and
                 option.spread_percent is not None and
                 option.spread_percent <= max_spread_pct):
                 liquid_options.append(option)
-        
+
         return liquid_options
-    
-    def calculate_put_call_ratio(self) -> Optional[float]:
+
+    def calculate_put_call_ratio(self) -> float | None:
         """Calculate put/call volume ratio"""
         total_call_volume = sum(call.volume for call in self.calls.values())
         total_put_volume = sum(put.volume for put in self.puts.values())
-        
+
         if total_call_volume > 0:
             return total_put_volume / total_call_volume
         return None
-    
-    def get_skew_data(self) -> Dict[str, List[float]]:
+
+    def get_skew_data(self) -> dict[str, list[float]]:
         """Get volatility skew data"""
         strikes = []
         call_ivs = []
         put_ivs = []
-        
+
         for strike in self.all_strikes:
             if strike in self.calls and self.calls[strike].implied_volatility is not None:
                 strikes.append(strike)
                 call_ivs.append(self.calls[strike].implied_volatility)
-            
+
             if strike in self.puts and self.puts[strike].implied_volatility is not None:
                 if strike not in strikes:
                     strikes.append(strike)
                 put_ivs.append(self.puts[strike].implied_volatility)
-        
+
         return {
             'strikes': strikes,
             'call_ivs': call_ivs,
             'put_ivs': put_ivs
         }
-    
+
     def to_dataframe(self) -> pd.DataFrame:
         """Convert chain to DataFrame"""
         data = []
-        
+
         # Add calls
         for strike, option in self.calls.items():
             data.append({**option.to_dict(), 'strike': strike})
-        
+
         # Add puts
         for strike, option in self.puts.items():
             data.append({**option.to_dict(), 'strike': strike})
-        
+
         if data:
             df = pd.DataFrame(data)
             df.sort_values(['type', 'strike'], inplace=True)
             return df
-        
+
         return pd.DataFrame()
 
 @dataclass
 class OptionSelectionCriteria:
     """Criteria for option selection"""
-    min_delta: Optional[float] = None
-    max_delta: Optional[float] = None
-    min_gamma: Optional[float] = None
-    min_theta: Optional[float] = None
-    min_vega: Optional[float] = None
-    min_volume: Optional[int] = None
-    min_open_interest: Optional[int] = None
-    max_spread_percent: Optional[float] = None
-    min_days_to_expiry: Optional[int] = None
-    max_days_to_expiry: Optional[int] = None
-    min_implied_volatility: Optional[float] = None
-    max_implied_volatility: Optional[float] = None
+    min_delta: float | None = None
+    max_delta: float | None = None
+    min_gamma: float | None = None
+    min_theta: float | None = None
+    min_vega: float | None = None
+    min_volume: int | None = None
+    min_open_interest: int | None = None
+    max_spread_percent: float | None = None
+    min_days_to_expiry: int | None = None
+    max_days_to_expiry: int | None = None
+    min_implied_volatility: float | None = None
+    max_implied_volatility: float | None = None
     otm_only: bool = False
     itm_only: bool = False
     liquid_only: bool = True
@@ -360,7 +355,7 @@ class OptionSelectionCriteria:
 class OptionChainManager:
     """
     Manages option chain data and analysis.
-    
+
     Features:
     - Real-time option chain updates
     - Greeks calculation and monitoring
@@ -369,11 +364,11 @@ class OptionChainManager:
     - Put/call ratio tracking
     - Open interest analysis
     """
-    
+
     def __init__(self, ib_client: SpyderClient, event_manager: EventManager):
         """
         Initialize option chain manager.
-        
+
         Args:
             ib_client: Connected SpyderClient instance
             event_manager: Event manager for publishing updates
@@ -382,10 +377,10 @@ class OptionChainManager:
         self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Data storage
-        self.option_chains: Dict[datetime.date, OptionChain] = {}
-        self.active_subscriptions: Dict[int, OptionContract] = {}  # ticker_id -> contract
+        self.option_chains: dict[datetime.date, OptionChain] = {}
+        self.active_subscriptions: dict[int, OptionContract] = {}  # ticker_id -> contract
         self.contract_builder = None  # ContractBuilder removed — IB Gateway deprecated; use Tradier REST API
         if GreeksCalculator is None:
             raise ImportError(
@@ -393,35 +388,35 @@ class OptionChainManager:
             )
         self.greeks_calculator = GreeksCalculator()
         self.trading_calendar = TradingCalendar()
-        
+
         # Configuration
         self.symbol = "SPY"  # Primary symbol
         self.underlying_price = 0.0
         self.strike_range = DEFAULT_STRIKE_COUNT
         self.target_expirations = DEFAULT_DAYS_TO_EXPIRY
-        
+
         # Threading
         self.running = False
-        self.update_thread: Optional[threading.Thread] = None
+        self.update_thread: threading.Thread | None = None
         self._data_lock = threading.RLock()
-        
+
         # Tracking
         self.next_ticker_id = 5000
-        self.request_timestamps: Dict[int, datetime.datetime] = {}
-        
+        self.request_timestamps: dict[int, datetime.datetime] = {}
+
         # Setup callbacks
         self._setup_callbacks()
-        
+
         self.logger.info("Option Chain Manager initialized")
-    
+
     # ==========================================================================
     # PUBLIC INTERFACE
     # ==========================================================================
-    
+
     def start(self) -> bool:
         """
         Start the option chain manager.
-        
+
         Returns:
             True if started successfully
         """
@@ -429,13 +424,13 @@ class OptionChainManager:
             if self.running:
                 self.logger.warning("Option Chain Manager already running")
                 return True
-            
+
             if not self.ib_client.is_connected():
                 self.logger.error("IB client not connected")
                 return False
-            
+
             self.running = True
-            
+
             # Start update thread
             self.update_thread = threading.Thread(
                 target=self._update_loop,
@@ -443,41 +438,41 @@ class OptionChainManager:
                 daemon=True
             )
             self.update_thread.start()
-            
+
             # Initial load
             self._load_initial_chains()
-            
+
             self.logger.info("Option Chain Manager started")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to start Option Chain Manager: {e}")
             return False
-    
+
     def stop(self):
         """Stop the option chain manager"""
         try:
             self.running = False
-            
+
             # Cancel all subscriptions
             self._cancel_all_subscriptions()
-            
+
             # Stop update thread
             if self.update_thread and self.update_thread.is_alive():
                 self.update_thread.join(timeout=5.0)
-            
+
             self.logger.info("Option Chain Manager stopped")
-            
+
         except Exception as e:
             self.logger.error(f"Error stopping Option Chain Manager: {e}")
-    
+
     def load_chain(self, expiry: datetime.date) -> bool:
         """
         Load option chain for specific expiration.
-        
+
         Args:
             expiry: Expiration date
-            
+
         Returns:
             True if load initiated successfully
         """
@@ -491,83 +486,83 @@ class OptionChainManager:
                         underlying_price=self.underlying_price,
                         status=ChainStatus.LOADING
                     )
-            
+
             # Get option contracts from IB
             self._request_option_contracts(expiry)
-            
+
             self.logger.info(f"Loading option chain for {expiry}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error loading chain for {expiry}: {e}")
             return False
-    
-    def get_chain(self, expiry: datetime.date) -> Optional[OptionChain]:
+
+    def get_chain(self, expiry: datetime.date) -> OptionChain | None:
         """Get option chain for expiration"""
         with self._data_lock:
             return self.option_chains.get(expiry)
-    
-    def get_all_chains(self) -> Dict[datetime.date, OptionChain]:
+
+    def get_all_chains(self) -> dict[datetime.date, OptionChain]:
         """Get all option chains"""
         with self._data_lock:
             return self.option_chains.copy()
-    
-    def get_expirations(self) -> List[datetime.date]:
+
+    def get_expirations(self) -> list[datetime.date]:
         """Get loaded expiration dates"""
         with self._data_lock:
             return sorted(self.option_chains.keys())
-    
-    def select_options(self, criteria: OptionSelectionCriteria) -> List[OptionContract]:
+
+    def select_options(self, criteria: OptionSelectionCriteria) -> list[OptionContract]:
         """
         Select options based on criteria.
-        
+
         Args:
             criteria: Selection criteria
-            
+
         Returns:
             List of matching option contracts
         """
         matching_options = []
-        
+
         with self._data_lock:
             for chain in self.option_chains.values():
                 # Check expiry constraints
                 if criteria.min_days_to_expiry is not None:
                     if chain.days_to_expiry < criteria.min_days_to_expiry:
                         continue
-                
+
                 if criteria.max_days_to_expiry is not None:
                     if chain.days_to_expiry > criteria.max_days_to_expiry:
                         continue
-                
+
                 # Check all options in chain
                 all_options = list(chain.calls.values()) + list(chain.puts.values())
-                
+
                 for option in all_options:
                     if self._matches_criteria(option, criteria, chain.underlying_price):
                         matching_options.append(option)
-        
+
         return matching_options
-    
-    def get_liquid_options(self, expiry: Optional[datetime.date] = None) -> List[OptionContract]:
+
+    def get_liquid_options(self, expiry: datetime.date | None = None) -> list[OptionContract]:
         """Get liquid options for expiry or all expirations"""
         liquid_options = []
-        
+
         with self._data_lock:
             chains_to_check = [self.option_chains[expiry]] if expiry and expiry in self.option_chains else self.option_chains.values()
-            
+
             for chain in chains_to_check:
                 liquid_options.extend(chain.get_liquid_options())
-        
+
         return liquid_options
-    
-    def calculate_portfolio_greeks(self, positions: Dict[str, int]) -> Dict[str, float]:
+
+    def calculate_portfolio_greeks(self, positions: dict[str, int]) -> dict[str, float]:
         """
         Calculate portfolio-level Greeks.
-        
+
         Args:
             positions: Dict of option symbol -> quantity
-            
+
         Returns:
             Portfolio Greeks dictionary
         """
@@ -578,15 +573,15 @@ class OptionChainManager:
             'vega': 0.0,
             'rho': 0.0
         }
-        
+
         with self._data_lock:
             for chain in self.option_chains.values():
                 for option in list(chain.calls.values()) + list(chain.puts.values()):
                     option_key = f"{option.symbol}_{option.expiry}_{option.strike}_{option.option_type.value}"
-                    
+
                     if option_key in positions:
                         quantity = positions[option_key]
-                        
+
                         if option.delta is not None:
                             portfolio_greeks['delta'] += option.delta * quantity
                         if option.gamma is not None:
@@ -597,31 +592,31 @@ class OptionChainManager:
                             portfolio_greeks['vega'] += option.vega * quantity
                         if option.rho is not None:
                             portfolio_greeks['rho'] += option.rho * quantity
-        
+
         return portfolio_greeks
-    
+
     def export_chain_data(self, expiry: datetime.date) -> pd.DataFrame:
         """Export chain data to DataFrame"""
         chain = self.get_chain(expiry)
         if chain:
             return chain.to_dataframe()
         return pd.DataFrame()
-    
-    def get_skew_analysis(self, expiry: datetime.date) -> Optional[Dict[str, Any]]:
+
+    def get_skew_analysis(self, expiry: datetime.date) -> dict[str, Any] | None:
         """Get volatility skew analysis for expiration"""
         chain = self.get_chain(expiry)
         if not chain:
             return None
-        
+
         skew_data = chain.get_skew_data()
-        
+
         if not skew_data['strikes']:
             return None
-        
+
         # Calculate skew metrics
         atm_strike = chain.atm_strike
         atm_idx = skew_data['strikes'].index(atm_strike) if atm_strike in skew_data['strikes'] else None
-        
+
         analysis = {
             'expiry': expiry,
             'atm_strike': atm_strike,
@@ -632,94 +627,94 @@ class OptionChainManager:
             'skew_slope': None,
             'put_call_iv_spread': None
         }
-        
+
         if atm_idx is not None and atm_idx < len(skew_data['call_ivs']):
             analysis['atm_iv'] = skew_data['call_ivs'][atm_idx]
-        
+
         # Calculate average skew slope (simplified)
         if len(skew_data['call_ivs']) > 2:
-            iv_changes = [skew_data['call_ivs'][i+1] - skew_data['call_ivs'][i] 
+            iv_changes = [skew_data['call_ivs'][i+1] - skew_data['call_ivs'][i]
                          for i in range(len(skew_data['call_ivs'])-1)]
             analysis['skew_slope'] = np.mean(iv_changes) if iv_changes else None
-        
+
         return analysis
-    
+
     # ==========================================================================
     # PRIVATE METHODS - CORE FUNCTIONALITY
     # ==========================================================================
-    
+
     def _setup_callbacks(self):
         """Setup IB callbacks"""
         self.ib_client.ib.tickPrice = self._on_tick_price
         self.ib_client.ib.tickSize = self._on_tick_size
         self.ib_client.ib.tickOptionComputation = self._on_tick_option_computation
         self.ib_client.ib.error = self._on_error
-    
+
     def _load_initial_chains(self):
         """Load initial option chains"""
         try:
             # Get current SPY price first
             self._update_underlying_price()
-            
+
             # Load chains for target expirations
             expiry_dates = self._get_target_expiry_dates()
-            
+
             for expiry in expiry_dates:
                 self.load_chain(expiry)
                 time.sleep(0.1)  # Small delay between requests
-            
+
         except Exception as e:
             self.logger.error(f"Error loading initial chains: {e}")
-    
-    def _get_target_expiry_dates(self) -> List[datetime.date]:
+
+    def _get_target_expiry_dates(self) -> list[datetime.date]:
         """Get target expiration dates based on DTE preferences"""
         today = datetime.date.today()
         target_dates = []
-        
+
         for dte in self.target_expirations:
             target_date = today + datetime.timedelta(days=dte)
-            
+
             # Find next valid expiry (typically Friday)
             while target_date.weekday() != 4:  # Friday = 4
                 target_date += datetime.timedelta(days=1)
-            
+
             target_dates.append(target_date)
-        
+
         return target_dates
-    
+
     def _request_option_contracts(self, expiry: datetime.date):
         """Request option contracts for expiration"""
         try:
             # Create underlying contract
-            underlying_contract = self.contract_builder.build_stock(self.symbol)
-            
+            self.contract_builder.build_stock(self.symbol)
+
             # Request security definition parameters
             # This is a simplified approach - in practice you'd use reqSecDefOptParams
             self._create_option_contracts_for_expiry(expiry)
-            
+
         except Exception as e:
             self.logger.error(f"Error requesting contracts for {expiry}: {e}")
-    
+
     def _create_option_contracts_for_expiry(self, expiry: datetime.date):
         """Create option contracts around ATM for expiry"""
         try:
             expiry_str = expiry.strftime("%Y%m%d")
             atm_price = self.underlying_price or 500.0  # Default if no underlying price
-            
+
             # Generate strikes around ATM
             strike_interval = 1.0 if atm_price < 100 else 5.0
             strikes = []
-            
+
             for i in range(-self.strike_range // 2, self.strike_range // 2 + 1):
                 strike = round((atm_price + (i * strike_interval)) / strike_interval) * strike_interval
                 if strike > 0:
                     strikes.append(strike)
-            
+
             with self._data_lock:
                 chain = self.option_chains.get(expiry)
                 if not chain:
                     return
-                
+
                 # Create call and put contracts
                 for strike in strikes:
                     # Create call
@@ -729,7 +724,7 @@ class OptionChainManager:
                         strike=strike,
                         option_type=OptionRight.CALL
                     )
-                    
+
                     call_option = OptionContract(
                         symbol=self.symbol,
                         expiry=expiry,
@@ -737,9 +732,9 @@ class OptionChainManager:
                         option_type=OptionType.CALL,
                         ib_contract=call_contract
                     )
-                    
+
                     chain.calls[strike] = call_option
-                    
+
                     # Create put
                     put_contract = self.contract_builder.build_option(
                         symbol=self.symbol,
@@ -747,7 +742,7 @@ class OptionChainManager:
                         strike=strike,
                         option_type=OptionRight.PUT
                     )
-                    
+
                     put_option = OptionContract(
                         symbol=self.symbol,
                         expiry=expiry,
@@ -755,28 +750,28 @@ class OptionChainManager:
                         option_type=OptionType.PUT,
                         ib_contract=put_contract
                     )
-                    
+
                     chain.puts[strike] = put_option
-                
+
                 # Start market data subscriptions
                 self._subscribe_to_chain_data(chain)
-                
+
         except Exception as e:
             self.logger.error(f"Error creating contracts for {expiry}: {e}")
-    
+
     def _subscribe_to_chain_data(self, chain: OptionChain):
         """Subscribe to market data for option chain"""
         try:
             all_options = list(chain.calls.values()) + list(chain.puts.values())
-            
+
             for option in all_options:
                 if option.ib_contract:
                     ticker_id = self._get_next_ticker_id()
                     option.ticker_id = ticker_id
-                    
+
                     # Store subscription
                     self.active_subscriptions[ticker_id] = option
-                    
+
                     # Request market data
                     self.ib_client.ib.reqMktData(
                         ticker_id,
@@ -786,25 +781,25 @@ class OptionChainManager:
                         False,  # Regular snapshot
                         []
                     )
-                    
+
                     time.sleep(0.01)  # Small delay to avoid overwhelming IB
-            
+
             chain.status = ChainStatus.ACTIVE
-            
+
         except Exception as e:
             self.logger.error(f"Error subscribing to chain data: {e}")
             chain.status = ChainStatus.ERROR
-    
+
     def _update_underlying_price(self):
         """Update underlying asset price"""
         try:
             # This would typically request real-time data for SPY
             # For now, we'll use a placeholder
             self.underlying_price = 500.0  # Placeholder
-            
+
         except Exception as e:
             self.logger.error(f"Error updating underlying price: {e}")
-    
+
     def _matches_criteria(self, option: OptionContract, criteria: OptionSelectionCriteria, underlying_price: float) -> bool:
         """Check if option matches selection criteria"""
         # Delta constraints
@@ -812,65 +807,65 @@ class OptionChainManager:
             return False
         if criteria.max_delta is not None and (option.delta is None or option.delta > criteria.max_delta):
             return False
-        
+
         # Gamma constraints
         if criteria.min_gamma is not None and (option.gamma is None or option.gamma < criteria.min_gamma):
             return False
-        
+
         # Theta constraints
         if criteria.min_theta is not None and (option.theta is None or option.theta < criteria.min_theta):
             return False
-        
+
         # Vega constraints
         if criteria.min_vega is not None and (option.vega is None or option.vega < criteria.min_vega):
             return False
-        
+
         # Volume constraints
         if criteria.min_volume is not None and option.volume < criteria.min_volume:
             return False
-        
+
         # Open interest constraints
         if criteria.min_open_interest is not None and option.open_interest < criteria.min_open_interest:
             return False
-        
+
         # Spread constraints
         if criteria.max_spread_percent is not None and option.spread_percent is not None:
             if option.spread_percent > criteria.max_spread_percent:
                 return False
-        
+
         # IV constraints
         if criteria.min_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility < criteria.min_implied_volatility):
             return False
         if criteria.max_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility > criteria.max_implied_volatility):
             return False
-        
+
         # Moneyness constraints
         if criteria.otm_only and not option.is_otm(underlying_price):
             return False
         if criteria.itm_only and not option.is_itm(underlying_price):
             return False
-        
+
         # Liquidity constraints
         if criteria.liquid_only:
-            if (option.volume < MIN_VOLUME_THRESHOLD or 
+            if (option.volume < MIN_VOLUME_THRESHOLD or
                 option.open_interest < MIN_OPEN_INTEREST_THRESHOLD or
                 (option.spread_percent is not None and option.spread_percent > MAX_BID_ASK_SPREAD_PCT)):
                 return False
-        
+
         return True
-    
+
     # ==========================================================================
     # PRIVATE METHODS - CALLBACKS
     # ==========================================================================
-    
+
     def _on_tick_price(self, ticker_id: int, tick_type: int, price: float, attrib):
         """Handle tick price updates"""
         if ticker_id not in self.active_subscriptions:
             return
-        
+
         try:
             option = self.active_subscriptions[ticker_id]
-            
+
             # Map tick types
             if tick_type == 1:  # Bid
                 option.bid = price
@@ -878,42 +873,40 @@ class OptionChainManager:
                 option.ask = price
             elif tick_type == 4:  # Last
                 option.last = price
-            
+
             option.last_update = datetime.datetime.now()
-            
+
         except Exception as e:
             self.logger.error(f"Error processing tick price for {ticker_id}: {e}")
-    
+
     def _on_tick_size(self, ticker_id: int, tick_type: int, size: int):
         """Handle tick size updates"""
         if ticker_id not in self.active_subscriptions:
             return
-        
+
         try:
             option = self.active_subscriptions[ticker_id]
-            
+
             # Map tick types
             if tick_type == 5:  # Last size = volume
                 option.volume = size
-            elif tick_type == 27:  # Call option open interest
+            elif tick_type == 27 or tick_type == 28:  # Call option open interest
                 option.open_interest = size
-            elif tick_type == 28:  # Put option open interest
-                option.open_interest = size
-            
+
         except Exception as e:
             self.logger.error(f"Error processing tick size for {ticker_id}: {e}")
-    
-    def _on_tick_option_computation(self, ticker_id: int, tick_type: int, 
+
+    def _on_tick_option_computation(self, ticker_id: int, tick_type: int,
                                    impl_vol: float, delta: float, opt_price: float,
                                    pv_dividend: float, gamma: float, vega: float,
                                    theta: float, und_price: float):
         """Handle option Greeks updates"""
         if ticker_id not in self.active_subscriptions:
             return
-        
+
         try:
             option = self.active_subscriptions[ticker_id]
-            
+
             # Update Greeks
             if delta != -1.0:
                 option.delta = delta
@@ -925,38 +918,38 @@ class OptionChainManager:
                 option.vega = vega
             if impl_vol != -1.0:
                 option.implied_volatility = impl_vol
-            
+
             # Update intrinsic and time value
             if opt_price != -1.0 and und_price != -1.0:
                 if option.option_type == OptionType.CALL:
                     option.intrinsic_value = max(0, und_price - option.strike)
                 else:
                     option.intrinsic_value = max(0, option.strike - und_price)
-                
+
                 option.time_value = opt_price - option.intrinsic_value
                 option.moneyness = und_price / option.strike
-            
+
             option.last_update = datetime.datetime.now()
-            
+
         except Exception as e:
             self.logger.error(f"Error processing option computation for {ticker_id}: {e}")
-    
+
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
         """Handle IB errors"""
         if req_id in self.active_subscriptions:
             option = self.active_subscriptions[req_id]
             self.logger.error(f"Option data error [{option.symbol} {option.strike} {option.option_type.value}]: {error_code} - {error_string}")
-    
+
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
-    
+
     def _get_next_ticker_id(self) -> int:
         """Get next available ticker ID"""
         ticker_id = self.next_ticker_id
         self.next_ticker_id += 1
         return ticker_id
-    
+
     def _cancel_all_subscriptions(self):
         """Cancel all active market data subscriptions"""
         for ticker_id in list(self.active_subscriptions.keys()):
@@ -964,50 +957,50 @@ class OptionChainManager:
                 self.ib_client.ib.cancelMktData(ticker_id)
             except Exception as e:
                 self.logger.warning(f"Error cancelling subscription {ticker_id}: {e}")
-        
+
         self.active_subscriptions.clear()
-    
+
     def _update_loop(self):
         """Main update loop for chain management"""
         self.logger.info("Option chain update loop started")
-        
+
         while self.running:
             try:
                 # Update underlying price
                 self._update_underlying_price()
-                
+
                 # Check for stale data
                 self._check_stale_data()
-                
+
                 # Publish chain status
                 self._publish_chain_status()
-                
+
                 # Sleep
                 time.sleep(CHAIN_UPDATE_INTERVAL)
-                
+
             except Exception as e:
                 self.logger.error(f"Update loop error: {e}")
                 time.sleep(1.0)
-        
+
         self.logger.info("Option chain update loop stopped")
-    
+
     def _check_stale_data(self):
         """Check for stale option data"""
         current_time = datetime.datetime.now()
         stale_threshold = datetime.timedelta(seconds=STALE_DATA_THRESHOLD)
-        
+
         with self._data_lock:
             for chain in self.option_chains.values():
                 if current_time - chain.last_update > stale_threshold:
                     if chain.status == ChainStatus.ACTIVE:
                         chain.status = ChainStatus.STALE
                         self.logger.warning(f"Chain {chain.expiry} marked as stale")
-    
+
     def _publish_chain_status(self):
         """Publish chain status event"""
         try:
             status_summary = {}
-            
+
             with self._data_lock:
                 for expiry, chain in self.option_chains.items():
                     status_summary[expiry.isoformat()] = {
@@ -1017,7 +1010,7 @@ class OptionChainManager:
                         'last_update': chain.last_update.isoformat(),
                         'dte': chain.days_to_expiry
                     }
-            
+
             event = Event(
                 EventType.MARKET_DATA_OPTION_CHAIN,
                 {
@@ -1027,9 +1020,9 @@ class OptionChainManager:
                     'timestamp': datetime.datetime.now().isoformat()
                 }
             )
-            
+
             self.event_manager.publish(event)
-            
+
         except Exception as e:
             self.logger.error(f"Error publishing chain status: {e}")
 
@@ -1048,35 +1041,34 @@ def create_spy_option_contract(expiry: str, strike: float, option_type: str) -> 
 if __name__ == "__main__":
     # Test option chain manager
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    
+
     # Mock IB client for testing
     class MockIBClient:
         def __init__(self):
             self.callbacks = defaultdict(list)
-        
+
         def register_callback(self, event, callback):
             self.callbacks[event].append(callback)
-        
+
         def reqMktData(self, ticker_id, contract, generic_ticks, snapshot, regulatory_snapshot, mkt_data_options):
-            print(f"Requesting market data for ticker {ticker_id}: {contract.symbol} {getattr(contract, 'strike', 'STK')}")
-        
+            pass
+
         def is_connected(self):
             return True
-    
+
     # Test manager
     event_manager = EventManager()
     mock_client = MockIBClient()
-    
+
     manager = OptionChainManager(mock_client, event_manager)
-    
+
     if manager.start():
-        print("✅ Option Chain Manager test passed")
-        
+
         # Test loading a chain
         expiry = datetime.date.today() + datetime.timedelta(days=30)
         if manager.load_chain(expiry):
-            print(f"✅ Chain loading initiated for {expiry}")
-        
+            pass
+
         # Test selection criteria
         criteria = OptionSelectionCriteria(
             min_delta=0.1,
@@ -1084,10 +1076,9 @@ if __name__ == "__main__":
             min_volume=10,
             liquid_only=True
         )
-        
+
         selected = manager.select_options(criteria)
-        print(f"✅ Selected {len(selected)} options matching criteria")
-        
+
         manager.stop()
     else:
-        print("❌ Option Chain Manager test failed")
+        pass

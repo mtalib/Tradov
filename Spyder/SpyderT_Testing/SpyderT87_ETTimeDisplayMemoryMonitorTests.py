@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -532,7 +531,7 @@ class TestSpyderMemoryMonitorStartMonitoring:
 
 class TestSpyderMemoryMonitorStopMonitoring:
     """Tests for SpyderMemoryMonitor stopping monitoring.
-    
+
     Note: Due to a naming conflict (self.stop_monitoring = threading.Event()
     shadows the stop_monitoring() method), we access the method via the class
     directly: SpyderMemoryMonitor.stop_monitoring(monitor).

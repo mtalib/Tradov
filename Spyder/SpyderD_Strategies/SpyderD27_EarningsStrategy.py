@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -34,26 +33,21 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, Any
 from enum import Enum
 from datetime import datetime, date, timedelta
 from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
-import requests
-from scipy.stats import norm
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
@@ -135,12 +129,12 @@ class EarningsEvent:
     earnings_date: date
     earnings_time: str  # "BMO" (before market open), "AMC" (after market close)
     quarter: str        # e.g., "Q4 2024"
-    eps_estimate: Optional[float] = None
-    eps_actual: Optional[float] = None
-    revenue_estimate: Optional[float] = None
-    revenue_actual: Optional[float] = None
-    surprise_percent: Optional[float] = None
-    price_move_percent: Optional[float] = None
+    eps_estimate: float | None = None
+    eps_actual: float | None = None
+    revenue_estimate: float | None = None
+    revenue_actual: float | None = None
+    surprise_percent: float | None = None
+    price_move_percent: float | None = None
 
     @property
     def is_upcoming(self) -> bool:
@@ -151,12 +145,12 @@ class EarningsEvent:
         return (self.earnings_date - date.today()).days
 
     @property
-    def is_beat(self) -> Optional[bool]:
+    def is_beat(self) -> bool | None:
         if self.eps_actual is None or self.eps_estimate is None:
             return None
         return self.eps_actual > self.eps_estimate
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "earnings_date": self.earnings_date.isoformat(),
@@ -187,10 +181,10 @@ class ExpectedMove:
     confidence_2sd: float  # ~95% probability range
 
     @property
-    def expected_range(self) -> Tuple[float, float]:
+    def expected_range(self) -> tuple[float, float]:
         return (self.lower_expected, self.upper_expected)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -229,7 +223,7 @@ class IVCrushAnalysis:
             self.crush_probability > 0.7
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -254,14 +248,14 @@ class EarningsTradeSetup:
     expected_move: ExpectedMove
     iv_analysis: IVCrushAnalysis
     entry_timing: str
-    strikes: Dict[str, float]
+    strikes: dict[str, float]
     expiry: date
     max_profit: float
     max_loss: float
     probability_of_profit: float
     risk_reward_ratio: float
     rationale: str
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def is_recommended(self) -> bool:
@@ -271,7 +265,7 @@ class EarningsTradeSetup:
             len(self.warnings) == 0
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "strategy": self.strategy.value,
@@ -302,7 +296,7 @@ class HistoricalEarningsPattern:
     negative_surprise_avg_move: float
     consistency_score: float  # How consistent is behavior
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "quarters_analyzed": self.quarters_analyzed,
@@ -364,8 +358,8 @@ class EarningsStrategyHandler:
             self._data_provider = None
 
         # Caches
-        self._earnings_cache: Dict[str, List[EarningsEvent]] = {}
-        self._iv_cache: Dict[str, Tuple[float, datetime]] = {}
+        self._earnings_cache: dict[str, list[EarningsEvent]] = {}
+        self._iv_cache: dict[str, tuple[float, datetime]] = {}
 
         logger.info("EarningsStrategyHandler initialized")
 
@@ -377,7 +371,7 @@ class EarningsStrategyHandler:
         self,
         symbol: str,
         days_ahead: int = 30
-    ) -> List[EarningsEvent]:
+    ) -> list[EarningsEvent]:
         """
         Get upcoming earnings events for a symbol.
 
@@ -405,7 +399,7 @@ class EarningsStrategyHandler:
             logger.error(f"Earnings fetch failed: {e}")
             return []
 
-    def get_next_earnings(self, symbol: str) -> Optional[EarningsEvent]:
+    def get_next_earnings(self, symbol: str) -> EarningsEvent | None:
         """Get next upcoming earnings event."""
         upcoming = self.get_upcoming_earnings(symbol)
         return upcoming[0] if upcoming else None
@@ -430,7 +424,7 @@ class EarningsStrategyHandler:
         self,
         symbol: str,
         days_ahead: int
-    ) -> List[EarningsEvent]:
+    ) -> list[EarningsEvent]:
         """Fetch earnings calendar from API."""
         try:
             # Using a mock/estimated approach; Databento integration pending
@@ -475,7 +469,7 @@ class EarningsStrategyHandler:
     def calculate_expected_move(
         self,
         symbol: str,
-        expiry: Optional[date] = None
+        expiry: date | None = None
     ) -> ExpectedMove:
         """
         Calculate expected move from ATM straddle pricing.
@@ -588,7 +582,7 @@ class EarningsStrategyHandler:
     def analyze_iv_crush(
         self,
         symbol: str,
-        expiry: Optional[date] = None
+        expiry: date | None = None
     ) -> IVCrushAnalysis:
         """
         Analyze expected IV crush after earnings.
@@ -706,7 +700,7 @@ class EarningsStrategyHandler:
         else:
             return 10
 
-    def _get_historical_iv_pattern(self, symbol: str) -> Dict[str, float]:
+    def _get_historical_iv_pattern(self, symbol: str) -> dict[str, float]:
         """Get historical IV pattern around earnings."""
         # Would analyze historical data
         # Return typical patterns
@@ -725,7 +719,7 @@ class EarningsStrategyHandler:
     def get_earnings_trade(
         self,
         symbol: str,
-        strategy: Optional[EarningsStrategy] = None,
+        strategy: EarningsStrategy | None = None,
         bias: EarningsBias = EarningsBias.NEUTRAL
     ) -> EarningsTradeSetup:
         """
@@ -844,7 +838,7 @@ class EarningsStrategyHandler:
         strategy: EarningsStrategy,
         expected_move: ExpectedMove,
         earnings: EarningsEvent
-    ) -> Tuple[Dict[str, float], date]:
+    ) -> tuple[dict[str, float], date]:
         """Generate strike prices for strategy."""
         current = expected_move.current_price
         em = expected_move.expected_move_dollars * EXPECTED_MOVE_BUFFER
@@ -906,9 +900,9 @@ class EarningsStrategyHandler:
     def _calculate_risk_reward(
         self,
         strategy: EarningsStrategy,
-        strikes: Dict[str, float],
+        strikes: dict[str, float],
         expected_move: ExpectedMove
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """Calculate max profit, max loss, and POP."""
         current = expected_move.current_price
         em_pct = expected_move.expected_move_percent / 100
@@ -998,7 +992,7 @@ class EarningsStrategyHandler:
         parts.append(f"IV Percentile: {iv_analysis.iv_percentile:.0f}%")
 
         if iv_analysis.is_favorable_for_selling:
-            parts.append(f"Elevated IV suggests selling premium")
+            parts.append("Elevated IV suggests selling premium")
             parts.append(f"Expected IV crush: {iv_analysis.expected_iv_crush_percent:.0f}%")
 
         if strategy == EarningsStrategy.IRON_CONDOR:
@@ -1012,7 +1006,7 @@ class EarningsStrategyHandler:
         strategy: EarningsStrategy,
         expected_move: ExpectedMove,
         iv_analysis: IVCrushAnalysis
-    ) -> List[str]:
+    ) -> list[str]:
         """Check for trade warnings."""
         warnings = []
 
@@ -1032,7 +1026,7 @@ class EarningsStrategyHandler:
         earnings: EarningsEvent,
         iv_analysis: IVCrushAnalysis,
         pop: float,
-        warnings: List[str]
+        warnings: list[str]
     ) -> TradeAction:
         """Determine trade action."""
         days = earnings.days_until
@@ -1240,50 +1234,27 @@ def create_earnings_handler_from_env() -> 'EarningsStrategyHandler':
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("Earnings Strategy Handler Test")
-    print("=" * 60)
 
     handler = EarningsStrategyHandler()
 
     # Test with a stock that has earnings
     symbol = "AAPL"
 
-    print(f"\n=== {symbol} Earnings Analysis ===")
 
     # Get earnings
     earnings = handler.get_next_earnings(symbol)
     if earnings:
-        print(f"Next Earnings: {earnings.earnings_date} ({earnings.earnings_time})")
-        print(f"Days Until: {earnings.days_until}")
+        pass
     else:
-        print("No upcoming earnings found")
+        pass
 
     # Expected move
-    print("\n=== Expected Move ===")
     em = handler.calculate_expected_move(symbol)
-    print(f"Current Price: ${em.current_price:.2f}")
-    print(f"Expected Move: ±${em.expected_move_dollars:.2f} ({em.expected_move_percent:.1f}%)")
-    print(f"Expected Range: ${em.lower_expected:.2f} - ${em.upper_expected:.2f}")
 
     # IV Crush
-    print("\n=== IV Crush Analysis ===")
     iv = handler.analyze_iv_crush(symbol)
-    print(f"Current IV: {iv.current_iv:.1%}")
-    print(f"IV Percentile: {iv.iv_percentile:.0f}%")
-    print(f"Expected Crush: {iv.expected_iv_crush_percent:.0f}%")
-    print(f"Favorable for Selling: {iv.is_favorable_for_selling}")
 
     # Full trade setup
-    print("\n=== Trade Setup ===")
     setup = handler.get_earnings_trade(symbol)
-    print(f"Strategy: {setup.strategy.value}")
-    print(f"Action: {setup.action.value}")
-    print(f"Strikes: {setup.strikes}")
-    print(f"Expiry: {setup.expiry}")
-    print(f"Max Profit: ${setup.max_profit:.2f}")
-    print(f"Max Loss: ${setup.max_loss:.2f}")
-    print(f"POP: {setup.probability_of_profit:.1%}")
-    print(f"Recommended: {setup.is_recommended}")
-    print(f"\nRationale: {setup.rationale}")
     if setup.warnings:
-        print(f"Warnings: {', '.join(setup.warnings)}")
+        pass

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -30,30 +29,20 @@ Consolidation Notes:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union, Callable
+from datetime import datetime
+from typing import Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 import time
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
 from scipy import stats, optimize
-from scipy.special import gamma as gamma_func
-from scipy.stats import norm, t
-from scipy.optimize import minimize, differential_evolution
 try:
     from numba import jit
 except ImportError:
@@ -61,13 +50,11 @@ except ImportError:
         if callable(args[0]):
             return args[0]
         return lambda f: f
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error
 
 # Industry-standard GARCH / EGARCH / GJR-GARCH / HAR-RV models
 try:
     from arch import arch_model
-    from arch.univariate import GARCH, EGARCH, EWMAVariance, RiskMetrics2006
+    from arch.univariate import GARCH, EGARCH, EWMAVariance, RiskMetrics2006  # noqa: F401
     _ARCH_AVAILABLE = True
 except ImportError:
     _ARCH_AVAILABLE = False
@@ -212,11 +199,11 @@ class VolatilityForecast:
     forecast_horizon: int  # Days
     volatility_forecast: float  # Annualized volatility
     forecast_path: np.ndarray  # Full forecast path
-    confidence_intervals: Tuple[np.ndarray, np.ndarray]  # Lower, upper bounds
+    confidence_intervals: tuple[np.ndarray, np.ndarray]  # Lower, upper bounds
     model_confidence: float  # Model confidence score
-    regime_probability: Dict[VolatilityRegime, float]
-    warnings: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    regime_probability: dict[VolatilityRegime, float]
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -352,7 +339,7 @@ class SpyderVolatilityEngine:
     """
 
     def __init__(
-        self, config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
     ):
         """Initialize consolidated volatility engine."""
         self.config = config or {}
@@ -360,28 +347,28 @@ class SpyderVolatilityEngine:
         self.logger = logging.getLogger(__name__)
 
         # Model parameters (will be calibrated from data)
-        self.heston_params: Optional[HestonParameters] = None
-        self.garch_params: Optional[GARCHParameters] = None
-        self.rough_vol_params: Optional[RoughVolParameters] = None
+        self.heston_params: HestonParameters | None = None
+        self.garch_params: GARCHParameters | None = None
+        self.rough_vol_params: RoughVolParameters | None = None
 
         # Model states
         self.current_volatility: float = 0.0
         self.volatility_regime: VolatilityRegime = VolatilityRegime.NORMAL_VOL
-        self.garch_conditional_variance: Optional[np.ndarray] = None
+        self.garch_conditional_variance: np.ndarray | None = None
 
         # Market data storage
-        self.price_history: List[float] = []
-        self.return_history: List[float] = []
-        self.volatility_history: List[float] = []
-        self.last_data_update: Optional[datetime] = None
+        self.price_history: list[float] = []
+        self.return_history: list[float] = []
+        self.volatility_history: list[float] = []
+        self.last_data_update: datetime | None = None
 
         # Performance tracking
-        self.model_performance: Dict[VolatilityModel, Dict[str, float]] = {}
-        self.forecast_accuracy: Dict[VolatilityModel, List[float]] = {}
+        self.model_performance: dict[VolatilityModel, dict[str, float]] = {}
+        self.forecast_accuracy: dict[VolatilityModel, list[float]] = {}
 
         # Caching for performance
-        self.surface_cache: Dict[str, VolatilitySurface] = {}
-        self.forecast_cache: Dict[str, VolatilityForecast] = {}
+        self.surface_cache: dict[str, VolatilitySurface] = {}
+        self.forecast_cache: dict[str, VolatilityForecast] = {}
         self.cache_expiry_minutes = self.config.get("cache_expiry_minutes", 5)
 
         # Configuration parameters
@@ -392,7 +379,7 @@ class SpyderVolatilityEngine:
         self.calibration_frequency_hours = self.config.get(
             "calibration_frequency_hours", 24
         )
-        self.last_calibration: Optional[datetime] = None
+        self.last_calibration: datetime | None = None
 
         # Initialize model performance tracking
         self._initialize_performance_tracking()
@@ -552,8 +539,8 @@ class SpyderVolatilityEngine:
     async def generate_volatility_surface(
         self,
         spot_price: float,
-        strikes: List[float],
-        maturities: List[float],
+        strikes: list[float],
+        maturities: list[float],
         model: VolatilityModel = VolatilityModel.HESTON,
     ) -> VolatilitySurface:
         """
@@ -718,7 +705,7 @@ class SpyderVolatilityEngine:
 
         return _DEFAULT
 
-    async def _calibrate_egarch(self) -> Optional[dict]:
+    async def _calibrate_egarch(self) -> dict | None:
         """
         Calibrate EGARCH(1,1) model via arch library.
 
@@ -942,7 +929,6 @@ class SpyderVolatilityEngine:
 
         # Simulate Heston paths for forecasting
         dt = 1 / 252  # Daily steps
-        n_sims = 1000
 
         forecast_path = np.zeros(horizon_days)
 
@@ -1056,7 +1042,7 @@ class SpyderVolatilityEngine:
     # ==========================================================================
 
     async def _generate_heston_surface(
-        self, spot_price: float, strikes: List[float], maturities: List[float]
+        self, spot_price: float, strikes: list[float], maturities: list[float]
     ) -> VolatilitySurface:
         """Generate volatility surface using Heston model."""
         if not self.heston_params:
@@ -1069,7 +1055,7 @@ class SpyderVolatilityEngine:
         # Generate implied volatilities using Heston model
         volatilities = np.zeros((len(strikes), len(maturities)))
 
-        for i, strike in enumerate(strikes):
+        for i, _strike in enumerate(strikes):
             for j, maturity in enumerate(maturities):
                 # Use Heston model to generate implied volatility
                 # Simplified approach - would use FFT or analytical approximation in practice
@@ -1092,7 +1078,7 @@ class SpyderVolatilityEngine:
         )
 
     async def _generate_default_surface(
-        self, spot_price: float, strikes: List[float], maturities: List[float]
+        self, spot_price: float, strikes: list[float], maturities: list[float]
     ) -> VolatilitySurface:
         """Generate default volatility surface with smile."""
         strikes_array = np.array(strikes)
@@ -1102,7 +1088,7 @@ class SpyderVolatilityEngine:
         base_volatility = self.current_volatility or 0.20
         volatilities = np.zeros((len(strikes), len(maturities)))
 
-        for i, strike in enumerate(strikes):
+        for i, _strike in enumerate(strikes):
             for j, maturity in enumerate(maturities):
                 # Simple smile model
                 smile_adjustment = self._calculate_smile_adjustment(
@@ -1195,7 +1181,7 @@ class SpyderVolatilityEngine:
 
     def _analyze_volatility_regime(
         self, volatility: float
-    ) -> Dict[VolatilityRegime, float]:
+    ) -> dict[VolatilityRegime, float]:
         """Analyze volatility regime probabilities."""
         # Simplified regime probabilities based on current volatility
         probabilities = {}
@@ -1242,7 +1228,7 @@ class SpyderVolatilityEngine:
     # CACHING METHODS
     # ==========================================================================
 
-    def _get_cached_forecast(self, cache_key: str) -> Optional[VolatilityForecast]:
+    def _get_cached_forecast(self, cache_key: str) -> VolatilityForecast | None:
         """Get cached forecast if still valid."""
         if cache_key not in self.forecast_cache:
             return None
@@ -1269,7 +1255,7 @@ class SpyderVolatilityEngine:
         if len(self.forecast_cache) > 100:
             self._cleanup_forecast_cache()
 
-    def _get_cached_surface(self, cache_key: str) -> Optional[VolatilitySurface]:
+    def _get_cached_surface(self, cache_key: str) -> VolatilitySurface | None:
         """Get cached surface if still valid."""
         if cache_key not in self.surface_cache:
             return None
@@ -1344,7 +1330,7 @@ class SpyderVolatilityEngine:
     # ==========================================================================
 
     async def update_market_data(
-        self, prices: List[float], timestamps: List[datetime] = None
+        self, prices: list[float], timestamps: list[datetime] = None
     ):
         """Update market data for volatility calculations."""
         if not prices:
@@ -1447,7 +1433,7 @@ class SpyderVolatilityEngine:
             arch_lm_stat=0.0,  # Simplified
         )
 
-    def get_engine_status(self) -> Dict[str, Any]:
+    def get_engine_status(self) -> dict[str, Any]:
         """Get comprehensive engine status."""
         return {
             "models_calibrated": {
@@ -1502,7 +1488,7 @@ class SpyderVolatilityEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_volatility_engine(
-    config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
 ) -> SpyderVolatilityEngine:
     """Factory function to create SpyderVolatilityEngine."""
     return SpyderVolatilityEngine(config, data_manager)
@@ -1533,7 +1519,7 @@ async def main():
     logging.info("   • Comprehensive volatility forecasting")
 
     # Generate synthetic market data
-    logging.info(f"\n--- Generating Synthetic Market Data ---")
+    logging.info("\n--- Generating Synthetic Market Data ---")
     np.random.seed(42)
     n_days = 100
     initial_price = 450.0
@@ -1560,7 +1546,7 @@ async def main():
     logging.info(f"   Data quality: {len(vol_engine.return_history)} returns available")
 
     # Test 1: Single Volatility Estimates
-    logging.info(f"\n--- Test 1: Volatility Estimates by Time Horizon ---")
+    logging.info("\n--- Test 1: Volatility Estimates by Time Horizon ---")
     logging.info("Horizon              Auto Model        Volatility")
     logging.info("-" * 55)
 
@@ -1582,7 +1568,7 @@ async def main():
             logging.info(f"{name:<20} ERROR: {str(e)[:20]}")
 
     # Test 2: Volatility Forecasting
-    logging.info(f"\n--- Test 2: Volatility Forecasting ---")
+    logging.info("\n--- Test 2: Volatility Forecasting ---")
     try:
         forecast_days = 30
         forecast = await vol_engine.forecast_volatility(
@@ -1598,7 +1584,7 @@ async def main():
 
         # Show regime probabilities
         if forecast.regime_probability:
-            logging.info(f"   Regime Probabilities:")
+            logging.info("   Regime Probabilities:")
             for regime, prob in forecast.regime_probability.items():
                 logging.info(f"     {regime.value}: {prob:.1%}")
 
@@ -1610,7 +1596,7 @@ async def main():
         logging.info(f"   ❌ Forecast Error: {e}")
 
     # Test 3: Volatility Surface Generation
-    logging.info(f"\n--- Test 3: Volatility Surface Generation ---")
+    logging.info("\n--- Test 3: Volatility Surface Generation ---")
     try:
         current_spot = prices[-1]
         strikes = [current_spot * m for m in [0.90, 0.95, 1.00, 1.05, 1.10]]
@@ -1627,7 +1613,7 @@ async def main():
         logging.info(f"   Surface Quality: {surface.surface_quality:.1%}")
         logging.info(f"   Spot Price: ${surface.spot_price:.2f}")
 
-        logging.info(f"\n   Volatility Surface (Strike vs Maturity):")
+        logging.info("\n   Volatility Surface (Strike vs Maturity):")
         logging.info(f"   {'Strike/Spot':<12}", end="")
         for mat in maturities:
             logging.info(f"{mat*365:>8.0f}d", end="")
@@ -1645,7 +1631,7 @@ async def main():
         logging.info(f"   ❌ Surface Error: {e}")
 
     # Test 4: Model Comparison
-    logging.info(f"\n--- Test 4: Model Performance Comparison ---")
+    logging.info("\n--- Test 4: Model Performance Comparison ---")
     try:
         models_to_test = [
             VolatilityModel.HISTORICAL,
@@ -1685,7 +1671,7 @@ async def main():
         logging.info(f"   ❌ Comparison Error: {e}")
 
     # Test 5: Volatility Metrics Analysis
-    logging.info(f"\n--- Test 5: Volatility Metrics Analysis ---")
+    logging.info("\n--- Test 5: Volatility Metrics Analysis ---")
     try:
         metrics = vol_engine.get_volatility_metrics()
 
@@ -1702,7 +1688,7 @@ async def main():
         logging.info(f"   ❌ Metrics Error: {e}")
 
     # Test 6: Engine Status
-    logging.info(f"\n--- Test 6: Engine Status ---")
+    logging.info("\n--- Test 6: Engine Status ---")
     try:
         status = vol_engine.get_engine_status()
 
@@ -1710,17 +1696,17 @@ async def main():
         for model, calibrated in status["models_calibrated"].items():
             logging.info(f"     {model}: {'✅' if calibrated else '❌'}")
 
-        logging.info(f"\n   Data Status:")
+        logging.info("\n   Data Status:")
         logging.info(f"     Price Points: {status['data_status']['price_points']}")
         logging.info(f"     Return Points: {status['data_status']['return_points']}")
         logging.info(f"     Data Quality: {status['data_status']['data_quality']}")
 
-        logging.info(f"\n   Current State:")
+        logging.info("\n   Current State:")
         logging.info(f"     Volatility: {status['current_state']['volatility']:.1%}")
         logging.info(f"     Regime: {status['current_state']['regime']}")
 
         if status["model_parameters"]["garch"]["persistence"]:
-            logging.info(f"\n   GARCH Parameters:")
+            logging.info("\n   GARCH Parameters:")
             garch = status["model_parameters"]["garch"]
             logging.info(f"     Persistence (α+β): {garch['persistence']:.3f}")
             logging.info(f"     Alpha (ARCH): {garch['alpha']:.4f}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -43,33 +42,22 @@ Removed Functions:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from enum import Enum, auto
-import json
+from enum import Enum
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import threading
-import time
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats, optimize
-from scipy.special import factorial
-from scipy.stats import norm, poisson, multivariate_normal
-from scipy.optimize import minimize, differential_evolution
+from scipy.optimize import minimize
 from numba import jit
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -178,10 +166,10 @@ class CrisisAssessment:
 
     crisis_level: CrisisLevel
     crisis_probability: float
-    stress_indicators: Dict[str, float]
+    stress_indicators: dict[str, float]
     jump_frequency: float
     volatility_regime: str
-    recommendations: List[str]
+    recommendations: list[str]
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -189,14 +177,14 @@ class CrisisAssessment:
 class AdvancedModelResults:
     """Results from advanced modeling analysis"""
 
-    merton_params: Optional[MertonParameters]
+    merton_params: MertonParameters | None
     crisis_assessment: CrisisAssessment
-    recent_jumps: List[JumpEvent]
-    model_performance: Dict[str, float]
-    volatility_forecast: Dict[str, float]
-    strategy_recommendations: List[str]
+    recent_jumps: list[JumpEvent]
+    model_performance: dict[str, float]
+    volatility_forecast: dict[str, float]
+    strategy_recommendations: list[str]
     validation_status: ModelValidationStatus
-    last_calibration: Optional[datetime] = None
+    last_calibration: datetime | None = None
 
 
 # ==============================================================================
@@ -290,7 +278,7 @@ class SpyderAdvancedModelsEngine:
 
     def __init__(
         self,
-        config: Dict[str, Any] = None,
+        config: dict[str, Any] = None,
         data_manager: MultiClientDataManager = None,
         volatility_engine: SpyderVolatilityEngine = None,
     ):
@@ -305,26 +293,26 @@ class SpyderAdvancedModelsEngine:
         self.volatility_engine = volatility_engine
 
         # Model parameters and state
-        self.merton_params: Optional[MertonParameters] = None
+        self.merton_params: MertonParameters | None = None
         self.validation_status = ModelValidationStatus.NOT_CALIBRATED
-        self.last_calibration: Optional[datetime] = None
+        self.last_calibration: datetime | None = None
 
         # Data storage with thread-safe access
         self._data_lock = threading.RLock()
-        self.price_history: List[float] = []
-        self.return_history: List[float] = []
-        self.timestamp_history: List[datetime] = []
+        self.price_history: list[float] = []
+        self.return_history: list[float] = []
+        self.timestamp_history: list[datetime] = []
 
         # Jump detection and tracking
-        self.jump_history: List[JumpEvent] = []
-        self.crisis_history: List[CrisisAssessment] = []
+        self.jump_history: list[JumpEvent] = []
+        self.crisis_history: list[CrisisAssessment] = []
         self.jump_threshold = self.config.get(
             "jump_threshold", JUMP_DETECTION_THRESHOLD
         )
 
         # Performance tracking
-        self.model_performance: Dict[str, float] = {}
-        self.calibration_errors: List[str] = []
+        self.model_performance: dict[str, float] = {}
+        self.calibration_errors: list[str] = []
 
         # Configuration parameters
         self.min_data_points = self.config.get("min_data_points", MIN_DATA_POINTS)
@@ -391,7 +379,7 @@ class SpyderAdvancedModelsEngine:
             return self._create_empty_results(f"Analysis error: {str(e)}")
 
     async def update_market_data(
-        self, prices: List[float], timestamps: List[datetime] = None
+        self, prices: list[float], timestamps: list[datetime] = None
     ):
         """Update market data for analysis"""
         try:
@@ -522,7 +510,7 @@ class SpyderAdvancedModelsEngine:
                 # Calculate model performance
                 await self._calculate_model_performance(returns, dt)
 
-                self.logger.info(f"✅ Merton model calibrated successfully")
+                self.logger.info("✅ Merton model calibrated successfully")
                 self.logger.info(
                     f"   λ={lambda_jump:.3f}, μ_J={mu_jump:.3f}, σ_J={sigma_jump:.3f}"
                 )
@@ -585,7 +573,7 @@ class SpyderAdvancedModelsEngine:
     # JUMP DETECTION AND ANALYSIS
     # ==========================================================================
 
-    async def _detect_new_jumps(self, recent_returns: List[float]):
+    async def _detect_new_jumps(self, recent_returns: list[float]):
         """Detect jumps in recent return data"""
         try:
             if len(recent_returns) < 3:
@@ -638,7 +626,7 @@ class SpyderAdvancedModelsEngine:
         except Exception as e:
             self.logger.error(f"Jump detection failed: {e}")
 
-    async def _analyze_recent_jumps(self) -> List[JumpEvent]:
+    async def _analyze_recent_jumps(self) -> list[JumpEvent]:
         """Analyze recent jump events"""
         try:
             # Return jumps from last 30 days
@@ -754,7 +742,7 @@ class SpyderAdvancedModelsEngine:
             )
 
     def _calculate_crisis_probability(
-        self, stress_indicators: Dict[str, float]
+        self, stress_indicators: dict[str, float]
     ) -> float:
         """Calculate crisis probability based on stress indicators"""
         try:
@@ -795,12 +783,12 @@ class SpyderAdvancedModelsEngine:
             running_max = np.maximum.accumulate(cumulative)
             drawdown = (cumulative - running_max) / running_max
             return np.min(drawdown)
-        except:
+        except Exception:
             return 0.0
 
     def _generate_crisis_recommendations(
-        self, crisis_level: CrisisLevel, stress_indicators: Dict[str, float]
-    ) -> List[str]:
+        self, crisis_level: CrisisLevel, stress_indicators: dict[str, float]
+    ) -> list[str]:
         """Generate strategic recommendations based on crisis level"""
         recommendations = []
 
@@ -856,7 +844,7 @@ class SpyderAdvancedModelsEngine:
     # VOLATILITY FORECASTING
     # ==========================================================================
 
-    async def _forecast_volatility(self) -> Dict[str, float]:
+    async def _forecast_volatility(self) -> dict[str, float]:
         """Forecast volatility using Merton model"""
         try:
             if self.merton_params is None or len(self.return_history) < 30:
@@ -894,7 +882,7 @@ class SpyderAdvancedModelsEngine:
     # STRATEGY RECOMMENDATIONS
     # ==========================================================================
 
-    async def _generate_strategy_recommendations(self) -> List[str]:
+    async def _generate_strategy_recommendations(self) -> list[str]:
         """Generate strategy recommendations based on current model state"""
         recommendations = []
 
@@ -1022,7 +1010,7 @@ class SpyderAdvancedModelsEngine:
             prices = [initial_price]
             timestamps = [datetime.now() - timedelta(days=n_points)]
 
-            for i in range(1, n_points):
+            for _ in range(1, n_points):
                 # Diffusion component
                 dW = np.random.normal(0, np.sqrt(dt))
                 diffusion = (params.mu - 0.5 * params.sigma**2) * dt + params.sigma * dW
@@ -1060,7 +1048,7 @@ class SpyderAdvancedModelsEngine:
     # PUBLIC STATUS AND REPORTING METHODS
     # ==========================================================================
 
-    def get_model_status(self) -> Dict[str, Any]:
+    def get_model_status(self) -> dict[str, Any]:
         """Get comprehensive model status report"""
         try:
             return {
@@ -1138,7 +1126,7 @@ class SpyderAdvancedModelsEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_advanced_models_engine(
-    config: Dict[str, Any] = None,
+    config: dict[str, Any] = None,
     data_manager: MultiClientDataManager = None,
     volatility_engine: SpyderVolatilityEngine = None,
 ) -> SpyderAdvancedModelsEngine:
@@ -1174,7 +1162,7 @@ async def main():
     )
 
     # Generate synthetic market data with jumps
-    logging.info(f"\n--- Generating Synthetic Market Data with Jumps ---")
+    logging.info("\n--- Generating Synthetic Market Data with Jumps ---")
     await advanced_engine.update_market_data([450.0])  # Initialize with starting price
 
     # Force generation of synthetic data for demonstration
@@ -1186,13 +1174,13 @@ async def main():
     )
 
     # Test 1: Merton Model Calibration
-    logging.info(f"\n--- Test 1: Merton Jump-Diffusion Model Calibration ---")
+    logging.info("\n--- Test 1: Merton Jump-Diffusion Model Calibration ---")
     try:
         calibration_success = await advanced_engine.calibrate_merton_model()
 
         if calibration_success and advanced_engine.merton_params:
             params = advanced_engine.merton_params
-            logging.info(f"   ✅ Calibration successful!")
+            logging.info("   ✅ Calibration successful!")
             logging.info(f"   Annual Drift (μ): {params.mu:.3f}")
             logging.info(f"   Annual Volatility (σ): {params.sigma:.3f}")
             logging.info(f"   Jump Intensity (λ): {params.lambda_jump:.3f} jumps/year")
@@ -1203,13 +1191,13 @@ async def main():
             logging.info(f"   Model AIC: {performance.get('aic', 'N/A'):.1f}")
             logging.info(f"   Volatility Error: {performance.get('volatility_error', 0):.1%}")
         else:
-            logging.info(f"   ❌ Calibration failed")
+            logging.info("   ❌ Calibration failed")
 
     except Exception as e:
         logging.info(f"   ❌ Calibration Error: {e}")
 
     # Test 2: Jump Detection
-    logging.info(f"\n--- Test 2: Jump Detection Analysis ---")
+    logging.info("\n--- Test 2: Jump Detection Analysis ---")
     try:
         # Add some artificial jumps to demonstrate detection
         jump_returns = [
@@ -1236,7 +1224,7 @@ async def main():
         logging.info(f"   ❌ Jump Detection Error: {e}")
 
     # Test 3: Crisis Assessment
-    logging.info(f"\n--- Test 3: Crisis Probability Assessment ---")
+    logging.info("\n--- Test 3: Crisis Probability Assessment ---")
     try:
         crisis_assessment = await advanced_engine._assess_crisis_probability()
 
@@ -1246,15 +1234,15 @@ async def main():
         logging.info(f"   Volatility Regime: {crisis_assessment.volatility_regime}")
 
         if crisis_assessment.recommendations:
-            logging.info(f"   Top Recommendations:")
-            for i, rec in enumerate(crisis_assessment.recommendations[:2]):
+            logging.info("   Top Recommendations:")
+            for _, rec in enumerate(crisis_assessment.recommendations[:2]):
                 logging.info(f"     • {rec}")
 
     except Exception as e:
         logging.info(f"   ❌ Crisis Assessment Error: {e}")
 
     # Test 4: Comprehensive Analysis
-    logging.info(f"\n--- Test 4: Comprehensive Market Analysis ---")
+    logging.info("\n--- Test 4: Comprehensive Market Analysis ---")
     try:
         results = await advanced_engine.analyze_market_conditions()
 
@@ -1272,15 +1260,15 @@ async def main():
             logging.info(f"   Volatility Forecast: {vol_forecast:.1%}")
 
         if results.strategy_recommendations:
-            logging.info(f"   Strategy Recommendations:")
-            for i, rec in enumerate(results.strategy_recommendations[:2]):
+            logging.info("   Strategy Recommendations:")
+            for _, rec in enumerate(results.strategy_recommendations[:2]):
                 logging.info(f"     • {rec}")
 
     except Exception as e:
         logging.info(f"   ❌ Analysis Error: {e}")
 
     # Show model status
-    logging.info(f"\n--- Model Status Report ---")
+    logging.info("\n--- Model Status Report ---")
     status = advanced_engine.get_model_status()
 
     if "error" not in status:
@@ -1294,11 +1282,11 @@ async def main():
         )
 
         if status["performance_metrics"].get("calibration_success"):
-            logging.info(f"   Model Performance: ✅ Good")
+            logging.info("   Model Performance: ✅ Good")
         else:
-            logging.info(f"   Model Performance: ⚠️ Needs attention")
+            logging.info("   Model Performance: ⚠️ Needs attention")
 
-    logging.info(f"\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
+    logging.info("\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
     logging.info("   ✅ Regime switching functions removed and consolidated into L09")
     logging.info("   ✅ Focus on Merton Jump-Diffusion and crisis detection")
     logging.info("   ✅ Enhanced jump detection with real-time significance testing")
@@ -1308,7 +1296,7 @@ async def main():
     logging.info("   ✅ Integration-ready with V06 VolatilityEngine")
     logging.info("   ✅ Eliminates regime switching overlap with L09")
 
-    logging.info(f"\n" + "=" * 80)
+    logging.info("\n" + "=" * 80)
     logging.info("✅ V07 ADVANCED MODELS ENGINE UPDATED SUCCESSFULLY!")
     logging.info("❌ Regime switching functions REMOVED")
     logging.info("✅ Enhanced jump-diffusion modeling RETAINED")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,15 +24,14 @@ Change Log:
 # ==============================================================================
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import Enum
+from typing import Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import math
 import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -129,11 +127,11 @@ class OptionStrategy:
 
     name: str
     strategy_type: StrategyType
-    legs: List[OptionLeg]
+    legs: list[OptionLeg]
     underlying_price: float
-    max_profit: Optional[float] = None
-    max_loss: Optional[float] = None
-    breakeven_points: List[float] = field(default_factory=list)
+    max_profit: float | None = None
+    max_loss: float | None = None
+    breakeven_points: list[float] = field(default_factory=list)
 
     @property
     def net_premium(self) -> float:
@@ -159,8 +157,8 @@ class PayoffResult:
     payoffs: np.ndarray
     max_profit: float
     max_loss: float
-    breakeven_points: List[float]
-    profit_probability: Optional[float] = None
+    breakeven_points: list[float]
+    profit_probability: float | None = None
 
 
 # ==============================================================================
@@ -278,7 +276,7 @@ class OptionStrategies:
     def get_payoff_diagram(
         self,
         strategy: OptionStrategy,
-        price_range: Optional[Tuple[float, float]] = None,
+        price_range: tuple[float, float] | None = None,
         num_points: int = 100,
     ) -> PayoffResult:
         """
@@ -457,7 +455,7 @@ class OptionStrategies:
         call_short_strike: float,
         call_long_strike: float,
         expiry: datetime,
-        premiums: List[float],
+        premiums: list[float],
         underlying_price: float,
         quantity: int = 1,
     ) -> OptionStrategy:
@@ -603,7 +601,7 @@ class OptionStrategies:
             self.logger.error(f"Error calculating max loss: {str(e)}")
             return 0.0
 
-    def calculate_breakeven_points(self, strategy: OptionStrategy) -> List[float]:
+    def calculate_breakeven_points(self, strategy: OptionStrategy) -> list[float]:
         """Calculate breakeven points for a strategy"""
         try:
             payoff_result = self.get_payoff_diagram(strategy)
@@ -673,7 +671,7 @@ class OptionStrategies:
     # ==========================================================================
     # PRIVATE HELPER METHODS
     # ==========================================================================
-    def _find_breakeven_points(self, prices: np.ndarray, payoffs: np.ndarray) -> List[float]:
+    def _find_breakeven_points(self, prices: np.ndarray, payoffs: np.ndarray) -> list[float]:
         """Find breakeven points where payoff crosses zero"""
         breakevens = []
 
@@ -733,7 +731,7 @@ class OptionStrategies:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_option_strategies: Optional[OptionStrategies] = None
+_option_strategies: OptionStrategies | None = None
 
 
 def get_option_strategies() -> OptionStrategies:
@@ -782,22 +780,16 @@ def calculate_option_payoff(
 # ==============================================================================
 if __name__ == "__main__":
     # Test option strategies
-    print("Testing Option Strategies...")
 
     strategies = get_option_strategies()
 
     # Test individual option payoff
-    print(f"\n✅ Testing individual option payoff...")
     spot_prices = np.array([450, 455, 460, 465, 470])
     call_payoffs = calculate_option_payoff("CALL", "LONG", 460, 5.0, spot_prices)
     put_payoffs = calculate_option_payoff("PUT", "LONG", 460, 5.0, spot_prices)
 
-    print(f"   Spot prices: {spot_prices}")
-    print(f"   Long 460 Call payoffs: {call_payoffs}")
-    print(f"   Long 460 Put payoffs: {put_payoffs}")
 
     # Test bull call spread
-    print(f"\n✅ Testing bull call spread...")
     expiry = datetime.now() + timedelta(days=30)
     bull_call = strategies.create_bull_call_spread(
         long_strike=450,
@@ -808,21 +800,11 @@ if __name__ == "__main__":
         underlying_price=455,
     )
 
-    print(f"   Strategy: {bull_call.name}")
-    print(f"   Net premium: ${bull_call.net_premium:.2f}")
-    print(f"   Max profit: ${bull_call.max_profit:.2f}")
-    print(f"   Max loss: ${bull_call.max_loss:.2f}")
 
     # Test payoff diagram
-    print(f"\n✅ Testing payoff diagram...")
     payoff_result = strategies.get_payoff_diagram(bull_call)
-    print(
-        f"   Price range: ${payoff_result.spot_prices[0]:.2f} - ${payoff_result.spot_prices[-1]:.2f}"
-    )
-    print(f"   Breakeven points: {payoff_result.breakeven_points}")
 
     # Test iron condor
-    print(f"\n✅ Testing iron condor...")
     iron_condor = strategies.create_iron_condor(
         put_long_strike=440,
         put_short_strike=450,
@@ -833,13 +815,8 @@ if __name__ == "__main__":
         underlying_price=460,
     )
 
-    print(f"   Strategy: {iron_condor.name}")
-    print(f"   Net premium: ${iron_condor.net_premium:.2f}")
-    print(f"   Max profit: ${iron_condor.max_profit:.2f}")
-    print(f"   Max loss: ${iron_condor.max_loss:.2f}")
 
     # Test straddle
-    print(f"\n✅ Testing long straddle...")
     straddle = strategies.create_straddle(
         strike=460,
         expiry=expiry,
@@ -849,15 +826,9 @@ if __name__ == "__main__":
         position_type="LONG",
     )
 
-    print(f"   Strategy: {straddle.name}")
-    print(f"   Net premium: ${straddle.net_premium:.2f}")
-    print(f"   Max loss: ${straddle.max_loss:.2f}")
 
     # Test profit probability
-    print(f"\n✅ Testing profit probability...")
     prob = strategies.calculate_profit_probability(
         bull_call, 0.15, 30
     )  # 15% expected move, 30 days
-    print(f"   Bull call spread profit probability: {prob:.2%}")
 
-    print("\n✅ Option strategies test completed!")

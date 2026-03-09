@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -103,7 +102,7 @@ def test_logging():
     dashboard.show()
 
     # Setup GUI logging
-    handler = setup_gui_logging(dashboard, log_level="INFO")
+    setup_gui_logging(dashboard, log_level="INFO")
     print("✅ GUI logging handler setup complete")
 
     # Create test loggers

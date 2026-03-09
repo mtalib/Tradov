@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -7,8 +6,8 @@ Series: SpyderL_ML
 Module: SpyderL09_UnifiedRegimeEngine.py
 Purpose: Consolidated market regime detection and classification engine
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-09-02 Time: 15:30:00  
+Year Created: 2025
+Last Updated: 2025-09-02 Time: 15:30:00
 
 Module Description:
     Unified market regime detection engine that consolidates regime classification
@@ -40,37 +39,23 @@ Consolidation Benefits:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
-import time
-import asyncio
 import threading
-import logging
-import traceback
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from collections import defaultdict, deque
-import json
-import pickle
 import warnings
-import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from scipy import stats
-from scipy.optimize import minimize
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
-from sklearn.metrics import classification_report, confusion_matrix
-import warnings
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
@@ -78,7 +63,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import *
+# SpyderU07_Constants not used directly in this module
 
 # Integration imports with error handling
 try:
@@ -142,7 +127,7 @@ PRICE_DROP_THRESHOLD = -0.02  # 2% drop threshold
 class MarketRegime(Enum):
     """Unified market regime classifications"""
     BULL_TRENDING = "bull_trending"
-    BEAR_TRENDING = "bear_trending" 
+    BEAR_TRENDING = "bear_trending"
     SIDEWAYS_RANGE = "sideways_range"
     HIGH_VOLATILITY = "high_volatility"
     LOW_VOLATILITY = "low_volatility"
@@ -205,8 +190,8 @@ class RegimeDetectionResult:
     confidence: float
     source: RegimeSource
     timestamp: datetime
-    features: Dict[str, float] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    features: dict[str, float] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class RegimeConsensus:
@@ -216,14 +201,14 @@ class RegimeConsensus:
     consensus_score: float
     transition_state: RegimeTransition
     timestamp: datetime
-    contributing_sources: List[RegimeSource]
-    source_weights: Dict[RegimeSource, float]
-    individual_results: List[RegimeDetectionResult]
+    contributing_sources: list[RegimeSource]
+    source_weights: dict[RegimeSource, float]
+    individual_results: list[RegimeDetectionResult]
     regime_duration: timedelta
-    previous_regime: Optional[MarketRegime] = None
+    previous_regime: MarketRegime | None = None
     stability_score: float = 0.0
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
             'regime': self.regime.value,
@@ -286,7 +271,7 @@ class OptionsSignal:
     stop_loss_pct: float = 0.50  # Stop loss as % of premium
     reason: str = ""  # Human-readable reasoning
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             'action': self.action.value,
             'regime': self.regime.value,
@@ -308,7 +293,7 @@ class RollingWindowConfig:
     window_days: int = ROLLING_WINDOW_DAYS
     min_samples: int = MIN_ROLLING_SAMPLES
     retrain_on_change: bool = RETRAIN_ON_REGIME_CHANGE
-    last_retrain: Optional[datetime] = None
+    last_retrain: datetime | None = None
     samples_since_retrain: int = 0
     performance_degradation_threshold: float = 0.15  # Trigger retrain if accuracy drops
 
@@ -317,18 +302,18 @@ class RollingWindowConfig:
 # ==============================================================================
 class MLRegimeClassifier:
     """ML-based regime classification (consolidated from original L09)"""
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         """Initialize ML regime classifier"""
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.MLClassifier")
-        
+
         # Models
-        self.ensemble_model: Optional[VotingClassifier] = None
+        self.ensemble_model: VotingClassifier | None = None
         self.feature_scaler = StandardScaler()
         self.is_trained = False
         self.last_training = None
-        
+
         # Feature engineering
         self.feature_columns = [
             'spy_change_1d', 'spy_change_5d', 'spy_change_20d',
@@ -337,39 +322,39 @@ class MLRegimeClassifier:
             'rsi_14', 'macd_signal', 'bb_position',
             'momentum_10d', 'trend_strength'
         ]
-        
+
         # Performance tracking
         self.prediction_history = deque(maxlen=1000)
         self.accuracy_history = deque(maxlen=100)
-        
-    def train(self, market_data: pd.DataFrame, regime_labels: pd.Series) -> Dict[str, float]:
+
+    def train(self, market_data: pd.DataFrame, regime_labels: pd.Series) -> dict[str, float]:
         """Train ensemble ML model for regime classification"""
         try:
             self.logger.info("Training ML regime classification models...")
-            
+
             # Feature engineering
             features = self._engineer_features(market_data)
-            
+
             if len(features) < 100:
                 raise ValueError(f"Insufficient data for training: {len(features)} samples")
-            
+
             # Align features with labels
             common_index = features.index.intersection(regime_labels.index)
             X = features.loc[common_index]
             y = regime_labels.loc[common_index]
-            
+
             # Scale features
             X_scaled = self.feature_scaler.fit_transform(X)
-            
+
             # Create ensemble model
             self.ensemble_model = VotingClassifier([
                 ('rf', RandomForestClassifier(n_estimators=100, random_state=42)),
                 ('svm', SVC(probability=True, random_state=42)),
             ], voting='soft')
-            
+
             # Train model
             self.ensemble_model.fit(X_scaled, y)
-            
+
             # Evaluate performance
             cv_scores = cross_val_score(self.ensemble_model, X_scaled, y, cv=5)
             performance = {
@@ -377,17 +362,17 @@ class MLRegimeClassifier:
                 'cv_std': cv_scores.std(),
                 'training_samples': len(X)
             }
-            
+
             self.is_trained = True
             self.last_training = datetime.now()
-            
+
             self.logger.info(f"ML model trained successfully: CV Score = {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
             return performance
-            
+
         except Exception as e:
             self.logger.error(f"ML model training failed: {e}")
             return {'error': str(e)}
-    
+
     def predict(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
         """Predict market regime using ML model"""
         try:
@@ -398,31 +383,31 @@ class MLRegimeClassifier:
                     source=RegimeSource.ML_CLASSIFIER,
                     timestamp=market_conditions.timestamp
                 )
-            
+
             # Create feature vector
             features = self._create_feature_vector(market_conditions)
             features_scaled = self.feature_scaler.transform([features])
-            
+
             # Make prediction
             probabilities = self.ensemble_model.predict_proba(features_scaled)[0]
             predicted_class = self.ensemble_model.predict(features_scaled)[0]
             confidence = max(probabilities)
-            
+
             # Convert to MarketRegime enum
             regime = MarketRegime(predicted_class) if predicted_class in [r.value for r in MarketRegime] else MarketRegime.UNKNOWN
-            
+
             result = RegimeDetectionResult(
                 regime=regime,
                 confidence=confidence,
                 source=RegimeSource.ML_CLASSIFIER,
                 timestamp=market_conditions.timestamp,
                 features={'ml_confidence': confidence, 'feature_count': len(features)},
-                metadata={'probabilities': dict(zip(self.ensemble_model.classes_, probabilities))}
+                metadata={'probabilities': dict(zip(self.ensemble_model.classes_, probabilities, strict=False))}
             )
-            
+
             self.prediction_history.append(result)
             return result
-            
+
         except Exception as e:
             self.logger.error(f"ML regime prediction failed: {e}")
             return RegimeDetectionResult(
@@ -431,24 +416,24 @@ class MLRegimeClassifier:
                 source=RegimeSource.ML_CLASSIFIER,
                 timestamp=market_conditions.timestamp
             )
-    
+
     def _engineer_features(self, market_data: pd.DataFrame) -> pd.DataFrame:
         """Engineer features for ML training"""
         features = pd.DataFrame(index=market_data.index)
-        
+
         # Price changes
         features['spy_change_1d'] = market_data['close'].pct_change(1)
         features['spy_change_5d'] = market_data['close'].pct_change(5)
         features['spy_change_20d'] = market_data['close'].pct_change(20)
-        
+
         # Volatility features
         features['volatility_1d'] = market_data['close'].rolling(5).std()
         features['volatility_5d'] = market_data['close'].rolling(20).std()
         features['volatility_20d'] = market_data['close'].rolling(60).std()
-        
+
         # Volume features
         features['volume_ratio'] = market_data['volume'] / market_data['volume'].rolling(20).mean()
-        
+
         # VIX features (if available)
         if 'vix' in market_data.columns:
             features['vix_level'] = market_data['vix']
@@ -457,16 +442,16 @@ class MLRegimeClassifier:
             # Estimate VIX from price volatility
             features['vix_level'] = features['volatility_1d'] * 100
             features['vix_change'] = features['vix_level'].pct_change(1)
-        
+
         # Technical indicators
         features['rsi_14'] = self._calculate_rsi(market_data['close'], 14)
         features['macd_signal'] = self._calculate_macd(market_data['close'])
         features['bb_position'] = self._calculate_bb_position(market_data['close'])
         features['momentum_10d'] = market_data['close'].pct_change(10)
         features['trend_strength'] = self._calculate_trend_strength(market_data['close'])
-        
+
         return features.dropna()
-    
+
     def _create_feature_vector(self, conditions: MarketConditions) -> np.ndarray:
         """Create feature vector from market conditions"""
         # This would normally use historical data to calculate technical indicators
@@ -487,7 +472,7 @@ class MLRegimeClassifier:
             0.0,  # momentum_10d (neutral assumption)
             conditions.trend_strength
         ])
-    
+
     def _calculate_rsi(self, prices: pd.Series, window: int = 14) -> pd.Series:
         """Calculate RSI indicator"""
         delta = prices.diff()
@@ -495,7 +480,7 @@ class MLRegimeClassifier:
         loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
         rs = gain / loss
         return 100 - (100 / (1 + rs))
-    
+
     def _calculate_macd(self, prices: pd.Series) -> pd.Series:
         """Calculate MACD signal"""
         exp1 = prices.ewm(span=12).mean()
@@ -503,7 +488,7 @@ class MLRegimeClassifier:
         macd = exp1 - exp2
         signal = macd.ewm(span=9).mean()
         return macd - signal
-    
+
     def _calculate_bb_position(self, prices: pd.Series, window: int = 20) -> pd.Series:
         """Calculate Bollinger Band position (0-1)"""
         rolling_mean = prices.rolling(window=window).mean()
@@ -511,7 +496,7 @@ class MLRegimeClassifier:
         upper = rolling_mean + (2 * rolling_std)
         lower = rolling_mean - (2 * rolling_std)
         return (prices - lower) / (upper - lower)
-    
+
     def _calculate_trend_strength(self, prices: pd.Series, window: int = 20) -> pd.Series:
         """Calculate trend strength (-1 to 1)"""
         returns = prices.pct_change()
@@ -524,12 +509,12 @@ class MLRegimeClassifier:
 # ==============================================================================
 class SignalRegimeDetector:
     """Signal-based regime detection using S07 Custom Metrics"""
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         """Initialize signal-based regime detector"""
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.SignalDetector")
-        
+
         # Get reference to metrics orchestrator
         self.metrics_orchestrator = None
         if SIGNALS_AVAILABLE:
@@ -538,7 +523,7 @@ class SignalRegimeDetector:
                 self.logger.info("Connected to CustomMetricsOrchestrator")
             except Exception as e:
                 self.logger.warning(f"Could not connect to MetricsOrchestrator: {e}")
-        
+
         # Regime thresholds (calibrated for SPY options trading)
         self.thresholds = {
             'vix_high': 25.0,
@@ -552,16 +537,16 @@ class SignalRegimeDetector:
             'skew_high': 120.0,
             'skew_low': 90.0
         }
-    
+
     def detect_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
         """Detect regime based on signal analysis"""
         try:
             # Get current signal values
             signals = self._get_current_signals(market_conditions)
-            
+
             # Apply regime detection logic
             regime, confidence = self._analyze_signals(signals)
-            
+
             return RegimeDetectionResult(
                 regime=regime,
                 confidence=confidence,
@@ -570,7 +555,7 @@ class SignalRegimeDetector:
                 features=signals,
                 metadata={'thresholds_used': self.thresholds}
             )
-            
+
         except Exception as e:
             self.logger.error(f"Signal regime detection failed: {e}")
             return RegimeDetectionResult(
@@ -579,8 +564,8 @@ class SignalRegimeDetector:
                 source=RegimeSource.SIGNAL_ANALYSIS,
                 timestamp=market_conditions.timestamp
             )
-    
-    def _get_current_signals(self, conditions: MarketConditions) -> Dict[str, float]:
+
+    def _get_current_signals(self, conditions: MarketConditions) -> dict[str, float]:
         """Get current signal values"""
         signals = {
             'vix': conditions.vix_level,
@@ -591,7 +576,7 @@ class SignalRegimeDetector:
             'volume_ratio': conditions.volume_ratio,
             'price_change': conditions.spy_change_pct
         }
-        
+
         # Try to get real-time values from orchestrator
         if self.metrics_orchestrator:
             try:
@@ -604,33 +589,33 @@ class SignalRegimeDetector:
                 })
             except Exception as e:
                 self.logger.warning(f"Could not get real-time signals: {e}")
-        
+
         return signals
-    
-    def _analyze_signals(self, signals: Dict[str, float]) -> Tuple[MarketRegime, float]:
+
+    def _analyze_signals(self, signals: dict[str, float]) -> tuple[MarketRegime, float]:
         """Analyze signals to determine regime"""
         vix = signals['vix']
         dix = signals['dix']
         gex = signals['gex']
         swan = signals['swan']
-        skew = signals['skew']
-        volume_ratio = signals['volume_ratio']
+        signals['skew']
+        signals['volume_ratio']
         price_change = signals['price_change']
-        
+
         regime_scores = defaultdict(float)
-        
+
         # Crisis detection (highest priority)
         if swan >= self.thresholds['swan_crisis'] or vix > 40:
             regime_scores[MarketRegime.CRISIS_MODE] += 3.0
         elif swan >= self.thresholds['swan_elevated'] or vix > self.thresholds['vix_high']:
             regime_scores[MarketRegime.HIGH_VOLATILITY] += 2.0
-        
+
         # Volatility regime analysis
         if vix < self.thresholds['vix_low']:
             regime_scores[MarketRegime.LOW_VOLATILITY] += 1.5
         elif vix > self.thresholds['vix_high']:
             regime_scores[MarketRegime.HIGH_VOLATILITY] += 1.5
-        
+
         # Trend analysis using DIX and price action
         if dix > self.thresholds['dix_bullish'] and price_change > 0:
             regime_scores[MarketRegime.BULL_TRENDING] += 1.0
@@ -638,18 +623,18 @@ class SignalRegimeDetector:
             regime_scores[MarketRegime.BEAR_TRENDING] += 1.0
         else:
             regime_scores[MarketRegime.SIDEWAYS_RANGE] += 0.5
-        
+
         # GEX influence
         if abs(gex) > self.thresholds['gex_high_volatility']:
             if gex > 0:
                 regime_scores[MarketRegime.LOW_VOLATILITY] += 0.5
             else:
                 regime_scores[MarketRegime.HIGH_VOLATILITY] += 0.5
-        
+
         # Recovery mode detection
         if vix > 20 and dix > 45 and price_change > 0.01:
             regime_scores[MarketRegime.RECOVERY_MODE] += 1.0
-        
+
         # Determine best regime
         if regime_scores:
             best_regime = max(regime_scores.keys(), key=lambda k: regime_scores[k])
@@ -671,7 +656,7 @@ class CompositeStateDetector:
     (Price Down, VIX Flat)."
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.CompositeState")
 
@@ -740,7 +725,7 @@ class SimpleMarkovTrader:
     calculation as described in Markov-Chains-Code.md.
     """
 
-    def __init__(self, states: int = 3, bins: List[float] = None):
+    def __init__(self, states: int = 3, bins: list[float] = None):
         """
         Initialize Simple Markov Trader.
 
@@ -751,7 +736,7 @@ class SimpleMarkovTrader:
         """
         self.states = states
         self.bins = bins or [-np.inf, -0.005, 0.005, np.inf]
-        self.transition_matrix: Optional[np.ndarray] = None
+        self.transition_matrix: np.ndarray | None = None
         self.state_labels = ['Bearish', 'Neutral', 'Bullish']
         self.logger = SpyderLogger.get_logger(f"{__name__}.SimpleMarkov")
 
@@ -819,7 +804,7 @@ class SimpleMarkovTrader:
         state = np.digitize(current_return, self.bins[1:-1])  # Exclude inf bounds
         return max(0, min(state, self.states - 1))
 
-    def predict(self, current_price: float, prev_price: float) -> Dict[str, Any]:
+    def predict(self, current_price: float, prev_price: float) -> dict[str, Any]:
         """
         Predict next state and generate trading signal.
 
@@ -885,12 +870,9 @@ class SimpleMarkovTrader:
             return True
 
         # Check samples since retrain
-        if self.rolling_config.samples_since_retrain > ROLLING_WINDOW_DAYS:
-            return True
+        return self.rolling_config.samples_since_retrain > ROLLING_WINDOW_DAYS
 
-        return False
-
-    def get_transition_matrix(self) -> Optional[np.ndarray]:
+    def get_transition_matrix(self) -> np.ndarray | None:
         """Get the current transition matrix"""
         return self.transition_matrix
 
@@ -908,7 +890,7 @@ class GreeksAwareSignalGenerator:
     option due to time decay."
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.GreeksSignal")
 
@@ -985,7 +967,7 @@ class GreeksAwareSignalGenerator:
 
     def _determine_action(self, regime: MarketRegime,
                          composite: CompositeMarketState,
-                         confidence: float) -> Tuple[OptionsAction, str]:
+                         confidence: float) -> tuple[OptionsAction, str]:
         """Determine base options action from regime and composite state"""
 
         # Low confidence = no edge
@@ -1039,7 +1021,7 @@ class GreeksAwareSignalGenerator:
 
     def _adjust_for_greeks(self, action: OptionsAction, reason: str,
                           theta_warning: bool, iv: float,
-                          composite: CompositeMarketState) -> Tuple[OptionsAction, str]:
+                          composite: CompositeMarketState) -> tuple[OptionsAction, str]:
         """Adjust action based on Greeks considerations"""
 
         # If theta warning and buying options, suggest spreads instead
@@ -1109,17 +1091,17 @@ class GreeksAwareSignalGenerator:
 class UnifiedRegimeEngine:
     """
     Unified regime detection engine coordinating all sources.
-    
+
     This engine consolidates regime detection from:
     - ML Classifier (L09 functionality)
     - Signal Analysis (S07 integration)
-    - Quantitative Models (V07 integration)  
+    - Quantitative Models (V07 integration)
     - Attribution Analysis (F15 integration)
-    
+
     Provides weighted consensus with confidence scoring and stability analysis.
     """
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         """Initialize unified regime engine"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
@@ -1157,10 +1139,10 @@ class UnifiedRegimeEngine:
                 self.logger.warning(f"Could not integrate F15: {e}")
 
         # State management
-        self.current_regime: Optional[MarketRegime] = None
+        self.current_regime: MarketRegime | None = None
         self.current_confidence: float = 0.0
-        self.current_composite_state: Optional[CompositeMarketState] = None
-        self.regime_start_time: Optional[datetime] = None
+        self.current_composite_state: CompositeMarketState | None = None
+        self.regime_start_time: datetime | None = None
         self.regime_history: deque = deque(maxlen=1000)
 
         # Source weights (can be dynamically adjusted)
@@ -1172,13 +1154,13 @@ class UnifiedRegimeEngine:
         }
 
         # Performance tracking
-        self.performance_metrics: Dict[MarketRegime, RegimePerformanceMetrics] = {}
+        self.performance_metrics: dict[MarketRegime, RegimePerformanceMetrics] = {}
         self.consensus_history: deque = deque(maxlen=500)
         self.transition_count = 0
         self.accuracy_scores: deque = deque(maxlen=100)
 
         # Threading for async operations
-        self.update_thread: Optional[threading.Thread] = None
+        self.update_thread: threading.Thread | None = None
         self.is_running = False
         self._lock = threading.RLock()
 
@@ -1189,7 +1171,7 @@ class UnifiedRegimeEngine:
         self.logger.info("  ✅ Composite State Detector (VIX+Price)")
         self.logger.info("  ✅ Simple Markov Trader (rolling window)")
         self.logger.info("  ✅ Greeks-Aware Signal Generator")
-    
+
     def _initialize_performance_tracking(self):
         """Initialize performance tracking for all regimes"""
         for regime in MarketRegime:
@@ -1202,17 +1184,17 @@ class UnifiedRegimeEngine:
                 avg_confidence=0.0,
                 sample_count=0
             )
-    
+
     # ==========================================================================
     # PUBLIC METHODS - CORE FUNCTIONALITY
     # ==========================================================================
     def get_current_regime(self, market_conditions: MarketConditions) -> RegimeConsensus:
         """
         Get current market regime with consensus analysis.
-        
+
         Args:
             market_conditions: Current market conditions
-            
+
         Returns:
             RegimeConsensus with unified regime assessment
         """
@@ -1220,15 +1202,15 @@ class UnifiedRegimeEngine:
             with self._lock:
                 # Get individual regime detections
                 individual_results = []
-                
+
                 # ML Classification
                 ml_result = self.ml_classifier.predict(market_conditions)
                 individual_results.append(ml_result)
-                
+
                 # Signal Analysis
                 signal_result = self.signal_detector.detect_regime(market_conditions)
                 individual_results.append(signal_result)
-                
+
                 # Quantitative Analysis (if available)
                 if self.quant_engine:
                     try:
@@ -1236,7 +1218,7 @@ class UnifiedRegimeEngine:
                         individual_results.append(quant_result)
                     except Exception as e:
                         self.logger.warning(f"Quantitative regime detection failed: {e}")
-                
+
                 # Attribution Analysis (if available)
                 if self.attribution_engine:
                     try:
@@ -1244,22 +1226,22 @@ class UnifiedRegimeEngine:
                         individual_results.append(attr_result)
                     except Exception as e:
                         self.logger.warning(f"Attribution regime detection failed: {e}")
-                
+
                 # Calculate weighted consensus
                 consensus = self._calculate_consensus(individual_results, market_conditions.timestamp)
-                
+
                 # Update internal state
                 self._update_regime_state(consensus)
-                
+
                 # Store in history
                 self.consensus_history.append(consensus)
-                
+
                 return consensus
-                
+
         except Exception as e:
             self.logger.error(f"Regime consensus calculation failed: {e}")
             self.error_handler.handle_error(e, {"method": "get_current_regime"})
-            
+
             # Return safe default
             return RegimeConsensus(
                 regime=MarketRegime.UNKNOWN,
@@ -1272,55 +1254,55 @@ class UnifiedRegimeEngine:
                 individual_results=[],
                 regime_duration=timedelta(0)
             )
-    
-    def _calculate_consensus(self, individual_results: List[RegimeDetectionResult], 
+
+    def _calculate_consensus(self, individual_results: list[RegimeDetectionResult],
                            timestamp: datetime) -> RegimeConsensus:
         """Calculate weighted consensus from individual regime detections"""
-        
+
         if not individual_results:
             return self._create_unknown_consensus(timestamp)
-        
+
         # Calculate weighted votes for each regime
         regime_votes = defaultdict(float)
         total_weight = 0.0
         contributing_sources = []
         source_weights = {}
-        
+
         for result in individual_results:
             weight = self.source_weights.get(result.source, 0.1)
             # Adjust weight by confidence
             adjusted_weight = weight * result.confidence
-            
+
             regime_votes[result.regime] += adjusted_weight
             total_weight += adjusted_weight
             contributing_sources.append(result.source)
             source_weights[result.source] = adjusted_weight
-        
+
         if total_weight == 0:
             return self._create_unknown_consensus(timestamp)
-        
+
         # Find consensus regime
         consensus_regime = max(regime_votes.keys(), key=lambda k: regime_votes[k])
         consensus_score = regime_votes[consensus_regime] / total_weight
-        
+
         # Calculate overall confidence
         relevant_results = [r for r in individual_results if r.regime == consensus_regime]
         if relevant_results:
-            confidence = sum(r.confidence * self.source_weights.get(r.source, 0.1) 
-                           for r in relevant_results) / sum(self.source_weights.get(r.source, 0.1) 
+            confidence = sum(r.confidence * self.source_weights.get(r.source, 0.1)
+                           for r in relevant_results) / sum(self.source_weights.get(r.source, 0.1)
                            for r in relevant_results)
         else:
             confidence = 0.0
-        
+
         # Determine transition state
         transition_state = self._determine_transition_state(consensus_regime, timestamp)
-        
+
         # Calculate regime duration
         regime_duration = self._calculate_regime_duration(consensus_regime, timestamp)
-        
+
         # Calculate stability score
         stability_score = self._calculate_stability_score(individual_results, consensus_regime)
-        
+
         return RegimeConsensus(
             regime=consensus_regime,
             confidence=confidence,
@@ -1334,67 +1316,67 @@ class UnifiedRegimeEngine:
             previous_regime=self.current_regime,
             stability_score=stability_score
         )
-    
-    def _determine_transition_state(self, new_regime: MarketRegime, 
+
+    def _determine_transition_state(self, new_regime: MarketRegime,
                                   timestamp: datetime) -> RegimeTransition:
         """Determine if regime is in transition"""
-        
+
         if self.current_regime is None:
             return RegimeTransition.JUST_CHANGED
-        
+
         if new_regime != self.current_regime:
             # Check if enough time has passed for stable regime
             if self.regime_start_time:
                 duration = timestamp - self.regime_start_time
                 if duration.total_seconds() < MIN_REGIME_DURATION:
                     return RegimeTransition.TRANSITIONING
-            
+
             return RegimeTransition.JUST_CHANGED
-        
+
         # Check for regime stability
         if len(self.consensus_history) >= 5:
             recent_regimes = [c.regime for c in list(self.consensus_history)[-5:]]
             if len(set(recent_regimes)) > 2:
                 return RegimeTransition.TRANSITIONING
-        
+
         return RegimeTransition.STABLE
-    
+
     def _calculate_regime_duration(self, regime: MarketRegime, timestamp: datetime) -> timedelta:
         """Calculate how long current regime has been active"""
         if self.current_regime == regime and self.regime_start_time:
             return timestamp - self.regime_start_time
         return timedelta(0)
-    
-    def _calculate_stability_score(self, results: List[RegimeDetectionResult], 
+
+    def _calculate_stability_score(self, results: list[RegimeDetectionResult],
                                  consensus_regime: MarketRegime) -> float:
         """Calculate stability score based on agreement between sources"""
         if not results:
             return 0.0
-        
+
         agreement_count = sum(1 for r in results if r.regime == consensus_regime)
         return agreement_count / len(results)
-    
+
     def _update_regime_state(self, consensus: RegimeConsensus):
         """Update internal regime state"""
-        
+
         # Check for regime change
         if consensus.regime != self.current_regime:
             if consensus.transition_state == RegimeTransition.JUST_CHANGED:
                 self.logger.info(f"Regime change detected: {self.current_regime} -> {consensus.regime} "
                                f"(confidence: {consensus.confidence:.2%})")
-                
+
                 # Update state
                 self.current_regime = consensus.regime
                 self.current_confidence = consensus.confidence
                 self.regime_start_time = consensus.timestamp
                 self.transition_count += 1
-                
+
                 # Emit regime change event (would integrate with event system)
                 self._emit_regime_change_event(consensus)
         else:
             # Update confidence even if regime unchanged
             self.current_confidence = consensus.confidence
-    
+
     def _emit_regime_change_event(self, consensus: RegimeConsensus):
         """Emit regime change event for other systems"""
         # This would integrate with the event manager system
@@ -1406,9 +1388,9 @@ class UnifiedRegimeEngine:
             'consensus_score': consensus.consensus_score,
             'timestamp': consensus.timestamp.isoformat()
         }
-        
+
         self.logger.info(f"Regime change event: {event_data}")
-    
+
     def _get_quantitative_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
         """Get regime from quantitative models (V07 integration)"""
         # This would integrate with V07 Advanced Models
@@ -1420,7 +1402,7 @@ class UnifiedRegimeEngine:
             timestamp=market_conditions.timestamp,
             features={'quantitative_score': 0.6}
         )
-    
+
     def _get_attribution_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
         """Get regime from attribution analysis (F15 integration)"""
         # This would integrate with F15 Performance Attribution
@@ -1432,7 +1414,7 @@ class UnifiedRegimeEngine:
             timestamp=market_conditions.timestamp,
             features={'attribution_score': 0.5}
         )
-    
+
     def _create_unknown_consensus(self, timestamp: datetime) -> RegimeConsensus:
         """Create unknown regime consensus"""
         return RegimeConsensus(
@@ -1446,68 +1428,68 @@ class UnifiedRegimeEngine:
             individual_results=[],
             regime_duration=timedelta(0)
         )
-    
+
     # ==========================================================================
     # PUBLIC METHODS - TRAINING AND CALIBRATION
     # ==========================================================================
-    def train_models(self, historical_data: pd.DataFrame, 
-                    regime_labels: Optional[pd.Series] = None) -> Dict[str, Any]:
+    def train_models(self, historical_data: pd.DataFrame,
+                    regime_labels: pd.Series | None = None) -> dict[str, Any]:
         """
         Train all regime detection models.
-        
+
         Args:
             historical_data: Historical market data
             regime_labels: Optional pre-labeled regime data
-            
+
         Returns:
             Training performance metrics
         """
         try:
             self.logger.info("Training regime detection models...")
-            
+
             if regime_labels is None:
                 # Generate regime labels using rule-based approach
                 regime_labels = self._generate_training_labels(historical_data)
-            
+
             # Train ML classifier
             ml_performance = self.ml_classifier.train(historical_data, regime_labels)
-            
+
             # Update source weights based on performance
             self._update_source_weights(ml_performance)
-            
+
             return {
                 'ml_performance': ml_performance,
                 'training_samples': len(historical_data),
                 'regime_distribution': regime_labels.value_counts().to_dict(),
                 'source_weights': self.source_weights
             }
-            
+
         except Exception as e:
             self.logger.error(f"Model training failed: {e}")
             return {'error': str(e)}
-    
+
     def _generate_training_labels(self, historical_data: pd.DataFrame) -> pd.Series:
         """Generate regime labels for training using rule-based approach"""
         labels = pd.Series(index=historical_data.index, dtype=str)
-        
+
         # Calculate features for labeling
         returns = historical_data['close'].pct_change()
         volatility = returns.rolling(20).std() * np.sqrt(252)
-        
+
         if 'vix' in historical_data.columns:
             vix = historical_data['vix']
         else:
             vix = volatility * 100  # Estimate from price volatility
-        
+
         # Rule-based regime assignment
         for i in range(len(historical_data)):
-            current_vol = volatility.iloc[i] if not pd.isna(volatility.iloc[i]) else 0.15
+            volatility.iloc[i] if not pd.isna(volatility.iloc[i]) else 0.15
             current_vix = vix.iloc[i] if not pd.isna(vix.iloc[i]) else 20
-            
+
             # Get recent returns
             recent_returns = returns.iloc[max(0, i-20):i+1]
             avg_return = recent_returns.mean()
-            
+
             if current_vix > 30:
                 labels.iloc[i] = MarketRegime.CRISIS_MODE.value
             elif current_vix > 25:
@@ -1520,49 +1502,49 @@ class UnifiedRegimeEngine:
                 labels.iloc[i] = MarketRegime.BEAR_TRENDING.value
             else:
                 labels.iloc[i] = MarketRegime.SIDEWAYS_RANGE.value
-        
+
         return labels
-    
-    def _update_source_weights(self, ml_performance: Dict[str, Any]):
+
+    def _update_source_weights(self, ml_performance: dict[str, Any]):
         """Update source weights based on performance"""
         if 'cv_mean' in ml_performance:
             ml_score = ml_performance['cv_mean']
             # Adjust ML weight based on performance
             self.source_weights[RegimeSource.ML_CLASSIFIER] = min(0.5, max(0.2, ml_score))
-            
+
             # Rebalance other weights
             remaining_weight = 1.0 - self.source_weights[RegimeSource.ML_CLASSIFIER]
-            other_sources = [s for s in self.source_weights.keys() if s != RegimeSource.ML_CLASSIFIER]
-            
+            other_sources = [s for s in self.source_weights if s != RegimeSource.ML_CLASSIFIER]
+
             if other_sources:
                 weight_per_source = remaining_weight / len(other_sources)
                 for source in other_sources:
                     self.source_weights[source] = weight_per_source
-    
+
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS AND REPORTING
     # ==========================================================================
-    def get_regime_stability_analysis(self) -> Dict[str, Any]:
+    def get_regime_stability_analysis(self) -> dict[str, Any]:
         """Get comprehensive regime stability analysis"""
         try:
             if not self.consensus_history:
                 return {'error': 'No historical data available'}
-            
+
             recent_history = list(self.consensus_history)[-100:]  # Last 100 readings
-            
+
             # Calculate stability metrics
-            regime_changes = sum(1 for i in range(1, len(recent_history)) 
+            regime_changes = sum(1 for i in range(1, len(recent_history))
                                if recent_history[i].regime != recent_history[i-1].regime)
-            
+
             avg_confidence = np.mean([c.confidence for c in recent_history])
             avg_consensus_score = np.mean([c.consensus_score for c in recent_history])
             avg_stability_score = np.mean([c.stability_score for c in recent_history])
-            
+
             # Regime distribution
             regime_counts = defaultdict(int)
             for consensus in recent_history:
                 regime_counts[consensus.regime.value] += 1
-            
+
             return {
                 'current_regime': self.current_regime.value if self.current_regime else 'unknown',
                 'current_confidence': self.current_confidence,
@@ -1574,12 +1556,12 @@ class UnifiedRegimeEngine:
                 'total_transitions': self.transition_count,
                 'source_weights': {k.value: v for k, v in self.source_weights.items()}
             }
-            
+
         except Exception as e:
             self.logger.error(f"Stability analysis failed: {e}")
             return {'error': str(e)}
-    
-    def get_performance_summary(self) -> Dict[str, Any]:
+
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get performance summary across all regime detection methods"""
         summary = {
             'total_predictions': len(self.consensus_history),
@@ -1594,7 +1576,7 @@ class UnifiedRegimeEngine:
                 'attribution': ATTRIBUTION_AVAILABLE and self.attribution_engine is not None
             }
         }
-        
+
         if self.consensus_history:
             recent_consensus = list(self.consensus_history)[-50:]
             summary['recent_confidence_avg'] = np.mean([c.confidence for c in recent_consensus])
@@ -1667,7 +1649,7 @@ class UnifiedRegimeEngine:
         return self.composite_detector.detect_composite_state(market_conditions)
 
     def get_simple_markov_prediction(self, current_price: float,
-                                    prev_price: float) -> Dict[str, Any]:
+                                    prev_price: float) -> dict[str, Any]:
         """
         Get simple Markov chain prediction with transition probabilities.
 
@@ -1708,7 +1690,7 @@ class UnifiedRegimeEngine:
             self.logger.error(f"Simple Markov training failed: {e}")
             return False
 
-    def get_transition_matrix(self) -> Optional[np.ndarray]:
+    def get_transition_matrix(self) -> np.ndarray | None:
         """
         Get the current Markov transition matrix.
 
@@ -1745,7 +1727,7 @@ class UnifiedRegimeEngine:
                 prices_series = pd.Series(list(self.price_history))
                 self.simple_markov.fit_rolling(prices_series)
 
-    def get_markov_chain_summary(self) -> Dict[str, Any]:
+    def get_markov_chain_summary(self) -> dict[str, Any]:
         """
         Get comprehensive Markov Chain analysis summary.
 
@@ -1776,7 +1758,7 @@ class UnifiedRegimeEngine:
         host: str = '0.0.0.0',
         port: int = 8100,
         num_replicas: int = 2,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Deploy regime prediction as a Ray Serve microservice.
 
@@ -1809,9 +1791,8 @@ class UnifiedRegimeEngine:
                 self.engine = engine
 
             async def __call__(self, request):
-                import json
                 body = await request.json()
-                market_data = body.get('market_data', {})
+                body.get('market_data', {})
 
                 # Use the engine to detect regime
                 result = {
@@ -1838,9 +1819,9 @@ class UnifiedRegimeEngine:
 
     def predict_regime_distributed(
         self,
-        market_snapshots: List[Dict[str, Any]],
-        num_cpus: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        market_snapshots: list[dict[str, Any]],
+        num_cpus: int | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Predict regimes for multiple market snapshots in parallel.
 
@@ -1862,10 +1843,10 @@ class UnifiedRegimeEngine:
             ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
 
         @ray.remote
-        def _predict_regime(snapshot: dict, idx: int) -> Dict:
+        def _predict_regime(snapshot: dict, idx: int) -> dict:
             import numpy as _np
             _np.random.seed(idx)
-            price = snapshot.get('price', 450)
+            snapshot.get('price', 450)
             vix = snapshot.get('vix', 20)
 
             if vix > 35:
@@ -1892,29 +1873,29 @@ class UnifiedRegimeEngine:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_unified_regime_engine(config: Dict[str, Any] = None) -> UnifiedRegimeEngine:
+def create_unified_regime_engine(config: dict[str, Any] = None) -> UnifiedRegimeEngine:
     """
     Create unified regime engine instance.
-    
+
     Args:
         config: Optional configuration dictionary
-        
+
     Returns:
         UnifiedRegimeEngine instance
     """
     return UnifiedRegimeEngine(config)
 
-def create_market_conditions(spy_price: float, spy_change_pct: float, 
+def create_market_conditions(spy_price: float, spy_change_pct: float,
                            vix_level: float, **kwargs) -> MarketConditions:
     """
     Create MarketConditions object with sensible defaults.
-    
+
     Args:
         spy_price: Current SPY price
         spy_change_pct: SPY percentage change
         vix_level: VIX level
         **kwargs: Additional market condition parameters
-        
+
     Returns:
         MarketConditions instance
     """
@@ -1935,9 +1916,9 @@ def create_market_conditions(spy_price: float, spy_change_pct: float,
 # ==============================================================================
 # SINGLETON ACCESS
 # ==============================================================================
-_unified_engine_instance: Optional[UnifiedRegimeEngine] = None
+_unified_engine_instance: UnifiedRegimeEngine | None = None
 
-def get_unified_regime_engine(config: Dict[str, Any] = None) -> UnifiedRegimeEngine:
+def get_unified_regime_engine(config: dict[str, Any] = None) -> UnifiedRegimeEngine:
     """Get singleton instance of unified regime engine"""
     global _unified_engine_instance
     if _unified_engine_instance is None:
@@ -1949,24 +1930,16 @@ def get_unified_regime_engine(config: Dict[str, Any] = None) -> UnifiedRegimeEng
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing and demonstration
-    print("=" * 80)
-    print("SPYDER L09 - UNIFIED REGIME ENGINE DEMONSTRATION")
-    print("=" * 80)
-    
+
     # Create unified regime engine
     config = {
         'ml_config': {'retrain_hours': 24},
         'signal_config': {'update_frequency': 30}
     }
-    
+
     engine = create_unified_regime_engine(config)
-    
-    print(f"\n✅ Unified Regime Engine initialized")
-    print(f"   ML Model Trained: {engine.ml_classifier.is_trained}")
-    print(f"   Signal Integration: {SIGNALS_AVAILABLE}")
-    print(f"   Quant Integration: {QUANT_MODELS_AVAILABLE}")
-    print(f"   Attribution Integration: {ATTRIBUTION_AVAILABLE}")
-    
+
+
     # Create test market conditions
     test_conditions = [
         create_market_conditions(450.0, 0.005, 18.5, dix_score=44.0, gex_level=-1.2),  # Normal
@@ -1974,79 +1947,45 @@ if __name__ == "__main__":
         create_market_conditions(455.0, 0.020, 12.0, dix_score=48.0, gex_level=3.5),   # Bullish/Low Vol
         create_market_conditions(440.0, -0.035, 40.0, swan_score=3.5, skew_level=130)   # Crisis
     ]
-    
+
     condition_names = ["Normal Market", "Bearish/Stressed", "Bullish/Low Vol", "Crisis Mode"]
-    
-    print(f"\n📊 Testing regime detection on {len(test_conditions)} scenarios:")
-    print("-" * 80)
-    
-    for i, (conditions, name) in enumerate(zip(test_conditions, condition_names)):
-        print(f"\n{i+1}. {name}")
-        print(f"   SPY: ${conditions.spy_price:.2f} ({conditions.spy_change_pct:+.2%})")
-        print(f"   VIX: {conditions.vix_level:.1f}, DIX: {conditions.dix_score:.1f}%, SWAN: {conditions.swan_score:.1f}")
-        
+
+
+    for _i, (conditions, _name) in enumerate(zip(test_conditions, condition_names, strict=False)):
+
         # Get regime consensus
         consensus = engine.get_current_regime(conditions)
-        
-        print(f"   🎯 REGIME: {consensus.regime.value.upper()}")
-        print(f"   📈 Confidence: {consensus.confidence:.1%}")
-        print(f"   🤝 Consensus Score: {consensus.consensus_score:.1%}")
-        print(f"   🔄 Transition: {consensus.transition_state.value}")
-        print(f"   ⚖️  Stability: {consensus.stability_score:.1%}")
-        
+
+
         if consensus.contributing_sources:
-            print(f"   📡 Sources: {', '.join([s.value for s in consensus.contributing_sources])}")
-    
+            pass
+
     # Show stability analysis
-    print(f"\n📈 Regime Stability Analysis:")
-    print("-" * 50)
-    
+
     stability = engine.get_regime_stability_analysis()
     if 'error' not in stability:
-        print(f"   Current Regime: {stability['current_regime'].upper()}")
-        print(f"   Current Confidence: {stability['current_confidence']:.1%}")
-        print(f"   Avg Confidence: {stability['avg_confidence']:.1%}")
-        print(f"   Avg Consensus: {stability['avg_consensus_score']:.1%}")
-        print(f"   Total Transitions: {stability['total_transitions']}")
-        
+
         if stability['regime_distribution']:
-            print(f"   Regime Distribution:")
-            for regime, count in stability['regime_distribution'].items():
-                print(f"     • {regime}: {count}")
-    
+            for _regime, _count in stability['regime_distribution'].items():
+                pass
+
     # Show performance summary
-    print(f"\n⚡ Performance Summary:")
-    print("-" * 50)
-    
+
     performance = engine.get_performance_summary()
-    print(f"   Total Predictions: {performance['total_predictions']}")
-    print(f"   ML Model Status: {'✅ Trained' if performance['ml_model_trained'] else '❌ Not trained'}")
-    print(f"   Available Integrations:")
-    for integration, available in performance['available_integrations'].items():
+    for _integration, available in performance['available_integrations'].items():
         status = '✅' if available else '❌'
-        print(f"     • {integration}: {status}")
-    
-    print(f"\n   Source Weights:")
-    for source, weight in performance['source_weights'].items():
-        print(f"     • {source}: {weight:.1%}")
-    
-    print(f"\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
-    print("   ✅ Single source of truth for market regime")
-    print("   ✅ Eliminated 4-way regime detection overlap")
-    print("   ✅ Weighted consensus with confidence scoring")
-    print("   ✅ Real-time regime transition detection")
-    print("   ✅ Integration-ready for strategy selection")
-    
-    print(f"\n{('='*80)}")
-    print("UnifiedRegimeEngine demonstration completed!")
-    print(f"{'='*80}")
+
+    for _source, _weight in performance['source_weights'].items():
+        pass
+
+
 
 from enum import Enum
 
 class RegimeType(Enum):
     """Market regime types enumeration"""
     BULL_MARKET = "bull_market"
-    BEAR_MARKET = "bear_market"  
+    BEAR_MARKET = "bear_market"
     SIDEWAYS_MARKET = "sideways_market"
     HIGH_VOLATILITY = "high_volatility"
     LOW_VOLATILITY = "low_volatility"

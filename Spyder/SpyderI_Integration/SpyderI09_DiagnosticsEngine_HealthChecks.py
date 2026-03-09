@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,8 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
-from typing import Dict, List, Optional, Any, Callable
-from datetime import datetime
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -45,11 +43,9 @@ from Spyder.SpyderI_Integration.SpyderI10_DiagnosticsEngine_Types import (
     DiagnosticIssue, DiagnosticCategory, ProblemSeverity, HealthStatus,
     CPU_USAGE_WARNING, CPU_USAGE_CRITICAL,
     MEMORY_USAGE_WARNING, MEMORY_USAGE_CRITICAL,
-    DISK_USAGE_WARNING, DISK_USAGE_CRITICAL,
-    NETWORK_LATENCY_WARNING, NETWORK_LATENCY_CRITICAL,
-    PACKET_LOSS_WARNING, PACKET_LOSS_CRITICAL,
-    MODULE_RESPONSE_TIME_WARNING, MODULE_RESPONSE_TIME_CRITICAL,
-    MODULE_ERROR_RATE_WARNING, MODULE_ERROR_RATE_CRITICAL
+    DISK_USAGE_CRITICAL,
+    NETWORK_LATENCY_CRITICAL,
+    PACKET_LOSS_CRITICAL
 )
 
 # Integration components
@@ -67,22 +63,22 @@ except ImportError:
 class HealthCheckManager:
     """
     Manager for all health check operations.
-    
+
     Coordinates different types of health checks and provides
     unified interface for running diagnostic checks.
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize health check manager.
-        
+
         Args:
             config: Configuration dictionary
         """
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Initialize check implementations
         self.system_checker = SystemHealthChecker(self.config)
         self.network_checker = NetworkHealthChecker(self.config)
@@ -91,9 +87,9 @@ class HealthCheckManager:
         self.performance_checker = PerformanceHealthChecker(self.config)
         self.config_checker = ConfigurationHealthChecker(self.config)
         self.dependency_checker = DependencyHealthChecker(self.config)
-        
+
         # Map categories to checkers
-        self.health_checkers: Dict[DiagnosticCategory, Callable] = {
+        self.health_checkers: dict[DiagnosticCategory, Callable] = {
             DiagnosticCategory.SYSTEM: self.system_checker.check_health,
             DiagnosticCategory.NETWORK: self.network_checker.check_health,
             DiagnosticCategory.MODULES: self.module_checker.check_health,
@@ -102,52 +98,52 @@ class HealthCheckManager:
             DiagnosticCategory.CONFIGURATION: self.config_checker.check_health,
             DiagnosticCategory.DEPENDENCIES: self.dependency_checker.check_health
         }
-        
+
         self.logger.info("HealthCheckManager initialized")
 
-    def run_all_checks(self) -> List[DiagnosticIssue]:
+    def run_all_checks(self) -> list[DiagnosticIssue]:
         """
         Run all health checks.
-        
+
         Returns:
             List of all detected issues
         """
         all_issues = []
-        
+
         for category, checker in self.health_checkers.items():
             try:
                 category_issues = checker()
                 all_issues.extend(category_issues)
             except Exception as e:
                 self.error_handler.handle_error(e, f"run_all_checks: {category.value}")
-        
+
         return all_issues
 
-    def run_basic_checks(self) -> List[DiagnosticIssue]:
+    def run_basic_checks(self) -> list[DiagnosticIssue]:
         """
         Run basic health checks (system and network only).
-        
+
         Returns:
             List of detected issues
         """
         issues = []
-        
+
         try:
             # System checks
             issues.extend(self.system_checker.check_health())
-            
+
             # Network checks
             issues.extend(self.network_checker.check_health())
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "run_basic_checks")
-        
+
         return issues
 
-    def check_performance_health(self) -> List[DiagnosticIssue]:
+    def check_performance_health(self) -> list[DiagnosticIssue]:
         """
         Run performance-specific health checks.
-        
+
         Returns:
             List of performance-related issues
         """
@@ -160,25 +156,25 @@ class HealthCheckManager:
     def issue_still_exists(self, issue: DiagnosticIssue) -> bool:
         """
         Check if an issue still exists by re-running relevant checks.
-        
+
         Args:
             issue: DiagnosticIssue to check
-            
+
         Returns:
             True if issue still exists
         """
         try:
             if issue.category in self.health_checkers:
                 current_issues = self.health_checkers[issue.category]()
-                
+
                 # Check if similar issue is still present
                 for current_issue in current_issues:
                     if (current_issue.category == issue.category and
                         current_issue.title == issue.title):
                         return True
-            
+
             return False
-            
+
         except Exception:
             return True  # Assume issue exists if check fails
 
@@ -188,23 +184,23 @@ class HealthCheckManager:
 
 class SystemHealthChecker:
     """System-level health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check system-level health."""
         issues = []
-        
+
         try:
             # Import here to avoid circular dependencies
             from SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
-            
+
             collector = DataCollector()
             metrics = collector.collect_system_metrics()
-            
+
             # CPU usage check
             if metrics.cpu_percent > CPU_USAGE_CRITICAL:
                 issues.append(DiagnosticIssue(
@@ -230,7 +226,7 @@ class SystemHealthChecker:
                     recommendations=["Monitor CPU usage trends", "Consider optimization"],
                     impact_score=0.6
                 ))
-            
+
             # Memory usage check
             if metrics.memory_percent > MEMORY_USAGE_CRITICAL:
                 issues.append(DiagnosticIssue(
@@ -256,7 +252,7 @@ class SystemHealthChecker:
                     recommendations=["Monitor memory trends", "Check for memory leaks"],
                     impact_score=0.5
                 ))
-            
+
             # Disk usage check
             if metrics.disk_usage_percent > DISK_USAGE_CRITICAL:
                 issues.append(DiagnosticIssue(
@@ -270,10 +266,10 @@ class SystemHealthChecker:
                     recommendations=["Free disk space immediately", "Clean logs", "Archive old data"],
                     impact_score=0.9
                 ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "SystemHealthChecker.check_health")
-        
+
         return issues
 
 # ==============================================================================
@@ -282,21 +278,21 @@ class SystemHealthChecker:
 
 class NetworkHealthChecker:
     """Network connectivity health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check network health."""
         issues = []
-        
+
         try:
             # Test network connectivity
             latency = self._test_network_latency()
             packet_loss = self._test_packet_loss()
-            
+
             if latency > NETWORK_LATENCY_CRITICAL:
                 issues.append(DiagnosticIssue(
                     issue_id=f"network_latency_{int(time.time())}",
@@ -309,7 +305,7 @@ class NetworkHealthChecker:
                     recommendations=["Check network configuration", "Test connection quality"],
                     impact_score=0.7
                 ))
-            
+
             if packet_loss > PACKET_LOSS_CRITICAL:
                 issues.append(DiagnosticIssue(
                     issue_id=f"packet_loss_{int(time.time())}",
@@ -322,10 +318,10 @@ class NetworkHealthChecker:
                     recommendations=["Check network hardware", "Investigate network path"],
                     impact_score=0.8
                 ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "NetworkHealthChecker.check_health")
-        
+
         return issues
 
     def _test_network_latency(self) -> float:
@@ -334,9 +330,9 @@ class NetworkHealthChecker:
             # Test ping to Google DNS
             param = "-n" if platform.system().lower() == "windows" else "-c"
             command = ["ping", param, "1", "8.8.8.8"]
-            
+
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
-            
+
             if result.returncode == 0:
                 # Parse latency from ping output
                 output = result.stdout
@@ -345,9 +341,9 @@ class NetworkHealthChecker:
                     match = re.search(r'time[=<](\d+(?:\.\d+)?)', output)
                     if match:
                         return float(match.group(1))
-            
+
             return 1000.0  # High latency if ping fails
-            
+
         except Exception:
             return 1000.0
 
@@ -357,18 +353,18 @@ class NetworkHealthChecker:
             # Test ping with multiple packets
             param = "-n" if platform.system().lower() == "windows" else "-c"
             command = ["ping", param, "10", "8.8.8.8"]
-            
+
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)
-            
+
             if result.returncode == 0:
                 output = result.stdout
                 import re
                 match = re.search(r'(\d+)% packet loss', output)
                 if match:
                     return float(match.group(1))
-            
+
             return 0.0
-            
+
         except Exception:
             return 0.0
 
@@ -378,30 +374,30 @@ class NetworkHealthChecker:
 
 class ModuleHealthChecker:
     """Module-specific health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check individual module health."""
         issues = []
-        
+
         try:
             if not HUB_AVAILABLE:
                 return issues
-            
+
             hub = get_integration_hub()
             if not hub:
                 return issues
-            
+
             # Import here to avoid circular dependencies
             from SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
-            
+
             collector = DataCollector()
             module_health_list = collector.collect_module_health()
-            
+
             for module_health in module_health_list:
                 if module_health.status == HealthStatus.FAILING:
                     issues.append(DiagnosticIssue(
@@ -427,10 +423,10 @@ class ModuleHealthChecker:
                         recommendations=["Monitor module closely", "Check resource usage"],
                         impact_score=0.6
                     ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "ModuleHealthChecker.check_health")
-        
+
         return issues
 
 # ==============================================================================
@@ -439,30 +435,30 @@ class ModuleHealthChecker:
 
 class IntegrationHealthChecker:
     """Inter-module integration health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check inter-module integration health."""
         issues = []
-        
+
         try:
             if not HUB_AVAILABLE:
                 return issues
-            
+
             hub = get_integration_hub()
             if not hub:
                 return issues
-            
+
             # Import here to avoid circular dependencies
             from SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
-            
+
             collector = DataCollector()
             integration_health_list = collector.collect_integration_health()
-            
+
             for integration_health in integration_health_list:
                 if integration_health.connection_status == HealthStatus.FAILING:
                     issues.append(DiagnosticIssue(
@@ -476,10 +472,10 @@ class IntegrationHealthChecker:
                         recommendations=["Check network connectivity", "Verify module status", "Restart modules"],
                         impact_score=0.7
                     ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "IntegrationHealthChecker.check_health")
-        
+
         return issues
 
 # ==============================================================================
@@ -488,22 +484,22 @@ class IntegrationHealthChecker:
 
 class PerformanceHealthChecker:
     """Performance-related health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check performance-related health."""
         issues = []
-        
+
         try:
             # Import here to avoid circular dependencies
             from SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
-            
+
             collector = DataCollector()
-            
+
             # Check for performance degradation trends
             cpu_trend = collector.get_system_health_trend()
             if cpu_trend == "degrading":
@@ -518,10 +514,10 @@ class PerformanceHealthChecker:
                     recommendations=["Investigate recent changes", "Monitor resource usage"],
                     impact_score=0.5
                 ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "PerformanceHealthChecker.check_health")
-        
+
         return issues
 
 # ==============================================================================
@@ -530,27 +526,27 @@ class PerformanceHealthChecker:
 
 class ConfigurationHealthChecker:
     """Configuration-related health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check configuration-related health."""
         issues = []
-        
+
         try:
             if not HUB_AVAILABLE:
                 return issues
-            
+
             config_manager = get_global_config_manager()
             if not config_manager:
                 return issues
-            
+
             # Check for configuration inconsistencies
             configs = config_manager.configs
-            
+
             for config_name, config_data in configs.items():
                 if not self._validate_configuration(config_name, config_data):
                     issues.append(DiagnosticIssue(
@@ -564,32 +560,32 @@ class ConfigurationHealthChecker:
                         recommendations=["Review configuration", "Fix invalid values"],
                         impact_score=0.4
                     ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "ConfigurationHealthChecker.check_health")
-        
+
         return issues
 
-    def _validate_configuration(self, config_name: str, config_data: Dict[str, Any]) -> bool:
+    def _validate_configuration(self, config_name: str, config_data: dict[str, Any]) -> bool:
         """Validate configuration data."""
         try:
             if not isinstance(config_data, dict):
                 return False
-            
+
             # Check for required fields based on config type
             required_fields = {
                 'trading_engine': ['enabled', 'max_positions'],
                 'risk_manager': ['max_loss', 'position_limits'],
                 'data_feed': ['provider', 'update_frequency']
             }
-            
+
             if config_name in required_fields:
                 for field in required_fields[config_name]:
                     if field not in config_data:
                         return False
-            
+
             return True
-            
+
         except Exception:
             return False
 
@@ -599,20 +595,20 @@ class ConfigurationHealthChecker:
 
 class DependencyHealthChecker:
     """Dependency health checks."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
-    def check_health(self) -> List[DiagnosticIssue]:
+    def check_health(self) -> list[DiagnosticIssue]:
         """Check dependency health."""
         issues = []
-        
+
         try:
             # Check Python package dependencies
             missing_packages = self._check_python_dependencies()
-            
+
             for package in missing_packages:
                 issues.append(DiagnosticIssue(
                     issue_id=f"missing_dependency_{package}_{int(time.time())}",
@@ -625,10 +621,10 @@ class DependencyHealthChecker:
                     recommendations=[f"Install {package}", "Update requirements"],
                     impact_score=0.8
                 ))
-            
+
             # Check external service dependencies
             external_services = ['IB Gateway', 'Database', 'Redis']
-            
+
             for service in external_services:
                 if not self._check_external_service(service):
                     issues.append(DiagnosticIssue(
@@ -642,27 +638,27 @@ class DependencyHealthChecker:
                         recommendations=[f"Check {service} status", "Verify network connectivity"],
                         impact_score=0.7
                     ))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "DependencyHealthChecker.check_health")
-        
+
         return issues
 
-    def _check_python_dependencies(self) -> List[str]:
+    def _check_python_dependencies(self) -> list[str]:
         """Check for missing Python dependencies."""
         missing = []
-        
+
         required_packages = [
-            'numpy', 'pandas', 'psutil', 'networkx', 
+            'numpy', 'pandas', 'psutil', 'networkx',
             'matplotlib', 'seaborn', 'scipy'
         ]
-        
+
         for package in required_packages:
             try:
                 importlib.import_module(package)
             except ImportError:
                 missing.append(package)
-        
+
         return missing
 
     def _check_external_service(self, service_name: str) -> bool:
@@ -673,7 +669,7 @@ class DependencyHealthChecker:
                 'Database': 5432,
                 'Redis': 6379
             }
-            
+
             if service_name in service_ports:
                 port = service_ports[service_name]
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -681,9 +677,9 @@ class DependencyHealthChecker:
                 result = sock.connect_ex(('localhost', port))
                 sock.close()
                 return result == 0
-            
+
             return True  # Default to available for unknown services
-            
+
         except Exception:
             return False
 
@@ -693,28 +689,18 @@ class DependencyHealthChecker:
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER I04 - Health Checks Test")
-    print("=" * 80)
-    
+
     # Create health check manager
     health_manager = HealthCheckManager()
-    
+
     # Run basic checks
-    print("\n1. Running basic health checks...")
     basic_issues = health_manager.run_basic_checks()
-    print(f"Basic issues found: {len(basic_issues)}")
-    
+
     # Run all checks
-    print("\n2. Running all health checks...")
     all_issues = health_manager.run_all_checks()
-    print(f"Total issues found: {len(all_issues)}")
-    
+
     # Display issues
     if all_issues:
-        print("\n3. Issues found:")
-        for issue in all_issues[:5]:  # Show first 5
-            print(f"   • {issue.title} ({issue.severity.value})")
-    
-    print("\n" + "=" * 80)
-    print("Health Checks test completed!")
+        for _issue in all_issues[:5]:  # Show first 5
+            pass
+

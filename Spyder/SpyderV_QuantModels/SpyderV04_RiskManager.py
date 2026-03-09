@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,29 +27,22 @@ Consolidation Notes:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union, Callable
+from datetime import datetime
+from typing import Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 import time
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
 from scipy import stats
-from scipy.optimize import minimize
-from scipy.stats import norm, t, skew, kurtosis
-from numba import jit
+from scipy.stats import norm, skew, kurtosis
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -178,8 +170,8 @@ class RiskMetrics:
     # Timestamps and metadata
     calculation_time: datetime = field(default_factory=datetime.now)
     data_quality_score: float = 1.0
-    warnings: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -205,9 +197,9 @@ class StressTestResult:
     loss_percentage: float
     var_breach: bool
     cvar_breach: bool
-    affected_positions: List[str]
-    position_impacts: Dict[str, float]
-    hedge_recommendations: List[str]
+    affected_positions: list[str]
+    position_impacts: dict[str, float]
+    hedge_recommendations: list[str]
     recovery_time_estimate: int  # Days to recover
     calculation_time: datetime = field(default_factory=datetime.now)
 
@@ -218,7 +210,7 @@ class BacktestResult:
 
     method: RiskMethod
     confidence_level: float
-    test_period: Tuple[datetime, datetime]
+    test_period: tuple[datetime, datetime]
     total_observations: int
     var_breaches: int
     expected_breaches: float
@@ -229,7 +221,7 @@ class BacktestResult:
     christoffersen_p_value: float
     model_accurate: bool
     accuracy_score: float
-    recommendations: List[str]
+    recommendations: list[str]
 
 
 @dataclass
@@ -242,8 +234,8 @@ class PositionRisk:
     var_contribution: float
     cvar_contribution: float
     risk_percentage: float
-    greeks_exposure: Dict[str, float]
-    stress_sensitivity: Dict[str, float]
+    greeks_exposure: dict[str, float]
+    stress_sensitivity: dict[str, float]
     diversification_benefit: float
 
 
@@ -318,7 +310,7 @@ class SpyderRiskManager:
     """
 
     def __init__(
-        self, config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
     ):
         """Initialize consolidated risk manager."""
         self.config = config or {}
@@ -330,17 +322,17 @@ class SpyderRiskManager:
         self.cache_expiry = 300  # 5 minutes
 
         # Portfolio tracking
-        self.positions: Dict[str, Dict[str, Any]] = {}
-        self.portfolio_returns: List[float] = []
-        self.correlation_matrix: Optional[np.ndarray] = None
+        self.positions: dict[str, dict[str, Any]] = {}
+        self.portfolio_returns: list[float] = []
+        self.correlation_matrix: np.ndarray | None = None
 
         # Model validation
-        self.backtest_results: Dict[str, BacktestResult] = {}
-        self.stress_results: List[StressTestResult] = []
+        self.backtest_results: dict[str, BacktestResult] = {}
+        self.stress_results: list[StressTestResult] = []
 
         # Performance tracking
-        self.calculation_times: Dict[str, List[float]] = {}
-        self.error_counts: Dict[str, int] = {}
+        self.calculation_times: dict[str, list[float]] = {}
+        self.error_counts: dict[str, int] = {}
 
         # Configuration
         self._setup_default_parameters()
@@ -381,7 +373,7 @@ class SpyderRiskManager:
     # ==========================================================================
 
     async def calculate_portfolio_risk(
-        self, portfolio: List[Dict[str, Any]] = None, parameters: RiskParameters = None
+        self, portfolio: list[dict[str, Any]] = None, parameters: RiskParameters = None
     ) -> RiskMetrics:
         """
         Calculate comprehensive portfolio risk metrics.
@@ -471,7 +463,7 @@ class SpyderRiskManager:
             )
             raise
 
-    async def _calculate_var(self, params: RiskParameters) -> Dict[str, float]:
+    async def _calculate_var(self, params: RiskParameters) -> dict[str, float]:
         """Calculate Value at Risk using specified method."""
         if params.method == RiskMethod.HISTORICAL:
             return await self._historical_var(params)
@@ -484,7 +476,7 @@ class SpyderRiskManager:
         else:
             raise ValueError(f"Unsupported VaR method: {params.method}")
 
-    async def _historical_var(self, params: RiskParameters) -> Dict[str, float]:
+    async def _historical_var(self, params: RiskParameters) -> dict[str, float]:
         """Calculate historical VaR."""
         if len(self.portfolio_returns) < params.min_observations:
             raise ValueError(
@@ -509,10 +501,10 @@ class SpyderRiskManager:
             "observations_used": len(returns),
         }
 
-    async def _parametric_var(self, params: RiskParameters) -> Dict[str, float]:
+    async def _parametric_var(self, params: RiskParameters) -> dict[str, float]:
         """Calculate parametric VaR assuming normal distribution."""
         if len(self.portfolio_returns) < params.min_observations:
-            raise ValueError(f"Insufficient data for parametric VaR")
+            raise ValueError("Insufficient data for parametric VaR")
 
         returns = np.array(self.portfolio_returns[-params.lookback_days :])
 
@@ -539,10 +531,10 @@ class SpyderRiskManager:
             "volatility": std_return,
         }
 
-    async def _monte_carlo_var(self, params: RiskParameters) -> Dict[str, float]:
+    async def _monte_carlo_var(self, params: RiskParameters) -> dict[str, float]:
         """Calculate Monte Carlo VaR."""
         if len(self.portfolio_returns) < params.min_observations:
-            raise ValueError(f"Insufficient data for Monte Carlo VaR")
+            raise ValueError("Insufficient data for Monte Carlo VaR")
 
         returns = np.array(self.portfolio_returns[-params.lookback_days :])
 
@@ -585,10 +577,10 @@ class SpyderRiskManager:
             "kurtosis": return_kurtosis,
         }
 
-    async def _cornish_fisher_var(self, params: RiskParameters) -> Dict[str, float]:
+    async def _cornish_fisher_var(self, params: RiskParameters) -> dict[str, float]:
         """Calculate Cornish-Fisher VaR with skewness and kurtosis adjustments."""
         if len(self.portfolio_returns) < params.min_observations:
-            raise ValueError(f"Insufficient data for Cornish-Fisher VaR")
+            raise ValueError("Insufficient data for Cornish-Fisher VaR")
 
         returns = np.array(self.portfolio_returns[-params.lookback_days :])
 
@@ -627,11 +619,11 @@ class SpyderRiskManager:
         }
 
     async def _calculate_cvar(
-        self, params: RiskParameters, var_result: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, params: RiskParameters, var_result: dict[str, float]
+    ) -> dict[str, float]:
         """Calculate Conditional Value at Risk (Expected Shortfall)."""
         if len(self.portfolio_returns) < params.min_observations:
-            raise ValueError(f"Insufficient data for CVaR calculation")
+            raise ValueError("Insufficient data for CVaR calculation")
 
         returns = np.array(self.portfolio_returns[-params.lookback_days :])
 
@@ -679,7 +671,7 @@ class SpyderRiskManager:
 
     async def _calculate_additional_metrics(
         self, params: RiskParameters
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate additional risk metrics."""
         if len(self.portfolio_returns) < params.min_observations:
             return self._default_additional_metrics()
@@ -738,7 +730,7 @@ class SpyderRiskManager:
             "diversification_ratio": diversification_ratio,
         }
 
-    def _default_additional_metrics(self) -> Dict[str, float]:
+    def _default_additional_metrics(self) -> dict[str, float]:
         """Return default metrics when insufficient data."""
         return {
             "worst_case_loss": 0.0,
@@ -755,8 +747,8 @@ class SpyderRiskManager:
     # ==========================================================================
 
     async def run_stress_tests(
-        self, custom_scenarios: List[StressTestScenario] = None
-    ) -> List[StressTestResult]:
+        self, custom_scenarios: list[StressTestScenario] = None
+    ) -> list[StressTestResult]:
         """
         Run comprehensive stress testing on portfolio.
 
@@ -838,7 +830,7 @@ class SpyderRiskManager:
         )
 
     def _calculate_position_stress_impact(
-        self, position: Dict[str, Any], scenario: StressTestScenario
+        self, position: dict[str, Any], scenario: StressTestScenario
     ) -> float:
         """Calculate stress impact on individual position."""
         pos_type = position.get("type", "unknown")
@@ -873,14 +865,14 @@ class SpyderRiskManager:
             return market_value * scenario.underlying_shock * 0.5
 
     def _generate_hedge_recommendations(
-        self, scenario: StressTestScenario, impacts: Dict[str, float]
-    ) -> List[str]:
+        self, scenario: StressTestScenario, impacts: dict[str, float]
+    ) -> list[str]:
         """Generate hedge recommendations based on stress test results."""
         recommendations = []
 
         # Analyze impacts
         total_loss = sum(impacts.values())
-        max_position_loss = max(impacts.values(), key=abs) if impacts else 0
+        max(impacts.values(), key=abs) if impacts else 0
 
         if (
             abs(total_loss)
@@ -921,7 +913,7 @@ class SpyderRiskManager:
     # MODEL VALIDATION AND BACKTESTING
     # ==========================================================================
 
-    async def _validate_risk_model(self, params: RiskParameters) -> Dict[str, float]:
+    async def _validate_risk_model(self, params: RiskParameters) -> dict[str, float]:
         """Validate risk model using backtesting."""
         # Simplified validation - full implementation would require more historical data
         if len(self.portfolio_returns) < 100:
@@ -960,7 +952,7 @@ class SpyderRiskManager:
     # PORTFOLIO MANAGEMENT
     # ==========================================================================
 
-    def _update_positions(self, portfolio: List[Dict[str, Any]]):
+    def _update_positions(self, portfolio: list[dict[str, Any]]):
         """Update internal position tracking."""
         self.positions.clear()
 
@@ -1039,7 +1031,7 @@ class SpyderRiskManager:
     # UTILITY AND REPORTING METHODS
     # ==========================================================================
 
-    def get_risk_summary(self) -> Dict[str, Any]:
+    def get_risk_summary(self) -> dict[str, Any]:
         """Get comprehensive risk summary."""
         if not hasattr(self, "_last_risk_metrics"):
             return {"status": "No recent risk calculation"}
@@ -1058,7 +1050,7 @@ class SpyderRiskManager:
             "warnings": metrics.warnings,
         }
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get risk manager performance metrics."""
         performance = {}
 
@@ -1079,7 +1071,7 @@ class SpyderRiskManager:
 
     def export_risk_report(
         self, format_type: str = "json"
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> Union[str, dict[str, Any]]:
         """Export comprehensive risk report."""
         report_data = {
             "timestamp": datetime.now().isoformat(),
@@ -1140,7 +1132,7 @@ class SpyderRiskManager:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_risk_manager(
-    config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
 ) -> SpyderRiskManager:
     """Factory function to create SpyderRiskManager."""
     return SpyderRiskManager(config, data_manager)
@@ -1224,7 +1216,7 @@ async def main():
         },
     ]
 
-    logging.info(f"\n📊 Sample Portfolio Created")
+    logging.info("\n📊 Sample Portfolio Created")
     logging.info(f"   Positions: {len(sample_portfolio)}")
     logging.info(
         f"   Total Value: ${sum(pos['market_value'] for pos in sample_portfolio):,.2f}"
@@ -1241,7 +1233,7 @@ async def main():
             ),
         )
 
-        logging.info(f"\n📈 Risk Metrics (95% Confidence):")
+        logging.info("\n📈 Risk Metrics (95% Confidence):")
         logging.info(f"   Portfolio Value: ${risk_metrics.portfolio_value:,.2f}")
         logging.info(f"   VaR (1-day): ${risk_metrics.var:,.2f}")
         logging.info(f"   CVaR (1-day): ${risk_metrics.cvar:,.2f}")
@@ -1332,9 +1324,9 @@ async def main():
         logging.info(
             f"   Portfolio positions: {report['portfolio_summary']['total_positions']}"
         )
-        logging.info(f"   Risk metrics included: ✅")
+        logging.info("   Risk metrics included: ✅")
         logging.info(f"   Stress test results: {len(report['stress_test_results'])}")
-        logging.info(f"   Performance data: ✅")
+        logging.info("   Performance data: ✅")
     except Exception as e:
         logging.info(f"   ❌ Error generating report: {e}")
 

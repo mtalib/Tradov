@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,25 +24,24 @@ Change Log:
 # ==============================================================================
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from scipy import optimize, stats
+from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
 
-                                                       MarketCondition,
                                                        SignalStrength,
                                                        TradingSignal)
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
@@ -52,7 +50,6 @@ from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-    CALENDAR_SPREAD_PROFIT_TARGET, CALENDAR_SPREAD_STOP_LOSS,
     SPY_CONTRACT_MULTIPLIER, OptionType, SignalType)
 import logging
 
@@ -165,7 +162,7 @@ class CalendarSetup:
     time_spread: int  # Days between expiries
     net_debit: float
     max_profit: float
-    breakeven_points: List[float]
+    breakeven_points: list[float]
     iv_skew: float
     term_structure: TermStructure
     entry_iv_rank: float
@@ -187,9 +184,9 @@ class CalendarPosition:
     far_expiry_dte: int = 60
     state: CalendarState = CalendarState.ENTERING
     roll_count: int = 0
-    adjustments: List[Dict] = field(default_factory=list)
-    exit_time: Optional[datetime] = None
-    exit_reason: Optional[str] = None
+    adjustments: list[dict] = field(default_factory=list)
+    exit_time: datetime | None = None
+    exit_reason: str | None = None
 
 
 # ==============================================================================
@@ -206,7 +203,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     """
 
     def __init__(
-        self, event_manager: EventManager, risk_profile: RiskProfile, config: Dict[str, Any] = None
+        self, event_manager: EventManager, risk_profile: RiskProfile, config: dict[str, Any] = None
     ):
         """Initialize Calendar Spread strategy"""
         super().__init__(
@@ -225,10 +222,10 @@ class CalendarSpreadStrategy(BaseStrategy):
         self.vix_analyzer = VIXAnalyzer()
 
         # Strategy state
-        self.active_positions: Dict[str, CalendarPosition] = {}
-        self.iv_history: List[float] = []
-        self.current_iv_regime: Optional[IVRegime] = None
-        self.term_structure_history: List[TermStructure] = []
+        self.active_positions: dict[str, CalendarPosition] = {}
+        self.iv_history: list[float] = []
+        self.current_iv_regime: IVRegime | None = None
+        self.term_structure_history: list[TermStructure] = []
 
         # Configuration
         self.max_positions = config.get("max_positions", MAX_CALENDAR_POSITIONS)
@@ -253,7 +250,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     # IV AND TERM STRUCTURE ANALYSIS
     # ==========================================================================
 
-    def _analyze_iv_environment(self, market_data: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_iv_environment(self, market_data: pd.DataFrame) -> dict[str, Any]:
         """Analyze current IV environment for calendars"""
         try:
             # Get current IV metrics
@@ -379,16 +376,13 @@ class CalendarSpreadStrategy(BaseStrategy):
             return False
 
         # Avoid extreme backwardation
-        if term_structure == TermStructure.BACKWARDATION and iv_rank > 80:
-            return False
-
-        return True
+        return not (term_structure == TermStructure.BACKWARDATION and iv_rank > 80)
 
     # ==========================================================================
     # EXPIRY SELECTION
     # ==========================================================================
 
-    def _get_available_expiries(self, current_date: datetime) -> List[datetime]:
+    def _get_available_expiries(self, current_date: datetime) -> list[datetime]:
         """Get available option expiration dates"""
         expiries = []
 
@@ -415,7 +409,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         return sorted(expiries)
 
-    def _select_optimal_expiries(self, iv_analysis: Dict[str, Any]) -> Tuple[datetime, datetime]:
+    def _select_optimal_expiries(self, iv_analysis: dict[str, Any]) -> tuple[datetime, datetime]:
         """Select optimal near and far expiration dates"""
         current_date = datetime.now()
         available_expiries = self._get_available_expiries(current_date)
@@ -456,7 +450,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     # SIGNAL GENERATION
     # ==========================================================================
 
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Generate calendar spread trading signals"""
         try:
             signals = []
@@ -515,8 +509,8 @@ class CalendarSpreadStrategy(BaseStrategy):
         current_price: float,
         near_expiry: datetime,
         far_expiry: datetime,
-        iv_analysis: Dict[str, Any],
-    ) -> Optional[CalendarSetup]:
+        iv_analysis: dict[str, Any],
+    ) -> CalendarSetup | None:
         """Create calendar spread setup"""
         try:
             # Select strike
@@ -627,7 +621,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         else:
             return round(current_price)  # ATM
 
-    def _estimate_iv(self, expiry: datetime, strike: float, iv_analysis: Dict[str, Any]) -> float:
+    def _estimate_iv(self, expiry: datetime, strike: float, iv_analysis: dict[str, Any]) -> float:
         """Estimate IV for specific expiry and strike"""
         base_iv = iv_analysis["current_iv"]
         dte = (expiry - datetime.now()).days
@@ -692,7 +686,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _calculate_breakevens(
         self, strike: float, net_debit: float, option_type: OptionType
-    ) -> List[float]:
+    ) -> list[float]:
         """Calculate breakeven points for calendar"""
         # Simplified breakeven calculation
         # In production, would use option pricing model
@@ -714,7 +708,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         self,
         current_price: float,
         strike: float,
-        breakevens: List[float],
+        breakevens: list[float],
         near_expiry: datetime,
         iv: float,
     ) -> float:
@@ -748,7 +742,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _create_trading_signal(
         self, setup: CalendarSetup, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Convert calendar setup to trading signal"""
         try:
             # Determine signal strength
@@ -789,7 +783,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     # POSITION MANAGEMENT
     # ==========================================================================
 
-    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def manage_positions(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Manage active calendar positions"""
         signals = []
 
@@ -862,7 +856,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _check_roll_opportunity(
         self, position: CalendarPosition, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Check if position should be rolled"""
         # Only roll if profitable
         if position.unrealized_pnl < MIN_PROFIT_TO_ROLL:
@@ -905,7 +899,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _check_exit_conditions(
         self, position: CalendarPosition, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Check if position should be closed"""
         # Profit target
         if position.unrealized_pnl >= position.setup.max_profit * (PROFIT_TARGET_PERCENT / 100):
@@ -991,7 +985,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         """Add new calendar position from signal"""
         position_id = f"CAL_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
-        setup_dict = signal.metadata["setup"]
+        signal.metadata["setup"]
         # Reconstruct setup object
         # This is simplified - in production would properly deserialize
 
@@ -1008,7 +1002,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         return position_id
 
-    def get_position_summary(self) -> List[Dict[str, Any]]:
+    def get_position_summary(self) -> list[dict[str, Any]]:
         """Get summary of all active positions"""
         summaries = []
 
@@ -1027,7 +1021,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         return summaries
 
-    def get_strategy_stats(self) -> Dict[str, Any]:
+    def get_strategy_stats(self) -> dict[str, Any]:
         """Get comprehensive strategy statistics"""
         total_trades = self.performance_stats["total_trades"]
         win_rate = 0.0
@@ -1141,7 +1135,7 @@ def test_calendar_spread():
         logging.info(f"Confidence: {signal.confidence:.1%}")
 
         # Add position
-        position_id = strategy.add_position(signal)
+        strategy.add_position(signal)
 
     # Test position management
     if strategy.active_positions:

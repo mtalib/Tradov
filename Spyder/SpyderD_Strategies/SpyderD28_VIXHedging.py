@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -36,8 +35,7 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, Any
 from enum import Enum
 from datetime import datetime, date, timedelta
 from dataclasses import dataclass, field
@@ -46,16 +44,12 @@ import math
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
-import numpy as np
-import requests
 from scipy.stats import norm
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
@@ -165,7 +159,7 @@ class VIXSnapshot:
     def is_in_backwardation(self) -> bool:
         return self.term_structure in [TermStructure.BACKWARDATION, TermStructure.STEEP_BACKWARDATION]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "vix_spot": self.vix_spot,
@@ -193,7 +187,7 @@ class HedgeRecommendation:
     expected_cost: float  # Premium cost
     expected_protection: float  # $ protected per 1% drop
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "action": self.action.value,
             "hedge_type": self.hedge_type.value,
@@ -212,7 +206,7 @@ class VIXTradeSetup:
     strategy_name: str
     direction: str  # "long_vol", "short_vol"
     instrument: str  # "VIX_CALL", "VIX_PUT", "VXX", etc.
-    strike: Optional[float]
+    strike: float | None
     expiry: date
     entry_price: float
     stop_loss: float
@@ -221,7 +215,7 @@ class VIXTradeSetup:
     max_risk: float
     probability_of_profit: float
     rationale: str
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def risk_reward(self) -> float:
@@ -229,7 +223,7 @@ class VIXTradeSetup:
         reward = abs(self.target - self.entry_price)
         return reward / risk if risk > 0 else 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "strategy_name": self.strategy_name,
             "direction": self.direction,
@@ -264,7 +258,7 @@ class MeanReversionSignal:
     def expected_move_percent(self) -> float:
         return ((self.target_vix - self.current_vix) / self.current_vix) * 100
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "current_vix": self.current_vix,
@@ -293,7 +287,7 @@ class VolatilityPremiumOpportunity:
     def is_favorable(self) -> bool:
         return self.premium_percent > 5 and self.premium_percentile > 60
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "implied_volatility": self.implied_volatility,
@@ -362,8 +356,8 @@ class VIXHedgingStrategy:
             self._data_provider = None
 
         # History for analysis
-        self._vix_history: List[float] = []
-        self._snapshot_cache: Optional[Tuple[VIXSnapshot, datetime]] = None
+        self._vix_history: list[float] = []
+        self._snapshot_cache: tuple[VIXSnapshot, datetime] | None = None
 
         logger.info("VIXHedgingStrategy initialized")
 
@@ -467,7 +461,7 @@ class VIXHedgingStrategy:
             return TermStructure.FLAT
 
         # M1 vs Spot
-        front_premium = (m1 - spot) / spot * 100 if spot > 0 else 0
+        (m1 - spot) / spot * 100 if spot > 0 else 0
 
         # M2 vs M1
         roll_yield = (m2 - m1) / m1 * 100
@@ -701,7 +695,6 @@ class VIXHedgingStrategy:
     ) -> float:
         """Estimate protection per 1% market drop."""
         # Typical VIX move for 1% SPX drop
-        vix_beta = 4  # VIX moves ~4% for each 1% SPX move
 
         # Protection multipliers by hedge type
         multipliers = {
@@ -820,7 +813,7 @@ class VIXHedgingStrategy:
             warnings=warnings
         )
 
-    def get_mean_reversion_trade(self) -> Optional[MeanReversionSignal]:
+    def get_mean_reversion_trade(self) -> MeanReversionSignal | None:
         """
         Generate mean reversion trading signal.
 
@@ -928,7 +921,7 @@ class VIXHedgingStrategy:
             risk_level=risk
         )
 
-    def get_term_structure_trade(self) -> Optional[VIXTradeSetup]:
+    def get_term_structure_trade(self) -> VIXTradeSetup | None:
         """
         Generate trade based on VIX term structure.
 
@@ -1042,79 +1035,35 @@ def create_vix_strategy_from_env() -> 'VIXHedgingStrategy':
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("VIX Hedging Strategy Test")
-    print("=" * 60)
 
     strategy = VIXHedgingStrategy()
 
     # Test VIX snapshot
-    print("\n=== VIX Snapshot ===")
     snapshot = strategy.get_vix_snapshot()
-    print(f"VIX Spot: {snapshot.vix_spot:.2f}")
-    print(f"VIX M1: {snapshot.vix_m1:.2f}")
-    print(f"VIX M2: {snapshot.vix_m2:.2f}")
-    print(f"Regime: {snapshot.regime.value}")
-    print(f"Term Structure: {snapshot.term_structure.value}")
-    print(f"Contango: {snapshot.contango_percent:.1f}%")
-    print(f"30d Percentile: {snapshot.percentile_30d:.0f}%")
-    print(f"Is Elevated: {snapshot.is_elevated}")
-    print(f"Is Spike: {snapshot.is_spike}")
 
     # Test hedge recommendation
-    print("\n=== Hedge Recommendation ===")
     hedge = strategy.get_hedge_recommendation(
         portfolio_value=100000,
         current_hedge_ratio=0.02,
         risk_tolerance="moderate"
     )
-    print(f"Action: {hedge.action.value}")
-    print(f"Hedge Type: {hedge.hedge_type.value}")
-    print(f"Urgency: {hedge.urgency}")
-    print(f"Target Ratio: {hedge.portfolio_hedge_ratio:.1%}")
-    print(f"Notional: ${hedge.notional_value:,.0f}")
-    print(f"Expected Cost: ${hedge.expected_cost:,.0f}")
-    print(f"Rationale: {hedge.rationale}")
 
     # Test VIX call hedge
-    print("\n=== VIX Call Hedge Setup ===")
     call_hedge = strategy.get_vix_call_hedge(100000, 0.10)
-    print(f"Strike: {call_hedge.strike}")
-    print(f"Expiry: {call_hedge.expiry}")
-    print(f"Contracts: {call_hedge.position_size}")
-    print(f"Entry Price: ${call_hedge.entry_price:.2f}")
-    print(f"Max Risk: ${call_hedge.max_risk:.0f}")
-    print(f"POP: {call_hedge.probability_of_profit:.1%}")
-    print(f"Risk/Reward: {call_hedge.risk_reward:.2f}")
 
     # Test mean reversion
-    print("\n=== Mean Reversion Signal ===")
     mr_signal = strategy.get_mean_reversion_trade()
     if mr_signal:
-        print(f"Current VIX: {mr_signal.current_vix:.2f}")
-        print(f"Target VIX: {mr_signal.target_vix:.2f}")
-        print(f"Expected Move: {mr_signal.expected_move_percent:.1f}%")
-        print(f"Days to Mean: {mr_signal.expected_days_to_mean}")
-        print(f"Trade Type: {mr_signal.trade_type}")
-        print(f"Confidence: {mr_signal.confidence:.1%}")
+        pass
     else:
-        print("No mean reversion opportunity")
+        pass
 
     # Test volatility premium
-    print("\n=== Volatility Premium ===")
     premium = strategy.get_volatility_premium_opportunity()
-    print(f"Implied Vol: {premium.implied_volatility:.1f}")
-    print(f"Realized Vol: {premium.realized_volatility:.1f}")
-    print(f"Premium: {premium.premium_percent:.1f}%")
-    print(f"Is Favorable: {premium.is_favorable}")
-    print(f"Strategy: {premium.recommended_strategy}")
 
     # Test term structure trade
-    print("\n=== Term Structure Trade ===")
     ts_trade = strategy.get_term_structure_trade()
     if ts_trade:
-        print(f"Strategy: {ts_trade.strategy_name}")
-        print(f"Direction: {ts_trade.direction}")
-        print(f"Instrument: {ts_trade.instrument}")
-        print(f"Rationale: {ts_trade.rationale}")
+        pass
     else:
-        print("No term structure opportunity")
+        pass

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,9 +24,9 @@ Change Log:
 # ==============================================================================
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -39,10 +38,9 @@ from scipy import stats
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
 
-                                                       MarketCondition,
                                                        SignalStrength,
                                                        TradingSignal)
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
@@ -191,7 +189,7 @@ class CostBasis:
     current_basis: float
     total_credits: float
     total_debits: float
-    adjustments: List[Dict] = field(default_factory=list)
+    adjustments: list[dict] = field(default_factory=list)
 
     def adjust(self, amount: float, description: str):
         """Adjust cost basis"""
@@ -228,9 +226,9 @@ class DiagonalPosition:
     short_dte: int = 30
     long_dte: int = 60
     state: DiagonalState = DiagonalState.ENTERING
-    current_trend: Optional[TrendData] = None
-    exit_time: Optional[datetime] = None
-    exit_reason: Optional[str] = None
+    current_trend: TrendData | None = None
+    exit_time: datetime | None = None
+    exit_reason: str | None = None
 
 
 # ==============================================================================
@@ -248,7 +246,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
     """
 
     def __init__(
-        self, event_manager: EventManager, risk_profile: RiskProfile, config: Dict[str, Any] = None
+        self, event_manager: EventManager, risk_profile: RiskProfile, config: dict[str, Any] = None
     ):
         """Initialize Diagonal Spread strategy"""
         super().__init__(
@@ -267,8 +265,8 @@ class DiagonalSpreadStrategy(BaseStrategy):
         self.volatility_analyzer = VolatilityAnalyzer()
 
         # Strategy state
-        self.active_positions: Dict[str, DiagonalPosition] = {}
-        self.current_trend: Optional[TrendData] = None
+        self.active_positions: dict[str, DiagonalPosition] = {}
+        self.current_trend: TrendData | None = None
 
         # Configuration
         self.max_positions = config.get("max_positions", MAX_DIAGONAL_POSITIONS)
@@ -305,7 +303,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             # Multiple timeframe analysis
             sma_20 = close_prices.rolling(20).mean()
             sma_50 = close_prices.rolling(50).mean()
-            ema_9 = close_prices.ewm(span=9, adjust=False).mean()
+            close_prices.ewm(span=9, adjust=False).mean()
 
             current_price = close_prices.iloc[-1]
 
@@ -423,7 +421,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
     # SIGNAL GENERATION
     # ==========================================================================
 
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Generate diagonal spread trading signals"""
         try:
             signals = []
@@ -500,7 +498,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         market_data: pd.DataFrame,
         trend: TrendData,
         iv_rank: float,
-    ) -> Optional[DiagonalSetup]:
+    ) -> DiagonalSetup | None:
         """Create diagonal spread setup"""
         try:
             current_price = market_data["close"].iloc[-1]
@@ -623,7 +621,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _select_diagonal_strikes(
         self, diagonal_type: DiagonalType, current_price: float, trend: TrendData
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Select strikes for diagonal spread"""
         if diagonal_type == DiagonalType.BULLISH_CALL_DIAGONAL:
             # Short OTM call, Long deeper OTM call
@@ -651,7 +649,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         """Round to nearest valid strike"""
         return round(price / 5) * 5  # Round to nearest $5
 
-    def _select_diagonal_expiries(self) -> Tuple[datetime, datetime]:
+    def _select_diagonal_expiries(self) -> tuple[datetime, datetime]:
         """Select optimal expiration dates"""
         current_date = datetime.now()
 
@@ -781,7 +779,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _create_trading_signal(
         self, setup: DiagonalSetup, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Convert setup to trading signal"""
         try:
             # Determine signal strength
@@ -824,7 +822,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
     # POSITION MANAGEMENT
     # ==========================================================================
 
-    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def manage_positions(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Manage active diagonal positions"""
         signals = []
 
@@ -902,7 +900,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _check_roll_opportunity(
         self, position: DiagonalPosition, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Check if position should be rolled"""
         current_price = market_data["close"].iloc[-1]
 
@@ -915,9 +913,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         if (
             position.setup.bias == DiagonalBias.BULLISH
             and position.current_trend.direction != "bullish"
-        ):
-            return self._create_exit_signal(position, "trend_reversal")
-        elif (
+        ) or (
             position.setup.bias == DiagonalBias.BEARISH
             and position.current_trend.direction != "bearish"
         ):
@@ -986,7 +982,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _check_exit_conditions(
         self, position: DiagonalPosition, market_data: pd.DataFrame
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Check position exit conditions"""
         # Profit target
         max_profit = position.setup.max_profit
@@ -1101,7 +1097,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         position_id = f"DIAG_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         # Extract setup from signal
-        setup_dict = signal.metadata["setup"]
+        signal.metadata["setup"]
         # In production, would properly deserialize
 
         # Create cost basis tracker
@@ -1127,7 +1123,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
         return position_id
 
-    def get_position_summary(self) -> List[Dict[str, Any]]:
+    def get_position_summary(self) -> list[dict[str, Any]]:
         """Get summary of active positions"""
         summaries = []
 
@@ -1150,7 +1146,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
         return summaries
 
-    def get_strategy_stats(self) -> Dict[str, Any]:
+    def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy statistics"""
         total_trades = self.performance_stats["total_trades"]
         win_rate = (
@@ -1271,7 +1267,7 @@ def test_diagonal_spread():
         logging.info(f"Confidence: {signal.confidence:.1%}")
 
         # Add position
-        position_id = strategy.add_position(signal)
+        strategy.add_position(signal)
 
     # Test position management
     if strategy.active_positions:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,22 +25,17 @@ Change Log:
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union, Set
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict, deque
+from collections import deque
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import hashlib
-import statistics
 import numpy as np
-import pandas as pd
-from scipy import stats
-from scipy.optimize import minimize
 
 try:
     import ollama
@@ -55,7 +49,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, SPYDERX_FEATURE_FLAGS
+from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
 from Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor import get_migration_monitor
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from Spyder.SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer
@@ -136,14 +130,14 @@ class RiskMetrics:
     """Comprehensive risk metrics container"""
     portfolio_var: float
     portfolio_es: float  # Expected Shortfall
-    position_risks: Dict[str, float]
+    position_risks: dict[str, float]
     correlation_matrix: np.ndarray
     max_drawdown: float
     current_drawdown: float
     sharpe_ratio: float
     sortino_ratio: float
     beta: float
-    risk_contribution: Dict[str, float]
+    risk_contribution: dict[str, float]
     timestamp: datetime = field(default_factory=datetime.now)
 
 @dataclass
@@ -151,12 +145,12 @@ class RiskAssessment:
     """AI-enhanced risk assessment"""
     risk_level: RiskLevel
     risk_metrics: RiskMetrics
-    risk_factors: Dict[str, float]
-    stress_test_results: Dict[str, float]
-    recommended_actions: List[Dict[str, Any]]
+    risk_factors: dict[str, float]
+    stress_test_results: dict[str, float]
+    recommended_actions: list[dict[str, Any]]
     natural_language_assessment: str
     confidence_score: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class PositionLimit:
@@ -172,22 +166,22 @@ class PositionLimit:
 class CircuitBreakerStatus:
     """Circuit breaker status"""
     active: bool
-    level: Optional[str] = None
-    triggered_metrics: List[str] = field(default_factory=list)
-    activation_time: Optional[datetime] = None
-    estimated_reset_time: Optional[datetime] = None
+    level: str | None = None
+    triggered_metrics: list[str] = field(default_factory=list)
+    activation_time: datetime | None = None
+    estimated_reset_time: datetime | None = None
     override_allowed: bool = False
 
 @dataclass
 class AIRiskInsight:
     """AI-generated risk insight"""
     summary: str
-    key_risks: List[str]
-    opportunities: List[str]
-    recommended_hedges: List[Dict[str, Any]]
+    key_risks: list[str]
+    opportunities: list[str]
+    recommended_hedges: list[dict[str, Any]]
     market_context: str
     confidence: float
-    reasoning: Optional[str] = None
+    reasoning: str | None = None
 
 # ==============================================================================
 # MAIN CLASS
@@ -195,12 +189,12 @@ class AIRiskInsight:
 class SpyderX04_RiskGuardianAgent:
     """
     AI-Enhanced Risk Guardian Agent for intelligent portfolio protection.
-    
+
     This agent provides sophisticated risk management by combining traditional
     risk metrics with AI-powered analysis. It monitors portfolio risk in real-time,
     adjusts position limits dynamically, and can trigger circuit breakers when
     necessary to protect capital.
-    
+
     Attributes:
         model_name: Ollama model for AI analysis
         temperature: Temperature setting for AI responses
@@ -208,26 +202,26 @@ class SpyderX04_RiskGuardianAgent:
         circuit_breaker: Circuit breaker status
         risk_history: Historical risk metrics
     """
-    
+
     def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = DEFAULT_TEMPERATURE):
         """Initialize the Risk Guardian Agent"""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
         self.model_name = model_name
         self.temperature = temperature
-        
+
         # Initialize components
         self.traditional_risk_manager = RiskManager()
         self.position_sizer = PositionSizer()
         self.drawdown_controller = DrawdownController()
         self.migration_monitor = get_migration_monitor()
-        
+
         # Risk tracking
         self.risk_cache = {}
         self.cache_timestamps = {}
         self.risk_history = deque(maxlen=1000)
         self.circuit_breaker = CircuitBreakerStatus(active=False)
-        
+
         # Performance tracking
         self.performance_metrics = {
             'assessments': 0,
@@ -237,7 +231,7 @@ class SpyderX04_RiskGuardianAgent:
             'avg_confidence': 0.0,
             'prevented_losses': 0.0
         }
-        
+
         # Risk limits (can be adjusted dynamically)
         self.risk_limits = {
             'max_portfolio_risk': MAX_PORTFOLIO_RISK,
@@ -245,41 +239,41 @@ class SpyderX04_RiskGuardianAgent:
             'max_drawdown': MAX_DRAWDOWN,
             'max_correlation': CORRELATION_THRESHOLD
         }
-        
+
         self.logger.info(f"Risk Guardian Agent initialized with model: {model_name}")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - MAIN FUNCTIONALITY
     # ==========================================================================
     async def assess_portfolio_risk(
         self,
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
     ) -> RiskAssessment:
         """
         Perform comprehensive AI-enhanced risk assessment.
-        
+
         Args:
             portfolio: Current portfolio state
             market_conditions: Current market conditions
-            
+
         Returns:
             RiskAssessment with AI insights and recommendations
         """
         try:
             # Calculate traditional risk metrics
             risk_metrics = await self._calculate_risk_metrics(portfolio, market_conditions)
-            
+
             # Store in history
             self.risk_history.append({
                 'timestamp': datetime.now(),
                 'metrics': risk_metrics,
                 'portfolio_value': portfolio.get('total_value', 0)
             })
-            
+
             # Run stress tests
             stress_results = await self._run_stress_tests(portfolio, market_conditions)
-            
+
             # Get AI-enhanced assessment if enabled
             if is_spyderx_enabled("USE_AI_RISK") and OLLAMA_AVAILABLE:
                 assessment = await self._enhance_with_ai_risk_analysis(
@@ -290,43 +284,43 @@ class SpyderX04_RiskGuardianAgent:
                 assessment = self._create_rule_based_assessment(
                     risk_metrics, stress_results
                 )
-            
+
             # Check circuit breakers
             await self._check_circuit_breakers(assessment)
-            
+
             # Update performance metrics
             self.performance_metrics['assessments'] += 1
             self.performance_metrics['avg_confidence'] = (
-                (self.performance_metrics['avg_confidence'] * 
+                (self.performance_metrics['avg_confidence'] *
                  (self.performance_metrics['assessments'] - 1) +
-                 assessment.confidence_score) / 
+                 assessment.confidence_score) /
                 self.performance_metrics['assessments']
             )
-            
+
             # Log assessment if in shadow mode
             if is_spyderx_enabled("ENABLE_SPYDERX_SHADOW"):
                 await self._log_shadow_assessment(assessment)
-            
+
             return assessment
-            
+
         except Exception as e:
             self.logger.error(f"Risk assessment failed: {e}")
             return self._create_emergency_assessment(str(e))
-    
+
     async def calculate_position_limits(
         self,
         symbol: str,
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
     ) -> PositionLimit:
         """
         Calculate dynamic position limits with AI optimization.
-        
+
         Args:
             symbol: Trading symbol
             portfolio: Current portfolio state
             market_conditions: Current market conditions
-            
+
         Returns:
             PositionLimit with AI-adjusted limits
         """
@@ -336,13 +330,13 @@ class SpyderX04_RiskGuardianAgent:
                 portfolio['total_value'],
                 self.risk_limits['max_position_risk']
             )
-            
+
             # Get current risk assessment
             risk_assessment = await self.assess_portfolio_risk(portfolio, market_conditions)
-            
+
             # Adjust for risk level
             risk_multiplier = self._get_risk_multiplier(risk_assessment.risk_level)
-            
+
             # AI-enhanced adjustment if enabled
             if is_spyderx_enabled("USE_AI_RISK") and OLLAMA_AVAILABLE:
                 limits = await self._calculate_ai_position_limits(
@@ -352,13 +346,13 @@ class SpyderX04_RiskGuardianAgent:
                 limits = self._calculate_rule_based_limits(
                     symbol, base_size, risk_multiplier, portfolio
                 )
-            
+
             return limits
-            
+
         except Exception as e:
             self.logger.error(f"Position limit calculation failed: {e}")
             return self._create_conservative_limits(str(e))
-    
+
     async def monitor_real_time_risk(
         self,
         portfolio_updates: asyncio.Queue,
@@ -366,13 +360,13 @@ class SpyderX04_RiskGuardianAgent:
     ) -> None:
         """
         Monitor portfolio risk in real-time with AI alerts.
-        
+
         Args:
             portfolio_updates: Queue of portfolio updates
             alert_callback: Callback function for risk alerts
         """
         self.logger.info("Starting real-time risk monitoring")
-        
+
         while True:
             try:
                 # Get portfolio update
@@ -380,45 +374,45 @@ class SpyderX04_RiskGuardianAgent:
                     portfolio_updates.get(),
                     timeout=1.0
                 )
-                
+
                 # Quick risk check
                 risk_level = await self._quick_risk_assessment(update)
-                
+
                 # Detailed assessment if risk elevated
                 if risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL, RiskLevel.EMERGENCY]:
                     assessment = await self.assess_portfolio_risk(
                         update['portfolio'],
                         update['market_conditions']
                     )
-                    
+
                     # Generate alerts
                     alerts = self._generate_risk_alerts(assessment)
                     for alert in alerts:
                         await alert_callback(alert)
-                
+
                 # Check circuit breaker status
                 if self.circuit_breaker.active:
                     await self._check_circuit_breaker_reset(update)
-                
-            except asyncio.TimeoutError:
+
+            except TimeoutError:
                 continue
             except Exception as e:
                 self.logger.error(f"Real-time monitoring error: {e}")
-    
+
     async def execute_risk_action(
         self,
         action: RiskAction,
-        portfolio: Dict[str, Any],
-        params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        portfolio: dict[str, Any],
+        params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Execute risk management action with AI validation.
-        
+
         Args:
             action: Risk action to execute
             portfolio: Current portfolio
             params: Additional parameters
-            
+
         Returns:
             Execution result
         """
@@ -429,36 +423,36 @@ class SpyderX04_RiskGuardianAgent:
                 if not validation['approved']:
                     self.logger.warning(f"AI rejected risk action: {validation['reason']}")
                     return {'success': False, 'reason': validation['reason']}
-            
+
             # Execute action
             result = await self._execute_action(action, portfolio, params)
-            
+
             # Track performance
             if result['success']:
                 self._track_risk_action_performance(action, result)
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Risk action execution failed: {e}")
             return {'success': False, 'error': str(e)}
-    
+
     # ==========================================================================
     # PRIVATE METHODS - RISK CALCULATIONS
     # ==========================================================================
     async def _calculate_risk_metrics(
         self,
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
     ) -> RiskMetrics:
         """Calculate comprehensive risk metrics"""
         positions = portfolio.get('positions', [])
         returns = self._calculate_portfolio_returns(positions, market_conditions)
-        
+
         # VaR and Expected Shortfall
         var = self._calculate_var(returns, VAR_CONFIDENCE)
         es = self._calculate_expected_shortfall(returns, VAR_CONFIDENCE)
-        
+
         # Position-level risks
         position_risks = {}
         risk_contributions = {}
@@ -466,20 +460,20 @@ class SpyderX04_RiskGuardianAgent:
             position_var = self._calculate_position_var(position, market_conditions)
             position_risks[position['symbol']] = position_var
             risk_contributions[position['symbol']] = position_var / var if var > 0 else 0
-        
+
         # Correlation matrix
         correlation_matrix = self._calculate_correlation_matrix(positions, market_conditions)
-        
+
         # Drawdown metrics
         max_dd, current_dd = self._calculate_drawdown_metrics(portfolio)
-        
+
         # Risk-adjusted returns
         sharpe = self._calculate_sharpe_ratio(returns)
         sortino = self._calculate_sortino_ratio(returns)
-        
+
         # Beta
         beta = self._calculate_portfolio_beta(returns, market_conditions)
-        
+
         return RiskMetrics(
             portfolio_var=var,
             portfolio_es=es,
@@ -492,40 +486,40 @@ class SpyderX04_RiskGuardianAgent:
             beta=beta,
             risk_contribution=risk_contributions
         )
-    
+
     def _calculate_portfolio_returns(
         self,
-        positions: List[Dict[str, Any]],
-        market_conditions: Dict[str, Any]
+        positions: list[dict[str, Any]],
+        market_conditions: dict[str, Any]
     ) -> np.ndarray:
         """Calculate portfolio returns series"""
         # Simplified return calculation - in production, use actual price history
         returns = []
-        for i in range(252):  # One year of daily returns
+        for _i in range(252):  # One year of daily returns
             daily_return = np.random.normal(
                 market_conditions.get('expected_return', 0.0002),
                 market_conditions.get('volatility', 0.015)
             )
             returns.append(daily_return)
         return np.array(returns)
-    
+
     def _calculate_var(self, returns: np.ndarray, confidence: float) -> float:
         """Calculate Value at Risk"""
         return -np.percentile(returns, (1 - confidence) * 100)
-    
+
     def _calculate_expected_shortfall(self, returns: np.ndarray, confidence: float) -> float:
         """Calculate Expected Shortfall (CVaR)"""
         var = self._calculate_var(returns, confidence)
         return -returns[returns <= -var].mean()
-    
+
     async def _run_stress_tests(
         self,
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
-    ) -> Dict[str, float]:
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
+    ) -> dict[str, float]:
         """Run comprehensive stress tests"""
         stress_results = {}
-        
+
         scenarios = {
             StressScenario.MARKET_CRASH: {
                 'market_move': -0.20,  # 20% crash
@@ -549,22 +543,22 @@ class SpyderX04_RiskGuardianAgent:
                 'correlation': 1.0
             }
         }
-        
+
         for scenario, params in scenarios.items():
             loss = await self._simulate_scenario(portfolio, params)
             stress_results[scenario.value] = loss
-        
+
         return stress_results
-    
+
     # ==========================================================================
     # PRIVATE METHODS - AI ENHANCEMENT
     # ==========================================================================
     async def _enhance_with_ai_risk_analysis(
         self,
         risk_metrics: RiskMetrics,
-        stress_results: Dict[str, float],
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
+        stress_results: dict[str, float],
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
     ) -> RiskAssessment:
         """Enhance risk analysis with AI insights"""
         try:
@@ -572,7 +566,7 @@ class SpyderX04_RiskGuardianAgent:
             cache_key = self._generate_risk_cache_key(portfolio, market_conditions)
             if self._is_risk_cache_valid(cache_key):
                 return self.risk_cache[cache_key]
-            
+
             # Prepare context for AI
             context = {
                 'risk_metrics': {
@@ -591,22 +585,22 @@ class SpyderX04_RiskGuardianAgent:
                 'market': market_conditions,
                 'risk_limits': self.risk_limits
             }
-            
+
             # Query AI model
             prompt = self._construct_risk_prompt(context)
             response = await self._query_ai_model(prompt)
-            
+
             # Parse AI response
             ai_insights = self._parse_risk_ai_response(response)
-            
+
             # Determine risk level
             risk_level = self._determine_risk_level(risk_metrics, stress_results, ai_insights)
-            
+
             # Generate recommendations
             recommendations = await self._generate_ai_recommendations(
                 risk_level, risk_metrics, ai_insights
             )
-            
+
             assessment = RiskAssessment(
                 risk_level=risk_level,
                 risk_metrics=risk_metrics,
@@ -620,25 +614,25 @@ class SpyderX04_RiskGuardianAgent:
                     'reasoning': ai_insights.reasoning
                 }
             )
-            
+
             # Cache result
             self.risk_cache[cache_key] = assessment
             self.cache_timestamps[cache_key] = datetime.now()
-            
+
             self.performance_metrics['ai_queries'] += 1
-            
+
             return assessment
-            
+
         except Exception as e:
             self.logger.error(f"AI risk analysis failed: {e}")
             # Fallback to rule-based
             return self._create_rule_based_assessment(risk_metrics, stress_results)
-    
+
     async def _query_ai_model(self, prompt: str) -> str:
         """Query the AI model for risk analysis"""
         if not OLLAMA_AVAILABLE:
             return ""
-            
+
         try:
             response = await asyncio.to_thread(
                 ollama.chat,
@@ -655,14 +649,14 @@ class SpyderX04_RiskGuardianAgent:
                 ],
                 options={"temperature": self.temperature}
             )
-            
+
             return response['message']['content']
-            
+
         except Exception as e:
             self.logger.error(f"AI model query failed: {e}")
             return ""
-    
-    def _construct_risk_prompt(self, context: Dict[str, Any]) -> str:
+
+    def _construct_risk_prompt(self, context: dict[str, Any]) -> str:
         """Construct prompt for AI risk analysis"""
         return f"""Analyze the following portfolio risk metrics and provide assessment:
 
@@ -697,35 +691,35 @@ Provide:
 5. Confidence level in your assessment (0-1)
 
 Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedges, confidence"""
-    
+
     # ==========================================================================
     # PRIVATE METHODS - CIRCUIT BREAKERS
     # ==========================================================================
     async def _check_circuit_breakers(self, assessment: RiskAssessment) -> None:
         """Check and potentially trigger circuit breakers"""
         triggers = []
-        
+
         # Check VaR limit
         if assessment.risk_metrics.portfolio_var > self.risk_limits['max_portfolio_risk']:
             triggers.append('portfolio_var_exceeded')
-        
+
         # Check drawdown limit
         if assessment.risk_metrics.current_drawdown > self.risk_limits['max_drawdown']:
             triggers.append('max_drawdown_exceeded')
-        
+
         # Check stress test results
         for scenario, loss in assessment.stress_test_results.items():
             if loss > 0.25:  # 25% loss in stress scenario
                 triggers.append(f'stress_test_{scenario}_failed')
-        
+
         # Determine circuit breaker level
         if triggers:
             level = self._determine_circuit_breaker_level(triggers, assessment)
-            
+
             if level and not self.circuit_breaker.active:
                 await self._activate_circuit_breaker(level, triggers)
-    
-    async def _activate_circuit_breaker(self, level: str, triggers: List[str]) -> None:
+
+    async def _activate_circuit_breaker(self, level: str, triggers: list[str]) -> None:
         """Activate circuit breaker"""
         self.circuit_breaker = CircuitBreakerStatus(
             active=True,
@@ -735,13 +729,13 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
             estimated_reset_time=datetime.now() + timedelta(minutes=30),
             override_allowed=(level != 'EMERGENCY')
         )
-        
+
         self.performance_metrics['circuit_breaker_triggers'] += 1
-        
+
         self.logger.warning(
             f"Circuit breaker activated: Level={level}, Triggers={triggers}"
         )
-    
+
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================
@@ -756,35 +750,35 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
             RiskLevel.EMERGENCY: 0.0
         }
         return multipliers.get(risk_level, 0.5)
-    
-    def _calculate_concentration(self, portfolio: Dict[str, Any]) -> float:
+
+    def _calculate_concentration(self, portfolio: dict[str, Any]) -> float:
         """Calculate portfolio concentration (Herfindahl index)"""
         positions = portfolio.get('positions', [])
         if not positions:
             return 0.0
-            
+
         total_value = sum(p.get('value', 0) for p in positions)
         if total_value == 0:
             return 0.0
-            
+
         concentration = sum(
             (p.get('value', 0) / total_value) ** 2
             for p in positions
         )
         return concentration
-    
+
     def _is_risk_cache_valid(self, cache_key: str) -> bool:
         """Check if cached risk assessment is still valid"""
         if cache_key not in self.cache_timestamps:
             return False
-            
+
         age = (datetime.now() - self.cache_timestamps[cache_key]).total_seconds()
         return age < RISK_CACHE_TTL
-    
+
     def _generate_risk_cache_key(
         self,
-        portfolio: Dict[str, Any],
-        market_conditions: Dict[str, Any]
+        portfolio: dict[str, Any],
+        market_conditions: dict[str, Any]
     ) -> str:
         """Generate cache key for risk assessment"""
         key_data = {
@@ -794,12 +788,12 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode()).hexdigest()
-    
-    def get_performance_metrics(self) -> Dict[str, Any]:
+
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get agent performance metrics"""
         return self.performance_metrics.copy()
-    
-    def get_risk_history(self, periods: int = 100) -> List[Dict[str, Any]]:
+
+    def get_risk_history(self, periods: int = 100) -> list[dict[str, Any]]:
         """Get recent risk history"""
         return list(self.risk_history)[-periods:]
 
@@ -812,11 +806,11 @@ def create_risk_guardian_agent(
 ) -> SpyderX04_RiskGuardianAgent:
     """
     Factory function to create Risk Guardian Agent instance.
-    
+
     Args:
         model_name: Ollama model to use
         temperature: Temperature for AI responses
-        
+
     Returns:
         SpyderX04_RiskGuardianAgent instance
     """

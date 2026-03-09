@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -34,11 +33,9 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import time
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from datetime import datetime, timedelta
+from enum import Enum
+from datetime import datetime
 from collections import deque
 import warnings
 
@@ -50,7 +47,7 @@ import numpy as np
 from scipy import stats
 from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.cluster import hierarchy
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist
 
 # Optional: HMM for regime detection
 try:
@@ -58,7 +55,7 @@ try:
     HMM_AVAILABLE = True
 except ImportError:
     HMM_AVAILABLE = False
-    warnings.warn("hmmlearn not installed. HMM regime detection disabled.")
+    warnings.warn("hmmlearn not installed. HMM regime detection disabled.", stacklevel=2)
 
 # Optional: EVT for tail risk
 try:
@@ -162,8 +159,8 @@ class FrustrationMetrics:
     strong_frustration: float             # |product| >= 0.3
 
     # Sector frustration (if sector data available)
-    sector_frustration: Dict[str, float] = field(default_factory=dict)
-    most_frustrated_pairs: List[Tuple[str, str, float]] = field(default_factory=list)
+    sector_frustration: dict[str, float] = field(default_factory=dict)
+    most_frustrated_pairs: list[tuple[str, str, float]] = field(default_factory=list)
 
 @dataclass
 class EnergyMetrics:
@@ -224,7 +221,7 @@ class ReplicaSymmetryMetrics:
     # Overlap distribution
     overlap_mean: float                   # Average overlap between time windows
     overlap_variance: float               # Variance of overlaps
-    overlap_distribution: List[float] = field(default_factory=list)
+    overlap_distribution: list[float] = field(default_factory=list)
 
     # RSB detection
     rsb_detected: bool = False
@@ -273,19 +270,19 @@ class SpinGlassAnalysis:
     ultrametric: UltrametricMetrics
 
     # HMM regime (if available)
-    hmm_regime: Optional[str] = None
-    hmm_regime_probability: Optional[float] = None
+    hmm_regime: str | None = None
+    hmm_regime_probability: float | None = None
 
     # EVT tail risk (if available)
-    evt_shape_parameter: Optional[float] = None
-    evt_tail_probability: Optional[float] = None
+    evt_shape_parameter: float | None = None
+    evt_tail_probability: float | None = None
 
     # Overall assessment
     market_stability: str = "stable"                 # "stable", "unstable", "critical"
     confidence: float = 0.5                     # Confidence in assessment
 
     # Actionable signals
-    signals: List[str] = field(default_factory=list)
+    signals: list[str] = field(default_factory=list)
     trading_recommendation: TradingImplication = TradingImplication.NEUTRAL
 
 # ==============================================================================
@@ -331,9 +328,9 @@ class FrustrationAnalyzer:
         self.use_evt = use_evt and EVT_AVAILABLE
 
         # HMM model
-        self.hmm_model: Optional[GaussianHMM] = None
+        self.hmm_model: GaussianHMM | None = None
         self.hmm_trained = False
-        self.regime_map: Dict[int, str] = {}
+        self.regime_map: dict[int, str] = {}
 
         # Historical tracking
         self.frustration_history: deque = deque(maxlen=500)
@@ -342,9 +339,9 @@ class FrustrationAnalyzer:
         self.phase_history: deque = deque(maxlen=100)
 
         # Baseline statistics (computed on initialization)
-        self.baseline_frustration: Optional[float] = None
-        self.baseline_energy: Optional[float] = None
-        self.baseline_mst_length: Optional[float] = None
+        self.baseline_frustration: float | None = None
+        self.baseline_energy: float | None = None
+        self.baseline_mst_length: float | None = None
 
         self.logger.info("FrustrationAnalyzer initialized")
         if not HMM_AVAILABLE:
@@ -354,7 +351,7 @@ class FrustrationAnalyzer:
     # PUBLIC METHODS
     # ==========================================================================
 
-    def initialize(self, historical_returns: Optional[pd.DataFrame] = None) -> bool:
+    def initialize(self, historical_returns: pd.DataFrame | None = None) -> bool:
         """
         Initialize the analyzer, optionally with historical data for baseline.
 
@@ -391,9 +388,9 @@ class FrustrationAnalyzer:
     def analyze(
         self,
         returns_data: pd.DataFrame,
-        correlation_matrix: Optional[np.ndarray] = None,
-        weights: Optional[np.ndarray] = None,
-        sector_mapping: Optional[Dict[str, str]] = None
+        correlation_matrix: np.ndarray | None = None,
+        weights: np.ndarray | None = None,
+        sector_mapping: dict[str, str] | None = None
     ) -> SpinGlassAnalysis:
         """
         Perform complete spin glass analysis on market data.
@@ -587,8 +584,8 @@ class FrustrationAnalyzer:
     def _calculate_frustration(
         self,
         correlation_matrix: np.ndarray,
-        asset_names: List[str],
-        sector_mapping: Optional[Dict[str, str]] = None
+        asset_names: list[str],
+        sector_mapping: dict[str, str] | None = None
     ) -> FrustrationMetrics:
         """
         Calculate frustration index and related metrics.
@@ -609,7 +606,7 @@ class FrustrationAnalyzer:
         strong_frustrated = 0
         total_triangles = 0
 
-        frustrated_pairs: List[Tuple[str, str, float]] = []
+        frustrated_pairs: list[tuple[str, str, float]] = []
 
         # Iterate through all triangles
         for i in range(n):
@@ -688,12 +685,12 @@ class FrustrationAnalyzer:
     def _calculate_sector_frustration(
         self,
         correlation_matrix: np.ndarray,
-        asset_names: List[str],
-        sector_mapping: Dict[str, str]
-    ) -> Dict[str, float]:
+        asset_names: list[str],
+        sector_mapping: dict[str, str]
+    ) -> dict[str, float]:
         """Calculate frustration by sector."""
         # Group assets by sector
-        sectors: Dict[str, List[int]] = {}
+        sectors: dict[str, list[int]] = {}
         for i, asset in enumerate(asset_names):
             sector = sector_mapping.get(asset, "Unknown")
             if sector not in sectors:
@@ -1047,7 +1044,7 @@ class FrustrationAnalyzer:
     def _analyze_mst_clusters(
         self,
         mst_array: np.ndarray
-    ) -> Tuple[int, int, float]:
+    ) -> tuple[int, int, float]:
         """Analyze cluster structure from MST."""
         n = mst_array.shape[0]
 
@@ -1107,7 +1104,7 @@ class FrustrationAnalyzer:
         mst_warning = ultrametric.collapse_detected
 
         # Count active warnings
-        warning_count = sum([energy_warning, frustration_warning, rsb_warning, mst_warning])
+        sum([energy_warning, frustration_warning, rsb_warning, mst_warning])
 
         # Combined warning score (0-100)
         warning_score = (
@@ -1208,7 +1205,7 @@ class FrustrationAnalyzer:
     def _detect_hmm_regime(
         self,
         returns_data: pd.DataFrame
-    ) -> Tuple[Optional[str], Optional[float]]:
+    ) -> tuple[str | None, float | None]:
         """Detect regime using trained HMM."""
         if not self.hmm_trained or self.hmm_model is None:
             return None, None
@@ -1242,7 +1239,7 @@ class FrustrationAnalyzer:
         self,
         returns_data: pd.DataFrame,
         threshold_quantile: float = 0.95
-    ) -> Tuple[Optional[float], Optional[float]]:
+    ) -> tuple[float | None, float | None]:
         """
         Calculate tail risk using Extreme Value Theory (Peaks Over Threshold).
         """
@@ -1293,7 +1290,7 @@ class FrustrationAnalyzer:
         energy: EnergyMetrics,
         phase: PhaseTransitionMetrics,
         ultrametric: UltrametricMetrics
-    ) -> Tuple[List[str], TradingImplication]:
+    ) -> tuple[list[str], TradingImplication]:
         """Generate actionable trading signals."""
         signals = []
 
@@ -1339,11 +1336,7 @@ class FrustrationAnalyzer:
         """Assess overall market stability."""
         if phase.current_phase in [MarketPhase.CRISIS, MarketPhase.PHASE_TRANSITION]:
             return "critical"
-        elif phase.current_phase == MarketPhase.REPLICA_SYMMETRY_BREAKING:
-            return "unstable"
-        elif phase.warning_score > 40:
-            return "unstable"
-        elif energy.stability_score < 50:
+        elif phase.current_phase == MarketPhase.REPLICA_SYMMETRY_BREAKING or phase.warning_score > 40 or energy.stability_score < 50:
             return "unstable"
         else:
             return "stable"
@@ -1573,52 +1566,52 @@ async def main():
     logging.info("ANALYSIS RESULTS")
     logging.info("=" * 80)
 
-    logging.info(f"\nFRUSTRATION METRICS:")
+    logging.info("\nFRUSTRATION METRICS:")
     logging.info(f"  Frustration Index: {analysis.frustration.frustration_index:.1%}")
     logging.info(f"  Frustrated Triangles: {analysis.frustration.frustrated_triangle_count}/{analysis.frustration.total_triangle_count}")
     logging.info(f"  Level: {analysis.frustration.frustration_level.value.upper()}")
     logging.info(f"  Strong Frustration: {analysis.frustration.strong_frustration:.1%}")
 
-    logging.info(f"\nENERGY METRICS:")
+    logging.info("\nENERGY METRICS:")
     logging.info(f"  Hamiltonian: {analysis.energy.hamiltonian:.4f}")
     logging.info(f"  Normalized Energy: {analysis.energy.normalized_energy:.3f}")
     logging.info(f"  Barrier Height: {analysis.energy.barrier_height:.3f}")
     logging.info(f"  Stability Score: {analysis.energy.stability_score:.1f}/100")
 
-    logging.info(f"\nPHASE TRANSITION:")
+    logging.info("\nPHASE TRANSITION:")
     logging.info(f"  Current Phase: {analysis.phase_transition.current_phase.value.upper()}")
     logging.info(f"  Warning Score: {analysis.phase_transition.warning_score:.1f}/100")
     logging.info(f"  Transition Detected: {analysis.phase_transition.transition_detected}")
     logging.info(f"  Trading Implication: {analysis.phase_transition.trading_implication.value.upper()}")
 
-    logging.info(f"\nREPLICA SYMMETRY:")
+    logging.info("\nREPLICA SYMMETRY:")
     logging.info(f"  RSB Detected: {analysis.replica_symmetry.rsb_detected}")
     logging.info(f"  RSB Strength: {analysis.replica_symmetry.rsb_strength:.3f}")
     logging.info(f"  Order Parameter: {analysis.replica_symmetry.order_parameter:.3f}")
 
-    logging.info(f"\nULTRAMETRIC ANALYSIS:")
+    logging.info("\nULTRAMETRIC ANALYSIS:")
     logging.info(f"  MST Length (normalized): {analysis.ultrametric.mst_normalized_length:.3f}")
     logging.info(f"  Collapse Detected: {analysis.ultrametric.collapse_detected}")
     logging.info(f"  Ultrametric Score: {analysis.ultrametric.ultrametric_score:.3f}")
     logging.info(f"  Clusters: {analysis.ultrametric.n_clusters}")
 
     if analysis.hmm_regime:
-        logging.info(f"\nHMM REGIME:")
+        logging.info("\nHMM REGIME:")
         logging.info(f"  Current: {analysis.hmm_regime}")
         logging.info(f"  Probability: {analysis.hmm_regime_probability:.1%}")
 
     if analysis.evt_shape_parameter is not None:
-        logging.info(f"\nEVT TAIL RISK:")
+        logging.info("\nEVT TAIL RISK:")
         logging.info(f"  Shape Parameter (xi): {analysis.evt_shape_parameter:.3f}")
         logging.info(f"  Tail Probability: {analysis.evt_tail_probability:.4f}")
 
-    logging.info(f"\nOVERALL ASSESSMENT:")
+    logging.info("\nOVERALL ASSESSMENT:")
     logging.info(f"  Market Stability: {analysis.market_stability.upper()}")
     logging.info(f"  Confidence: {analysis.confidence:.1%}")
     logging.info(f"  Recommendation: {analysis.trading_recommendation.value.upper()}")
 
     if analysis.signals:
-        logging.info(f"\nSIGNALS:")
+        logging.info("\nSIGNALS:")
         for signal in analysis.signals:
             logging.info(f"  - {signal}")
 

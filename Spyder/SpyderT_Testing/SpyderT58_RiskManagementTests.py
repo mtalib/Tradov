@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -102,12 +101,12 @@ PositionSizingResult = _e14.PositionSizingResult
 # HELPERS
 # ==============================================================================
 
-def _flat_returns(daily_r: float, n: int = 252) -> List[float]:
+def _flat_returns(daily_r: float, n: int = 252) -> list[float]:
     """Build a list of identical daily returns."""
     return [daily_r] * n
 
 
-def _up_returns(start: float = 100, n: int = 252, step: float = 1.0) -> List[float]:
+def _up_returns(start: float = 100, n: int = 252, step: float = 1.0) -> list[float]:
     """Build an upward-trending equity curve and return simple returns."""
     prices = [start + i * step for i in range(n + 1)]
     return calculate_returns(prices)
@@ -258,7 +257,7 @@ class TestCalculateSharpeRatio(unittest.TestCase):
     def test_positive_high_return_positive_sharpe(self):
         # High, volatile returns — Sharpe might be positive or negative depending
         # on annualized excess over risk-free, but with 0.3% daily it's positive
-        rets = _flat_returns(0.003, 252)
+        _flat_returns(0.003, 252)
         # Constant returns → zero vol → 0; use mixed returns
         mixed = [0.003 if i % 2 == 0 else 0.001 for i in range(252)]
         result = calculate_sharpe_ratio(mixed)
@@ -617,9 +616,9 @@ class TestKellyCalculation(unittest.TestCase):
 
     def test_expected_return_formula(self):
         # E[return] = p * avg_win - (1-p) * avg_loss
-        p, w, l = 0.60, 100.0, 80.0
-        expected = p * w - (1 - p) * l
-        result = self.sizer.calculate_kelly(p, avg_win=w, avg_loss=l)
+        p, w, loss = 0.60, 100.0, 80.0
+        expected = p * w - (1 - p) * loss
+        result = self.sizer.calculate_kelly(p, avg_win=w, avg_loss=loss)
         self.assertAlmostEqual(result.expected_return, expected, places=6)
 
     def test_risk_reward_ratio(self):

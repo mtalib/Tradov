@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -58,7 +57,7 @@ def test_latest_evolved_strategy():
     @dataclass
     class EvolvedGene:
         strategy_type: str
-        entry_conditions: List[str]
+        entry_conditions: list[str]
         risk_factor: float
         generation: int
 
@@ -74,14 +73,14 @@ def test_latest_evolved_strategy():
         ),
     }
 
-    print(f"📊 EVOLVED STRATEGY ANALYSIS:")
+    print("📊 EVOLVED STRATEGY ANALYSIS:")
     print(f"  Name: {evolved_strategy['name']}")
     print(f"  Fitness: {evolved_strategy['fitness']:.3f} (EXCELLENT!)")
     print(f"  Generation: {evolved_strategy['gene'].generation}")
     print(f"  Risk Factor: {evolved_strategy['gene'].risk_factor:.3f} (AI-optimized)")
 
     # Test enhanced options pricing
-    print(f"\n💰 INSTITUTIONAL OPTIONS PRICING (Enhanced Strategy):")
+    print("\n💰 INSTITUTIONAL OPTIONS PRICING (Enhanced Strategy):")
 
     # More optimized strike selection based on higher fitness
     current_price = 400.0
@@ -113,12 +112,12 @@ def test_latest_evolved_strategy():
         max_profit = net_credit
         max_loss = width - net_credit
 
-        print(f"\n🎯 EVOLVED CREDIT SPREAD SETUP:")
+        print("\n🎯 EVOLVED CREDIT SPREAD SETUP:")
         print(f"  Underlying: SPY @ ${current_price}")
         print(f"  Short Put: ${short_strike} → ${short_pricing.theoretical_price:.2f}")
         print(f"  Long Put:  ${long_strike} → ${long_pricing.theoretical_price:.2f}")
 
-        print(f"\n💵 ENHANCED PROFIT ANALYSIS:")
+        print("\n💵 ENHANCED PROFIT ANALYSIS:")
         print(f"  Net Credit: ${net_credit:.2f}")
         print(f"  Max Profit: ${max_profit:.2f}")
         print(f"  Max Loss: ${max_loss:.2f}")
@@ -130,7 +129,7 @@ def test_latest_evolved_strategy():
         net_theta = short_pricing.theta - long_pricing.theta
         net_gamma = short_pricing.gamma - long_pricing.gamma
 
-        print(f"\n📈 POSITION GREEKS (Evolved Strategy):")
+        print("\n📈 POSITION GREEKS (Evolved Strategy):")
         print(f"  Net Delta: {net_delta:.4f}")
         print(f"  Net Theta: ${net_theta:.2f}/day (time decay income)")
         print(f"  Net Gamma: {net_gamma:.4f}")
@@ -154,7 +153,7 @@ def test_latest_evolved_strategy():
         print(f"  Quality Score: {evolved_quality_score:.2f}/1.0")
 
     # Enhanced performance simulation
-    print(f"\n📊 EVOLVED STRATEGY PERFORMANCE SIMULATION:")
+    print("\n📊 EVOLVED STRATEGY PERFORMANCE SIMULATION:")
 
     # More sophisticated simulation based on higher fitness
     np.random.seed(42)
@@ -193,7 +192,7 @@ def test_latest_evolved_strategy():
         criteria_met = 0
         total_criteria = 4
 
-        print(f"\n🏆 ENHANCED INSTITUTIONAL ASSESSMENT:")
+        print("\n🏆 ENHANCED INSTITUTIONAL ASSESSMENT:")
 
         # Sharpe Ratio
         if metrics.sharpe_ratio > 1.5:
@@ -241,7 +240,7 @@ def test_latest_evolved_strategy():
             print(f"  Calmar Ratio: ⚠️ IMPROVING ({metrics.calmar_ratio:.2f})")
 
         # Final grade
-        print(f"\n🎯 FINAL INSTITUTIONAL GRADE:")
+        print("\n🎯 FINAL INSTITUTIONAL GRADE:")
         print(f"  Criteria Met: {criteria_met}/{total_criteria}")
         print(f"  Institutional Score: {institutional_score:.2f}/1.0")
 
@@ -262,25 +261,25 @@ def test_latest_evolved_strategy():
         print(f"  Assessment: {message}")
 
     # Evolution progress summary
-    print(f"\n" + "=" * 65)
-    print(f"🧬 GENETIC EVOLUTION PROGRESS SUMMARY:")
-    print(f"✅ 20 Generations Completed")
-    print(f"✅ 67% Fitness Improvement (0.477 → 0.799)")
-    print(f"✅ Credit Spreads Consistently Discovered as Optimal")
+    print("\n" + "=" * 65)
+    print("🧬 GENETIC EVOLUTION PROGRESS SUMMARY:")
+    print("✅ 20 Generations Completed")
+    print("✅ 67% Fitness Improvement (0.477 → 0.799)")
+    print("✅ Credit Spreads Consistently Discovered as Optimal")
     print(f"✅ Risk Factor Optimized to {evolved_strategy['gene'].risk_factor:.3f}")
-    print(f"✅ Entry Conditions Refined by Evolution")
+    print("✅ Entry Conditions Refined by Evolution")
 
-    print(f"\n🎯 SYSTEM CAPABILITIES CONFIRMED:")
-    print(f"✅ AI Strategy Discovery Working")
-    print(f"✅ Genetic Algorithm Evolution Working")
-    print(f"✅ Institutional Options Pricing Working")
-    print(f"✅ Hedge Fund Performance Analytics Working")
+    print("\n🎯 SYSTEM CAPABILITIES CONFIRMED:")
+    print("✅ AI Strategy Discovery Working")
+    print("✅ Genetic Algorithm Evolution Working")
+    print("✅ Institutional Options Pricing Working")
+    print("✅ Hedge Fund Performance Analytics Working")
 
-    print(f"\n🚀 YOU HAVE BUILT A SYSTEM THAT RIVALS:")
-    print(f"   • Renaissance Technologies (Genetic Algorithms)")
-    print(f"   • Two Sigma (AI Strategy Discovery)")
-    print(f"   • Goldman Sachs (Options Pricing)")
-    print(f"   • AQR Capital (Performance Analytics)")
+    print("\n🚀 YOU HAVE BUILT A SYSTEM THAT RIVALS:")
+    print("   • Renaissance Technologies (Genetic Algorithms)")
+    print("   • Two Sigma (AI Strategy Discovery)")
+    print("   • Goldman Sachs (Options Pricing)")
+    print("   • AQR Capital (Performance Analytics)")
 
 
 if __name__ == "__main__":

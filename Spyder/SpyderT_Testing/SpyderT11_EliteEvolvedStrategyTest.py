@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -49,7 +48,7 @@ class EliteEvolvedGene:
     """Elite evolved genetic parameters for world-class strategies."""
 
     strategy_type: str
-    entry_conditions: List[str]
+    entry_conditions: list[str]
     risk_factor: float
     generation: int
     fitness: float
@@ -110,9 +109,9 @@ def test_elite_evolved_strategy():
     return pricing_success and simulation_success
 
 
-def _display_elite_strategy_analysis(elite_strategy: Dict[str, Any]) -> None:
+def _display_elite_strategy_analysis(elite_strategy: dict[str, Any]) -> None:
     """Display comprehensive analysis of the elite strategy."""
-    print(f"🧬 ELITE STRATEGY ANALYSIS:")
+    print("🧬 ELITE STRATEGY ANALYSIS:")
     print(f"  Name: {elite_strategy['name']}")
     print(f"  Fitness: {elite_strategy['fitness']:.3f} (WORLD-CLASS!)")
     print(f"  Performance Class: {elite_strategy['performance_class']}")
@@ -122,9 +121,9 @@ def _display_elite_strategy_analysis(elite_strategy: Dict[str, Any]) -> None:
     print(f"  Risk Factor: {elite_strategy['gene'].risk_factor:.3f} (ULTRA-OPTIMIZED)")
 
 
-def _test_elite_options_pricing(libs, elite_strategy: Dict[str, Any]) -> bool:
+def _test_elite_options_pricing(libs, elite_strategy: dict[str, Any]) -> bool:
     """Test elite institutional options pricing capabilities."""
-    print(f"\n💎 ELITE INSTITUTIONAL OPTIONS PRICING:")
+    print("\n💎 ELITE INSTITUTIONAL OPTIONS PRICING:")
 
     try:
         # Elite strike selection - more aggressive due to ultra-high confidence
@@ -175,7 +174,7 @@ def _analyze_elite_credit_spread(
     short_strike: float,
     long_strike: float,
     current_price: float,
-    elite_strategy: Dict[str, Any],
+    elite_strategy: dict[str, Any],
 ) -> bool:
     """Analyze the elite credit spread setup and quality."""
 
@@ -184,12 +183,12 @@ def _analyze_elite_credit_spread(
     max_profit = net_credit
     max_loss = width - net_credit
 
-    print(f"\n💎 ELITE CREDIT SPREAD SETUP:")
+    print("\n💎 ELITE CREDIT SPREAD SETUP:")
     print(f"  Underlying: SPY @ ${current_price}")
     print(f"  Short Put: ${short_strike} → ${short_pricing.theoretical_price:.2f}")
     print(f"  Long Put:  ${long_strike} → ${long_pricing.theoretical_price:.2f}")
 
-    print(f"\n🏆 ELITE PROFIT ANALYSIS:")
+    print("\n🏆 ELITE PROFIT ANALYSIS:")
     print(f"  Net Credit: ${net_credit:.2f}")
     print(f"  Max Profit: ${max_profit:.2f}")
     print(f"  Max Loss: ${max_loss:.2f}")
@@ -201,7 +200,7 @@ def _analyze_elite_credit_spread(
     net_theta = short_pricing.theta - long_pricing.theta
     net_gamma = short_pricing.gamma - long_pricing.gamma
 
-    print(f"\n📈 ELITE POSITION GREEKS:")
+    print("\n📈 ELITE POSITION GREEKS:")
     print(f"  Net Delta: {net_delta:.4f} (ultra-precise)")
     print(f"  Net Theta: ${net_theta:.2f}/day (elite time decay)")
     print(f"  Net Gamma: {net_gamma:.4f} (optimized convexity)")
@@ -241,9 +240,9 @@ def _determine_quality_status(score: float) -> str:
         return "✅ EXCELLENT SETUP"
 
 
-def _run_elite_performance_simulation(libs, elite_strategy: Dict[str, Any]) -> bool:
+def _run_elite_performance_simulation(libs, elite_strategy: dict[str, Any]) -> bool:
     """Run elite strategy performance simulation with institutional metrics."""
-    print(f"\n📊 ELITE STRATEGY PERFORMANCE SIMULATION:")
+    print("\n📊 ELITE STRATEGY PERFORMANCE SIMULATION:")
 
     try:
         # Ultra-sophisticated simulation based on 0.949 fitness
@@ -285,7 +284,7 @@ def _generate_elite_returns(base_return: float, volatility: float) -> pd.Series:
     return pd.Series(returns, index=pd.date_range("2024-01-01", periods=252, freq="D"))
 
 
-def _display_performance_metrics(elite_strategy: Dict[str, Any], metrics) -> None:
+def _display_performance_metrics(elite_strategy: dict[str, Any], metrics) -> None:
     """Display comprehensive performance metrics."""
     print(f"  Strategy: {elite_strategy['name']}")
     print(f"  Elite Fitness: {elite_strategy['fitness']:.3f}")
@@ -303,7 +302,7 @@ def _assess_institutional_grade(metrics) -> None:
     criteria_met = 0
     total_criteria = 5
 
-    print(f"\n💎 ELITE INSTITUTIONAL ASSESSMENT:")
+    print("\n💎 ELITE INSTITUTIONAL ASSESSMENT:")
 
     # Comprehensive institutional assessment
     institutional_score += _assess_sharpe_ratio(metrics.sharpe_ratio)
@@ -416,7 +415,7 @@ def _display_final_assessment(
     institutional_score: float, criteria_met: int, total_criteria: int
 ) -> None:
     """Display final elite assessment results."""
-    print(f"\n🎯 FINAL ELITE ASSESSMENT:")
+    print("\n🎯 FINAL ELITE ASSESSMENT:")
     print(f"  Criteria Met: {criteria_met}/{total_criteria}")
     print(f"  Institutional Score: {institutional_score:.2f}/1.0")
 
@@ -440,34 +439,34 @@ def _display_final_assessment(
     print(f"  Assessment: {message}")
 
 
-def _display_evolution_summary(elite_strategy: Dict[str, Any]) -> None:
+def _display_evolution_summary(elite_strategy: dict[str, Any]) -> None:
     """Display comprehensive evolution achievement summary."""
-    print(f"\n" + "=" * 70)
-    print(f"🧬 ELITE GENETIC EVOLUTION ACHIEVEMENT SUMMARY:")
-    print(f"🏆 50 Generations Completed with ELITE Results")
-    print(f"🚀 24.5% Fitness Improvement (0.762 → 0.949)")
-    print(f"💎 WORLD-CLASS Fitness Achieved (TOP 1%)")
-    print(f"🎯 Credit Spreads Consistently Optimal")
+    print("\n" + "=" * 70)
+    print("🧬 ELITE GENETIC EVOLUTION ACHIEVEMENT SUMMARY:")
+    print("🏆 50 Generations Completed with ELITE Results")
+    print("🚀 24.5% Fitness Improvement (0.762 → 0.949)")
+    print("💎 WORLD-CLASS Fitness Achieved (TOP 1%)")
+    print("🎯 Credit Spreads Consistently Optimal")
     print(f"⚡ Ultra-Low Risk Factor: {elite_strategy['gene'].risk_factor:.3f}")
-    print(f"🧠 AI-Discovered Elite Entry Conditions")
+    print("🧠 AI-Discovered Elite Entry Conditions")
 
-    print(f"\n🌟 ELITE SYSTEM CAPABILITIES CONFIRMED:")
-    print(f"💎 World-Class AI Strategy Discovery")
-    print(f"🏆 Elite Genetic Algorithm Evolution")
-    print(f"⚡ Ultra-Precise Institutional Options Pricing")
-    print(f"📊 Top-Tier Hedge Fund Performance Analytics")
+    print("\n🌟 ELITE SYSTEM CAPABILITIES CONFIRMED:")
+    print("💎 World-Class AI Strategy Discovery")
+    print("🏆 Elite Genetic Algorithm Evolution")
+    print("⚡ Ultra-Precise Institutional Options Pricing")
+    print("📊 Top-Tier Hedge Fund Performance Analytics")
 
-    print(f"\n🚀 YOUR SYSTEM NOW RIVALS THE ABSOLUTE BEST:")
-    print(f"   💎 Renaissance Technologies Medallion Fund")
-    print(f"   🏆 Two Sigma Compass Fund (Elite AI)")
-    print(f"   ⚡ DE Shaw Alpha Strategies")
-    print(f"   📊 Citadel Wellington (Top Quant)")
+    print("\n🚀 YOUR SYSTEM NOW RIVALS THE ABSOLUTE BEST:")
+    print("   💎 Renaissance Technologies Medallion Fund")
+    print("   🏆 Two Sigma Compass Fund (Elite AI)")
+    print("   ⚡ DE Shaw Alpha Strategies")
+    print("   📊 Citadel Wellington (Top Quant)")
 
-    print(f"\n🎯 ELITE STATUS ACHIEVED:")
-    print(f"   You've built a TOP 1% AI trading system!")
-    print(f"   0.949 fitness = World-class performance")
-    print(f"   Ready for institutional deployment")
-    print(f"   Capable of managing significant capital")
+    print("\n🎯 ELITE STATUS ACHIEVED:")
+    print("   You've built a TOP 1% AI trading system!")
+    print("   0.949 fitness = World-class performance")
+    print("   Ready for institutional deployment")
+    print("   Capable of managing significant capital")
 
 
 # ==============================================================================

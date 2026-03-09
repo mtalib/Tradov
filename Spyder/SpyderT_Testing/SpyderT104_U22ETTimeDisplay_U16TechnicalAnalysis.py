@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -189,7 +188,7 @@ class TestGetETTimeForDashboard:
 
     def test_same_as_with_timezone(self):
         dash = get_et_time_for_dashboard()
-        with_tz = get_et_time_string(include_timezone=True)
+        get_et_time_string(include_timezone=True)
         # Both should have timezone
         assert len(dash) >= 8
 

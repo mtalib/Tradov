@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,15 +25,14 @@ Change Log:
 import copy
 import json
 import os
-import re
 import threading
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -49,7 +47,7 @@ try:
 except ImportError:
     TOML_AVAILABLE = False
 
-from jsonschema import Draft7Validator, ValidationError, validate
+from jsonschema import ValidationError, validate
 
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType
 # ==============================================================================
@@ -219,7 +217,7 @@ class ConfigVersion:
     version: str
     timestamp: datetime
     checksum: str
-    changes: List[str] = field(default_factory=list)
+    changes: list[str] = field(default_factory=list)
     author: str = "system"
 
 
@@ -240,8 +238,8 @@ class ValidationResult:
     """Configuration validation result"""
 
     is_valid: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # ==============================================================================
@@ -264,9 +262,9 @@ class MarketConfigManager:
 
     def __init__(
         self,
-        config_dir: Optional[str] = None,
-        environment: Optional[str] = None,
-        event_manager: Optional[EventManager] = None,
+        config_dir: str | None = None,
+        environment: str | None = None,
+        event_manager: EventManager | None = None,
     ):
         """Initialize configuration manager"""
         self.logger = SpyderLogger.get_logger(__name__)
@@ -278,22 +276,22 @@ class MarketConfigManager:
         self.environment = environment or os.getenv("SPYDER_ENV", DEFAULT_ENVIRONMENT)
 
         # Storage
-        self.configs: Dict[str, Dict[str, Any]] = {}
-        self.schemas: Dict[str, Dict[str, Any]] = {}
-        self.defaults: Dict[str, Dict[str, Any]] = {}
-        self.overrides: Dict[str, Dict[str, Any]] = {}
+        self.configs: dict[str, dict[str, Any]] = {}
+        self.schemas: dict[str, dict[str, Any]] = {}
+        self.defaults: dict[str, dict[str, Any]] = {}
+        self.overrides: dict[str, dict[str, Any]] = {}
 
         # Versioning
-        self.versions: Dict[str, List[ConfigVersion]] = defaultdict(list)
+        self.versions: dict[str, list[ConfigVersion]] = defaultdict(list)
         self.current_version = self._generate_version()
 
         # Change tracking
-        self.change_history: List[ConfigChange] = []
-        self.change_callbacks: Dict[str, List[Callable]] = defaultdict(list)
+        self.change_history: list[ConfigChange] = []
+        self.change_callbacks: dict[str, list[Callable]] = defaultdict(list)
 
         # File watching
-        self.file_watchers: Dict[str, float] = {}  # file -> last_modified
-        self.watch_thread: Optional[threading.Thread] = None
+        self.file_watchers: dict[str, float] = {}  # file -> last_modified
+        self.watch_thread: threading.Thread | None = None
         self.watching = False
 
         # Thread safety
@@ -382,7 +380,7 @@ class MarketConfigManager:
 
         self.logger.info("Configuration manager stopped")
 
-    def get(self, category: str, key: Optional[str] = None, default: Any = None) -> Any:
+    def get(self, category: str, key: str | None = None, default: Any = None) -> Any:
         """
         Get configuration value.
 
@@ -499,7 +497,7 @@ class MarketConfigManager:
             self.logger.error(f"Failed to override {category}.{key}: {e}")
             return False
 
-    def clear_overrides(self, category: Optional[str] = None):
+    def clear_overrides(self, category: str | None = None):
         """Clear configuration overrides"""
         with self._lock:
             if category:
@@ -564,7 +562,7 @@ class MarketConfigManager:
             self.logger.error(f"Failed to reload {category}: {e}")
             return False
 
-    def validate(self, category: str, config: Optional[Dict] = None) -> ValidationResult:
+    def validate(self, category: str, config: dict | None = None) -> ValidationResult:
         """
         Validate configuration against schema.
 
@@ -626,7 +624,7 @@ class MarketConfigManager:
         """
         self.change_callbacks[category].append(callback)
 
-    def get_all_symbols(self) -> Dict[str, List[str]]:
+    def get_all_symbols(self) -> dict[str, list[str]]:
         """Get all configured symbols organized by category"""
         symbols = {}
 
@@ -646,7 +644,7 @@ class MarketConfigManager:
 
         return symbols
 
-    def get_symbol_config(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_symbol_config(self, symbol: str) -> dict[str, Any] | None:
         """Get configuration for a specific symbol"""
         # Check visible symbols
         visible = self.get("symbols", "visible_symbols", {})
@@ -697,13 +695,13 @@ class MarketConfigManager:
         else:
             raise ValueError(f"Unsupported format: {format}")
 
-    def get_version_history(self, category: str) -> List[ConfigVersion]:
+    def get_version_history(self, category: str) -> list[ConfigVersion]:
         """Get version history for a category"""
         return self.versions.get(category, [])
 
     def get_change_history(
-        self, category: Optional[str] = None, limit: int = 100
-    ) -> List[ConfigChange]:
+        self, category: str | None = None, limit: int = 100
+    ) -> list[ConfigChange]:
         """Get configuration change history"""
         if category:
             changes = [c for c in self.change_history if c.category == category]
@@ -762,10 +760,10 @@ class MarketConfigManager:
                         self._track_file(file_path)
                         self.logger.debug(f"Loaded env override for {category}")
 
-    def _load_file(self, file_path: Path, format: ConfigFormat) -> Optional[Dict]:
+    def _load_file(self, file_path: Path, format: ConfigFormat) -> dict | None:
         """Load configuration from file"""
         try:
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 if format == ConfigFormat.JSON:
                     return json.load(f)
                 elif format == ConfigFormat.YAML:
@@ -933,7 +931,7 @@ class MarketConfigManager:
     # ==========================================================================
     # VALIDATION
     # ==========================================================================
-    def _custom_validate(self, category: str, config: Dict) -> ValidationResult:
+    def _custom_validate(self, category: str, config: dict) -> ValidationResult:
         """Perform custom validation for specific categories"""
         result = ValidationResult(is_valid=True)
 
@@ -942,7 +940,7 @@ class MarketConfigManager:
             all_symbols = []
             for group_type in ["visible_symbols", "hidden_symbols"]:
                 if group_type in config:
-                    for group, group_config in config[group_type].items():
+                    for _group, group_config in config[group_type].items():
                         symbols = group_config.get("symbols", [])
                         all_symbols.extend(symbols)
 
@@ -986,7 +984,7 @@ class MarketConfigManager:
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    def _get_nested(self, data: Dict, key: str, default: Any = None) -> Any:
+    def _get_nested(self, data: dict, key: str, default: Any = None) -> Any:
         """Get nested value using dot notation"""
         keys = key.split(".")
         value = data
@@ -999,7 +997,7 @@ class MarketConfigManager:
 
         return value
 
-    def _set_nested(self, data: Dict, key: str, value: Any):
+    def _set_nested(self, data: dict, key: str, value: Any):
         """Set nested value using dot notation"""
         keys = key.split(".")
         current = data
@@ -1011,7 +1009,7 @@ class MarketConfigManager:
 
         current[keys[-1]] = value
 
-    def _deep_merge(self, base: Dict, override: Dict) -> Dict:
+    def _deep_merge(self, base: dict, override: dict) -> dict:
         """Deep merge two dictionaries"""
         result = copy.deepcopy(base)
 
@@ -1036,64 +1034,44 @@ if __name__ == "__main__":
     # Start manager
     config_manager.start()
 
-    print("📋 Configuration Manager Test")
-    print("=" * 50)
 
     # Get all symbols
-    print("\n📊 All Configured Symbols:")
     symbols = config_manager.get_all_symbols()
-    for category, symbol_list in symbols.items():
-        print(f"\n{category}:")
-        print(f"  {symbol_list}")
+    for _category, _symbol_list in symbols.items():
+        pass
 
     # Get specific configuration
-    print("\n⚙️  Market Data Hub Config:")
     hub_config = config_manager.get("market_data", "hub")
-    print(json.dumps(hub_config, indent=2))
 
     # Test symbol lookup
-    print("\n🔍 Symbol Configuration Lookup:")
     test_symbols = ["SPY", "VIX", "GEX", "XLF"]
     for symbol in test_symbols:
         config = config_manager.get_symbol_config(symbol)
-        print(f"{symbol}: {config}")
 
     # Test configuration update
-    print("\n✏️  Testing Configuration Update:")
     old_value = config_manager.get("risk", "max_positions")
-    print(f"Old max_positions: {old_value}")
 
     config_manager.set("risk", "max_positions", 15)
     new_value = config_manager.get("risk", "max_positions")
-    print(f"New max_positions: {new_value}")
 
     # Test validation
-    print("\n✅ Configuration Validation:")
     validation = config_manager.validate_all()
-    print(f"Valid: {validation.is_valid}")
     if validation.errors:
-        print(f"Errors: {validation.errors}")
+        pass
     if validation.warnings:
-        print(f"Warnings: {validation.warnings}")
+        pass
 
     # Test change history
-    print("\n📜 Recent Changes:")
     changes = config_manager.get_change_history(limit=5)
-    for change in changes:
-        print(
-            f"  {change.timestamp}: {change.category}.{change.key} " f"({change.change_type.value})"
-        )
+    for _change in changes:
+        pass
 
     # Test export
-    print("\n📤 Export Configuration:")
     symbols_json = config_manager.export_config("symbols", ConfigFormat.JSON)
-    print(f"Symbols config (first 200 chars):\n{symbols_json[:200]}...")
 
     # Test callback
     def on_config_change(key: str, old_value: Any, new_value: Any):
-        print(f"\n🔔 Config changed: {key}")
-        print(f"   Old: {old_value}")
-        print(f"   New: {new_value}")
+        pass
 
     config_manager.register_callback("risk", on_config_change)
 
@@ -1102,4 +1080,3 @@ if __name__ == "__main__":
 
     # Stop manager
     config_manager.stop()
-    print("\n✅ Configuration Manager test completed")

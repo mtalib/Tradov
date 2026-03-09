@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -341,12 +340,12 @@ class TestF02Enums(unittest.TestCase):
 
 
 class TestF02Candle(unittest.TestCase):
-    def _make_candle(self, o=100, h=105, l=98, c=103, v=1000):
+    def _make_candle(self, o=100, h=105, lo=98, c=103, v=1000):
         return Candle(
             timestamp=datetime.now(),
             open=o,
             high=h,
-            low=l,
+            low=lo,
             close=c,
             volume=v,
         )
@@ -361,7 +360,7 @@ class TestF02Candle(unittest.TestCase):
         self.assertAlmostEqual(c.body, 3.0)
 
     def test_candle_range(self):
-        c = self._make_candle(h=105, l=98)
+        c = self._make_candle(h=105, lo=98)
         self.assertAlmostEqual(c.range, 7.0)
 
     def test_candle_is_bullish(self):
@@ -373,19 +372,19 @@ class TestF02Candle(unittest.TestCase):
         self.assertFalse(c.is_bullish)
 
     def test_candle_upper_wick(self):
-        c = self._make_candle(o=100, h=107, l=98, c=103)
+        c = self._make_candle(o=100, h=107, lo=98, c=103)
         self.assertAlmostEqual(c.upper_wick, 4.0)  # 107 - max(100,103)=103
 
     def test_candle_lower_wick(self):
-        c = self._make_candle(o=100, h=107, l=98, c=103)
+        c = self._make_candle(o=100, h=107, lo=98, c=103)
         self.assertAlmostEqual(c.lower_wick, 2.0)  # min(100,103)-98=2
 
     def test_candle_doji_detection(self):
-        c = self._make_candle(o=100, h=105, l=95, c=100.05)
+        c = self._make_candle(o=100, h=105, lo=95, c=100.05)
         self.assertTrue(c.is_doji)
 
     def test_candle_not_doji(self):
-        c = self._make_candle(o=100, h=105, l=98, c=104)
+        c = self._make_candle(o=100, h=105, lo=98, c=104)
         self.assertFalse(c.is_doji)
 
 
@@ -1429,7 +1428,7 @@ class TestF19AnchoredVWAPCalculator(unittest.TestCase):
 # ==============================================================================
 # F20_MLPrediction — enums, dataclasses, FeatureEngineer
 # ==============================================================================
-from Spyder.SpyderF_Analysis.SpyderF20_MLPrediction import (
+from Spyder.SpyderF_Analysis.SpyderF22_MLPrediction import (
     PredictionDirection,
     VolatilityRegime as F20MLVolatilityRegime,
     ModelType as F20MLModelType,

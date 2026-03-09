@@ -57,6 +57,8 @@ ignore = [
 "Spyder/SpyderT_Testing/**" = ["T20", "B", "S", "F401"]
 # Utility scripts: allow print
 "Spyder/SpyderQ_Scripts/**" = ["T20"]
+# __init__.py files: imports are intentional re-exports for the package API
+"**/__init__.py" = ["F401"]
 # Legacy demo/standalone scripts embedded in modules:
 # These are in __main__ blocks and are acceptable for now.
 # Use noqa: T201 in those blocks if needed.

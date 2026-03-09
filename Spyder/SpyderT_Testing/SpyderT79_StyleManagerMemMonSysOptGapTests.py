@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -693,7 +692,7 @@ class TestU24ThemeManagement:
         assert self.sm.current_theme == "dark"
 
     def test_switch_dark_regenerates_stylesheet(self):
-        original_length = len(self.sm._final_stylesheet)
+        len(self.sm._final_stylesheet)
         self.sm.switch_theme("dark")
         assert len(self.sm._final_stylesheet) > 0  # still valid
 
@@ -1125,9 +1124,9 @@ class TestU27OptimizeJVMGaps:
 
     def test_jvm_optimization_creates_file_content(self, tmp_path):
         opt = _fresh_optimizer()
-        jvm_config = tmp_path / "jvm_args.txt"
+        tmp_path / "jvm_args.txt"
         with patch("pathlib.Path.home", return_value=tmp_path), \
-             patch("builtins.open", MagicMock()) as mock_open:
+             patch("builtins.open", MagicMock()):
             result = opt.optimize_ib_gateway_jvm()
         assert result.component == SystemComponent.JVM
         assert result.success is True
@@ -1260,7 +1259,6 @@ class TestU27UpdateSysctlConfGaps:
                 return p
 
         # Call directly with patched open
-        written = []
         original_open = open
 
         def _mock_open(path, mode="r"):

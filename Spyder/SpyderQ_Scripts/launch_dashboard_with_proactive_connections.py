@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,9 +23,6 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
-import asyncio
-import logging
 from pathlib import Path
 
 project_root = Path(__file__).parent
@@ -44,17 +40,17 @@ try:
         QLabel,
         QProgressBar,
         QTextEdit,
-        QGroupBox,
+        QGroupBox,  # noqa: F401
         QGridLayout,
-        QFrame,
-        QScrollArea,
-        QTabWidget,
+        QFrame,  # noqa: F401
+        QScrollArea,  # noqa: F401
+        QTabWidget,  # noqa: F401
         QMessageBox,
         QSplitter,
         QStatusBar,
     )
-    from PySide6.QtCore import Qt, QTimer, QThread, Signal
-    from PySide6.QtGui import QFont, QIcon, QPixmap, QPalette, QColor
+    from PySide6.QtCore import Qt, QTimer, QThread, Signal  # noqa: F401
+    from PySide6.QtGui import QFont, QIcon, QPixmap, QPalette, QColor  # noqa: F401
 
     GUI_AVAILABLE = True
 except ImportError as e:
@@ -65,7 +61,7 @@ except ImportError as e:
 # SPYDER imports
 try:
     from SpyderB08_ProactiveConnectionManager import ProactiveConnectionManager
-    from config.config import get_active_config
+    from config.config import get_active_config  # noqa: F401
 
     CONNECTION_MANAGER_AVAILABLE = True
 except ImportError as e:

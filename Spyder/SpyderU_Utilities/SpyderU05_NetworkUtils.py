@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 import concurrent.futures
@@ -34,10 +33,7 @@ import concurrent.futures
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import socket
-import subprocess
-import platform
 import requests
-from urllib.parse import urlparse
 
 try:
     import ping3
@@ -118,7 +114,7 @@ class ConnectionTest:
     port: int
     success: bool
     latency_ms: float
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 # ==============================================================================
 # MAIN CLASS
@@ -126,16 +122,16 @@ class ConnectionTest:
 class NetworkUtils:
     """
     Network utilities for connectivity and performance monitoring.
-    
+
     This class provides comprehensive network utilities including internet
     connectivity checking, IB Gateway validation, latency measurement,
     and network health monitoring for the Spyder trading system.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
         stats: Current network statistics
-        
+
     Example:
         >>> net_utils = NetworkUtils()
         >>> if net_utils.check_internet_connection():
@@ -143,7 +139,7 @@ class NetworkUtils:
         >>> latency = net_utils.measure_latency("8.8.8.8")
         >>> print(f"Latency: {latency}ms")
     """
-    
+
     def __init__(self):
         """Initialize the network utilities."""
         self.logger = SpyderLogger.get_logger(__name__)
@@ -156,22 +152,22 @@ class NetworkUtils:
             status=ConnectionStatus.UNKNOWN,
             timestamp=time.time()
         )
-        
+
         self.logger.info(f"{self.__class__.__name__} initialized")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - CONNECTIVITY CHECKING
     # ==========================================================================
     def check_internet_connection(self, timeout: int = DEFAULT_TIMEOUT) -> bool:
         """
         Check if internet connection is available.
-        
+
         Args:
             timeout: Connection timeout in seconds
-            
+
         Returns:
             bool: True if internet is available
-            
+
         Example:
             >>> net_utils = NetworkUtils()
             >>> connected = net_utils.check_internet_connection()
@@ -183,21 +179,21 @@ class NetworkUtils:
                 if self._test_host_connection(host, 53, timeout):
                     self.logger.debug(f"Internet connection confirmed via {host}")
                     return True
-            
+
             # Fallback to HTTP test
             return self._test_http_connection(timeout)
-            
+
         except Exception as e:
             self.logger.error(f"Internet connection check failed: {e}")
             return False
-    
+
     def check_ib_connection(self, connection_type: str = "GATEWAY") -> bool:
         """
         Check Interactive Brokers connection.
-        
+
         Args:
             connection_type: Type of IB connection (TWS, GATEWAY, PAPER)
-            
+
         Returns:
             bool: True if IB connection is available
         """
@@ -205,42 +201,42 @@ class NetworkUtils:
             if connection_type not in IB_ENDPOINTS:
                 self.logger.error(f"Unknown IB connection type: {connection_type}")
                 return False
-            
+
             endpoint = IB_ENDPOINTS[connection_type]
             result = self._test_host_connection(
-                endpoint["host"], 
-                endpoint["port"], 
+                endpoint["host"],
+                endpoint["port"],
                 DEFAULT_TIMEOUT
             )
-            
+
             if result:
                 self.logger.info(f"IB {connection_type} connection confirmed")
             else:
                 self.logger.warning(f"IB {connection_type} connection failed")
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"IB connection check failed: {e}")
             return False
-    
+
     # ==========================================================================
     # PUBLIC METHODS - PERFORMANCE MEASUREMENT
     # ==========================================================================
     def measure_latency(self, host: str = "8.8.8.8", count: int = 3) -> float:
         """
         Measure network latency to a host.
-        
+
         Args:
             host: Target host for latency measurement
             count: Number of ping attempts
-            
+
         Returns:
             float: Average latency in milliseconds
         """
         try:
             latencies = []
-            
+
             if PING3_AVAILABLE:
                 # Use ping3 if available
                 for _ in range(count):
@@ -260,11 +256,11 @@ class NetworkUtils:
                         socket.create_connection((host, 53), timeout=PING_TIMEOUT)
                         latency = (time.time() - start_time) * 1000
                         latencies.append(latency)
-                    except (OSError, TimeoutError, socket.timeout) as e:
+                    except (OSError, TimeoutError) as e:
                         # Connection attempt failed, continue to next attempt
                         self.logger.debug(f"Socket connection failed: {e}")
                         continue
-            
+
             if latencies:
                 avg_latency = sum(latencies) / len(latencies)
                 self.logger.debug(f"Average latency to {host}: {avg_latency:.2f}ms")
@@ -272,30 +268,30 @@ class NetworkUtils:
             else:
                 self.logger.warning(f"Could not measure latency to {host}")
                 return -1.0
-                
+
         except Exception as e:
             self.logger.error(f"Latency measurement failed: {e}")
             return -1.0
-    
-    def test_multiple_connections(self, endpoints: List[Tuple[str, int]]) -> List[ConnectionTest]:
+
+    def test_multiple_connections(self, endpoints: list[tuple[str, int]]) -> list[ConnectionTest]:
         """
         Test multiple network endpoints concurrently.
-        
+
         Args:
             endpoints: List of (host, port) tuples to test
-            
+
         Returns:
             List of ConnectionTest results
         """
         results = []
-        
+
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {
                     executor.submit(self._test_endpoint, host, port): (host, port)
                     for host, port in endpoints
                 }
-                
+
                 for future in concurrent.futures.as_completed(futures):
                     host, port = futures[future]
                     try:
@@ -309,20 +305,20 @@ class NetworkUtils:
                             latency_ms=-1.0,
                             error_message=str(e)
                         ))
-            
+
             return results
-            
+
         except Exception as e:
             self.logger.error(f"Multiple connection test failed: {e}")
             return []
-    
+
     # ==========================================================================
     # PUBLIC METHODS - NETWORK MONITORING
     # ==========================================================================
-    def get_network_status(self) -> Dict[str, Any]:
+    def get_network_status(self) -> dict[str, Any]:
         """
         Get comprehensive network status.
-        
+
         Returns:
             Dictionary with network status information
         """
@@ -335,17 +331,17 @@ class NetworkUtils:
                 "dns_resolution": self._test_dns_resolution(),
                 "http_connectivity": self._test_http_connection()
             }
-            
+
             # Update internal stats
             self.stats.latency_ms = status["latency_ms"]
             self.stats.timestamp = status["timestamp"]
             self.stats.status = (
-                ConnectionStatus.CONNECTED if status["internet_connected"] 
+                ConnectionStatus.CONNECTED if status["internet_connected"]
                 else ConnectionStatus.DISCONNECTED
             )
-            
+
             return status
-            
+
         except Exception as e:
             self.logger.error(f"Network status check failed: {e}")
             return {
@@ -355,11 +351,11 @@ class NetworkUtils:
                 "timestamp": time.time(),
                 "error": str(e)
             }
-    
+
     def monitor_connection(self, interval: int = 30, callback=None) -> None:
         """
         Start continuous network monitoring.
-        
+
         Args:
             interval: Monitoring interval in seconds
             callback: Optional callback function for status updates
@@ -368,26 +364,26 @@ class NetworkUtils:
             while True:
                 try:
                     status = self.get_network_status()
-                    
+
                     if callback:
                         callback(status)
-                    
+
                     # Log significant changes
                     if not status.get("internet_connected", False):
                         self.logger.warning("Internet connection lost")
                     elif not status.get("ib_gateway_connected", False):
                         self.logger.warning("IB Gateway connection lost")
-                    
+
                     time.sleep(interval)
-                    
+
                 except Exception as e:
                     self.logger.error(f"Network monitoring error: {e}")
                     time.sleep(interval)
-        
+
         monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         monitor_thread.start()
         self.logger.info(f"Network monitoring started (interval: {interval}s)")
-    
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
@@ -396,13 +392,13 @@ class NetworkUtils:
         try:
             with socket.create_connection((host, port), timeout=timeout):
                 return True
-        except (socket.error, socket.timeout):
+        except (TimeoutError, OSError):
             return False
-    
+
     def _test_endpoint(self, host: str, port: int) -> ConnectionTest:
         """Test a single endpoint and return detailed results."""
         start_time = time.time()
-        
+
         try:
             with socket.create_connection((host, port), timeout=DEFAULT_TIMEOUT):
                 latency = (time.time() - start_time) * 1000
@@ -420,7 +416,7 @@ class NetworkUtils:
                 latency_ms=-1.0,
                 error_message=str(e)
             )
-    
+
     def _test_dns_resolution(self) -> bool:
         """Test DNS resolution capability."""
         try:
@@ -428,7 +424,7 @@ class NetworkUtils:
             return True
         except socket.gaierror:
             return False
-    
+
     def _test_http_connection(self, timeout: int = DEFAULT_TIMEOUT) -> bool:
         """Test HTTP connectivity."""
         try:
@@ -452,10 +448,10 @@ class NetworkUtils:
 def check_internet_connection(timeout: int = DEFAULT_TIMEOUT) -> bool:
     """
     Quick check for internet connectivity.
-    
+
     Args:
         timeout: Connection timeout in seconds
-        
+
     Returns:
         bool: True if internet is available
     """
@@ -465,12 +461,12 @@ def check_internet_connection(timeout: int = DEFAULT_TIMEOUT) -> bool:
 def check_connection(host: str, port: int, timeout: int = DEFAULT_TIMEOUT) -> bool:
     """
     Check connection to specific host and port.
-    
+
     Args:
         host: Target host
         port: Target port
         timeout: Connection timeout
-        
+
     Returns:
         bool: True if connection successful
     """
@@ -480,10 +476,10 @@ def check_connection(host: str, port: int, timeout: int = DEFAULT_TIMEOUT) -> bo
 def measure_latency(host: str = "8.8.8.8") -> float:
     """
     Measure latency to a host.
-    
+
     Args:
         host: Target host
-        
+
     Returns:
         float: Latency in milliseconds
     """
@@ -494,12 +490,12 @@ def measure_latency(host: str = "8.8.8.8") -> float:
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_network_utils_instance: Optional[NetworkUtils] = None
+_network_utils_instance: NetworkUtils | None = None
 
 def get_network_utils() -> NetworkUtils:
     """
     Get singleton instance of network utilities.
-    
+
     Returns:
         NetworkUtils instance
     """
@@ -513,33 +509,21 @@ def get_network_utils() -> NetworkUtils:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U05 - Network Utils Test")
-    print("=" * 80)
-    
+
     net_utils = NetworkUtils()
-    
+
     # Test internet connection
-    print("\n1. Testing internet connection...")
     internet_ok = net_utils.check_internet_connection()
-    print(f"   Internet connected: {internet_ok}")
-    
+
     # Test IB connections
-    print("\n2. Testing IB connections...")
     gateway_ok = net_utils.check_ib_connection("GATEWAY")
-    print(f"   IB Gateway connected: {gateway_ok}")
-    
+
     # Test latency
-    print("\n3. Testing latency...")
     latency = net_utils.measure_latency("8.8.8.8")
-    print(f"   Latency to 8.8.8.8: {latency}ms")
-    
+
     # Test network status
-    print("\n4. Getting network status...")
     status = net_utils.get_network_status()
-    for key, value in status.items():
+    for key, _value in status.items():
         if key != "timestamp":
-            print(f"   {key}: {value}")
-    
-    print("\n" + "=" * 80)
-    print("✅ Network Utils test completed!")
+            pass
+

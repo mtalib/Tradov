@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -288,7 +287,7 @@ class TestCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         # Next call should transition to HALF_OPEN
         try:
             await self.breaker.call(failing_func)
-        except:
+        except Exception:
             pass
 
         # Should have attempted half-open state
@@ -309,7 +308,7 @@ class TestCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         for _ in range(3):
             try:
                 await self.breaker.call(flaky_func)
-            except:
+            except Exception:
                 pass
 
         self.assertEqual(self.breaker.state, CircuitState.OPEN)

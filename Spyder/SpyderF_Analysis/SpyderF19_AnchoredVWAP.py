@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -32,11 +31,10 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Any
 from enum import Enum
 from datetime import datetime, date, timedelta
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -48,7 +46,6 @@ import numpy as np
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -118,7 +115,7 @@ class AnchorPoint:
     description: str = ""
     significance: float = 1.0  # 0-1, higher = more significant
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "anchor_type": self.anchor_type.value,
             "timestamp": self.timestamp.isoformat(),
@@ -143,7 +140,7 @@ class VWAPLevel:
     bars_since_anchor: int
 
     @property
-    def bands(self) -> Dict[str, float]:
+    def bands(self) -> dict[str, float]:
         return {
             "vwap": self.vwap,
             "+1_std": self.upper_band_1,
@@ -152,7 +149,7 @@ class VWAPLevel:
             "-2_std": self.lower_band_2,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "anchor": self.anchor.to_dict(),
             "timestamp": self.timestamp.isoformat(),
@@ -170,12 +167,12 @@ class VWAPAnalysis:
     timestamp: datetime
     current_price: float
     primary_vwap: VWAPLevel  # Main VWAP (session or most significant anchor)
-    anchored_vwaps: List[VWAPLevel]  # Multiple anchor points
+    anchored_vwaps: list[VWAPLevel]  # Multiple anchor points
     price_relation: PriceRelation
     signal: VWAPSignal
     trend_state: TrendState
-    support_levels: List[float]
-    resistance_levels: List[float]
+    support_levels: list[float]
+    resistance_levels: list[float]
     distance_from_vwap_percent: float
     momentum_strength: float  # -1 to 1
 
@@ -187,7 +184,7 @@ class VWAPAnalysis:
     def is_bearish(self) -> bool:
         return self.signal in [VWAPSignal.SELL, VWAPSignal.STRONG_SELL]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -217,7 +214,7 @@ class VWAPCrossEvent:
     volume_confirmation: bool
     strength: float  # 0-1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -251,7 +248,7 @@ class VWAPTradingSetup:
         reward = abs(self.target_1 - self.entry_price)
         return reward / risk if risk > 0 else 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -300,7 +297,7 @@ class AnchoredVWAPCalculator:
 
     def __init__(
         self,
-        standard_deviations: List[float] = None,
+        standard_deviations: list[float] = None,
         anchor_lookback_days: int = DEFAULT_ANCHOR_LOOKBACK
     ):
         """
@@ -314,7 +311,7 @@ class AnchoredVWAPCalculator:
         self.anchor_lookback = anchor_lookback_days
 
         # Cross event history
-        self._cross_history: Dict[str, List[VWAPCrossEvent]] = {}
+        self._cross_history: dict[str, list[VWAPCrossEvent]] = {}
 
         logger.info("AnchoredVWAPCalculator initialized")
 
@@ -436,8 +433,8 @@ class AnchoredVWAPCalculator:
     def calculate_multi_anchor_vwap(
         self,
         data: pd.DataFrame,
-        anchors: List[AnchorPoint]
-    ) -> List[VWAPLevel]:
+        anchors: list[AnchorPoint]
+    ) -> list[VWAPLevel]:
         """
         Calculate VWAP from multiple anchor points.
 
@@ -477,7 +474,7 @@ class AnchoredVWAPCalculator:
         include_swings: bool = True,
         include_volume_spikes: bool = True,
         include_gaps: bool = True
-    ) -> List[AnchorPoint]:
+    ) -> list[AnchorPoint]:
         """
         Automatically detect significant anchor points.
 
@@ -547,14 +544,14 @@ class AnchoredVWAPCalculator:
         self,
         df: pd.DataFrame,
         lookback: int = 5
-    ) -> Tuple[Optional[Dict], Optional[Dict]]:
+    ) -> tuple[dict | None, dict | None]:
         """Detect recent swing high and low."""
         if len(df) < lookback * 2:
             return None, None
 
         # Simple swing detection
-        highs = df['high'].rolling(lookback).max()
-        lows = df['low'].rolling(lookback).min()
+        df['high'].rolling(lookback).max()
+        df['low'].rolling(lookback).min()
 
         # Find most recent swing high
         swing_high_idx = df['high'].iloc[-lookback * 2:-lookback].idxmax()
@@ -576,7 +573,7 @@ class AnchoredVWAPCalculator:
         self,
         df: pd.DataFrame,
         threshold: float = 2.0
-    ) -> Optional[AnchorPoint]:
+    ) -> AnchorPoint | None:
         """Detect significant volume spike."""
         if len(df) < 20:
             return None
@@ -605,7 +602,7 @@ class AnchoredVWAPCalculator:
         self,
         df: pd.DataFrame,
         min_gap_percent: float = 0.5
-    ) -> Optional[AnchorPoint]:
+    ) -> AnchorPoint | None:
         """Detect gap open."""
         if len(df) < 2:
             return None
@@ -637,7 +634,7 @@ class AnchoredVWAPCalculator:
         self,
         df: pd.DataFrame,
         period: str
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Get start of period (week, month)."""
         if df.empty:
             return None
@@ -680,7 +677,7 @@ class AnchoredVWAPCalculator:
         self,
         data: pd.DataFrame,
         symbol: str,
-        custom_anchors: Optional[List[AnchorPoint]] = None
+        custom_anchors: list[AnchorPoint] | None = None
     ) -> VWAPAnalysis:
         """
         Perform complete VWAP analysis.
@@ -853,7 +850,7 @@ class AnchoredVWAPCalculator:
         self,
         price: float,
         primary: VWAPLevel,
-        anchored: List[VWAPLevel]
+        anchored: list[VWAPLevel]
     ) -> TrendState:
         """Determine overall trend state."""
         # Count how many VWAPs price is above/below
@@ -890,8 +887,8 @@ class AnchoredVWAPCalculator:
         self,
         price: float,
         primary: VWAPLevel,
-        anchored: List[VWAPLevel]
-    ) -> Tuple[List[float], List[float]]:
+        anchored: list[VWAPLevel]
+    ) -> tuple[list[float], list[float]]:
         """Get support and resistance levels from VWAPs."""
         all_levels = []
 
@@ -909,10 +906,10 @@ class AnchoredVWAPCalculator:
             all_levels.append(v.vwap)
 
         # Filter valid levels
-        valid_levels = [l for l in all_levels if l > 0]
+        valid_levels = [lvl for lvl in all_levels if lvl > 0]
 
-        support = sorted([l for l in valid_levels if l < price], reverse=True)[:3]
-        resistance = sorted([l for l in valid_levels if l > price])[:3]
+        support = sorted([lvl for lvl in valid_levels if lvl < price], reverse=True)[:3]
+        resistance = sorted([lvl for lvl in valid_levels if lvl > price])[:3]
 
         return support, resistance
 
@@ -942,8 +939,8 @@ class AnchoredVWAPCalculator:
         self,
         data: pd.DataFrame,
         symbol: str,
-        anchor: Optional[AnchorPoint] = None
-    ) -> Optional[VWAPCrossEvent]:
+        anchor: AnchorPoint | None = None
+    ) -> VWAPCrossEvent | None:
         """
         Detect VWAP cross events.
 
@@ -1010,7 +1007,7 @@ class AnchoredVWAPCalculator:
         self,
         data: pd.DataFrame,
         symbol: str
-    ) -> Optional[VWAPTradingSetup]:
+    ) -> VWAPTradingSetup | None:
         """
         Generate VWAP-based trading setup.
 
@@ -1097,9 +1094,7 @@ class AnchoredVWAPCalculator:
 
         # Calculate confidence
         confidence = 0.6
-        if analysis.momentum_strength > 0.5 and direction == "long":
-            confidence += 0.2
-        elif analysis.momentum_strength < -0.5 and direction == "short":
+        if analysis.momentum_strength > 0.5 and direction == "long" or analysis.momentum_strength < -0.5 and direction == "short":
             confidence += 0.2
 
         rationale = (
@@ -1136,8 +1131,6 @@ def create_anchored_vwap_calculator() -> AnchoredVWAPCalculator:
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("Anchored VWAP Calculator Test")
-    print("=" * 60)
 
     # Create sample intraday data
     np.random.seed(42)
@@ -1164,14 +1157,9 @@ if __name__ == "__main__":
     calc = AnchoredVWAPCalculator()
 
     # Test session VWAP
-    print("\n=== Session VWAP ===")
     vwap_df = calc.calculate_session_vwap(data)
-    print(f"Current VWAP: ${vwap_df['vwap'].iloc[-1]:.2f}")
-    print(f"Upper Band (1σ): ${vwap_df['vwap_upper_1'].iloc[-1]:.2f}")
-    print(f"Lower Band (1σ): ${vwap_df['vwap_lower_1'].iloc[-1]:.2f}")
 
     # Test anchored VWAP
-    print("\n=== Anchored VWAP ===")
     anchor = AnchorPoint(
         anchor_type=AnchorType.BREAKOUT,
         timestamp=dates[50],
@@ -1179,40 +1167,18 @@ if __name__ == "__main__":
         description="Volume Breakout"
     )
     avwap = calc.calculate_anchored_vwap(data, anchor)
-    print(f"Anchor: {anchor.description}")
-    print(f"Anchored VWAP: ${avwap.vwap:.2f}")
-    print(f"Bars Since Anchor: {avwap.bars_since_anchor}")
 
     # Test auto anchor detection
-    print("\n=== Auto-Detected Anchors ===")
     anchors = calc.auto_detect_anchors(data)
-    for a in anchors[:5]:
-        print(f"  {a.anchor_type.value}: ${a.price:.2f} (sig: {a.significance:.2f})")
+    for _a in anchors[:5]:
+        pass
 
     # Test full analysis
-    print("\n=== Full Analysis ===")
     analysis = calc.analyze(data, "SPY")
-    print(f"Current Price: ${analysis.current_price:.2f}")
-    print(f"VWAP: ${analysis.primary_vwap.vwap:.2f}")
-    print(f"Distance: {analysis.distance_from_vwap_percent:.2f}%")
-    print(f"Position: {analysis.price_relation.value}")
-    print(f"Signal: {analysis.signal.value}")
-    print(f"Trend: {analysis.trend_state.value}")
-    print(f"Momentum: {analysis.momentum_strength:.2f}")
-    print(f"Support: {[f'${x:.2f}' for x in analysis.support_levels]}")
-    print(f"Resistance: {[f'${x:.2f}' for x in analysis.resistance_levels]}")
 
     # Test trading setup
-    print("\n=== Trading Setup ===")
     setup = calc.get_trading_setup(data, "SPY")
     if setup:
-        print(f"Setup Type: {setup.setup_type}")
-        print(f"Direction: {setup.direction}")
-        print(f"Entry: ${setup.entry_price:.2f}")
-        print(f"Stop: ${setup.stop_loss:.2f}")
-        print(f"Target 1: ${setup.target_1:.2f}")
-        print(f"Target 2: ${setup.target_2:.2f}")
-        print(f"Risk/Reward: {setup.risk_reward_ratio:.2f}")
-        print(f"Confidence: {setup.confidence:.1%}")
+        pass
     else:
-        print("No valid setup detected")
+        pass

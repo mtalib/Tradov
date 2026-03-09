@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,7 +24,6 @@ Change Log:
 # ==============================================================================
 import sys
 import os
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +37,7 @@ try:
         QWidget, QLabel, QPushButton, QTextEdit, QGroupBox,
         QProgressBar, QTabWidget, QTableWidget, QTableWidgetItem
     )
-    from PySide6.QtCore import Qt, QTimer, Signal, QThread, QObject
+    from PySide6.QtCore import Qt, QTimer, Signal, QThread, QObject  # noqa: F401
     from PySide6.QtGui import QFont
     HAS_QT = True
 except ImportError as e:
@@ -47,7 +45,7 @@ except ImportError as e:
     HAS_QT = False
 
 try:
-    from ib_async import IB, Stock
+    from ib_async import IB, Stock  # noqa: F401
     HAS_IB_ASYNC = True
 except ImportError as e:
     print(f"WARNING: ib_async not available: {e}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,7 +27,7 @@ import logging
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -37,7 +36,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import shap
-from sklearn.ensemble import (ExtraTreesRegressor, GradientBoostingRegressor,
+from sklearn.ensemble import (GradientBoostingRegressor,
 
                               RandomForestRegressor)
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -59,11 +58,11 @@ logger = logging.getLogger(__name__)
 class EnsembleConfig:
     """Random Forest ensemble configuration."""
 
-    n_estimators_range: Tuple[int, int] = (100, 500)
-    max_depth_range: Tuple[int, int] = (10, 50)
-    min_samples_split_range: Tuple[int, int] = (5, 20)
-    min_samples_leaf_range: Tuple[int, int] = (2, 10)
-    max_features_options: List[str] = field(default_factory=lambda: ["sqrt", "log2", None])
+    n_estimators_range: tuple[int, int] = (100, 500)
+    max_depth_range: tuple[int, int] = (10, 50)
+    min_samples_split_range: tuple[int, int] = (5, 20)
+    min_samples_leaf_range: tuple[int, int] = (2, 10)
+    max_features_options: list[str] = field(default_factory=lambda: ["sqrt", "log2", None])
     bootstrap: bool = True
     oob_score: bool = True
     n_jobs: int = -1
@@ -71,7 +70,7 @@ class EnsembleConfig:
     cv_folds: int = 5
     n_iter_search: int = 50
     polynomial_degree: int = 2
-    quantile_alpha: List[float] = field(default_factory=lambda: [0.05, 0.95])  # 90% prediction interval
+    quantile_alpha: list[float] = field(default_factory=lambda: [0.05, 0.95])  # 90% prediction interval
 
 
 @dataclass
@@ -83,8 +82,8 @@ class ModelPerformance:
     r2: float
     mean_absolute_percentage_error: float
     quantile_coverage: float  # % of actuals within prediction interval
-    feature_importance: Dict[str, float]
-    oob_score: Optional[float]
+    feature_importance: dict[str, float]
+    oob_score: float | None
     cross_val_scores: np.ndarray
 
 
@@ -99,8 +98,10 @@ class QuantileRandomForest:
         self.forest_params = kwargs
         self.estimators_ = {}
 
-    def fit(self, X: np.ndarray, y: np.ndarray, quantiles: List[float] = [0.05, 0.5, 0.95]):
+    def fit(self, X: np.ndarray, y: np.ndarray, quantiles: list[float] = None):
         """Fit separate forests for each quantile."""
+        if quantiles is None:
+            quantiles = [0.05, 0.5, 0.95]
         self.quantiles = quantiles
         for q in quantiles:
             # Use gradient boosting for quantile regression
@@ -111,7 +112,7 @@ class QuantileRandomForest:
             self.estimators_[q] = gbr
         return self
 
-    def predict(self, X: np.ndarray) -> Dict[float, np.ndarray]:
+    def predict(self, X: np.ndarray) -> dict[float, np.ndarray]:
         """Predict quantiles."""
         predictions = {}
         for q, estimator in self.estimators_.items():
@@ -130,7 +131,7 @@ class SpyderRandomForestEnsemble:
     - Uncertainty quantification
     """
 
-    def __init__(self, config: Optional[EnsembleConfig] = None):
+    def __init__(self, config: EnsembleConfig | None = None):
         """Initialize Random Forest ensemble."""
         self.config = config or EnsembleConfig()
         self.models = {}  # Store multiple models for different strategies
@@ -306,7 +307,7 @@ class SpyderRandomForestEnsemble:
         option_data: pd.DataFrame,
         strategy_type: str = "vanilla",
         return_intervals: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         Predict option prices.
         Args:
@@ -337,8 +338,8 @@ class SpyderRandomForestEnsemble:
             return predictions
 
     async def _optimize_hyperparameters(
-        self, X: np.ndarray, y: np.ndarray, strategy_config: Dict
-    ) -> Dict[str, Any]:
+        self, X: np.ndarray, y: np.ndarray, strategy_config: dict
+    ) -> dict[str, Any]:
         """Optimize hyperparameters using randomized search."""
         # Parameter distributions
         param_dist = {
@@ -376,7 +377,7 @@ class SpyderRandomForestEnsemble:
         return search.best_params_
 
     async def _evaluate_model(
-        self, model: RandomForestRegressor, X: np.ndarray, y: np.ndarray, feature_names: List[str]
+        self, model: RandomForestRegressor, X: np.ndarray, y: np.ndarray, feature_names: list[str]
     ) -> ModelPerformance:
         """Evaluate model performance."""
         # In-sample predictions (training performance)
@@ -399,7 +400,7 @@ class SpyderRandomForestEnsemble:
         )
         cv_scores = np.sqrt(-cv_scores)  # Convert to RMSE
         # Feature importance
-        feature_importance = dict(zip(feature_names, model.feature_importances_))
+        feature_importance = dict(zip(feature_names, model.feature_importances_, strict=False))
         # Sort by importance
         feature_importance = dict(
             sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
@@ -540,7 +541,7 @@ class SpyderRandomForestEnsemble:
     def compare_strategies(self, test_data: pd.DataFrame) -> pd.DataFrame:
         """Compare performance across different strategies."""
         results = []
-        for strategy in self.models.keys():
+        for strategy in self.models:
             # Make predictions
             predictions = self.predict(test_data, strategy)
             actuals = test_data["option_price"].values
@@ -566,10 +567,10 @@ class SpyderRandomForestEnsemble:
     def distributed_hyperparameter_search(
         self,
         training_data: pd.DataFrame,
-        param_grid: Optional[Dict[str, list]] = None,
+        param_grid: dict[str, list] | None = None,
         n_trials: int = 20,
-        num_cpus: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        num_cpus: int | None = None,
+    ) -> dict[str, Any]:
         """
         Distributed hyperparameter search for Random Forest ensemble using Ray.
 
@@ -606,7 +607,7 @@ class SpyderRandomForestEnsemble:
         data_ref = ray.put(training_data)
 
         @ray.remote
-        def _evaluate_rf_config(data_ref, params: dict) -> Dict:
+        def _evaluate_rf_config(data_ref, params: dict) -> dict:
             """Evaluate a single RF configuration on a Ray worker."""
             import numpy as _np
             from sklearn.ensemble import RandomForestRegressor
@@ -625,7 +626,7 @@ class SpyderRandomForestEnsemble:
 
         self.logger.info(f"Ray RF HP search: {len(combos)} configurations")
         futures = [
-            _evaluate_rf_config.remote(data_ref, dict(zip(param_names, combo)))
+            _evaluate_rf_config.remote(data_ref, dict(zip(param_names, combo, strict=False)))
             for combo in combos
         ]
         results = ray.get(futures)
@@ -686,7 +687,7 @@ async def main():
     performance = await rf_ensemble.train(
         vanilla_data, strategy_type="vanilla", optimize_hyperparameters=False  # Faster for demo
     )
-    logging.info(f"\nTraining Results:")
+    logging.info("\nTraining Results:")
     logging.info(f"RMSE: ${performance.rmse:.3f}")
     logging.info(f"MAE: ${performance.mae:.3f}")
     logging.info(f"R²: {performance.r2:.3f}")
@@ -740,7 +741,7 @@ async def main():
     spread_performance = await rf_ensemble.train(
         spread_data, strategy_type="spread", optimize_hyperparameters=False
     )
-    logging.info(f"\nSpread Model Performance:")
+    logging.info("\nSpread Model Performance:")
     logging.info(f"RMSE: ${spread_performance.rmse:.3f}")
     logging.info(f"R²: {spread_performance.r2:.3f}")
     # Compare strategies

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -34,11 +33,10 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -158,14 +156,14 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         self._news_queue: deque = deque(maxlen=200)
         self._processed_news: deque = deque(maxlen=500)
         self._sentiment_state = SentimentState()
-        self._economic_calendar: List[EconomicEvent] = []
+        self._economic_calendar: list[EconomicEvent] = []
         self._current_regime: str = "unknown"
         self._tick_count: int = 0
         self._daily_news_count: int = 0
         self._alerts_sent_today: int = 0
 
         # Delegate
-        self._x11_agent: Optional[Any] = None
+        self._x11_agent: Any | None = None
         if X11_AVAILABLE:
             try:
                 self._x11_agent = SpyderX11_SentimentAnalysisAgent()
@@ -516,7 +514,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming bus messages."""
         if topic == "market.regime":
             self._current_regime = message.get("payload", {}).get(
@@ -526,7 +524,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "daily_news_count": self._daily_news_count,
@@ -538,7 +536,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
             },
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._daily_news_count = state.get("daily_news_count", 0)
         self._alerts_sent_today = state.get("alerts_sent_today", 0)

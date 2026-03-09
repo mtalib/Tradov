@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -40,15 +39,12 @@ warnings.warn(
 import logging
 import threading
 import time
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QVBoxLayout,
                             QWidget)
 
@@ -57,9 +53,9 @@ from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QVBoxLayout,
 # ==============================================================================
 try:
     from SpyderB_Broker.SpyderB19_Client10Configuration import (
-        Client10Configuration, create_default_config)
+        Client10Configuration, create_default_config)  # noqa: F401
     from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (
-        CustomMetricsOrchestrator, get_metrics_client)
+        CustomMetricsOrchestrator, get_metrics_client)  # noqa: F401
 
     METRICS_CLIENT_AVAILABLE = True
 except ImportError:
@@ -68,7 +64,7 @@ except ImportError:
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: F401
 
     LOCAL_IMPORTS = True
 except ImportError:
@@ -529,7 +525,7 @@ class DashboardMetricsUpdater(QObject):
 
             # Log update
             if hasattr(self.dashboard, "logger"):
-                self.dashboard.logger.debug(f"Dashboard widgets updated with custom metrics")
+                self.dashboard.logger.debug("Dashboard widgets updated with custom metrics")
 
         except Exception as e:
             if hasattr(self.dashboard, "logger"):
@@ -652,7 +648,5 @@ if __name__ == "__main__":
     # Show window
     window.show()
 
-    print("✅ Custom Metrics Integration test running")
-    print("The widget should update with simulated metrics every 5 seconds")
 
     sys.exit(app.exec())

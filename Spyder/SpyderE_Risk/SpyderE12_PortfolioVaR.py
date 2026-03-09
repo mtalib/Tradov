@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -37,13 +36,12 @@ import json
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
-from enum import Enum, auto
+from enum import Enum
 import threading
 from pathlib import Path
-import json
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -51,21 +49,15 @@ warnings.filterwarnings('ignore')
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from scipy import stats
-from scipy.optimize import minimize
 from scipy.stats import norm, t, chi2, jarque_bera
 from sklearn.covariance import LedoitWolf
-import plotly.graph_objects as go
-import plotly.express as px
-from numpy.linalg import cholesky
 
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderE_Risk.SpyderE11_MaxLossProtection import MaxLossProtection
-from Spyder.SpyderP_PortfolioMgmt.SpyderP05_MultiStrategyAllocator import MultiStrategyAllocator
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import AgentMessageBus, Message, MessagePriority
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority
 
 # ==============================================================================
 # CONSTANTS
@@ -167,7 +159,7 @@ class VaRResult:
     cvar_percentage: float
     calculation_time: datetime = field(default_factory=datetime.now)
     is_breach: bool = False
-    breach_severity: Optional[str] = None
+    breach_severity: str | None = None
 
 @dataclass
 class ComponentVaR:
@@ -190,7 +182,7 @@ class StressTestResult:
     portfolio_impact_pct: float  # Percentage impact
     var_under_stress: float
     cvar_under_stress: float
-    worst_positions: List[Tuple[str, float]]  # position_id, impact
+    worst_positions: list[tuple[str, float]]  # position_id, impact
     recovery_time_estimate: int  # Days to recover
 
 @dataclass
@@ -198,13 +190,13 @@ class BacktestReport:
     """VaR model backtest report"""
     method: VaRMethod
     confidence_level: float
-    test_period: Tuple[datetime, datetime]
+    test_period: tuple[datetime, datetime]
     total_observations: int
     var_breaches: int
     expected_breaches: int
     breach_rate: float
-    kupiec_test: Tuple[float, float]  # statistic, p-value
-    christoffersen_test: Tuple[float, float]  # statistic, p-value
+    kupiec_test: tuple[float, float]  # statistic, p-value
+    christoffersen_test: tuple[float, float]  # statistic, p-value
     result: BacktestResult
     model_quality: str  # Good, Warning, Failed
 
@@ -215,12 +207,12 @@ class PortfolioRiskMetrics:
     total_var_99: float
     total_cvar_95: float
     total_cvar_99: float
-    component_vars: List[ComponentVaR]
-    correlation_matrix: Optional[np.ndarray]
+    component_vars: list[ComponentVaR]
+    correlation_matrix: np.ndarray | None
     diversification_ratio: float
     concentration_risk: float
     tail_risk_measure: float
-    stress_test_results: List[StressTestResult]
+    stress_test_results: list[StressTestResult]
     last_update: datetime = field(default_factory=datetime.now)
 
 # ==============================================================================
@@ -229,76 +221,76 @@ class PortfolioRiskMetrics:
 class PortfolioVaR:
     """
     Portfolio Value at Risk calculation and management system.
-    
+
     Provides comprehensive VaR analysis including multiple calculation methods,
     component attribution, stress testing, and backtesting capabilities.
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize Portfolio VaR system"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Portfolio data
         self.portfolio_value = self.config.get('portfolio_value', 1000000)
         self.positions = {}  # position_id -> position data
         self.position_returns = defaultdict(lambda: deque(maxlen=LOOKBACK_PERIOD))
         self.portfolio_returns = deque(maxlen=LOOKBACK_PERIOD)
-        
+
         # VaR parameters
         self.confidence_levels = self.config.get('confidence_levels', DEFAULT_CONFIDENCE_LEVELS)
         self.time_horizon = self.config.get('time_horizon', DEFAULT_TIME_HORIZON)
-        
+
         # Risk matrices
         self.correlation_matrix = None
         self.covariance_matrix = None
         self.last_matrix_update = None
-        
+
         # VaR results cache
         self.current_var = {}  # method -> VaRResult
         self.component_vars = []
         self.stress_results = []
-        
+
         # Backtesting
         self.backtest_history = deque(maxlen=252)
         self.var_breach_history = deque(maxlen=100)
-        
+
         # Risk limits
         self.var_limits = {
             0.95: self.config.get('var_limit_95', 0.05),  # 5% limit
             0.99: self.config.get('var_limit_99', 0.10),  # 10% limit
         }
-        
+
         # Integration
         self.max_loss_protection = None
         self.allocator = None
         self.message_bus = None
-        
+
         # Threading
         self._lock = threading.RLock()
         self._shutdown = threading.Event()
-        
+
         # Initialize components
         self._initialize_risk_models()
         self._load_historical_data()
-        
+
         self.logger.info("Portfolio VaR system initialized")
-    
+
     def _initialize_risk_models(self):
         """Initialize risk models and parameters"""
         # Initialize shrinkage estimator for covariance
         self.cov_estimator = LedoitWolf()
-        
+
         # Initialize GARCH model parameters (simplified)
         self.garch_params = {
             'omega': 0.00001,  # Long-term variance
             'alpha': 0.1,  # ARCH parameter
             'beta': 0.85  # GARCH parameter
         }
-        
+
         self.logger.info("Risk models initialized")
-    
+
     def _load_historical_data(self):
         """Load historical VaR and backtest data"""
         try:
@@ -314,25 +306,25 @@ class PortfolioVaR:
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'r', encoding='utf-8') as f:
+                with open(history_file, encoding='utf-8') as f:
                     data = json.load(f)
                     self.backtest_history = deque(data['backtests'], maxlen=252)
                     self.var_breach_history = deque(data['breaches'], maxlen=100)
                     self.logger.info(f"Loaded {len(self.backtest_history)} historical VaR records")
         except Exception as e:
             self.logger.warning(f"Could not load VaR history: {e}")
-    
+
     def update_position(
         self,
         position_id: str,
         strategy_id: str,
         value: float,
-        greeks: Optional[Dict[str, float]] = None,
-        returns_history: Optional[List[float]] = None
+        greeks: dict[str, float] | None = None,
+        returns_history: list[float] | None = None
     ):
         """
         Update position data for VaR calculation.
-        
+
         Args:
             position_id: Unique position identifier
             strategy_id: Strategy this position belongs to
@@ -347,12 +339,12 @@ class PortfolioVaR:
                 'greeks': greeks or {},
                 'last_update': datetime.now()
             }
-            
+
             if returns_history:
                 self.position_returns[position_id].extend(returns_history)
-            
+
             self.logger.debug(f"Updated position {position_id}: ${value:,.0f}")
-    
+
     def calculate_var(
         self,
         method: VaRMethod = VaRMethod.HISTORICAL,
@@ -361,54 +353,54 @@ class PortfolioVaR:
     ) -> VaRResult:
         """
         Calculate portfolio VaR using specified method.
-        
+
         Args:
             method: VaR calculation method
             confidence_level: Confidence level (e.g., 0.99 for 99%)
             time_horizon: Time horizon in days
-            
+
         Returns:
             VaRResult with calculated values
         """
         with self._lock:
             try:
                 self.logger.info(f"Calculating {method.value} VaR at {confidence_level:.1%} confidence")
-                
+
                 # Get portfolio returns
                 returns = self._get_portfolio_returns()
-                
+
                 if len(returns) < 30:
                     self.logger.warning("Insufficient data for VaR calculation")
                     return self._create_default_var_result(method, confidence_level)
-                
+
                 # Calculate VaR based on method
                 if method == VaRMethod.HISTORICAL:
                     var_pct, cvar_pct = self._calculate_historical_var(returns, confidence_level)
-                
+
                 elif method == VaRMethod.PARAMETRIC:
                     var_pct, cvar_pct = self._calculate_parametric_var(returns, confidence_level)
-                
+
                 elif method == VaRMethod.MONTE_CARLO:
                     var_pct, cvar_pct = self._calculate_monte_carlo_var(returns, confidence_level)
-                
+
                 elif method == VaRMethod.CORNISH_FISHER:
                     var_pct, cvar_pct = self._calculate_cornish_fisher_var(returns, confidence_level)
-                
+
                 elif method == VaRMethod.FILTERED_HISTORICAL:
                     var_pct, cvar_pct = self._calculate_filtered_historical_var(returns, confidence_level)
-                
+
                 else:  # GARCH
                     var_pct, cvar_pct = self._calculate_garch_var(returns, confidence_level)
-                
+
                 # Scale for time horizon
                 if time_horizon > 1:
                     var_pct *= np.sqrt(time_horizon)
                     cvar_pct *= np.sqrt(time_horizon)
-                
+
                 # Convert to dollar amounts
                 var_amount = self.portfolio_value * abs(var_pct)
                 cvar_amount = self.portfolio_value * abs(cvar_pct)
-                
+
                 # Check for breaches
                 is_breach = abs(var_pct) > self.var_limits.get(confidence_level, 0.10)
                 breach_severity = None
@@ -419,7 +411,7 @@ class PortfolioVaR:
                         breach_severity = "HIGH"
                     else:
                         breach_severity = "MEDIUM"
-                
+
                 # Create result
                 result = VaRResult(
                     method=method,
@@ -433,98 +425,98 @@ class PortfolioVaR:
                     is_breach=is_breach,
                     breach_severity=breach_severity
                 )
-                
+
                 # Cache result
                 self.current_var[method] = result
-                
+
                 # Send alert if breach
                 if is_breach:
                     self._send_var_breach_alert(result)
-                
+
                 return result
-                
+
             except Exception as e:
                 self.logger.error(f"VaR calculation failed: {e}")
                 self.error_handler.handle_error(e, {"method": method.value})
                 return self._create_default_var_result(method, confidence_level)
-    
+
     def _get_portfolio_returns(self) -> np.ndarray:
         """Get portfolio returns from position returns"""
         if len(self.portfolio_returns) > 0:
             return np.array(self.portfolio_returns)
-        
+
         # Calculate from position returns
         portfolio_returns = []
-        
+
         # Get minimum common length
         min_length = min(len(returns) for returns in self.position_returns.values()) if self.position_returns else 0
-        
+
         if min_length > 0:
             # Weight by position values
             total_value = sum(pos['value'] for pos in self.positions.values())
-            
+
             for i in range(min_length):
                 weighted_return = 0
                 for pos_id, pos_data in self.positions.items():
                     if pos_id in self.position_returns:
                         weight = pos_data['value'] / total_value if total_value > 0 else 0
                         weighted_return += weight * self.position_returns[pos_id][i]
-                
+
                 portfolio_returns.append(weighted_return)
-        
+
         return np.array(portfolio_returns) if portfolio_returns else np.array([])
-    
+
     def _calculate_historical_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate Historical VaR"""
         # Sort returns
         sorted_returns = np.sort(returns)
-        
+
         # Find VaR percentile
         var_index = int((1 - confidence_level) * len(sorted_returns))
         var = sorted_returns[var_index]
-        
+
         # Calculate CVaR (average of returns worse than VaR)
         cvar = np.mean(sorted_returns[:var_index]) if var_index > 0 else var
-        
+
         return var, cvar
-    
+
     def _calculate_parametric_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate Parametric (Variance-Covariance) VaR"""
         # Calculate mean and standard deviation
         mean_return = np.mean(returns)
         std_return = np.std(returns)
-        
+
         # Calculate VaR using normal distribution
         z_score = norm.ppf(1 - confidence_level)
         var = mean_return + z_score * std_return
-        
+
         # Calculate CVaR for normal distribution
         pdf_z = norm.pdf(z_score)
         cvar = mean_return - std_return * pdf_z / (1 - confidence_level)
-        
+
         return var, cvar
-    
+
     def _calculate_monte_carlo_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate Monte Carlo VaR"""
         # Fit distribution parameters
         mean_return = np.mean(returns)
         std_return = np.std(returns)
-        
+
         # Check for fat tails using Jarque-Bera test
         jb_stat, jb_pvalue = jarque_bera(returns)
-        
+
         if jb_pvalue < 0.05:  # Non-normal, use t-distribution
             # Fit t-distribution
             df, loc, scale = t.fit(returns)
@@ -532,139 +524,139 @@ class PortfolioVaR:
         else:
             # Use normal distribution
             simulated_returns = np.random.normal(mean_return, std_return, MONTE_CARLO_SIMULATIONS)
-        
+
         # Calculate VaR from simulated returns
         sorted_sim = np.sort(simulated_returns)
         var_index = int((1 - confidence_level) * len(sorted_sim))
         var = sorted_sim[var_index]
-        
+
         # Calculate CVaR
         cvar = np.mean(sorted_sim[:var_index]) if var_index > 0 else var
-        
+
         return var, cvar
-    
+
     def _calculate_cornish_fisher_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate Cornish-Fisher VaR (adjusts for skewness and kurtosis)"""
         mean_return = np.mean(returns)
         std_return = np.std(returns)
         skewness = stats.skew(returns)
         excess_kurtosis = stats.kurtosis(returns)
-        
+
         # Standard normal quantile
         z = norm.ppf(1 - confidence_level)
-        
+
         # Cornish-Fisher expansion
-        cf_z = (z + 
+        cf_z = (z +
                 (z**2 - 1) * skewness / 6 +
                 (z**3 - 3*z) * excess_kurtosis / 24 -
                 (2*z**3 - 5*z) * skewness**2 / 36)
-        
+
         # Calculate VaR
         var = mean_return + cf_z * std_return
-        
+
         # Approximate CVaR (simplified)
         cvar = var * CVAR_MULTIPLIER
-        
+
         return var, cvar
-    
+
     def _calculate_filtered_historical_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate Filtered Historical Simulation VaR"""
         # Apply EWMA volatility adjustment
         lambda_param = 0.94  # Decay factor
-        
+
         # Calculate EWMA volatility
-        weights = np.array([(1 - lambda_param) * lambda_param**i 
+        weights = np.array([(1 - lambda_param) * lambda_param**i
                           for i in range(len(returns)-1, -1, -1)])
         weights /= weights.sum()
-        
+
         # Adjust returns by current volatility
         current_vol = np.sqrt(np.sum(weights * returns**2))
         long_term_vol = np.std(returns)
-        
+
         # Scale historical returns
         scaled_returns = returns * (current_vol / long_term_vol)
-        
+
         # Calculate VaR on scaled returns
         return self._calculate_historical_var(scaled_returns, confidence_level)
-    
+
     def _calculate_garch_var(
         self,
         returns: np.ndarray,
         confidence_level: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate GARCH-based VaR"""
         # Simplified GARCH(1,1) implementation
         omega = self.garch_params['omega']
         alpha = self.garch_params['alpha']
         beta = self.garch_params['beta']
-        
+
         # Initialize variance
         variance = np.var(returns)
-        
+
         # GARCH variance forecast
         for ret in returns[-10:]:  # Use last 10 returns
             variance = omega + alpha * ret**2 + beta * variance
-        
+
         # Next period volatility
         next_vol = np.sqrt(variance)
-        
+
         # Calculate VaR
         z_score = norm.ppf(1 - confidence_level)
         var = np.mean(returns) + z_score * next_vol
-        
+
         # CVaR approximation
         cvar = var * CVAR_MULTIPLIER
-        
+
         return var, cvar
-    
-    def calculate_component_var(self) -> List[ComponentVaR]:
+
+    def calculate_component_var(self) -> list[ComponentVaR]:
         """
         Calculate Component VaR for all positions.
-        
+
         Returns:
             List of ComponentVaR for each position
         """
         with self._lock:
             try:
                 component_vars = []
-                
+
                 # Get portfolio VaR
                 portfolio_var = self.calculate_var(VaRMethod.PARAMETRIC, 0.99)
-                
+
                 # Calculate correlation matrix if needed
                 if self.last_matrix_update is None or \
                    (datetime.now() - self.last_matrix_update).days > 7:
                     self._update_correlation_matrix()
-                
+
                 total_value = sum(pos['value'] for pos in self.positions.values())
-                
+
                 for pos_id, pos_data in self.positions.items():
                     # Calculate standalone VaR
                     pos_returns = np.array(self.position_returns[pos_id]) if pos_id in self.position_returns else np.array([])
-                    
+
                     if len(pos_returns) > 30:
                         standalone_var = abs(np.percentile(pos_returns, 1)) * pos_data['value']
                     else:
                         standalone_var = pos_data['value'] * 0.05  # Default 5%
-                    
+
                     # Calculate component VaR (simplified)
                     weight = pos_data['value'] / total_value if total_value > 0 else 0
                     component_var_amount = portfolio_var.var_amount * weight
-                    
+
                     # Calculate marginal VaR
                     marginal_var = component_var_amount / pos_data['value'] if pos_data['value'] > 0 else 0
-                    
+
                     # Diversification effect
                     correlation_effect = 1 - (component_var_amount / standalone_var) if standalone_var > 0 else 0
-                    
+
                     component = ComponentVaR(
                         position_id=pos_id,
                         strategy_id=pos_data['strategy_id'],
@@ -675,56 +667,56 @@ class PortfolioVaR:
                         var_contribution_pct=component_var_amount / portfolio_var.var_amount if portfolio_var.var_amount > 0 else 0,
                         correlation_effect=correlation_effect
                     )
-                    
+
                     component_vars.append(component)
-                
+
                 # Sort by contribution
                 component_vars.sort(key=lambda x: x.component_var, reverse=True)
-                
+
                 # Cache results
                 self.component_vars = component_vars
-                
+
                 return component_vars
-                
+
             except Exception as e:
                 self.logger.error(f"Component VaR calculation failed: {e}")
                 return []
-    
+
     def _update_correlation_matrix(self):
         """Update correlation and covariance matrices"""
         try:
             # Collect returns data
             positions = list(self.positions.keys())
             returns_matrix = []
-            
+
             for pos_id in positions:
                 if pos_id in self.position_returns:
                     returns_matrix.append(list(self.position_returns[pos_id]))
-            
+
             if len(returns_matrix) > 1:
                 returns_df = pd.DataFrame(returns_matrix).T
-                
+
                 # Calculate correlation
                 self.correlation_matrix = returns_df.corr().values
-                
+
                 # Calculate covariance with shrinkage
                 self.covariance_matrix, _ = self.cov_estimator.fit(returns_df.values)
-                
+
                 self.last_matrix_update = datetime.now()
-                
+
         except Exception as e:
             self.logger.error(f"Matrix update failed: {e}")
-    
+
     def run_stress_tests(
         self,
-        scenarios: Optional[Dict[str, Dict]] = None
-    ) -> List[StressTestResult]:
+        scenarios: dict[str, dict] | None = None
+    ) -> list[StressTestResult]:
         """
         Run stress test scenarios on portfolio.
-        
+
         Args:
             scenarios: Custom scenarios or use defaults
-            
+
         Returns:
             List of StressTestResult
         """
@@ -732,23 +724,23 @@ class PortfolioVaR:
             try:
                 scenarios = scenarios or STRESS_SCENARIOS
                 results = []
-                
+
                 for scenario_name, scenario_params in scenarios.items():
                     self.logger.info(f"Running stress test: {scenario_name}")
-                    
+
                     # Calculate scenario impact
                     impact = self._calculate_scenario_impact(scenario_params)
-                    
+
                     # Calculate stressed VaR
                     stressed_returns = self._apply_scenario_to_returns(scenario_params)
                     stressed_var, stressed_cvar = self._calculate_historical_var(stressed_returns, 0.99)
-                    
+
                     # Find worst affected positions
                     worst_positions = self._find_worst_positions(scenario_params)
-                    
+
                     # Estimate recovery time
                     recovery_time = self._estimate_recovery_time(abs(impact))
-                    
+
                     result = StressTestResult(
                         scenario_name=scenario_name,
                         scenario_type=StressTestType.HISTORICAL,
@@ -759,87 +751,87 @@ class PortfolioVaR:
                         worst_positions=worst_positions[:5],  # Top 5
                         recovery_time_estimate=recovery_time
                     )
-                    
+
                     results.append(result)
-                
+
                 # Cache results
                 self.stress_results = results
-                
+
                 # Send alerts for severe impacts
                 for result in results:
                     if abs(result.portfolio_impact_pct) > 0.15:
                         self._send_stress_test_alert(result)
-                
+
                 return results
-                
+
             except Exception as e:
                 self.logger.error(f"Stress testing failed: {e}")
                 return []
-    
-    def _calculate_scenario_impact(self, scenario: Dict) -> float:
+
+    def _calculate_scenario_impact(self, scenario: dict) -> float:
         """Calculate portfolio impact of scenario"""
         # Simplified impact calculation
         spy_impact = scenario.get('SPY', 0)
         vix_multiplier = scenario.get('VIX', 1)
-        
+
         # Base impact from market move
         base_impact = spy_impact
-        
+
         # Adjust for volatility
         if vix_multiplier > 1:
             base_impact *= (1 + (vix_multiplier - 1) * 0.2)
-        
+
         # Adjust for correlation
         correlation = scenario.get('correlation', 0.5)
         base_impact *= (0.5 + correlation * 0.5)
-        
+
         return base_impact
-    
-    def _apply_scenario_to_returns(self, scenario: Dict) -> np.ndarray:
+
+    def _apply_scenario_to_returns(self, scenario: dict) -> np.ndarray:
         """Apply stress scenario to historical returns"""
         returns = self._get_portfolio_returns()
-        
+
         if len(returns) == 0:
             return np.array([])
-        
+
         # Apply scenario shock
         shock = scenario.get('SPY', 0)
         vol_mult = scenario.get('VIX', 1)
-        
+
         # Scale returns by scenario
         stressed_returns = returns * vol_mult
         stressed_returns = stressed_returns + shock
-        
+
         return stressed_returns
-    
-    def _find_worst_positions(self, scenario: Dict) -> List[Tuple[str, float]]:
+
+    def _find_worst_positions(self, scenario: dict) -> list[tuple[str, float]]:
         """Find positions most affected by scenario"""
         worst = []
-        
+
         for pos_id, pos_data in self.positions.items():
             # Calculate position-specific impact
             impact = scenario.get('SPY', 0) * pos_data['value']
-            
+
             # Adjust for Greeks if options
             if 'greeks' in pos_data and pos_data['greeks']:
                 greeks = pos_data['greeks']
-                
+
                 # Delta impact
                 if 'delta' in greeks:
                     impact *= abs(greeks['delta'])
-                
+
                 # Vega impact from volatility
                 if 'vega' in greeks and 'VIX' in scenario:
                     vega_impact = greeks['vega'] * (scenario['VIX'] - 1) * 0.01
                     impact += vega_impact * pos_data['value']
-            
+
             worst.append((pos_id, impact))
-        
+
         # Sort by impact
         worst.sort(key=lambda x: abs(x[1]), reverse=True)
-        
+
         return worst
-    
+
     def _estimate_recovery_time(self, impact: float) -> int:
         """Estimate recovery time in days"""
         # Simple heuristic
@@ -851,7 +843,7 @@ class PortfolioVaR:
             return 60
         else:
             return 120
-    
+
     def backtest_var(
         self,
         method: VaRMethod,
@@ -860,59 +852,59 @@ class PortfolioVaR:
     ) -> BacktestReport:
         """
         Backtest VaR model accuracy.
-        
+
         Args:
             method: VaR method to test
             confidence_level: Confidence level
             test_period: Days to test
-            
+
         Returns:
             BacktestReport with test results
         """
         try:
             returns = self._get_portfolio_returns()
-            
+
             if len(returns) < test_period + 30:
                 self.logger.warning("Insufficient data for backtesting")
                 return self._create_default_backtest_report(method, confidence_level)
-            
+
             breaches = 0
             breach_dates = []
-            
+
             # Rolling VaR calculation
             for i in range(test_period):
                 # Calculate VaR on historical window
                 historical_returns = returns[i:i+252] if i+252 < len(returns) else returns[i:]
-                
+
                 if method == VaRMethod.HISTORICAL:
                     var, _ = self._calculate_historical_var(historical_returns, confidence_level)
                 elif method == VaRMethod.PARAMETRIC:
                     var, _ = self._calculate_parametric_var(historical_returns, confidence_level)
                 else:
                     var, _ = self._calculate_historical_var(historical_returns, confidence_level)
-                
+
                 # Check if next day's return breaches VaR
                 if i+252 < len(returns):
                     next_return = returns[i+252]
                     if next_return < var:
                         breaches += 1
                         breach_dates.append(i)
-            
+
             # Calculate statistics
             breach_rate = breaches / test_period
             expected_breaches = test_period * (1 - confidence_level)
-            expected_breach_rate = 1 - confidence_level
-            
+            1 - confidence_level
+
             # Kupiec test (unconditional coverage)
             kupiec_stat, kupiec_pval = self._kupiec_test(
                 breaches, test_period, confidence_level
             )
-            
+
             # Christoffersen test (conditional coverage)
             christ_stat, christ_pval = self._christoffersen_test(
                 breach_dates, test_period, confidence_level
             )
-            
+
             # Determine result
             if kupiec_pval > 0.05 and christ_pval > 0.05:
                 result = BacktestResult.GREEN
@@ -923,7 +915,7 @@ class PortfolioVaR:
             else:
                 result = BacktestResult.RED
                 quality = "Failed"
-            
+
             report = BacktestReport(
                 method=method,
                 confidence_level=confidence_level,
@@ -937,57 +929,57 @@ class PortfolioVaR:
                 result=result,
                 model_quality=quality
             )
-            
+
             # Store in history
             self.backtest_history.append(report)
-            
+
             return report
-            
+
         except Exception as e:
             self.logger.error(f"Backtesting failed: {e}")
             return self._create_default_backtest_report(method, confidence_level)
-    
+
     def _kupiec_test(
         self,
         breaches: int,
         total: int,
         confidence: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Kupiec unconditional coverage test"""
         expected_rate = 1 - confidence
         observed_rate = breaches / total
-        
+
         if breaches == 0 or breaches == total:
             return 0, 1  # Perfect or terrible model
-        
+
         # Likelihood ratio statistic
         lr = -2 * np.log(
             (expected_rate**breaches * (1-expected_rate)**(total-breaches)) /
             (observed_rate**breaches * (1-observed_rate)**(total-breaches))
         )
-        
+
         # Chi-square test with 1 degree of freedom
         p_value = 1 - chi2.cdf(lr, 1)
-        
+
         return lr, p_value
-    
+
     def _christoffersen_test(
         self,
-        breach_dates: List[int],
+        breach_dates: list[int],
         total: int,
         confidence: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Christoffersen conditional coverage test"""
         if len(breach_dates) < 2:
             return 0, 1
-        
+
         # Count transitions
         n00 = n01 = n10 = n11 = 0
-        
+
         for i in range(1, total):
             prev_breach = (i-1) in breach_dates
             curr_breach = i in breach_dates
-            
+
             if not prev_breach and not curr_breach:
                 n00 += 1
             elif not prev_breach and curr_breach:
@@ -996,12 +988,12 @@ class PortfolioVaR:
                 n10 += 1
             else:  # prev_breach and curr_breach
                 n11 += 1
-        
+
         # Transition probabilities
         p01 = n01 / (n00 + n01) if (n00 + n01) > 0 else 0
         p11 = n11 / (n10 + n11) if (n10 + n11) > 0 else 0
         p = (n01 + n11) / total
-        
+
         # Likelihood ratio statistic
         if p01 > 0 and p11 > 0 and p > 0:
             lr = -2 * np.log(
@@ -1010,21 +1002,21 @@ class PortfolioVaR:
             )
         else:
             lr = 0
-        
+
         # Chi-square test with 1 degree of freedom
         p_value = 1 - chi2.cdf(lr, 1)
-        
+
         return lr, p_value
-    
+
     def get_risk_report(self) -> PortfolioRiskMetrics:
         """Get comprehensive risk metrics report"""
         # Calculate all VaR measures
         var_95 = self.calculate_var(VaRMethod.HISTORICAL, 0.95)
         var_99 = self.calculate_var(VaRMethod.HISTORICAL, 0.99)
-        
+
         # Calculate component VaRs
         component_vars = self.calculate_component_var()
-        
+
         # Calculate diversification ratio
         if component_vars:
             sum_standalone = sum(c.standalone_var for c in component_vars)
@@ -1032,7 +1024,7 @@ class PortfolioVaR:
             div_ratio = sum_standalone / portfolio_var if portfolio_var > 0 else 1
         else:
             div_ratio = 1
-        
+
         # Calculate concentration risk (Herfindahl index)
         if self.positions:
             total_value = sum(pos['value'] for pos in self.positions.values())
@@ -1040,21 +1032,21 @@ class PortfolioVaR:
             concentration = sum(w**2 for w in weights)
         else:
             concentration = 0
-        
+
         # Tail risk measure
         returns = self._get_portfolio_returns()
         if len(returns) > 100:
             tail_risk = abs(np.percentile(returns, 1) / np.percentile(returns, 5))
         else:
             tail_risk = 1
-        
+
         # Run stress tests if not recent
         if not self.stress_results or \
            (datetime.now() - self.stress_results[0].calculation_time).days > 7:
             stress_results = self.run_stress_tests()
         else:
             stress_results = self.stress_results
-        
+
         return PortfolioRiskMetrics(
             total_var_95=var_95.var_amount,
             total_var_99=var_99.var_amount,
@@ -1067,7 +1059,7 @@ class PortfolioVaR:
             tail_risk_measure=tail_risk,
             stress_test_results=stress_results
         )
-    
+
     def _create_default_var_result(
         self,
         method: VaRMethod,
@@ -1086,7 +1078,7 @@ class PortfolioVaR:
             is_breach=False,
             breach_severity=None
         )
-    
+
     def _create_default_backtest_report(
         self,
         method: VaRMethod,
@@ -1106,7 +1098,7 @@ class PortfolioVaR:
             result=BacktestResult.YELLOW,
             model_quality="No Data"
         )
-    
+
     def _send_var_breach_alert(self, result: VaRResult):
         """Send VaR breach alert via message bus"""
         if self.message_bus:
@@ -1123,7 +1115,7 @@ class PortfolioVaR:
                 }
             )
             self.message_bus.publish(message)
-    
+
     def _send_stress_test_alert(self, result: StressTestResult):
         """Send stress test alert for severe scenarios"""
         if self.message_bus:
@@ -1139,11 +1131,11 @@ class PortfolioVaR:
                 }
             )
             self.message_bus.publish(message)
-    
+
     def shutdown(self):
         """Shutdown VaR system and save state"""
         self._shutdown.set()
-        
+
         # Save history
         try:
             history_file = Path("data/risk/var_history.json")
@@ -1159,7 +1151,7 @@ class PortfolioVaR:
             self.logger.info("VaR history saved")
         except Exception as e:
             self.logger.error(f"Failed to save VaR history: {e}")
-        
+
         self.logger.info("Portfolio VaR shutdown complete")
 
     # ==========================================================================
@@ -1171,8 +1163,8 @@ class PortfolioVaR:
         returns: np.ndarray,
         confidence_level: float = 0.99,
         n_simulations: int = MONTE_CARLO_SIMULATIONS,
-        num_cpus: Optional[int] = None
-    ) -> Dict[str, Any]:
+        num_cpus: int | None = None
+    ) -> dict[str, Any]:
         """
         Calculate Monte Carlo VaR using Ray distributed computing.
 
@@ -1219,7 +1211,7 @@ class PortfolioVaR:
         params_ref = ray.put(dist_params)
 
         @ray.remote
-        def _simulate_var_chunk(params_ref, n_sims: int, seed: int) -> List[float]:
+        def _simulate_var_chunk(params_ref, n_sims: int, seed: int) -> list[float]:
             """Generate Monte Carlo VaR simulations on a Ray worker."""
             import numpy as _np
             _np.random.seed(seed)
@@ -1293,7 +1285,7 @@ class PortfolioVaR:
         self,
         returns_data: pd.DataFrame,
         confidence: float = 0.95,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Compute extended risk measures using RiskFolio-Lib.
 
@@ -1316,12 +1308,12 @@ class PortfolioVaR:
         port = rp.Portfolio(returns=returns_data)
         port.assets_stats(method_mu='hist', method_cov='ledoit_wolf')
 
-        alpha = 1 - confidence
+        1 - confidence
         risk_measures = {}
 
         # Compute equal-weight portfolio risk for each measure
         n = returns_data.shape[1]
-        equal_weights = np.ones((n, 1)) / n
+        np.ones((n, 1)) / n
 
         measures = ['MV', 'CVaR', 'CDaR', 'UCI', 'MDD']
         measure_names = {
@@ -1357,7 +1349,7 @@ class PortfolioVaR:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_portfolio_var(config: Optional[Dict[str, Any]] = None) -> PortfolioVaR:
+def create_portfolio_var(config: dict[str, Any] | None = None) -> PortfolioVaR:
     """Create and initialize PortfolioVaR instance"""
     return PortfolioVaR(config)
 
@@ -1372,17 +1364,13 @@ if __name__ == "__main__":
         'var_limit_95': 0.05,
         'var_limit_99': 0.10
     }
-    
+
     # Create VaR system
     var_system = create_portfolio_var(config)
-    
-    print("\n" + "="*60)
-    print("PORTFOLIO VAR SYSTEM TEST")
-    print("="*60)
-    
+
+
     # Add test positions
-    print("\nAdding test positions...")
-    
+
     positions = [
         ('POS001', 'D02_IronCondor', 200000),
         ('POS002', 'D05_Straddle', 150000),
@@ -1390,7 +1378,7 @@ if __name__ == "__main__":
         ('POS004', 'D14_CalendarSpread', 250000),
         ('POS005', 'D03_CreditSpread', 300000)
     ]
-    
+
     # Generate fake returns
     for pos_id, strategy, value in positions:
         # Simulate returns with different risk profiles
@@ -1400,89 +1388,45 @@ if __name__ == "__main__":
             returns = np.random.normal(0.0005, 0.025, 252)
         else:
             returns = np.random.normal(0.001, 0.015, 252)  # Lower risk
-        
+
         var_system.update_position(pos_id, strategy, value, returns_history=list(returns))
-    
+
     # Store portfolio returns for testing
     var_system.portfolio_returns.extend(np.random.normal(0.0005, 0.02, 252))
-    
+
     # Calculate VaR using different methods
-    print("\n" + "="*40)
-    print("VAR CALCULATIONS")
-    print("="*40)
-    
+
     methods = [
         VaRMethod.HISTORICAL,
         VaRMethod.PARAMETRIC,
         VaRMethod.MONTE_CARLO,
         VaRMethod.CORNISH_FISHER
     ]
-    
+
     for method in methods:
         result = var_system.calculate_var(method, 0.99)
-        print(f"\n{method.value.upper()} VaR (99%):")
-        print(f"  VaR Amount: ${result.var_amount:,.0f}")
-        print(f"  VaR Percentage: {result.var_percentage:.2%}")
-        print(f"  CVaR Amount: ${result.cvar_amount:,.0f}")
-        print(f"  CVaR Percentage: {result.cvar_percentage:.2%}")
         if result.is_breach:
-            print(f"  ⚠️ BREACH: {result.breach_severity}")
-    
+            pass
+
     # Calculate Component VaR
-    print("\n" + "="*40)
-    print("COMPONENT VAR")
-    print("="*40)
-    
+
     components = var_system.calculate_component_var()
-    print(f"\nTop Risk Contributors:")
-    for comp in components[:3]:
-        print(f"\n{comp.position_id} ({comp.strategy_id}):")
-        print(f"  Position Value: ${comp.position_value:,.0f}")
-        print(f"  Component VaR: ${comp.component_var:,.0f}")
-        print(f"  Contribution: {comp.var_contribution_pct:.1%}")
-        print(f"  Diversification: {comp.correlation_effect:.1%}")
-    
+    for _comp in components[:3]:
+        pass
+
     # Run stress tests
-    print("\n" + "="*40)
-    print("STRESS TESTS")
-    print("="*40)
-    
+
     stress_results = var_system.run_stress_tests()
-    for result in stress_results[:3]:
-        print(f"\n{result.scenario_name}:")
-        print(f"  Portfolio Impact: ${result.portfolio_impact:,.0f}")
-        print(f"  Impact %: {result.portfolio_impact_pct:.2%}")
-        print(f"  Stressed VaR: ${result.var_under_stress:,.0f}")
-        print(f"  Recovery Time: {result.recovery_time_estimate} days")
-    
+    for _ in stress_results[:3]:
+        pass
+
     # Backtest VaR model
-    print("\n" + "="*40)
-    print("VAR BACKTEST")
-    print("="*40)
-    
+
     backtest = var_system.backtest_var(VaRMethod.HISTORICAL, 0.99, test_period=100)
-    print(f"\nBacktest Results:")
-    print(f"  Method: {backtest.method.value}")
-    print(f"  Breaches: {backtest.var_breaches}/{backtest.total_observations}")
-    print(f"  Breach Rate: {backtest.breach_rate:.2%}")
-    print(f"  Expected Rate: {(1-backtest.confidence_level):.2%}")
-    print(f"  Kupiec p-value: {backtest.kupiec_test[1]:.4f}")
-    print(f"  Result: {backtest.result.value} - {backtest.model_quality}")
-    
+
     # Get comprehensive risk report
-    print("\n" + "="*40)
-    print("RISK METRICS SUMMARY")
-    print("="*40)
-    
+
     metrics = var_system.get_risk_report()
-    print(f"\nPortfolio Risk Metrics:")
-    print(f"  VaR 95%: ${metrics.total_var_95:,.0f}")
-    print(f"  VaR 99%: ${metrics.total_var_99:,.0f}")
-    print(f"  CVaR 95%: ${metrics.total_cvar_95:,.0f}")
-    print(f"  CVaR 99%: ${metrics.total_cvar_99:,.0f}")
-    print(f"  Diversification Ratio: {metrics.diversification_ratio:.2f}")
-    print(f"  Concentration Risk: {metrics.concentration_risk:.3f}")
-    print(f"  Tail Risk: {metrics.tail_risk_measure:.2f}")
-    
+
     # Shutdown
     var_system.shutdown()

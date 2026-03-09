@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -93,13 +92,13 @@ def push_to_institutional_grade():
         final_best = generator.best_strategy.fitness
         total_improvement = (final_best - initial_best) / initial_best * 100
 
-        print(f"\n3️⃣ EVOLUTION COMPLETE")
+        print("\n3️⃣ EVOLUTION COMPLETE")
         print(f"   Final Best Fitness: {final_best:.3f}")
         print(f"   Total Improvement: +{total_improvement:.1f}%")
         print(f"   Best Strategy: {generator.best_strategy.name}")
 
         # Analyze final evolved strategy
-        print(f"\n🧬 FINAL EVOLVED STRATEGY ANALYSIS:")
+        print("\n🧬 FINAL EVOLVED STRATEGY ANALYSIS:")
         best = generator.best_strategy
         print(f"   Name: {best.name}")
         print(f"   Type: {best.gene.strategy_type}")
@@ -109,11 +108,11 @@ def push_to_institutional_grade():
 
         # Test with institutional pricing
         if final_best > 0.80:
-            print(f"\n💰 TESTING ENHANCED STRATEGY WITH INSTITUTIONAL PRICING")
+            print("\n💰 TESTING ENHANCED STRATEGY WITH INSTITUTIONAL PRICING")
             test_enhanced_strategy_pricing(best)
 
         # Performance projection
-        print(f"\n📊 INSTITUTIONAL PERFORMANCE PROJECTION:")
+        print("\n📊 INSTITUTIONAL PERFORMANCE PROJECTION:")
         projected_metrics = project_institutional_performance(final_best)
 
         for metric, value in projected_metrics.items():
@@ -127,13 +126,13 @@ def push_to_institutional_grade():
 
         # Institutional grade assessment
         grade = assess_enhanced_institutional_grade(projected_metrics)
-        print(f"\n🎯 ENHANCED INSTITUTIONAL ASSESSMENT:")
+        print("\n🎯 ENHANCED INSTITUTIONAL ASSESSMENT:")
         print(f"   Grade: {grade['grade']}")
         print(f"   Score: {grade['score']:.2f}/1.0")
         print(f"   Status: {grade['status']}")
 
         # Evolution analytics
-        print(f"\n📈 EVOLUTION ANALYTICS:")
+        print("\n📈 EVOLUTION ANALYTICS:")
         analyze_evolution_progress(generation_results)
 
         return generator, projected_metrics, grade
@@ -355,13 +354,13 @@ def analyze_evolution_progress(generation_results):
         print(f"   Reached 0.80 fitness in: {generations_to_80_percent} generations")
 
     if final_fitness > 0.85:
-        print(f"   🎯 EVOLUTION SUCCESS: Achieved institutional-grade fitness!")
+        print("   🎯 EVOLUTION SUCCESS: Achieved institutional-grade fitness!")
 
 
 if __name__ == "__main__":
     generator, metrics, grade = push_to_institutional_grade()
 
     if grade and grade["score"] >= 0.70:
-        print(f"\n🚀 NEXT STEP: DEPLOY TO PAPER TRADING!")
-        print(f"   Your system has achieved near-institutional grade")
-        print(f"   Ready for live market testing with paper account")
+        print("\n🚀 NEXT STEP: DEPLOY TO PAPER TRADING!")
+        print("   Your system has achieved near-institutional grade")
+        print("   Ready for live market testing with paper account")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -32,18 +31,15 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import json
 import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Set
-from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass, field
 from collections import defaultdict, deque
-from enum import Enum, auto
+from enum import Enum
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
-import pandas as pd
-from pathlib import Path
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -67,6 +63,7 @@ from Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent import SystemHealthAgent
 from Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent import MarketAnalysisAgent
 from Spyder.SpyderX_Agents.SpyderX14_OrchestratorAgent import OrchestratorAgent
 from Spyder.SpyderX_Agents.SpyderX15_StrategyGeneratorAgent import StrategyGeneratorAgent
+import builtins
 
 # ==============================================================================
 # CONSTANTS
@@ -126,7 +123,7 @@ class AgentRecommendation:
     action: str  # BUY, SELL, HOLD, HEDGE, etc.
     confidence: float  # 0-1
     reasoning: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
     priority: int = 5  # 1-10, higher is more important
 
@@ -137,15 +134,15 @@ class CoordinatedDecision:
     decision_type: DecisionType
     final_action: str
     consensus_level: float
-    participating_agents: List[str]
-    dissenting_agents: List[str]
+    participating_agents: list[str]
+    dissenting_agents: list[str]
     weighted_confidence: float
     reasoning: str
-    agent_recommendations: List[AgentRecommendation]
+    agent_recommendations: list[AgentRecommendation]
     market_regime: MarketRegime
     risk_score: float
     timestamp: datetime = field(default_factory=datetime.now)
-    execution_params: Dict[str, Any] = field(default_factory=dict)
+    execution_params: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class AgentPerformance:
@@ -163,7 +160,7 @@ class AgentPerformance:
 class ConflictEvent:
     """Record of agent conflicts"""
     timestamp: datetime
-    conflicting_agents: List[str]
+    conflicting_agents: list[str]
     issue: str
     resolution_method: ConflictResolution
     outcome: str
@@ -174,37 +171,37 @@ class ConflictEvent:
 class MetaCoordinator:
     """
     Meta-Coordinator for orchestrating all 15 AI agents.
-    
+
     This class manages the complex interactions between all AI agents,
     resolving conflicts, building consensus, and ensuring coordinated
     decision-making across the entire system.
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize the Meta-Coordinator"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Agent registry
         self.agents = {}
         self.agent_performance = {}
         self.agent_weights = {}
-        
+
         # Decision tracking
         self.decision_history = deque(maxlen=1000)
         self.conflict_history = deque(maxlen=500)
         self.consensus_history = deque(maxlen=100)
-        
+
         # Market state
         self.current_market_regime = MarketRegime.NORMAL
         self.regime_confidence = 0.5
-        
+
         # Threading
         self.executor = ThreadPoolExecutor(max_workers=16)
         self._shutdown = False
         self._lock = threading.RLock()
-        
+
         # Performance tracking
         self.coordinator_metrics = {
             'total_decisions': 0,
@@ -213,13 +210,13 @@ class MetaCoordinator:
             'avg_consensus': 0.0,
             'avg_decision_time': 0.0
         }
-        
+
         # Initialize agents
         self._initialize_agents()
         self._initialize_weights()
-        
+
         self.logger.info("MetaCoordinator initialized with 15 agents")
-    
+
     def _initialize_agents(self):
         """Initialize all 15 agents"""
         try:
@@ -241,17 +238,17 @@ class MetaCoordinator:
                 'X14_Orchestrator': OrchestratorAgent(),
                 'X15_StrategyGenerator': StrategyGeneratorAgent()
             }
-            
+
             # Initialize performance tracking
-            for agent_id in self.agents.keys():
+            for agent_id in self.agents:
                 self.agent_performance[agent_id] = AgentPerformance(agent_id=agent_id)
-            
+
             self.logger.info(f"Initialized {len(self.agents)} agents")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize agents: {e}")
             self.error_handler.handle_error(e, {"method": "_initialize_agents"})
-    
+
     def _initialize_weights(self):
         """Initialize agent weights based on market regime and role"""
         # Base weights by agent role
@@ -272,7 +269,7 @@ class MetaCoordinator:
             'X14_Orchestrator': {'base': 0.7, 'regime_multiplier': {}},
             'X15_StrategyGenerator': {'base': 0.7, 'regime_multiplier': {}}
         }
-        
+
         # Regime-specific weight adjustments
         for agent_id in self.agent_weights:
             self.agent_weights[agent_id]['regime_multiplier'] = {
@@ -284,7 +281,7 @@ class MetaCoordinator:
                 MarketRegime.TRENDING_DOWN: self._get_trending_weight(agent_id),
                 MarketRegime.RANGE_BOUND: self._get_range_weight(agent_id)
             }
-    
+
     def _get_crisis_weight(self, agent_id: str) -> float:
         """Get weight multiplier for crisis regime"""
         crisis_weights = {
@@ -296,7 +293,7 @@ class MetaCoordinator:
             'X15_StrategyGenerator': 0.5  # Stick to proven strategies
         }
         return crisis_weights.get(agent_id, 1.0)
-    
+
     def _get_high_vol_weight(self, agent_id: str) -> float:
         """Get weight multiplier for high volatility"""
         high_vol_weights = {
@@ -307,7 +304,7 @@ class MetaCoordinator:
             'X06_Backtesting': 0.7  # Historical less relevant
         }
         return high_vol_weights.get(agent_id, 1.0)
-    
+
     def _get_low_vol_weight(self, agent_id: str) -> float:
         """Get weight multiplier for low volatility"""
         low_vol_weights = {
@@ -317,7 +314,7 @@ class MetaCoordinator:
             'X04_RiskGuardian': 0.8  # Can be less conservative
         }
         return low_vol_weights.get(agent_id, 1.0)
-    
+
     def _get_trending_weight(self, agent_id: str) -> float:
         """Get weight multiplier for trending markets"""
         trending_weights = {
@@ -327,7 +324,7 @@ class MetaCoordinator:
             'X01_Greeks': 0.8  # Less important in strong trends
         }
         return trending_weights.get(agent_id, 1.0)
-    
+
     def _get_range_weight(self, agent_id: str) -> float:
         """Get weight multiplier for range-bound markets"""
         range_weights = {
@@ -337,43 +334,43 @@ class MetaCoordinator:
             'X13_MarketAnalysis': 0.8
         }
         return range_weights.get(agent_id, 1.0)
-    
+
     async def coordinate_decision(
         self,
         decision_type: DecisionType,
-        market_data: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None,
+        market_data: dict[str, Any],
+        context: dict[str, Any] | None = None,
         timeout: float = MAX_DECISION_TIME
     ) -> CoordinatedDecision:
         """
         Coordinate a decision across all relevant agents.
-        
+
         Args:
             decision_type: Type of decision needed
             market_data: Current market data
             context: Additional context for decision
             timeout: Maximum time for decision
-            
+
         Returns:
             CoordinatedDecision with consensus result
         """
         start_time = datetime.now()
         decision_id = str(uuid.uuid4())
-        
+
         try:
             self.logger.info(f"Coordinating {decision_type.value} decision (ID: {decision_id})")
-            
+
             # 1. Determine relevant agents for this decision
             relevant_agents = self._get_relevant_agents(decision_type)
-            
+
             # 2. Update market regime
             await self._update_market_regime(market_data)
-            
+
             # 3. Collect recommendations from all agents
             recommendations = await self._collect_agent_recommendations(
                 relevant_agents, decision_type, market_data, context, timeout
             )
-            
+
             # 4. Check for conflicts
             conflicts = self._identify_conflicts(recommendations)
             if conflicts:
@@ -381,45 +378,45 @@ class MetaCoordinator:
                 recommendations = await self._resolve_conflicts(
                     recommendations, conflicts, decision_type
                 )
-            
+
             # 5. Build consensus
             consensus_result = self._build_consensus(recommendations, decision_type)
-            
+
             # 6. Validate with critical agents (veto power)
             final_decision = await self._validate_with_critical_agents(
                 consensus_result, recommendations
             )
-            
+
             # 7. Record decision
             self._record_decision(final_decision)
-            
+
             # Update metrics
             decision_time = (datetime.now() - start_time).total_seconds()
             self._update_metrics(decision_time, final_decision)
-            
+
             self.logger.info(
                 f"Decision completed: {final_decision.final_action} "
                 f"(consensus: {final_decision.consensus_level:.2%}, time: {decision_time:.2f}s)"
             )
-            
+
             return final_decision
-            
+
         except Exception as e:
             self.logger.error(f"Decision coordination failed: {e}")
             self.error_handler.handle_error(e, {
                 "decision_type": decision_type.value,
                 "decision_id": decision_id
             })
-            
+
             # Return safe default decision
             return self._create_default_decision(decision_id, decision_type)
-    
-    def _get_relevant_agents(self, decision_type: DecisionType) -> List[str]:
+
+    def _get_relevant_agents(self, decision_type: DecisionType) -> list[str]:
         """Determine which agents should participate in a decision"""
         # All agents participate in emergency decisions
         if decision_type == DecisionType.EMERGENCY:
             return list(self.agents.keys())
-        
+
         # Decision-specific agent selection
         decision_agents = {
             DecisionType.ENTRY: [
@@ -448,45 +445,45 @@ class MetaCoordinator:
                 'X13_MarketAnalysis', 'X10_QuantModels'
             ]
         }
-        
+
         base_agents = decision_agents.get(decision_type, list(self.agents.keys()))
-        
+
         # Always include critical agents
         for critical in CRITICAL_AGENTS:
             if critical not in base_agents:
                 base_agents.append(critical)
-        
+
         return base_agents
-    
-    async def _update_market_regime(self, market_data: Dict[str, Any]):
+
+    async def _update_market_regime(self, market_data: dict[str, Any]):
         """Update current market regime based on market data"""
         try:
             # Get market analysis from X13
             if 'X13_MarketAnalysis' in self.agents:
                 market_agent = self.agents['X13_MarketAnalysis']
                 regime_analysis = await market_agent.analyze_market_regime(market_data)
-                
+
                 self.current_market_regime = MarketRegime(regime_analysis['regime'])
                 self.regime_confidence = regime_analysis['confidence']
-                
+
                 self.logger.debug(
                     f"Market regime: {self.current_market_regime.value} "
                     f"(confidence: {self.regime_confidence:.2%})"
                 )
         except Exception as e:
             self.logger.warning(f"Failed to update market regime: {e}")
-    
+
     async def _collect_agent_recommendations(
         self,
-        agent_ids: List[str],
+        agent_ids: list[str],
         decision_type: DecisionType,
-        market_data: Dict[str, Any],
-        context: Dict[str, Any],
+        market_data: dict[str, Any],
+        context: dict[str, Any],
         timeout: float
-    ) -> List[AgentRecommendation]:
+    ) -> list[AgentRecommendation]:
         """Collect recommendations from all relevant agents"""
         recommendations = []
-        
+
         # Create tasks for parallel agent queries
         tasks = []
         for agent_id in agent_ids:
@@ -495,37 +492,37 @@ class MetaCoordinator:
                     agent_id, decision_type, market_data, context
                 )
                 tasks.append(task)
-        
+
         # Wait for all agents with timeout
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=timeout
             )
-            
+
             for result in results:
                 if isinstance(result, AgentRecommendation):
                     recommendations.append(result)
                 elif isinstance(result, Exception):
                     self.logger.warning(f"Agent recommendation failed: {result}")
-                    
-        except asyncio.TimeoutError:
+
+        except builtins.TimeoutError:
             self.logger.warning(f"Agent collection timed out after {timeout}s")
             # Use whatever recommendations we have
-        
+
         return recommendations
-    
+
     async def _get_agent_recommendation(
         self,
         agent_id: str,
         decision_type: DecisionType,
-        market_data: Dict[str, Any],
-        context: Dict[str, Any]
+        market_data: dict[str, Any],
+        context: dict[str, Any]
     ) -> AgentRecommendation:
         """Get recommendation from a single agent"""
         try:
             agent = self.agents[agent_id]
-            
+
             # Call agent's decision method
             if hasattr(agent, 'make_recommendation'):
                 result = await agent.make_recommendation(
@@ -536,7 +533,7 @@ class MetaCoordinator:
                 result = await self._fallback_agent_call(
                     agent, agent_id, decision_type, market_data, context
                 )
-            
+
             return AgentRecommendation(
                 agent_id=agent_id,
                 agent_name=agent_id.replace('_', ' '),
@@ -547,7 +544,7 @@ class MetaCoordinator:
                 data=result.get('data', {}),
                 priority=self._get_agent_priority(agent_id, decision_type)
             )
-            
+
         except Exception as e:
             self.logger.error(f"Agent {agent_id} recommendation failed: {e}")
             # Return neutral recommendation
@@ -561,15 +558,15 @@ class MetaCoordinator:
                 data={},
                 priority=1
             )
-    
+
     async def _fallback_agent_call(
         self,
         agent: Any,
         agent_id: str,
         decision_type: DecisionType,
-        market_data: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        market_data: dict[str, Any],
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
         """Fallback method for agents without standard interface"""
         # Agent-specific method mapping
         method_map = {
@@ -579,13 +576,13 @@ class MetaCoordinator:
             'X04_RiskGuardian': 'assess_risk',
             'X13_MarketAnalysis': 'analyze_market'
         }
-        
+
         method_name = method_map.get(agent_id, 'analyze')
-        
+
         if hasattr(agent, method_name):
             method = getattr(agent, method_name)
             result = await method(market_data, context)
-            
+
             # Convert to standard format
             return {
                 'action': self._extract_action(result),
@@ -593,9 +590,9 @@ class MetaCoordinator:
                 'reasoning': str(result),
                 'data': result if isinstance(result, dict) else {}
             }
-        
+
         return {'action': 'HOLD', 'confidence': 0.5, 'reasoning': 'No method available', 'data': {}}
-    
+
     def _extract_action(self, result: Any) -> str:
         """Extract action from various result formats"""
         if isinstance(result, dict):
@@ -603,19 +600,19 @@ class MetaCoordinator:
         elif isinstance(result, str):
             return result.upper()
         return 'HOLD'
-    
+
     def _extract_confidence(self, result: Any) -> float:
         """Extract confidence from various result formats"""
         if isinstance(result, dict):
             return result.get('confidence', result.get('score', 0.5))
         return 0.5
-    
+
     def _get_agent_priority(self, agent_id: str, decision_type: DecisionType) -> int:
         """Get agent priority for specific decision type"""
         # Critical agents always have highest priority
         if agent_id in CRITICAL_AGENTS:
             return 10
-        
+
         # Decision-specific priorities
         priority_map = {
             DecisionType.ENTRY: {
@@ -634,21 +631,21 @@ class MetaCoordinator:
                 'X10_QuantModels': 7
             }
         }
-        
+
         if decision_type in priority_map:
             return priority_map[decision_type].get(agent_id, 5)
-        
+
         return 5  # Default priority
-    
-    def _identify_conflicts(self, recommendations: List[AgentRecommendation]) -> List[ConflictEvent]:
+
+    def _identify_conflicts(self, recommendations: list[AgentRecommendation]) -> list[ConflictEvent]:
         """Identify conflicts between agent recommendations"""
         conflicts = []
-        
+
         # Group recommendations by action
         action_groups = defaultdict(list)
         for rec in recommendations:
             action_groups[rec.action].append(rec)
-        
+
         # Check for conflicting actions
         if len(action_groups) > 1:
             # Find opposing actions
@@ -661,19 +658,19 @@ class MetaCoordinator:
                     resolution_method=ConflictResolution.WEIGHTED_VOTE,
                     outcome=""
                 ))
-            
+
             # Check for high confidence disagreements
             high_conf_actions = {}
             for action, recs in action_groups.items():
                 high_conf = [r for r in recs if r.confidence > 0.8]
                 if high_conf:
                     high_conf_actions[action] = high_conf
-            
+
             if len(high_conf_actions) > 1:
                 all_agents = []
                 for recs in high_conf_actions.values():
                     all_agents.extend([r.agent_id for r in recs])
-                
+
                 conflicts.append(ConflictEvent(
                     timestamp=datetime.now(),
                     conflicting_agents=all_agents,
@@ -681,76 +678,76 @@ class MetaCoordinator:
                     resolution_method=ConflictResolution.CONSENSUS_REQUIRED,
                     outcome=""
                 ))
-        
+
         return conflicts
-    
+
     async def _resolve_conflicts(
         self,
-        recommendations: List[AgentRecommendation],
-        conflicts: List[ConflictEvent],
+        recommendations: list[AgentRecommendation],
+        conflicts: list[ConflictEvent],
         decision_type: DecisionType
-    ) -> List[AgentRecommendation]:
+    ) -> list[AgentRecommendation]:
         """Resolve conflicts between agent recommendations"""
         resolved_recommendations = recommendations.copy()
-        
+
         for conflict in conflicts:
             if conflict.resolution_method == ConflictResolution.WEIGHTED_VOTE:
                 # Resolve by weighted voting
                 resolved_recommendations = self._resolve_by_weighted_vote(
                     resolved_recommendations, conflict
                 )
-            
+
             elif conflict.resolution_method == ConflictResolution.RISK_PRIORITY:
                 # Give priority to risk-averse recommendations
                 resolved_recommendations = self._resolve_by_risk_priority(
                     resolved_recommendations, conflict
                 )
-            
+
             elif conflict.resolution_method == ConflictResolution.CONSENSUS_REQUIRED:
                 # Require broader consensus
                 resolved_recommendations = await self._resolve_by_consensus(
                     resolved_recommendations, conflict
                 )
-            
+
             # Record resolution outcome
             conflict.outcome = f"Resolved using {conflict.resolution_method.value}"
             self.conflict_history.append(conflict)
-        
+
         return resolved_recommendations
-    
+
     def _resolve_by_weighted_vote(
         self,
-        recommendations: List[AgentRecommendation],
+        recommendations: list[AgentRecommendation],
         conflict: ConflictEvent
-    ) -> List[AgentRecommendation]:
+    ) -> list[AgentRecommendation]:
         """Resolve conflict using weighted voting"""
         # Calculate weighted scores for each action
         action_scores = defaultdict(float)
         action_supporters = defaultdict(list)
-        
+
         for rec in recommendations:
             weight = self._get_agent_weight(rec.agent_id)
             score = weight * rec.confidence * rec.priority / 10
             action_scores[rec.action] += score
             action_supporters[rec.action].append(rec.agent_id)
-        
+
         # Find winning action
         winning_action = max(action_scores.items(), key=lambda x: x[1])[0]
-        
+
         # Adjust recommendations to align with winning action
         for rec in recommendations:
             if rec.agent_id in conflict.conflicting_agents and rec.action != winning_action:
                 rec.confidence *= 0.5  # Reduce confidence of overruled agents
-        
+
         self.logger.info(f"Resolved conflict: {winning_action} wins by weighted vote")
-        
+
         return recommendations
-    
+
     def _resolve_by_risk_priority(
         self,
-        recommendations: List[AgentRecommendation],
+        recommendations: list[AgentRecommendation],
         conflict: ConflictEvent
-    ) -> List[AgentRecommendation]:
+    ) -> list[AgentRecommendation]:
         """Resolve conflict by prioritizing risk-averse recommendations"""
         # Find most conservative recommendation
         risk_scores = {
@@ -760,106 +757,106 @@ class MetaCoordinator:
             'HOLD': 4,
             'BUY': 5  # Least conservative
         }
-        
+
         most_conservative = None
         min_risk = float('inf')
-        
+
         for rec in recommendations:
             if rec.agent_id in conflict.conflicting_agents:
                 risk = risk_scores.get(rec.action, 4)
                 if risk < min_risk:
                     min_risk = risk
                     most_conservative = rec.action
-        
+
         # Boost conservative recommendations
         for rec in recommendations:
             if rec.action == most_conservative:
                 rec.confidence = min(rec.confidence * 1.5, 1.0)
-        
+
         return recommendations
-    
+
     async def _resolve_by_consensus(
         self,
-        recommendations: List[AgentRecommendation],
+        recommendations: list[AgentRecommendation],
         conflict: ConflictEvent
-    ) -> List[AgentRecommendation]:
+    ) -> list[AgentRecommendation]:
         """Resolve conflict by seeking broader consensus"""
         # Request additional analysis from non-participating agents
         all_agents = set(self.agents.keys())
         participating = set(rec.agent_id for rec in recommendations)
         additional_agents = list(all_agents - participating)[:3]  # Get up to 3 more
-        
+
         if additional_agents:
             self.logger.info(f"Seeking consensus from additional agents: {additional_agents}")
             # This would call additional agents for their input
             # For now, we'll adjust existing recommendations
-        
+
         return recommendations
-    
+
     def _get_agent_weight(self, agent_id: str) -> float:
         """Get current weight for an agent"""
         if agent_id not in self.agent_weights:
             return 0.5
-        
+
         base = self.agent_weights[agent_id]['base']
         regime_mult = self.agent_weights[agent_id]['regime_multiplier'].get(
             self.current_market_regime, 1.0
         )
         performance_mult = self.agent_performance[agent_id].weight_multiplier
-        
+
         return base * regime_mult * performance_mult
-    
+
     def _build_consensus(
         self,
-        recommendations: List[AgentRecommendation],
+        recommendations: list[AgentRecommendation],
         decision_type: DecisionType
     ) -> CoordinatedDecision:
         """Build consensus from agent recommendations"""
         if not recommendations:
             return self._create_default_decision(str(uuid.uuid4()), decision_type)
-        
+
         # Calculate weighted consensus
         action_scores = defaultdict(float)
         action_supporters = defaultdict(list)
         action_confidence = defaultdict(list)
-        
+
         total_weight = 0
         for rec in recommendations:
             weight = self._get_agent_weight(rec.agent_id)
             score = weight * rec.confidence
-            
+
             action_scores[rec.action] += score
             action_supporters[rec.action].append(rec.agent_id)
             action_confidence[rec.action].append(rec.confidence)
             total_weight += weight
-        
+
         # Find consensus action
         consensus_action = max(action_scores.items(), key=lambda x: x[1])[0]
         consensus_score = action_scores[consensus_action] / total_weight if total_weight > 0 else 0
-        
+
         # Identify dissenting agents
         dissenting = []
         for rec in recommendations:
             if rec.action != consensus_action and rec.confidence > 0.7:
                 dissenting.append(rec.agent_id)
-        
+
         # Calculate weighted confidence
         weighted_conf = np.average(
             [rec.confidence for rec in recommendations],
             weights=[self._get_agent_weight(rec.agent_id) for rec in recommendations]
         )
-        
+
         # Build reasoning
         reasoning_parts = []
         for rec in recommendations:
             if rec.action == consensus_action and rec.reasoning:
                 reasoning_parts.append(f"{rec.agent_id}: {rec.reasoning}")
         reasoning = " | ".join(reasoning_parts[:3])  # Top 3 reasons
-        
+
         # Calculate risk score
         risk_agent_recs = [r for r in recommendations if r.agent_id == 'X04_RiskGuardian']
         risk_score = risk_agent_recs[0].data.get('risk_score', 0.5) if risk_agent_recs else 0.5
-        
+
         return CoordinatedDecision(
             decision_id=str(uuid.uuid4()),
             decision_type=decision_type,
@@ -874,35 +871,35 @@ class MetaCoordinator:
             risk_score=risk_score,
             execution_params=self._build_execution_params(consensus_action, recommendations)
         )
-    
+
     def _build_execution_params(
         self,
         action: str,
-        recommendations: List[AgentRecommendation]
-    ) -> Dict[str, Any]:
+        recommendations: list[AgentRecommendation]
+    ) -> dict[str, Any]:
         """Build execution parameters from recommendations"""
         params = {
             'action': action,
             'urgency': 'normal',
             'size_adjustment': 1.0
         }
-        
+
         # Get execution agent recommendations
         exec_recs = [r for r in recommendations if r.agent_id == 'X07_ExecutionStrategy']
         if exec_recs and exec_recs[0].data:
             params.update(exec_recs[0].data)
-        
+
         # Adjust for high volatility
         if self.current_market_regime in [MarketRegime.CRISIS, MarketRegime.HIGH_VOLATILITY]:
             params['size_adjustment'] *= 0.5
             params['urgency'] = 'high'
-        
+
         return params
-    
+
     async def _validate_with_critical_agents(
         self,
         decision: CoordinatedDecision,
-        recommendations: List[AgentRecommendation]
+        recommendations: list[AgentRecommendation]
     ) -> CoordinatedDecision:
         """Validate decision with critical agents (veto power)"""
         # Check if risk guardian approves
@@ -914,7 +911,7 @@ class MetaCoordinator:
                 decision.final_action = 'HOLD'
                 decision.reasoning = f"VETO by Risk Guardian: {risk_rec.reasoning}"
                 decision.execution_params['veto'] = True
-        
+
         # Check system health
         health_recs = [r for r in recommendations if r.agent_id == 'X12_SystemHealth']
         if health_recs:
@@ -924,18 +921,18 @@ class MetaCoordinator:
                 if decision.final_action in ['BUY', 'INCREASE']:
                     decision.final_action = 'HOLD'
                 decision.execution_params['size_adjustment'] *= 0.3
-        
+
         return decision
-    
+
     def _record_decision(self, decision: CoordinatedDecision):
         """Record decision for tracking and analysis"""
         with self._lock:
             self.decision_history.append(decision)
             self.coordinator_metrics['total_decisions'] += 1
-            
+
             # Update consensus tracking
             self.consensus_history.append(decision.consensus_level)
-    
+
     def _update_metrics(self, decision_time: float, decision: CoordinatedDecision):
         """Update coordinator metrics"""
         with self._lock:
@@ -943,15 +940,15 @@ class MetaCoordinator:
             n = self.coordinator_metrics['total_decisions']
             old_avg = self.coordinator_metrics['avg_decision_time']
             self.coordinator_metrics['avg_decision_time'] = (old_avg * (n-1) + decision_time) / n
-            
+
             # Update average consensus
             if self.consensus_history:
                 self.coordinator_metrics['avg_consensus'] = np.mean(list(self.consensus_history))
-            
+
             # Track successful decisions (high consensus)
             if decision.consensus_level > MIN_CONSENSUS_THRESHOLD:
                 self.coordinator_metrics['successful_decisions'] += 1
-    
+
     def _create_default_decision(
         self,
         decision_id: str,
@@ -972,19 +969,19 @@ class MetaCoordinator:
             risk_score=1.0,
             execution_params={'action': 'HOLD', 'safe_mode': True}
         )
-    
+
     def update_agent_performance(self, agent_id: str, was_correct: bool, return_contribution: float):
         """Update agent performance metrics"""
         if agent_id not in self.agent_performance:
             return
-        
+
         perf = self.agent_performance[agent_id]
         perf.total_predictions += 1
         if was_correct:
             perf.correct_predictions += 1
-        
+
         perf.recent_accuracy.append(1.0 if was_correct else 0.0)
-        
+
         # Update weight multiplier based on recent performance
         if len(perf.recent_accuracy) >= 20:
             recent_acc = np.mean(list(perf.recent_accuracy))
@@ -994,27 +991,27 @@ class MetaCoordinator:
                 perf.weight_multiplier = max(0.5, perf.weight_multiplier * 0.95)
             else:
                 perf.weight_multiplier = 1.0
-        
+
         perf.avg_return_contribution = (
             (perf.avg_return_contribution * (perf.total_predictions - 1) + return_contribution) /
             perf.total_predictions
         )
-        
+
         perf.last_update = datetime.now()
-    
-    def get_agent_rankings(self) -> List[Tuple[str, float]]:
+
+    def get_agent_rankings(self) -> list[tuple[str, float]]:
         """Get current agent performance rankings"""
         rankings = []
-        
+
         for agent_id, perf in self.agent_performance.items():
             if perf.total_predictions > 0:
                 accuracy = perf.correct_predictions / perf.total_predictions
                 score = accuracy * perf.weight_multiplier * (1 + perf.avg_return_contribution)
                 rankings.append((agent_id, score))
-        
+
         return sorted(rankings, key=lambda x: x[1], reverse=True)
-    
-    def get_coordinator_stats(self) -> Dict[str, Any]:
+
+    def get_coordinator_stats(self) -> dict[str, Any]:
         """Get coordinator statistics"""
         return {
             **self.coordinator_metrics,
@@ -1024,11 +1021,11 @@ class MetaCoordinator:
             'recent_conflicts': len(self.conflict_history),
             'agent_rankings': self.get_agent_rankings()[:5]  # Top 5
         }
-    
+
     async def emergency_override(self, action: str, reason: str) -> CoordinatedDecision:
         """Emergency override for critical situations"""
         self.logger.critical(f"EMERGENCY OVERRIDE: {action} - {reason}")
-        
+
         decision = CoordinatedDecision(
             decision_id=str(uuid.uuid4()),
             decision_type=DecisionType.EMERGENCY,
@@ -1048,10 +1045,10 @@ class MetaCoordinator:
                 'reason': reason
             }
         )
-        
+
         self._record_decision(decision)
         return decision
-    
+
     def shutdown(self):
         """Shutdown the coordinator"""
         self._shutdown = True
@@ -1064,10 +1061,10 @@ class MetaCoordinator:
 
     def coordinate_agents_distributed(
         self,
-        market_data: Dict[str, Any],
-        agent_ids: Optional[List[str]] = None,
-        num_cpus: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        market_data: dict[str, Any],
+        agent_ids: list[str] | None = None,
+        num_cpus: int | None = None,
+    ) -> dict[str, Any]:
         """
         Coordinate multiple agents in parallel using Ray.
 
@@ -1101,13 +1098,12 @@ class MetaCoordinator:
         market_ref = ray.put(market_data)
 
         @ray.remote
-        def _run_agent_analysis(market_ref, agent_id: str) -> Dict:
+        def _run_agent_analysis(market_ref, agent_id: str) -> dict:
             """Run a single agent analysis on a Ray worker."""
             import numpy as _np
             import time as _time
 
             start = _time.time()
-            market = market_ref
             _np.random.seed(hash(agent_id) % (2**32))
 
             # Simulate agent analysis
@@ -1148,7 +1144,7 @@ class MetaCoordinator:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_meta_coordinator(config: Optional[Dict[str, Any]] = None) -> MetaCoordinator:
+def create_meta_coordinator(config: dict[str, Any] | None = None) -> MetaCoordinator:
     """Create and initialize a MetaCoordinator instance"""
     return MetaCoordinator(config)
 
@@ -1158,43 +1154,32 @@ def create_meta_coordinator(config: Optional[Dict[str, Any]] = None) -> MetaCoor
 # ==============================================================================
 if __name__ == "__main__":
     import asyncio
-    
+
     async def test_coordinator():
         # Create coordinator
         coordinator = create_meta_coordinator()
-        
+
         # Test market data
         market_data = {
             'SPY': {'price': 450.0, 'volume': 1000000},
             'VIX': {'level': 18.5},
             'market_trend': 'bullish'
         }
-        
+
         # Test entry decision
-        print("\n" + "="*60)
-        print("Testing ENTRY decision coordination...")
-        print("="*60)
-        
-        decision = await coordinator.coordinate_decision(
+
+        await coordinator.coordinate_decision(
             DecisionType.ENTRY,
             market_data,
             {'strategy': 'iron_condor', 'timeframe': '1D'}
         )
-        
-        print(f"\nDecision: {decision.final_action}")
-        print(f"Consensus: {decision.consensus_level:.2%}")
-        print(f"Participating: {', '.join(decision.participating_agents[:3])}...")
-        print(f"Reasoning: {decision.reasoning[:100]}...")
-        
+
+
         # Get stats
-        stats = coordinator.get_coordinator_stats()
-        print(f"\nCoordinator Stats:")
-        print(f"  Total Decisions: {stats['total_decisions']}")
-        print(f"  Avg Consensus: {stats['avg_consensus']:.2%}")
-        print(f"  Avg Decision Time: {stats['avg_decision_time']:.2f}s")
-        
+        coordinator.get_coordinator_stats()
+
         # Shutdown
         coordinator.shutdown()
-    
+
     # Run test
     asyncio.run(test_coordinator())

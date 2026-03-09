@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -161,7 +160,7 @@ class TestRiskManagerInit(unittest.TestCase):
     def test_02_init_registers_handlers(self):
         """ConnectAPI handlers are registered during init."""
         api = _make_connect_api_mock()
-        rm = RiskManager(config=RiskConfig(), connect_api=api)
+        RiskManager(config=RiskConfig(), connect_api=api)
 
         # register_handler called for POSITION_UPDATE and ACCOUNT_SUMMARY_UPDATE
         self.assertEqual(len(api._handlers), 2)

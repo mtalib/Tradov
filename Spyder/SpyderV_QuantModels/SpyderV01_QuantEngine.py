@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -31,24 +30,18 @@ Consolidation Notes:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 import time
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -63,12 +56,12 @@ except ImportError:
 
 # Import consolidated V-series modules
 try:
-    from SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics
+    from SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics  # noqa: F401
     from SpyderV05_PricingEngine import (
         SpyderPricingEngine,
         OptionContract,
         PricingParameters,
-        PricingResult,
+        PricingResult,  # noqa: F401
     )
 
     CONSOLIDATED_MODULES_AVAILABLE = True
@@ -121,7 +114,7 @@ class QuantRequest:
     request_id: str
     request_type: RequestType
     priority: Priority
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
     timeout_seconds: float = 30.0
     retry_count: int = 0
@@ -134,12 +127,12 @@ class QuantResponse:
 
     request_id: str
     success: bool
-    data: Dict[str, Any]
+    data: dict[str, Any]
     execution_time_ms: float
-    model_used: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
+    model_used: str | None = None
+    warnings: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -150,8 +143,8 @@ class OrchestrationMetrics:
     successful_requests: int = 0
     failed_requests: int = 0
     avg_response_time_ms: float = 0.0
-    requests_by_type: Dict[str, int] = field(default_factory=dict)
-    requests_by_priority: Dict[str, int] = field(default_factory=dict)
+    requests_by_type: dict[str, int] = field(default_factory=dict)
+    requests_by_priority: dict[str, int] = field(default_factory=dict)
     pricing_engine_calls: int = 0
     risk_manager_calls: int = 0
     last_reset: datetime = field(default_factory=datetime.now)
@@ -178,7 +171,7 @@ class SpyderQuantEngine:
     """
 
     def __init__(
-        self, config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
     ):
         """Initialize pure orchestration engine."""
         self.config = config or {}
@@ -193,13 +186,13 @@ class SpyderQuantEngine:
         self.metrics = OrchestrationMetrics()
 
         # Request tracking
-        self.active_requests: Dict[str, QuantRequest] = {}
-        self.request_history: List[QuantResponse] = []
+        self.active_requests: dict[str, QuantRequest] = {}
+        self.request_history: list[QuantResponse] = []
         self.max_history_size = self.config.get("max_history_size", 1000)
 
         # Initialize consolidated engines
-        self.pricing_engine: Optional[SpyderPricingEngine] = None
-        self.risk_manager: Optional[SpyderRiskManager] = None
+        self.pricing_engine: SpyderPricingEngine | None = None
+        self.risk_manager: SpyderRiskManager | None = None
 
         if CONSOLIDATED_MODULES_AVAILABLE:
             self._initialize_engines()
@@ -352,7 +345,7 @@ class SpyderQuantEngine:
     # REQUEST HANDLERS (DELEGATION TO V04/V05)
     # ==========================================================================
 
-    async def _handle_price_single(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_price_single(self, request: QuantRequest) -> dict[str, Any]:
         """Handle single option pricing request."""
         if not self.pricing_engine:
             raise ValueError("Pricing engine not available")
@@ -393,7 +386,7 @@ class SpyderQuantEngine:
             "warnings": result.warnings,
         }
 
-    async def _handle_price_portfolio(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_price_portfolio(self, request: QuantRequest) -> dict[str, Any]:
         """Handle portfolio pricing request."""
         if not self.pricing_engine:
             raise ValueError("Pricing engine not available")
@@ -444,12 +437,12 @@ class SpyderQuantEngine:
             "successful_pricings": sum(1 for r in results if r.convergence_achieved),
         }
 
-    async def _handle_calculate_greeks(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_calculate_greeks(self, request: QuantRequest) -> dict[str, Any]:
         """Handle Greeks calculation request."""
         # Greeks are calculated as part of pricing, so delegate to pricing
         return await self._handle_price_single(request)
 
-    async def _handle_assess_risk(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_assess_risk(self, request: QuantRequest) -> dict[str, Any]:
         """Handle risk assessment request."""
         if not self.risk_manager:
             raise ValueError("Risk manager not available")
@@ -484,7 +477,7 @@ class SpyderQuantEngine:
             "warnings": risk_metrics.warnings,
         }
 
-    async def _handle_stress_test(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_stress_test(self, request: QuantRequest) -> dict[str, Any]:
         """Handle stress testing request."""
         if not self.risk_manager:
             raise ValueError("Risk manager not available")
@@ -518,7 +511,7 @@ class SpyderQuantEngine:
             ),
         }
 
-    async def _handle_model_validation(self, request: QuantRequest) -> Dict[str, Any]:
+    async def _handle_model_validation(self, request: QuantRequest) -> dict[str, Any]:
         """Handle model validation request."""
         validation_results = {}
 
@@ -550,7 +543,7 @@ class SpyderQuantEngine:
     # ==========================================================================
 
     def _convert_to_option_contract(
-        self, contract_data: Dict[str, Any]
+        self, contract_data: dict[str, Any]
     ) -> "OptionContract":
         """Convert dictionary to OptionContract."""
         from SpyderV05_PricingEngine import OptionType, ExerciseStyle, OptionContract
@@ -569,7 +562,7 @@ class SpyderQuantEngine:
         )
 
     def _convert_to_pricing_parameters(
-        self, params_data: Dict[str, Any]
+        self, params_data: dict[str, Any]
     ) -> "PricingParameters":
         """Convert dictionary to PricingParameters."""
         from SpyderV05_PricingEngine import PricingModel, PricingParameters
@@ -583,7 +576,7 @@ class SpyderQuantEngine:
         )
 
     def _convert_to_risk_parameters(
-        self, params_data: Dict[str, Any]
+        self, params_data: dict[str, Any]
     ) -> "RiskParameters":
         """Convert dictionary to RiskParameters."""
         from SpyderV04_RiskManager import RiskMethod
@@ -609,7 +602,7 @@ class SpyderQuantEngine:
         option_type: str = "call",
         risk_free_rate: float = 0.05,
         dividend_yield: float = 0.02,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Convenient method for pricing single option.
 
@@ -653,10 +646,10 @@ class SpyderQuantEngine:
 
     async def assess_portfolio_risk(
         self,
-        portfolio: List[Dict[str, Any]],
+        portfolio: list[dict[str, Any]],
         confidence_level: float = 0.95,
         method: str = "historical",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Convenient method for portfolio risk assessment.
 
@@ -730,7 +723,7 @@ class SpyderQuantEngine:
             warnings=[f"Request failed: {error_message}"],
         )
 
-    def get_orchestration_status(self) -> Dict[str, Any]:
+    def get_orchestration_status(self) -> dict[str, Any]:
         """Get comprehensive orchestration status."""
         return {
             "engine_running": self.is_running,
@@ -761,7 +754,7 @@ class SpyderQuantEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_quant_engine(
-    config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
 ) -> SpyderQuantEngine:
     """Factory function to create SpyderQuantEngine orchestrator."""
     return SpyderQuantEngine(config, data_manager)
@@ -799,7 +792,7 @@ async def main():
         logging.info("   • Unified interface for external consumers")
 
         # Test 1: Single Option Pricing
-        logging.info(f"\n--- Test 1: Single Option Pricing (Delegated to V05) ---")
+        logging.info("\n--- Test 1: Single Option Pricing (Delegated to V05) ---")
         try:
             result = await quant_engine.price_option(
                 underlying_price=450.0,
@@ -818,7 +811,7 @@ async def main():
             logging.info(f"   ❌ Error: {e}")
 
         # Test 2: Portfolio Risk Assessment
-        logging.info(f"\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
+        logging.info("\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
         try:
             sample_portfolio = [
                 {
@@ -852,7 +845,7 @@ async def main():
             logging.info(f"   ❌ Error: {e}")
 
         # Test 3: Unified Request Processing
-        logging.info(f"\n--- Test 3: Unified Request Processing ---")
+        logging.info("\n--- Test 3: Unified Request Processing ---")
         try:
             # Create a unified request
             unified_request = QuantRequest(
@@ -896,7 +889,7 @@ async def main():
             logging.info(f"   ❌ Error: {e}")
 
         # Test 4: Orchestration Status
-        logging.info(f"\n--- Test 4: Orchestration Performance ---")
+        logging.info("\n--- Test 4: Orchestration Performance ---")
         try:
             status = quant_engine.get_orchestration_status()
 
@@ -907,12 +900,12 @@ async def main():
             logging.info(f"   Pricing Engine Calls: {status['pricing_engine_calls']}")
             logging.info(f"   Risk Manager Calls: {status['risk_manager_calls']}")
 
-            logging.info(f"\n   Engines Available:")
+            logging.info("\n   Engines Available:")
             for engine, available in status["engines_available"].items():
                 logging.info(f"     {engine}: {'✅' if available else '❌'}")
 
             if status["requests_by_type"]:
-                logging.info(f"\n   Requests by Type:")
+                logging.info("\n   Requests by Type:")
                 for req_type, count in status["requests_by_type"].items():
                     logging.info(f"     {req_type}: {count}")
 

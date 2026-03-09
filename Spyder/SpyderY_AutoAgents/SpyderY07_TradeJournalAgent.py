@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -35,11 +34,10 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -79,7 +77,7 @@ class TradeEntry:
     slippage_bps: float = 0.0
     narrative: str = ""    # LLM-generated analysis
     lessons: str = ""      # LLM-extracted lessons
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -96,7 +94,7 @@ class DailyPerformance:
     profit_factor: float = 0.0
     best_trade: float = 0.0
     worst_trade: float = 0.0
-    by_strategy: Dict[str, float] = field(default_factory=dict)
+    by_strategy: dict[str, float] = field(default_factory=dict)
     narrative: str = ""
 
 
@@ -146,9 +144,9 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         super().__init__(**kwargs)
 
         # Journal
-        self._pending_fills: List[Dict[str, Any]] = []
-        self._trade_entries: List[TradeEntry] = []
-        self._daily_summaries: List[DailyPerformance] = []
+        self._pending_fills: list[dict[str, Any]] = []
+        self._trade_entries: list[TradeEntry] = []
+        self._daily_summaries: list[DailyPerformance] = []
         self._current_regime: str = "unknown"
         self._current_sentiment: float = 0.0
         self._tick_count: int = 0
@@ -157,8 +155,8 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
 
         # Performance tracking
         self._cumulative_pnl: float = 0.0
-        self._strategy_pnl: Dict[str, float] = defaultdict(float)
-        self._regime_pnl: Dict[str, float] = defaultdict(float)
+        self._strategy_pnl: dict[str, float] = defaultdict(float)
+        self._regime_pnl: dict[str, float] = defaultdict(float)
 
     # ==========================================================================
     # LIFECYCLE
@@ -240,7 +238,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
 
         self._pending_fills.clear()
 
-    def _create_journal_entry(self, fill: Dict[str, Any]) -> TradeEntry:
+    def _create_journal_entry(self, fill: dict[str, Any]) -> TradeEntry:
         """Create a journal entry from a fill event."""
         payload = fill.get("payload", {})
         return TradeEntry(
@@ -458,7 +456,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
     # LESSON EXTRACTION
     # ==========================================================================
     def _extract_daily_lessons(
-        self, trades: List[TradeEntry], perf: DailyPerformance
+        self, trades: list[TradeEntry], perf: DailyPerformance
     ) -> None:
         """Extract actionable lessons from today's trades."""
         trade_summaries = "\n".join(
@@ -501,7 +499,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming messages."""
         if topic == "execution.filled":
             self._pending_fills.append(message)
@@ -517,7 +515,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "cumulative_pnl": self._cumulative_pnl,
@@ -527,7 +525,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             "daily_summaries_count": len(self._daily_summaries),
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._cumulative_pnl = state.get("cumulative_pnl", 0.0)
         self._strategy_pnl = defaultdict(float, state.get("strategy_pnl", {}))

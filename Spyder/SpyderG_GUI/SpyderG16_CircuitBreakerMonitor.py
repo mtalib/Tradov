@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -31,18 +30,15 @@ Dependencies:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QGroupBox, QFrame, QLCDNumber, QProgressBar
+    QWidget, QVBoxLayout, QGridLayout, QLabel, QFrame
 )
 from PySide6.QtCore import QTimer, Signal, Qt
-from PySide6.QtGui import QFont, QColor, QPalette
+from PySide6.QtGui import QColor, QPalette
 import logging
 
 # ==============================================================================

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -313,13 +312,13 @@ class TestU04ModuleFunctions:
 
 class TestU14Constants:
     def test_risk_free_rate(self):
-        assert _u14.RISK_FREE_RATE == pytest.approx(0.05)
+        assert pytest.approx(0.05) == _u14.RISK_FREE_RATE
 
     def test_contract_multiplier(self):
         assert _u14.CONTRACT_MULTIPLIER == 100
 
     def test_days_per_year(self):
-        assert _u14.DAYS_PER_YEAR == pytest.approx(365.25)
+        assert pytest.approx(365.25) == _u14.DAYS_PER_YEAR
 
 
 class TestOptionType:

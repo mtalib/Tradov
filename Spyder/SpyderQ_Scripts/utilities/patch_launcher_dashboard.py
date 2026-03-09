@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -53,29 +52,29 @@ def main():
     print(f"\n{BLUE}{'='*70}{RESET}")
     print(f"{BLUE}SPYDER Dashboard Path Fix Script{RESET}")
     print(f"{BLUE}{'='*70}{RESET}\n")
-    
+
     # Check if file exists
     if not LAUNCHER_FILE.exists():
         print_error(f"Launcher file not found: {LAUNCHER_FILE}")
         return 1
-    
+
     print_info(f"Found launcher file: {LAUNCHER_FILE}")
-    
+
     # Read the file
     try:
-        with open(LAUNCHER_FILE, 'r', encoding='utf-8') as f:
+        with open(LAUNCHER_FILE, encoding='utf-8') as f:
             content = f.read()
     except Exception as e:
         print_error(f"Failed to read file: {e}")
         return 1
-    
+
     # Check if it contains the wrong reference
     if "SpyderG14_Dashboard.py" not in content:
         print_success("File doesn't contain incorrect reference - already fixed!")
         return 0
-    
+
     print_warning("Found incorrect reference to SpyderG14_Dashboard.py")
-    
+
     # Create backup
     try:
         with open(BACKUP_FILE, 'w', encoding='utf-8') as f:
@@ -84,7 +83,7 @@ def main():
     except Exception as e:
         print_error(f"Failed to create backup: {e}")
         return 1
-    
+
     # Fix the content
     # Replace the incorrect dashboard_options list
     old_dashboard_options = '''dashboard_options = [
@@ -93,14 +92,14 @@ def main():
                 SPYDER_HOME / "SpyderA_Core" / "SpyderA01_Main.py",
                 SPYDER_HOME / "launch_dashboard_production.py",
             ]'''
-    
+
     new_dashboard_options = '''dashboard_options = [
                 SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py",
                 SPYDER_HOME / "SpyderG_GUI" / "SpyderG05_TradingDashboard.py",
                 SPYDER_HOME / "SpyderA_Core" / "SpyderA01_Main.py",
                 SPYDER_HOME / "launch_dashboard_production.py",
             ]'''
-    
+
     # Try the first pattern
     if old_dashboard_options in content:
         fixed_content = content.replace(old_dashboard_options, new_dashboard_options)
@@ -112,12 +111,12 @@ def main():
             'SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py"'
         )
         print_info("Applied fix using pattern 2 (simple replacement)")
-    
+
     # Verify the fix
     if "SpyderG14_Dashboard.py" in fixed_content:
         print_error("Fix failed - incorrect reference still present")
         return 1
-    
+
     # Write the fixed content
     try:
         with open(LAUNCHER_FILE, 'w', encoding='utf-8') as f:
@@ -127,19 +126,19 @@ def main():
         print_error(f"Failed to write fixed file: {e}")
         # Restore backup
         try:
-            with open(BACKUP_FILE, 'r', encoding='utf-8') as f:
+            with open(BACKUP_FILE, encoding='utf-8') as f:
                 backup_content = f.read()
             with open(LAUNCHER_FILE, 'w', encoding='utf-8') as f:
                 f.write(backup_content)
             print_warning("Restored backup file")
-        except:
+        except Exception:
             pass
         return 1
-    
+
     print(f"\n{GREEN}{'='*70}{RESET}")
     print_success("Dashboard path successfully fixed!")
     print(f"{GREEN}{'='*70}{RESET}\n")
-    
+
     print_info("Changes made:")
     print(f"  {RED}OLD:{RESET} SpyderG14_Dashboard.py")
     print(f"  {GREEN}NEW:{RESET} SpyderG02_GUIEntry.py")
@@ -148,7 +147,7 @@ def main():
     print()
     print_success("You can now launch SPYDER Trading System!")
     print()
-    
+
     return 0
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -34,27 +33,21 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, Any
 from enum import Enum
 from datetime import datetime, date, timedelta
 from dataclasses import dataclass, field
 from collections import defaultdict
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
-import requests
-from scipy.stats import norm
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
@@ -134,7 +127,7 @@ class StrikePainAnalysis:
     call_value: float  # Call intrinsic value if price settles here
     put_value: float   # Put intrinsic value if price settles here
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "strike": self.strike,
             "call_oi": self.call_oi,
@@ -163,9 +156,9 @@ class MaxPainResult:
     total_call_oi: int
     total_put_oi: int
     put_call_oi_ratio: float
-    strike_analysis: List[StrikePainAnalysis] = field(default_factory=list)
-    support_levels: List[float] = field(default_factory=list)
-    resistance_levels: List[float] = field(default_factory=list)
+    strike_analysis: list[StrikePainAnalysis] = field(default_factory=list)
+    support_levels: list[float] = field(default_factory=list)
+    resistance_levels: list[float] = field(default_factory=list)
 
     @property
     def is_actionable(self) -> bool:
@@ -181,7 +174,7 @@ class MaxPainResult:
         """Expected price move toward max pain."""
         return self.max_pain_strike - self.current_price
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "expiry": self.expiry.isoformat(),
@@ -213,11 +206,11 @@ class MultiExpiryAnalysis:
     current_price: float
     weighted_max_pain: float  # OI-weighted average max pain
     nearest_expiry: MaxPainResult
-    all_expiries: List[MaxPainResult] = field(default_factory=list)
+    all_expiries: list[MaxPainResult] = field(default_factory=list)
     overall_bias: str = "neutral"
-    convergence_zone: Tuple[float, float] = (0, 0)
+    convergence_zone: tuple[float, float] = (0, 0)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
@@ -241,7 +234,7 @@ class HistoricalAccuracy:
     accuracy_rate: float
     avg_distance_at_expiry: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "period_days": self.period_days,
@@ -308,11 +301,11 @@ class MaxPainCalculator:
             self._data_provider = None
 
         # Caches
-        self._cache: Dict[Tuple[str, date], Tuple[MaxPainResult, datetime]] = {}
-        self._chain_cache: Dict[str, Tuple[pd.DataFrame, datetime]] = {}
+        self._cache: dict[tuple[str, date], tuple[MaxPainResult, datetime]] = {}
+        self._chain_cache: dict[str, tuple[pd.DataFrame, datetime]] = {}
 
         # Historical tracking
-        self._historical_predictions: Dict[str, List[Dict]] = defaultdict(list)
+        self._historical_predictions: dict[str, list[dict]] = defaultdict(list)
 
         logger.info("MaxPainCalculator initialized")
 
@@ -323,7 +316,7 @@ class MaxPainCalculator:
     def calculate_max_pain(
         self,
         symbol: str,
-        expiry: Optional[date] = None,
+        expiry: date | None = None,
         use_cache: bool = True
     ) -> MaxPainResult:
         """
@@ -451,7 +444,7 @@ class MaxPainCalculator:
         self,
         chain: pd.DataFrame,
         current_price: float
-    ) -> List[StrikePainAnalysis]:
+    ) -> list[StrikePainAnalysis]:
         """Calculate pain at each strike level."""
         strikes = sorted(chain['strike'].unique())
 
@@ -648,10 +641,10 @@ class MaxPainCalculator:
 
     def _find_oi_levels(
         self,
-        strike_analysis: List[StrikePainAnalysis],
+        strike_analysis: list[StrikePainAnalysis],
         current_price: float,
         max_pain: float
-    ) -> Tuple[List[float], List[float]]:
+    ) -> tuple[list[float], list[float]]:
         """Find support/resistance levels based on OI concentration."""
         # Sort by total OI
         sorted_by_oi = sorted(
@@ -768,8 +761,8 @@ class MaxPainCalculator:
     def get_pinning_trade(
         self,
         symbol: str,
-        expiry: Optional[date] = None
-    ) -> Dict[str, Any]:
+        expiry: date | None = None
+    ) -> dict[str, Any]:
         """
         Generate a trade idea based on max pain pinning.
 
@@ -830,8 +823,8 @@ class MaxPainCalculator:
     def get_gamma_squeeze_risk(
         self,
         symbol: str,
-        expiry: Optional[date] = None
-    ) -> Dict[str, Any]:
+        expiry: date | None = None
+    ) -> dict[str, Any]:
         """
         Assess gamma squeeze risk based on OI distribution.
 
@@ -1009,7 +1002,7 @@ class MaxPainCalculator:
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
 
-    def _get_upcoming_expiries(self, symbol: str, count: int) -> List[date]:
+    def _get_upcoming_expiries(self, symbol: str, count: int) -> list[date]:
         """Get upcoming expiration dates from market data provider."""
         if self._data_provider is not None:
             try:
@@ -1064,38 +1057,17 @@ def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("Max Pain Calculator Test")
-    print("=" * 60)
 
     calc = MaxPainCalculator()
 
     # Test single expiry
-    print("\n=== Single Expiry Analysis ===")
     result = calc.calculate_max_pain("SPY")
-    print(f"Max Pain: ${result.max_pain_strike:.2f}")
-    print(f"Current Price: ${result.current_price:.2f}")
-    print(f"Distance: {result.distance_percent:.2f}%")
-    print(f"Position: {result.position.value}")
-    print(f"Gravity: {result.gravity_strength.value}")
-    print(f"Signal: {result.trading_signal.value}")
-    print(f"Pinning Probability: {result.pinning_probability:.1%}")
-    print(f"Days to Expiry: {result.days_to_expiry}")
 
     # Test multi-expiry
-    print("\n=== Multi-Expiry Analysis ===")
     multi = calc.analyze_all_expiries("SPY", max_expiries=3)
-    print(f"Weighted Max Pain: ${multi.weighted_max_pain:.2f}")
-    print(f"Overall Bias: {multi.overall_bias}")
-    print(f"Convergence Zone: ${multi.convergence_zone[0]:.2f} - ${multi.convergence_zone[1]:.2f}")
 
     # Test trade recommendation
-    print("\n=== Trade Recommendation ===")
     trade = calc.get_pinning_trade("SPY")
-    print(f"Action: {trade.get('action')}")
-    print(f"Reason: {trade.get('reason')}")
 
     # Test gamma squeeze risk
-    print("\n=== Gamma Squeeze Risk ===")
     squeeze = calc.get_gamma_squeeze_risk("SPY")
-    print(f"Risk Level: {squeeze.get('risk')}")
-    print(f"Direction: {squeeze.get('direction')}")

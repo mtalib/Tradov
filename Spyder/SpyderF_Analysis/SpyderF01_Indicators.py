@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Union, Any
 from enum import Enum
 from datetime import datetime, timedelta
 import warnings
@@ -33,12 +32,6 @@ import warnings
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from scipy import signal
-from ta import add_all_ta_features
-from ta.trend import MACD, EMAIndicator, SMAIndicator
-from ta.momentum import RSIIndicator, StochasticOscillator
-from ta.volatility import BollingerBands, AverageTrueRange
-from ta.volume import VolumeWeightedAveragePrice
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -88,7 +81,7 @@ class IndicatorResult:
         self,
         name: str,
         value: Union[float, pd.Series],
-        signal: Optional[SignalType] = None,
+        signal: SignalType | None = None,
         confidence: float = 0.0,
     ):
         self.name = name
@@ -107,7 +100,7 @@ class MarketProfile:
         self.volatility: float = 0.0
         self.momentum: float = 0.0
         self.volume_profile: str = "normal"
-        self.key_levels: List[float] = []
+        self.key_levels: list[float] = []
 
 
 # ==============================================================================
@@ -126,8 +119,8 @@ class TechnicalIndicators:
 
     def __init__(
         self,
-        config_manager: Optional[ConfigManager] = None,
-        monitor: Optional[SystemMonitor] = None,
+        config_manager: ConfigManager | None = None,
+        monitor: SystemMonitor | None = None,
     ):
         """Initialize with configuration support."""
         self.logger = SpyderLogger.get_logger(__name__)
@@ -203,7 +196,7 @@ class TechnicalIndicators:
     # MOVING AVERAGES
     # ==========================================================================
 
-    def sma(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def sma(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """
         Simple Moving Average with validation.
 
@@ -233,10 +226,10 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"SMA calculation failed")
+            self.error_handler.handle_error(e, "SMA calculation failed")
             return pd.Series(index=data.index, dtype=float)
 
-    def ema(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def ema(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """
         Exponential Moving Average with validation.
 
@@ -265,10 +258,10 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"EMA calculation failed")
+            self.error_handler.handle_error(e, "EMA calculation failed")
             return pd.Series(index=data.index, dtype=float)
 
-    def vwap(self, df: pd.DataFrame, period: Optional[int] = None) -> pd.Series:
+    def vwap(self, df: pd.DataFrame, period: int | None = None) -> pd.Series:
         """
         Volume Weighted Average Price with validation.
 
@@ -305,14 +298,14 @@ class TechnicalIndicators:
             return vwap
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"VWAP calculation failed")
+            self.error_handler.handle_error(e, "VWAP calculation failed")
             return pd.Series(index=df.index, dtype=float)
 
     # ==========================================================================
     # MOMENTUM INDICATORS
     # ==========================================================================
 
-    def rsi(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def rsi(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """
         Relative Strength Index with validation.
 
@@ -357,16 +350,16 @@ class TechnicalIndicators:
             return rsi
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"RSI calculation failed")
+            self.error_handler.handle_error(e, "RSI calculation failed")
             return pd.Series(index=data.index, dtype=float)
 
     def macd(
         self,
         data: pd.Series,
-        fast: Optional[int] = None,
-        slow: Optional[int] = None,
-        signal: Optional[int] = None,
-    ) -> Dict[str, pd.Series]:
+        fast: int | None = None,
+        slow: int | None = None,
+        signal: int | None = None,
+    ) -> dict[str, pd.Series]:
         """
         MACD with validation.
 
@@ -414,7 +407,7 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"MACD calculation failed")
+            self.error_handler.handle_error(e, "MACD calculation failed")
             return {
                 "macd": pd.Series(index=data.index, dtype=float),
                 "signal": pd.Series(index=data.index, dtype=float),
@@ -423,7 +416,7 @@ class TechnicalIndicators:
 
     def stochastic(
         self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Stochastic Oscillator with validation.
 
@@ -459,7 +452,7 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"Stochastic calculation failed")
+            self.error_handler.handle_error(e, "Stochastic calculation failed")
             return {
                 "k": pd.Series(index=df.index, dtype=float),
                 "d": pd.Series(index=df.index, dtype=float),
@@ -472,9 +465,9 @@ class TechnicalIndicators:
     def bollinger_bands(
         self,
         data: pd.Series,
-        period: Optional[int] = None,
-        std_dev: Optional[float] = None,
-    ) -> Dict[str, pd.Series]:
+        period: int | None = None,
+        std_dev: float | None = None,
+    ) -> dict[str, pd.Series]:
         """
         Bollinger Bands with validation.
 
@@ -520,7 +513,7 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"Bollinger Bands calculation failed")
+            self.error_handler.handle_error(e, "Bollinger Bands calculation failed")
             return {
                 "upper": pd.Series(index=data.index, dtype=float),
                 "middle": pd.Series(index=data.index, dtype=float),
@@ -566,7 +559,7 @@ class TechnicalIndicators:
             return atr
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"ATR calculation failed")
+            self.error_handler.handle_error(e, "ATR calculation failed")
             return pd.Series(index=df.index, dtype=float)
 
     # ==========================================================================
@@ -626,10 +619,10 @@ class TechnicalIndicators:
             return result
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"Calculate all indicators failed")
+            self.error_handler.handle_error(e, "Calculate all indicators failed")
             return df
 
-    def get_trading_signals(self, df: pd.DataFrame) -> Dict[str, SignalType]:
+    def get_trading_signals(self, df: pd.DataFrame) -> dict[str, SignalType]:
         """
         Generate trading signals from indicators.
 
@@ -723,7 +716,7 @@ class TechnicalIndicators:
         # Check for excessive NaN values
         nan_ratio = data.isna().sum() / len(data)
         if nan_ratio > 0.5:
-            warnings.warn(f"High NaN ratio in data: {nan_ratio:.2%}")
+            warnings.warn(f"High NaN ratio in data: {nan_ratio:.2%}", stacklevel=2)
 
         # Check for outliers
         if len(data.dropna()) > 10:
@@ -732,7 +725,7 @@ class TechnicalIndicators:
             if outliers > 0:
                 self.logger.warning(f"Found {outliers} potential outliers in data")
 
-    def _validate_dataframe_columns(self, df: pd.DataFrame, required_cols: List[str]):
+    def _validate_dataframe_columns(self, df: pd.DataFrame, required_cols: list[str]):
         """Validate DataFrame has required columns."""
         if not isinstance(df, pd.DataFrame):
             raise TypeError(f"Expected pandas DataFrame, got {type(df)}")
@@ -824,40 +817,32 @@ if __name__ == "__main__":
     indicators = TechnicalIndicators(config_manager)
 
     # Calculate individual indicators
-    print("=== Individual Indicators ===")
     sma = indicators.sma(data["close"], 20)
-    print(f"SMA(20): {sma.iloc[-1]:.2f}")
 
     rsi = indicators.rsi(data["close"], 14)
-    print(f"RSI(14): {rsi.iloc[-1]:.2f}")
 
     # Calculate all indicators
-    print("\n=== All Indicators ===")
     full_data = indicators.calculate_all_indicators(data)
-    print(full_data.iloc[-1])
 
     # Generate trading signals
-    print("\n=== Trading Signals ===")
     signals = indicators.get_trading_signals(full_data)
-    for indicator, signal in signals.items():
-        print(f"{indicator}: {signal.value}")
+    for _indicator, _signal in signals.items():
+        pass
 
     # Test validation
-    print("\n=== Validation Tests ===")
     try:
         # This should fail - period too large
         indicators.sma(data["close"], 1000)
-    except ValueError as e:
-        print(f"✓ Caught validation error: {e}")
+    except ValueError:
+        pass
 
     try:
         # This should fail - insufficient data
         indicators.sma(data["close"][:5], 20)
-    except ValueError as e:
-        print(f"✓ Caught validation error: {e}")
+    except ValueError:
+        pass
 
     # Performance test
-    print("\n=== Performance Test ===")
     import time
 
     # First calculation
@@ -870,6 +855,3 @@ if __name__ == "__main__":
     indicators.calculate_all_indicators(data)
     second_time = time.time() - start
 
-    print(f"First run: {first_time*1000:.1f}ms")
-    print(f"Second run: {second_time*1000:.1f}ms")
-    print(f"Improvement: {first_time/second_time:.1f}x")

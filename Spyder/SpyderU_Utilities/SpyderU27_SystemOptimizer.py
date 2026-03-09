@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -22,14 +21,12 @@ Module Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import sys
 import subprocess
 import platform
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
-import json
 import shutil
 
 # ==============================================================================
@@ -83,16 +80,16 @@ class OptimizationResult:
     component: SystemComponent
     success: bool
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 @dataclass
 class SystemDiagnostics:
     """System diagnostic information"""
-    os_info: Dict[str, str]
-    memory_info: Dict[str, int]
-    network_config: Dict[str, Any]
-    java_info: Optional[Dict[str, str]]
-    docker_info: Optional[Dict[str, str]]
+    os_info: dict[str, str]
+    memory_info: dict[str, int]
+    network_config: dict[str, Any]
+    java_info: dict[str, str] | None
+    docker_info: dict[str, str] | None
 
 # ==============================================================================
 # MAIN CLASS
@@ -100,35 +97,35 @@ class SystemDiagnostics:
 class SystemOptimizer:
     """
     System-level optimizer for trading performance.
-    
+
     This class provides comprehensive system optimization for the Spyder
     trading system, including network tuning, memory optimization, and
     IB Gateway configuration. Designed specifically for Ubuntu systems
     running automated trading workloads.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
         optimization_level: Current optimization level
         applied_optimizations: List of applied optimizations
     """
-    
+
     def __init__(self, optimization_level: OptimizationLevel = OptimizationLevel.STANDARD):
         """Initialize the system optimizer."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.optimization_level = optimization_level
-        self.applied_optimizations: List[OptimizationResult] = []
-        
+        self.applied_optimizations: list[OptimizationResult] = []
+
         self.logger.info(f"SystemOptimizer initialized with {optimization_level.value} level")
-        
+
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
     def optimize_tcp_keepalive(self) -> OptimizationResult:
         """
         Optimize TCP keep-alive settings for trading connections.
-        
+
         Returns:
             OptimizationResult: Result of the optimization
         """
@@ -139,7 +136,7 @@ class SystemOptimizer:
                     success=False,
                     message="Root privileges required for TCP optimization"
                 )
-            
+
             # Define optimized TCP settings
             tcp_settings = {
                 'net.ipv4.tcp_keepalive_time': DEFAULT_TCP_KEEPALIVE_TIME,
@@ -152,7 +149,7 @@ class SystemOptimizer:
                 'net.core.wmem_default': 262144,
                 'net.core.wmem_max': 16777216,
             }
-            
+
             # Apply settings
             failed_settings = []
             for setting, value in tcp_settings.items():
@@ -162,26 +159,26 @@ class SystemOptimizer:
                     ], check=True, capture_output=True)
                 except subprocess.CalledProcessError:
                     failed_settings.append(setting)
-            
+
             # Make permanent by updating /etc/sysctl.conf
             if not failed_settings:
                 self._update_sysctl_conf(tcp_settings)
-            
+
             success = len(failed_settings) == 0
             message = "TCP keep-alive optimized" if success else f"Failed settings: {failed_settings}"
-            
+
             result = OptimizationResult(
                 component=SystemComponent.NETWORK,
                 success=success,
                 message=message,
                 details={'settings': tcp_settings, 'failed': failed_settings}
             )
-            
+
             self.applied_optimizations.append(result)
             self.logger.info(f"TCP optimization: {message}")
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"TCP optimization failed: {e}")
             result = OptimizationResult(
@@ -191,11 +188,11 @@ class SystemOptimizer:
             )
             self.applied_optimizations.append(result)
             return result
-    
+
     def configure_firewall(self) -> OptimizationResult:
         """
         Configure UFW firewall for IB Gateway ports.
-        
+
         Returns:
             OptimizationResult: Result of the optimization
         """
@@ -206,10 +203,10 @@ class SystemOptimizer:
                     success=False,
                     message="UFW firewall not installed"
                 )
-            
+
             commands_success = []
             commands_failed = []
-            
+
             # Configure IB Gateway ports
             for port in IB_GATEWAY_PORTS:
                 try:
@@ -219,7 +216,7 @@ class SystemOptimizer:
                     commands_success.append(f"port {port}")
                 except subprocess.CalledProcessError as e:
                     commands_failed.append(f"port {port}: {e}")
-            
+
             # Enable UFW if not already enabled
             try:
                 subprocess.run([
@@ -228,22 +225,22 @@ class SystemOptimizer:
                 commands_success.append("firewall enabled")
             except subprocess.CalledProcessError as e:
                 commands_failed.append(f"enable firewall: {e}")
-            
+
             success = len(commands_failed) == 0
             message = "Firewall configured" if success else f"Failed: {commands_failed}"
-            
+
             result = OptimizationResult(
                 component=SystemComponent.FIREWALL,
                 success=success,
                 message=message,
                 details={'success': commands_success, 'failed': commands_failed}
             )
-            
+
             self.applied_optimizations.append(result)
             self.logger.info(f"Firewall configuration: {message}")
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Firewall configuration failed: {e}")
             result = OptimizationResult(
@@ -253,11 +250,11 @@ class SystemOptimizer:
             )
             self.applied_optimizations.append(result)
             return result
-    
+
     def optimize_ib_gateway_jvm(self) -> OptimizationResult:
         """
         Generate optimized JVM settings for IB Gateway.
-        
+
         Returns:
             OptimizationResult: Result of the optimization
         """
@@ -274,27 +271,27 @@ class SystemOptimizer:
                 "-Djava.net.preferIPv4Stack=true",
                 "-Dsun.net.useExclusiveBind=false"
             ]
-            
+
             # Create JVM configuration file
             jvm_config_path = Path.home() / ".ibgateway" / "jvm_args.txt"
             jvm_config_path.parent.mkdir(exist_ok=True)
-            
+
             with open(jvm_config_path, 'w') as f:
                 for arg in jvm_args:
                     f.write(f"{arg}\n")
-            
+
             result = OptimizationResult(
                 component=SystemComponent.JVM,
                 success=True,
                 message=f"JVM configuration saved to {jvm_config_path}",
                 details={'jvm_args': jvm_args, 'config_path': str(jvm_config_path)}
             )
-            
+
             self.applied_optimizations.append(result)
             self.logger.info(f"JVM optimization: {result.message}")
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"JVM optimization failed: {e}")
             result = OptimizationResult(
@@ -304,11 +301,11 @@ class SystemOptimizer:
             )
             self.applied_optimizations.append(result)
             return result
-    
+
     def generate_docker_compose(self) -> OptimizationResult:
         """
         Generate optimized Docker Compose configuration for IB Gateway.
-        
+
         Returns:
             OptimizationResult: Result of the optimization
         """
@@ -349,33 +346,33 @@ class SystemOptimizer:
                     }
                 }
             }
-            
+
             # Save Docker Compose file
             compose_path = Path.cwd() / "docker-compose.yml"
-            
+
             import yaml
             with open(compose_path, 'w') as f:
                 yaml.dump(docker_compose, f, default_flow_style=False, indent=2)
-            
+
             # Create .env template
             env_path = Path.cwd() / ".env.template"
             with open(env_path, 'w') as f:
                 f.write("# IB Gateway Configuration\n")
                 f.write("TWS_USERID=your_ib_username\n")
                 f.write("TWS_PASSWORD=your_ib_password\n")
-            
+
             result = OptimizationResult(
                 component=SystemComponent.DOCKER,
                 success=True,
                 message=f"Docker Compose configuration saved to {compose_path}",
                 details={'compose_path': str(compose_path), 'env_path': str(env_path)}
             )
-            
+
             self.applied_optimizations.append(result)
             self.logger.info(f"Docker optimization: {result.message}")
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Docker Compose generation failed: {e}")
             result = OptimizationResult(
@@ -385,11 +382,11 @@ class SystemOptimizer:
             )
             self.applied_optimizations.append(result)
             return result
-    
+
     def run_system_diagnostics(self) -> SystemDiagnostics:
         """
         Run comprehensive system diagnostics.
-        
+
         Returns:
             SystemDiagnostics: System diagnostic information
         """
@@ -402,7 +399,7 @@ class SystemOptimizer:
                 'machine': platform.machine(),
                 'processor': platform.processor()
             }
-            
+
             # Memory Information
             memory_info = {}
             if psutil:
@@ -414,16 +411,16 @@ class SystemOptimizer:
                     'used': mem.used,
                     'free': mem.free
                 }
-            
+
             # Network Configuration
             network_config = self._get_network_config()
-            
+
             # Java Information
             java_info = self._get_java_info()
-            
+
             # Docker Information
             docker_info = self._get_docker_info()
-            
+
             diagnostics = SystemDiagnostics(
                 os_info=os_info,
                 memory_info=memory_info,
@@ -431,103 +428,103 @@ class SystemOptimizer:
                 java_info=java_info,
                 docker_info=docker_info
             )
-            
+
             self.logger.info("System diagnostics completed")
             return diagnostics
-            
+
         except Exception as e:
             self.logger.error(f"System diagnostics failed: {e}")
             return SystemDiagnostics({}, {}, {}, None, None)
-    
-    def optimize_all(self) -> List[OptimizationResult]:
+
+    def optimize_all(self) -> list[OptimizationResult]:
         """
         Run all system optimizations.
-        
+
         Returns:
             List[OptimizationResult]: Results of all optimizations
         """
         results = []
-        
+
         self.logger.info(f"Starting system optimization (level: {self.optimization_level.value})")
-        
+
         # Run optimizations based on level
         if self.optimization_level in [OptimizationLevel.STANDARD, OptimizationLevel.AGGRESSIVE, OptimizationLevel.ULTRA]:
             results.append(self.optimize_tcp_keepalive())
             results.append(self.configure_firewall())
             results.append(self.optimize_ib_gateway_jvm())
-        
+
         if self.optimization_level in [OptimizationLevel.AGGRESSIVE, OptimizationLevel.ULTRA]:
             results.append(self.generate_docker_compose())
-        
+
         successful = len([r for r in results if r.success])
         total = len(results)
-        
+
         self.logger.info(f"System optimization completed: {successful}/{total} successful")
-        
+
         return results
-    
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
     def _is_root(self) -> bool:
         """Check if running as root."""
         return os.geteuid() == 0
-    
-    def _update_sysctl_conf(self, settings: Dict[str, Any]) -> None:
+
+    def _update_sysctl_conf(self, settings: dict[str, Any]) -> None:
         """Update /etc/sysctl.conf with settings."""
         try:
             sysctl_path = Path("/etc/sysctl.conf")
-            
+
             # Read existing content
             existing_content = ""
             if sysctl_path.exists():
-                with open(sysctl_path, 'r') as f:
+                with open(sysctl_path) as f:
                     existing_content = f.read()
-            
+
             # Add Spyder section
             spyder_section = "\n# Spyder Trading System Optimizations\n"
             for setting, value in settings.items():
                 spyder_section += f"{setting} = {value}\n"
-            
+
             # Write updated content
             with open(sysctl_path, 'w') as f:
                 f.write(existing_content + spyder_section)
-                
+
         except Exception as e:
             self.logger.error(f"Failed to update sysctl.conf: {e}")
-    
-    def _get_network_config(self) -> Dict[str, Any]:
+
+    def _get_network_config(self) -> dict[str, Any]:
         """Get current network configuration."""
         try:
             # Get TCP keep-alive settings
             tcp_settings = {}
             tcp_params = [
                 'net.ipv4.tcp_keepalive_time',
-                'net.ipv4.tcp_keepalive_intvl', 
+                'net.ipv4.tcp_keepalive_intvl',
                 'net.ipv4.tcp_keepalive_probes'
             ]
-            
+
             for param in tcp_params:
                 try:
                     result = subprocess.run([
                         'sysctl', '-n', param
                     ], capture_output=True, text=True, check=True)
                     tcp_settings[param] = int(result.stdout.strip())
-                except:
+                except Exception:
                     tcp_settings[param] = None
-            
+
             return {'tcp_keepalive': tcp_settings}
-            
+
         except Exception:
             return {}
-    
-    def _get_java_info(self) -> Optional[Dict[str, str]]:
+
+    def _get_java_info(self) -> dict[str, str] | None:
         """Get Java installation information."""
         try:
             result = subprocess.run([
                 'java', '-version'
             ], capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 version_output = result.stderr  # Java outputs version to stderr
                 return {
@@ -536,19 +533,19 @@ class SystemOptimizer:
                 }
             else:
                 return {'available': False}
-                
+
         except FileNotFoundError:
             return {'available': False}
         except Exception:
             return None
-    
-    def _get_docker_info(self) -> Optional[Dict[str, str]]:
+
+    def _get_docker_info(self) -> dict[str, str] | None:
         """Get Docker installation information."""
         try:
             result = subprocess.run([
                 'docker', '--version'
             ], capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 return {
                     'available': True,
@@ -556,7 +553,7 @@ class SystemOptimizer:
                 }
             else:
                 return {'available': False}
-                
+
         except FileNotFoundError:
             return {'available': False}
         except Exception:
@@ -568,19 +565,19 @@ class SystemOptimizer:
 def get_system_optimizer(level: OptimizationLevel = OptimizationLevel.STANDARD) -> SystemOptimizer:
     """
     Get system optimizer instance.
-    
+
     Args:
         level: Optimization level
-        
+
     Returns:
         SystemOptimizer instance
     """
     return SystemOptimizer(level)
 
-def optimize_system_for_trading() -> List[OptimizationResult]:
+def optimize_system_for_trading() -> list[OptimizationResult]:
     """
     Quick function to optimize system for trading.
-    
+
     Returns:
         List of optimization results
     """
@@ -591,12 +588,12 @@ def optimize_system_for_trading() -> List[OptimizationResult]:
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level instance
-_system_optimizer_instance: Optional[SystemOptimizer] = None
+_system_optimizer_instance: SystemOptimizer | None = None
 
 def get_global_optimizer() -> SystemOptimizer:
     """
     Get global system optimizer instance.
-    
+
     Returns:
         SystemOptimizer instance
     """
@@ -610,28 +607,12 @@ def get_global_optimizer() -> SystemOptimizer:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U27 - System Optimizer Test")
-    print("=" * 80)
-    
+
     optimizer = SystemOptimizer()
-    
-    print("\n1. Running system diagnostics...")
+
     diagnostics = optimizer.run_system_diagnostics()
-    print(f"   OS: {diagnostics.os_info.get('system', 'Unknown')}")
-    print(f"   Memory: {diagnostics.memory_info.get('available', 0) // (1024**3)}GB available")
-    print(f"   Java: {'Available' if diagnostics.java_info and diagnostics.java_info.get('available') else 'Not available'}")
-    
-    print("\n2. Testing JVM optimization...")
+
     jvm_result = optimizer.optimize_ib_gateway_jvm()
-    print(f"   JVM optimization: {'✅ Success' if jvm_result.success else '❌ Failed'}")
-    print(f"   Message: {jvm_result.message}")
-    
-    print("\n3. Testing Docker Compose generation...")
+
     docker_result = optimizer.generate_docker_compose()
-    print(f"   Docker Compose: {'✅ Success' if docker_result.success else '❌ Failed'}")
-    print(f"   Message: {docker_result.message}")
-    
-    print("\n" + "=" * 80)
-    print("✅ System Optimizer test completed!")
-    print("Note: TCP and firewall optimizations require root privileges")
+

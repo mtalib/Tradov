@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,16 +23,25 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from datetime import time, datetime, timedelta, timezone, date
-from typing import Set, List, Optional, Dict, Tuple, Any
+from datetime import time, datetime, timedelta, date
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
+import pytz
 
 US_EASTERN = "US/Eastern"
 UTC = "UTC"
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+try:
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    SpyderLogger = None  # type: ignore
 
 # Market hours (Eastern Time)
 MARKET_OPEN_TIME = time(9, 30)  # 9:30 AM ET
@@ -61,7 +69,7 @@ EARLY_CLOSE_TIME = time(13, 0)  # 1:00 PM ET
 # ==============================================================================
 
 
-def get_trading_holidays(year: int) -> Set[date]:
+def get_trading_holidays(year: int) -> set[date]:
     """
     Get US market holidays for a given year.
 
@@ -181,11 +189,11 @@ def _calculate_good_friday(year: int) -> date:
     h = (19 * a + b - d - g + 15) % 30
     i = c // 4
     k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
+    easter_l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * easter_l) // 451
 
-    month = (h + l - 7 * m + 114) // 31
-    day = ((h + l - 7 * m + 114) % 31) + 1
+    month = (h + easter_l - 7 * m + 114) // 31
+    day = ((h + easter_l - 7 * m + 114) % 31) + 1
 
     easter = date(year, month, day)
     good_friday = easter - timedelta(days=2)
@@ -215,7 +223,7 @@ class TradingHours:
         self.logger = SpyderLogger.get_logger(__name__)
         self._holiday_cache = {}
 
-    def is_regular_hours(self, dt: Optional[datetime] = None) -> bool:
+    def is_regular_hours(self, dt: datetime | None = None) -> bool:
         """
         Check if currently in regular trading hours.
 
@@ -241,7 +249,7 @@ class TradingHours:
 
         return MARKET_OPEN_TIME <= current_time < MARKET_CLOSE_TIME
 
-    def is_pre_market(self, dt: Optional[datetime] = None) -> bool:
+    def is_pre_market(self, dt: datetime | None = None) -> bool:
         """
         Check if currently in pre-market hours.
 
@@ -262,7 +270,7 @@ class TradingHours:
         current_time = dt.time()
         return PRE_MARKET_OPEN <= current_time < MARKET_OPEN_TIME
 
-    def is_after_market(self, dt: Optional[datetime] = None) -> bool:
+    def is_after_market(self, dt: datetime | None = None) -> bool:
         """
         Check if currently in after-market hours.
 
@@ -285,7 +293,7 @@ class TradingHours:
 
         return close_time <= current_time < AFTER_HOURS_CLOSE
 
-    def is_extended_hours(self, dt: Optional[datetime] = None) -> bool:
+    def is_extended_hours(self, dt: datetime | None = None) -> bool:
         """
         Check if currently in extended trading hours (pre or after market).
 
@@ -297,7 +305,7 @@ class TradingHours:
         """
         return self.is_pre_market(dt) or self.is_after_market(dt)
 
-    def is_options_trading_hours(self, dt: Optional[datetime] = None, symbol: str = "SPY") -> bool:
+    def is_options_trading_hours(self, dt: datetime | None = None, symbol: str = "SPY") -> bool:
         """
         Check if currently in options trading hours.
 
@@ -329,7 +337,7 @@ class TradingHours:
 
         return OPTIONS_OPEN <= current_time < close_time
 
-    def is_trading_day(self, check_date: Optional[date] = None) -> bool:
+    def is_trading_day(self, check_date: date | None = None) -> bool:
         """
         Check if given date is a trading day.
 
@@ -349,7 +357,7 @@ class TradingHours:
         # Check holidays
         return not self.is_market_holiday(check_date)
 
-    def is_market_holiday(self, check_date: Optional[date] = None) -> bool:
+    def is_market_holiday(self, check_date: date | None = None) -> bool:
         """
         Check if given date is a market holiday.
 
@@ -369,7 +377,7 @@ class TradingHours:
 
         return check_date in self._holiday_cache[year]
 
-    def is_early_close_day(self, check_date: Optional[date] = None) -> bool:
+    def is_early_close_day(self, check_date: date | None = None) -> bool:
         """
         Check if market closes early on given date.
 
@@ -402,8 +410,8 @@ class TradingHours:
         return False
 
     def get_market_hours(
-        self, check_date: Optional[date] = None
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
+        self, check_date: date | None = None
+    ) -> tuple[datetime | None, datetime | None]:
         """
         Get market open and close times for a given date.
 
@@ -428,7 +436,7 @@ class TradingHours:
 
         return open_dt, close_dt
 
-    def get_next_market_open(self, after_dt: Optional[datetime] = None) -> datetime:
+    def get_next_market_open(self, after_dt: datetime | None = None) -> datetime:
         """
         Get next market open time.
 
@@ -461,7 +469,7 @@ class TradingHours:
 
         return self.tz.localize(datetime.combine(next_day, MARKET_OPEN_TIME))
 
-    def get_next_market_close(self, after_dt: Optional[datetime] = None) -> datetime:
+    def get_next_market_close(self, after_dt: datetime | None = None) -> datetime:
         """
         Get next market close time.
 
@@ -488,7 +496,7 @@ class TradingHours:
         next_open = self.get_next_market_open(after_dt)
         return self.get_next_market_close(next_open)
 
-    def time_until_market_open(self, from_dt: Optional[datetime] = None) -> timedelta:
+    def time_until_market_open(self, from_dt: datetime | None = None) -> timedelta:
         """
         Get time until next market open.
 
@@ -506,7 +514,7 @@ class TradingHours:
         next_open = self.get_next_market_open(from_dt)
         return next_open - from_dt
 
-    def time_until_market_close(self, from_dt: Optional[datetime] = None) -> Optional[timedelta]:
+    def time_until_market_close(self, from_dt: datetime | None = None) -> timedelta | None:
         """
         Get time until market close (None if market closed).
 
@@ -567,7 +575,7 @@ class DateTimeUtils:
         return check_date
 
     @staticmethod
-    def get_next_trading_day(after_date: Optional[date] = None) -> date:
+    def get_next_trading_day(after_date: date | None = None) -> date:
         """
         Get next trading day after given date.
 
@@ -589,7 +597,7 @@ class DateTimeUtils:
         return next_day
 
     @staticmethod
-    def get_previous_trading_day(before_date: Optional[date] = None) -> date:
+    def get_previous_trading_day(before_date: date | None = None) -> date:
         """
         Get previous trading day before given date.
 
@@ -613,7 +621,7 @@ class DateTimeUtils:
     @staticmethod
     def get_trading_days_between(
         start_date: date, end_date: date, inclusive: bool = True
-    ) -> List[date]:
+    ) -> list[date]:
         """
         Get list of trading days between two dates.
 
@@ -665,7 +673,7 @@ class DateTimeUtils:
         Returns:
             Resulting date
         """
-        trading_hours = TradingHours()
+        TradingHours()
         current = start_date
 
         if days > 0:
@@ -746,8 +754,8 @@ class DateTimeUtils:
 
     @staticmethod
     def get_option_expiry_dates(
-        start_date: Optional[date] = None, weeks_ahead: int = 8
-    ) -> List[date]:
+        start_date: date | None = None, weeks_ahead: int = 8
+    ) -> list[date]:
         """
         Get upcoming option expiry dates (Fridays).
 
@@ -829,7 +837,7 @@ class DateTimeUtils:
     # RESEARCH-DRIVEN TIME WINDOW METHODS (NEW)
     # ==========================================================================
     @staticmethod
-    def is_optimal_entry_time(current_time: Optional[datetime] = None) -> bool:
+    def is_optimal_entry_time(current_time: datetime | None = None) -> bool:
         """
         Check if current time is within optimal entry window (10:15 AM - 11:40 AM).
 
@@ -846,7 +854,7 @@ class DateTimeUtils:
         return OPTIMAL_ENTRY_WINDOW[0] <= time_only <= OPTIMAL_ENTRY_WINDOW[1]
 
     @staticmethod
-    def should_exit_by_time(current_time: Optional[datetime] = None) -> bool:
+    def should_exit_by_time(current_time: datetime | None = None) -> bool:
         """
         Check if positions should be exited based on time (12:00 PM).
 
@@ -862,7 +870,7 @@ class DateTimeUtils:
         return current_time.time() >= TIME_BASED_EXIT
 
     @staticmethod
-    def get_time_until_entry_window() -> Optional[timedelta]:
+    def get_time_until_entry_window() -> timedelta | None:
         """
         Get time until optimal entry window opens.
 
@@ -886,7 +894,7 @@ class DateTimeUtils:
             return window_open - datetime.now()
 
     @staticmethod
-    def get_time_remaining_in_window() -> Optional[timedelta]:
+    def get_time_remaining_in_window() -> timedelta | None:
         """
         Get time remaining in current entry window.
 
@@ -901,7 +909,7 @@ class DateTimeUtils:
         return None
 
     @staticmethod
-    def get_trading_windows() -> Dict[str, Tuple[time, time]]:
+    def get_trading_windows() -> dict[str, tuple[time, time]]:
         """
         Get all trading time windows.
 
@@ -918,7 +926,7 @@ class DateTimeUtils:
         }
 
     @staticmethod
-    def format_time_window(window: Tuple[time, time]) -> str:
+    def format_time_window(window: tuple[time, time]) -> str:
         """
         Format time window as string.
 
@@ -986,7 +994,7 @@ class DateTimeUtils:
         return day_scores.get(datetime.now().weekday(), 0.0)
 
     @staticmethod
-    def get_trading_session_info() -> Dict[str, Any]:
+    def get_trading_session_info() -> dict[str, Any]:
         """
         Get comprehensive trading session information.
 
@@ -1041,7 +1049,7 @@ class DateTimeUtils:
 # ==============================================================================
 
 
-def is_market_open(check_time: Optional[datetime] = None, extended_hours: bool = False) -> bool:
+def is_market_open(check_time: datetime | None = None, extended_hours: bool = False) -> bool:
     """
     Check if the US stock market is currently open.
 
@@ -1065,7 +1073,7 @@ def is_market_open(check_time: Optional[datetime] = None, extended_hours: bool =
         return trading_hours.is_regular_hours(check_time)
 
 
-def is_options_trading_time(check_time: Optional[datetime] = None, symbol: str = "SPY") -> bool:
+def is_options_trading_time(check_time: datetime | None = None, symbol: str = "SPY") -> bool:
     """
     Check if options are currently trading.
 
@@ -1080,7 +1088,7 @@ def is_options_trading_time(check_time: Optional[datetime] = None, symbol: str =
     return trading_hours.is_options_trading_hours(check_time, symbol)
 
 
-def get_market_schedule(date_range: Optional[Tuple[date, date]] = None) -> pd.DataFrame:
+def get_market_schedule(date_range: tuple[date, date] | None = None) -> pd.DataFrame:
     """
     Get market schedule for a date range.
 
@@ -1171,7 +1179,7 @@ def from_utc_datetime(dt: datetime, target_tz: str = US_EASTERN) -> datetime:
     return dt.astimezone(pytz.timezone(target_tz))
 
 
-def is_trading_day(check_date: Optional[date] = None) -> bool:
+def is_trading_day(check_date: date | None = None) -> bool:
     """
     Check if given date is a trading day (module-level wrapper).
 
@@ -1185,7 +1193,7 @@ def is_trading_day(check_date: Optional[date] = None) -> bool:
     return trading_hours.is_trading_day(check_date)
 
 
-def get_next_trading_day(after_date: Optional[date] = None) -> date:
+def get_next_trading_day(after_date: date | None = None) -> date:
     """
     Get next trading day after given date (module-level wrapper).
 
@@ -1198,7 +1206,7 @@ def get_next_trading_day(after_date: Optional[date] = None) -> date:
     return DateTimeUtils.get_next_trading_day(after_date)
 
 
-def get_previous_trading_day(before_date: Optional[date] = None) -> date:
+def get_previous_trading_day(before_date: date | None = None) -> date:
     """
     Get previous trading day before given date (module-level wrapper).
 
@@ -1221,7 +1229,7 @@ def get_current_trading_day() -> date:
     return DateTimeUtils.get_current_trading_day()
 
 
-def is_market_holiday(check_date: Optional[date] = None) -> bool:
+def is_market_holiday(check_date: date | None = None) -> bool:
     """
     Check if a given date is a US market holiday.
 
@@ -1235,7 +1243,7 @@ def is_market_holiday(check_date: Optional[date] = None) -> bool:
     return trading_hours.is_market_holiday(check_date)
 
 
-def get_trading_hours(check_date: Optional[date] = None) -> Dict[str, Any]:
+def get_trading_hours(check_date: date | None = None) -> dict[str, Any]:
     """
     Get trading hours information for a specific date.
 
@@ -1295,8 +1303,8 @@ def get_trading_hours(check_date: Optional[date] = None) -> Dict[str, Any]:
 
 
 def get_market_hours(
-    check_date: Optional[date] = None,
-) -> Tuple[Optional[datetime], Optional[datetime]]:
+    check_date: date | None = None,
+) -> tuple[datetime | None, datetime | None]:
     """
     Get market open and close times for a given date (module-level wrapper).
 
@@ -1310,7 +1318,7 @@ def get_market_hours(
     return trading_hours.get_market_hours(check_date)
 
 
-def get_next_market_open(after_dt: Optional[datetime] = None) -> datetime:
+def get_next_market_open(after_dt: datetime | None = None) -> datetime:
     """
     Get next market open time (module-level wrapper).
 
@@ -1324,7 +1332,7 @@ def get_next_market_open(after_dt: Optional[datetime] = None) -> datetime:
     return trading_hours.get_next_market_open(after_dt)
 
 
-def get_next_market_close(after_dt: Optional[datetime] = None) -> datetime:
+def get_next_market_close(after_dt: datetime | None = None) -> datetime:
     """
     Get next market close time (module-level wrapper).
 
@@ -1338,7 +1346,7 @@ def get_next_market_close(after_dt: Optional[datetime] = None) -> datetime:
     return trading_hours.get_next_market_close(after_dt)
 
 
-def time_until_market_open(from_dt: Optional[datetime] = None) -> timedelta:
+def time_until_market_open(from_dt: datetime | None = None) -> timedelta:
     """
     Get time until next market open (module-level wrapper).
 
@@ -1352,7 +1360,7 @@ def time_until_market_open(from_dt: Optional[datetime] = None) -> timedelta:
     return trading_hours.time_until_market_open(from_dt)
 
 
-def time_until_market_close(from_dt: Optional[datetime] = None) -> Optional[timedelta]:
+def time_until_market_close(from_dt: datetime | None = None) -> timedelta | None:
     """
     Get time until market close (module-level wrapper).
 
@@ -1366,7 +1374,7 @@ def time_until_market_close(from_dt: Optional[datetime] = None) -> Optional[time
     return trading_hours.time_until_market_close(from_dt)
 
 
-def is_regular_hours(dt: Optional[datetime] = None) -> bool:
+def is_regular_hours(dt: datetime | None = None) -> bool:
     """
     Check if currently in regular trading hours (module-level wrapper).
 
@@ -1380,7 +1388,7 @@ def is_regular_hours(dt: Optional[datetime] = None) -> bool:
     return trading_hours.is_regular_hours(dt)
 
 
-def is_pre_market(dt: Optional[datetime] = None) -> bool:
+def is_pre_market(dt: datetime | None = None) -> bool:
     """
     Check if currently in pre-market hours (module-level wrapper).
 
@@ -1394,7 +1402,7 @@ def is_pre_market(dt: Optional[datetime] = None) -> bool:
     return trading_hours.is_pre_market(dt)
 
 
-def is_after_market(dt: Optional[datetime] = None) -> bool:
+def is_after_market(dt: datetime | None = None) -> bool:
     """
     Check if currently in after-market hours (module-level wrapper).
 
@@ -1408,7 +1416,7 @@ def is_after_market(dt: Optional[datetime] = None) -> bool:
     return trading_hours.is_after_market(dt)
 
 
-def is_early_close_day(check_date: Optional[date] = None) -> bool:
+def is_early_close_day(check_date: date | None = None) -> bool:
     """
     Check if market closes early on given date (module-level wrapper).
 
@@ -1425,7 +1433,7 @@ def is_early_close_day(check_date: Optional[date] = None) -> bool:
 # Research-driven wrappers
 
 
-def is_optimal_entry_time(current_time: Optional[datetime] = None) -> bool:
+def is_optimal_entry_time(current_time: datetime | None = None) -> bool:
     """
     Check if current time is within optimal entry window (module-level wrapper).
 
@@ -1438,7 +1446,7 @@ def is_optimal_entry_time(current_time: Optional[datetime] = None) -> bool:
     return DateTimeUtils.is_optimal_entry_time(current_time)
 
 
-def should_exit_by_time(current_time: Optional[datetime] = None) -> bool:
+def should_exit_by_time(current_time: datetime | None = None) -> bool:
     """
     Check if positions should be exited based on time (module-level wrapper).
 
@@ -1451,7 +1459,7 @@ def should_exit_by_time(current_time: Optional[datetime] = None) -> bool:
     return DateTimeUtils.should_exit_by_time(current_time)
 
 
-def get_trading_session_info() -> Dict[str, Any]:
+def get_trading_session_info() -> dict[str, Any]:
     """
     Get comprehensive trading session information (module-level wrapper).
 
@@ -1487,7 +1495,7 @@ class TradingCalendar:
         return pd.DatetimeIndex(holidays)
 
     @staticmethod
-    def get_next_fomc_date(from_date: Optional[datetime] = None) -> Optional[datetime]:
+    def get_next_fomc_date(from_date: datetime | None = None) -> datetime | None:
         """
         Get next FOMC meeting date.
 
@@ -1526,7 +1534,7 @@ class TradingCalendar:
         return None
 
     @staticmethod
-    def is_options_expiration_week(check_date: Optional[date] = None) -> bool:
+    def is_options_expiration_week(check_date: date | None = None) -> bool:
         """
         Check if given date is in options expiration week.
 
@@ -1556,8 +1564,8 @@ class TradingCalendar:
 
     @staticmethod
     def get_upcoming_events(
-        from_date: Optional[datetime] = None, days_ahead: int = 30
-    ) -> List[Dict[str, Any]]:
+        from_date: datetime | None = None, days_ahead: int = 30
+    ) -> list[dict[str, Any]]:
         """
         Get upcoming market events.
 
@@ -1621,69 +1629,46 @@ TradingCalendarUtils = DateTimeUtils
 # ==============================================================================
 if __name__ == "__main__":
     # Test the utilities with research enhancements
-    print("Testing DateTime Utilities with Research Enhancements...")
-    print("=" * 60)
 
     # Get comprehensive session info
     session_info = get_trading_session_info()
-    print("\nCurrent Trading Session Info:")
-    for key, value in session_info.items():
-        print(f"  {key}: {value}")
+    for _key, _value in session_info.items():
+        pass
 
     # Test optimal entry window
-    print(f"\nOptimal Entry Window: {DateTimeUtils.format_time_window(OPTIMAL_ENTRY_WINDOW)}")
-    print(f"Currently in window? {is_optimal_entry_time()}")
     if not is_optimal_entry_time():
-        print(f"Time until window: {DateTimeUtils.get_time_until_entry_window()}")
+        pass
     else:
-        print(f"Time remaining: {DateTimeUtils.get_time_remaining_in_window()}")
+        pass
 
     # Test time-based exit
-    print(f"\nTime-Based Exit: {TIME_BASED_EXIT}")
-    print(f"Should exit now? {should_exit_by_time()}")
 
     # Test day quality
-    print(f"\nDay Quality Analysis:")
-    print(f"Current day: {DateTimeUtils.get_trading_day_name()}")
-    print(f"Is Monday? {DateTimeUtils.is_monday()}")
-    print(f"Day quality score: {DateTimeUtils.get_day_quality_score():.1f}")
 
     # Get market schedule with research info
-    print("\nMarket Schedule (Next 5 days):")
     schedule = get_market_schedule()
-    print(
-        schedule[
-            ["date", "day", "trading_day", "optimal_entry", "exit_time", "day_quality"]
-        ].to_string()
-    )
 
     # Test all time windows
-    print("\nAll Trading Time Windows:")
     windows = DateTimeUtils.get_trading_windows()
-    for name, window in windows.items():
-        print(f"  {name}: {DateTimeUtils.format_time_window(window)}")
+    for _name, _window in windows.items():
+        pass
 
     # Test TradingCalendar enhancements
-    print("\nTradingCalendar Enhancements:")
     tc = TradingCalendar()
 
     # Test FOMC date
     next_fomc = tc.get_next_fomc_date()
     if next_fomc:
-        print(f"Next FOMC meeting: {next_fomc.strftime('%Y-%m-%d %H:%M')}")
+        pass
     else:
-        print("No FOMC meeting found in near future")
+        pass
 
     # Test options expiration week
-    print(f"Is options expiration week? {tc.is_options_expiration_week()}")
 
     # Test upcoming events
-    print("\nUpcoming market events:")
     events = tc.get_upcoming_events(days_ahead=60)
-    for event in events:
-        print(
-            f"  {event['date'].strftime('%Y-%m-%d')}: {event['description']} ({event['impact']} impact)"
-        )
+    for _event in events:
+        pass
 
 
 # ==============================================================================
@@ -1831,7 +1816,7 @@ def get_trading_time_utils():
 class MarketSession(Enum):
     """Market trading session enumeration"""
     PRE_MARKET = "pre_market"
-    REGULAR_HOURS = "regular_hours" 
+    REGULAR_HOURS = "regular_hours"
     AFTER_HOURS = "after_hours"
     EXTENDED_HOURS = "extended_hours"
     CLOSED = "closed"
@@ -1845,7 +1830,7 @@ def get_current_market_session() -> MarketSession:
     from datetime import datetime
     now = datetime.now()
     hour = now.hour
-    
+
     if 4 <= hour < 9:
         return MarketSession.PRE_MARKET
     elif 9 <= hour < 16:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,8 +22,8 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
@@ -87,7 +86,7 @@ class PositionSizeResult:
     risk_reward_ratio: float = 0.0
     portfolio_risk_pct: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'num_contracts': self.num_contracts,
@@ -173,8 +172,8 @@ class RenaissancePositionSizer:
         self.error_handler = SpyderErrorHandler()
 
         # Trade tracking
-        self.trade_history: List[TradeRecord] = []
-        self.open_positions: Dict[str, Dict] = {}
+        self.trade_history: list[TradeRecord] = []
+        self.open_positions: dict[str, dict] = {}
         self.metrics = PerformanceMetrics()
 
         self.logger.info(
@@ -282,7 +281,7 @@ class RenaissancePositionSizer:
                 num_contracts = min(num_contracts, max_affordable)
                 position_value = num_contracts * entry_price * 100
                 risk_per_trade = num_contracts * risk_per_contract
-                reasoning += f" (scaled down to available capital)"
+                reasoning += " (scaled down to available capital)"
 
             return PositionSizeResult(
                 num_contracts=num_contracts,
@@ -436,7 +435,7 @@ class RenaissancePositionSizer:
             self.trade_history.append(record)
 
             # Update capital
-            position_value = exit_price * position_size * 100
+            exit_price * position_size * 100
             self.current_capital += pnl
 
             # Update metrics
@@ -490,7 +489,7 @@ class RenaissancePositionSizer:
             if np.std(returns) > 0:
                 self.metrics.sharpe_ratio = np.mean(returns) / np.std(returns)
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get current performance metrics."""
         return {
             'total_trades': self.metrics.total_trades,
@@ -534,7 +533,7 @@ class RenaissancePositionSizer:
     # --------------------------------------------------------------------------
 
     def compute_empyrical_sharpe(self, returns: pd.Series,
-                                  risk_free_rate: float = 0.05) -> Dict[str, float]:
+                                  risk_free_rate: float = 0.05) -> dict[str, float]:
         """
         Compute Sharpe ratio using empyrical instead of manual mean/std.
 
@@ -595,9 +594,6 @@ def create_position_sizer(
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER P07 - RENAISSANCE POSITION SIZER DEMONSTRATION")
-    print("=" * 80)
 
     # Create position sizer
     sizer = create_position_sizer(
@@ -606,16 +602,8 @@ if __name__ == "__main__":
         max_portfolio_risk=0.02
     )
 
-    print(f"\nPosition Sizer Configuration:")
-    print(f"  Initial Capital: ${sizer.initial_capital:,.2f}")
-    print(f"  Max Position Size: {sizer.max_position_size:.1%}")
-    print(f"  Max Portfolio Risk: {sizer.max_portfolio_risk:.1%}")
-    print(f"  Min Confidence: {sizer.min_confidence:.1%}")
 
     # Test position sizing with different confidence levels
-    print("\n" + "=" * 50)
-    print("Testing Position Sizing with Different Confidence Levels")
-    print("=" * 50)
 
     test_cases = [
         {"confidence": 0.40, "entry": 5.00, "stop": 3.50},  # Below minimum
@@ -632,17 +620,8 @@ if __name__ == "__main__":
             confidence=case["confidence"]
         )
 
-        print(f"\nConfidence: {case['confidence']:.0%}")
-        print(f"  Contracts: {result.num_contracts}")
-        print(f"  Position Value: ${result.position_value:,.2f}")
-        print(f"  Risk per Trade: ${result.risk_per_trade:,.2f}")
-        print(f"  Portfolio Risk: {result.portfolio_risk_pct:.2%}")
-        print(f"  Reasoning: {result.reasoning}")
 
     # Test different sizing methods
-    print("\n" + "=" * 50)
-    print("Testing Different Position Sizing Methods")
-    print("=" * 50)
 
     methods = [
         PositionSizeMethod.CONFIDENCE_SCALED,
@@ -659,15 +638,8 @@ if __name__ == "__main__":
             method=method
         )
 
-        print(f"\n{method.value.upper()}:")
-        print(f"  Contracts: {result.num_contracts}")
-        print(f"  Position Value: ${result.position_value:,.2f}")
-        print(f"  Reasoning: {result.reasoning}")
 
     # Simulate some trades
-    print("\n" + "=" * 50)
-    print("Simulating Trades")
-    print("=" * 50)
 
     # Simulate wins and losses
     np.random.seed(42)
@@ -701,24 +673,14 @@ if __name__ == "__main__":
             )
 
     # Display final metrics
-    print("\n" + "=" * 50)
-    print("Performance Metrics")
-    print("=" * 50)
 
     metrics = sizer.get_metrics()
-    for key, value in metrics.items():
-        print(f"  {key.replace('_', ' ').title()}: {value}")
+    for _key, _value in metrics.items():
+        pass
 
     # Display trade history
-    print("\n" + "=" * 50)
-    print("Trade History")
-    print("=" * 50)
 
     history_df = sizer.get_trade_history_df()
     if not history_df.empty:
-        print(history_df[['symbol', 'pnl', 'return_pct', 'confidence', 'exit_reason']].to_string())
+        pass
 
-    print("\n" + "=" * 80)
-    print("RENAISSANCE POSITION SIZER SYSTEM READY!")
-    print("Key insight: Position size scales with confidence")
-    print("=" * 80)

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderQ_Scripts 
-Module: SpyderQ14_MainLauncher.py 
+Series: SpyderQ_Scripts
+Module: SpyderQ14_MainLauncher.py
 Purpose: Fixed main system launcher that works with available modules
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-23 Time: 13:00:00  
+Year Created: 2025
+Last Updated: 2025-08-23 Time: 13:00:00
 
 Module Description:
-    Fixed version of the main system launcher that doesn't depend on the 
+    Fixed version of the main system launcher that doesn't depend on the
     non-existent SpyderI05_SystemOrchestrator. This launcher uses available
     modules like SpyderA06_MasterController for system orchestration and
     provides graceful fallbacks when modules are not available.
@@ -41,16 +40,9 @@ Examples:
 # STANDARD IMPORTS
 # ==============================================================================
 import argparse
-import json
-import os
-import signal
 import subprocess
 import sys
-import threading
-import time
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
 
 # ==============================================================================
 # SYSTEM PATH SETUP
@@ -85,13 +77,13 @@ except ImportError as e:
 
 # Try to import system controller (use MasterController instead of missing SystemOrchestrator)
 try:
-    from SpyderA_Core.SpyderA06_MasterController import MasterController, SystemStatus
+    from SpyderA_Core.SpyderA06_MasterController import MasterController, SystemStatus  # noqa: F401
     master_controller = MasterController
     CORE_AVAILABLE = True
     print("✅ MasterController available")
 except ImportError as e:
     print(f"⚠️ MasterController not available: {e}")
-    
+
     # Try alternative controllers
     try:
         from SpyderI_Integration.SpyderI01_IntegrationHub import IntegrationHub
@@ -103,17 +95,17 @@ except ImportError as e:
 
 # Try to import GUI modules
 try:
-    from SpyderG_GUI.SpyderG05_TradingDashboard import TradingDashboard
+    from SpyderG_GUI.SpyderG05_TradingDashboard import TradingDashboard  # noqa: F401
     GUI_AVAILABLE = True
     print("✅ Trading Dashboard available")
 except ImportError:
     try:
-        from SpyderG_GUI.SpyderG01_MainWindow import MainWindow
+        from SpyderG_GUI.SpyderG01_MainWindow import MainWindow  # noqa: F401
         GUI_AVAILABLE = True
         print("✅ Main Window available")
     except ImportError:
         try:
-            from SpyderG_GUI.SpyderG02_GUIEntry import run_gui
+            from SpyderG_GUI.SpyderG02_GUIEntry import run_gui  # noqa: F401
             GUI_AVAILABLE = True
             print("✅ GUI Entry available")
         except ImportError as e:
@@ -138,18 +130,18 @@ class SpyderLauncher:
     """
     Fixed Spyder system launcher that works with available modules.
     """
-    
+
     def __init__(self, args):
         self.args = args
         self.project_root = project_root
         self.state = SystemState.STARTING
         self.running = False
-        
+
         # Setup logging
         self.log_info = logger.info if logger else print
         self.log_error = logger.error if logger else print
         self.log_warning = logger.warning if logger else print
-    
+
     def _log_startup_info(self):
         """Log startup information"""
         self.log_info("🚀 SPYDER SYSTEM LAUNCHER STARTING")
@@ -160,25 +152,25 @@ class SpyderLauncher:
         self.log_info(f"Debug Mode: {self.args.debug}")
         self.log_info(f"Safe Mode: {self.args.safe_mode}")
         self.log_info("")
-        
+
         # Show module availability
         self.log_info("📦 MODULE AVAILABILITY:")
         self.log_info(f"  Core System: {'✅ Available' if CORE_AVAILABLE else '❌ Limited'}")
         self.log_info(f"  GUI System: {'✅ Available' if GUI_AVAILABLE else '❌ Not Available'}")
         self.log_info(f"  Logger: {'✅ Available' if logger else '❌ Using Print'}")
         self.log_info("")
-    
+
     def show_status(self):
         """Show system status"""
         self.log_info("📊 SPYDER SYSTEM STATUS")
         self.log_info("=" * 50)
-        
+
         # Basic system info
         self.log_info(f"System State: {self.state}")
         self.log_info(f"Project Root: {self.project_root}")
         self.log_info(f"Python Version: {sys.version}")
         self.log_info("")
-        
+
         # Module availability
         self.log_info("📦 MODULE STATUS:")
         modules_to_check = [
@@ -191,7 +183,7 @@ class SpyderLauncher:
             ("SpyderU_Utilities", "Utilities"),
             ("SpyderI_Integration", "System integration")
         ]
-        
+
         for module_dir, description in modules_to_check:
             module_path = self.project_root / module_dir
             if module_path.exists():
@@ -199,17 +191,17 @@ class SpyderLauncher:
                 self.log_info(f"  ✅ {module_dir}: {len(py_files)} modules - {description}")
             else:
                 self.log_info(f"  ❌ {module_dir}: Not found - {description}")
-        
+
         return True
-    
+
     def launch_gui(self):
         """Launch GUI if available"""
         if not GUI_AVAILABLE:
             self.log_error("❌ GUI modules not available")
             return False
-        
+
         self.log_info("🖥️ Launching GUI...")
-        
+
         try:
             # Try different GUI entry points
             gui_modules = [
@@ -217,18 +209,18 @@ class SpyderLauncher:
                 ("SpyderG_GUI.SpyderG01_MainWindow", "MainWindow"),
                 ("SpyderG_GUI.SpyderG02_GUIEntry", "run_gui")
             ]
-            
+
             for module_name, class_or_func in gui_modules:
                 try:
                     self.log_info(f"Trying to launch {module_name}...")
-                    
+
                     # Import the module
                     module = __import__(module_name, fromlist=[''])
-                    
+
                     # Try to get the class or function
                     if hasattr(module, class_or_func):
                         gui_obj = getattr(module, class_or_func)
-                        
+
                         if callable(gui_obj):
                             if class_or_func == "run_gui":
                                 # It's a function
@@ -241,81 +233,81 @@ class SpyderLauncher:
                                     if hasattr(window, 'show'):
                                         window.show()
                                     app.exec()
-                        
+
                         self.log_info(f"✅ Successfully launched {class_or_func}")
                         return True
-                    
+
                 except ImportError as e:
                     self.log_warning(f"Cannot import {module_name}: {e}")
                     continue
                 except Exception as e:
                     self.log_error(f"Error launching {module_name}: {e}")
                     continue
-            
+
             self.log_error("❌ Could not launch any GUI module")
             return False
-            
+
         except Exception as e:
             self.log_error(f"❌ GUI launch failed: {e}")
             return False
-    
+
     def _create_qt_app(self):
         """Create Qt application if possible with dock icon fix"""
         try:
             from PySide6.QtWidgets import QApplication
             from PySide6.QtCore import QCoreApplication
-            
+
             # DOCK ICON FIX: Set properties BEFORE creating QApplication
             QCoreApplication.setApplicationName("spyder-trading-system")
             QCoreApplication.setOrganizationName("SpyderTrading")
             QCoreApplication.setApplicationVersion("1.0.0")
-            
+
             app = QApplication.instance()
             if app is None:
                 app = QApplication(sys.argv)
-                
+
             # Set additional properties for dock icon matching
             app.setApplicationName("spyder-trading-system")
             app.setApplicationDisplayName("Spyder Options Trading System")
             app.setDesktopFileName("spyder-trading-system")
-            
+
             print("✅ Qt application created with dock icon fix")
             return app
-            
+
         except ImportError:
             try:
                 from PyQt5.QtWidgets import QApplication
                 from PyQt5.QtCore import QCoreApplication
-                
+
                 QCoreApplication.setApplicationName("spyder-trading-system")
-                
+
                 app = QApplication.instance()
                 if app is None:
                     app = QApplication(sys.argv)
-                    
+
                 app.setApplicationName("spyder-trading-system")
                 print("✅ Qt5 application created with dock icon fix")
                 return app
-                
+
             except ImportError:
                 self.log_error("❌ No Qt libraries available")
                 return None
-    
+
     def run_specific_module(self, module_name: str):
         """Run a specific module"""
         self.log_info(f"🚀 Running specific module: {module_name}")
-        
+
         # Handle special cases
         if module_name == "SpyderG05_TradingDashboard":
             return self.launch_gui()
-        
+
         # Try to run the module as a script
         module_paths = [
             self.project_root / f"{module_name}.py",
             self.project_root / "SpyderG_GUI" / f"{module_name}.py",
             self.project_root / "SpyderA_Core" / f"{module_name}.py",
         ]
-        
+
         for module_path in module_paths:
             if module_path.exists():
                 self.log_info(f"Found module at: {module_path}")
@@ -325,14 +317,14 @@ class SpyderLauncher:
                 except subprocess.CalledProcessError as e:
                     self.log_error(f"Module execution failed: {e}")
                     return False
-        
+
         self.log_error(f"Module not found: {module_name}")
         return False
-    
+
     def launch_system(self):
         """Launch the full system"""
         self.log_info("🚀 Launching Spyder system...")
-        
+
         if CORE_AVAILABLE and master_controller:
             try:
                 # Try to use the master controller
@@ -346,32 +338,32 @@ class SpyderLauncher:
                     self.log_warning("⚠️ Controller has no start method")
             except Exception as e:
                 self.log_error(f"❌ System startup failed: {e}")
-        
+
         # Fallback: just show status
         self.log_warning("⚠️ Full system startup not available, showing status instead")
         return self.show_status()
-    
+
     def launch(self):
         """Main launch method"""
         try:
             self._log_startup_info()
-            
+
             if self.args.status:
                 return self.show_status()
-            
+
             if self.args.module:
                 return self.run_specific_module(self.args.module)
-            
+
             if self.args.gui and not self.args.headless:
                 if GUI_AVAILABLE:
                     return self.launch_gui()
                 else:
                     self.log_error("❌ GUI not available, showing status instead")
                     return self.show_status()
-            
+
             # Default: try to launch full system
             return self.launch_system()
-            
+
         except KeyboardInterrupt:
             self.log_info("🛑 Interrupted by user")
             return True
@@ -398,8 +390,8 @@ Examples:
   python SpyderQ14_MainLauncher.py --mode live --headless
         """
     )
-    
-    parser.add_argument("--mode", choices=["live", "paper", "backtest"], 
+
+    parser.add_argument("--mode", choices=["live", "paper", "backtest"],
                        default="paper", help="Trading mode")
     parser.add_argument("--config", type=str, help="Path to configuration file")
     parser.add_argument("--gui", action="store_true", default=True, help="Launch with GUI")
@@ -409,19 +401,19 @@ Examples:
     parser.add_argument("--module", type=str, help="Start specific module only")
     parser.add_argument("--status", action="store_true", help="Check system status and exit")
     parser.add_argument("--shutdown", action="store_true", help="Shutdown running system")
-    
+
     args = parser.parse_args()
-    
+
     # Handle shutdown request
     if args.shutdown:
         print("🛑 Shutdown requested")
         # Add shutdown logic here if needed
         return 0
-    
+
     # Create and run launcher
     launcher = SpyderLauncher(args)
     success = launcher.launch()
-    
+
     return 0 if success else 1
 
 # ==============================================================================

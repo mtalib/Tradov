@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -23,27 +22,21 @@ Description:
 # IMPORTS
 # ==============================================================================
 
-import json
 import logging
 # Standard library imports
 import sys
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
-import pandas as pd
-from PySide6.QtCore import QDateTime, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QPainter, QPalette,
-                        QPixmap)
+from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import (QFont)
 # PyQt6 imports
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog,
                             QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-                            QHeaderView, QLabel, QProgressBar, QPushButton,
-                            QRadioButton, QSlider, QSpinBox, QSplitter,
-                            QTableWidget, QTableWidgetItem, QTabWidget,
+                            QLabel, QProgressBar, QPushButton,
+                            QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget,
                             QTextEdit, QVBoxLayout, QWidget)
 
 # PyQtGraph for charts
@@ -58,8 +51,8 @@ except ImportError:
 
 # Internal imports
 try:
-    from SpyderS_Signals.SpyderS06_SKEWCalculator import (SKEWCalculation,
-                                                        SKEWComponents,
+    from SpyderS_Signals.SpyderS06_SKEWCalculator import (SKEWCalculation,  # noqa: F401
+                                                        SKEWComponents,  # noqa: F401
                                                         get_skew_calculator)
 
     SKEW_CALCULATOR_AVAILABLE = True
@@ -144,7 +137,7 @@ class SkewAlert:
     message: str
     timestamp: datetime
     value: float
-    action: Optional[str] = None
+    action: str | None = None
 
 
 # ==============================================================================
@@ -177,7 +170,7 @@ class SkewDataThread(QThread):
             # Sleep for update interval
             self.msleep(self.update_interval)
 
-    def fetch_skew_data(self) -> Optional[SkewData]:
+    def fetch_skew_data(self) -> SkewData | None:
         """Fetch latest SKEW data"""
         try:
             if SKEW_CALCULATOR_AVAILABLE:
@@ -976,7 +969,7 @@ class SkewMonitorDialog(QDialog):
         }
         return descriptions.get(signal, "")
 
-    def get_strategy_recommendations(self, skew_value: float) -> List[Dict]:
+    def get_strategy_recommendations(self, skew_value: float) -> list[dict]:
         """Get strategy recommendations based on SKEW"""
         if skew_value >= SKEW_EXTREME_HIGH:
             return [
@@ -1120,7 +1113,7 @@ class SkewMonitorDialog(QDialog):
 
         return "\n".join(adjustments)
 
-    def get_action_items(self, data: SkewData) -> List[str]:
+    def get_action_items(self, data: SkewData) -> list[str]:
         """Get action items based on SKEW"""
         actions = []
 

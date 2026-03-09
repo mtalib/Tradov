@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -31,18 +30,13 @@ Key Features:
     - Real-time pricing with market data integration
 """
 
-import bisect
-import math
-import time
 import warnings
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from scipy import optimize, stats
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
@@ -194,14 +188,14 @@ class MarketData:
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     dividend_yield: float = DEFAULT_DIVIDEND_YIELD
     timestamp: datetime = field(default_factory=datetime.now)
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    last: Optional[float] = None
-    volume: Optional[int] = None
-    open_interest: Optional[int] = None
+    bid: float | None = None
+    ask: float | None = None
+    last: float | None = None
+    volume: int | None = None
+    open_interest: int | None = None
 
     @property
-    def mid_price(self) -> Optional[float]:
+    def mid_price(self) -> float | None:
         """Calculate mid price from bid/ask"""
         if self.bid and self.ask:
             return (self.bid + self.ask) / 2
@@ -219,23 +213,23 @@ class OptionPrice:
     timestamp: datetime = field(default_factory=datetime.now)
 
     # Greeks
-    delta: Optional[float] = None
-    gamma: Optional[float] = None
-    vega: Optional[float] = None
-    theta: Optional[float] = None
-    rho: Optional[float] = None
+    delta: float | None = None
+    gamma: float | None = None
+    vega: float | None = None
+    theta: float | None = None
+    rho: float | None = None
 
     # Second-order Greeks
-    vanna: Optional[float] = None
-    charm: Optional[float] = None
-    vomma: Optional[float] = None
-    color: Optional[float] = None
-    speed: Optional[float] = None
+    vanna: float | None = None
+    charm: float | None = None
+    vomma: float | None = None
+    color: float | None = None
+    speed: float | None = None
 
     # Additional metrics
-    implied_volatility: Optional[float] = None
-    probability_itm: Optional[float] = None
-    expected_value: Optional[float] = None
+    implied_volatility: float | None = None
+    probability_itm: float | None = None
+    expected_value: float | None = None
 
     @property
     def is_itm(self) -> bool:
@@ -252,13 +246,13 @@ class GreeksResult:
     vega: float
     theta: float
     rho: float
-    lambda_leverage: Optional[float] = None  # Lambda/Omega
-    vanna: Optional[float] = None
-    charm: Optional[float] = None
-    vomma: Optional[float] = None
-    color: Optional[float] = None
-    speed: Optional[float] = None
-    ultima: Optional[float] = None  # Third-order sensitivity to volatility
+    lambda_leverage: float | None = None  # Lambda/Omega
+    vanna: float | None = None
+    charm: float | None = None
+    vomma: float | None = None
+    color: float | None = None
+    speed: float | None = None
+    ultima: float | None = None  # Third-order sensitivity to volatility
 
 
 # ==============================================================================
@@ -278,7 +272,7 @@ def norm_pdf(x: float) -> float:
 
 def calculate_d1_d2(
     S: float, K: float, T: float, r: float, q: float, sigma: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Calculate d1 and d2 for Black-Scholes formula
 
@@ -575,7 +569,7 @@ class ImpliedVolatilitySolver:
         q: float,
         option_type: OptionType,
         method: str = "newton",
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Calculate implied volatility from market price
 
@@ -619,7 +613,7 @@ class ImpliedVolatilitySolver:
         r: float,
         q: float,
         option_type: OptionType,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Newton-Raphson method for IV"""
         # Initial guess using Brenner-Subrahmanyam approximation
         sigma = np.sqrt(2 * np.pi / T) * (target_price / S)
@@ -659,7 +653,7 @@ class ImpliedVolatilitySolver:
         r: float,
         q: float,
         option_type: OptionType,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Bisection method for IV"""
         low = MIN_VOLATILITY
         high = MAX_VOLATILITY
@@ -720,9 +714,9 @@ class OptionsPricer:
         self.iv_solver = ImpliedVolatilitySolver()
 
         # Cache for performance
-        self.price_cache: Dict[str, OptionPrice] = {}
-        self.greeks_cache: Dict[str, GreeksResult] = {}
-        self.iv_cache: Dict[str, float] = {}
+        self.price_cache: dict[str, OptionPrice] = {}
+        self.greeks_cache: dict[str, GreeksResult] = {}
+        self.iv_cache: dict[str, float] = {}
 
         # Configuration
         self.default_binomial_steps = 200
@@ -739,7 +733,7 @@ class OptionsPricer:
         self,
         contract: OptionContract,
         market_data: MarketData,
-        model: Optional[PricingModel] = None,
+        model: PricingModel | None = None,
         calculate_greeks: bool = True,
     ) -> OptionPrice:
         """
@@ -868,7 +862,7 @@ class OptionsPricer:
 
     def calculate_implied_volatility(
         self, contract: OptionContract, market_price: float, market_data: MarketData
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Calculate implied volatility from market price
 
@@ -902,7 +896,7 @@ class OptionsPricer:
         return iv
 
     def calculate_portfolio_greeks(
-        self, positions: List[Tuple[OptionContract, int, MarketData]]
+        self, positions: list[tuple[OptionContract, int, MarketData]]
     ) -> GreeksResult:
         """
         Calculate aggregate Greeks for a portfolio
@@ -961,7 +955,7 @@ class OptionsPricer:
         self,
         contract: OptionContract,
         premium: float,
-        spot_range: Optional[Tuple[float, float]] = None,
+        spot_range: tuple[float, float] | None = None,
         n_points: int = 100,
     ) -> pd.DataFrame:
         """
@@ -1118,9 +1112,6 @@ def calculate_option_price(
 
 
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER N01 - OPTIONS PRICER TEST")
-    print("=" * 80)
 
     # Test parameters
     spot = 585.00  # SPY spot price
@@ -1130,13 +1121,6 @@ if __name__ == "__main__":
     rate = 0.05  # 5% risk-free rate
     div_yield = 0.02  # 2% dividend yield
 
-    print(f"\n📊 Test Parameters:")
-    print(f"  Spot: ${spot:.2f}")
-    print(f"  Strike: ${strike:.2f}")
-    print(f"  Days to Expiry: {expiry_days}")
-    print(f"  Volatility: {volatility:.1%}")
-    print(f"  Risk-Free Rate: {rate:.1%}")
-    print(f"  Dividend Yield: {div_yield:.1%}")
 
     # Create pricer
     pricer = create_options_pricer()
@@ -1174,57 +1158,28 @@ if __name__ == "__main__":
     )
 
     # Price options
-    print("\n💰 OPTION PRICING RESULTS:")
-    print("-" * 50)
 
     # Price CALL
     call_price = pricer.price_option(call_contract, market_data)
-    print(f"\n📈 CALL Option ({call_contract.symbol}):")
-    print(f"  Theoretical Value: ${call_price.theoretical_value:.2f}")
-    print(f"  Intrinsic Value: ${call_price.intrinsic_value:.2f}")
-    print(f"  Time Value: ${call_price.time_value:.2f}")
-    print(f"  Probability ITM: {call_price.probability_itm:.1%}")
 
     if call_price.delta is not None:
-        print(f"\n  Greeks:")
-        print(f"    Delta: {call_price.delta:.4f}")
-        print(f"    Gamma: {call_price.gamma:.4f}")
-        print(f"    Vega: {call_price.vega:.4f}")
-        print(f"    Theta: {call_price.theta:.4f}")
-        print(f"    Rho: {call_price.rho:.4f}")
+        pass
 
     # Price PUT
     put_price = pricer.price_option(put_contract, market_data)
-    print(f"\n📉 PUT Option ({put_contract.symbol}):")
-    print(f"  Theoretical Value: ${put_price.theoretical_value:.2f}")
-    print(f"  Intrinsic Value: ${put_price.intrinsic_value:.2f}")
-    print(f"  Time Value: ${put_price.time_value:.2f}")
-    print(f"  Probability ITM: {put_price.probability_itm:.1%}")
 
     if put_price.delta is not None:
-        print(f"\n  Greeks:")
-        print(f"    Delta: {put_price.delta:.4f}")
-        print(f"    Gamma: {put_price.gamma:.4f}")
-        print(f"    Vega: {put_price.vega:.4f}")
-        print(f"    Theta: {put_price.theta:.4f}")
-        print(f"    Rho: {put_price.rho:.4f}")
+        pass
 
     # Test implied volatility calculation
-    print("\n🎯 IMPLIED VOLATILITY TEST:")
-    print("-" * 50)
 
     test_market_price = 2.50
     calc_iv = pricer.calculate_implied_volatility(call_contract, test_market_price, market_data)
 
     if calc_iv:
-        print(f"  Market Price: ${test_market_price:.2f}")
-        print(f"  Implied Volatility: {calc_iv:.1%}")
-        print(f"  Input Volatility: {volatility:.1%}")
-        print(f"  Difference: {(calc_iv - volatility)*100:.2f} bps")
+        pass
 
     # Test put-call parity
-    print("\n⚖️ PUT-CALL PARITY CHECK:")
-    print("-" * 50)
 
     parity_diff = pricer.check_put_call_parity(
         call_price.theoretical_value,
@@ -1236,14 +1191,8 @@ if __name__ == "__main__":
         div_yield,
     )
 
-    print(f"  Parity Difference: ${parity_diff:.4f}")
-    print(
-        f"  Status: {'✅ VALID' if abs(parity_diff) < PUT_CALL_PARITY_TOLERANCE else '❌ INVALID'}"
-    )
 
     # Test portfolio Greeks
-    print("\n📊 PORTFOLIO GREEKS TEST:")
-    print("-" * 50)
 
     # Create a simple Iron Condor position
     positions = [
@@ -1253,14 +1202,8 @@ if __name__ == "__main__":
 
     portfolio_greeks = pricer.calculate_portfolio_greeks(positions)
 
-    print(f"  Portfolio Delta: {portfolio_greeks.delta:.2f}")
-    print(f"  Portfolio Gamma: {portfolio_greeks.gamma:.2f}")
-    print(f"  Portfolio Vega: ${portfolio_greeks.vega:.2f}")
-    print(f"  Portfolio Theta: ${portfolio_greeks.theta:.2f}")
 
     # Compare pricing models
-    print("\n🔄 MODEL COMPARISON:")
-    print("-" * 50)
 
     # European Black-Scholes
     euro_call = call_contract
@@ -1272,12 +1215,4 @@ if __name__ == "__main__":
     amer_call.exercise_style = ExerciseStyle.AMERICAN
     bin_price = pricer.price_option(amer_call, market_data, model=PricingModel.BINOMIAL)
 
-    print(f"  Black-Scholes (European): ${bs_price.theoretical_value:.2f}")
-    print(f"  Binomial (American): ${bin_price.theoretical_value:.2f}")
-    print(
-        f"  Early Exercise Premium: ${
-            bin_price.theoretical_value -
-            bs_price.theoretical_value:.2f}"
-    )
 
-    print("\n✅ Options Pricer test completed successfully!")

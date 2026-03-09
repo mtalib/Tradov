@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -27,14 +26,11 @@ import os
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -105,10 +101,10 @@ class MarketHours:
     """Market hours for a specific date"""
 
     date: date
-    premarket_open: Optional[time] = None
-    market_open: Optional[time] = None
-    market_close: Optional[time] = None
-    afterhours_close: Optional[time] = None
+    premarket_open: time | None = None
+    market_open: time | None = None
+    market_close: time | None = None
+    afterhours_close: time | None = None
     is_trading_day: bool = True
     is_early_close: bool = False
     notes: str = ""
@@ -122,7 +118,7 @@ class Holiday:
     name: str
     exchange: Exchange
     is_closed: bool = True
-    early_close_time: Optional[time] = None
+    early_close_time: time | None = None
 
 
 # ==============================================================================
@@ -162,9 +158,9 @@ class TradingCalendar:
         self.timezone = ET_TIMEZONE
 
         # Holiday management
-        self.holidays: Set[date] = set()
-        self.early_closes: Dict[date, time] = {}
-        self.holiday_names: Dict[date, str] = {}
+        self.holidays: set[date] = set()
+        self.early_closes: dict[date, time] = {}
+        self.holiday_names: dict[date, str] = {}
 
         # Market hours
         self.regular_open = DEFAULT_MARKET_OPEN
@@ -180,7 +176,7 @@ class TradingCalendar:
     # ==========================================================================
     # PUBLIC METHODS - HOLIDAY MANAGEMENT
     # ==========================================================================
-    
+
     def load_holidays(self) -> None:
         """
         Public method to load/reload holidays.
@@ -204,12 +200,12 @@ class TradingCalendar:
         self.holiday_names.clear()
         self.load_holidays()
 
-    def add_custom_holiday(self, holiday_date: date, name: str, 
-                          is_early_close: bool = False, 
-                          close_time: Optional[time] = None) -> None:
+    def add_custom_holiday(self, holiday_date: date, name: str,
+                          is_early_close: bool = False,
+                          close_time: time | None = None) -> None:
         """
         Add a custom holiday or early close day.
-        
+
         Args:
             holiday_date: Date of the holiday
             name: Name of the holiday
@@ -220,13 +216,13 @@ class TradingCalendar:
             self._add_early_close(holiday_date, close_time, name)
         else:
             self._add_holiday(holiday_date, name)
-        
+
         self.logger.info(f"Added custom holiday: {name} on {holiday_date}")
 
     # ==========================================================================
     # PUBLIC METHODS - TRADING DAY CHECKS
     # ==========================================================================
-    def is_trading_day(self, check_date: Optional[date] = None) -> bool:
+    def is_trading_day(self, check_date: date | None = None) -> bool:
         """
         Check if a given date is a trading day.
 
@@ -244,12 +240,9 @@ class TradingCalendar:
             return False
 
         # Check if holiday
-        if check_date in self.holidays:
-            return False
+        return check_date not in self.holidays
 
-        return True
-
-    def is_market_open(self, timestamp: Optional[datetime] = None) -> bool:
+    def is_market_open(self, timestamp: datetime | None = None) -> bool:
         """
         Check if the market is open at the given timestamp.
 
@@ -282,7 +275,7 @@ class TradingCalendar:
             self.logger.error(f"Error checking market status: {e}")
             return False
 
-    def is_extended_hours(self, timestamp: Optional[datetime] = None) -> bool:
+    def is_extended_hours(self, timestamp: datetime | None = None) -> bool:
         """
         Check if in extended trading hours.
 
@@ -314,14 +307,7 @@ class TradingCalendar:
                 return True
 
             # Check afterhours
-            if (
-                hours.afterhours_close
-                and current_time > hours.market_close
-                and current_time <= hours.afterhours_close
-            ):
-                return True
-
-            return False
+            return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)
 
         except Exception as e:
             self.logger.error(f"Error checking extended hours: {e}")
@@ -330,7 +316,7 @@ class TradingCalendar:
     # ==========================================================================
     # PUBLIC METHODS - MARKET STATUS
     # ==========================================================================
-    def get_market_status(self, timestamp: Optional[datetime] = None) -> MarketStatus:
+    def get_market_status(self, timestamp: datetime | None = None) -> MarketStatus:
         """
         Get current market status.
 
@@ -348,7 +334,7 @@ class TradingCalendar:
                     timestamp = timestamp.replace(tzinfo=self.timezone)
 
             check_date = timestamp.date()
-            current_time = timestamp.time()
+            timestamp.time()
 
             # Check weekend
             if check_date.weekday() >= 5:
@@ -388,7 +374,7 @@ class TradingCalendar:
             self.logger.error(f"Error getting market status: {e}")
             return MarketStatus.CLOSED
 
-    def get_market_session(self, timestamp: Optional[datetime] = None) -> MarketSession:
+    def get_market_session(self, timestamp: datetime | None = None) -> MarketSession:
         """
         Get current market session type.
 
@@ -436,7 +422,7 @@ class TradingCalendar:
     # ==========================================================================
     # PUBLIC METHODS - CALENDAR OPERATIONS
     # ==========================================================================
-    def get_next_trading_day(self, from_date: Optional[date] = None) -> date:
+    def get_next_trading_day(self, from_date: date | None = None) -> date:
         """
         Get the next trading day after the given date.
 
@@ -461,7 +447,7 @@ class TradingCalendar:
         self.logger.warning(f"Could not find next trading day within {max_days} days")
         return next_date
 
-    def get_previous_trading_day(self, from_date: Optional[date] = None) -> date:
+    def get_previous_trading_day(self, from_date: date | None = None) -> date:
         """
         Get the previous trading day before the given date.
 
@@ -486,7 +472,7 @@ class TradingCalendar:
         self.logger.warning(f"Could not find previous trading day within {max_days} days")
         return prev_date
 
-    def get_trading_days(self, start_date: date, end_date: date) -> List[date]:
+    def get_trading_days(self, start_date: date, end_date: date) -> list[date]:
         """
         Get list of trading days between two dates.
 
@@ -507,7 +493,7 @@ class TradingCalendar:
 
         return trading_days
 
-    def get_market_hours(self, for_date: Optional[date] = None) -> MarketHours:
+    def get_market_hours(self, for_date: date | None = None) -> MarketHours:
         """
         Get market hours for a specific date.
 
@@ -551,7 +537,7 @@ class TradingCalendar:
     # ==========================================================================
     # PUBLIC METHODS - TIME UTILITIES
     # ==========================================================================
-    def time_until_open(self, timestamp: Optional[datetime] = None) -> Optional[timedelta]:
+    def time_until_open(self, timestamp: datetime | None = None) -> timedelta | None:
         """
         Get time until market opens.
 
@@ -582,7 +568,7 @@ class TradingCalendar:
 
         return None
 
-    def time_until_close(self, timestamp: Optional[datetime] = None) -> Optional[timedelta]:
+    def time_until_close(self, timestamp: datetime | None = None) -> timedelta | None:
         """
         Get time until market closes.
 
@@ -604,13 +590,13 @@ class TradingCalendar:
 
         return close_time - timestamp
 
-    def get_holidays_for_year(self, year: int) -> List[Holiday]:
+    def get_holidays_for_year(self, year: int) -> list[Holiday]:
         """
         Get all holidays for a specific year.
-        
+
         Args:
             year: Year to get holidays for
-            
+
         Returns:
             List of Holiday objects
         """
@@ -625,7 +611,7 @@ class TradingCalendar:
                         exchange=self.exchange
                     )
                 )
-        
+
         return sorted(holidays_list, key=lambda h: h.date)
 
     # ==========================================================================
@@ -742,7 +728,7 @@ class TradingCalendar:
 
         return last_day
 
-    def _calculate_good_friday(self, year: int) -> Optional[date]:
+    def _calculate_good_friday(self, year: int) -> date | None:
         """Calculate Good Friday date (2 days before Easter)."""
         # Simplified calculation - would use more complex algorithm in production
         # This is approximate for demonstration
@@ -758,10 +744,10 @@ class TradingCalendar:
             h = (19 * a + b - d - g + 15) % 30
             i = c // 4
             k = c % 4
-            l = (32 + 2 * e + 2 * i - h - k) % 7
-            m = (a + 11 * h + 22 * l) // 451
-            month = (h + l - 7 * m + 114) // 31
-            day = ((h + l - 7 * m + 114) % 31) + 1
+            easter_l = (32 + 2 * e + 2 * i - h - k) % 7
+            m = (a + 11 * h + 22 * easter_l) // 451
+            month = (h + easter_l - 7 * m + 114) // 31
+            day = ((h + easter_l - 7 * m + 114) % 31) + 1
 
             easter = date(year, month, day)
             good_friday = easter - timedelta(days=2)
@@ -776,7 +762,7 @@ class TradingCalendar:
         """Load custom holidays from file."""
         try:
             if os.path.exists(HOLIDAY_FILE):
-                with open(HOLIDAY_FILE, "r") as f:
+                with open(HOLIDAY_FILE) as f:
                     custom_holidays = json.load(f)
 
                 for holiday_str, name in custom_holidays.items():
@@ -788,13 +774,13 @@ class TradingCalendar:
         except Exception as e:
             self.logger.debug(f"No custom holidays loaded: {e}")
 
-    def save_custom_holidays(self, filepath: Optional[str] = None) -> bool:
+    def save_custom_holidays(self, filepath: str | None = None) -> bool:
         """
         Save current holidays to a JSON file.
-        
+
         Args:
             filepath: Path to save file (default: HOLIDAY_FILE)
-            
+
         Returns:
             bool: True if saved successfully
         """
@@ -804,13 +790,13 @@ class TradingCalendar:
                 date_obj.strftime("%Y-%m-%d"): name
                 for date_obj, name in self.holiday_names.items()
             }
-            
+
             with open(save_path, "w") as f:
                 json.dump(holidays_dict, f, indent=2)
-            
+
             self.logger.info(f"Saved {len(holidays_dict)} holidays to {save_path}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error saving holidays: {e}")
             return False
@@ -838,7 +824,7 @@ class TradingCalendar:
 # MODULE FUNCTIONS
 # ==============================================================================
 # Global instance
-_trading_calendar_instance: Optional[TradingCalendar] = None
+_trading_calendar_instance: TradingCalendar | None = None
 
 
 def get_trading_calendar(exchange: Exchange = Exchange.NYSE) -> TradingCalendar:
@@ -878,41 +864,30 @@ if __name__ == "__main__":
     # Module testing code
     calendar = TradingCalendar()
 
-    print("✅ TradingCalendar test passed")
 
     # Test current status
-    print(f"Is trading day: {calendar.is_trading_day()}")
-    print(f"Is market open: {calendar.is_market_open()}")
-    print(f"Market status: {calendar.get_market_status().value}")
-    print(f"Market session: {calendar.get_market_session().value}")
 
     # Test the public load_holidays method
     calendar.load_holidays()
-    print(f"Holidays loaded successfully")
 
     # Test next/previous trading days
-    print(f"Next trading day: {calendar.get_next_trading_day()}")
-    print(f"Previous trading day: {calendar.get_previous_trading_day()}")
 
     # Test market hours
     hours = calendar.get_market_hours()
-    print(f"Market hours: {hours.market_open} - {hours.market_close}")
 
     # Test time calculations
     time_to_open = calendar.time_until_open()
     if time_to_open:
-        print(f"Time until open: {time_to_open}")
+        pass
 
     time_to_close = calendar.time_until_close()
     if time_to_close:
-        print(f"Time until close: {time_to_close}")
+        pass
 
     # Test holiday retrieval
     holidays_2025 = calendar.get_holidays_for_year(2025)
-    print(f"\n2025 Holidays ({len(holidays_2025)} total):")
-    for holiday in holidays_2025[:5]:  # Show first 5
-        print(f"  - {holiday.date}: {holiday.name}")
+    for _holiday in holidays_2025[:5]:  # Show first 5
+        pass
 
     # Cleanup
     calendar.cleanup()
-    print("✅ TradingCalendar cleanup completed")

@@ -4,7 +4,7 @@ from enum import Enum
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities  
+Series: SpyderU_Utilities
 Module: SpyderU07_Constants.py
 Purpose: System-wide constants and configuration values with research findings
 Author: Mohamed Talib
@@ -22,7 +22,6 @@ Module Description:
 # =============================================================================
 # STANDARD IMPORTS
 # =============================================================================
-from enum import Enum
 from datetime import datetime
 
 # =============================================================================
@@ -81,7 +80,7 @@ TRADING_HOURS_PER_DAY = 6.5
 # Market holidays - major US holidays when markets are closed
 MARKET_HOLIDAYS = [
     "New Year's Day",
-    "Martin Luther King Jr. Day", 
+    "Martin Luther King Jr. Day",
     "Presidents Day",
     "Good Friday",
     "Memorial Day",
@@ -101,7 +100,7 @@ WEEKLY_EXPIRY_DAY = 4  # Friday (0=Monday)
 # Daily trading limits - CRITICAL FOR STRATEGY FRAMEWORK
 MAX_DAILY_TRADES = 5  # Maximum trades per day
 
-# Portfolio risk management - NEEDED BY BASESTRATEGY  
+# Portfolio risk management - NEEDED BY BASESTRATEGY
 MAX_PORTFOLIO_RISK = 0.06  # 6% maximum portfolio risk
 
 # Profit/Loss targets - NEEDED BY STRATEGIES
@@ -587,7 +586,7 @@ PAPER_TRADING_MODE = True
 # =============================================================================
 def validate_constants():
     """Validate that all constants are properly defined and within expected ranges."""
-    
+
     # Validate percentage values are between 0 and 1
     percentage_constants = [
         ('MAX_DAILY_LOSS_PERCENT', MAX_DAILY_LOSS_PERCENT),
@@ -596,11 +595,11 @@ def validate_constants():
         ('STOP_LOSS_PERCENTAGE', STOP_LOSS_PERCENTAGE),
         ('TAKE_PROFIT_PERCENTAGE', TAKE_PROFIT_PERCENTAGE),
     ]
-    
+
     for name, value in percentage_constants:
         if not (0 <= value <= 1):
             raise ValueError(f"{name} must be between 0 and 1, got {value}")
-    
+
     # Validate positive integer constants
     positive_int_constants = [
         ('MAX_DAILY_TRADES', MAX_DAILY_TRADES),
@@ -609,11 +608,11 @@ def validate_constants():
         ('SPY_CONTRACT_MULTIPLIER', SPY_CONTRACT_MULTIPLIER),
         ('SESSION_TIMEOUT', SESSION_TIMEOUT),
     ]
-    
+
     for name, value in positive_int_constants:
         if not isinstance(value, int) or value <= 0:
             raise ValueError(f"{name} must be a positive integer, got {value}")
-    
+
     # Validate time strings are properly formatted
     time_constants = [
         ('MARKET_OPEN_TIME', MARKET_OPEN_TIME),
@@ -621,20 +620,20 @@ def validate_constants():
         ('OPTIMAL_ENTRY_START', OPTIMAL_ENTRY_START),
         ('OPTIMAL_ENTRY_END', OPTIMAL_ENTRY_END),
     ]
-    
+
     for name, value in time_constants:
         try:
             datetime.strptime(value, '%H:%M:%S')
         except ValueError:
             raise ValueError(f"{name} must be in HH:MM:SS format, got {value}")
-    
+
     # Validate logic relationships
     if MAX_DAILY_TRADES < 1:
         raise ValueError("MAX_DAILY_TRADES must be at least 1")
-    
+
     if STOP_LOSS_PERCENTAGE >= TAKE_PROFIT_PERCENTAGE:
         raise ValueError("STOP_LOSS_PERCENTAGE must be less than TAKE_PROFIT_PERCENTAGE")
-    
+
     return True
 
 # =============================================================================
@@ -643,82 +642,82 @@ def validate_constants():
 __all__ = [
     # System info
     "SYSTEM_NAME", "SYSTEM_VERSION", "SYSTEM_DESCRIPTION",
-    
+
     # Trading constants
-    "PRIMARY_SYMBOL", "OPTION_MULTIPLIER", "SPY_CONTRACT_MULTIPLIER", 
+    "PRIMARY_SYMBOL", "OPTION_MULTIPLIER", "SPY_CONTRACT_MULTIPLIER",
     "SPX_CONTRACT_MULTIPLIER", "OPTIONS_TICK_SIZE", "MAX_POSITIONS", "MAX_POSITION_SIZE",
-    
+
     # CRITICAL CONSTANTS - STRATEGY FRAMEWORK REQUIREMENTS
     "MAX_DAILY_TRADES", "MAX_PORTFOLIO_RISK", "STOP_LOSS_PERCENTAGE", "TAKE_PROFIT_PERCENTAGE",
     "SESSION_TIMEOUT",
-    
+
     # Calendar constants
     "TRADING_DAYS_PER_YEAR", "TRADING_DAYS_PER_MONTH", "TRADING_HOURS_PER_DAY",
-    
+
     # Market hours
     "MARKET_OPEN_TIME", "MARKET_CLOSE_TIME", "PRE_MARKET_OPEN", "AFTER_HOURS_CLOSE",
-    
+
     # Strategy constants
     "IRON_CONDOR_PROFIT_TARGET", "IRON_BUTTERFLY_PROFIT_TARGET", "CREDIT_SPREAD_PROFIT_TARGET",
     "CREDIT_SPREAD_STOP_LOSS", "IRON_CONDOR_STOP_LOSS", "IRON_BUTTERFLY_STOP_LOSS", "MIN_IVP_THRESHOLD",
     "OPTIMAL_ENTRY_START", "OPTIMAL_ENTRY_END", "RSI_MIN", "RSI_MAX", "VIX_MIN", "VIX_MAX",
-    
+
     # Iron Condor parameters - NEEDED BY EXISTING STRATEGIES
     "IRON_CONDOR_MAX_WIDTH", "IRON_CONDOR_MIN_PREMIUM",
-    
+
     # Zero DTE
     "ZERO_DTE_POSITION_REDUCTION", "ZERO_DTE_PROFIT_TARGET", "ZERO_DTE_MAX_TRADES",
-    
+
     # Daily trading limits
     "MIN_DAILY_TRADES_MONDAY", "MAX_DAILY_TRADES_MONDAY", "MIN_DAILY_TRADES_OTHER", "MAX_DAILY_TRADES_OTHER",
-    
+
     # Risk management
     "MAX_DAILY_LOSS_PERCENT", "MAX_POSITION_SIZE_PERCENT", "MAX_PORTFOLIO_HEAT",
     "MAX_PORTFOLIO_HEAT_MONDAY", "MAX_PORTFOLIO_HEAT_OTHER", "DEFAULT_STOP_LOSS", "DEFAULT_TAKE_PROFIT",
-    
+
     # API configuration
     "IB_GATEWAY_HOST", "IB_GATEWAY_PORT", "PAPER_TRADING_PORT", "CLIENT_ID_MASTER", "CLIENT_ID_ORDER",
     "CONNECTION_TIMEOUT", "MAX_CONNECTION_RETRIES",
-    
+
     # Performance constants
     "LATENCY_SAMPLE_SIZE", "MAX_ORDER_LATENCY", "MAX_DATA_LATENCY", "MAX_CALCULATION_TIME",
     "MAX_PREDICTION_LATENCY_MS", "FEATURE_CACHE_SIZE", "PREDICTION_BATCH_SIZE",
-    
+
     # Options specific
-    "MIN_STRIKE_DISTANCE", "MAX_STRIKE_DISTANCE", "STRIKE_INTERVAL", "MIN_DTE_FOR_ENTRY", 
+    "MIN_STRIKE_DISTANCE", "MAX_STRIKE_DISTANCE", "STRIKE_INTERVAL", "MIN_DTE_FOR_ENTRY",
     "MAX_DTE_FOR_ENTRY", "OPTIMAL_DTE_RANGE",
-    
+
     # Greeks
     "DELTA_THRESHOLD", "GAMMA_THRESHOLD", "THETA_THRESHOLD", "VEGA_THRESHOLD", "RHO_THRESHOLD",
     "MAX_DELTA_EXPOSURE", "MAX_GAMMA_EXPOSURE", "MAX_VEGA_EXPOSURE",
-    
+
     # Market regime
     "LOW_VOLATILITY_THRESHOLD", "HIGH_VOLATILITY_THRESHOLD", "TREND_THRESHOLD", "SIDEWAYS_THRESHOLD",
     "IV_RANK_LOW", "IV_RANK_HIGH", "IV_SKEW_THRESHOLD",
-    
+
     # Performance thresholds
     "MIN_WIN_RATE", "MIN_PROFIT_FACTOR", "MIN_SHARPE_RATIO", "MAX_DRAWDOWN",
     "MIN_EVALUATION_TRADES", "MIN_EVALUATION_DAYS",
-    
+
     # Enums - CRITICAL FOR STRATEGIES
     "SignalType", "OptionType", "PositionSide",
-    
+
     # Strategy names
     "STRATEGY_IRON_CONDOR", "STRATEGY_IRON_BUTTERFLY", "STRATEGY_BULL_PUT_SPREAD",
     "STRATEGY_BEAR_CALL_SPREAD", "STRATEGY_ZERO_DTE", "STRATEGY_CALENDAR_SPREAD", "STRATEGY_DIAGONAL_SPREAD",
-    
+
     # Feature flags
     "DEFAULT_FEATURE_FLAGS",
-    
+
     # System performance
     "MAX_MEMORY_USAGE_MB", "MAX_CPU_USAGE_PERCENT", "MAX_WORKER_THREADS",
-    
+
     # Database
     "DATABASE_URL", "DATABASE_BATCH_SIZE", "TRADE_RETENTION_DAYS",
-    
+
     # Logging
     "DEFAULT_LOG_LEVEL", "LOG_FORMAT", "MAX_LOG_SIZE_MB",
-    
+
     # Validation
     "validate_constants",
 ]
@@ -729,33 +728,21 @@ __all__ = [
 # Run validation when module is imported
 if __name__ == "__main__":
     validate_constants()
-    
-    print(f"\n{SYSTEM_NAME} Constants Module v{SYSTEM_VERSION}")
-    print("=" * 60)
-    print(f"Constants loaded successfully: {len(__all__)} exports available")
-    print(f"System: {SYSTEM_DESCRIPTION}")
-    
-    print("\nCritical Constants Defined:")
-    print(f"  MAX_DAILY_TRADES: {MAX_DAILY_TRADES}")
-    print(f"  MAX_PORTFOLIO_RISK: {MAX_PORTFOLIO_RISK:.1%}")
-    print(f"  STOP_LOSS_PERCENTAGE: {STOP_LOSS_PERCENTAGE:.1%}")
-    print(f"  TAKE_PROFIT_PERCENTAGE: {TAKE_PROFIT_PERCENTAGE:.1%}")
-    print(f"  SESSION_TIMEOUT: {SESSION_TIMEOUT}s")
-    
-    print("\nStrategy Framework Ready!")
+
+
+
 
 # Run validation automatically on import
 try:
     validate_constants()
-except Exception as e:
-    print(f"Constants validation failed: {e}")
+except Exception:
     raise
 
 class TimeFrame(Enum):
     """Trading timeframe enumeration"""
     TICK = "tick"
     SECOND_1 = "1s"
-    SECOND_5 = "5s" 
+    SECOND_5 = "5s"
     SECOND_15 = "15s"
     SECOND_30 = "30s"
     MINUTE_1 = "1m"
@@ -768,7 +755,7 @@ class TimeFrame(Enum):
     WEEK_1 = "1w"
     MONTH_1 = "1M"
     UNKNOWN = "unknown"
-    
+
     def to_seconds(self) -> int:
         """Convert timeframe to seconds"""
         mapping = {

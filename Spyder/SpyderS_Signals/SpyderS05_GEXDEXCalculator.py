@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -11,7 +10,6 @@ Purpose: GEX, DEX, and OGL calculations (Simplified)
 import logging
 import random
 from datetime import datetime
-from typing import Dict, Optional
 
 # ==============================================================================
 # MAIN CALCULATOR CLASS

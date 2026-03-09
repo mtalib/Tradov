@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -55,8 +54,8 @@ FAKE_ACCOUNT = "VA12345678"
 EXPIRY = "2026-03-20"
 EXPIRY_SHORT = "260320"
 
-ORDER_PLACED_RESPONSE: Dict[str, Any] = {"order": {"id": 999001, "status": "ok"}}
-ORDER_STATUS_OPEN: Dict[str, Any] = {
+ORDER_PLACED_RESPONSE: dict[str, Any] = {"order": {"id": 999001, "status": "ok"}}
+ORDER_STATUS_OPEN: dict[str, Any] = {
     "order": {
         "id": 999001,
         "status": "open",
@@ -73,11 +72,11 @@ ORDER_STATUS_OPEN: Dict[str, Any] = {
         "option_symbol": "SPY260320C00560000",
     }
 }
-ORDER_STATUS_FILLED: Dict[str, Any] = {
+ORDER_STATUS_FILLED: dict[str, Any] = {
     "order": {**ORDER_STATUS_OPEN["order"], "status": "filled", "filled_quantity": 1.0, "avg_fill_price": 2.48}
 }
-CANCEL_RESPONSE: Dict[str, Any] = {"order": {"id": 999001, "status": "canceled"}}
-MODIFY_RESPONSE: Dict[str, Any] = {"order": {"id": 999001, "status": "pending"}}
+CANCEL_RESPONSE: dict[str, Any] = {"order": {"id": 999001, "status": "canceled"}}
+MODIFY_RESPONSE: dict[str, Any] = {"order": {"id": 999001, "status": "pending"}}
 
 
 # ==============================================================================
@@ -597,7 +596,7 @@ class TestGetOrders:
 class TestOptionChainWithGreeks:
     """Tests for get_option_chain_with_greeks and _parse_greeks_from_chain."""
 
-    def _chain_response(self, n_options: int = 2) -> Dict[str, Any]:
+    def _chain_response(self, n_options: int = 2) -> dict[str, Any]:
         options = [
             {
                 "symbol": f"SPY260320C{str(560 + i * 5).zfill(8)}000",
@@ -767,13 +766,12 @@ class TestAsyncOrderPaths:
                 client,
                 "_make_request",
                 side_effect=TradierAuthenticationError("401"),
-            ):
-                with pytest.raises(TradierAuthenticationError):
-                    await client.place_order_async(
-                        symbol="SPY",
-                        side=OrderSide.BUY,
-                        quantity=10,
-                    )
+            ), pytest.raises(TradierAuthenticationError):
+                await client.place_order_async(
+                    symbol="SPY",
+                    side=OrderSide.BUY,
+                    quantity=10,
+                )
 
         asyncio.run(_run())
 

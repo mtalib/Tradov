@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -35,10 +34,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import json
-import pickle
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple, Type
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -52,18 +49,18 @@ import pandas as pd
 
 # Stable-Baselines3
 try:
-    import gym
-    from gym import spaces
+    import gym  # noqa: F401
+    from gym import spaces  # noqa: F401
     from stable_baselines3 import PPO, SAC, TD3, A2C
-    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv  # noqa: F401
     from stable_baselines3.common.callbacks import (
         EvalCallback,
         CheckpointCallback,
         CallbackList,
         BaseCallback,
     )
-    from stable_baselines3.common.monitor import Monitor
-    from stable_baselines3.common.base_class import BaseAlgorithm
+    from stable_baselines3.common.monitor import Monitor  # noqa: F401
+    from stable_baselines3.common.base_class import BaseAlgorithm  # noqa: F401
     HAS_SB3 = True
 except ImportError:
     HAS_SB3 = False
@@ -143,7 +140,7 @@ class EnvironmentSpec:
     env_class: type
     description: str
     algorithm: RLAlgorithm = RLAlgorithm.PPO
-    default_config: Dict[str, Any] = field(default_factory=dict)
+    default_config: dict[str, Any] = field(default_factory=dict)
     obs_dim: int = 0
     action_type: str = "discrete"  # "discrete" or "continuous"
     action_dim: int = 0
@@ -157,8 +154,8 @@ class TrainingResult:
     algorithm: str
     total_timesteps: int
     training_time_seconds: float
-    final_metrics: Dict[str, float]
-    best_metrics: Dict[str, float]
+    final_metrics: dict[str, float]
+    best_metrics: dict[str, float]
     model_path: str
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -174,7 +171,7 @@ class EvaluationResult:
     sharpe_ratio: float
     win_rate: float
     max_drawdown: float
-    additional_metrics: Dict[str, float] = field(default_factory=dict)
+    additional_metrics: dict[str, float] = field(default_factory=dict)
 
 
 # ==============================================================================
@@ -231,7 +228,7 @@ class RLTrainingPipeline:
         >>> action = pipeline.get_action('gamma_hedging', observation)
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
+    def __init__(self, base_dir: str | None = None):
         """
         Initialize RL Training Pipeline.
 
@@ -252,15 +249,15 @@ class RLTrainingPipeline:
         self.tensorboard_dir = self.base_dir / DEFAULT_TENSORBOARD_DIR
 
         # Registry
-        self._registry: Dict[str, EnvironmentSpec] = {}
+        self._registry: dict[str, EnvironmentSpec] = {}
 
         # Active models and environments
-        self._models: Dict[str, Any] = {}
-        self._vec_envs: Dict[str, Any] = {}
-        self._best_metrics: Dict[str, Dict[str, float]] = {}
+        self._models: dict[str, Any] = {}
+        self._vec_envs: dict[str, Any] = {}
+        self._best_metrics: dict[str, dict[str, float]] = {}
 
         # Training history
-        self._training_history: Dict[str, List[TrainingResult]] = defaultdict(list)
+        self._training_history: dict[str, list[TrainingResult]] = defaultdict(list)
 
         self.logger.info("RLTrainingPipeline initialized")
 
@@ -273,7 +270,7 @@ class RLTrainingPipeline:
         env_class: type,
         description: str = "",
         algorithm: RLAlgorithm = RLAlgorithm.PPO,
-        default_config: Optional[Dict[str, Any]] = None,
+        default_config: dict[str, Any] | None = None,
         obs_dim: int = 0,
         action_type: str = "discrete",
         action_dim: int = 0,
@@ -307,7 +304,7 @@ class RLTrainingPipeline:
         self._registry[name] = spec
         self.logger.info(f"Registered RL environment: '{name}' ({algorithm.value})")
 
-    def list_environments(self) -> Dict[str, Dict[str, Any]]:
+    def list_environments(self) -> dict[str, dict[str, Any]]:
         """
         List all registered environments.
 
@@ -326,7 +323,7 @@ class RLTrainingPipeline:
             for name, spec in self._registry.items()
         }
 
-    def get_environment_spec(self, name: str) -> Optional[EnvironmentSpec]:
+    def get_environment_spec(self, name: str) -> EnvironmentSpec | None:
         """Get the specification for a registered environment."""
         return self._registry.get(name)
 
@@ -337,9 +334,9 @@ class RLTrainingPipeline:
         self,
         env_name: str,
         total_timesteps: int = 100_000,
-        algorithm: Optional[RLAlgorithm] = None,
-        hyperparams: Optional[Dict[str, Any]] = None,
-        env_config: Optional[Dict[str, Any]] = None,
+        algorithm: RLAlgorithm | None = None,
+        hyperparams: dict[str, Any] | None = None,
+        env_config: dict[str, Any] | None = None,
         eval_freq: int = 5_000,
         save_freq: int = 10_000,
         n_eval_episodes: int = 10,
@@ -609,14 +606,23 @@ class RLTrainingPipeline:
             Action (int for discrete, np.ndarray for continuous).
 
         Raises:
-            ValueError: If no trained model available.
+            ValueError: If no trained model available or observation is invalid.
         """
         if env_name not in self._models:
             raise ValueError(f"No trained model for '{env_name}'. "
                            f"Train first or load a saved model.")
 
+        # Guard against NaN/inf observations which cause silent misbehaviour
+        # in neural network forward passes.
+        obs = np.asarray(observation, dtype=np.float32)
+        if np.any(~np.isfinite(obs)):
+            raise ValueError(
+                f"get_action('{env_name}'): observation contains NaN or Inf values. "
+                f"Sanitise inputs before calling inference."
+            )
+
         model = self._models[env_name]
-        action, _ = model.predict(observation, deterministic=deterministic)
+        action, _ = model.predict(obs, deterministic=deterministic)
         return action
 
     def has_trained_model(self, env_name: str) -> bool:
@@ -626,7 +632,7 @@ class RLTrainingPipeline:
     # ==========================================================================
     # MODEL PERSISTENCE
     # ==========================================================================
-    def save_model(self, env_name: str, path: Optional[str] = None) -> str:
+    def save_model(self, env_name: str, path: str | None = None) -> str:
         """
         Save a trained model to disk.
 
@@ -650,7 +656,7 @@ class RLTrainingPipeline:
         self,
         env_name: str,
         path: str,
-        algorithm: Optional[RLAlgorithm] = None,
+        algorithm: RLAlgorithm | None = None,
     ) -> None:
         """
         Load a trained model from disk.
@@ -677,11 +683,11 @@ class RLTrainingPipeline:
     # ==========================================================================
     # TRAINING HISTORY
     # ==========================================================================
-    def get_training_history(self, env_name: str) -> List[TrainingResult]:
+    def get_training_history(self, env_name: str) -> list[TrainingResult]:
         """Get training history for an environment."""
         return self._training_history.get(env_name, [])
 
-    def get_best_metrics(self, env_name: str) -> Dict[str, float]:
+    def get_best_metrics(self, env_name: str) -> dict[str, float]:
         """Get best metrics achieved for an environment."""
         return self._best_metrics.get(env_name, {})
 
@@ -708,7 +714,7 @@ class RLTrainingPipeline:
         self,
         total_timesteps: int = 100_000,
         **train_kwargs,
-    ) -> Dict[str, TrainingResult]:
+    ) -> dict[str, TrainingResult]:
         """
         Train all registered environments.
 
@@ -728,7 +734,7 @@ class RLTrainingPipeline:
     # ==========================================================================
     # PRIVATE HELPERS
     # ==========================================================================
-    def _create_vec_env(self, env_class: type, config: Dict[str, Any]) -> Any:
+    def _create_vec_env(self, env_class: type, config: dict[str, Any]) -> Any:
         """Create a vectorized environment."""
         def make_env():
             return env_class(**config) if config else env_class()
@@ -754,7 +760,7 @@ class RLTrainingPipeline:
         return float(np.sqrt(252) * np.mean(rewards) / np.std(rewards))
 
     @staticmethod
-    def _calculate_max_drawdown(rewards: List[float]) -> float:
+    def _calculate_max_drawdown(rewards: list[float]) -> float:
         """Calculate maximum drawdown from reward sequence."""
         if not rewards:
             return 0.0
@@ -770,10 +776,10 @@ class RLTrainingPipeline:
 # ==============================================================================
 # SINGLETON ACCESSOR
 # ==============================================================================
-_pipeline_instance: Optional[RLTrainingPipeline] = None
+_pipeline_instance: RLTrainingPipeline | None = None
 
 
-def get_rl_pipeline(base_dir: Optional[str] = None) -> RLTrainingPipeline:
+def get_rl_pipeline(base_dir: str | None = None) -> RLTrainingPipeline:
     """
     Get the singleton RLTrainingPipeline instance.
 

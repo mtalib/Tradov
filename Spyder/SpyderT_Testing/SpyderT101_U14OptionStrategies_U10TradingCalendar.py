@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Test Suite T101
 Tests: SpyderU14_OptionStrategies + SpyderU10_TradingCalendar
@@ -695,16 +694,16 @@ class TestHoliday:
 
 class TestU10Constants:
     def test_market_open(self):
-        assert DEFAULT_MARKET_OPEN == time(9, 30)
+        assert time(9, 30) == DEFAULT_MARKET_OPEN
 
     def test_market_close(self):
-        assert DEFAULT_MARKET_CLOSE == time(16, 0)
+        assert time(16, 0) == DEFAULT_MARKET_CLOSE
 
     def test_premarket_open(self):
-        assert DEFAULT_PREMARKET_OPEN == time(4, 0)
+        assert time(4, 0) == DEFAULT_PREMARKET_OPEN
 
     def test_afterhours_close(self):
-        assert DEFAULT_AFTERHOURS_CLOSE == time(20, 0)
+        assert time(20, 0) == DEFAULT_AFTERHOURS_CLOSE
 
     def test_et_timezone_not_none(self):
         assert ET_TIMEZONE is not None
@@ -895,7 +894,7 @@ class TestHolidayManagement:
         self.cal = TradingCalendar()
 
     def test_load_holidays_idempotent(self):
-        count_before = len(self.cal.holidays)
+        len(self.cal.holidays)
         self.cal.load_holidays()
         # May increase or stay same but shouldn't decrease
         assert len(self.cal.holidays) > 0

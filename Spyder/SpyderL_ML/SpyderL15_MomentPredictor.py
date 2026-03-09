@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderL_ML
-Module: SpyderL15_MOmentPredictor.py
+Module: SpyderL15_MomentPredictor.py
 Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
@@ -24,11 +23,10 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Union
+from dataclasses import dataclass
 from enum import Enum, auto
-import json
 from pathlib import Path
 import warnings
 
@@ -51,22 +49,16 @@ try:
 except ImportError:
     MOMENT_AVAILABLE = False
     warnings.warn(
-        "MOMENT library not installed. Install with: pip install moment-timeseries"
+        "MOMENT library not installed. Install with: pip install moment-timeseries", stacklevel=2
     )
 
 import torch
-from sklearn.preprocessing import StandardScaler
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-    MAX_PREDICTION_LATENCY_MS,
-    FEATURE_CACHE_SIZE,
-    MODEL_CONFIDENCE_THRESHOLD,
-)
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
 from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import LSTMPricer
 from Spyder.SpyderL_ML.SpyderL11_MLModelManager import MLModelManager
@@ -105,8 +97,8 @@ class MultiTaskResult:
     regime_probability: float
     anomaly_score: float
     is_anomaly: bool
-    imputed_values: Optional[Dict[str, float]] = None
-    feature_importance: Optional[Dict[str, float]] = None
+    imputed_values: dict[str, float] | None = None
+    feature_importance: dict[str, float] | None = None
     processing_time_ms: float = 0.0
 
 
@@ -114,16 +106,16 @@ class MultiTaskResult:
 class EnsemblePrediction:
     """Combined prediction from MOMENT and LSTM ensemble"""
 
-    option_prices: Dict[str, float]
+    option_prices: dict[str, float]
     price_direction: str  # 'bullish', 'bearish', 'neutral'
     price_magnitude: float
     volatility_forecast: float
     regime_state: str
-    external_risks: List[str]
+    external_risks: list[str]
     confidence_score: float
     moment_result: MultiTaskResult
     lstm_confidence: float
-    ensemble_weights: Dict[str, float]
+    ensemble_weights: dict[str, float]
 
 
 # ==============================================================================
@@ -138,7 +130,7 @@ class MOmentPredictor:
     It creates an ensemble with existing LSTM models for robust predictions.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize MOMENT predictor with configuration.
 
@@ -241,8 +233,8 @@ class MOmentPredictor:
     async def multi_task_forecast(
         self,
         market_data: pd.DataFrame,
-        external_features: Optional[Dict[str, Any]] = None,
-        tasks: Optional[List[MomentTask]] = None,
+        external_features: dict[str, Any] | None = None,
+        tasks: list[MomentTask] | None = None,
     ) -> MultiTaskResult:
         """
         Perform multi-task prediction using MOMENT.
@@ -297,7 +289,7 @@ class MOmentPredictor:
     async def _prepare_features(
         self,
         market_data: pd.DataFrame,
-        external_features: Optional[Dict[str, Any]] = None,
+        external_features: dict[str, Any] | None = None,
     ) -> torch.Tensor:
         """Prepare features for MOMENT model."""
         # Use existing feature engineering
@@ -315,7 +307,7 @@ class MOmentPredictor:
 
         return feature_tensor
 
-    async def _forecast_task(self, features: torch.Tensor) -> Dict[str, Any]:
+    async def _forecast_task(self, features: torch.Tensor) -> dict[str, Any]:
         """Execute forecasting task."""
         if self.moment_model is None:
             return self._lstm_fallback_forecast(features)
@@ -331,7 +323,7 @@ class MOmentPredictor:
             "confidence": self._calculate_forecast_confidence(forecast),
         }
 
-    async def _classification_task(self, features: torch.Tensor) -> Dict[str, Any]:
+    async def _classification_task(self, features: torch.Tensor) -> dict[str, Any]:
         """Execute regime classification task."""
         if self.moment_model is None:
             return {"type": "classification", "regime": "unknown", "probability": 0.5}
@@ -348,7 +340,7 @@ class MOmentPredictor:
             "probability": classification[0, regime_idx].item(),
         }
 
-    async def _anomaly_task(self, features: torch.Tensor) -> Dict[str, Any]:
+    async def _anomaly_task(self, features: torch.Tensor) -> dict[str, Any]:
         """Execute anomaly detection task."""
         if self.moment_model is None:
             return {"type": "anomaly", "score": 0.0, "is_anomaly": False}
@@ -361,7 +353,7 @@ class MOmentPredictor:
 
         return {"type": "anomaly", "score": score, "is_anomaly": is_anomaly}
 
-    async def _imputation_task(self, features: torch.Tensor) -> Dict[str, Any]:
+    async def _imputation_task(self, features: torch.Tensor) -> dict[str, Any]:
         """Execute missing value imputation task."""
         if self.moment_model is None:
             return {"type": "imputation", "imputed_values": {}}
@@ -378,7 +370,7 @@ class MOmentPredictor:
         # Extract imputed values
         imputed_values = {}
         missing_indices = torch.where(missing_mask)
-        for i, j in zip(missing_indices[0], missing_indices[1]):
+        for i, j in zip(missing_indices[0], missing_indices[1], strict=False):
             imputed_values[f"feature_{j}_time_{i}"] = imputed[i, j].item()
 
         return {"type": "imputation", "imputed_values": imputed_values}
@@ -390,8 +382,8 @@ class MOmentPredictor:
     async def ensemble_forecast(
         self,
         market_data: pd.DataFrame,
-        options_data: Optional[pd.DataFrame] = None,
-        external_features: Optional[Dict[str, Any]] = None,
+        options_data: pd.DataFrame | None = None,
+        external_features: dict[str, Any] | None = None,
     ) -> EnsemblePrediction:
         """
         Generate ensemble prediction combining MOMENT and LSTM.
@@ -443,7 +435,7 @@ class MOmentPredictor:
 
     async def _calculate_dynamic_weights(
         self, moment_confidence: float, lstm_confidence: float, market_regime: str
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate dynamic ensemble weights based on confidence and regime."""
         # Base weights
         weights = self.ensemble_weights.copy()
@@ -481,8 +473,8 @@ class MOmentPredictor:
         self,
         moment_result: MultiTaskResult,
         lstm_predictions: Any,
-        weights: Dict[str, float],
-        external_features: Optional[Dict[str, Any]],
+        weights: dict[str, float],
+        external_features: dict[str, Any] | None,
     ) -> EnsemblePrediction:
         """Create final ensemble prediction."""
         # Determine price direction and magnitude
@@ -524,7 +516,7 @@ class MOmentPredictor:
     # ==========================================================================
 
     def _combine_task_results(
-        self, results: List[Dict], tasks: List[MomentTask]
+        self, results: list[dict], tasks: list[MomentTask]
     ) -> MultiTaskResult:
         """Combine results from multiple tasks."""
         combined = MultiTaskResult(
@@ -600,7 +592,7 @@ class MOmentPredictor:
             ensemble_weights={"moment": 0.0, "lstm": 1.0},
         )
 
-    def _lstm_fallback_forecast(self, features: torch.Tensor) -> Dict[str, Any]:
+    def _lstm_fallback_forecast(self, features: torch.Tensor) -> dict[str, Any]:
         """Fallback to LSTM when MOMENT unavailable."""
         # Convert tensor back to DataFrame for LSTM
         feature_df = pd.DataFrame(features.cpu().numpy())
@@ -625,8 +617,8 @@ class MOmentPredictor:
     async def predict(
         self,
         market_data: pd.DataFrame,
-        options_data: Optional[pd.DataFrame] = None,
-        external_features: Optional[Dict[str, Any]] = None,
+        options_data: pd.DataFrame | None = None,
+        external_features: dict[str, Any] | None = None,
         use_ensemble: bool = True,
     ) -> Union[MultiTaskResult, EnsemblePrediction]:
         """
@@ -662,7 +654,7 @@ class MOmentPredictor:
         except Exception as e:
             self.logger.error(f"Failed to save weights: {e}")
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Get information about loaded models."""
         return {
             "moment_available": MOMENT_AVAILABLE,
@@ -678,10 +670,10 @@ class MOmentPredictor:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_module_instance: Optional[MOmentPredictor] = None
+_module_instance: MOmentPredictor | None = None
 
 
-def create_moment_predictor(config: Optional[Dict[str, Any]] = None) -> MOmentPredictor:
+def create_moment_predictor(config: dict[str, Any] | None = None) -> MOmentPredictor:
     """
     Factory function to create MOmentPredictor instance.
 
@@ -697,7 +689,7 @@ def create_moment_predictor(config: Optional[Dict[str, Any]] = None) -> MOmentPr
     return _module_instance
 
 
-def get_moment_predictor() -> Optional[MOmentPredictor]:
+def get_moment_predictor() -> MOmentPredictor | None:
     """Get existing MOmentPredictor instance."""
     return _module_instance
 

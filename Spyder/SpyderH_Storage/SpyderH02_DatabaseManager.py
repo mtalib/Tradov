@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -37,9 +36,9 @@ import gzip
 import shutil
 import threading
 import queue
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Any
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
 from enum import Enum
@@ -50,7 +49,6 @@ import logging
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -123,7 +121,7 @@ class TradeType(Enum):
 @dataclass
 class Trade:
     """Trade record structure"""
-    trade_id: Optional[int] = None
+    trade_id: int | None = None
     timestamp: datetime = None
     symbol: str = ""
     strategy: str = ""
@@ -140,7 +138,7 @@ class Trade:
 @dataclass
 class Position:
     """Position record structure"""
-    position_id: Optional[int] = None
+    position_id: int | None = None
     symbol: str = ""
     strategy: str = ""
     quantity: int = 0
@@ -150,9 +148,9 @@ class Position:
     realized_pnl: float = 0.0
     status: str = PositionStatus.OPEN.value
     opened_at: datetime = None
-    closed_at: Optional[datetime] = None
-    greeks: Dict[str, float] = None
-    
+    closed_at: datetime | None = None
+    greeks: dict[str, float] = None
+
 @dataclass
 class MarketDataPoint:
     """Market data record"""
@@ -164,8 +162,8 @@ class MarketDataPoint:
     volume: int
     bid_size: int
     ask_size: int
-    implied_volatility: Optional[float] = None
-    
+    implied_volatility: float | None = None
+
 # ==============================================================================
 # DATABASE MANAGER
 # ==============================================================================
@@ -174,53 +172,53 @@ class DatabaseManager:
     Comprehensive database manager for Spyder trading system
     Handles all database operations with thread safety and optimization
     """
-    
-    def __init__(self, db_path: Optional[Path] = None):
+
+    def __init__(self, db_path: Path | None = None):
         """Initialize database manager"""
         self.db_path = db_path or DATABASE_PATH
         self.backup_path = BACKUP_PATH
-        
+
         # Logging
         if LOCAL_IMPORTS:
             self.logger = SpyderLogger.get_logger(__name__)
             self.error_handler = SpyderErrorHandler()
         else:
             self.logger = logging.getLogger(__name__)
-            
+
         # Thread safety
         self.lock = threading.RLock()
         self.connection_pool = queue.Queue(maxsize=MAX_CONNECTIONS)
-        
+
         # Statistics
         self.query_count = 0
         self.write_count = 0
         self.last_backup = None
         self.last_vacuum = None
-        
+
         # Initialize database
         self._initialize_database()
         self._setup_connection_pool()
-        
+
         self.logger.info(f"✅ DatabaseManager initialized: {self.db_path}")
-        
+
     # ==========================================================================
     # INITIALIZATION
     # ==========================================================================
-    
+
     def _initialize_database(self):
         """Initialize database and create tables"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.backup_path.mkdir(parents=True, exist_ok=True)
-        
+
         with self._get_connection() as conn:
             self._create_tables(conn)
             self._create_indexes(conn)
             self._enable_wal_mode(conn)
-            
+
     def _create_tables(self, conn: sqlite3.Connection):
         """Create all database tables"""
         cursor = conn.cursor()
-        
+
         # Trades table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS trades (
@@ -240,7 +238,7 @@ class DatabaseManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         # Positions table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS positions (
@@ -262,7 +260,7 @@ class DatabaseManager:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         # Orders table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS orders (
@@ -285,7 +283,7 @@ class DatabaseManager:
                 notes TEXT
             )
         """)
-        
+
         # Market data table (partitioned by date for performance)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS market_data (
@@ -302,7 +300,7 @@ class DatabaseManager:
                 date TEXT GENERATED ALWAYS AS (date(timestamp)) STORED
             )
         """)
-        
+
         # Option chains table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS option_chains (
@@ -324,7 +322,7 @@ class DatabaseManager:
                 vega REAL
             )
         """)
-        
+
         # Performance metrics table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS performance (
@@ -345,7 +343,7 @@ class DatabaseManager:
                 profit_factor REAL
             )
         """)
-        
+
         # Risk metrics table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS risk_metrics (
@@ -363,7 +361,7 @@ class DatabaseManager:
                 leverage REAL
             )
         """)
-        
+
         # System logs table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_logs (
@@ -375,7 +373,7 @@ class DatabaseManager:
                 details TEXT
             )
         """)
-        
+
         # Audit trail table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_trail (
@@ -391,43 +389,43 @@ class DatabaseManager:
                 checksum TEXT
             )
         """)
-        
+
         conn.commit()
         self.logger.info("✅ Database tables created")
-        
+
     def _create_indexes(self, conn: sqlite3.Connection):
         """Create indexes for optimized queries"""
         cursor = conn.cursor()
-        
+
         # Trades indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy)")
-        
+
         # Positions indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)")
-        
+
         # Orders indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_timestamp ON orders(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
-        
+
         # Market data indexes (compound for time-series queries)
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timestamp 
+            CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timestamp
             ON market_data(symbol, timestamp DESC)
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_date ON market_data(date)")
-        
+
         # Option chains indexes
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_option_chains_lookup 
+            CREATE INDEX IF NOT EXISTS idx_option_chains_lookup
             ON option_chains(underlying, expiration, strike, option_type)
         """)
-        
+
         conn.commit()
         self.logger.info("✅ Database indexes created")
-        
+
     def _enable_wal_mode(self, conn: sqlite3.Connection):
         """Enable Write-Ahead Logging for better concurrency"""
         cursor = conn.cursor()
@@ -436,11 +434,11 @@ class DatabaseManager:
         cursor.execute("PRAGMA cache_size=10000")
         cursor.execute("PRAGMA temp_store=MEMORY")
         conn.commit()
-        
+
     # ==========================================================================
     # CONNECTION MANAGEMENT
     # ==========================================================================
-    
+
     def _setup_connection_pool(self):
         """Setup connection pool for thread safety"""
         for _ in range(MAX_CONNECTIONS):
@@ -451,7 +449,7 @@ class DatabaseManager:
             )
             conn.row_factory = sqlite3.Row
             self.connection_pool.put(conn)
-            
+
     @contextmanager
     def _get_connection(self):
         """Get connection from pool with context manager"""
@@ -460,49 +458,48 @@ class DatabaseManager:
             yield conn
         finally:
             self.connection_pool.put(conn)
-            
+
     # ==========================================================================
     # TRADING DATA OPERATIONS
     # ==========================================================================
-    
+
     def insert_trade(self, trade: Trade) -> int:
         """Insert trade record"""
-        with self.lock:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
+        with self.lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
                     INSERT INTO trades (
                         timestamp, symbol, strategy, trade_type, quantity,
                         price, commission, pnl, order_id, execution_time_ms,
                         slippage, notes
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    trade.timestamp, trade.symbol, trade.strategy,
-                    trade.trade_type, trade.quantity, trade.price,
-                    trade.commission, trade.pnl, trade.order_id,
-                    trade.execution_time_ms, trade.slippage, trade.notes
-                ))
-                
-                trade_id = cursor.lastrowid
-                self.write_count += 1
-                
-                # Audit trail
-                self._audit_log(conn, "INSERT", "trades", trade_id, None, asdict(trade))
-                
-                return trade_id
-                
-    def get_trades(self, 
-                   symbol: Optional[str] = None,
-                   strategy: Optional[str] = None,
-                   start_date: Optional[datetime] = None,
-                   end_date: Optional[datetime] = None,
-                   limit: int = 1000) -> List[Dict]:
+                trade.timestamp, trade.symbol, trade.strategy,
+                trade.trade_type, trade.quantity, trade.price,
+                trade.commission, trade.pnl, trade.order_id,
+                trade.execution_time_ms, trade.slippage, trade.notes
+            ))
+
+            trade_id = cursor.lastrowid
+            self.write_count += 1
+
+            # Audit trail
+            self._audit_log(conn, "INSERT", "trades", trade_id, None, asdict(trade))
+
+            return trade_id
+
+    def get_trades(self,
+                   symbol: str | None = None,
+                   strategy: str | None = None,
+                   start_date: datetime | None = None,
+                   end_date: datetime | None = None,
+                   limit: int = 1000) -> list[dict]:
         """Get trades with filters"""
         with self._get_connection() as conn:
             query = "SELECT * FROM trades WHERE 1=1"
             params = []
-            
+
             if symbol:
                 query += " AND symbol = ?"
                 params.append(symbol)
@@ -515,80 +512,78 @@ class DatabaseManager:
             if end_date:
                 query += " AND timestamp <= ?"
                 params.append(end_date)
-                
+
             query += " ORDER BY timestamp DESC LIMIT ?"
             params.append(limit)
-            
+
             cursor = conn.cursor()
             cursor.execute(query, params)
-            
+
             self.query_count += 1
             return [dict(row) for row in cursor.fetchall()]
-            
-    def update_position(self, position_id: int, updates: Dict[str, Any]):
+
+    def update_position(self, position_id: int, updates: dict[str, Any]):
         """Update position record"""
-        with self.lock:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get old values for audit
-                cursor.execute("SELECT * FROM positions WHERE position_id = ?", (position_id,))
-                old_values = dict(cursor.fetchone()) if cursor.fetchone() else None
-                
-                # Build update query
-                set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-                values = list(updates.values())
-                values.append(position_id)
-                
-                cursor.execute(f"""
-                    UPDATE positions 
+        with self.lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get old values for audit
+            cursor.execute("SELECT * FROM positions WHERE position_id = ?", (position_id,))
+            old_values = dict(cursor.fetchone()) if cursor.fetchone() else None
+
+            # Build update query
+            set_clause = ", ".join([f"{k} = ?" for k in updates])
+            values = list(updates.values())
+            values.append(position_id)
+
+            cursor.execute(f"""
+                    UPDATE positions
                     SET {set_clause}, updated_at = CURRENT_TIMESTAMP
                     WHERE position_id = ?
                 """, values)
-                
-                self.write_count += 1
-                
-                # Audit trail
-                self._audit_log(conn, "UPDATE", "positions", position_id, old_values, updates)
-                
+
+            self.write_count += 1
+
+            # Audit trail
+            self._audit_log(conn, "UPDATE", "positions", position_id, old_values, updates)
+
     # ==========================================================================
     # MARKET DATA OPERATIONS
     # ==========================================================================
-    
-    def insert_market_data_batch(self, data_points: List[MarketDataPoint]):
+
+    def insert_market_data_batch(self, data_points: list[MarketDataPoint]):
         """Insert batch of market data efficiently"""
-        with self.lock:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.executemany("""
+        with self.lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.executemany("""
                     INSERT INTO market_data (
                         timestamp, symbol, bid, ask, last, volume,
                         bid_size, ask_size, implied_volatility
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, [
-                    (dp.timestamp, dp.symbol, dp.bid, dp.ask, dp.last,
-                     dp.volume, dp.bid_size, dp.ask_size, dp.implied_volatility)
-                    for dp in data_points
-                ])
-                
-                self.write_count += len(data_points)
-                
-    def get_latest_market_data(self, symbol: str) -> Optional[Dict]:
+                (dp.timestamp, dp.symbol, dp.bid, dp.ask, dp.last,
+                 dp.volume, dp.bid_size, dp.ask_size, dp.implied_volatility)
+                for dp in data_points
+            ])
+
+            self.write_count += len(data_points)
+
+    def get_latest_market_data(self, symbol: str) -> dict | None:
         """Get latest market data for symbol"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT * FROM market_data 
-                WHERE symbol = ? 
-                ORDER BY timestamp DESC 
+                SELECT * FROM market_data
+                WHERE symbol = ?
+                ORDER BY timestamp DESC
                 LIMIT 1
             """, (symbol,))
-            
+
             self.query_count += 1
             row = cursor.fetchone()
             return dict(row) if row else None
-            
+
     def get_market_data_range(self,
                              symbol: str,
                              start_time: datetime,
@@ -601,16 +596,16 @@ class DatabaseManager:
                 WHERE symbol = ? AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
-            
+
             df = pd.read_sql_query(
-                query, 
-                conn, 
+                query,
+                conn,
                 params=(symbol, start_time, end_time),
                 parse_dates=['timestamp']
             )
-            
+
             self.query_count += 1
-            
+
             # Resample if interval specified
             if interval_seconds > 0 and not df.empty:
                 df.set_index('timestamp', inplace=True)
@@ -623,21 +618,21 @@ class DatabaseManager:
                     'ask_size': 'last',
                     'implied_volatility': 'mean'
                 }).dropna()
-                
+
             return df
-            
+
     # ==========================================================================
     # PERFORMANCE ANALYTICS
     # ==========================================================================
-    
-    def calculate_daily_performance(self, date: datetime, strategy: Optional[str] = None):
+
+    def calculate_daily_performance(self, date: datetime, strategy: str | None = None):
         """Calculate and store daily performance metrics"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Base query for trades
             query = """
-                SELECT 
+                SELECT
                     COUNT(*) as total_trades,
                     SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
                     SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
@@ -649,24 +644,24 @@ class DatabaseManager:
                 FROM trades
                 WHERE DATE(timestamp) = DATE(?)
             """
-            
+
             params = [date]
             if strategy:
                 query += " AND strategy = ?"
                 params.append(strategy)
-                
+
             cursor.execute(query, params)
             metrics = dict(cursor.fetchone())
-            
+
             # Calculate additional metrics
             if metrics['total_trades'] > 0:
                 metrics['win_rate'] = metrics['winning_trades'] / metrics['total_trades']
-                
+
                 if metrics['avg_loss'] and metrics['avg_loss'] != 0:
                     metrics['profit_factor'] = abs(metrics['avg_win'] / metrics['avg_loss'])
                 else:
                     metrics['profit_factor'] = None
-                    
+
             # Store in performance table
             cursor.execute("""
                 INSERT OR REPLACE INTO performance (
@@ -682,11 +677,11 @@ class DatabaseManager:
                 metrics.get('win_rate'), metrics['avg_win'],
                 metrics['avg_loss'], metrics.get('profit_factor')
             ))
-            
-    def get_performance_summary(self, 
+
+    def get_performance_summary(self,
                                start_date: datetime,
                                end_date: datetime,
-                               strategy: Optional[str] = None) -> pd.DataFrame:
+                               strategy: str | None = None) -> pd.DataFrame:
         """Get performance summary for date range"""
         with self._get_connection() as conn:
             query = """
@@ -694,66 +689,64 @@ class DatabaseManager:
                 WHERE date BETWEEN ? AND ?
             """
             params = [start_date, end_date]
-            
+
             if strategy:
                 query += " AND strategy = ?"
                 params.append(strategy)
-                
+
             df = pd.read_sql_query(query, conn, params=params, parse_dates=['date'])
             self.query_count += 1
-            
+
             return df
-            
+
     # ==========================================================================
     # BACKUP AND MAINTENANCE
     # ==========================================================================
-    
+
     def backup_database(self) -> Path:
         """Create database backup"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_file = self.backup_path / f"spyder_backup_{timestamp}.db"
-        
+
         with self.lock:
             shutil.copy2(self.db_path, backup_file)
-            
+
             # Compress backup
-            with open(backup_file, 'rb') as f_in:
-                with gzip.open(f"{backup_file}.gz", 'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-                    
+            with open(backup_file, 'rb') as f_in, gzip.open(f"{backup_file}.gz", 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
             backup_file.unlink()  # Remove uncompressed file
-            
+
             self.last_backup = datetime.now()
             self.logger.info(f"✅ Database backed up: {backup_file}.gz")
-            
+
             # Cleanup old backups
             self._cleanup_old_backups()
-            
+
             return Path(f"{backup_file}.gz")
-            
+
     def _cleanup_old_backups(self):
         """Remove old backup files"""
         backups = sorted(self.backup_path.glob("spyder_backup_*.gz"))
-        
+
         if len(backups) > MAX_BACKUP_FILES:
             for old_backup in backups[:-MAX_BACKUP_FILES]:
                 old_backup.unlink()
                 self.logger.info(f"Removed old backup: {old_backup}")
-                
+
     def vacuum_database(self):
         """Vacuum database to reclaim space and optimize"""
-        with self.lock:
-            with self._get_connection() as conn:
-                conn.execute("VACUUM")
-                conn.execute("ANALYZE")
-                self.last_vacuum = datetime.now()
-                self.logger.info("✅ Database vacuumed and analyzed")
-                
-    def get_database_stats(self) -> Dict[str, Any]:
+        with self.lock, self._get_connection() as conn:
+            conn.execute("VACUUM")
+            conn.execute("ANALYZE")
+            self.last_vacuum = datetime.now()
+            self.logger.info("✅ Database vacuumed and analyzed")
+
+    def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            
+
             stats = {
                 'database_size_mb': self.db_path.stat().st_size / (1024 * 1024),
                 'query_count': self.query_count,
@@ -762,27 +755,27 @@ class DatabaseManager:
                 'last_vacuum': self.last_vacuum,
                 'tables': {}
             }
-            
+
             # Get row counts for each table
             for table_name in TABLES.values():
                 cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
                 stats['tables'][table_name] = cursor.fetchone()[0]
-                
+
             return stats
-            
+
     # ==========================================================================
     # AUDIT AND LOGGING
     # ==========================================================================
-    
+
     def _audit_log(self, conn: sqlite3.Connection, action: str, table_name: str,
-                   record_id: Any, old_values: Optional[Dict], new_values: Optional[Dict]):
+                   record_id: Any, old_values: dict | None, new_values: dict | None):
         """Create audit trail entry"""
         cursor = conn.cursor()
-        
+
         # Create checksum for integrity
         checksum_data = f"{action}{table_name}{record_id}{old_values}{new_values}"
         checksum = hashlib.sha256(checksum_data.encode()).hexdigest()[:16]
-        
+
         cursor.execute("""
             INSERT INTO audit_trail (
                 action, table_name, record_id, old_values, new_values, checksum
@@ -793,8 +786,8 @@ class DatabaseManager:
             json.dumps(new_values) if new_values else None,
             checksum
         ))
-        
-    def log_system_event(self, level: str, module: str, message: str, details: Optional[Dict] = None):
+
+    def log_system_event(self, level: str, module: str, message: str, details: dict | None = None):
         """Log system event to database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -802,24 +795,24 @@ class DatabaseManager:
                 INSERT INTO system_logs (level, module, message, details)
                 VALUES (?, ?, ?, ?)
             """, (level, module, message, json.dumps(details) if details else None))
-            
+
     # ==========================================================================
     # CLEANUP
     # ==========================================================================
-    
+
     def close(self):
         """Close all database connections"""
         while not self.connection_pool.empty():
             conn = self.connection_pool.get()
             conn.close()
-            
+
         self.logger.info("DatabaseManager closed")
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_database_manager(db_path: Optional[Path] = None) -> DatabaseManager:
+def create_database_manager(db_path: Path | None = None) -> DatabaseManager:
     """Factory function to create database manager"""
     return DatabaseManager(db_path)
 
@@ -829,19 +822,16 @@ def create_database_manager(db_path: Optional[Path] = None) -> DatabaseManager:
 
 if __name__ == "__main__":
     import logging
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
-    print("=" * 80)
-    print("SPYDER DATABASE MANAGER TEST")
-    print("=" * 80)
-    
+
+
     # Create database manager
     db_manager = create_database_manager()
-    
+
     # Test trade insertion
     test_trade = Trade(
         timestamp=datetime.now(),
@@ -857,10 +847,9 @@ if __name__ == "__main__":
         slippage=0.05,
         notes="Test trade"
     )
-    
+
     trade_id = db_manager.insert_trade(test_trade)
-    print(f"\n✅ Test trade inserted with ID: {trade_id}")
-    
+
     # Test market data
     test_data = MarketDataPoint(
         timestamp=datetime.now(),
@@ -873,31 +862,22 @@ if __name__ == "__main__":
         ask_size=150,
         implied_volatility=0.15
     )
-    
+
     db_manager.insert_market_data_batch([test_data])
-    print("✅ Market data inserted")
-    
+
     # Get latest market data
     latest = db_manager.get_latest_market_data("SPY")
-    print(f"\n📊 Latest SPY data: Bid={latest['bid']}, Ask={latest['ask']}")
-    
+
     # Calculate performance
     db_manager.calculate_daily_performance(datetime.now())
-    
+
     # Get database stats
     stats = db_manager.get_database_stats()
-    print("\n📈 Database Statistics:")
-    print(f"  Size: {stats['database_size_mb']:.2f} MB")
-    print(f"  Queries: {stats['query_count']}")
-    print(f"  Writes: {stats['write_count']}")
-    print("\n  Table Row Counts:")
-    for table, count in stats['tables'].items():
-        print(f"    {table}: {count}")
-    
+    for _table, _count in stats['tables'].items():
+        pass
+
     # Backup database
     backup_path = db_manager.backup_database()
-    print(f"\n💾 Database backed up to: {backup_path}")
-    
+
     # Close
     db_manager.close()
-    print("\n✅ Database manager test completed")

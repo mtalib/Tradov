@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -307,7 +306,7 @@ class TestEncryptionModuleFunctions:
         assert hash_password("abc") != hash_password("xyz")
 
     def test_hash_uses_sha256(self):
-        expected = hashlib.sha256("test".encode()).hexdigest()
+        expected = hashlib.sha256(b"test").hexdigest()
         assert hash_password("test") == expected
 
 

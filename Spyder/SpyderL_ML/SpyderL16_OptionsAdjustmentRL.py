@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,11 +22,11 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union, Callable
-from dataclasses import dataclass, field
-from collections import deque, defaultdict
-from enum import Enum, auto
+import asyncio
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass
+from collections import defaultdict
 import json
 from pathlib import Path
 import warnings
@@ -37,7 +36,6 @@ import warnings
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import json
 
 warnings.filterwarnings("ignore")
 
@@ -182,7 +180,7 @@ class AdjustmentAction:
     """Represents an adjustment action"""
 
     action_type: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     timestamp: datetime
     reason: str
     confidence: float
@@ -192,9 +190,9 @@ class AdjustmentAction:
 class Episode:
     """Single trading episode for RL training"""
 
-    states: List[PositionState]
-    actions: List[int]
-    rewards: List[float]
+    states: list[PositionState]
+    actions: list[int]
+    rewards: list[float]
     total_return: float
     max_drawdown: float
     sharpe_ratio: float
@@ -268,7 +266,7 @@ class OptionsEnvironment(_GymEnvBase):
         state = self._get_state()
         return state.to_array()
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+    def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
         """Execute action and return new state"""
         # Execute adjustment
         adjustment_result = self._execute_adjustment(action)
@@ -309,7 +307,7 @@ class OptionsEnvironment(_GymEnvBase):
 
         return new_state.to_array(), reward, done, info
 
-    def _initialize_position(self) -> Dict[str, Any]:
+    def _initialize_position(self) -> dict[str, Any]:
         """Initialize a new options position"""
         # To be implemented by strategy-specific environments
         raise NotImplementedError
@@ -369,7 +367,7 @@ class OptionsEnvironment(_GymEnvBase):
             current_margin=self.current_position.get("margin", 0),
         )
 
-    def _execute_adjustment(self, action: int) -> Dict[str, Any]:
+    def _execute_adjustment(self, action: int) -> dict[str, Any]:
         """Execute the selected adjustment action"""
         action_name = ADJUSTMENT_ACTIONS[action]
         result = {"success": False, "cost": 0, "description": ""}
@@ -407,7 +405,7 @@ class OptionsEnvironment(_GymEnvBase):
 
         return result
 
-    def _calculate_reward(self, adjustment_result: Dict[str, Any]) -> float:
+    def _calculate_reward(self, adjustment_result: dict[str, Any]) -> float:
         """
         Calculate reward using risk-adjusted metrics.
         Multi-objective: profit, risk reduction, drawdown minimization.
@@ -458,13 +456,10 @@ class OptionsEnvironment(_GymEnvBase):
             return True
         if state.dte <= 0:
             return True
-        if abs(state.delta) > 0.8:  # Position too directional
-            return True
-
-        return False
+        return abs(state.delta) > 0.8  # Position too directional
 
     # Abstract methods to be implemented by specific strategies
-    def _calculate_position_greeks(self) -> Dict[str, float]:
+    def _calculate_position_greeks(self) -> dict[str, float]:
         raise NotImplementedError
 
     def _calculate_pnl(self) -> float:
@@ -473,16 +468,16 @@ class OptionsEnvironment(_GymEnvBase):
     def _calculate_closing_cost(self) -> float:
         raise NotImplementedError
 
-    def _roll_position(self, direction: str) -> Dict[str, Any]:
+    def _roll_position(self, direction: str) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _add_hedge(self) -> Dict[str, Any]:
+    def _add_hedge(self) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _adjust_size(self, direction: str) -> Dict[str, Any]:
+    def _adjust_size(self, direction: str) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _convert_position(self, new_type: str) -> Dict[str, Any]:
+    def _convert_position(self, new_type: str) -> dict[str, Any]:
         raise NotImplementedError
 
     def _update_position(self):
@@ -498,7 +493,7 @@ class OptionsEnvironment(_GymEnvBase):
 class IronCondorEnvironment(OptionsEnvironment):
     """Gym environment specifically for Iron Condor adjustments"""
 
-    def _initialize_position(self) -> Dict[str, Any]:
+    def _initialize_position(self) -> dict[str, Any]:
         """Initialize an Iron Condor position"""
         current_price = self.data_slice.iloc[0]["close"]
         iv = self.data_slice.iloc[0].get("implied_volatility", 0.20)
@@ -528,7 +523,7 @@ class IronCondorEnvironment(OptionsEnvironment):
 
         return position
 
-    def _calculate_position_greeks(self) -> Dict[str, float]:
+    def _calculate_position_greeks(self) -> dict[str, float]:
         """Calculate aggregate Greeks for Iron Condor"""
         if not self.current_position:
             return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
@@ -590,7 +585,7 @@ class IronCondorEnvironment(OptionsEnvironment):
 
             return self.current_position["initial_credit"] - loss
 
-    def _roll_position(self, direction: str) -> Dict[str, Any]:
+    def _roll_position(self, direction: str) -> dict[str, Any]:
         """Roll Iron Condor strikes"""
         result = {"success": False, "cost": 0.5, "description": ""}
 
@@ -617,7 +612,7 @@ class IronCondorEnvironment(OptionsEnvironment):
 
         return result
 
-    def _add_hedge(self) -> Dict[str, Any]:
+    def _add_hedge(self) -> dict[str, Any]:
         """Add protective hedge to Iron Condor"""
         # Buy additional long option for protection
         current_data = self.data_slice.iloc[self.current_step]
@@ -644,7 +639,7 @@ class IronCondorEnvironment(OptionsEnvironment):
         state = self._get_state()
         return max(0, -state.pnl) + 0.10  # Add commission
 
-    def _adjust_size(self, direction: str) -> Dict[str, Any]:
+    def _adjust_size(self, direction: str) -> dict[str, Any]:
         """Adjust position size"""
         result = {"success": True, "cost": 0.20, "description": ""}
 
@@ -662,7 +657,7 @@ class IronCondorEnvironment(OptionsEnvironment):
 
         return result
 
-    def _convert_position(self, new_type: str) -> Dict[str, Any]:
+    def _convert_position(self, new_type: str) -> dict[str, Any]:
         """Convert Iron Condor to different strategy"""
         result = {"success": False, "cost": 1.0, "description": ""}
 
@@ -686,7 +681,7 @@ class OptionsAdjustmentRL:
     Manages multiple RL models for different strategies.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize the RL adjustment system"""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
@@ -724,8 +719,10 @@ class OptionsAdjustmentRL:
         )
 
         # Wrap in vectorized environment for parallel training
+        # Use default argument to bind `env` at definition time, avoiding the
+        # classic Python closure-over-loop-variable bug.
         self.vec_environments = {
-            strategy: DummyVecEnv([lambda: env])
+            strategy: DummyVecEnv([lambda e=env: e])
             for strategy, env in self.environments.items()
         }
 
@@ -779,7 +776,7 @@ class OptionsAdjustmentRL:
 
     def train(
         self, strategy: str, episodes: int = EPISODES, save_freq: int = 100
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Train RL model for specific strategy.
 
@@ -849,7 +846,7 @@ class OptionsAdjustmentRL:
 
     def _evaluate_model(
         self, model: PPO, strategy: str, num_episodes: int = 10
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Evaluate model performance"""
         env = self.environments[strategy]
 
@@ -889,7 +886,7 @@ class OptionsAdjustmentRL:
             ),
         }
 
-    def _calculate_episode_metrics(self, history: List[Dict]) -> Dict[str, float]:
+    def _calculate_episode_metrics(self, history: list[dict]) -> dict[str, float]:
         """Calculate performance metrics for an episode"""
         if not history:
             return {}
@@ -914,7 +911,7 @@ class OptionsAdjustmentRL:
             return 0.0
         return np.sqrt(252) * np.mean(returns) / np.std(returns)
 
-    def _calculate_max_drawdown(self, pnls: List[float]) -> float:
+    def _calculate_max_drawdown(self, pnls: list[float]) -> float:
         """Calculate maximum drawdown"""
         peak = pnls[0]
         max_dd = 0
@@ -927,7 +924,7 @@ class OptionsAdjustmentRL:
 
         return max_dd
 
-    def _is_best_model(self, strategy: str, metrics: Dict[str, float]) -> bool:
+    def _is_best_model(self, strategy: str, metrics: dict[str, float]) -> bool:
         """Check if model is best so far"""
         if strategy not in self.best_models:
             return True
@@ -945,7 +942,7 @@ class OptionsAdjustmentRL:
     # ==========================================================================
 
     def get_adjustment_recommendation(
-        self, position: Dict[str, Any], market_data: Dict[str, Any]
+        self, position: dict[str, Any], market_data: dict[str, Any]
     ) -> AdjustmentAction:
         """
         Get adjustment recommendation for current position.
@@ -1025,7 +1022,7 @@ class OptionsAdjustmentRL:
             )
 
     def _create_state_from_position(
-        self, position: Dict[str, Any], market_data: Dict[str, Any]
+        self, position: dict[str, Any], market_data: dict[str, Any]
     ) -> PositionState:
         """Create PositionState from current position"""
         # Calculate Greeks
@@ -1056,8 +1053,8 @@ class OptionsAdjustmentRL:
         )
 
     def _calculate_live_greeks(
-        self, position: Dict[str, Any], market_data: Dict[str, Any]
-    ) -> Dict[str, float]:
+        self, position: dict[str, Any], market_data: dict[str, Any]
+    ) -> dict[str, float]:
         """Calculate live Greeks for position"""
         if GreeksCalculator is None:
             return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
@@ -1114,8 +1111,8 @@ class OptionsAdjustmentRL:
         return "; ".join(reasons) if reasons else f"RL model recommends {action}"
 
     def _create_adjustment_parameters(
-        self, position: Dict[str, Any], action: str
-    ) -> Dict[str, Any]:
+        self, position: dict[str, Any], action: str
+    ) -> dict[str, Any]:
         """Create specific parameters for adjustment"""
         params = {}
 
@@ -1150,9 +1147,9 @@ class OptionsAdjustmentRL:
 
     def create_ensemble_recommendation(
         self,
-        position: Dict[str, Any],
-        market_data: Dict[str, Any],
-        models: Optional[List[str]] = None,
+        position: dict[str, Any],
+        market_data: dict[str, Any],
+        models: list[str] | None = None,
     ) -> AdjustmentAction:
         """
         Get ensemble recommendation from multiple models.
@@ -1259,7 +1256,7 @@ class OptionsAdjustmentRL:
                 with open(history_path, 'w', encoding='utf-8') as _f:
                     json.dump(dict(_hist), _f, indent=2)
         if history_path.exists():
-            with open(history_path, 'r', encoding='utf-8') as f:
+            with open(history_path, encoding='utf-8') as f:
                 self.training_history = defaultdict(list, json.load(f))
 
     # ==========================================================================
@@ -1269,7 +1266,7 @@ class OptionsAdjustmentRL:
     def train_with_rllib(self, strategy: str = 'iron_condor',
                           num_workers: int = 4,
                           training_iterations: int = 100,
-                          checkpoint_freq: int = 10) -> Dict[str, Any]:
+                          checkpoint_freq: int = 10) -> dict[str, Any]:
         """
         Train RL model using Ray RLlib for distributed multi-worker training.
 
@@ -1292,7 +1289,6 @@ class OptionsAdjustmentRL:
             self.logger.warning("Ray RLlib not available, falling back to SB3 training")
             return self.train(strategy=strategy, episodes=training_iterations * 20)
 
-        import multiprocessing as mproc
         if not ray.is_initialized():
             ray.init(num_cpus=num_workers + 1, ignore_reinit_error=True)
 
@@ -1368,9 +1364,9 @@ class OptionsAdjustmentRL:
             algo.stop()
 
     def distributed_hyperparameter_search(self, strategy: str = 'iron_condor',
-                                            param_space: Optional[Dict] = None,
+                                            param_space: dict | None = None,
                                             num_samples: int = 20,
-                                            num_cpus: Optional[int] = None) -> Dict[str, Any]:
+                                            num_cpus: int | None = None) -> dict[str, Any]:
         """
         Distributed hyperparameter search for RL training using Ray.
 
@@ -1406,7 +1402,7 @@ class OptionsAdjustmentRL:
         param_names = list(param_space.keys())
 
         @ray.remote
-        def _train_with_params(params: dict, strategy: str) -> Dict:
+        def _train_with_params(params: dict, strategy: str) -> dict:
             """Train one configuration on a Ray worker."""
             import numpy as _np
             _np.random.seed(hash(str(params)) % (2**32))
@@ -1424,7 +1420,7 @@ class OptionsAdjustmentRL:
                           f"strategy={strategy}")
 
         futures = [
-            _train_with_params.remote(dict(zip(param_names, combo)), strategy)
+            _train_with_params.remote(dict(zip(param_names, combo, strict=False)), strategy)
             for combo in combos[:num_samples]
         ]
         search_results = ray.get(futures)
@@ -1446,11 +1442,11 @@ class OptionsAdjustmentRL:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_module_instance: Optional[OptionsAdjustmentRL] = None
+_module_instance: OptionsAdjustmentRL | None = None
 
 
 def create_options_adjustment_rl(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> OptionsAdjustmentRL:
     """Factory function to create options adjustment RL system"""
     global _module_instance
@@ -1459,7 +1455,7 @@ def create_options_adjustment_rl(
     return _module_instance
 
 
-def get_options_adjustment_rl() -> Optional[OptionsAdjustmentRL]:
+def get_options_adjustment_rl() -> OptionsAdjustmentRL | None:
     """Get existing instance"""
     return _module_instance
 
@@ -1485,7 +1481,7 @@ async def main():
         logging.info(f"\n=== Training {args.train} Strategy ===")
         results = rl_system.train(strategy=args.train, episodes=args.episodes)
 
-        logging.info(f"\nTraining Results:")
+        logging.info("\nTraining Results:")
         logging.info(f"Mean Return: {results['final_performance']['mean_return']:.3f}")
         logging.info(f"Sharpe Ratio: {results['final_performance']['sharpe_ratio']:.3f}")
         logging.info(f"Win Rate: {results['final_performance']['win_rate']:.2%}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,27 +27,23 @@ import time
 import threading
 import logging
 import warnings
-from typing import Dict, List, Tuple, Optional, Any, Callable, Union
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from typing import Any, Union
+from dataclasses import dataclass
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue, Empty
-import os
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import mmap
-import ctypes
 import struct
 import multiprocessing as mp
 import numpy as np
 import pandas as pd
 
 try:
-    from numba import jit, types
-    from numba.typed import Dict as NumbaDict, List as NumbaList
+    from numba import jit, types  # noqa: F401
+    from numba.typed import Dict as NumbaDict, List as NumbaList  # noqa: F401
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
@@ -108,7 +103,7 @@ CACHE_LINE_SIZE = 64  # CPU cache line size for alignment
 # Priority Levels
 class DataPriority:
     CRITICAL = 0    # Options trades, gamma flips
-    HIGH = 1        # Price/volume updates  
+    HIGH = 1        # Price/volume updates
     MEDIUM = 2      # Market depth, Greeks
     LOW = 3         # Historical, analytics
     BATCH = 4       # Background processing
@@ -155,7 +150,7 @@ class DataPacket:
     data: bytes
     sequence_id: int = 0
     source_id: int = 0
-    
+
     def __post_init__(self):
         # Align to cache line boundary for optimal performance
         self.cache_aligned = True
@@ -188,35 +183,35 @@ class OptimizationStats:
 
 class LockFreeQueue:
     """Lock-free queue implementation for ultra-low latency."""
-    
+
     def __init__(self, size: int):
         self.size = size
         self.buffer = np.empty(size, dtype=object)
         self.head = mp.Value('i', 0)
         self.tail = mp.Value('i', 0)
         self.mask = size - 1  # Assumes power of 2 size
-        
+
     def enqueue(self, item: Any) -> bool:
         """Enqueue item without locks."""
         with self.tail.get_lock():
             current_tail = self.tail.value
             next_tail = (current_tail + 1) & self.mask
-            
+
             if next_tail == self.head.value:
                 return False  # Queue full
-            
+
             self.buffer[current_tail] = item
             self.tail.value = next_tail
             return True
-    
-    def dequeue(self) -> Optional[Any]:
+
+    def dequeue(self) -> Any | None:
         """Dequeue item without locks."""
         with self.head.get_lock():
             current_head = self.head.value
-            
+
             if current_head == self.tail.value:
                 return None  # Queue empty
-            
+
             item = self.buffer[current_head]
             self.head.value = (current_head + 1) & self.mask
             return item
@@ -227,69 +222,69 @@ class LockFreeQueue:
 class RealTimeDataOptimizer:
     """
     Ultra-low latency data optimization engine for real-time analytics.
-    
+
     Implements microsecond-precision data processing with hardware-optimized
     data structures, priority-based routing, and intelligent buffering for
     maximum performance in high-frequency trading environments.
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize the Real-Time Data Optimizer."""
         self.logger = SpyderLogger(__name__)
         self.error_handler = ErrorHandler()
-        
+
         # Configuration
         self.config = config or {}
         self.enable_system_optimization = self.config.get('enable_system_optimization', True)
         self.enable_hardware_optimization = self.config.get('enable_hardware_optimization', True)
         self.target_latency_ns = self.config.get('target_latency_ns', TARGET_LATENCY_MICROSECONDS * 1000)
-        
+
         # Internal state
         self.running = False
         self.start_time_ns = time.time_ns()
         self.packet_counter = 0
         self.optimization_stats = OptimizationStats()
         self.latency_measurements = deque(maxlen=10000)
-        
+
         # Priority queues (lock-free for performance)
         self.priority_queues = {}
         for priority in range(5):  # 0-4 priority levels
             queue_size = self._get_queue_size_for_priority(priority)
             self.priority_queues[priority] = LockFreeQueue(queue_size)
-        
+
         # Memory-mapped buffers
         self.memory_buffers = {}
-        
+
         # Processing threads
         self.processing_threads = []
         self.thread_pool = ThreadPoolExecutor(
             max_workers=mp.cpu_count(),
             thread_name_prefix="RTOptimizer"
         )
-        
+
         # System optimization
         self.cpu_cores = mp.cpu_count()
         self.memory_info = None
-        
+
         # Integration components
         self.integration_hub = None
         self.realtime_engine = None
-        
+
         # Performance monitoring
         self.performance_monitor = None
         self.latency_histogram = np.zeros(1000, dtype=np.uint64)  # Microsecond buckets
-        
+
         # Initialize components
         self._initialize_system_optimization()
         self._initialize_memory_buffers()
         self._initialize_jit_functions()
-        
+
         self.logger.info("Real-Time Data Optimizer initialized")
-    
+
     def initialize(self) -> bool:
         """
         Initialize the data optimizer with all components.
-        
+
         Returns:
             bool: True if initialization successful
         """
@@ -297,50 +292,49 @@ class RealTimeDataOptimizer:
             # System optimization
             if self.enable_system_optimization:
                 self._apply_system_optimizations()
-            
+
             # Initialize integrations
             self._initialize_integrations()
-            
+
             # Start processing threads
             self._start_processing_threads()
-            
+
             # Start monitoring
             self._start_performance_monitoring()
-            
+
             self.running = True
             self.logger.info("Real-Time Data Optimizer fully initialized")
             return True
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="RealTimeDataOptimizer.initialize")
             return False
-    
+
     def _initialize_system_optimization(self) -> None:
         """Initialize system-level optimizations."""
         try:
             if PSUTIL_AVAILABLE:
                 self.memory_info = psutil.virtual_memory()
                 self.cpu_info = psutil.cpu_freq()
-                
+
                 # Get NUMA topology if available
                 if hasattr(psutil, 'cpu_count'):
                     self.numa_nodes = 1  # Simplified
-                
+
                 self.logger.info(f"System: {self.cpu_cores} cores, {self.memory_info.total // (1024**3)}GB RAM")
-        
+
         except Exception as e:
             self.logger.warning(f"System optimization initialization failed: {e}")
-    
+
     def _initialize_memory_buffers(self) -> None:
         """Initialize memory-mapped buffers for zero-copy operations."""
         try:
             for data_type, config in DATA_TYPES.items():
                 buffer_size = config['size'] * 10000  # 10k items per type
-                
+
                 # Create memory-mapped buffer
-                buffer_name = f"rtopt_{data_type}_buffer"
                 buffer = mmap.mmap(-1, buffer_size, access=mmap.ACCESS_WRITE)
-                
+
                 self.memory_buffers[data_type] = {
                     'buffer': buffer,
                     'size': buffer_size,
@@ -348,12 +342,12 @@ class RealTimeDataOptimizer:
                     'max_items': buffer_size // config['size'],
                     'current_pos': 0
                 }
-            
+
             self.logger.debug(f"Initialized {len(self.memory_buffers)} memory buffers")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_initialize_memory_buffers")
-    
+
     def _initialize_jit_functions(self) -> None:
         """Initialize JIT-compiled functions for maximum performance."""
         if NUMBA_AVAILABLE:
@@ -365,7 +359,7 @@ class RealTimeDataOptimizer:
             # Use regular Python functions
             self._jit_process_packet = self._process_packet_regular
             self._jit_calculate_latency = self._calculate_latency_regular
-    
+
     def _initialize_integrations(self) -> None:
         """Initialize integrations with other Spyder modules."""
         try:
@@ -373,27 +367,27 @@ class RealTimeDataOptimizer:
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
                 self.logger.info("Connected to SpyderC21_FSeriesIntegrationHub")
-            
+
             # Connect to F16 Real-time Analytics
             if F16_AVAILABLE:
                 self.realtime_engine = get_realtime_analytics_engine()
                 self.logger.info("Connected to SpyderF16_RealTimeAnalytics")
-                
+
         except Exception as e:
             self.logger.warning(f"Integration initialization failed: {e}")
-    
+
     def _apply_system_optimizations(self) -> None:
         """Apply system-level performance optimizations."""
         try:
             if not PSUTIL_AVAILABLE:
                 return
-            
+
             # Set process priority
             if SYSTEM_CONFIG['process_priority'] == 'high':
                 current_process = psutil.Process()
                 if hasattr(current_process, 'nice'):
                     current_process.nice(-10)  # High priority
-            
+
             # Set CPU affinity for critical threads
             if SYSTEM_CONFIG['enable_cpu_affinity']:
                 # Reserve specific cores for critical processing
@@ -401,9 +395,9 @@ class RealTimeDataOptimizer:
                 current_process = psutil.Process()
                 if hasattr(current_process, 'cpu_affinity'):
                     current_process.cpu_affinity(critical_cores)
-            
+
             self.logger.info("System optimizations applied")
-            
+
         except Exception as e:
             self.logger.warning(f"System optimization failed: {e}")
 
@@ -413,60 +407,60 @@ class RealTimeDataOptimizer:
     def ingest_data(
         self,
         data_type: str,
-        data: Union[bytes, Dict[str, Any], pd.DataFrame],
-        priority: Optional[int] = None
+        data: Union[bytes, dict[str, Any], pd.DataFrame],
+        priority: int | None = None
     ) -> bool:
         """
         Ingest data with ultra-low latency processing.
-        
+
         Args:
             data_type: Type of data being ingested
             data: Raw data to process
             priority: Override priority (optional)
-            
+
         Returns:
             bool: True if data ingested successfully
         """
         try:
             ingress_time_ns = time.time_ns()
-            
+
             # Determine priority
             if priority is None:
                 priority = DATA_TYPES.get(data_type, {}).get('priority', DataPriority.LOW)
-            
+
             # Convert data to optimized packet format
             packet = self._create_optimized_packet(data_type, data, priority, ingress_time_ns)
-            
+
             if packet is None:
                 return False
-            
+
             # Route to appropriate priority queue
             success = self.priority_queues[priority].enqueue(packet)
-            
+
             if not success:
                 # Queue full - log overflow event
                 self.optimization_stats.queue_overflow_events += 1
                 self.logger.warning(f"Queue overflow for priority {priority}")
                 return False
-            
+
             # Update statistics
             self.packet_counter += 1
             if priority == DataPriority.CRITICAL:
                 self.optimization_stats.critical_packets_processed += 1
-            
+
             return True
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="ingest_data")
             return False
-    
+
     def _create_optimized_packet(
         self,
         data_type: str,
-        data: Union[bytes, Dict[str, Any], pd.DataFrame],
+        data: Union[bytes, dict[str, Any], pd.DataFrame],
         priority: int,
         timestamp_ns: int
-    ) -> Optional[DataPacket]:
+    ) -> DataPacket | None:
         """Create optimized data packet for processing."""
         try:
             # Convert data to bytes if needed
@@ -481,10 +475,10 @@ class RealTimeDataOptimizer:
             else:
                 # Convert to string and encode
                 packed_data = str(data).encode('utf-8')
-            
+
             # Get expected size
-            expected_size = DATA_TYPES.get(data_type, {}).get('size', len(packed_data))
-            
+            DATA_TYPES.get(data_type, {}).get('size', len(packed_data))
+
             # Create packet
             packet = DataPacket(
                 data_type=data_type,
@@ -494,13 +488,13 @@ class RealTimeDataOptimizer:
                 data=packed_data,
                 sequence_id=self.packet_counter
             )
-            
+
             return packet
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_create_optimized_packet")
             return None
-    
+
     @jit(nopython=True)
     def _create_jit_process_packet(self):
         """Create JIT-compiled packet processing function."""
@@ -509,23 +503,23 @@ class RealTimeDataOptimizer:
             processing_end_ns = time.time_ns()
             processing_latency_ns = processing_end_ns - processing_start_ns
             return processing_end_ns, processing_latency_ns
-        
+
         return jit_process_packet
-    
+
     def _process_packet_regular(self, packet_data, processing_start_ns):
         """Regular (non-JIT) packet processing function."""
         processing_end_ns = time.time_ns()
         processing_latency_ns = processing_end_ns - processing_start_ns
         return processing_end_ns, processing_latency_ns
-    
+
     @jit(nopython=True)
     def _create_jit_calculate_latency(self):
         """Create JIT-compiled latency calculation function."""
         def jit_calculate_latency(ingress_ns, egress_ns):
             return egress_ns - ingress_ns
-        
+
         return jit_calculate_latency
-    
+
     def _calculate_latency_regular(self, ingress_ns, egress_ns):
         """Regular latency calculation function."""
         return egress_ns - ingress_ns
@@ -544,7 +538,7 @@ class RealTimeDataOptimizer:
             )
             critical_thread.start()
             self.processing_threads.append(critical_thread)
-            
+
             # High priority thread
             high_thread = threading.Thread(
                 target=self._high_priority_processing_loop,
@@ -553,7 +547,7 @@ class RealTimeDataOptimizer:
             )
             high_thread.start()
             self.processing_threads.append(high_thread)
-            
+
             # Medium/Low priority thread
             bulk_thread = threading.Thread(
                 target=self._bulk_processing_loop,
@@ -562,150 +556,150 @@ class RealTimeDataOptimizer:
             )
             bulk_thread.start()
             self.processing_threads.append(bulk_thread)
-            
+
             self.logger.info(f"Started {len(self.processing_threads)} processing threads")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_processing_threads")
-    
+
     def _critical_processing_loop(self) -> None:
         """Ultra-low latency processing loop for critical data."""
         self.logger.info("Started critical processing loop")
-        
+
         # Set thread priority if possible
         try:
             if PSUTIL_AVAILABLE and hasattr(psutil.Process(), 'nice'):
                 current_process = psutil.Process()
                 current_process.nice(-20)  # Highest priority
-        except:
+        except Exception:
             pass
-        
+
         critical_queue = self.priority_queues[DataPriority.CRITICAL]
-        
+
         while self.running:
             try:
                 # Try to get packet with minimal overhead
                 packet = critical_queue.dequeue()
-                
+
                 if packet is None:
                     # No data available - minimal sleep
                     time.sleep(MICROSECOND)  # 1 microsecond
                     continue
-                
+
                 # Process packet with maximum speed
                 processing_start_ns = time.time_ns()
-                
+
                 # Use JIT-compiled processing
                 processing_end_ns, processing_latency_ns = self._jit_process_packet(
                     packet.data, processing_start_ns
                 )
-                
+
                 # Quick latency check
                 total_latency_ns = processing_end_ns - packet.timestamp_ns
-                
+
                 if total_latency_ns > self.target_latency_ns:
                     self.logger.warning(f"Critical latency exceeded: {total_latency_ns/1000:.2f}μs")
-                
+
                 # Forward to F16 if available
                 if self.realtime_engine:
                     asyncio.create_task(self._forward_to_realtime_engine(packet))
-                
+
                 # Record metrics
                 self._record_latency_measurement(packet, processing_start_ns, processing_end_ns)
-                
+
             except Exception as e:
                 self.error_handler.handle_error(e, context="_critical_processing_loop")
                 time.sleep(MICROSECOND * 10)  # 10 microseconds on error
-        
+
         self.logger.info("Critical processing loop stopped")
-    
+
     def _high_priority_processing_loop(self) -> None:
         """High-priority processing loop."""
         self.logger.info("Started high priority processing loop")
-        
+
         high_queue = self.priority_queues[DataPriority.HIGH]
-        
+
         while self.running:
             try:
                 packet = high_queue.dequeue()
-                
+
                 if packet is None:
                     time.sleep(MICROSECOND * 10)  # 10 microseconds
                     continue
-                
+
                 processing_start_ns = time.time_ns()
-                
+
                 # Process packet
                 processed_data = self._process_high_priority_packet(packet)
-                
+
                 processing_end_ns = time.time_ns()
-                
+
                 # Forward to destination
                 if processed_data and self.realtime_engine:
                     asyncio.create_task(self._forward_to_realtime_engine(packet))
-                
+
                 # Record metrics
                 self._record_latency_measurement(packet, processing_start_ns, processing_end_ns)
-                
+
             except Exception as e:
                 self.error_handler.handle_error(e, context="_high_priority_processing_loop")
                 time.sleep(MICROSECOND * 100)  # 100 microseconds on error
-        
+
         self.logger.info("High priority processing loop stopped")
-    
+
     def _bulk_processing_loop(self) -> None:
         """Bulk processing loop for medium and low priority data."""
         self.logger.info("Started bulk processing loop")
-        
+
         medium_queue = self.priority_queues[DataPriority.MEDIUM]
         low_queue = self.priority_queues[DataPriority.LOW]
         batch_queue = self.priority_queues[DataPriority.BATCH]
-        
+
         while self.running:
             try:
                 # Process in priority order: Medium -> Low -> Batch
                 packet = None
-                
+
                 for queue in [medium_queue, low_queue, batch_queue]:
                     packet = queue.dequeue()
                     if packet is not None:
                         break
-                
+
                 if packet is None:
                     time.sleep(MICROSECOND * 100)  # 100 microseconds
                     continue
-                
+
                 # Batch processing for efficiency
                 batch = [packet]
-                
+
                 # Try to collect more packets for batch processing
                 for _ in range(9):  # Up to 10 packets per batch
                     additional_packet = medium_queue.dequeue() or low_queue.dequeue() or batch_queue.dequeue()
                     if additional_packet is None:
                         break
                     batch.append(additional_packet)
-                
+
                 # Process batch
                 processing_start_ns = time.time_ns()
                 processed_batch = self._process_packet_batch(batch)
                 processing_end_ns = time.time_ns()
-                
+
                 # Forward results
                 if processed_batch and self.realtime_engine:
                     for processed_packet in processed_batch:
                         asyncio.create_task(self._forward_to_realtime_engine(processed_packet))
-                
+
                 # Record metrics for each packet in batch
                 for packet in batch:
                     self._record_latency_measurement(packet, processing_start_ns, processing_end_ns)
-                
+
             except Exception as e:
                 self.error_handler.handle_error(e, context="_bulk_processing_loop")
                 time.sleep(MICROSECOND * 1000)  # 1 millisecond on error
-        
+
         self.logger.info("Bulk processing loop stopped")
-    
-    def _process_high_priority_packet(self, packet: DataPacket) -> Optional[Dict[str, Any]]:
+
+    def _process_high_priority_packet(self, packet: DataPacket) -> dict[str, Any] | None:
         """Process high-priority packet with optimized logic."""
         try:
             # Fast processing path for high-priority data
@@ -717,23 +711,23 @@ class RealTimeDataOptimizer:
                 return self._process_trade_data(packet)
             else:
                 return self._process_generic_packet(packet)
-                
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_high_priority_packet")
             return None
-    
-    def _process_packet_batch(self, batch: List[DataPacket]) -> List[Dict[str, Any]]:
+
+    def _process_packet_batch(self, batch: list[DataPacket]) -> list[dict[str, Any]]:
         """Process batch of packets efficiently."""
         try:
             processed_results = []
-            
+
             for packet in batch:
                 result = self._process_generic_packet(packet)
                 if result:
                     processed_results.append(result)
-            
+
             return processed_results
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_packet_batch")
             return []
@@ -741,12 +735,12 @@ class RealTimeDataOptimizer:
     # ==============================================================================
     # DATA PROCESSING METHODS
     # ==============================================================================
-    def _process_tick_data(self, packet: DataPacket) -> Dict[str, Any]:
+    def _process_tick_data(self, packet: DataPacket) -> dict[str, Any]:
         """Process tick data with maximum speed."""
         try:
             # Unpack tick data (assuming fixed format)
             data = struct.unpack('ffI', packet.data[:12])  # price, size, timestamp
-            
+
             return {
                 'type': 'tick',
                 'price': data[0],
@@ -755,17 +749,17 @@ class RealTimeDataOptimizer:
                 'processing_time_ns': time.time_ns(),
                 'latency_ns': time.time_ns() - packet.timestamp_ns
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_tick_data")
             return {}
-    
-    def _process_quote_data(self, packet: DataPacket) -> Dict[str, Any]:
+
+    def _process_quote_data(self, packet: DataPacket) -> dict[str, Any]:
         """Process quote data efficiently."""
         try:
             # Unpack quote data
             data = struct.unpack('ffffff', packet.data[:24])  # bid, ask, bid_size, ask_size, etc.
-            
+
             return {
                 'type': 'quote',
                 'bid': data[0],
@@ -777,17 +771,17 @@ class RealTimeDataOptimizer:
                 'processing_time_ns': time.time_ns(),
                 'latency_ns': time.time_ns() - packet.timestamp_ns
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_quote_data")
             return {}
-    
-    def _process_trade_data(self, packet: DataPacket) -> Dict[str, Any]:
+
+    def _process_trade_data(self, packet: DataPacket) -> dict[str, Any]:
         """Process trade data efficiently."""
         try:
             # Unpack trade data
             data = struct.unpack('ffIc', packet.data[:13])  # price, size, timestamp, side
-            
+
             return {
                 'type': 'trade',
                 'price': data[0],
@@ -797,12 +791,12 @@ class RealTimeDataOptimizer:
                 'processing_time_ns': time.time_ns(),
                 'latency_ns': time.time_ns() - packet.timestamp_ns
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_trade_data")
             return {}
-    
-    def _process_generic_packet(self, packet: DataPacket) -> Dict[str, Any]:
+
+    def _process_generic_packet(self, packet: DataPacket) -> dict[str, Any]:
         """Process generic packet data."""
         try:
             return {
@@ -813,7 +807,7 @@ class RealTimeDataOptimizer:
                 'processing_time_ns': time.time_ns(),
                 'latency_ns': time.time_ns() - packet.timestamp_ns
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_process_generic_packet")
             return {}
@@ -826,11 +820,11 @@ class RealTimeDataOptimizer:
         try:
             if not self.realtime_engine:
                 return
-            
+
             # Convert packet to F16 format
             metric_name = f"{packet.data_type}_update"
             metric_value = packet.sequence_id  # Simplified
-            
+
             # Send to F16
             success = await self.realtime_engine.add_metric(
                 stream_type='realtime',
@@ -842,10 +836,10 @@ class RealTimeDataOptimizer:
                     'optimizer_processed': True
                 }
             )
-            
+
             if not success:
                 self.logger.warning("Failed to forward packet to F16")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_forward_to_realtime_engine")
 
@@ -862,36 +856,36 @@ class RealTimeDataOptimizer:
             )
             monitor_thread.start()
             self.processing_threads.append(monitor_thread)
-            
+
             self.logger.info("Performance monitoring started")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_performance_monitoring")
-    
+
     def _performance_monitoring_loop(self) -> None:
         """Performance monitoring loop."""
         self.logger.info("Started performance monitoring loop")
-        
+
         last_stats_update = time.time()
-        
+
         while self.running:
             try:
                 current_time = time.time()
-                
+
                 # Update statistics every second
                 if current_time - last_stats_update >= 1.0:
                     self._update_optimization_stats()
                     self._check_performance_thresholds()
                     last_stats_update = current_time
-                
+
                 time.sleep(0.1)  # Check every 100ms
-                
+
             except Exception as e:
                 self.error_handler.handle_error(e, context="_performance_monitoring_loop")
                 time.sleep(1.0)
-        
+
         self.logger.info("Performance monitoring loop stopped")
-    
+
     def _record_latency_measurement(
         self,
         packet: DataPacket,
@@ -901,7 +895,7 @@ class RealTimeDataOptimizer:
         """Record latency measurement for analysis."""
         try:
             egress_time_ns = time.time_ns()
-            
+
             latency_metrics = LatencyMetrics(
                 packet_id=packet.sequence_id,
                 ingress_time_ns=packet.timestamp_ns,
@@ -912,94 +906,94 @@ class RealTimeDataOptimizer:
                 processing_latency_ns=processing_end_ns - processing_start_ns,
                 queue_time_ns=processing_start_ns - packet.timestamp_ns
             )
-            
+
             self.latency_measurements.append(latency_metrics)
-            
+
             # Update histogram
             latency_us = latency_metrics.total_latency_ns / 1000  # Convert to microseconds
             histogram_bin = min(int(latency_us), len(self.latency_histogram) - 1)
             self.latency_histogram[histogram_bin] += 1
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_record_latency_measurement")
-    
+
     def _update_optimization_stats(self) -> None:
         """Update optimization statistics."""
         try:
             if not self.latency_measurements:
                 return
-            
+
             # Calculate statistics from recent measurements
             recent_measurements = list(self.latency_measurements)[-1000:]  # Last 1000 measurements
-            
+
             if recent_measurements:
                 latencies = [m.total_latency_ns for m in recent_measurements]
-                
+
                 self.optimization_stats.average_latency_ns = np.mean(latencies)
                 self.optimization_stats.p99_latency_ns = np.percentile(latencies, 99)
                 self.optimization_stats.p99_9_latency_ns = np.percentile(latencies, 99.9)
-                
+
                 # Calculate throughput
                 time_span = recent_measurements[-1].egress_time_ns - recent_measurements[0].ingress_time_ns
                 if time_span > 0:
                     self.optimization_stats.throughput_packets_per_second = len(recent_measurements) * 1e9 / time_span
-            
+
             # Update packet counts
             self.optimization_stats.total_packets_processed = self.packet_counter
-            
+
             # Get system resource utilization
             if PSUTIL_AVAILABLE:
                 self.optimization_stats.memory_utilization_percent = psutil.virtual_memory().percent
                 self.optimization_stats.cpu_utilization_percent = psutil.cpu_percent()
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_update_optimization_stats")
-    
+
     def _check_performance_thresholds(self) -> None:
         """Check performance thresholds and trigger optimizations."""
         try:
             stats = self.optimization_stats
-            
+
             # Check latency thresholds
             if stats.p99_latency_ns > self.target_latency_ns * 2:
                 self.logger.warning(f"P99 latency high: {stats.p99_latency_ns/1000:.2f}μs")
                 self._trigger_latency_optimization()
-            
+
             # Check throughput
             if stats.throughput_packets_per_second < 10000:  # Below 10k packets/sec
                 self.logger.warning(f"Low throughput: {stats.throughput_packets_per_second:.0f} packets/sec")
-            
+
             # Check queue overflow
             if stats.queue_overflow_events > 100:
                 self.logger.error("High queue overflow events detected")
                 self._adjust_buffer_sizes()
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_check_performance_thresholds")
-    
+
     def _trigger_latency_optimization(self) -> None:
         """Trigger automatic latency optimization."""
         try:
             self.optimization_stats.optimization_adjustments += 1
-            
+
             # Implement optimization strategies
             # This could include:
             # - Adjusting buffer sizes
             # - Changing processing algorithms
             # - Modifying thread priorities
             # - Enabling/disabling certain features
-            
+
             self.logger.info("Triggered latency optimization")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_trigger_latency_optimization")
-    
+
     def _adjust_buffer_sizes(self) -> None:
         """Dynamically adjust buffer sizes based on load."""
         try:
             # This would implement dynamic buffer size adjustment
             self.logger.info("Adjusted buffer sizes for better performance")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_adjust_buffer_sizes")
 
@@ -1015,27 +1009,27 @@ class RealTimeDataOptimizer:
             DataPriority.LOW: BUFFER_CONFIG['low_buffer_size'],
             DataPriority.BATCH: BUFFER_CONFIG['low_buffer_size']
         }
-        
+
         # Ensure power of 2 for lock-free queue
         size = queue_sizes.get(priority, 1024)
         return 2 ** (size - 1).bit_length()  # Next power of 2
-    
-    def _pack_dict_to_bytes(self, data: Dict[str, Any]) -> bytes:
+
+    def _pack_dict_to_bytes(self, data: dict[str, Any]) -> bytes:
         """Pack dictionary to bytes for efficient storage."""
         try:
             # Simple packing - in production would use more efficient serialization
             packed = str(data).encode('utf-8')
             return packed
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_pack_dict_to_bytes")
             return b""
-    
-    def get_optimization_status(self) -> Dict[str, Any]:
+
+    def get_optimization_status(self) -> dict[str, Any]:
         """Get comprehensive optimization status."""
         try:
             stats = self.optimization_stats
-            
+
             status = {
                 'is_running': self.running,
                 'total_packets_processed': stats.total_packets_processed,
@@ -1052,23 +1046,23 @@ class RealTimeDataOptimizer:
                 'processing_threads': len(self.processing_threads),
                 'queue_utilizations': self._get_queue_utilizations()
             }
-            
+
             return status
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="get_optimization_status")
             return {'error': str(e)}
-    
-    def _get_queue_utilizations(self) -> Dict[str, float]:
+
+    def _get_queue_utilizations(self) -> dict[str, float]:
         """Get current queue utilization percentages."""
         try:
             utilizations = {}
-            
+
             for priority, queue in self.priority_queues.items():
                 current_size = abs(queue.tail.value - queue.head.value)
                 max_size = queue.size
                 utilization = (current_size / max_size) * 100
-                
+
                 priority_names = {
                     DataPriority.CRITICAL: 'critical',
                     DataPriority.HIGH: 'high',
@@ -1076,36 +1070,36 @@ class RealTimeDataOptimizer:
                     DataPriority.LOW: 'low',
                     DataPriority.BATCH: 'batch'
                 }
-                
+
                 priority_name = priority_names.get(priority, f'priority_{priority}')
                 utilizations[priority_name] = utilization
-            
+
             return utilizations
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="_get_queue_utilizations")
             return {}
-    
+
     def shutdown(self) -> None:
         """Shutdown the optimizer gracefully."""
         try:
             self.logger.info("Shutting down Real-Time Data Optimizer...")
-            
+
             self.running = False
-            
+
             # Wait for threads to finish
             for thread in self.processing_threads:
                 thread.join(timeout=1.0)
-            
+
             # Close memory buffers
             for buffer_info in self.memory_buffers.values():
                 buffer_info['buffer'].close()
-            
+
             # Shutdown thread pool
             self.thread_pool.shutdown(wait=True)
-            
+
             self.logger.info("Real-Time Data Optimizer shutdown complete")
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, context="RealTimeDataOptimizer.shutdown")
 
@@ -1115,13 +1109,13 @@ class RealTimeDataOptimizer:
 # Global instance for singleton pattern
 _optimizer_instance = None
 
-def get_realtime_data_optimizer(config: Optional[Dict[str, Any]] = None) -> RealTimeDataOptimizer:
+def get_realtime_data_optimizer(config: dict[str, Any] | None = None) -> RealTimeDataOptimizer:
     """
     Get global Real-Time Data Optimizer instance (singleton pattern).
-    
+
     Args:
         config: Optional configuration dictionary
-        
+
     Returns:
         RealTimeDataOptimizer instance
     """
@@ -1138,7 +1132,7 @@ async def main():
     """Main execution function for testing and demonstration."""
     logging.info("🎯 SPYDER C23 - Real-Time Data Optimizer")
     logging.info("=" * 80)
-    
+
     try:
         # Create optimizer
         config = {
@@ -1146,24 +1140,24 @@ async def main():
             'enable_hardware_optimization': True,
             'target_latency_ns': 100 * 1000  # 100 microseconds
         }
-        
+
         optimizer = RealTimeDataOptimizer(config)
         logging.info("✅ Real-Time Data Optimizer initialized")
-        
+
         # Initialize optimizer
         if not optimizer.initialize():
             logging.info("❌ Failed to initialize optimizer")
             return False
-        
+
         logging.info("⚡ System Configuration:")
         logging.info(f"   • CPU Cores: {optimizer.cpu_cores}")
         logging.info(f"   • Memory Buffers: {len(optimizer.memory_buffers)}")
         logging.info(f"   • Processing Threads: {len(optimizer.processing_threads)}")
         logging.info(f"   • Target Latency: {config['target_latency_ns']/1000:.0f}μs")
-        
+
         # Test data ingestion with different priorities
-        logging.info(f"\n📊 Testing data ingestion...")
-        
+        logging.info("\n📊 Testing data ingestion...")
+
         test_cases = [
             ('tick', {'price': 401.50, 'size': 100}, DataPriority.CRITICAL),
             ('quote', {'bid': 401.48, 'ask': 401.52}, DataPriority.HIGH),
@@ -1171,9 +1165,9 @@ async def main():
             ('greeks', {'delta': 0.5, 'gamma': 0.01}, DataPriority.MEDIUM),
             ('analytics', {'volatility': 0.25, 'momentum': 0.02}, DataPriority.LOW)
         ]
-        
+
         successful_ingests = 0
-        
+
         for data_type, data, priority in test_cases:
             success = optimizer.ingest_data(data_type, data, priority)
             if success:
@@ -1181,17 +1175,17 @@ async def main():
                 logging.info(f"   ✅ {data_type}: Priority {priority}")
             else:
                 logging.info(f"   ❌ {data_type}: Failed")
-        
+
         logging.info(f"   Successfully ingested: {successful_ingests}/{len(test_cases)}")
-        
+
         # Let the system process data
-        logging.info(f"\n⚡ Processing data for 10 seconds...")
+        logging.info("\n⚡ Processing data for 10 seconds...")
         await asyncio.sleep(10)
-        
+
         # Get optimization status
         status = optimizer.get_optimization_status()
-        
-        logging.info(f"\n📈 Performance Statistics:")
+
+        logging.info("\n📈 Performance Statistics:")
         logging.info(f"   • Total Packets Processed: {status['total_packets_processed']:,}")
         logging.info(f"   • Critical Packets: {status['critical_packets_processed']:,}")
         logging.info(f"   • Average Latency: {status['average_latency_microseconds']:.2f}μs")
@@ -1200,24 +1194,24 @@ async def main():
         logging.info(f"   • Throughput: {status['throughput_packets_per_second']:.0f} packets/sec")
         logging.info(f"   • CPU Utilization: {status['cpu_utilization_percent']:.1f}%")
         logging.info(f"   • Memory Utilization: {status['memory_utilization_percent']:.1f}%")
-        
-        logging.info(f"\n📊 Queue Utilizations:")
+
+        logging.info("\n📊 Queue Utilizations:")
         for queue_name, utilization in status['queue_utilizations'].items():
             logging.info(f"   • {queue_name}: {utilization:.1f}%")
-        
+
         if status['queue_overflow_events'] > 0:
             logging.info(f"\n⚠️  Queue Overflow Events: {status['queue_overflow_events']}")
-        
+
         if status['optimization_adjustments'] > 0:
             logging.info(f"🔧 Optimization Adjustments: {status['optimization_adjustments']}")
-        
-        logging.info(f"\n🎊 Real-Time Data Optimizer demonstration completed successfully!")
+
+        logging.info("\n🎊 Real-Time Data Optimizer demonstration completed successfully!")
         return True
-        
+
     except Exception as e:
         logging.info(f"❌ Error in main execution: {e}")
         return False
-    
+
     finally:
         # Clean up
         if 'optimizer' in locals():

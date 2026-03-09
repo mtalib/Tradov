@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -33,13 +32,11 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 import os
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -72,7 +69,7 @@ class ReviewReport:
     """A complete review report for a file or module."""
     target: str = ""         # File path or module name
     timestamp: datetime = field(default_factory=datetime.now)
-    issues: List[CodeIssue] = field(default_factory=list)
+    issues: list[CodeIssue] = field(default_factory=list)
     summary: str = ""
     risk_score: float = 0.0  # 0-10
     reviewed_lines: int = 0
@@ -138,18 +135,18 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # Max lines per file to send to LLM (context window limit)
     MAX_REVIEW_LINES = 200
 
-    def __init__(self, spyder_root: Optional[str] = None, **kwargs: Any):
+    def __init__(self, spyder_root: str | None = None, **kwargs: Any):
         super().__init__(**kwargs)
 
         # Configuration
         self._spyder_root = spyder_root or self._find_spyder_root()
         self._current_module_index: int = 0
-        self._reviewed_files: Set[str] = set()
-        self._reports: List[ReviewReport] = []
-        self._all_issues: List[CodeIssue] = []
+        self._reviewed_files: set[str] = set()
+        self._reports: list[ReviewReport] = []
+        self._all_issues: list[CodeIssue] = []
         self._tick_count: int = 0
         self._files_reviewed_today: int = 0
-        self._review_queue: List[str] = []  # Specific files to review
+        self._review_queue: list[str] = []  # Specific files to review
 
     # ==========================================================================
     # LIFECYCLE
@@ -196,7 +193,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # ==========================================================================
     # FILE SELECTION
     # ==========================================================================
-    def _get_next_file(self) -> Optional[str]:
+    def _get_next_file(self) -> str | None:
         """Get the next file to review (priority-ordered)."""
         # First: check the explicit review queue
         if self._review_queue:
@@ -230,12 +227,12 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # ==========================================================================
     # FILE REVIEW
     # ==========================================================================
-    def _review_file(self, file_path: str) -> Optional[ReviewReport]:
+    def _review_file(self, file_path: str) -> ReviewReport | None:
         """Review a single file using the CODE LLM."""
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
-        except (OSError, IOError):
+        except OSError:
             return None
 
         if not lines:
@@ -313,7 +310,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
 
     def _parse_review_response(
         self, response: str, file_path: str
-    ) -> List[CodeIssue]:
+    ) -> list[CodeIssue]:
         """Parse LLM response into CodeIssue objects."""
         import json
 
@@ -349,7 +346,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
 
         return issues
 
-    def _calculate_file_risk(self, issues: List[CodeIssue]) -> float:
+    def _calculate_file_risk(self, issues: list[CodeIssue]) -> float:
         """Calculate a 0-10 risk score from issues."""
         if not issues:
             return 0.0
@@ -405,7 +402,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # ==========================================================================
     # HELPERS
     # ==========================================================================
-    def _find_spyder_root(self) -> Optional[str]:
+    def _find_spyder_root(self) -> str | None:
         """Find the Spyder source root directory."""
         # Try relative to this file
         this_dir = Path(__file__).resolve().parent  # SpyderY_AutoAgents/
@@ -426,7 +423,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle review requests."""
         if topic == "meta.code_review":
             # Specific file review request
@@ -438,7 +435,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "current_module_index": self._current_module_index,
@@ -453,7 +450,7 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
             },
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._current_module_index = state.get("current_module_index", 0)
         self._files_reviewed_today = state.get("files_reviewed_today", 0)

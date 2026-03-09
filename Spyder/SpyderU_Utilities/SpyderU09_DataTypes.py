@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,17 +22,14 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, date
-import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
-import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -113,11 +109,11 @@ class DataQuality(Enum):
 class MarketData:
     """
     Core market data structure for all instruments.
-    
+
     This is the primary data structure for market data throughout the
     Spyder system. It provides real-time and historical price information
     with timestamp tracking and data quality indicators.
-    
+
     Attributes:
         symbol: Instrument symbol
         bid: Current bid price
@@ -148,26 +144,26 @@ class MarketData:
     close: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
     quality: DataQuality = DataQuality.UNKNOWN
-    
+
     def __post_init__(self):
         """Post-initialization validation."""
         if not self.symbol:
             raise ValueError("Symbol cannot be empty")
-    
+
     @property
     def mid_price(self) -> float:
         """Calculate mid price from bid/ask."""
         if self.bid > 0 and self.ask > 0:
             return (self.bid + self.ask) / 2.0
         return self.last
-    
+
     @property
     def spread(self) -> float:
         """Calculate bid-ask spread."""
         if self.bid > 0 and self.ask > 0:
             return self.ask - self.bid
         return 0.0
-    
+
     @property
     def spread_percent(self) -> float:
         """Calculate spread as percentage of mid price."""
@@ -175,8 +171,8 @@ class MarketData:
         if mid > 0 and self.spread > 0:
             return (self.spread / mid) * 100.0
         return 0.0
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -209,14 +205,14 @@ class OptionContract:
     multiplier: int = 100
     exchange: str = "SMART"
     currency: str = "USD"
-    
+
     def __post_init__(self):
         """Post-initialization validation."""
         if self.strike <= 0:
             raise ValueError("Strike must be positive")
         if self.multiplier <= 0:
             raise ValueError("Multiplier must be positive")
-    
+
     @property
     def option_symbol(self) -> str:
         """Generate option symbol."""
@@ -224,13 +220,13 @@ class OptionContract:
         right_str = "C" if self.right == OptionRight.CALL else "P"
         strike_str = f"{int(self.strike * 1000):08d}"
         return f"{self.underlying}{expiry_str}{right_str}{strike_str}"
-    
+
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiry."""
         return (self.expiry - date.today()).days
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -262,33 +258,33 @@ class OrderData:
     avg_fill_price: float = 0.0
     commission: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    parent_id: Optional[int] = None
-    oca_group: Optional[str] = None
-    good_after_time: Optional[datetime] = None
-    good_till_date: Optional[datetime] = None
-    
+    parent_id: int | None = None
+    oca_group: str | None = None
+    good_after_time: datetime | None = None
+    good_till_date: datetime | None = None
+
     def __post_init__(self):
         """Post-initialization validation."""
         if self.quantity <= 0:
             raise ValueError("Quantity must be positive")
         self.remaining_quantity = self.quantity - self.filled_quantity
-    
+
     @property
     def is_filled(self) -> bool:
         """Check if order is completely filled."""
         return self.filled_quantity >= self.quantity
-    
+
     @property
     def is_active(self) -> bool:
         """Check if order is active."""
         return self.status in [OrderStatus.SUBMITTED, OrderStatus.PENDING_SUBMIT]
-    
+
     @property
     def fill_percentage(self) -> float:
         """Calculate fill percentage."""
         return (self.filled_quantity / self.quantity) * 100.0 if self.quantity > 0 else 0.0
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "order_id": self.order_id,
@@ -322,11 +318,11 @@ class Position:
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    
+
     def __post_init__(self):
         """Calculate derived values."""
         self.update_market_values()
-    
+
     @property
     def side(self) -> PositionSide:
         """Get position side."""
@@ -336,19 +332,19 @@ class Position:
             return PositionSide.SHORT
         else:
             return PositionSide.FLAT
-    
+
     @property
     def total_pnl(self) -> float:
         """Calculate total P&L."""
         return self.realized_pnl + self.unrealized_pnl
-    
+
     def update_market_values(self) -> None:
         """Update market values based on current price."""
         if self.market_price > 0:
             self.market_value = self.quantity * self.market_price
             self.unrealized_pnl = (self.market_price - self.avg_cost) * self.quantity
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -375,8 +371,8 @@ class GreeksData:
     implied_volatility: float = 0.0
     underlying_price: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -402,13 +398,13 @@ class TradeExecution:
     commission: float
     timestamp: datetime
     exchange: str = ""
-    
+
     @property
     def notional_value(self) -> float:
         """Calculate notional value."""
         return abs(self.quantity * self.price)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "execution_id": self.execution_id,
@@ -429,43 +425,43 @@ class TradeExecution:
 class SpyderDataTypes:
     """
     Data types manager and factory.
-    
+
     This class provides utilities for creating, validating, and managing
     all data types used in the Spyder system. It includes factory methods
     for common data structures and validation utilities.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
-        
+
     Example:
         >>> data_types = SpyderDataTypes()
         >>> market_data = data_types.create_market_data("SPY", 450.0, 450.1)
         >>> option = data_types.create_option_contract("SPY", "2024-12-20", 450.0, "CALL")
     """
-    
+
     def __init__(self):
         """Initialize the data types manager."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         self.logger.info(f"{self.__class__.__name__} initialized")
-    
+
     # ==========================================================================
     # FACTORY METHODS
     # ==========================================================================
-    def create_market_data(self, symbol: str, bid: float = 0.0, ask: float = 0.0, 
+    def create_market_data(self, symbol: str, bid: float = 0.0, ask: float = 0.0,
                           last: float = 0.0, volume: int = 0) -> MarketData:
         """
         Create MarketData instance.
-        
+
         Args:
             symbol: Instrument symbol
             bid: Bid price
             ask: Ask price
             last: Last price
             volume: Volume
-            
+
         Returns:
             MarketData instance
         """
@@ -481,28 +477,28 @@ class SpyderDataTypes:
         except Exception as e:
             self.logger.error(f"Failed to create MarketData: {e}")
             raise
-    
-    def create_option_contract(self, underlying: str, expiry: str, strike: float, 
+
+    def create_option_contract(self, underlying: str, expiry: str, strike: float,
                               right: str) -> OptionContract:
         """
         Create OptionContract instance.
-        
+
         Args:
             underlying: Underlying symbol
             expiry: Expiry date (YYYY-MM-DD)
             strike: Strike price
             right: CALL or PUT
-            
+
         Returns:
             OptionContract instance
         """
         try:
             expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
             option_right = OptionRight(right.upper())
-            
+
             # Generate option symbol
             symbol = f"{underlying}_{expiry}_{strike}_{right}"
-            
+
             return OptionContract(
                 symbol=symbol,
                 underlying=underlying,
@@ -513,19 +509,19 @@ class SpyderDataTypes:
         except Exception as e:
             self.logger.error(f"Failed to create OptionContract: {e}")
             raise
-    
-    def create_order(self, symbol: str, action: str, order_type: str, 
+
+    def create_order(self, symbol: str, action: str, order_type: str,
                     quantity: int, price: float = 0.0) -> OrderData:
         """
         Create OrderData instance.
-        
+
         Args:
             symbol: Symbol to trade
             action: BUY or SELL
             order_type: Order type
             quantity: Order quantity
             price: Order price (for limit orders)
-            
+
         Returns:
             OrderData instance
         """
@@ -541,60 +537,54 @@ class SpyderDataTypes:
         except Exception as e:
             self.logger.error(f"Failed to create OrderData: {e}")
             raise
-    
+
     # ==========================================================================
     # VALIDATION METHODS
     # ==========================================================================
     def validate_market_data(self, data: MarketData) -> bool:
         """
         Validate MarketData instance.
-        
+
         Args:
             data: MarketData to validate
-            
+
         Returns:
             bool: True if valid
         """
         try:
             if not data.symbol:
                 return False
-            
+
             # Check for negative prices
             if any(price < 0 for price in [data.bid, data.ask, data.last]):
                 return False
-            
+
             # Check bid/ask consistency
-            if data.bid > 0 and data.ask > 0 and data.bid >= data.ask:
-                return False
-            
-            return True
-            
+            return not (data.bid > 0 and data.ask > 0 and data.bid >= data.ask)
+
         except Exception as e:
             self.logger.error(f"MarketData validation failed: {e}")
             return False
-    
+
     def validate_option_contract(self, contract: OptionContract) -> bool:
         """
         Validate OptionContract instance.
-        
+
         Args:
             contract: OptionContract to validate
-            
+
         Returns:
             bool: True if valid
         """
         try:
             if not contract.symbol or not contract.underlying:
                 return False
-            
+
             if contract.strike <= 0:
                 return False
-            
-            if contract.expiry <= date.today():
-                return False
-            
-            return True
-            
+
+            return not contract.expiry <= date.today()
+
         except Exception as e:
             self.logger.error(f"OptionContract validation failed: {e}")
             return False
@@ -605,11 +595,11 @@ class SpyderDataTypes:
 def create_market_data(symbol: str, **kwargs) -> MarketData:
     """
     Factory function for MarketData.
-    
+
     Args:
         symbol: Instrument symbol
         **kwargs: Additional market data fields
-        
+
     Returns:
         MarketData instance
     """
@@ -619,13 +609,13 @@ def create_market_data(symbol: str, **kwargs) -> MarketData:
 def create_option_contract(underlying: str, expiry: str, strike: float, right: str) -> OptionContract:
     """
     Factory function for OptionContract.
-    
+
     Args:
         underlying: Underlying symbol
         expiry: Expiry date string
         strike: Strike price
         right: CALL or PUT
-        
+
     Returns:
         OptionContract instance
     """
@@ -636,12 +626,12 @@ def create_option_contract(underlying: str, expiry: str, strike: float, right: s
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_data_types_instance: Optional[SpyderDataTypes] = None
+_data_types_instance: SpyderDataTypes | None = None
 
 def get_data_types() -> SpyderDataTypes:
     """
     Get singleton instance of data types manager.
-    
+
     Returns:
         SpyderDataTypes instance
     """
@@ -655,45 +645,21 @@ def get_data_types() -> SpyderDataTypes:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U09 - Data Types Test")
-    print("=" * 80)
-    
+
     data_types = SpyderDataTypes()
-    
+
     # Test MarketData
-    print("\n1. Testing MarketData...")
     market_data = data_types.create_market_data("SPY", 450.0, 450.1, 450.05, 1000)
-    print(f"   Created: {market_data.symbol}")
-    print(f"   Mid Price: ${market_data.mid_price:.2f}")
-    print(f"   Spread: ${market_data.spread:.2f}")
-    print(f"   Valid: {data_types.validate_market_data(market_data)}")
-    
+
     # Test OptionContract
-    print("\n2. Testing OptionContract...")
     option = data_types.create_option_contract("SPY", "2024-12-20", 450.0, "CALL")
-    print(f"   Created: {option.symbol}")
-    print(f"   Option Symbol: {option.option_symbol}")
-    print(f"   Days to Expiry: {option.days_to_expiry}")
-    print(f"   Valid: {data_types.validate_option_contract(option)}")
-    
+
     # Test OrderData
-    print("\n3. Testing OrderData...")
     order = data_types.create_order("SPY", "BUY", "LMT", 100, 450.0)
-    print(f"   Created: {order.symbol} {order.action.value}")
-    print(f"   Type: {order.order_type.value}")
-    print(f"   Quantity: {order.quantity}")
-    print(f"   Price: ${order.price:.2f}")
-    
+
     # Test Position
-    print("\n4. Testing Position...")
     position = Position("SPY", 100, 445.0, 450.0)
-    print(f"   Symbol: {position.symbol}")
-    print(f"   Side: {position.side.value}")
-    print(f"   Unrealized P&L: ${position.unrealized_pnl:.2f}")
-    
-    print("\n" + "=" * 80)
-    print("✅ Data Types test completed!")
+
 
 # Add at the end of the file
 class PositionData:
@@ -730,7 +696,7 @@ class OptionData:
 class MarketDataType(Enum):
     """Market data type enumeration"""
     QUOTE = "quote"
-    TRADE = "trade" 
+    TRADE = "trade"
     BAR = "bar"
     TICK = "tick"
     LEVEL2 = "level2"

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -34,6 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Matplotlib for charting
 import matplotlib
+import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
@@ -42,7 +42,6 @@ import numpy as np
 # ==============================================================================
 import pandas as pd
 # Plotly integration - no direct canvas equivalent needed
-import plotly.graph_objects as go
 from PySide6.QtCore import (QPoint, QRect, QSize, Qt, QThread, QTimer,
                         Signal, Slot)
 from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QKeySequence, QPainter,
@@ -2122,7 +2121,7 @@ class SpyderTestDashboard(QMainWindow):
         self.system_log = QTextEdit()
         self.system_log.setReadOnly(True)
         self.system_log.setMaximumHeight(150)
-        self.system_log.setStyleSheet(f"font-family: monospace; font-size: 13px;")
+        self.system_log.setStyleSheet("font-family: monospace; font-size: 13px;")
 
         logs_layout.addWidget(self.system_log)
         logs_group.setLayout(logs_layout)
@@ -2333,7 +2332,7 @@ class SpyderTestDashboard(QMainWindow):
 
         # RISK PARAMETERS button - Enhanced with integration
         self.risk_params_btn = QPushButton("RISK LEVELS")
-        self.risk_params_btn.setStyleSheet(f"background-color: #0066CC; color: white;")
+        self.risk_params_btn.setStyleSheet("background-color: #0066CC; color: white;")
         self.risk_params_btn.setToolTip("Configure global and strategy-specific risk parameters")
         self.risk_params_btn.clicked.connect(self.show_risk_parameters)
         table_layout.addWidget(self.risk_params_btn, 0, 3)
@@ -3287,9 +3286,9 @@ class SpyderTestDashboard(QMainWindow):
             vix_value = 15  # Default value
 
         if "SPY" in self.market_data:
-            spy_value = self.market_data["SPY"].last
+            self.market_data["SPY"].last
         else:
-            spy_value = 585  # Default value
+            pass  # Default value
 
         # Select message based on some logic
         if vix_value > 20:

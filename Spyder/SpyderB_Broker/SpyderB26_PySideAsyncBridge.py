@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -38,17 +37,15 @@ Module Description:
 import sys
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any, Callable, Tuple
+from datetime import datetime
+from typing import Any
 from enum import Enum
-import json
-from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from PySide6.QtCore import QObject, Signal, QTimer, Qt
+    from PySide6.QtCore import QObject, Signal, QTimer, Qt  # noqa: F401
     from PySide6.QtAsyncio import QAsyncioEventLoopPolicy, QAsyncioEventLoop
 
     PYSIDE6_AVAILABLE = True
@@ -206,8 +203,8 @@ class AsyncIBGatewayBridge(QObject):
         self.port = DEFAULT_PAPER_PORT if paper_trading else DEFAULT_LIVE_PORT
 
         # IB client
-        self.ib: Optional[IBAsync] = None
-        self.loop: Optional[QAsyncioEventLoop] = None
+        self.ib: IBAsync | None = None
+        self.loop: QAsyncioEventLoop | None = None
 
         # Connection state
         self.state = ConnectionState.DISCONNECTED
@@ -215,15 +212,15 @@ class AsyncIBGatewayBridge(QObject):
         self.last_heartbeat = datetime.now()
 
         # Tasks and timers
-        self.connection_task: Optional[asyncio.Task] = None
-        self.heartbeat_task: Optional[asyncio.Task] = None
-        self.reconnect_task: Optional[asyncio.Task] = None
+        self.connection_task: asyncio.Task | None = None
+        self.heartbeat_task: asyncio.Task | None = None
+        self.reconnect_task: asyncio.Task | None = None
 
         # Data storage
-        self.subscriptions: Dict[int, Contract] = {}
-        self.active_orders: Dict[int, Order] = {}
-        self.positions: Dict[str, Dict] = {}
-        self.account_values: Dict[str, Any] = {}
+        self.subscriptions: dict[int, Contract] = {}
+        self.active_orders: dict[int, Order] = {}
+        self.positions: dict[str, dict] = {}
+        self.account_values: dict[str, Any] = {}
 
         # Performance metrics
         self.metrics = {
@@ -325,7 +322,7 @@ class AsyncIBGatewayBridge(QObject):
 
             return True
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.state = ConnectionState.ERROR
             self.metrics["errors_count"] += 1
             self.logger.error(f"⏱️ Connection timeout after {CONNECTION_TIMEOUT}s")
@@ -416,7 +413,7 @@ class AsyncIBGatewayBridge(QObject):
         while self.state == ConnectionState.CONNECTED:
             try:
                 # Request current time from IB
-                server_time = self.ib.reqCurrentTime()
+                self.ib.reqCurrentTime()
                 self.last_heartbeat = datetime.now()
 
                 # Check connection health
@@ -628,7 +625,7 @@ class AsyncIBGatewayBridge(QObject):
                 return -1
 
             # Place order
-            trade = self.ib.placeOrder(contract, order)
+            self.ib.placeOrder(contract, order)
             order_id = order.orderId
 
             # Store active order
@@ -667,7 +664,7 @@ class AsyncIBGatewayBridge(QObject):
     # ==========================================================================
     # ACCOUNT OPERATIONS
     # ==========================================================================
-    async def request_positions(self) -> List[Dict]:
+    async def request_positions(self) -> list[dict]:
         """
         Request current positions.
 
@@ -697,7 +694,7 @@ class AsyncIBGatewayBridge(QObject):
             self.logger.error(f"❌ Failed to request positions: {e}")
             return []
 
-    async def request_account_summary(self) -> Dict:
+    async def request_account_summary(self) -> dict:
         """
         Request account summary.
 
@@ -732,7 +729,7 @@ class AsyncIBGatewayBridge(QObject):
         """Get current connection state"""
         return self.state.value
 
-    def get_metrics(self) -> Dict:
+    def get_metrics(self) -> dict:
         """Get performance metrics"""
         return self.metrics.copy()
 

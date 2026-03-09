@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,7 +25,6 @@ Change Log:
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 class SpyderLogger:
     """
@@ -38,7 +36,7 @@ class SpyderLogger:
     _root_logger = None
 
     @classmethod
-    def initialize_logging(cls, log_level: str = "INFO", log_file: Optional[Path] = None):
+    def initialize_logging(cls, log_level: str = "INFO", log_file: Path | None = None):
         """Initialize logging system."""
         if cls._initialized:
             return

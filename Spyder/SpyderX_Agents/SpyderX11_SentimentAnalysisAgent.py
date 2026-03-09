@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,13 +24,10 @@ Change Log:
 # ==============================================================================
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Set, Union
+from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
-from enum import Enum, auto
-import json
 import re
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import warnings
 
@@ -39,11 +35,6 @@ import warnings
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-import pickle
-import hashlib
-import feedparser
-import aiohttp
 
 warnings.filterwarnings("ignore")
 
@@ -54,11 +45,7 @@ warnings.filterwarnings("ignore")
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
-    AutoModelForTokenClassification,
-    AutoModelForQuestionAnswering,
     pipeline,
-    BertTokenizer,
-    BertForSequenceClassification,
 )
 import torch
 import spacy
@@ -76,7 +63,6 @@ except ImportError:
     WHISPER_AVAILABLE = False
 
 # Web Scraping
-from bs4 import BeautifulSoup
 import praw  # Reddit API
 import tweepy  # Twitter API
 
@@ -87,7 +73,6 @@ from googletrans import Translator
 # Topic Modeling
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
-from gensim import corpora, models
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -95,9 +80,7 @@ from gensim import corpora, models
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-    SENTIMENT_UPDATE_INTERVAL,
     MAX_SENTIMENT_HISTORY,
-    ALERT_THRESHOLDS,
 )
 import logging
 
@@ -148,7 +131,7 @@ class SentimentScore:
     source: str
     text_snippet: str
     timestamp: datetime
-    entities: List[str] = field(default_factory=list)
+    entities: list[str] = field(default_factory=list)
     language: str = "en"
 
     @property
@@ -197,7 +180,7 @@ class MarketEvent:
     description: str
     impact_score: float  # 0 to 1
     sentiment: float
-    entities: List[str]
+    entities: list[str]
     source: str
     timestamp: datetime
     predicted_duration: timedelta
@@ -209,14 +192,14 @@ class SentimentReport:
     """Comprehensive sentiment analysis report"""
 
     overall_sentiment: float
-    sentiment_distribution: Dict[str, float]
-    top_entities: List[Tuple[str, float]]
-    detected_events: List[MarketEvent]
+    sentiment_distribution: dict[str, float]
+    top_entities: list[tuple[str, float]]
+    detected_events: list[MarketEvent]
     sentiment_momentum: float
     regime: str  # 'bullish', 'bearish', 'neutral', 'mixed'
     confidence: float
-    key_themes: List[str]
-    warnings: List[str]
+    key_themes: list[str]
+    warnings: list[str]
 
 
 # ==============================================================================
@@ -230,7 +213,7 @@ class EnhancedSentimentAnalysisAgent:
     news, and social media to provide comprehensive market sentiment insights.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize enhanced sentiment analysis agent"""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
@@ -357,7 +340,7 @@ class EnhancedSentimentAnalysisAgent:
 
     async def analyze_earnings_call(
         self, transcript: str, company: str, quarter: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze earnings call transcript for sentiment and key insights.
 
@@ -440,7 +423,7 @@ class EnhancedSentimentAnalysisAgent:
             )
             return {}
 
-    def _split_earnings_sections(self, transcript: str) -> Dict[str, str]:
+    def _split_earnings_sections(self, transcript: str) -> dict[str, str]:
         """Split earnings transcript into logical sections"""
         sections = {"prepared_remarks": "", "guidance": "", "qa": ""}
 
@@ -514,7 +497,7 @@ class EnhancedSentimentAnalysisAgent:
 
     def _extract_key_quotes(
         self, text: str, sentiment: SentimentScore
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Extract impactful quotes from text"""
         sentences = sent_tokenize(text)
         quotes = []
@@ -562,8 +545,8 @@ class EnhancedSentimentAnalysisAgent:
     # ==========================================================================
 
     async def analyze_fed_communication(
-        self, text: str, comm_type: str, speaker: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, text: str, comm_type: str, speaker: str | None = None
+    ) -> dict[str, Any]:
         """
         Analyze Federal Reserve communications for policy signals.
 
@@ -661,7 +644,7 @@ class EnhancedSentimentAnalysisAgent:
             )
             return {}
 
-    def _analyze_topic_sentiment(self, text: str, topic: str) -> Dict[str, Any]:
+    def _analyze_topic_sentiment(self, text: str, topic: str) -> dict[str, Any]:
         """Analyze sentiment for specific topic within text"""
         # Extract sentences mentioning topic
         sentences = sent_tokenize(text)
@@ -680,7 +663,7 @@ class EnhancedSentimentAnalysisAgent:
             "key_statements": topic_sentences[:3],
         }
 
-    def _extract_rate_implications(self, text: str) -> Dict[str, Any]:
+    def _extract_rate_implications(self, text: str) -> dict[str, Any]:
         """Extract interest rate implications from Fed text"""
         implications = {
             "direction": "neutral",
@@ -720,7 +703,7 @@ class EnhancedSentimentAnalysisAgent:
 
         return implications
 
-    def _extract_policy_phrases(self, text: str) -> List[str]:
+    def _extract_policy_phrases(self, text: str) -> list[str]:
         """Extract key policy-related phrases"""
         # Key Fed phrases to look for
         key_patterns = [
@@ -743,8 +726,8 @@ class EnhancedSentimentAnalysisAgent:
     # ==========================================================================
 
     async def analyze_multilingual_news(
-        self, articles: List[Dict[str, str]]
-    ) -> Dict[str, Any]:
+        self, articles: list[dict[str, str]]
+    ) -> dict[str, Any]:
         """
         Analyze news articles in multiple languages.
 
@@ -833,9 +816,11 @@ class EnhancedSentimentAnalysisAgent:
     # ==========================================================================
 
     async def analyze_social_media(
-        self, platforms: List[str] = ["reddit", "twitter"]
-    ) -> Dict[str, Any]:
+        self, platforms: list[str] = None
+    ) -> dict[str, Any]:
         """Analyze sentiment across social media platforms"""
+        if platforms is None:
+            platforms = ["reddit", "twitter"]
         results = {}
 
         if "reddit" in platforms and self.reddit_client:
@@ -859,7 +844,7 @@ class EnhancedSentimentAnalysisAgent:
 
         return {}
 
-    async def _analyze_reddit(self) -> Dict[str, Any]:
+    async def _analyze_reddit(self) -> dict[str, Any]:
         """Analyze Reddit sentiment from relevant subreddits"""
         subreddits = ["wallstreetbets", "stocks", "options", "investing"]
         posts_analyzed = 0
@@ -916,7 +901,7 @@ class EnhancedSentimentAnalysisAgent:
             self.logger.error(f"Reddit analysis error: {e}")
             return {}
 
-    async def _analyze_twitter(self) -> Dict[str, Any]:
+    async def _analyze_twitter(self) -> dict[str, Any]:
         """Analyze Twitter/X sentiment for market-related tweets"""
         queries = ["$SPY", "stock market", "Federal Reserve", "S&P500"]
         tweets_analyzed = 0
@@ -959,7 +944,7 @@ class EnhancedSentimentAnalysisAgent:
     # ENTITY TRACKING
     # ==========================================================================
 
-    async def _extract_entities(self, text: str) -> List[str]:
+    async def _extract_entities(self, text: str) -> list[str]:
         """Extract named entities from text"""
         entities = set()
 
@@ -972,7 +957,7 @@ class EnhancedSentimentAnalysisAgent:
                     entities.add(entity["word"])
 
             # Also check for known entities
-            for category, entity_list in ENTITY_CATEGORIES.items():
+            for _category, entity_list in ENTITY_CATEGORIES.items():
                 for entity in entity_list:
                     if entity.lower() in text.lower():
                         entities.add(entity)
@@ -1050,7 +1035,7 @@ class EnhancedSentimentAnalysisAgent:
         """Analyze sentiment using FinBERT"""
         # Truncate to model max length
         max_length = 512
-        tokens = self.tokenizers["finbert"].encode(
+        self.tokenizers["finbert"].encode(
             text, truncation=True, max_length=max_length
         )
 
@@ -1119,7 +1104,7 @@ class EnhancedSentimentAnalysisAgent:
     # TOPIC MODELING
     # ==========================================================================
 
-    def _extract_topics(self, text: str, num_topics: int = 5) -> List[str]:
+    def _extract_topics(self, text: str, num_topics: int = 5) -> list[str]:
         """Extract main topics from text using LDA"""
         try:
             # Tokenize and clean
@@ -1146,7 +1131,7 @@ class EnhancedSentimentAnalysisAgent:
             feature_names = vectorizer.get_feature_names_out()
             topics = []
 
-            for topic_idx, topic in enumerate(lda.components_):
+            for _topic_idx, topic in enumerate(lda.components_):
                 top_features_idx = topic.argsort()[-5:][::-1]
                 top_features = [feature_names[i] for i in top_features_idx]
                 topics.append(" ".join(top_features[:3]))
@@ -1161,7 +1146,7 @@ class EnhancedSentimentAnalysisAgent:
     # EVENT DETECTION
     # ==========================================================================
 
-    def _check_earnings_event(self, analysis: Dict[str, Any]) -> Optional[MarketEvent]:
+    def _check_earnings_event(self, analysis: dict[str, Any]) -> MarketEvent | None:
         """Check if earnings analysis represents significant event"""
         sentiment = analysis["overall_sentiment"]
         guidance = analysis.get("guidance_sentiment", 0)
@@ -1239,7 +1224,7 @@ class EnhancedSentimentAnalysisAgent:
             sentiments = []
             weights = []
 
-            for i, result in enumerate(results):
+            for _i, result in enumerate(results):
                 if isinstance(result, dict) and "overall_sentiment" in result:
                     sentiments.append(result["overall_sentiment"])
                     weights.append(1.0)  # Could use source weights
@@ -1315,7 +1300,7 @@ class EnhancedSentimentAnalysisAgent:
 
         return recent_avg - older_avg
 
-    def _get_recent_themes(self) -> List[str]:
+    def _get_recent_themes(self) -> list[str]:
         """Get recent dominant themes"""
         themes = defaultdict(int)
 
@@ -1327,7 +1312,7 @@ class EnhancedSentimentAnalysisAgent:
             :5
         ]
 
-    def _generate_warnings(self) -> List[str]:
+    def _generate_warnings(self) -> list[str]:
         """Generate sentiment-based warnings"""
         warnings = []
 
@@ -1353,11 +1338,11 @@ class EnhancedSentimentAnalysisAgent:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_module_instance: Optional[EnhancedSentimentAnalysisAgent] = None
+_module_instance: EnhancedSentimentAnalysisAgent | None = None
 
 
 def create_sentiment_analysis_agent(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> EnhancedSentimentAnalysisAgent:
     """Factory function to create sentiment analysis agent"""
     global _module_instance
@@ -1366,7 +1351,7 @@ def create_sentiment_analysis_agent(
     return _module_instance
 
 
-def get_sentiment_analysis_agent() -> Optional[EnhancedSentimentAnalysisAgent]:
+def get_sentiment_analysis_agent() -> EnhancedSentimentAnalysisAgent | None:
     """Get existing instance"""
     return _module_instance
 
@@ -1406,7 +1391,7 @@ async def main():
 
     if args.earnings:
         logging.info("\n=== Analyzing Earnings Call ===")
-        with open(args.earnings, "r") as f:
+        with open(args.earnings) as f:
             transcript = f.read()
 
         analysis = await agent.analyze_earnings_call(
@@ -1422,7 +1407,7 @@ async def main():
 
     if args.fed:
         logging.info("\n=== Analyzing Fed Communication ===")
-        with open(args.fed, "r") as f:
+        with open(args.fed) as f:
             text = f.read()
 
         analysis = await agent.analyze_fed_communication(

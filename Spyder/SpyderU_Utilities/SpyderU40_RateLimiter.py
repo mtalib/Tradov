@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,9 +24,7 @@ Change Log:
 # ==============================================================================
 import asyncio
 import time
-from typing import Optional, Dict
 from dataclasses import dataclass, field
-from collections import defaultdict
 from functools import wraps
 import threading
 
@@ -124,7 +121,7 @@ class RateLimiter:
     def __init__(
         self,
         requests_per_second: float,
-        burst_size: Optional[float] = None
+        burst_size: float | None = None
     ):
         """
         Initialize rate limiter.
@@ -147,7 +144,7 @@ class RateLimiter:
     def from_per_minute(
         cls,
         requests_per_minute: float,
-        burst_size: Optional[float] = None
+        burst_size: float | None = None
     ) -> 'RateLimiter':
         """
         Create rate limiter from requests per minute.
@@ -201,15 +198,15 @@ class MultiRateLimiter:
     """
 
     def __init__(self):
-        self._limiters: Dict[str, RateLimiter] = {}
-        self._defaults: Dict[str, dict] = {}
+        self._limiters: dict[str, RateLimiter] = {}
+        self._defaults: dict[str, dict] = {}
         self.lock = threading.Lock()
 
     def register_default(
         self,
         name: str,
         requests_per_second: float,
-        burst_size: Optional[float] = None
+        burst_size: float | None = None
     ):
         """
         Register a default configuration for lazy initialization.
@@ -228,7 +225,7 @@ class MultiRateLimiter:
         self,
         name: str,
         requests_per_second: float,
-        burst_size: Optional[float] = None
+        burst_size: float | None = None
     ):
         """
         Add a named rate limit.
@@ -259,7 +256,7 @@ class MultiRateLimiter:
 
         await self._limiters[name].acquire(tokens)
 
-    def get_stats(self) -> Dict[str, dict]:
+    def get_stats(self) -> dict[str, dict]:
         """
         Get statistics for all rate limiters.
 
@@ -286,9 +283,9 @@ _global_limiters.register_default("databento", requests_per_second=10)
 
 
 def rate_limit(
-    requests_per_second: Optional[float] = None,
-    burst_size: Optional[float] = None,
-    service: Optional[str] = None
+    requests_per_second: float | None = None,
+    burst_size: float | None = None,
+    service: str | None = None
 ):
     """
     Decorator for rate-limited functions.

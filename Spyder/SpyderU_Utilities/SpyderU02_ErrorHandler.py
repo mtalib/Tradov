@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,12 +24,11 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from typing import Optional, Dict, Any, Callable, List, Union, Type
+from typing import Any, Callable, Union
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
-import logging
 import functools
 
 # ==============================================================================
@@ -104,15 +102,15 @@ class ErrorContext:
     error_message: str = ""
     stack_trace: str = ""
     component_name: str = ""
-    strategy_name: Optional[str] = None
-    order_id: Optional[str] = None
-    symbol: Optional[str] = None
-    additional_data: Dict[str, Any] = field(default_factory=dict)
+    strategy_name: str | None = None
+    order_id: str | None = None
+    symbol: str | None = None
+    additional_data: dict[str, Any] = field(default_factory=dict)
     recovery_attempts: int = 0
     resolved: bool = False
-    resolution_time: Optional[datetime] = None
-    module_name: Optional[str] = None
-    function_name: Optional[str] = None
+    resolution_time: datetime | None = None
+    module_name: str | None = None
+    function_name: str | None = None
 
 
 @dataclass
@@ -124,8 +122,8 @@ class RecoveryStrategy:
     retry_delay: float = 1.0
     backoff_multiplier: float = 2.0
     timeout: float = 30.0
-    callback: Optional[Callable] = None
-    conditions: Dict[str, Any] = field(default_factory=dict)
+    callback: Callable | None = None
+    conditions: dict[str, Any] = field(default_factory=dict)
 
 
 # ==============================================================================
@@ -214,12 +212,12 @@ class SpyderErrorHandler:
 
         # Error tracking
         self.error_history: deque = deque(maxlen=MAX_ERROR_HISTORY)
-        self.error_counts: Dict[str, int] = defaultdict(int)
-        self.strategy_errors: Dict[str, List[ErrorContext]] = defaultdict(list)
+        self.error_counts: dict[str, int] = defaultdict(int)
+        self.strategy_errors: dict[str, list[ErrorContext]] = defaultdict(list)
         self.critical_error_count = 0
 
         # Recovery strategies
-        self.recovery_strategies: Dict[str, RecoveryStrategy] = (
+        self.recovery_strategies: dict[str, RecoveryStrategy] = (
             self._init_recovery_strategies()
         )
 
@@ -227,18 +225,18 @@ class SpyderErrorHandler:
         self._lock = threading.RLock()
 
         # Callbacks
-        self.error_callbacks: List[Callable] = []
-        self.shutdown_callbacks: List[Callable] = []
+        self.error_callbacks: list[Callable] = []
+        self.shutdown_callbacks: list[Callable] = []
 
         # Component references (weak to avoid circular refs)
-        self.components: Dict[str, weakref.ref] = {}
+        self.components: dict[str, weakref.ref] = {}
 
         self.logger.info("SpyderErrorHandler initialized")
 
     # ==========================================================================
     # INITIALIZATION
     # ==========================================================================
-    def _init_recovery_strategies(self) -> Dict[str, RecoveryStrategy]:
+    def _init_recovery_strategies(self) -> dict[str, RecoveryStrategy]:
         """Initialize default recovery strategies"""
         return {
             # Connection errors
@@ -286,10 +284,10 @@ class SpyderErrorHandler:
         self,
         error: Union[Exception, str],
         component_name: str,
-        strategy_name: Optional[str] = None,
-        order_id: Optional[str] = None,
-        symbol: Optional[str] = None,
-        additional_data: Optional[Dict[str, Any]] = None,
+        strategy_name: str | None = None,
+        order_id: str | None = None,
+        symbol: str | None = None,
+        additional_data: dict[str, Any] | None = None,
     ) -> ErrorContext:
         """
         Handle an error with appropriate recovery strategy.
@@ -322,7 +320,7 @@ class SpyderErrorHandler:
                 self._initiate_shutdown(error_context)
 
             # Attempt recovery
-            recovery_success = self._attempt_recovery(error_context)
+            self._attempt_recovery(error_context)
 
             # Emit error event if event manager is available
             if self.event_manager:
@@ -337,15 +335,14 @@ class SpyderErrorHandler:
         self,
         error: Union[Exception, str],
         component_name: str,
-        strategy_name: Optional[str] = None,
-        order_id: Optional[str] = None,
-        symbol: Optional[str] = None,
-        additional_data: Optional[Dict[str, Any]] = None,
+        strategy_name: str | None = None,
+        order_id: str | None = None,
+        symbol: str | None = None,
+        additional_data: dict[str, Any] | None = None,
     ) -> ErrorContext:
         """Create error context from exception or error string"""
         # Handle string errors (convert to a generic error message)
         if isinstance(error, str):
-            error_message = error
             category = ErrorCategory.UNKNOWN
             severity = ErrorSeverity.MEDIUM
             module_name = None
@@ -360,7 +357,7 @@ class SpyderErrorHandler:
                 severity = self._assess_severity(error, category)
 
             # Get module and function info from traceback
-            error_message = str(error)
+            str(error)
             if hasattr(error, "__traceback__") and error.__traceback__ is not None:
                 tb = traceback.extract_tb(error.__traceback__)
                 if tb:
@@ -391,7 +388,6 @@ class SpyderErrorHandler:
 
     def _categorize_error(self, error: Exception) -> ErrorCategory:
         """Categorize error based on type and content"""
-        error_type = type(error).__name__
         error_msg = str(error).lower()
 
         # Connection errors
@@ -508,10 +504,7 @@ class SpyderErrorHandler:
                 return True
 
         # High error rate
-        if self.get_error_rate() > MAX_ERROR_RATE:
-            return True
-
-        return False
+        return self.get_error_rate() > MAX_ERROR_RATE
 
     def _initiate_shutdown(self, error_context: ErrorContext):
         """Initiate shutdown based on error context"""
@@ -569,7 +562,7 @@ class SpyderErrorHandler:
                 error_context.recovery_attempts += 1
 
                 # Calculate delay with backoff
-                delay = recovery_strategy.retry_delay * (
+                recovery_strategy.retry_delay * (
                     recovery_strategy.backoff_multiplier
                     ** (error_context.recovery_attempts - 1)
                 )
@@ -751,7 +744,7 @@ class SpyderErrorHandler:
         self.error_callbacks.append(callback)
 
     def register_shutdown_callback(
-        self, callback: Callable[[str, Optional[str], ErrorContext], None]
+        self, callback: Callable[[str, str | None, ErrorContext], None]
     ):
         """Register shutdown callback"""
         self.shutdown_callbacks.append(callback)
@@ -763,7 +756,7 @@ class SpyderErrorHandler:
     # ==========================================================================
     # REPORTING
     # ==========================================================================
-    def get_error_summary(self) -> Dict[str, Any]:
+    def get_error_summary(self) -> dict[str, Any]:
         """Get error summary statistics"""
         with self._lock:
             return {
@@ -784,7 +777,7 @@ class SpyderErrorHandler:
                 ],
             }
 
-    def get_strategy_error_report(self, strategy_name: str) -> Dict[str, Any]:
+    def get_strategy_error_report(self, strategy_name: str) -> dict[str, Any]:
         """Get error report for specific strategy"""
         with self._lock:
             if strategy_name not in self.strategy_errors:
@@ -815,7 +808,7 @@ class SpyderErrorHandler:
     # DECORATORS
     # ==========================================================================
     @staticmethod
-    def error_handler(component_name: str, strategy_name: Optional[str] = None):
+    def error_handler(component_name: str, strategy_name: str | None = None):
         """
         Decorator for automatic error handling.
 
@@ -857,7 +850,7 @@ class SpyderErrorHandler:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_error_handler_instance: Optional[SpyderErrorHandler] = None
+_error_handler_instance: SpyderErrorHandler | None = None
 _error_handler_lock = threading.Lock()
 
 
@@ -884,36 +877,22 @@ def reset_error_handler():
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing
-    print("Testing SpyderErrorHandler...")
 
     # Create error handler
     handler = SpyderErrorHandler()
 
     # Test different error types
-    print("\n1. Testing connection error:")
     try:
         raise ConnectionError("Failed to connect to broker")
     except Exception as e:
         context = handler.handle_error(e, "BrokerConnection")
-        print(f"   Error ID: {context.error_id}")
-        print(f"   Category: {context.category.value}")
-        print(f"   Severity: {context.severity.value}")
 
-    print("\n2. Testing risk error:")
     try:
         raise RiskError("Position limit exceeded", symbol="SPY")
     except Exception as e:
         context = handler.handle_error(
             e, "RiskManager", strategy_name="IronCondor", symbol="SPY"
         )
-        print(f"   Error ID: {context.error_id}")
-        print(f"   Category: {context.category.value}")
-        print(f"   Severity: {context.severity.value}")
 
-    print("\n3. Testing error summary:")
     summary = handler.get_error_summary()
-    print(f"   Total errors: {summary['total_errors']}")
-    print(f"   Critical errors: {summary['critical_errors']}")
-    print(f"   Error rate: {summary['error_rate']:.2f} errors/min")
 
-    print("\n✅ SpyderErrorHandler test completed")

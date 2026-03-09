@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -416,7 +415,7 @@ class TestDatabentoHistorical:
                 client = db_mod.DatabentoClient(api_key="test_key")
                 client._historical = mock_databento_historical
 
-                df = client.get_historical_trades("SPY", "2026-01-01", "2026-01-31")
+                client.get_historical_trades("SPY", "2026-01-01", "2026-01-31")
 
                 call_kwargs = mock_databento_historical.timeseries.get_range.call_args
                 assert call_kwargs is not None

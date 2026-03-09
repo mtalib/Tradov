@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -545,26 +544,30 @@ class TestClearHistory:
 class TestCallbackManagement:
     def test_add_alert_callback(self):
         m = _fresh_monitor()
-        cb = lambda a: None
+        def cb(a):
+            return None
         m.add_alert_callback(cb)
         assert cb in m.alert_callbacks
 
     def test_add_stats_callback(self):
         m = _fresh_monitor()
-        cb = lambda s: None
+        def cb(s):
+            return None
         m.add_stats_callback(cb)
         assert cb in m.stats_callbacks
 
     def test_remove_alert_callback(self):
         m = _fresh_monitor()
-        cb = lambda a: None
+        def cb(a):
+            return None
         m.add_alert_callback(cb)
         m.remove_callback(cb)
         assert cb not in m.alert_callbacks
 
     def test_remove_stats_callback(self):
         m = _fresh_monitor()
-        cb = lambda s: None
+        def cb(s):
+            return None
         m.add_stats_callback(cb)
         m.remove_callback(cb)
         assert cb not in m.stats_callbacks

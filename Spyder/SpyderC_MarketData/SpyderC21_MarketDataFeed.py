@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -37,31 +36,19 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
 import threading
 import asyncio
-import json
-import uuid
-import warnings
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple
-from dataclasses import dataclass, field, asdict
-from collections import defaultdict, deque
+from datetime import datetime
+from typing import Any, Callable
+from dataclasses import dataclass, field
+from collections import defaultdict
 from enum import Enum, auto
-from pathlib import Path
-import copy
-import queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from threading import Lock, Event as ThreadEvent, RLock
+from threading import Event as ThreadEvent, RLock
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -108,11 +95,11 @@ class DataQuality(Enum):
 @dataclass
 class MarketDataConfig:
     """Configuration for market data feed"""
-    symbols: List[str]
-    options_symbols: List[str] = field(default_factory=list)
-    update_frequencies: Dict[str, float] = field(default_factory=dict)
-    exchanges: Dict[str, str] = field(default_factory=dict)
-    currencies: Dict[str, str] = field(default_factory=dict)
+    symbols: list[str]
+    options_symbols: list[str] = field(default_factory=list)
+    update_frequencies: dict[str, float] = field(default_factory=dict)
+    exchanges: dict[str, str] = field(default_factory=dict)
+    currencies: dict[str, str] = field(default_factory=dict)
 
     # Data quality settings
     staleness_threshold: float = DATA_STALENESS_THRESHOLD
@@ -128,11 +115,11 @@ class MarketDataTick:
     symbol: str
     timestamp: datetime
     last_price: float
-    bid_price: Optional[float] = None
-    ask_price: Optional[float] = None
-    bid_size: Optional[int] = None
-    ask_size: Optional[int] = None
-    volume: Optional[int] = None
+    bid_price: float | None = None
+    ask_price: float | None = None
+    bid_size: int | None = None
+    ask_size: int | None = None
+    volume: int | None = None
     exchange: str = "SMART"
     currency: str = "USD"
 
@@ -188,8 +175,8 @@ class MarketDataFeed:
         self.connect_api = connect_api
 
         # Data management
-        self._market_data: Dict[str, MarketDataTick] = {}
-        self._data_callbacks: Dict[str, List[Callable]] = defaultdict(list)
+        self._market_data: dict[str, MarketDataTick] = {}
+        self._data_callbacks: dict[str, list[Callable]] = defaultdict(list)
         self._data_lock = RLock()
         self._shutdown_event = ThreadEvent()
 
@@ -197,7 +184,7 @@ class MarketDataFeed:
         self.state = DataFeedState.DISCONNECTED
 
         # Data quality monitoring
-        self._quality_metrics: Dict[str, DataQualityMetrics] = {}
+        self._quality_metrics: dict[str, DataQualityMetrics] = {}
         self._last_quality_check = datetime.now()
 
         # Metrics
@@ -286,7 +273,7 @@ class MarketDataFeed:
     # DATA OPERATIONS
     # ==========================================================================
 
-    def get_latest_data(self, symbol: str) -> Optional[MarketDataTick]:
+    def get_latest_data(self, symbol: str) -> MarketDataTick | None:
         """
         Get the latest market data for a symbol.
 
@@ -299,7 +286,7 @@ class MarketDataFeed:
         with self._data_lock:
             return self._market_data.get(symbol)
 
-    def get_latest_data_multiple(self, symbols: List[str]) -> Dict[str, MarketDataTick]:
+    def get_latest_data_multiple(self, symbols: list[str]) -> dict[str, MarketDataTick]:
         """
         Get the latest market data for multiple symbols.
 
@@ -376,7 +363,7 @@ class MarketDataFeed:
 
         self.logger.info(f"Subscribed to {len(self.config.symbols)} equity symbols and {len(self.config.options_symbols)} options symbols")
 
-    async def _handle_market_data_update(self, data: Dict[str, Any]):
+    async def _handle_market_data_update(self, data: dict[str, Any]):
         """
         Handle market data update message.
 
@@ -419,7 +406,7 @@ class MarketDataFeed:
             self.logger.error(f"Error handling market data update: {e}")
             self.error_handler.handle_error(e, "_handle_market_data_update")
 
-    async def _handle_error_message(self, data: Dict[str, Any]):
+    async def _handle_error_message(self, data: dict[str, Any]):
         """
         Handle error message.
 
@@ -591,7 +578,7 @@ class MarketDataFeed:
     # PUBLIC UTILITY METHODS
     # ==========================================================================
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         Get current data feed status.
 
@@ -621,7 +608,7 @@ class MarketDataFeed:
                 'start_time': self.metrics['start_time'].isoformat()
             }
 
-    def get_quality_metrics(self) -> Dict[str, DataQualityMetrics]:
+    def get_quality_metrics(self) -> dict[str, DataQualityMetrics]:
         """
         Get data quality metrics.
 
@@ -631,7 +618,7 @@ class MarketDataFeed:
         with self._data_lock:
             return dict(self._quality_metrics)
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         Get data feed metrics.
 
@@ -676,13 +663,7 @@ def create_market_data_feed(
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("="*80)
-    print("SPYDER Market Data Feed Test")
-    print("="*80)
 
     # This would require actual Connect API to test
-    print("Market data feed module loaded successfully")
 
-    print("\n" + "="*80)
-    print("Module testing completed.")
-    print("="*80)
+    pass

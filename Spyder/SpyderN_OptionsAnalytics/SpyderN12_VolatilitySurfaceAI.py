@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,19 +23,16 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from collections import defaultdict, deque
-from enum import Enum, auto
-import json
-from pathlib import Path
+from collections import deque
+import asyncio
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
 import pickle
 
 warnings.filterwarnings("ignore")
@@ -56,19 +52,14 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 
 # Visualization
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-import plotly.express as px
-from matplotlib import cm
 
 # Quantitative Finance
 try:
-    import QuantLib as ql
+    import QuantLib as ql  # noqa: F401
 
     QUANTLIB_AVAILABLE = True
 except ImportError:
@@ -118,8 +109,8 @@ class VolatilityPoint:
     moneyness: float
     time_to_maturity: float
     implied_vol: float
-    bid_vol: Optional[float] = None
-    ask_vol: Optional[float] = None
+    bid_vol: float | None = None
+    ask_vol: float | None = None
     volume: int = 0
     open_interest: int = 0
     last_update: datetime = field(default_factory=datetime.now)
@@ -136,8 +127,8 @@ class VolatilitySurface:
     implied_vols: np.ndarray  # 2D array [strikes x expiries]
     moneyness_grid: np.ndarray
     time_grid: np.ndarray
-    bid_vols: Optional[np.ndarray] = None
-    ask_vols: Optional[np.ndarray] = None
+    bid_vols: np.ndarray | None = None
+    ask_vols: np.ndarray | None = None
 
     def get_vol(self, strike: float, expiry: float) -> float:
         """Interpolate volatility for given strike and expiry"""
@@ -147,12 +138,12 @@ class VolatilitySurface:
         )
         return float(f(expiry, strike))
 
-    def get_smile(self, expiry: float) -> Tuple[np.ndarray, np.ndarray]:
+    def get_smile(self, expiry: float) -> tuple[np.ndarray, np.ndarray]:
         """Get volatility smile for given expiry"""
         idx = np.argmin(np.abs(self.expiries - expiry))
         return self.strikes, self.implied_vols[:, idx]
 
-    def get_term_structure(self, strike: float) -> Tuple[np.ndarray, np.ndarray]:
+    def get_term_structure(self, strike: float) -> tuple[np.ndarray, np.ndarray]:
         """Get term structure for given strike"""
         idx = np.argmin(np.abs(self.strikes - strike))
         return self.expiries, self.implied_vols[idx, :]
@@ -167,7 +158,7 @@ class SurfaceMetrics:
     kurtosis: float  # 25-delta butterfly
     term_structure_slope: float
     surface_smoothness: float
-    arbitrage_violations: List[Dict[str, Any]]
+    arbitrage_violations: list[dict[str, Any]]
     smile_asymmetry: float
 
 
@@ -222,8 +213,8 @@ class SABRModel:
         return A * (z / x) * B
 
     def calibrate(
-        self, market_data: List[VolatilityPoint], spot: float
-    ) -> Dict[str, float]:
+        self, market_data: list[VolatilityPoint], spot: float
+    ) -> dict[str, float]:
         """Calibrate SABR parameters to market data"""
 
         def objective(params):
@@ -302,7 +293,7 @@ class VolatilitySurfaceLSTM(nn.Module):
         self.dropout = nn.Dropout(0.3)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x: torch.Tensor, hidden: Optional[Tuple] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, hidden: tuple | None = None) -> torch.Tensor:
         # LSTM forward pass
         lstm_out, hidden = self.lstm(x, hidden)
 
@@ -342,7 +333,7 @@ class VolatilitySurfaceAI:
     comprehensive volatility surface analysis and prediction.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize volatility surface AI"""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
@@ -477,7 +468,7 @@ class VolatilitySurfaceAI:
 
     def _extract_market_points(
         self, option_chain: OptionChain, spot_price: float
-    ) -> List[VolatilityPoint]:
+    ) -> list[VolatilityPoint]:
         """Extract volatility points from option chain"""
         points = []
 
@@ -524,8 +515,8 @@ class VolatilitySurfaceAI:
         return points
 
     def _create_surface_grid(
-        self, spot_price: float, market_points: List[VolatilityPoint]
-    ) -> Tuple:
+        self, spot_price: float, market_points: list[VolatilityPoint]
+    ) -> tuple:
         """Create strike and expiry grid for surface"""
         # Strike grid (in terms of moneyness)
         min_strike = spot_price * MIN_MONEYNESS
@@ -566,7 +557,7 @@ class VolatilitySurfaceAI:
     # ==========================================================================
 
     async def _predict_surface_adjustment(
-        self, spot_price: float, market_points: List[VolatilityPoint]
+        self, spot_price: float, market_points: list[VolatilityPoint]
     ) -> np.ndarray:
         """Predict surface adjustment using LSTM"""
         try:
@@ -594,7 +585,7 @@ class VolatilitySurfaceAI:
             return np.zeros((SURFACE_GRID_SIZE, SURFACE_GRID_SIZE))
 
     def _prepare_ml_features(
-        self, spot_price: float, market_points: List[VolatilityPoint]
+        self, spot_price: float, market_points: list[VolatilityPoint]
     ) -> np.ndarray:
         """Prepare features for ML models"""
         features = []
@@ -671,7 +662,7 @@ class VolatilitySurfaceAI:
     def _apply_market_constraints(
         self,
         surface: np.ndarray,
-        market_points: List[VolatilityPoint],
+        market_points: list[VolatilityPoint],
         strikes: np.ndarray,
         expiries: np.ndarray,
     ) -> np.ndarray:
@@ -769,7 +760,7 @@ class VolatilitySurfaceAI:
             smile_asymmetry=asymmetry,
         )
 
-    def _detect_arbitrage_violations(self, surface: VolatilitySurface) -> List[Dict]:
+    def _detect_arbitrage_violations(self, surface: VolatilitySurface) -> list[dict]:
         """Detect arbitrage opportunities in surface"""
         violations = []
 
@@ -821,7 +812,7 @@ class VolatilitySurfaceAI:
         vol_surface: VolatilitySurface,
         spot_price: float,
         risk_free_rate: float = 0.05,
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """Calculate Greeks surfaces (delta, gamma, vega, theta)"""
         greeks_surfaces = {
             "delta": np.zeros_like(vol_surface.implied_vols),
@@ -893,9 +884,11 @@ class VolatilitySurfaceAI:
         return fig
 
     def plot_volatility_smile(
-        self, surface: VolatilitySurface, expiry_days: List[int] = [7, 30, 60, 90]
+        self, surface: VolatilitySurface, expiry_days: list[int] = None
     ) -> go.Figure:
         """Plot volatility smiles for different expiries"""
+        if expiry_days is None:
+            expiry_days = [7, 30, 60, 90]
         fig = go.Figure()
 
         for days in expiry_days:
@@ -934,9 +927,11 @@ class VolatilitySurfaceAI:
     def plot_term_structure(
         self,
         surface: VolatilitySurface,
-        moneyness_levels: List[float] = [0.9, 0.95, 1.0, 1.05, 1.1],
+        moneyness_levels: list[float] = None,
     ) -> go.Figure:
         """Plot volatility term structure"""
+        if moneyness_levels is None:
+            moneyness_levels = [0.9, 0.95, 1.0, 1.05, 1.1]
         fig = go.Figure()
 
         for moneyness in moneyness_levels:
@@ -1029,7 +1024,7 @@ class VolatilitySurfaceAI:
     # REAL-TIME UPDATES
     # ==========================================================================
 
-    async def update_surface_realtime(self, new_quote: Dict[str, Any]) -> bool:
+    async def update_surface_realtime(self, new_quote: dict[str, Any]) -> bool:
         """Update surface with real-time quote"""
         if not self.current_surface:
             return False
@@ -1146,7 +1141,7 @@ class VolatilitySurfaceAI:
         self.current_surface = surface
         return surface
 
-    def get_current_metrics(self) -> Optional[SurfaceMetrics]:
+    def get_current_metrics(self) -> SurfaceMetrics | None:
         """Get metrics for current surface"""
         if self.current_surface:
             return self._calculate_surface_metrics(self.current_surface)
@@ -1156,11 +1151,11 @@ class VolatilitySurfaceAI:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_module_instance: Optional[VolatilitySurfaceAI] = None
+_module_instance: VolatilitySurfaceAI | None = None
 
 
 def create_volatility_surface_ai(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> VolatilitySurfaceAI:
     """Factory function to create volatility surface AI"""
     global _module_instance
@@ -1169,7 +1164,7 @@ def create_volatility_surface_ai(
     return _module_instance
 
 
-def get_volatility_surface_ai() -> Optional[VolatilitySurfaceAI]:
+def get_volatility_surface_ai() -> VolatilitySurfaceAI | None:
     """Get existing instance"""
     return _module_instance
 
@@ -1229,7 +1224,7 @@ async def main():
         surface = await surface_ai.build_surface(option_chain, spot)
 
         if surface:
-            logging.info(f"Surface built successfully!")
+            logging.info("Surface built successfully!")
             logging.info(f"Strikes: {len(surface.strikes)}")
             logging.info(f"Expiries: {len(surface.expiries)}")
             logging.info(f"ATM Vol: {surface.implied_vols[25, 5]:.1%}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -23,19 +22,13 @@ Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import ast
-import json
 import os
 import re
-import subprocess
 import sys
-import tokenize
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
 
 import autopep8
 import logging
@@ -154,7 +147,7 @@ class SyntaxIssue:
     error_type: ErrorType
     message: str
     code_line: str
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
     fixable: bool = False
     fixed: bool = False
 
@@ -165,11 +158,11 @@ class ValidationResult:
 
     file_path: Path
     valid: bool
-    issues: List[SyntaxIssue] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    fix_status: Optional[FixStatus] = None
-    original_content: Optional[str] = None
-    fixed_content: Optional[str] = None
+    issues: list[SyntaxIssue] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    fix_status: FixStatus | None = None
+    original_content: str | None = None
+    fixed_content: str | None = None
 
 
 @dataclass
@@ -183,8 +176,8 @@ class ValidationReport:
     total_issues: int
     fixed_issues: int
     unfixable_issues: int
-    results_by_file: Dict[str, ValidationResult] = field(default_factory=dict)
-    summary_by_group: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    results_by_file: dict[str, ValidationResult] = field(default_factory=dict)
+    summary_by_group: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 # ==============================================================================
@@ -212,8 +205,8 @@ class SyntaxValidator:
         self.auto_fix = auto_fix
 
         # Validation state
-        self.results: Dict[str, ValidationResult] = {}
-        self.current_report: Optional[ValidationReport] = None
+        self.results: dict[str, ValidationResult] = {}
+        self.current_report: ValidationReport | None = None
 
         # Statistics
         self.stats = {
@@ -299,7 +292,7 @@ class SyntaxValidator:
 
         try:
             # Read file content
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
                 result.original_content = content
 
@@ -351,7 +344,7 @@ class SyntaxValidator:
     # SYNTAX CHECKING METHODS
     # ==========================================================================
 
-    def _check_syntax(self, file_path: Path, content: str) -> List[SyntaxIssue]:
+    def _check_syntax(self, file_path: Path, content: str) -> list[SyntaxIssue]:
         """Check for Python syntax errors using AST."""
         issues = []
 
@@ -375,7 +368,7 @@ class SyntaxValidator:
 
         return issues
 
-    def _check_indentation(self, content: str) -> List[SyntaxIssue]:
+    def _check_indentation(self, content: str) -> list[SyntaxIssue]:
         """Check for indentation issues."""
         issues = []
         lines = content.split("\n")
@@ -413,7 +406,7 @@ class SyntaxValidator:
 
         return issues
 
-    def _check_imports(self, content: str) -> List[SyntaxIssue]:
+    def _check_imports(self, content: str) -> list[SyntaxIssue]:
         """Check for import-related issues."""
         issues = []
 
@@ -441,7 +434,7 @@ class SyntaxValidator:
 
         return issues
 
-    def _check_patterns(self, content: str) -> List[SyntaxIssue]:
+    def _check_patterns(self, content: str) -> list[SyntaxIssue]:
         """Check for common syntax pattern issues."""
         issues = []
         lines = content.split("\n")
@@ -597,12 +590,12 @@ class SyntaxValidator:
     # UTILITY METHODS
     # ==========================================================================
 
-    def _find_python_files(self) -> List[Path]:
+    def _find_python_files(self) -> list[Path]:
         """Find all Python files in the project."""
         python_files = []
 
         for group in SPYDER_GROUPS:
-            group_dir = self.project_root / f"Spyder{group}_*"
+            self.project_root / f"Spyder{group}_*"
             for dir_path in self.project_root.glob(f"Spyder{group}_*"):
                 if dir_path.is_dir():
                     python_files.extend(dir_path.glob("*.py"))
@@ -645,7 +638,7 @@ class SyntaxValidator:
 
         return any(msg in error.msg.lower() for msg in fixable_messages)
 
-    def _suggest_fix(self, error: SyntaxError, code_line: str) -> Optional[str]:
+    def _suggest_fix(self, error: SyntaxError, code_line: str) -> str | None:
         """Suggest a fix for a syntax error."""
         msg = error.msg.lower()
 
@@ -660,7 +653,7 @@ class SyntaxValidator:
     # REPORTING METHODS
     # ==========================================================================
 
-    def generate_report(self, output_file: Optional[Path] = None) -> str:
+    def generate_report(self, output_file: Path | None = None) -> str:
         """
         Generate a detailed validation report.
 
@@ -823,4 +816,4 @@ def main():
 if __name__ == "__main__":
     main()
 else:
-    print("✅ Syntax Validator Module Loaded - Ready for validation")
+    pass

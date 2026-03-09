@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -61,7 +60,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Any, Callable
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from pathlib import Path
@@ -84,7 +83,6 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierAPIError,
     TradierAccountStream,
     AccountEvent,
-    build_option_symbol,
     create_tradier_client_from_env,
 )
 
@@ -95,7 +93,7 @@ DEFAULT_ORDER_TIMEOUT = 30.0
 ORDER_STATE_PERSISTENCE_INTERVAL = 60  # seconds
 
 # Tradier order status string → OrderState mapping
-TRADIER_STATUS_MAP: Dict[str, "OrderState"] = {}  # populated after OrderState defined
+TRADIER_STATUS_MAP: dict[str, "OrderState"] = {}  # populated after OrderState defined
 
 # ==============================================================================
 # ENUMS
@@ -175,46 +173,46 @@ class Order:
     """
     # Identity
     order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    tradier_order_id: Optional[int] = None  # Tradier's integer order ID
+    tradier_order_id: int | None = None  # Tradier's integer order ID
 
     # Core order fields
     symbol: str = ""
     side: str = "buy"                        # Tradier-style: buy, sell, buy_to_open, etc.
     order_type: str = "market"               # Tradier-style: market, limit, stop, stop_limit
     quantity: int = 0
-    price: Optional[float] = None            # Limit price
-    stop_price: Optional[float] = None       # Stop price
+    price: float | None = None            # Limit price
+    stop_price: float | None = None       # Stop price
     duration: str = "day"                     # day, gtc, pre, post
 
     # Security classification
     security_type: SecurityType = SecurityType.EQUITY
     order_class: str = "equity"              # equity, option, multileg, combo
-    option_symbol: Optional[str] = None      # OCC-format option symbol
+    option_symbol: str | None = None      # OCC-format option symbol
 
     # Options fields (for single-leg option orders)
-    expiry: Optional[str] = None             # YYYY-MM-DD
-    strike: Optional[float] = None
-    right: Optional[str] = None              # "call" or "put"
+    expiry: str | None = None             # YYYY-MM-DD
+    strike: float | None = None
+    right: str | None = None              # "call" or "put"
 
     # Multi-leg support
-    legs: List[OptionLeg] = field(default_factory=list)
+    legs: list[OptionLeg] = field(default_factory=list)
 
     # State tracking
     state: OrderState = field(default=OrderState.PENDING)
-    submitted_time: Optional[datetime] = None
+    submitted_time: datetime | None = None
     filled_quantity: int = 0
     remaining_quantity: int = 0
     average_fill_price: float = 0.0
     last_fill_price: float = 0.0
-    last_fill_time: Optional[datetime] = None
+    last_fill_time: datetime | None = None
 
     # Error / warning tracking
-    error_message: Optional[str] = None
-    warning_message: Optional[str] = None
+    error_message: str | None = None
+    warning_message: str | None = None
 
     # Metadata
-    strategy_name: Optional[str] = None
-    tag: Optional[str] = None               # Tradier order tag
+    strategy_name: str | None = None
+    tag: str | None = None               # Tradier order tag
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.now)
@@ -241,11 +239,11 @@ class OrderResult:
     """Result of an order operation (submit / cancel / modify)."""
     success: bool
     order_id: str
-    tradier_order_id: Optional[int] = None
+    tradier_order_id: int | None = None
     operation: str = ""          # submit, cancel, modify
-    message: Optional[str] = None
-    error_code: Optional[str] = None
-    raw_response: Optional[Dict[str, Any]] = None
+    message: str | None = None
+    error_code: str | None = None
+    raw_response: dict[str, Any] | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -253,14 +251,14 @@ class OrderResult:
 class ExecutionReport:
     """Execution / fill report."""
     order_id: str
-    tradier_order_id: Optional[int] = None
+    tradier_order_id: int | None = None
     symbol: str = ""
     side: str = ""
     quantity: int = 0
     price: float = 0.0
     execution_id: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
-    commission: Optional[float] = None
+    commission: float | None = None
 
 # ==============================================================================
 # MAIN CLASS
@@ -288,7 +286,7 @@ class OrderManager:
 
     def __init__(
         self,
-        tradier_client: Optional[TradierClient] = None,
+        tradier_client: TradierClient | None = None,
         enable_streaming: bool = False,
     ):
         """
@@ -308,25 +306,25 @@ class OrderManager:
         self.tradier: TradierClient = tradier_client or create_tradier_client_from_env()
 
         # Order tracking
-        self._orders: Dict[str, Order] = {}
+        self._orders: dict[str, Order] = {}
         self._order_lock = RLock()
         self._shutdown_event = ThreadEvent()
 
         # Callbacks for external listeners (GUI, risk manager, etc.)
-        self._on_fill_callbacks: List[Callable[[Order, ExecutionReport], None]] = []
-        self._on_state_change_callbacks: List[Callable[[Order, OrderState], None]] = []
+        self._on_fill_callbacks: list[Callable[[Order, ExecutionReport], None]] = []
+        self._on_state_change_callbacks: list[Callable[[Order, OrderState], None]] = []
 
         # SSE streaming for real-time fills
-        self._sse_stream: Optional[TradierAccountStream] = None
+        self._sse_stream: TradierAccountStream | None = None
         self._streaming_enabled = enable_streaming
 
         # State persistence
-        self._persistence_thread: Optional[threading.Thread] = None
+        self._persistence_thread: threading.Thread | None = None
         self._persistence_enabled = True
-        self._persistence_dir = Path("data/order_state")
+        self._persistence_dir = Path(__file__).parent.parent.parent / "data" / "order_state"
 
         # Metrics
-        self.metrics: Dict[str, Any] = {
+        self.metrics: dict[str, Any] = {
             "orders_submitted": 0,
             "orders_filled": 0,
             "orders_cancelled": 0,
@@ -386,7 +384,6 @@ class OrderManager:
                         error_code="DUPLICATE_ORDER_ID",
                     )
 
-                order.state = OrderState.SUBMITTED
                 order.submitted_time = datetime.now()
                 order.updated_at = datetime.now()
                 self._orders[order.order_id] = order
@@ -427,9 +424,11 @@ class OrderManager:
 
         except TradierAPIError as e:
             return self._handle_submission_error(order, e)
-        except Exception as e:
-            self.logger.error(f"Order submission failed: {e}", exc_info=True)
+        except (ConnectionError, TimeoutError) as e:
             return self._handle_submission_error(order, e)
+        except Exception:
+            self.logger.exception("Unexpected error in order submission — re-raising")
+            raise
 
     def cancel_order(self, order_id: str) -> OrderResult:
         """
@@ -511,10 +510,10 @@ class OrderManager:
     def modify_order(
         self,
         order_id: str,
-        price: Optional[float] = None,
-        stop_price: Optional[float] = None,
-        order_type: Optional[str] = None,
-        duration: Optional[str] = None,
+        price: float | None = None,
+        stop_price: float | None = None,
+        order_type: str | None = None,
+        duration: str | None = None,
     ) -> OrderResult:
         """
         Modify an existing order.
@@ -628,10 +627,10 @@ class OrderManager:
     async def modify_order_async(
         self,
         order_id: str,
-        price: Optional[float] = None,
-        stop_price: Optional[float] = None,
-        order_type: Optional[str] = None,
-        duration: Optional[str] = None,
+        price: float | None = None,
+        stop_price: float | None = None,
+        order_type: str | None = None,
+        duration: str | None = None,
     ) -> OrderResult:
         """Modify an order asynchronously."""
         loop = asyncio.get_event_loop()
@@ -646,12 +645,12 @@ class OrderManager:
     def submit_multileg_order(
         self,
         symbol: str,
-        legs: List[OptionLeg],
+        legs: list[OptionLeg],
         order_type: str = "market",
         duration: str = "day",
-        price: Optional[float] = None,
-        tag: Optional[str] = None,
-        strategy_name: Optional[str] = None,
+        price: float | None = None,
+        tag: str | None = None,
+        strategy_name: str | None = None,
     ) -> OrderResult:
         """
         Submit a multileg options order.
@@ -684,7 +683,6 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.state = OrderState.SUBMITTED
                 order.submitted_time = datetime.now()
                 self._orders[order.order_id] = order
 
@@ -723,9 +721,13 @@ class OrderManager:
                 raw_response=response,
             )
 
-        except Exception as e:
-            self.logger.error(f"Multileg order failed: {e}", exc_info=True)
+        except TradierAPIError as e:
             return self._handle_submission_error(order, e)
+        except (ConnectionError, TimeoutError) as e:
+            return self._handle_submission_error(order, e)
+        except Exception:
+            self.logger.exception("Unexpected error in multileg submission — re-raising")
+            raise
 
     def submit_iron_condor(
         self,
@@ -736,9 +738,9 @@ class OrderManager:
         call_sell_strike: float,
         call_buy_strike: float,
         quantity: int = 1,
-        price: Optional[float] = None,
+        price: float | None = None,
         duration: str = "day",
-        strategy_name: Optional[str] = None,
+        strategy_name: str | None = None,
     ) -> OrderResult:
         """
         Submit an Iron Condor order (4-leg).
@@ -773,7 +775,6 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.state = OrderState.SUBMITTED
                 order.submitted_time = datetime.now()
                 self._orders[order.order_id] = order
 
@@ -816,9 +817,13 @@ class OrderManager:
                 raw_response=response,
             )
 
-        except Exception as e:
-            self.logger.error(f"Iron Condor order failed: {e}", exc_info=True)
+        except TradierAPIError as e:
             return self._handle_submission_error(order, e)
+        except (ConnectionError, TimeoutError) as e:
+            return self._handle_submission_error(order, e)
+        except Exception:
+            self.logger.exception("Unexpected error in iron condor submission — re-raising")
+            raise
 
     def submit_credit_spread(
         self,
@@ -828,9 +833,9 @@ class OrderManager:
         buy_strike: float,
         option_type: str = "P",
         quantity: int = 1,
-        price: Optional[float] = None,
+        price: float | None = None,
         duration: str = "day",
-        strategy_name: Optional[str] = None,
+        strategy_name: str | None = None,
     ) -> OrderResult:
         """
         Submit a credit spread order (2-leg).
@@ -867,7 +872,6 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.state = OrderState.SUBMITTED
                 order.submitted_time = datetime.now()
                 self._orders[order.order_id] = order
 
@@ -908,20 +912,205 @@ class OrderManager:
                 raw_response=response,
             )
 
-        except Exception as e:
-            self.logger.error(f"Credit spread order failed: {e}", exc_info=True)
+        except TradierAPIError as e:
             return self._handle_submission_error(order, e)
+        except (ConnectionError, TimeoutError) as e:
+            return self._handle_submission_error(order, e)
+        except Exception:
+            self.logger.exception("Unexpected error in credit spread submission — re-raising")
+            raise
+
+    # ==========================================================================
+    # SMART LIMIT ORDER — MID-PRICE WALK
+    # ==========================================================================
+
+    def submit_limit_with_walk(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        bid: float,
+        ask: float,
+        option_symbol: str | None = None,
+        duration: str = "day",
+        strategy_name: str | None = None,
+        max_slippage_pct: float = 0.05,
+        tick_size: float = 0.01,
+        tick_interval_secs: float = 5.0,
+        max_walk_ticks: int = 10,
+    ) -> OrderResult:
+        """
+        Submit a limit order starting at the mid-price, then walk toward the
+        natural (ask for buys, bid for sells) by ``tick_size`` increments every
+        ``tick_interval_secs`` seconds until filled or ``max_walk_ticks`` is
+        exhausted.
+
+        This eliminates the worst slippage scenario (crossing the full spread)
+        while still guaranteeing execution within a bounded price range.
+
+        Args:
+            symbol: Underlying or option symbol (equity or options root).
+            side: Tradier order side string (``"buy_to_open"``, ``"sell_to_open"``, etc.).
+            quantity: Number of contracts / shares.
+            bid: Current best bid.
+            ask: Current best ask.
+            option_symbol: OCC-format option symbol (for single-leg options).
+            duration: ``"day"`` or ``"gtc"``.
+            strategy_name: Strategy tag for tracking.
+            max_slippage_pct: Maximum acceptable slippage fraction of mid before
+                aborting (default 5 %).  Orders are cancelled if the walk would
+                exceed this limit.
+            tick_size: Price increment per walk step (default $0.01).
+            tick_interval_secs: Seconds to wait between price walks (default 5 s).
+            max_walk_ticks: Maximum number of price walks before giving up
+                (default 10, i.e. up to $0.10 total walk).
+
+        Returns:
+            ``OrderResult`` from the final (or only) submission attempt.
+        """
+        if bid <= 0 or ask <= 0 or ask < bid:
+            return OrderResult(
+                success=False,
+                order_id="",
+                operation="submit_limit_with_walk",
+                message=f"Invalid bid/ask: bid={bid} ask={ask}",
+                error_code="INVALID_QUOTE",
+            )
+
+        mid = (bid + ask) / 2.0
+        max_walk_distance = mid * max_slippage_pct
+
+        # Determine walk direction: buys walk UP toward the ask; sells walk DOWN toward the bid.
+        is_buy = side.startswith("buy")
+        limit_price = round(mid, 2)  # Always start at mid
+
+        self.logger.info(
+            f"MidWalk: {side} {quantity} {option_symbol or symbol} "
+            f"bid={bid:.2f} ask={ask:.2f} mid={limit_price:.2f} "
+            f"max_walk_ticks={max_walk_ticks}"
+        )
+
+        result: OrderResult | None = None
+        current_order_id: str | None = None
+        walk_start_time = datetime.now()
+
+        for tick in range(max_walk_ticks + 1):
+            # Enforce DEFAULT_ORDER_TIMEOUT across the full walk sequence
+            elapsed = (datetime.now() - walk_start_time).total_seconds()
+            if elapsed > DEFAULT_ORDER_TIMEOUT:
+                self.logger.warning(
+                    f"MidWalk order {current_order_id} timed out after "
+                    f"{elapsed:.0f}s (>{DEFAULT_ORDER_TIMEOUT}s)"
+                )
+                if current_order_id:
+                    order_obj = self.get_order(current_order_id)
+                    if order_obj:
+                        with self._order_lock:
+                            order_obj.state = OrderState.EXPIRED
+                    self.cancel_order(current_order_id)
+                return OrderResult(
+                    success=False,
+                    order_id=current_order_id or "",
+                    operation="submit_limit_with_walk",
+                    message=f"Order timed out after {elapsed:.0f}s",
+                    error_code="ORDER_TIMEOUT",
+                )
+
+            # Safety: abort if we've walked beyond the allowed slippage budget
+            walk_distance = abs(limit_price - mid)
+            if walk_distance > max_walk_distance:
+                self.logger.warning(
+                    f"MidWalk: walk distance {walk_distance:.3f} exceeds "
+                    f"max allowed {max_walk_distance:.3f} — aborting"
+                )
+                if current_order_id:
+                    self.cancel_order(current_order_id)
+                return OrderResult(
+                    success=False,
+                    order_id=current_order_id or "",
+                    operation="submit_limit_with_walk",
+                    message="Max slippage budget exceeded — order aborted",
+                    error_code="MAX_SLIPPAGE_EXCEEDED",
+                )
+
+            if tick == 0:
+                # First submission
+                order = Order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="limit",
+                    quantity=quantity,
+                    price=limit_price,
+                    duration=duration,
+                    security_type=SecurityType.OPTION if option_symbol else SecurityType.EQUITY,
+                    order_class="option" if option_symbol else "equity",
+                    option_symbol=option_symbol,
+                    strategy_name=strategy_name,
+                )
+                result = self.submit_order(order)
+                if not result.success:
+                    return result
+                current_order_id = result.order_id
+            else:
+                # Walk: modify the existing order's limit price
+                limit_price = round(
+                    limit_price + (tick_size if is_buy else -tick_size), 2
+                )
+                self.logger.info(
+                    f"MidWalk tick {tick}: walking limit to {limit_price:.2f}"
+                )
+                modify_result = self.modify_order(current_order_id, price=limit_price)
+                if not modify_result.success:
+                    self.logger.warning(
+                        f"MidWalk: modify failed on tick {tick}: {modify_result.message}"
+                    )
+                    # Return last known result — order may still be open
+                    return result  # type: ignore[return-value]
+
+            # Wait, then check fill status
+            time.sleep(tick_interval_secs)
+            refreshed = self.refresh_order(current_order_id)
+            if refreshed and refreshed.state == OrderState.FILLED:
+                self.logger.info(
+                    f"MidWalk: filled at {refreshed.average_fill_price:.2f} "
+                    f"(tick {tick}, mid was {mid:.2f})"
+                )
+                return OrderResult(
+                    success=True,
+                    order_id=current_order_id,
+                    tradier_order_id=refreshed.tradier_order_id,
+                    operation="submit_limit_with_walk",
+                    message=(
+                        f"Filled at {refreshed.average_fill_price:.2f} "
+                        f"after {tick} walk(s)"
+                    ),
+                )
+
+        # Exhausted all ticks — cancel the unfilled order
+        self.logger.warning(
+            f"MidWalk: exhausted {max_walk_ticks} ticks without fill — cancelling"
+        )
+        if current_order_id:
+            self.cancel_order(current_order_id)
+
+        return OrderResult(
+            success=False,
+            order_id=current_order_id or "",
+            operation="submit_limit_with_walk",
+            message=f"Not filled after {max_walk_ticks} price walks — order cancelled",
+            error_code="WALK_EXHAUSTED",
+        )
 
     # ==========================================================================
     # ORDER QUERIES
     # ==========================================================================
 
-    def get_order(self, order_id: str) -> Optional[Order]:
+    def get_order(self, order_id: str) -> Order | None:
         """Get order by local ID."""
         with self._order_lock:
             return self._orders.get(order_id)
 
-    def get_order_by_tradier_id(self, tradier_id: int) -> Optional[Order]:
+    def get_order_by_tradier_id(self, tradier_id: int) -> Order | None:
         """Get order by Tradier order ID."""
         with self._order_lock:
             for order in self._orders.values():
@@ -929,27 +1118,27 @@ class OrderManager:
                     return order
         return None
 
-    def get_orders_by_symbol(self, symbol: str) -> List[Order]:
+    def get_orders_by_symbol(self, symbol: str) -> list[Order]:
         """Get all orders for a symbol."""
         with self._order_lock:
             return [o for o in self._orders.values() if o.symbol == symbol]
 
-    def get_orders_by_state(self, state: OrderState) -> List[Order]:
+    def get_orders_by_state(self, state: OrderState) -> list[Order]:
         """Get all orders in a specific state."""
         with self._order_lock:
             return [o for o in self._orders.values() if o.state == state]
 
-    def get_active_orders(self) -> List[Order]:
+    def get_active_orders(self) -> list[Order]:
         """Get all active (non-terminal) orders."""
         with self._order_lock:
             return [o for o in self._orders.values() if o.state.is_active]
 
-    def get_all_orders(self) -> List[Order]:
+    def get_all_orders(self) -> list[Order]:
         """Get all tracked orders."""
         with self._order_lock:
             return list(self._orders.values())
 
-    def refresh_order(self, order_id: str) -> Optional[Order]:
+    def refresh_order(self, order_id: str) -> Order | None:
         """
         Refresh order status from Tradier API.
 
@@ -997,10 +1186,10 @@ class OrderManager:
         side: str,
         order_type: str = "market",
         quantity: int = 1,
-        price: Optional[float] = None,
-        stop_price: Optional[float] = None,
+        price: float | None = None,
+        stop_price: float | None = None,
         duration: str = "day",
-        option_symbol: Optional[str] = None,
+        option_symbol: str | None = None,
         **kwargs,
     ) -> Order:
         """
@@ -1091,7 +1280,7 @@ class OrderManager:
 
             if event_type == "order":
                 tradier_id = data.get("id")
-                status = data.get("status", "").lower()
+                data.get("status", "").lower()
 
                 order = self.get_order_by_tradier_id(tradier_id) if tradier_id else None
                 if not order:
@@ -1103,7 +1292,7 @@ class OrderManager:
 
                 # Notify state-change listeners
                 if order.state != old_state:
-                    for cb in self._on_state_change_callbacks:
+                    for cb in list(self._on_state_change_callbacks):  # snapshot for thread safety
                         try:
                             cb(order, old_state)
                         except Exception as e:
@@ -1132,7 +1321,7 @@ class OrderManager:
     # PRIVATE — ORDER ROUTING
     # ==========================================================================
 
-    def _route_order(self, order: Order) -> Dict[str, Any]:
+    def _route_order(self, order: Order) -> dict[str, Any]:
         """
         Route an Order to the correct TradierClient method.
 
@@ -1178,7 +1367,7 @@ class OrderManager:
             order_class=TradierOrderClass.EQUITY,
         )
 
-    def _extract_order_id(self, response: Dict[str, Any]) -> Optional[int]:
+    def _extract_order_id(self, response: dict[str, Any]) -> int | None:
         """Extract Tradier order ID from API response."""
         if not response:
             return None
@@ -1208,7 +1397,7 @@ class OrderManager:
     # PRIVATE — STATE MANAGEMENT
     # ==========================================================================
 
-    def _apply_tradier_status(self, order: Order, tradier_data: Dict[str, Any]):
+    def _apply_tradier_status(self, order: Order, tradier_data: dict[str, Any]):
         """
         Update an Order's state from a Tradier order response.
 
@@ -1288,7 +1477,7 @@ class OrderManager:
         )
 
         # Notify fill listeners
-        for cb in self._on_fill_callbacks:
+        for cb in list(self._on_fill_callbacks):  # snapshot copy for thread safety
             try:
                 cb(order, report)
             except Exception as e:
@@ -1351,8 +1540,11 @@ class OrderManager:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = self._persistence_dir / f"orders_{ts}.json"
 
-            with open(path, "w") as f:
+            # Atomic write: write to .tmp then rename to prevent corrupt reads
+            tmp_path = str(path) + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(orders_data, f, indent=2, default=str)
+            os.replace(tmp_path, str(path))  # atomic on POSIX
 
             self.logger.debug(f"Order state saved to {path}")
 
@@ -1363,7 +1555,7 @@ class OrderManager:
     # METRICS
     # ==========================================================================
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get order manager metrics."""
         with self._order_lock:
             total = self.metrics["orders_submitted"]
@@ -1388,7 +1580,7 @@ class OrderManager:
                 "sse_connected": self._sse_stream is not None,
             }
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get order manager status summary."""
         return {
             "broker": "Tradier",
@@ -1407,7 +1599,7 @@ class OrderManager:
 
 
 def create_order_manager(
-    tradier_client: Optional[TradierClient] = None,
+    tradier_client: TradierClient | None = None,
     enable_streaming: bool = False,
 ) -> OrderManager:
     """
@@ -1428,11 +1620,11 @@ def create_order_manager(
 
 
 # Singleton holder
-_order_manager_instance: Optional[OrderManager] = None
+_order_manager_instance: OrderManager | None = None
 
 
 def get_order_manager(
-    tradier_client: Optional[TradierClient] = None,
+    tradier_client: TradierClient | None = None,
     enable_streaming: bool = False,
 ) -> OrderManager:
     """
@@ -1455,26 +1647,18 @@ def get_order_manager(
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER Order Manager — Tradier API")
-    print("=" * 80)
 
     try:
         mgr = create_order_manager()
-        print(f"OrderManager created: {mgr.tradier}")
-        print(f"Connection test: {mgr.tradier.test_connection()}")
 
         # Show current orders from Tradier
         orders_resp = mgr.tradier.get_orders()
         orders_list = orders_resp.get("orders", {})
         if orders_list == "null" or not orders_list:
-            print("No orders found")
+            pass
         else:
-            print(f"Orders: {json.dumps(orders_list, indent=2)}")
+            pass
 
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
+        pass
 
-    print("\n" + "=" * 80)
-    print("Module test completed.")
-    print("=" * 80)

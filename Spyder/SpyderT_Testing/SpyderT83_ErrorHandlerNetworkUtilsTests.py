@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -531,7 +530,7 @@ class TestU05NetworkUtils:
 
     def test_test_host_connection_failure(self):
         import socket
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             result = self.net._test_host_connection("badhost", 9999, 1)
             assert result is False
 
@@ -547,7 +546,7 @@ class TestU05NetworkUtils:
 
     def test_test_endpoint_failure(self):
         import socket
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             ct = self.net._test_endpoint("badhost", 9999)
             assert ct.success is False
             assert ct.error_message is not None

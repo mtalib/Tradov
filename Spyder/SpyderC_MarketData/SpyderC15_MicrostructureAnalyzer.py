@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,26 +22,19 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
 import threading
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Set, Union
-from dataclasses import dataclass, field
-from enum import Enum, auto
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass
+from enum import Enum
 from collections import defaultdict, deque
-import json
 from queue import Queue, Empty
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import math
 import statistics
-import numpy as np
-import pandas as pd
-from scipy import stats
-from scipy.signal import find_peaks
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -50,7 +42,6 @@ from scipy.signal import find_peaks
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
-from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import get_option_chain
 
 SWEEP_VOLUME_MULTIPLIER = 3.0  # Volume must be 3x average to be considered sweep
 SWEEP_TIME_WINDOW = 1.0  # seconds - time window for sweep detection
@@ -123,8 +114,8 @@ class OrderBookSnapshot:
 
     symbol: str
     timestamp: float
-    bids: List[OrderBookLevel]
-    asks: List[OrderBookLevel]
+    bids: list[OrderBookLevel]
+    asks: list[OrderBookLevel]
     mid_price: float
     spread: float
     total_bid_size: int
@@ -157,7 +148,7 @@ class SweepOrder:
     side: str  # 'BUY' or 'SELL'
     total_size: int
     avg_price: float
-    exchanges_hit: List[str]
+    exchanges_hit: list[str]
     time_span: float  # seconds
     price_impact: float
 
@@ -169,7 +160,7 @@ class MicrostructureEvent:
     event_type: MicrostructureSignal
     symbol: str
     timestamp: float
-    details: Dict[str, Any]
+    details: dict[str, Any]
     confidence: float  # 0.0 to 1.0
     impact_estimate: float  # Estimated price impact
 
@@ -206,30 +197,30 @@ class MicrostructureAnalyzer:
         self.event_manager = get_event_manager()
 
         # Order book tracking
-        self.order_books: Dict[str, OrderBookSnapshot] = {}
-        self.book_history: Dict[str, deque] = defaultdict(
+        self.order_books: dict[str, OrderBookSnapshot] = {}
+        self.book_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=MICROSTRUCTURE_WINDOW)
         )
 
         # Order flow tracking
-        self.flow_metrics: Dict[str, OrderFlowMetrics] = {}
-        self.trade_history: Dict[str, deque] = defaultdict(
+        self.flow_metrics: dict[str, OrderFlowMetrics] = {}
+        self.trade_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=ORDER_FLOW_WINDOW * 100)
         )
 
         # Quote tracking for manipulation detection
-        self.quote_history: Dict[str, deque] = defaultdict(
+        self.quote_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=QUOTE_HISTORY_SIZE)
         )
-        self.quote_rates: Dict[str, List[float]] = defaultdict(list)
+        self.quote_rates: dict[str, list[float]] = defaultdict(list)
 
         # Sweep detection
-        self.sweep_candidates: Dict[str, List[Dict]] = defaultdict(list)
+        self.sweep_candidates: dict[str, list[dict]] = defaultdict(list)
         self.detected_sweeps: deque = deque(maxlen=1000)
 
         # Hidden liquidity tracking
-        self.hidden_liquidity_estimates: Dict[str, float] = {}
-        self.execution_quality: Dict[str, List[float]] = defaultdict(list)
+        self.hidden_liquidity_estimates: dict[str, float] = {}
+        self.execution_quality: dict[str, list[float]] = defaultdict(list)
 
         # Processing flags
         self.is_running = False
@@ -291,7 +282,7 @@ class MicrostructureAnalyzer:
     # ORDER BOOK ANALYSIS
     # ==========================================================================
     def update_order_book(
-        self, symbol: str, bids: List[Tuple[float, int]], asks: List[Tuple[float, int]]
+        self, symbol: str, bids: list[tuple[float, int]], asks: list[tuple[float, int]]
     ) -> OrderBookSnapshot:
         """
         Update order book and calculate metrics.
@@ -362,7 +353,7 @@ class MicrostructureAnalyzer:
             )
             return None
 
-    def detect_order_book_imbalance(self, symbol: str) -> Optional[MicrostructureEvent]:
+    def detect_order_book_imbalance(self, symbol: str) -> MicrostructureEvent | None:
         """
         Detect significant order book imbalances.
 
@@ -424,7 +415,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     def process_trade(
         self, symbol: str, price: float, size: int, side: str, exchange: str = ""
-    ) -> Optional[SweepOrder]:
+    ) -> SweepOrder | None:
         """
         Process trade and detect potential sweep orders.
 
@@ -505,7 +496,7 @@ class MicrostructureAnalyzer:
             )
             return None
 
-    def _is_sweep_pattern(self, symbol: str, trades: List[Dict]) -> bool:
+    def _is_sweep_pattern(self, symbol: str, trades: list[dict]) -> bool:
         """Determine if trades constitute a sweep pattern."""
         try:
             if len(trades) < 2:
@@ -552,8 +543,8 @@ class MicrostructureAnalyzer:
             return False
 
     def _create_sweep_order(
-        self, symbol: str, trades: List[Dict]
-    ) -> Optional[SweepOrder]:
+        self, symbol: str, trades: list[dict]
+    ) -> SweepOrder | None:
         """Create SweepOrder object from trades."""
         try:
             if not trades:
@@ -595,7 +586,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     # HIDDEN LIQUIDITY DETECTION
     # ==========================================================================
-    def detect_hidden_liquidity(self, symbol: str) -> Optional[MicrostructureEvent]:
+    def detect_hidden_liquidity(self, symbol: str) -> MicrostructureEvent | None:
         """
         Detect presence of hidden liquidity.
 
@@ -666,7 +657,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     def process_quote(
         self, symbol: str, bid: float, ask: float, bid_size: int, ask_size: int
-    ) -> Optional[MicrostructureEvent]:
+    ) -> MicrostructureEvent | None:
         """
         Process quote update and detect quote stuffing.
 
@@ -751,7 +742,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     # ORDER FLOW ANALYSIS
     # ==========================================================================
-    def _update_flow_metrics(self, symbol: str, trade: Dict):
+    def _update_flow_metrics(self, symbol: str, trade: dict):
         """Update order flow metrics with new trade."""
         try:
             # Initialize metrics if needed
@@ -807,7 +798,7 @@ class MicrostructureAnalyzer:
                 e, {"method": "_update_flow_metrics", "symbol": symbol}
             )
 
-    def analyze_order_flow(self, symbol: str) -> Dict[str, Any]:
+    def analyze_order_flow(self, symbol: str) -> dict[str, Any]:
         """
         Analyze order flow patterns for a symbol.
 
@@ -872,7 +863,7 @@ class MicrostructureAnalyzer:
             )
             return {}
 
-    def _calculate_flow_toxicity(self, symbol: str, trades: List[Dict]) -> float:
+    def _calculate_flow_toxicity(self, symbol: str, trades: list[dict]) -> float:
         """Calculate order flow toxicity (probability of adverse selection)."""
         try:
             if len(trades) < 10:
@@ -892,9 +883,7 @@ class MicrostructureAnalyzer:
                         initial_price = trade["price"]
                         final_price = future_trades[-1]["price"]
 
-                        if trade["side"] == "BUY" and final_price < initial_price:
-                            toxic_trades += 1
-                        elif trade["side"] == "SELL" and final_price > initial_price:
+                        if trade["side"] == "BUY" and final_price < initial_price or trade["side"] == "SELL" and final_price > initial_price:
                             toxic_trades += 1
 
             if total_large_trades > 0:
@@ -911,7 +900,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     # COMPREHENSIVE ANALYSIS
     # ==========================================================================
-    def analyze_symbol(self, symbol: str) -> List[MicrostructureEvent]:
+    def analyze_symbol(self, symbol: str) -> list[MicrostructureEvent]:
         """
         Perform comprehensive microstructure analysis for a symbol.
 
@@ -1192,7 +1181,7 @@ class MicrostructureAnalyzer:
     # ==========================================================================
     # REPORTING AND STATISTICS
     # ==========================================================================
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get analyzer statistics and performance metrics."""
         try:
             stats = {

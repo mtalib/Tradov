@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,8 +25,8 @@ Change Log:
 import json
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Tuple, Union
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict, deque
@@ -37,7 +36,6 @@ from collections import defaultdict, deque
 # ==============================================================================
 import hashlib
 import numpy as np
-import pandas as pd
 
 try:
     import ollama
@@ -122,28 +120,28 @@ class MarketData:
     trend_strength: float  # -1 to 1
     vix_level: float
     market_breadth: float  # 0 to 1
-    
+
 @dataclass
 class Portfolio:
     """Portfolio state structure"""
     cash: float
-    positions: List[Dict[str, Any]]
+    positions: list[dict[str, Any]]
     total_value: float
     current_risk: float
     buying_power: float
-    
+
 @dataclass
 class StrategyParameters:
     """Parameters for strategy execution"""
     strategy_type: StrategyType
-    strikes: List[float]
-    expirations: List[datetime]
-    quantities: List[int]
+    strikes: list[float]
+    expirations: list[datetime]
+    quantities: list[int]
     max_loss: float
     target_profit: float
-    entry_conditions: Dict[str, Any]
-    exit_conditions: Dict[str, Any]
-    adjustment_rules: Dict[str, Any]
+    entry_conditions: dict[str, Any]
+    exit_conditions: dict[str, Any]
+    adjustment_rules: dict[str, Any]
     confidence_score: float = 0.0
 
 @dataclass
@@ -152,11 +150,11 @@ class MarketContext:
     regime: MarketRegime
     trend_strength: float  # -1 to 1
     volatility_percentile: float  # 0 to 100
-    support_levels: List[float]
-    resistance_levels: List[float]
-    volume_profile: Dict[str, float]
+    support_levels: list[float]
+    resistance_levels: list[float]
+    volume_profile: dict[str, float]
     sentiment_score: float  # -1 to 1
-    economic_events: List[Dict[str, Any]]
+    economic_events: list[dict[str, Any]]
 
 @dataclass
 class StrategyRecommendation:
@@ -166,9 +164,9 @@ class StrategyRecommendation:
     market_context: MarketContext
     reasoning: str
     expected_return: float
-    risk_metrics: Dict[str, float]
-    ai_insights: Dict[str, Any]
-    alternative_strategies: List[StrategyParameters]
+    risk_metrics: dict[str, float]
+    ai_insights: dict[str, Any]
+    alternative_strategies: list[StrategyParameters]
 
 # ==============================================================================
 # MAIN CLASS
@@ -176,40 +174,40 @@ class StrategyRecommendation:
 class SpyderX03_StrategyDirectorAgent:
     """
     AI-Enhanced Strategy Director Agent.
-    
+
     This agent intelligently selects and manages trading strategies based on
     market conditions, portfolio state, and risk parameters. It uses Ollama
     for advanced pattern recognition and strategy optimization.
-    
+
     Attributes:
         logger: Module logger instance
         config: Agent configuration
         ollama_client: Ollama LLM client
         active_strategies: Currently active trading strategies
         strategy_history: Historical strategy performance
-        
+
     Example:
         >>> agent = SpyderX03_StrategyDirectorAgent()
         >>> recommendation = await agent.select_strategy(market_data, portfolio)
         >>> print(recommendation.strategy_params.strategy_type)
     """
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize the Strategy Director Agent.
-        
+
         Args:
             config: Optional configuration dictionary
         """
         self.config = config or {}
         self.logger = logger
-        
+
         # LLM configuration
         self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
         self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
         self.max_concurrent = self.config.get('max_concurrent_strategies', MAX_CONCURRENT_STRATEGIES)
         self.min_confidence = self.config.get('min_confidence_threshold', MIN_CONFIDENCE_THRESHOLD)
-        
+
         # Initialize Ollama client
         self.ollama_client = None
         if OLLAMA_AVAILABLE:
@@ -221,22 +219,22 @@ class SpyderX03_StrategyDirectorAgent:
             except Exception as e:
                 self.logger.error(f"Failed to connect to Ollama: {e}")
                 self.logger.info("Agent will work with reduced AI capabilities")
-        
+
         # Strategy management
-        self.active_strategies: Dict[str, StrategyParameters] = {}
-        self.strategy_performance: Dict[StrategyType, List[float]] = defaultdict(list)
-        self.strategy_history: List[StrategyRecommendation] = []
-        
+        self.active_strategies: dict[str, StrategyParameters] = {}
+        self.strategy_performance: dict[StrategyType, list[float]] = defaultdict(list)
+        self.strategy_history: list[StrategyRecommendation] = []
+
         # Market analysis
-        self.current_market_context: Optional[MarketContext] = None
+        self.current_market_context: MarketContext | None = None
         self.market_regime_history: deque = deque(maxlen=100)
-        
+
         # Caching for performance
-        self.strategy_cache: Dict[str, Tuple[StrategyRecommendation, datetime]] = {}
+        self.strategy_cache: dict[str, tuple[StrategyRecommendation, datetime]] = {}
         self.cache_ttl = timedelta(seconds=STRATEGY_CACHE_TTL)
-        
+
         self.logger.info(f"{self.__class__.__name__} initialized")
-    
+
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
@@ -244,37 +242,37 @@ class SpyderX03_StrategyDirectorAgent:
         self,
         market_data: MarketData,
         portfolio: Portfolio,
-        risk_constraints: Optional[Dict[str, Any]] = None
-    ) -> Optional[StrategyRecommendation]:
+        risk_constraints: dict[str, Any] | None = None
+    ) -> StrategyRecommendation | None:
         """
         Select optimal trading strategy based on current conditions.
-        
+
         Args:
             market_data: Current market data
             portfolio: Current portfolio state
             risk_constraints: Optional risk constraints
-            
+
         Returns:
             Strategy recommendation or None if no suitable strategy
         """
         start_time = datetime.now()
-        
+
         try:
             # Check cache first
             cache_key = self._generate_cache_key(market_data, portfolio)
             cached_strategy = self._get_cached_strategy(cache_key)
             if cached_strategy:
                 return cached_strategy
-            
+
             # Analyze market context
             market_context = await self._analyze_market_context(market_data)
             self.current_market_context = market_context
-            
+
             # Check if we can add more strategies
             if not self._can_add_strategy(portfolio, risk_constraints):
                 self.logger.info("Cannot add more strategies due to constraints")
                 return None
-            
+
             # Get AI strategy recommendation
             if self.ollama_client:
                 strategy_recommendation = await self._get_ai_strategy_recommendation(
@@ -290,14 +288,14 @@ class SpyderX03_StrategyDirectorAgent:
                     market_context,
                     risk_constraints
                 )
-            
+
             if strategy_recommendation and strategy_recommendation.strategy_params.confidence_score >= self.min_confidence:
                 # Cache the recommendation
                 self._cache_strategy(cache_key, strategy_recommendation)
-                
+
                 # Store in history
                 self.strategy_history.append(strategy_recommendation)
-                
+
                 # Log performance
                 elapsed = (datetime.now() - start_time).total_seconds()
                 self.logger.info(
@@ -305,32 +303,32 @@ class SpyderX03_StrategyDirectorAgent:
                     f"with confidence {strategy_recommendation.strategy_params.confidence_score:.2%} "
                     f"in {elapsed:.2f} seconds"
                 )
-                
+
                 return strategy_recommendation
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.error(f"Error in strategy selection: {str(e)}")
             return None
-    
+
     async def manage_active_strategies(
         self,
         market_data: MarketData,
         portfolio: Portfolio
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Manage currently active strategies and recommend adjustments.
-        
+
         Args:
             market_data: Current market data
             portfolio: Current portfolio state
-            
+
         Returns:
             List of recommended actions for active strategies
         """
         actions = []
-        
+
         for strategy_id, strategy_params in self.active_strategies.items():
             # Check exit conditions
             should_exit = await self._check_exit_conditions(
@@ -338,7 +336,7 @@ class SpyderX03_StrategyDirectorAgent:
                 market_data,
                 portfolio
             )
-            
+
             if should_exit:
                 actions.append({
                     'strategy_id': strategy_id,
@@ -352,26 +350,26 @@ class SpyderX03_StrategyDirectorAgent:
                     market_data,
                     portfolio
                 )
-                
+
                 if adjustment:
                     actions.append({
                         'strategy_id': strategy_id,
                         'action': 'adjust',
                         'adjustment': adjustment
                     })
-        
+
         return actions
-    
+
     def get_strategy_performance(
         self,
-        strategy_type: Optional[StrategyType] = None
-    ) -> Dict[str, Any]:
+        strategy_type: StrategyType | None = None
+    ) -> dict[str, Any]:
         """
         Get performance metrics for strategies.
-        
+
         Args:
             strategy_type: Optional specific strategy type
-            
+
         Returns:
             Performance metrics dictionary
         """
@@ -379,7 +377,7 @@ class SpyderX03_StrategyDirectorAgent:
             returns = self.strategy_performance.get(strategy_type, [])
             if not returns:
                 return {"message": f"No performance data for {strategy_type.value}"}
-            
+
             return {
                 'strategy_type': strategy_type.value,
                 'total_trades': len(returns),
@@ -387,15 +385,15 @@ class SpyderX03_StrategyDirectorAgent:
                 'win_rate': sum(1 for r in returns if r > 0) / len(returns),
                 'sharpe_ratio': self._calculate_sharpe_ratio(returns)
             }
-        
+
         # Return overall performance
         all_returns = []
         for returns in self.strategy_performance.values():
             all_returns.extend(returns)
-        
+
         if not all_returns:
             return {"message": "No performance data available"}
-        
+
         return {
             'total_strategies': len(self.strategy_performance),
             'total_trades': len(all_returns),
@@ -403,34 +401,34 @@ class SpyderX03_StrategyDirectorAgent:
             'win_rate': sum(1 for r in all_returns if r > 0) / len(all_returns),
             'best_strategy': self._get_best_strategy()
         }
-    
+
     # ==========================================================================
     # PRIVATE METHODS - MARKET ANALYSIS
     # ==========================================================================
     async def _analyze_market_context(self, market_data: MarketData) -> MarketContext:
         """
         Analyze current market conditions.
-        
+
         Args:
             market_data: Current market data
-            
+
         Returns:
             Market context analysis
         """
         # Determine market regime
         regime = self._determine_market_regime(market_data)
-        
+
         # Calculate support/resistance (simplified)
         support_levels = [market_data.underlying_price * 0.98, market_data.underlying_price * 0.95]
         resistance_levels = [market_data.underlying_price * 1.02, market_data.underlying_price * 1.05]
-        
+
         # Volume profile (simplified)
         volume_profile = {
             'current': market_data.volume,
             'average': 1000000,  # Placeholder
             'relative': market_data.volume / 1000000
         }
-        
+
         # Create context
         context = MarketContext(
             regime=regime,
@@ -442,12 +440,12 @@ class SpyderX03_StrategyDirectorAgent:
             sentiment_score=0.0,  # Placeholder
             economic_events=[]  # Placeholder
         )
-        
+
         # Store in history
         self.market_regime_history.append(regime)
-        
+
         return context
-    
+
     def _determine_market_regime(self, market_data: MarketData) -> MarketRegime:
         """Determine current market regime."""
         # Simplified regime detection
@@ -461,7 +459,7 @@ class SpyderX03_StrategyDirectorAgent:
             return MarketRegime.TRENDING_DOWN
         else:
             return MarketRegime.RANGE_BOUND
-    
+
     def _calculate_volatility_percentile(self, current_vol: float) -> float:
         """Calculate volatility percentile."""
         # Simplified calculation
@@ -476,7 +474,7 @@ class SpyderX03_StrategyDirectorAgent:
             return 70.0
         else:
             return 90.0
-    
+
     # ==========================================================================
     # PRIVATE METHODS - AI INTEGRATION
     # ==========================================================================
@@ -485,17 +483,17 @@ class SpyderX03_StrategyDirectorAgent:
         market_data: MarketData,
         portfolio: Portfolio,
         market_context: MarketContext,
-        risk_constraints: Optional[Dict[str, Any]] = None
-    ) -> Optional[StrategyRecommendation]:
+        risk_constraints: dict[str, Any] | None = None
+    ) -> StrategyRecommendation | None:
         """
         Get AI-powered strategy recommendation using Ollama.
-        
+
         Args:
             market_data: Current market data
             portfolio: Portfolio state
             market_context: Market analysis context
             risk_constraints: Risk constraints
-            
+
         Returns:
             Strategy recommendation or None
         """
@@ -507,7 +505,7 @@ class SpyderX03_StrategyDirectorAgent:
                 market_context,
                 risk_constraints
             )
-            
+
             # Query Ollama
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -518,17 +516,17 @@ class SpyderX03_StrategyDirectorAgent:
                     'num_predict': MAX_TOKENS
                 }
             )
-            
+
             # Parse AI response
             ai_recommendation = self._parse_ai_strategy_response(response['response'])
-            
+
             # Create strategy parameters
             strategy_params = self._create_strategy_parameters(
                 ai_recommendation,
                 market_data,
                 portfolio
             )
-            
+
             # Create recommendation
             recommendation = StrategyRecommendation(
                 timestamp=datetime.now(),
@@ -540,31 +538,31 @@ class SpyderX03_StrategyDirectorAgent:
                 ai_insights=ai_recommendation,
                 alternative_strategies=[]
             )
-            
+
             return recommendation
-            
+
         except Exception as e:
             self.logger.error(f"Error getting AI strategy recommendation: {e}")
             return None
-    
+
     def _build_strategy_prompt(
         self,
         market_data: MarketData,
         portfolio: Portfolio,
         market_context: MarketContext,
-        risk_constraints: Optional[Dict[str, Any]] = None
+        risk_constraints: dict[str, Any] | None = None
     ) -> str:
         """Build prompt for Ollama strategy selection."""
         constraints_str = ""
         if risk_constraints:
-            constraints_str = f"\nRisk Constraints:\n"
+            constraints_str = "\nRisk Constraints:\n"
             for key, value in risk_constraints.items():
                 constraints_str += f"- {key}: {value}\n"
-        
+
         # Get recent performance
         recent_performance = self.get_strategy_performance()
         perf_str = f"Win Rate: {recent_performance.get('win_rate', 0):.1%}" if recent_performance.get('total_trades', 0) > 0 else "No history"
-        
+
         prompt = f"""You are an expert options trading strategist. Select the optimal options strategy based on current market conditions.
 
 Market Data:
@@ -609,8 +607,8 @@ Provide your recommendation as JSON with the following structure:
 }}"""
 
         return prompt
-    
-    def _parse_ai_strategy_response(self, response: str) -> Dict[str, Any]:
+
+    def _parse_ai_strategy_response(self, response: str) -> dict[str, Any]:
         """Parse Ollama response for strategy recommendation."""
         try:
             # Try to parse as JSON
@@ -619,11 +617,11 @@ Provide your recommendation as JSON with the following structure:
                 end = response.rfind('}') + 1
                 json_str = response[start:end]
                 data = json.loads(json_str)
-                
+
                 return data
         except Exception as e:
             self.logger.error(f"Failed to parse AI response: {e}")
-        
+
         # Fallback response
         return {
             'strategy_type': 'iron_condor',
@@ -633,10 +631,10 @@ Provide your recommendation as JSON with the following structure:
             'position_size': 1,
             'confidence': 0.5
         }
-    
+
     def _create_strategy_parameters(
         self,
-        ai_recommendation: Dict[str, Any],
+        ai_recommendation: dict[str, Any],
         market_data: MarketData,
         portfolio: Portfolio
     ) -> StrategyParameters:
@@ -644,21 +642,21 @@ Provide your recommendation as JSON with the following structure:
         # Map strategy name to enum
         strategy_type_str = ai_recommendation.get('strategy_type', 'iron_condor').lower().replace(' ', '_')
         strategy_type = StrategyType.IRON_CONDOR  # Default
-        
+
         for st in StrategyType:
             if st.value == strategy_type_str:
                 strategy_type = st
                 break
-        
+
         # Calculate expiration
         days = ai_recommendation.get('expiration_days', 45)
         expiration = datetime.now() + timedelta(days=days)
-        
+
         # Get strikes or calculate them
         strikes = ai_recommendation.get('strikes', [])
         if not strikes:
             strikes = self._calculate_default_strikes(strategy_type, market_data.underlying_price)
-        
+
         # Create parameters
         return StrategyParameters(
             strategy_type=strategy_type,
@@ -672,7 +670,7 @@ Provide your recommendation as JSON with the following structure:
             adjustment_rules=ai_recommendation.get('adjustment_rules', {}),
             confidence_score=ai_recommendation.get('confidence', 0.7)
         )
-    
+
     # ==========================================================================
     # PRIVATE METHODS - RULE-BASED FALLBACK
     # ==========================================================================
@@ -681,24 +679,24 @@ Provide your recommendation as JSON with the following structure:
         market_data: MarketData,
         portfolio: Portfolio,
         market_context: MarketContext,
-        risk_constraints: Optional[Dict[str, Any]] = None
-    ) -> Optional[StrategyRecommendation]:
+        risk_constraints: dict[str, Any] | None = None
+    ) -> StrategyRecommendation | None:
         """
         Get rule-based strategy recommendation (fallback when AI unavailable).
-        
+
         Args:
             market_data: Current market data
             portfolio: Portfolio state
             market_context: Market analysis
             risk_constraints: Risk constraints
-            
+
         Returns:
             Strategy recommendation or None
         """
         # Simple rule-based logic
         strategy_type = None
         reasoning = ""
-        
+
         if market_context.regime == MarketRegime.HIGH_VOLATILITY:
             if market_data.volatility > 30:
                 strategy_type = StrategyType.IRON_CONDOR
@@ -706,25 +704,25 @@ Provide your recommendation as JSON with the following structure:
             else:
                 strategy_type = StrategyType.STRADDLE
                 reasoning = "Elevated volatility with potential for expansion"
-                
+
         elif market_context.regime == MarketRegime.TRENDING_UP:
             strategy_type = StrategyType.BULL_CALL_SPREAD
             reasoning = "Uptrend favors bullish strategies with defined risk"
-            
+
         elif market_context.regime == MarketRegime.TRENDING_DOWN:
             strategy_type = StrategyType.BEAR_PUT_SPREAD
             reasoning = "Downtrend favors bearish strategies with defined risk"
-            
+
         else:  # RANGE_BOUND
             strategy_type = StrategyType.IRON_BUTTERFLY
             reasoning = "Range-bound market favors neutral strategies"
-        
+
         if not strategy_type:
             return None
-        
+
         # Create basic parameters
         strikes = self._calculate_default_strikes(strategy_type, market_data.underlying_price)
-        
+
         strategy_params = StrategyParameters(
             strategy_type=strategy_type,
             strikes=strikes,
@@ -737,7 +735,7 @@ Provide your recommendation as JSON with the following structure:
             adjustment_rules={},
             confidence_score=0.6
         )
-        
+
         return StrategyRecommendation(
             timestamp=datetime.now(),
             strategy_params=strategy_params,
@@ -748,15 +746,15 @@ Provide your recommendation as JSON with the following structure:
             ai_insights={},
             alternative_strategies=[]
         )
-    
+
     def _calculate_default_strikes(
         self,
         strategy_type: StrategyType,
         underlying_price: float
-    ) -> List[float]:
+    ) -> list[float]:
         """Calculate default strikes for a strategy."""
         strikes = []
-        
+
         if strategy_type == StrategyType.IRON_CONDOR:
             # Example: 5% OTM for shorts, 10% OTM for longs
             strikes = [
@@ -780,56 +778,56 @@ Provide your recommendation as JSON with the following structure:
         else:
             # Default: ATM strike
             strikes = [round(underlying_price)]
-        
+
         return strikes
-    
+
     # ==========================================================================
     # PRIVATE METHODS - STRATEGY MANAGEMENT
     # ==========================================================================
     def _can_add_strategy(
         self,
         portfolio: Portfolio,
-        risk_constraints: Optional[Dict[str, Any]] = None
+        risk_constraints: dict[str, Any] | None = None
     ) -> bool:
         """Check if we can add another strategy."""
         # Check concurrent strategy limit
         if len(self.active_strategies) >= self.max_concurrent:
             return False
-        
+
         # Check portfolio constraints
         if risk_constraints:
             max_risk = risk_constraints.get('max_portfolio_risk', MAX_PORTFOLIO_RISK)
             if portfolio.current_risk >= max_risk:
                 return False
-            
+
             min_cash = risk_constraints.get('min_cash_reserve', 1000)
             if portfolio.cash < min_cash:
                 return False
-        
+
         return True
-    
+
     async def _check_exit_conditions(
         self,
         strategy: StrategyParameters,
         market_data: MarketData,
         portfolio: Portfolio
-    ) -> Optional[str]:
+    ) -> str | None:
         """Check if strategy should be exited."""
         # This would check actual P&L in production
         # For now, return None (no exit)
         return None
-    
+
     async def _check_adjustments(
         self,
         strategy: StrategyParameters,
         market_data: MarketData,
         portfolio: Portfolio
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Check if strategy needs adjustment."""
         # This would check for rolling, delta adjustment, etc.
         # For now, return None (no adjustment)
         return None
-    
+
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
@@ -845,50 +843,50 @@ Provide your recommendation as JSON with the following structure:
             f"{portfolio.cash:.0f}",
             f"{len(portfolio.positions)}"
         ]
-        
+
         key_string = ":".join(key_parts)
         return hashlib.md5(key_string.encode()).hexdigest()
-    
-    def _get_cached_strategy(self, cache_key: str) -> Optional[StrategyRecommendation]:
+
+    def _get_cached_strategy(self, cache_key: str) -> StrategyRecommendation | None:
         """Get cached strategy if still valid."""
         if cache_key in self.strategy_cache:
             recommendation, timestamp = self.strategy_cache[cache_key]
             if datetime.now() - timestamp < self.cache_ttl:
                 self.logger.info("Using cached strategy recommendation")
                 return recommendation
-        
+
         return None
-    
+
     def _cache_strategy(self, cache_key: str, recommendation: StrategyRecommendation):
         """Cache strategy recommendation."""
         self.strategy_cache[cache_key] = (recommendation, datetime.now())
-    
-    def _calculate_sharpe_ratio(self, returns: List[float]) -> float:
+
+    def _calculate_sharpe_ratio(self, returns: list[float]) -> float:
         """Calculate Sharpe ratio from returns."""
         if not returns or len(returns) < 2:
             return 0.0
-        
+
         returns_array = np.array(returns)
         if returns_array.std() == 0:
             return 0.0
-        
+
         # Assuming daily returns and 252 trading days
         return (returns_array.mean() / returns_array.std()) * np.sqrt(252)
-    
-    def _get_best_strategy(self) -> Optional[str]:
+
+    def _get_best_strategy(self) -> str | None:
         """Get best performing strategy type."""
         best_sharpe = -np.inf
         best_strategy = None
-        
+
         for strategy_type, returns in self.strategy_performance.items():
             if len(returns) >= 10:  # Minimum trades for evaluation
                 sharpe = self._calculate_sharpe_ratio(returns)
                 if sharpe > best_sharpe:
                     best_sharpe = sharpe
                     best_strategy = strategy_type.value
-        
+
         return best_strategy
-    
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
@@ -896,7 +894,7 @@ Provide your recommendation as JSON with the following structure:
         """Clear strategy cache."""
         self.strategy_cache.clear()
         self.logger.info("Strategy cache cleared")
-    
+
     def reset_performance(self):
         """Reset performance tracking."""
         self.strategy_performance.clear()
@@ -906,13 +904,13 @@ Provide your recommendation as JSON with the following structure:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_strategy_director_agent(config: Optional[Dict[str, Any]] = None) -> SpyderX03_StrategyDirectorAgent:
+def create_strategy_director_agent(config: dict[str, Any] | None = None) -> SpyderX03_StrategyDirectorAgent:
     """
     Factory function to create Strategy Director Agent.
-    
+
     Args:
         config: Optional configuration dictionary
-        
+
     Returns:
         Configured SpyderX03_StrategyDirectorAgent instance
     """
@@ -922,15 +920,15 @@ def create_strategy_director_agent(config: Optional[Dict[str, Any]] = None) -> S
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_module_instance: Optional[SpyderX03_StrategyDirectorAgent] = None
+_module_instance: SpyderX03_StrategyDirectorAgent | None = None
 
-def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX03_StrategyDirectorAgent:
+def get_module_instance(config: dict[str, Any] | None = None) -> SpyderX03_StrategyDirectorAgent:
     """
     Get singleton instance of the module.
-    
+
     Args:
         config: Configuration if creating new instance
-        
+
     Returns:
         Module instance
     """
@@ -952,9 +950,9 @@ if __name__ == "__main__":
             'max_concurrent_strategies': 5,
             'min_confidence_threshold': 0.6
         }
-        
+
         agent = create_strategy_director_agent(config)
-        
+
         # Create sample market data
         market_data = MarketData(
             timestamp=datetime.now(),
@@ -965,7 +963,7 @@ if __name__ == "__main__":
             vix_level=16.2,
             market_breadth=0.6
         )
-        
+
         # Create sample portfolio
         portfolio = Portfolio(
             cash=25000.0,
@@ -974,7 +972,7 @@ if __name__ == "__main__":
             current_risk=0.0,
             buying_power=25000.0
         )
-        
+
         # Risk constraints
         risk_constraints = {
             'max_position_size': 5000,
@@ -982,48 +980,30 @@ if __name__ == "__main__":
             'min_win_rate': 0.5,
             'min_cash_reserve': 5000
         }
-        
+
         # Test strategy selection
-        print("="*80)
-        print("TESTING STRATEGY DIRECTOR AGENT")
-        print("="*80)
-        print(f"Market: SPY ${market_data.underlying_price:.2f}, IV: {market_data.volatility:.1f}%")
-        print(f"Portfolio: ${portfolio.cash:,.2f} available")
-        print("\nSelecting optimal strategy...")
-        
+
         recommendation = await agent.select_strategy(
             market_data,
             portfolio,
             risk_constraints
         )
-        
+
         if recommendation:
-            print("\n" + "="*60)
-            print("STRATEGY RECOMMENDATION")
-            print("="*60)
-            print(f"Strategy: {recommendation.strategy_params.strategy_type.value.upper()}")
-            print(f"Confidence: {recommendation.strategy_params.confidence_score:.1%}")
-            print(f"Strikes: {recommendation.strategy_params.strikes}")
-            print(f"Expected Return: {recommendation.expected_return:.1%}")
-            print(f"\nReasoning: {recommendation.reasoning}")
-            
+
             if recommendation.risk_metrics:
-                print(f"\nRisk Metrics:")
-                for key, value in recommendation.risk_metrics.items():
-                    print(f"  - {key}: {value}")
-            
+                for _key, _value in recommendation.risk_metrics.items():
+                    pass
+
             if recommendation.ai_insights:
-                print(f"\nAI Insights: {len(recommendation.ai_insights)} insights available")
+                pass
         else:
-            print("\n❌ No suitable strategy found")
-        
+            pass
+
         # Show performance
-        print("\n" + "="*60)
-        print("PERFORMANCE SUMMARY")
-        print("="*60)
         perf = agent.get_strategy_performance()
-        for key, value in perf.items():
-            print(f"{key}: {value}")
-    
+        for _key, _value in perf.items():
+            pass
+
     # Run test
     asyncio.run(test_agent())

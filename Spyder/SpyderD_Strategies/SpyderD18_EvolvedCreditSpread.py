@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,14 +22,12 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
 import logging
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum, auto
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import Enum
+from typing import Any, Optional
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -40,8 +37,8 @@ import pandas as pd
 
 # DEAP: Distributed Evolutionary Algorithms in Python (NSGA-II / CMA-ES)
 try:
-    import deap
-    from deap import base, creator, tools, algorithms
+    import deap  # noqa: F401
+    from deap import base, creator, tools, algorithms  # noqa: F401
     _DEAP_AVAILABLE = True
 except ImportError:
     _DEAP_AVAILABLE = False
@@ -60,7 +57,7 @@ except ImportError:
     except ImportError:
         TA_LIBRARY = None
         TA_AVAILABLE = False
-        warnings.warn("No modern TA library available. Using fallback calculations.")
+        warnings.warn("No modern TA library available. Using fallback calculations.", stacklevel=2)
 
 # ==============================================================================
 # LOCAL IMPORTS (with graceful fallbacks)
@@ -155,10 +152,10 @@ class EvolvedStrategyParams:
     generation: int = EVOLVED_GENERATION
     risk_factor: float = EVOLVED_RISK_FACTOR
     improvement_pct: float = EVOLVED_IMPROVEMENT
-    entry_conditions: List[str] = field(
+    entry_conditions: list[str] = field(
         default_factory=lambda: ["price_breakout", "rsi_oversold", "volume_spike"]
     )
-    exit_conditions: List[str] = field(
+    exit_conditions: list[str] = field(
         default_factory=lambda: ["profit_target", "trailing_stop", "technical_reversal"]
     )
     strategy_type: str = "credit_spread"
@@ -169,13 +166,13 @@ class EvolvedStrategyParams:
 class TechnicalIndicators:
     """Container for technical analysis indicators"""
 
-    rsi: Optional[float] = None
-    volume_ratio: Optional[float] = None
-    breakout_score: Optional[float] = None
-    momentum: Optional[float] = None
-    trend_strength: Optional[float] = None
-    volatility_percentile: Optional[float] = None
-    last_updated: Optional[datetime] = None
+    rsi: float | None = None
+    volume_ratio: float | None = None
+    breakout_score: float | None = None
+    momentum: float | None = None
+    trend_strength: float | None = None
+    volatility_percentile: float | None = None
+    last_updated: datetime | None = None
 
 
 @dataclass
@@ -183,13 +180,13 @@ class MarketAnalysis:
     """Market analysis results"""
 
     timestamp: datetime
-    entry_signals: Dict[str, bool]
+    entry_signals: dict[str, bool]
     signal_strength: float
     ai_confidence: float
     market_regime: MarketRegime
     volatility_environment: VolatilityEnvironment
     technical_indicators: TechnicalIndicators
-    ta_library: Optional[str]
+    ta_library: str | None
     analysis_quality: float = 0.0
 
 
@@ -227,8 +224,8 @@ class TradingSignal:
     signal_strength: float
     ai_confidence: float
     market_analysis: MarketAnalysis
-    position_details: Optional[Dict[str, Any]] = None
-    evolved_params: Optional[EvolvedStrategyParams] = None
+    position_details: dict[str, Any] | None = None
+    evolved_params: EvolvedStrategyParams | None = None
 
 
 # ==============================================================================
@@ -253,7 +250,7 @@ class EvolvedCreditSpreadStrategy:
     - Production-ready error handling and logging
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         Initialize the AI-evolved credit spread strategy.
 
@@ -273,10 +270,10 @@ class EvolvedCreditSpreadStrategy:
         self.state = StrategyState.INITIALIZED
 
         # Strategy state
-        self.positions: Dict[str, CreditSpreadPosition] = {}
-        self.market_data: Dict[str, Any] = {}
+        self.positions: dict[str, CreditSpreadPosition] = {}
+        self.market_data: dict[str, Any] = {}
         self.technical_indicators = TechnicalIndicators()
-        self.last_analysis: Optional[MarketAnalysis] = None
+        self.last_analysis: MarketAnalysis | None = None
 
         # Performance tracking
         self.trade_count = 0
@@ -325,7 +322,7 @@ class EvolvedCreditSpreadStrategy:
     # TECHNICAL ANALYSIS METHODS (Modern Libraries)
     # ==========================================================================
 
-    def _calculate_rsi(self, prices: np.ndarray, period: int = 14) -> Optional[float]:
+    def _calculate_rsi(self, prices: np.ndarray, period: int = 14) -> float | None:
         """
         Calculate RSI using modern TA libraries with fallback.
 
@@ -369,7 +366,7 @@ class EvolvedCreditSpreadStrategy:
             self.logger.warning(f"RSI calculation error: {e}")
             return self._rsi_fallback(prices, period)
 
-    def _rsi_fallback(self, prices: np.ndarray, period: int = 14) -> Optional[float]:
+    def _rsi_fallback(self, prices: np.ndarray, period: int = 14) -> float | None:
         """
         Fallback RSI calculation without external libraries.
 
@@ -492,7 +489,7 @@ class EvolvedCreditSpreadStrategy:
     # MARKET ANALYSIS METHODS
     # ==========================================================================
 
-    def analyze_market(self, market_data: Dict[str, Any]) -> MarketAnalysis:
+    def analyze_market(self, market_data: dict[str, Any]) -> MarketAnalysis:
         """
         Analyze market conditions using AI-evolved criteria.
 
@@ -604,7 +601,7 @@ class EvolvedCreditSpreadStrategy:
         except Exception as e:
             self.logger.error(f"Error updating technical indicators: {e}")
 
-    def _check_entry_conditions(self) -> Dict[str, bool]:
+    def _check_entry_conditions(self) -> dict[str, bool]:
         """
         Check AI-evolved entry conditions.
 
@@ -656,7 +653,7 @@ class EvolvedCreditSpreadStrategy:
 
         return conditions
 
-    def _calculate_signal_strength(self, entry_signals: Dict[str, bool]) -> float:
+    def _calculate_signal_strength(self, entry_signals: dict[str, bool]) -> float:
         """
         Calculate AI-weighted signal strength.
 
@@ -698,7 +695,7 @@ class EvolvedCreditSpreadStrategy:
             self.logger.error(f"Error calculating signal strength: {e}")
             return 0.0
 
-    def _calculate_ai_confidence(self, entry_signals: Dict[str, bool]) -> float:
+    def _calculate_ai_confidence(self, entry_signals: dict[str, bool]) -> float:
         """
         Calculate AI confidence based on evolved parameters.
 
@@ -895,7 +892,7 @@ class EvolvedCreditSpreadStrategy:
     # SIGNAL GENERATION
     # ==========================================================================
 
-    def generate_signals(self, analysis: MarketAnalysis) -> List[TradingSignal]:
+    def generate_signals(self, analysis: MarketAnalysis) -> list[TradingSignal]:
         """
         Generate trading signals based on market analysis.
 
@@ -965,16 +962,13 @@ class EvolvedCreditSpreadStrategy:
                 return False
 
             # Check analysis quality
-            if analysis.analysis_quality < 0.4:
-                return False
-
-            return True
+            return not analysis.analysis_quality < 0.4
 
         except Exception as e:
             self.logger.error(f"Error determining position entry: {e}")
             return False
 
-    def _generate_entry_signal(self, analysis: MarketAnalysis) -> Optional[TradingSignal]:
+    def _generate_entry_signal(self, analysis: MarketAnalysis) -> TradingSignal | None:
         """
         Generate entry signal with AI-optimized parameters.
 
@@ -1019,7 +1013,7 @@ class EvolvedCreditSpreadStrategy:
 
     def _calculate_optimal_position_details(
         self, current_price: float, analysis: MarketAnalysis
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Calculate optimal position details using AI-evolved parameters.
 
@@ -1131,12 +1125,12 @@ class EvolvedCreditSpreadStrategy:
             self.logger.error(f"Error estimating credit spread value: {e}")
             return 0.0
 
-    def _generate_exit_signals(self, analysis: MarketAnalysis) -> List[TradingSignal]:
+    def _generate_exit_signals(self, analysis: MarketAnalysis) -> list[TradingSignal]:
         """Generate exit signals for existing positions"""
         exit_signals = []
 
         try:
-            for position_id, position in self.positions.items():
+            for _position_id, position in self.positions.items():
                 if self._should_exit_position(position, analysis):
                     exit_signal = self._create_exit_signal(position, analysis)
                     if exit_signal:
@@ -1166,10 +1160,7 @@ class EvolvedCreditSpreadStrategy:
                 return True
 
             # Technical reversal
-            if self._detect_technical_reversal(analysis):
-                return True
-
-            return False
+            return bool(self._detect_technical_reversal(analysis))
 
         except Exception as e:
             self.logger.error(f"Error determining position exit: {e}")
@@ -1177,7 +1168,7 @@ class EvolvedCreditSpreadStrategy:
 
     def _create_exit_signal(
         self, position: CreditSpreadPosition, analysis: MarketAnalysis
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """Create exit signal for a position"""
         try:
             signal_id = f"EXIT_{position.position_id}_{datetime.now().strftime('%H%M%S')}"
@@ -1251,7 +1242,7 @@ class EvolvedCreditSpreadStrategy:
     # UTILITY METHODS
     # ==========================================================================
 
-    def get_strategy_info(self) -> Dict[str, Any]:
+    def get_strategy_info(self) -> dict[str, Any]:
         """
         Get comprehensive strategy information.
 
@@ -1304,7 +1295,7 @@ class EvolvedCreditSpreadStrategy:
 
     def run_deap_optimization(
         self,
-        returns_history: List[float],
+        returns_history: list[float],
         n_generations: int = 20,
         pop_size: int = 60,
         seed: int = 42,
@@ -1351,7 +1342,7 @@ class EvolvedCreditSpreadStrategy:
         tb.register("individual", tools.initRepeat, creator.Individual, tb.gene, n=4)
         tb.register("population", tools.initRepeat, list, tb.individual)
 
-        def evaluate(individual: List[float]):
+        def evaluate(individual: list[float]):
             risk_factor, delta_target_norm, profit_target, min_signal = individual
             # Map genes to parameter ranges
             risk = np.clip(risk_factor, 0.05, 0.40)
@@ -1370,13 +1361,13 @@ class EvolvedCreditSpreadStrategy:
 
         pop = tb.population(n=pop_size)
         fitnesses = list(map(tb.evaluate, pop))
-        for ind, fit in zip(pop, fitnesses):
+        for ind, fit in zip(pop, fitnesses, strict=False):
             ind.fitness.values = fit
 
         for _ in range(n_generations):
             offspring = tools.selTournamentDCD(pop, len(pop))
             offspring = [tb.clone(o) for o in offspring]
-            for child1, child2 in zip(offspring[::2], offspring[1::2]):
+            for child1, child2 in zip(offspring[::2], offspring[1::2], strict=False):
                 if random.random() < 0.9:
                     tb.mate(child1, child2)
                     del child1.fitness.values
@@ -1446,7 +1437,7 @@ def test_evolved_strategy():
             "daily_change": (prices[-1] - prices[-2]) / prices[-2],
         }
 
-        logging.info(f"📊 Test Market Data:")
+        logging.info("📊 Test Market Data:")
         logging.info(f"   Current Price: ${sample_data['current_price']:.2f}")
         logging.info(f"   Daily Change: {sample_data['daily_change']:.3%}")
         logging.info(f"   VIX: {sample_data['vix']}")
@@ -1454,10 +1445,10 @@ def test_evolved_strategy():
         logging.info(f"   Volume Series Length: {len(volumes)}")
 
         # Test market analysis
-        logging.info(f"\n🔍 Running Market Analysis...")
+        logging.info("\n🔍 Running Market Analysis...")
         analysis = strategy.analyze_market(sample_data)
 
-        logging.info(f"✅ Analysis Results:")
+        logging.info("✅ Analysis Results:")
         logging.info(f"   Strategy: {strategy.strategy_name}")
         logging.info(f"   Evolution Fitness: {strategy.evolved_params.fitness_score:.3f}")
         logging.info(f"   Generation: {strategy.evolved_params.generation}")
@@ -1470,7 +1461,7 @@ def test_evolved_strategy():
 
         # Display technical indicators
         if analysis.technical_indicators:
-            logging.info(f"\n📈 Technical Indicators:")
+            logging.info("\n📈 Technical Indicators:")
             if analysis.technical_indicators.rsi is not None:
                 logging.info(f"   RSI: {analysis.technical_indicators.rsi:.1f}")
             if analysis.technical_indicators.volume_ratio is not None:
@@ -1479,20 +1470,20 @@ def test_evolved_strategy():
                 logging.info(f"   Breakout Score: {analysis.technical_indicators.breakout_score:.3f}")
 
         # Display entry signals
-        logging.info(f"\n🎯 Entry Signals:")
+        logging.info("\n🎯 Entry Signals:")
         for condition, active in analysis.entry_signals.items():
             status = "✅" if active else "❌"
             logging.info(f"   {condition}: {status}")
 
         # Test signal generation
-        logging.info(f"\n🚨 Generating Trading Signals...")
+        logging.info("\n🚨 Generating Trading Signals...")
         signals = strategy.generate_signals(analysis)
 
         logging.info(f"   Signals Generated: {len(signals)}")
 
         if signals:
             signal = signals[0]
-            logging.info(f"\n📋 First Signal Details:")
+            logging.info("\n📋 First Signal Details:")
             logging.info(f"   Signal ID: {signal.signal_id}")
             logging.info(f"   Action: {signal.action}")
             logging.info(f"   Timestamp: {signal.timestamp}")
@@ -1501,7 +1492,7 @@ def test_evolved_strategy():
 
             if signal.position_details:
                 details = signal.position_details
-                logging.info(f"   Position Details:")
+                logging.info("   Position Details:")
                 logging.info(f"     Short Strike: ${details.get('short_strike', 0):.1f}")
                 logging.info(f"     Long Strike: ${details.get('long_strike', 0):.1f}")
                 logging.info(f"     Estimated Credit: ${details.get('estimated_credit', 0):.2f}")
@@ -1509,13 +1500,13 @@ def test_evolved_strategy():
                 logging.info(f"     Max Loss: ${details.get('max_loss', 0):.2f}")
 
         # Display strategy info
-        logging.info(f"\n🏗️ Strategy Information:")
+        logging.info("\n🏗️ Strategy Information:")
         info = strategy.get_strategy_info()
         logging.info(f"   State: {info['current_state']['state']}")
         logging.info(f"   Positions: {info['current_state']['positions_count']}")
         logging.info(f"   Evolution Date: {info['evolved_params']['evolution_date']}")
 
-        logging.info(f"\n✅ STRATEGY TEST COMPLETED SUCCESSFULLY!")
+        logging.info("\n✅ STRATEGY TEST COMPLETED SUCCESSFULLY!")
 
         return strategy, analysis, signals
 
@@ -1535,14 +1526,6 @@ if __name__ == "__main__":
     strategy, analysis, signals = test_evolved_strategy()
 
     if strategy:
-        print(f"\n🎯 Test Summary:")
-        print(f"   Strategy successfully initialized and tested")
-        print(
-            f"   AI-evolved parameters loaded (fitness: {strategy.evolved_params.fitness_score:.3f})"
-        )
-        print(f"   Technical analysis working ({TA_LIBRARY or 'fallback'})")
-        print(f"   Market analysis completed")
-        print(f"   Signal generation functional")
-        print(f"\n🚀 Strategy ready for integration with Spyder system!")
+        pass
     else:
-        print(f"\n❌ Test failed - check error messages above")
+        pass

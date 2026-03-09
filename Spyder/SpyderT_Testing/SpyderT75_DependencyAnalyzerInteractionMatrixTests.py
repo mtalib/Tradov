@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -897,7 +896,7 @@ class TestAnalyzeMatrix:
         assert isinstance(result, MatrixAnalysis)
 
     def test_time_window_filter(self):
-        result = self.im.analyze_matrix(MetrixMetric := MatrixMetric.FREQUENCY,
+        result = self.im.analyze_matrix(_MetrixMetric := MatrixMetric.FREQUENCY,
                                          time_window=timedelta(hours=1))
         assert isinstance(result, MatrixAnalysis)
 

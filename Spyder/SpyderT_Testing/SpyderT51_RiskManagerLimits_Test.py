@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -82,7 +81,7 @@ class _MockOrder:
 # HELPERS
 # ==============================================================================
 
-def _make_manager(overrides: Dict[str, Any] = None) -> RiskManager:
+def _make_manager(overrides: dict[str, Any] = None) -> RiskManager:
     """Create a RiskManager with default limits, optionally overriding some."""
     limits = DEFAULT_RISK_LIMITS.copy()
     if overrides:

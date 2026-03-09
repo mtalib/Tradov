@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,12 +23,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import datetime
-import json
-from typing import Dict, List, Optional, Any, Tuple, Callable
 from collections import deque
 from dataclasses import dataclass
-import threading
-import time
 import sys
 from pathlib import Path
 
@@ -46,9 +41,9 @@ if str(project_root) not in sys.path:
 # THIRD-PARTY IMPORTS - UPDATED TO PYQT6
 # ==============================================================================
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, \
-    QCheckBox, QGroupBox, QSplitter, QMenu, QApplication, QComboBox
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
-from PySide6.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap, QAction
+    QCheckBox, QSplitter, QMenu, QApplication, QComboBox
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAction
 import logging
 try:
     import pyqtgraph as pg
@@ -68,10 +63,10 @@ try:
 except ImportError as e:
     logging.info(f"Warning: Cannot import Spyder modules: {e}")
     logging.info("Creating fallback logger...")
-    
+
     # Create fallback logger
     import logging
-    
+
     class FallbackLogger:
         def __init__(self, name):
             self.logger = logging.getLogger(name)
@@ -81,19 +76,19 @@ except ImportError as e:
                 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
                 handler.setFormatter(formatter)
                 self.logger.addHandler(handler)
-        
+
         @classmethod
         def get_logger(cls, name):
             return cls(name).logger
-    
+
     SpyderLogger = FallbackLogger
-    
+
     # Create fallback Event classes
     class EventType:
         MARKET_DATA = "market_data"
         PRICE = "price"
         TRADE = "trade"
-    
+
     class Event:
         def __init__(self, event_type, data=None):
             self.type = event_type
@@ -149,7 +144,7 @@ class DrawingTool:
     """Drawing tool data"""
 
     tool_type: str  # 'line', 'hline', 'vline', 'rectangle', 'fibonacci'
-    points: List[Tuple[float, float]]
+    points: list[tuple[float, float]]
     color: str
     width: int
     style: Qt.PenStyle
@@ -707,7 +702,7 @@ class ChartWidget(QWidget):
         volumes = []
         colors = []
 
-        for i, candle in enumerate(self.price_data):
+        for _i, candle in enumerate(self.price_data):
             volumes.append(candle["volume"])
             # Color based on price action
             if candle["close"] >= candle["open"]:
@@ -904,7 +899,7 @@ class ChartWidget(QWidget):
 
     def _calculate_stochastic(
         self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Stochastic Oscillator"""
         if len(closes) < period:
             return np.array([]), np.array([])
@@ -1291,7 +1286,7 @@ class ChartWidget(QWidget):
         levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
         colors = ["red", "orange", "yellow", "green", "cyan", "blue", "purple"]
 
-        for level, color in zip(levels, colors):
+        for level, color in zip(levels, colors, strict=False):
             y = y1 + diff * level
             line = pg.InfiniteLine(
                 angle=0,
@@ -1332,11 +1327,9 @@ class ChartWidget(QWidget):
         if trade_type.upper() in ["BUY", "BUY TO OPEN"]:
             symbol = "o"
             color = self.chart_style.bull_color
-            angle = 180
         else:
             symbol = "t"
             color = self.chart_style.bear_color
-            angle = 0
 
         # Create scatter plot item
         scatter = pg.ScatterPlotItem(

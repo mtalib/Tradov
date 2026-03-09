@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v2.0
 
@@ -50,12 +49,12 @@ def _log_import_status(module_name: str, success: bool, error: str = None):
         _logger.warning(f"[FAIL] {module_name} import failed: {error}")
 
 
-def get_module_status() -> Dict[str, bool]:
+def get_module_status() -> dict[str, bool]:
     """Get status of all module imports for diagnostics."""
     return _module_status.copy()
 
 
-def get_package_status() -> Dict[str, Any]:
+def get_package_status() -> dict[str, Any]:
     """Get comprehensive package status for diagnostics."""
     return {
         "version": __version__,
@@ -84,7 +83,7 @@ def print_package_status():
 
 # Order Types (B00) - Generic order type definitions
 try:
-    from .SpyderB00_OrderTypes import *
+    from .SpyderB00_OrderTypes import *  # noqa: F401, F403  # re-export order types
     _log_import_status("SpyderB00_OrderTypes", True)
 except ImportError as e:
     _log_import_status("SpyderB00_OrderTypes", False, str(e))
@@ -220,10 +219,10 @@ except ImportError as e:
 # ==============================================================================
 
 def create_broker_client(
-    api_key: Optional[str] = None,
-    account_id: Optional[str] = None,
+    api_key: str | None = None,
+    account_id: str | None = None,
     environment: str = "sandbox"
-) -> Optional[TradierClient]:
+) -> TradierClient | None:
     """
     Create a Tradier broker client.
 

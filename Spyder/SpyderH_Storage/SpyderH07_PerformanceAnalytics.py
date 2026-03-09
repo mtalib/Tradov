@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -25,12 +24,11 @@ Change Log:
 # ==============================================================================
 import json
 from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Any, Union
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
 import threading
-from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -141,30 +139,30 @@ class PerformanceMetrics:
     monthly_consistency: float
 
     # Benchmark comparison (if available)
-    benchmark_return: Optional[float] = None
-    alpha: Optional[float] = None
-    beta: Optional[float] = None
-    information_ratio: Optional[float] = None
+    benchmark_return: float | None = None
+    alpha: float | None = None
+    beta: float | None = None
+    information_ratio: float | None = None
 
 
 @dataclass
 class EquityCurve:
     """Equity curve data."""
-    dates: List[date]
-    equity: List[float]
-    returns: List[float]
-    drawdowns: List[float]
-    high_water_mark: List[float]
+    dates: list[date]
+    equity: list[float]
+    returns: list[float]
+    drawdowns: list[float]
+    high_water_mark: list[float]
 
 
 @dataclass
 class TradeDistribution:
     """Trade distribution analysis."""
-    pnl_histogram: Dict[str, int]  # PnL buckets -> count
-    holding_time_distribution: Dict[str, int]  # Time buckets -> count
-    hourly_distribution: Dict[int, int]  # Hour -> trade count
-    weekday_distribution: Dict[str, int]  # Weekday -> trade count
-    monthly_distribution: Dict[str, float]  # Month -> total PnL
+    pnl_histogram: dict[str, int]  # PnL buckets -> count
+    holding_time_distribution: dict[str, int]  # Time buckets -> count
+    hourly_distribution: dict[int, int]  # Hour -> trade count
+    weekday_distribution: dict[str, int]  # Weekday -> trade count
+    monthly_distribution: dict[str, float]  # Month -> total PnL
 
 
 @dataclass
@@ -172,21 +170,21 @@ class PerformanceReport:
     """Complete performance report."""
     report_date: datetime
     account_id: str
-    strategy_name: Optional[str]
+    strategy_name: str | None
     time_frame: TimeFrame
 
     # Core data
     metrics: PerformanceMetrics
-    equity_curve: Optional[EquityCurve] = None
-    trade_distribution: Optional[TradeDistribution] = None
+    equity_curve: EquityCurve | None = None
+    trade_distribution: TradeDistribution | None = None
 
     # Monthly breakdown
-    monthly_returns: Optional[Dict[str, float]] = None
+    monthly_returns: dict[str, float] | None = None
 
     # Insights
-    strengths: List[str] = field(default_factory=list)
-    weaknesses: List[str] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
+    strengths: list[str] = field(default_factory=list)
+    weaknesses: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
 
 # ==============================================================================
@@ -204,7 +202,7 @@ class PerformanceAnalytics:
         self,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
         risk_free_rate: float = RISK_FREE_RATE,
-        config: Optional[Dict[str, Any]] = None
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize performance analytics.
@@ -226,15 +224,15 @@ class PerformanceAnalytics:
             f"PerformanceAnalytics initialized: capital=${initial_capital:,.2f}"
         )
 
-    def calculate(self, *args, **kwargs) -> Dict[str, Any]:
+    def calculate(self, *args, **kwargs) -> dict[str, Any]:
         """Legacy calculate method for backward compatibility."""
         return {}
 
     def analyze_trades(
         self,
-        trades: List[Dict[str, Any]],
+        trades: list[dict[str, Any]],
         time_frame: TimeFrame = TimeFrame.ALL_TIME,
-        strategy_name: Optional[str] = None,
+        strategy_name: str | None = None,
         account_id: str = "default"
     ) -> PerformanceReport:
         """
@@ -298,8 +296,8 @@ class PerformanceAnalytics:
 
     def analyze_returns(
         self,
-        returns: Union[pd.Series, List[float]],
-        initial_capital: Optional[float] = None
+        returns: Union[pd.Series, list[float]],
+        initial_capital: float | None = None
     ) -> PerformanceMetrics:
         """
         Analyze a return series.
@@ -353,7 +351,7 @@ class PerformanceAnalytics:
     def _calculate_metrics(
         self,
         df: pd.DataFrame,
-        returns_series: Optional[pd.Series] = None
+        returns_series: pd.Series | None = None
     ) -> PerformanceMetrics:
         """Calculate comprehensive performance metrics from trade data."""
         # Extract PnL
@@ -613,7 +611,7 @@ class PerformanceAnalytics:
             monthly_distribution=monthly_distribution
         )
 
-    def _calculate_monthly_returns(self, df: pd.DataFrame) -> Dict[str, float]:
+    def _calculate_monthly_returns(self, df: pd.DataFrame) -> dict[str, float]:
         """Calculate monthly returns."""
         if 'executed_at' not in df.columns or 'pnl' not in df.columns:
             return {}
@@ -626,7 +624,7 @@ class PerformanceAnalytics:
     def _generate_insights(
         self,
         metrics: PerformanceMetrics
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> tuple[list[str], list[str], list[str]]:
         """Generate insights based on performance metrics."""
         strengths = []
         weaknesses = []
@@ -684,7 +682,7 @@ class PerformanceAnalytics:
         self,
         report: PerformanceReport,
         format: str = 'json',
-        output_path: Optional[Path] = None
+        output_path: Path | None = None
     ) -> str:
         """
         Export performance report to file or string.

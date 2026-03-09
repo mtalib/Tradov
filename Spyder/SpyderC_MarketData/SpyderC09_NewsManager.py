@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,28 +22,22 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-from typing import Dict, List, Optional, Any, Tuple, Set
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 from datetime import datetime, timedelta
 import threading
 import time
 from collections import deque, defaultdict
-import re
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import hashlib
-import pandas as pd
 import numpy as np
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import feedparser
-import requests
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -63,7 +56,7 @@ NEWS_SOURCES = {
 }
 
 # Keywords for different categories
-FED_KEYWORDS = ['federal reserve', 'fomc', 'powell', 'interest rate', 'monetary policy', 
+FED_KEYWORDS = ['federal reserve', 'fomc', 'powell', 'interest rate', 'monetary policy',
                 'inflation', 'employment', 'gdp', 'economic data']
 MARKET_KEYWORDS = ['spy', 's&p 500', 'stock market', 'wall street', 'nasdaq', 'dow jones']
 CRISIS_KEYWORDS = ['crash', 'plunge', 'collapse', 'emergency', 'halt', 'circuit breaker']
@@ -137,8 +130,8 @@ class NewsItem:
     priority: NewsPriority
     raw_text: str = ""
     author: str = ""
-    tags: List[str] = field(default_factory=list)
-    
+    tags: list[str] = field(default_factory=list)
+
 @dataclass
 class NewsSentiment:
     """News sentiment analysis"""
@@ -148,10 +141,10 @@ class NewsSentiment:
     sentiment_level: SentimentLevel
     textblob_polarity: float
     textblob_subjectivity: float
-    vader_scores: Dict[str, float]
-    keywords_found: List[str]
+    vader_scores: dict[str, float]
+    keywords_found: list[str]
     confidence: float
-    
+
 @dataclass
 class NewsImpact:
     """News market impact assessment"""
@@ -159,67 +152,67 @@ class NewsImpact:
     timestamp: datetime
     impact_level: MarketImpact
     impact_score: float  # 0 to 1
-    affected_sectors: List[str]
+    affected_sectors: list[str]
     expected_duration: str  # "minutes", "hours", "days"
-    trading_implications: List[str]
-    
+    trading_implications: list[str]
+
 @dataclass
 class NewsAnalysis:
     """Comprehensive news analysis"""
     timestamp: datetime
     total_items: int
-    items_by_category: Dict[NewsCategory, int]
+    items_by_category: dict[NewsCategory, int]
     overall_sentiment: float
     sentiment_trend: str  # "improving", "deteriorating", "stable"
-    high_impact_items: List[NewsItem]
+    high_impact_items: list[NewsItem]
     fed_news_count: int
-    breaking_news: List[NewsItem]
-    market_implications: Dict[str, Any]
-    trading_signals: List[Dict[str, Any]]
-    
+    breaking_news: list[NewsItem]
+    market_implications: dict[str, Any]
+    trading_signals: list[dict[str, Any]]
+
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
 class NewsManager:
     """
     Real-time news aggregation and sentiment analysis system.
-    
+
     This class aggregates news from multiple sources, performs sentiment analysis,
     assesses market impact, and generates trading signals based on news flow.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
         event_bus: Event management system
         news_items: Collection of news items
         sentiment_analyzer: VADER sentiment analyzer
-        
+
     Example:
         >>> manager = NewsManager()
         >>> manager.initialize()
         >>> analysis = manager.get_current_analysis()
     """
-    
+
     def __init__(self):
         """Initialize the news manager."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_bus = EventBus()
-        
+
         # News storage
-        self.news_items: Dict[str, NewsItem] = {}
-        self.news_sentiments: Dict[str, NewsSentiment] = {}
-        self.news_impacts: Dict[str, NewsImpact] = {}
+        self.news_items: dict[str, NewsItem] = {}
+        self.news_sentiments: dict[str, NewsSentiment] = {}
+        self.news_impacts: dict[str, NewsImpact] = {}
         self.news_history: deque = deque(maxlen=1000)
-        
+
         # Analysis tools
         self.vader_analyzer = SentimentIntensityAnalyzer()
-        self.processed_urls: Set[str] = set()
-        
+        self.processed_urls: set[str] = set()
+
         # Current state
-        self.current_analysis: Optional[NewsAnalysis] = None
+        self.current_analysis: NewsAnalysis | None = None
         self.sentiment_history: deque = deque(maxlen=100)
-        
+
         # Statistics
         self.stats = {
             'items_processed': 0,
@@ -227,63 +220,63 @@ class NewsManager:
             'errors': 0,
             'last_update': datetime.now()
         }
-        
+
         # Control flags
         self.is_running = False
-        self.fetch_thread: Optional[threading.Thread] = None
-        self.analysis_thread: Optional[threading.Thread] = None
+        self.fetch_thread: threading.Thread | None = None
+        self.analysis_thread: threading.Thread | None = None
         self.lock = threading.Lock()
-        
+
         # Callbacks
-        self.news_callbacks: List[callable] = []
-        self.alert_callbacks: List[callable] = []
-        
+        self.news_callbacks: list[callable] = []
+        self.alert_callbacks: list[callable] = []
+
         self.logger.info("NewsManager initialized")
-        
+
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
     def initialize(self) -> bool:
         """
         Initialize news monitoring.
-        
+
         Returns:
             bool: True if initialization successful
         """
         try:
             self.logger.info("Initializing news monitoring")
-            
+
             # Start monitoring
             self.start()
-            
+
             self.logger.info("News monitoring initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Initialization failed: {e}")
             return False
-            
+
     def start(self) -> None:
         """Start news monitoring."""
         if not self.is_running:
             self.is_running = True
-            
+
             # Start fetch thread
             self.fetch_thread = threading.Thread(
                 target=self._fetch_loop,
                 daemon=True
             )
             self.fetch_thread.start()
-            
+
             # Start analysis thread
             self.analysis_thread = threading.Thread(
                 target=self._analysis_loop,
                 daemon=True
             )
             self.analysis_thread.start()
-            
+
             self.logger.info("News monitoring started")
-            
+
     def stop(self) -> None:
         """Stop news monitoring."""
         self.is_running = False
@@ -292,118 +285,118 @@ class NewsManager:
         if self.analysis_thread:
             self.analysis_thread.join(timeout=5)
         self.logger.info("News monitoring stopped")
-        
-    def get_current_analysis(self) -> Optional[NewsAnalysis]:
+
+    def get_current_analysis(self) -> NewsAnalysis | None:
         """
         Get current news analysis.
-        
+
         Returns:
             Current analysis or None
         """
         return self.current_analysis
-        
-    def get_recent_news(self, category: Optional[NewsCategory] = None,
-                       limit: int = 10) -> List[NewsItem]:
+
+    def get_recent_news(self, category: NewsCategory | None = None,
+                       limit: int = 10) -> list[NewsItem]:
         """
         Get recent news items.
-        
+
         Args:
             category: Filter by category (optional)
             limit: Maximum items to return
-            
+
         Returns:
             List of news items
         """
         with self.lock:
             items = list(self.news_items.values())
-            
+
             # Filter by category if specified
             if category:
                 items = [item for item in items if item.category == category]
-                
+
             # Sort by timestamp
             items.sort(key=lambda x: x.timestamp, reverse=True)
-            
+
             return items[:limit]
-            
-    def search_news(self, query: str, limit: int = 20) -> List[NewsItem]:
+
+    def search_news(self, query: str, limit: int = 20) -> list[NewsItem]:
         """
         Search news by keyword.
-        
+
         Args:
             query: Search query
             limit: Maximum results
-            
+
         Returns:
             List of matching news items
         """
         query_lower = query.lower()
         results = []
-        
+
         with self.lock:
             for item in self.news_items.values():
                 # Search in title and summary
-                if (query_lower in item.title.lower() or 
+                if (query_lower in item.title.lower() or
                     query_lower in item.summary.lower()):
                     results.append(item)
-                    
+
                 if len(results) >= limit:
                     break
-                    
+
         return results
-        
-    def get_sentiment_trend(self, window_minutes: int = 60) -> Dict[str, Any]:
+
+    def get_sentiment_trend(self, window_minutes: int = 60) -> dict[str, Any]:
         """
         Get sentiment trend over time window.
-        
+
         Args:
             window_minutes: Time window in minutes
-            
+
         Returns:
             Sentiment trend analysis
         """
         cutoff_time = datetime.now() - timedelta(minutes=window_minutes)
         recent_sentiments = []
-        
+
         with self.lock:
             for sentiment in self.news_sentiments.values():
                 if sentiment.timestamp > cutoff_time:
                     recent_sentiments.append(sentiment)
-                    
+
         if not recent_sentiments:
             return {'trend': 'neutral', 'change': 0.0}
-            
+
         # Sort by time
         recent_sentiments.sort(key=lambda x: x.timestamp)
-        
+
         # Calculate trend
         early_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[:len(recent_sentiments)//2]])
         late_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[len(recent_sentiments)//2:]])
-        
+
         change = late_sentiment - early_sentiment
-        
+
         if change > 0.1:
             trend = 'improving'
         elif change < -0.1:
             trend = 'deteriorating'
         else:
             trend = 'stable'
-            
+
         return {
             'trend': trend,
             'change': change,
             'current_sentiment': late_sentiment,
             'sentiment_count': len(recent_sentiments)
         }
-        
+
     def register_news_callback(self, callback: callable) -> None:
         """Register callback for news updates."""
         self.news_callbacks.append(callback)
-        
+
     def register_alert_callback(self, callback: callable) -> None:
         """Register callback for breaking news alerts."""
         self.alert_callbacks.append(callback)
-        
+
     # ==========================================================================
     # FETCHING METHODS
     # ==========================================================================
@@ -418,25 +411,25 @@ class NewsManager:
                         self.stats['sources_active'] += 1
                     except Exception as e:
                         self.logger.error(f"Error fetching from {source_name}: {e}")
-                        
+
                 time.sleep(NEWS_FETCH_INTERVAL)
-                
+
             except Exception as e:
                 self.logger.error(f"Fetch loop error: {e}")
                 self.stats['errors'] += 1
                 time.sleep(NEWS_FETCH_INTERVAL)
-                
+
     def _fetch_from_source(self, source_name: str, source_url: str) -> None:
         """Fetch news from a specific source."""
         try:
             # Parse RSS feed
             feed = feedparser.parse(source_url)
-            
+
             for entry in feed.entries[:20]:  # Limit to recent items
                 # Check if already processed
                 if entry.link in self.processed_urls:
                     continue
-                    
+
                 # Create news item
                 news_item = self._create_news_item(source_name, entry)
                 if news_item:
@@ -444,53 +437,53 @@ class NewsManager:
                         self.news_items[news_item.id] = news_item
                         self.processed_urls.add(entry.link)
                         self.stats['items_processed'] += 1
-                        
+
                     # Analyze sentiment
                     sentiment = self._analyze_sentiment(news_item)
                     if sentiment:
                         self.news_sentiments[news_item.id] = sentiment
-                        
+
                     # Assess impact
                     impact = self._assess_impact(news_item, sentiment)
                     if impact:
                         self.news_impacts[news_item.id] = impact
-                        
+
                     # Check for breaking news
                     if news_item.priority == NewsPriority.BREAKING:
                         self._handle_breaking_news(news_item)
-                        
+
         except Exception as e:
             self.logger.error(f"Error fetching from {source_name}: {e}")
-            
-    def _create_news_item(self, source: str, entry: Any) -> Optional[NewsItem]:
+
+    def _create_news_item(self, source: str, entry: Any) -> NewsItem | None:
         """Create news item from feed entry."""
         try:
             # Extract basic info
             title = entry.get('title', '')
             summary = entry.get('summary', '')
             url = entry.get('link', '')
-            
+
             # Skip if missing required fields
             if not title or not url:
                 return None
-                
+
             # Parse timestamp
             published = entry.get('published_parsed')
             if published:
                 timestamp = datetime.fromtimestamp(time.mktime(published))
             else:
                 timestamp = datetime.now()
-                
+
             # Generate ID
             item_id = hashlib.md5(url.encode()).hexdigest()
-            
+
             # Categorize
             category = self._categorize_news(title, summary)
             priority = self._determine_priority(title, summary, category)
-            
+
             # Extract tags
             tags = [tag['term'] for tag in entry.get('tags', [])]
-            
+
             return NewsItem(
                 id=item_id,
                 timestamp=timestamp,
@@ -503,15 +496,15 @@ class NewsManager:
                 author=entry.get('author', ''),
                 tags=tags
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error creating news item: {e}")
             return None
-            
+
     def _categorize_news(self, title: str, summary: str) -> NewsCategory:
         """Categorize news based on content."""
         text = f"{title} {summary}".lower()
-        
+
         # Check categories in priority order
         if any(keyword in text for keyword in FED_KEYWORDS):
             return NewsCategory.FED_POLICY
@@ -525,20 +518,20 @@ class NewsManager:
             return NewsCategory.GEOPOLITICAL
         else:
             return NewsCategory.GENERAL
-            
-    def _determine_priority(self, title: str, summary: str, 
+
+    def _determine_priority(self, title: str, summary: str,
                           category: NewsCategory) -> NewsPriority:
         """Determine news priority."""
         text = f"{title} {summary}".lower()
-        
+
         # Check for breaking indicators
         if any(word in text for word in ['breaking', 'alert', 'urgent']):
             return NewsPriority.BREAKING
-            
+
         # Check for crisis keywords
         if any(keyword in text for keyword in CRISIS_KEYWORDS):
             return NewsPriority.BREAKING
-            
+
         # Category-based priority
         if category in [NewsCategory.FED_POLICY, NewsCategory.ECONOMIC_DATA]:
             return NewsPriority.HIGH
@@ -546,7 +539,7 @@ class NewsManager:
             return NewsPriority.MEDIUM
         else:
             return NewsPriority.LOW
-            
+
     # ==========================================================================
     # ANALYSIS METHODS
     # ==========================================================================
@@ -558,14 +551,14 @@ class NewsManager:
                 analysis = self._perform_analysis()
                 if analysis:
                     self.current_analysis = analysis
-                    
+
                     # Notify callbacks
                     for callback in self.news_callbacks:
                         try:
                             callback(analysis)
                         except Exception as e:
                             self.logger.error(f"News callback error: {e}")
-                            
+
                     # Publish event
                     event = Event(
                         type=EventType.NEWS_ANALYSIS,
@@ -575,32 +568,32 @@ class NewsManager:
                         }
                     )
                     self.event_bus.publish(event)
-                    
+
                 time.sleep(ANALYSIS_INTERVAL)
-                
+
             except Exception as e:
                 self.logger.error(f"Analysis loop error: {e}")
                 time.sleep(ANALYSIS_INTERVAL)
-                
-    def _analyze_sentiment(self, news_item: NewsItem) -> Optional[NewsSentiment]:
+
+    def _analyze_sentiment(self, news_item: NewsItem) -> NewsSentiment | None:
         """Analyze sentiment of news item."""
         try:
             text = f"{news_item.title} {news_item.summary}"
-            
+
             # TextBlob analysis
             blob = TextBlob(text)
             textblob_polarity = blob.sentiment.polarity
             textblob_subjectivity = blob.sentiment.subjectivity
-            
+
             # VADER analysis
             vader_scores = self.vader_analyzer.polarity_scores(text)
-            
+
             # Combined sentiment score
             sentiment_score = (
                 textblob_polarity * 0.4 +
                 vader_scores['compound'] * 0.6
             )
-            
+
             # Determine sentiment level
             if sentiment_score >= SENTIMENT_VERY_POSITIVE:
                 sentiment_level = SentimentLevel.VERY_BULLISH
@@ -612,19 +605,19 @@ class NewsManager:
                 sentiment_level = SentimentLevel.BEARISH
             else:
                 sentiment_level = SentimentLevel.NEUTRAL
-                
+
             # Find keywords
             keywords_found = []
             all_keywords = FED_KEYWORDS + MARKET_KEYWORDS + CRISIS_KEYWORDS
             for keyword in all_keywords:
                 if keyword in text.lower():
                     keywords_found.append(keyword)
-                    
+
             # Calculate confidence
             confidence = min(abs(sentiment_score) * 2, 1.0)
             if textblob_subjectivity > 0.8:
                 confidence *= 0.7  # Lower confidence for highly subjective
-                
+
             return NewsSentiment(
                 item_id=news_item.id,
                 timestamp=datetime.now(),
@@ -636,13 +629,13 @@ class NewsManager:
                 keywords_found=keywords_found,
                 confidence=confidence
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error analyzing sentiment: {e}")
             return None
-            
-    def _assess_impact(self, news_item: NewsItem, 
-                      sentiment: Optional[NewsSentiment]) -> Optional[NewsImpact]:
+
+    def _assess_impact(self, news_item: NewsItem,
+                      sentiment: NewsSentiment | None) -> NewsImpact | None:
         """Assess market impact of news."""
         try:
             # Base impact on category and priority
@@ -656,11 +649,11 @@ class NewsManager:
                 impact_score = 0.6
             else:
                 impact_score = 0.3
-                
+
             # Adjust for sentiment extremity
             if sentiment and abs(sentiment.sentiment_score) > 0.5:
                 impact_score = min(impact_score * 1.2, 1.0)
-                
+
             # Determine impact level
             if impact_score >= IMPACT_CRITICAL:
                 impact_level = MarketImpact.CRITICAL
@@ -672,10 +665,10 @@ class NewsManager:
                 impact_level = MarketImpact.LOW
             else:
                 impact_level = MarketImpact.MINIMAL
-                
+
             # Determine affected sectors
             affected_sectors = self._identify_affected_sectors(news_item)
-            
+
             # Expected duration
             if impact_level == MarketImpact.CRITICAL:
                 duration = "days"
@@ -683,12 +676,12 @@ class NewsManager:
                 duration = "hours"
             else:
                 duration = "minutes"
-                
+
             # Trading implications
             implications = self._generate_implications(
                 news_item, sentiment, impact_level
             )
-            
+
             return NewsImpact(
                 item_id=news_item.id,
                 timestamp=datetime.now(),
@@ -698,16 +691,16 @@ class NewsManager:
                 expected_duration=duration,
                 trading_implications=implications
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error assessing impact: {e}")
             return None
-            
-    def _identify_affected_sectors(self, news_item: NewsItem) -> List[str]:
+
+    def _identify_affected_sectors(self, news_item: NewsItem) -> list[str]:
         """Identify sectors affected by news."""
         text = f"{news_item.title} {news_item.summary}".lower()
         affected = []
-        
+
         sector_keywords = {
             'XLK': ['tech', 'technology', 'software', 'semiconductor'],
             'XLF': ['bank', 'financial', 'jpmorgan', 'goldman'],
@@ -718,28 +711,28 @@ class NewsManager:
             'XLP': ['staples', 'procter', 'coca-cola', 'walmart'],
             'XLU': ['utilities', 'electric', 'power', 'nextera']
         }
-        
+
         for sector, keywords in sector_keywords.items():
             if any(keyword in text for keyword in keywords):
                 affected.append(sector)
-                
+
         # If Fed news, all sectors affected
         if news_item.category == NewsCategory.FED_POLICY:
             return ['ALL']
-            
+
         return affected if affected else ['SPY']
-        
+
     def _generate_implications(self, news_item: NewsItem,
-                             sentiment: Optional[NewsSentiment],
-                             impact_level: MarketImpact) -> List[str]:
+                             sentiment: NewsSentiment | None,
+                             impact_level: MarketImpact) -> list[str]:
         """Generate trading implications."""
         implications = []
-        
+
         # High impact implications
         if impact_level in [MarketImpact.CRITICAL, MarketImpact.HIGH]:
             implications.append("Expect increased volatility")
             implications.append("Consider reducing position sizes")
-            
+
             if sentiment:
                 if sentiment.sentiment_level in [SentimentLevel.VERY_BEARISH, SentimentLevel.BEARISH]:
                     implications.append("Consider protective puts")
@@ -747,7 +740,7 @@ class NewsManager:
                 elif sentiment.sentiment_level in [SentimentLevel.VERY_BULLISH, SentimentLevel.BULLISH]:
                     implications.append("Consider bull spreads")
                     implications.append("Avoid bearish positions")
-                    
+
         # Category-specific implications
         if news_item.category == NewsCategory.FED_POLICY:
             implications.append("Monitor bond yields")
@@ -755,10 +748,10 @@ class NewsManager:
         elif news_item.category == NewsCategory.EARNINGS:
             implications.append("Check options implied volatility")
             implications.append("Consider earnings plays")
-            
+
         return implications
-        
-    def _perform_analysis(self) -> Optional[NewsAnalysis]:
+
+    def _perform_analysis(self) -> NewsAnalysis | None:
         """Perform comprehensive news analysis."""
         try:
             with self.lock:
@@ -766,45 +759,45 @@ class NewsManager:
                 items_by_category = defaultdict(int)
                 for item in self.news_items.values():
                     items_by_category[item.category] += 1
-                    
+
                 # Calculate overall sentiment
                 recent_sentiments = []
                 cutoff_time = datetime.now() - timedelta(hours=1)
                 for sentiment in self.news_sentiments.values():
                     if sentiment.timestamp > cutoff_time:
                         recent_sentiments.append(sentiment.sentiment_score)
-                        
+
                 overall_sentiment = np.mean(recent_sentiments) if recent_sentiments else 0.0
-                
+
                 # Get sentiment trend
                 trend_data = self.get_sentiment_trend(60)
                 sentiment_trend = trend_data['trend']
-                
+
                 # Find high impact items
                 high_impact_items = []
                 for item_id, impact in self.news_impacts.items():
                     if impact.impact_level in [MarketImpact.CRITICAL, MarketImpact.HIGH]:
                         if item_id in self.news_items:
                             high_impact_items.append(self.news_items[item_id])
-                            
+
                 # Count Fed news
                 fed_news_count = sum(1 for item in self.news_items.values()
                                    if item.category == NewsCategory.FED_POLICY)
-                
+
                 # Find breaking news
                 breaking_news = [item for item in self.news_items.values()
                                if item.priority == NewsPriority.BREAKING]
-                
+
                 # Generate market implications
                 implications = self._generate_market_implications(
                     overall_sentiment, high_impact_items
                 )
-                
+
                 # Generate trading signals
                 signals = self._generate_trading_signals(
                     overall_sentiment, sentiment_trend, high_impact_items
                 )
-                
+
                 return NewsAnalysis(
                     timestamp=datetime.now(),
                     total_items=len(self.news_items),
@@ -817,13 +810,13 @@ class NewsManager:
                     market_implications=implications,
                     trading_signals=signals
                 )
-                
+
         except Exception as e:
             self.logger.error(f"Error performing analysis: {e}")
             return None
-            
+
     def _generate_market_implications(self, sentiment: float,
-                                    high_impact_items: List[NewsItem]) -> Dict[str, Any]:
+                                    high_impact_items: list[NewsItem]) -> dict[str, Any]:
         """Generate market implications from news."""
         implications = {
             'volatility_expectation': 'normal',
@@ -832,25 +825,25 @@ class NewsManager:
             'key_themes': [],
             'sectors_to_watch': []
         }
-        
+
         # Volatility expectation
         if len(high_impact_items) > 2:
             implications['volatility_expectation'] = 'high'
         elif any(item.category == NewsCategory.FED_POLICY for item in high_impact_items):
             implications['volatility_expectation'] = 'elevated'
-            
+
         # Trend bias
         if sentiment > 0.3:
             implications['trend_bias'] = 'bullish'
         elif sentiment < -0.3:
             implications['trend_bias'] = 'bearish'
-            
+
         # Risk level
         if any(item.priority == NewsPriority.BREAKING for item in high_impact_items):
             implications['risk_level'] = 'high'
         elif sentiment < -0.5 or sentiment > 0.5:
             implications['risk_level'] = 'elevated'
-            
+
         # Extract themes
         themes = set()
         for item in high_impact_items[:5]:
@@ -860,25 +853,25 @@ class NewsManager:
                 themes.add('Economic Data')
             elif item.category == NewsCategory.EARNINGS:
                 themes.add('Corporate Earnings')
-                
+
         implications['key_themes'] = list(themes)
-        
+
         # Sectors to watch
         sectors = set()
         for item in high_impact_items:
             if item.id in self.news_impacts:
                 impact = self.news_impacts[item.id]
                 sectors.update(impact.affected_sectors)
-                
+
         implications['sectors_to_watch'] = list(sectors)[:5]
-        
+
         return implications
-        
+
     def _generate_trading_signals(self, sentiment: float, trend: str,
-                                high_impact_items: List[NewsItem]) -> List[Dict[str, Any]]:
+                                high_impact_items: list[NewsItem]) -> list[dict[str, Any]]:
         """Generate trading signals from news analysis."""
         signals = []
-        
+
         # Sentiment-based signals
         if sentiment > 0.5:
             signals.append({
@@ -896,7 +889,7 @@ class NewsManager:
                 'message': 'Strong negative news sentiment',
                 'strategy': 'Consider bear call spreads'
             })
-            
+
         # Trend-based signals
         if trend == 'improving':
             signals.append({
@@ -914,7 +907,7 @@ class NewsManager:
                 'message': 'News sentiment deteriorating',
                 'strategy': 'Consider defensive positions'
             })
-            
+
         # High impact signals
         for item in high_impact_items[:2]:
             if item.id in self.news_sentiments:
@@ -927,9 +920,9 @@ class NewsManager:
                         'message': f'High impact: {item.title[:50]}...',
                         'strategy': 'Adjust position sizes'
                     })
-                    
+
         # Fed news signal
-        fed_items = [item for item in high_impact_items 
+        fed_items = [item for item in high_impact_items
                     if item.category == NewsCategory.FED_POLICY]
         if fed_items:
             signals.append({
@@ -939,9 +932,9 @@ class NewsManager:
                 'message': 'Fed policy news detected',
                 'strategy': 'Expect volatility, consider hedges'
             })
-            
+
         return signals
-        
+
     def _handle_breaking_news(self, news_item: NewsItem) -> None:
         """Handle breaking news alerts."""
         try:
@@ -951,7 +944,7 @@ class NewsManager:
                     callback(news_item)
                 except Exception as e:
                     self.logger.error(f"Alert callback error: {e}")
-                    
+
             # Publish breaking news event
             event = Event(
                 type=EventType.BREAKING_NEWS,
@@ -961,9 +954,9 @@ class NewsManager:
                 }
             )
             self.event_bus.publish(event)
-            
+
             self.logger.warning(f"BREAKING NEWS: {news_item.title}")
-            
+
         except Exception as e:
             self.logger.error(f"Error handling breaking news: {e}")
 
@@ -973,10 +966,9 @@ class NewsManager:
 if __name__ == "__main__":
     # Test the news manager
     manager = NewsManager()
-    
+
     if manager.initialize():
-        print("News Manager initialized successfully")
-        
+
         # Create some test news items
         test_items = [
             {
@@ -998,55 +990,45 @@ if __name__ == "__main__":
                 'url': 'http://example.com/3'
             }
         ]
-        
+
         # Process test items
-        for i, item_data in enumerate(test_items):
+        for _i, item_data in enumerate(test_items):
             entry = type('Entry', (), item_data)()
             entry.link = item_data['url']
             entry.published_parsed = time.gmtime()
             entry.tags = []
             entry.author = 'Test Author'
-            
+
             news_item = manager._create_news_item('test', entry)
             if news_item:
                 manager.news_items[news_item.id] = news_item
-                
+
                 # Analyze
                 sentiment = manager._analyze_sentiment(news_item)
                 if sentiment:
                     manager.news_sentiments[news_item.id] = sentiment
-                    
+
                 impact = manager._assess_impact(news_item, sentiment)
                 if impact:
                     manager.news_impacts[news_item.id] = impact
-                    
+
         # Wait for analysis
         time.sleep(2)
-        
+
         # Get analysis
         analysis = manager.get_current_analysis()
         if analysis:
-            print(f"\nNews Analysis:")
-            print(f"Total Items: {analysis.total_items}")
-            print(f"Overall Sentiment: {analysis.overall_sentiment:.2f}")
-            print(f"Sentiment Trend: {analysis.sentiment_trend}")
-            print(f"Fed News Count: {analysis.fed_news_count}")
-            
+
             if analysis.high_impact_items:
-                print("\nHigh Impact News:")
-                for item in analysis.high_impact_items:
-                    print(f"  - {item.title}")
-                    
+                for _item in analysis.high_impact_items:
+                    pass
+
             if analysis.trading_signals:
-                print("\nTrading Signals:")
-                for signal in analysis.trading_signals:
-                    print(f"  - {signal['type']}: {signal['message']} "
-                          f"({signal['direction']}, strength: {signal['strength']:.2f})")
-                    
+                for _signal in analysis.trading_signals:
+                    pass
+
         # Search test
         results = manager.search_news("Federal Reserve")
-        print(f"\nSearch Results for 'Federal Reserve': {len(results)} items")
-        
+
         # Stop manager
         manager.stop()
-        print("\nNews Manager stopped")

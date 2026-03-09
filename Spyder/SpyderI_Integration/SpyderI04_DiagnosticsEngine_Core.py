@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,7 +25,7 @@ Change Log:
 import time
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Any
 from dataclasses import asdict
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -47,13 +46,12 @@ from Spyder.SpyderI_Integration.SpyderI10_DiagnosticsEngine_Types import (
     DiagnosticReport,
     DiagnosticIssue,
     HealthStatus,
-    ProblemSeverity,
 )
 from Spyder.SpyderI_Integration.SpyderI09_DiagnosticsEngine_HealthChecks import (
     HealthCheckManager,
 )
 from Spyder.SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
-from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_Analyzers import AnalysisManager
+from Spyder.SpyderI_Integration.SpyderI05_DiagnosticsEngine_Analyzers import AnalysisManager
 from Spyder.SpyderI_Integration.SpyderI11_DiagnosticsEngine_Utils import DiagnosticUtils
 
 # Integration components
@@ -94,7 +92,7 @@ class DiagnosticsEngine:
         >>> issues = diagnostics.detect_issues()
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize the Diagnostics Engine.
 
@@ -121,11 +119,11 @@ class DiagnosticsEngine:
 
         # Monitoring control
         self.is_monitoring = False
-        self.monitoring_threads: Dict[str, threading.Thread] = {}
+        self.monitoring_threads: dict[str, threading.Thread] = {}
         self.thread_pool = ThreadPoolExecutor(max_workers=5)
 
         # Issue tracking
-        self.active_issues: Dict[str, DiagnosticIssue] = {}
+        self.active_issues: dict[str, DiagnosticIssue] = {}
 
         # Register with integration hub
         if HUB_AVAILABLE:
@@ -275,7 +273,7 @@ class DiagnosticsEngine:
             self.error_handler.handle_error(e, "run_comprehensive_diagnosis")
             raise
 
-    def detect_issues(self) -> List[DiagnosticIssue]:
+    def detect_issues(self) -> list[DiagnosticIssue]:
         """
         Detect system issues across all categories.
 
@@ -300,7 +298,7 @@ class DiagnosticsEngine:
             self.error_handler.handle_error(e, "detect_issues")
             return []
 
-    def get_health_summary(self) -> Dict[str, Any]:
+    def get_health_summary(self) -> dict[str, Any]:
         """
         Get current health summary.
 
@@ -369,7 +367,7 @@ class DiagnosticsEngine:
             self.error_handler.handle_error(e, "get_health_summary")
             return {"error": str(e)}
 
-    def get_active_issues(self) -> List[DiagnosticIssue]:
+    def get_active_issues(self) -> list[DiagnosticIssue]:
         """
         Get list of currently active issues.
 
@@ -467,7 +465,7 @@ class DiagnosticsEngine:
     # PRIVATE METHODS - UTILITY
     # ==========================================================================
 
-    def _update_active_issues(self, new_issues: List[DiagnosticIssue]) -> None:
+    def _update_active_issues(self, new_issues: list[DiagnosticIssue]) -> None:
         """Update active issues list"""
         try:
             for issue in new_issues:
@@ -494,7 +492,7 @@ class DiagnosticsEngine:
         except Exception as e:
             self.error_handler.handle_error(e, "_update_active_issues")
 
-    def _find_similar_issue(self, issue: DiagnosticIssue) -> Optional[DiagnosticIssue]:
+    def _find_similar_issue(self, issue: DiagnosticIssue) -> DiagnosticIssue | None:
         """Find similar existing issue"""
         for existing_issue in self.active_issues.values():
             if (
@@ -534,7 +532,7 @@ class DiagnosticsEngine:
 
 
 def get_diagnostics_engine(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> DiagnosticsEngine:
     """
     Get or create the global diagnostics engine instance.
@@ -566,37 +564,24 @@ _diagnostics_engine = None
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER I04 - Diagnostics Engine Core Test")
-    print("=" * 80)
 
     # Create diagnostics engine
     diagnostics = DiagnosticsEngine()
 
     # Start monitoring
-    print("\n1. Starting monitoring...")
     success = diagnostics.start_monitoring()
-    print(f"Monitoring started: {success}")
 
     # Wait a bit
     time.sleep(2)
 
     # Get health summary
-    print("\n2. Getting health summary...")
     summary = diagnostics.get_health_summary()
-    for key, value in summary.items():
-        print(f"   {key}: {value}")
+    for _key, _value in summary.items():
+        pass
 
     # Run diagnosis
-    print("\n3. Running comprehensive diagnosis...")
     report = diagnostics.run_comprehensive_diagnosis()
-    print(f"Health Score: {report.overall_health_score:.2%}")
-    print(f"Issues Found: {len(report.identified_issues)}")
 
     # Stop monitoring
-    print("\n4. Stopping monitoring...")
     success = diagnostics.stop_monitoring()
-    print(f"Monitoring stopped: {success}")
 
-    print("\n" + "=" * 80)
-    print("Diagnostics Engine Core test completed!")

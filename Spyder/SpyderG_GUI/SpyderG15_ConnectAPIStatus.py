@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -37,8 +36,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Optional, Any
 from dataclasses import dataclass
 from enum import Enum, auto
 from threading import RLock
@@ -48,11 +46,11 @@ from threading import RLock
 # ==============================================================================
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QFrame, QGroupBox, QTabWidget, QTableWidget, QTableWidgetItem,
-    QProgressBar, QPushButton,
+    QGroupBox, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPushButton,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -90,7 +88,7 @@ except ImportError:
 # ==============================================================================
 STATUS_UPDATE_INTERVAL = 1000  # milliseconds
 
-STATUS_COLORS: Dict[str, QColor] = {
+STATUS_COLORS: dict[str, QColor] = {
     "CONNECTED": QColor(0, 200, 0),
     "DISCONNECTED": QColor(200, 0, 0),
     "CONNECTING": QColor(200, 200, 0),
@@ -155,11 +153,11 @@ class BrokerStatusWidget(QWidget):
 
     def __init__(
         self,
-        config: Optional[StatusConfig] = None,
+        config: StatusConfig | None = None,
         tradier_client: Optional["TradierClient"] = None,
         order_manager: Optional["OrderManager"] = None,
         risk_manager: Optional["RiskManager"] = None,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ):
         """
         Initialise the broker status widget.
@@ -591,7 +589,7 @@ class BrokerStatusWidget(QWidget):
             if not self.order_manager or not OrderState:
                 return
 
-            orders: List[Any] = []
+            orders: list[Any] = []
             for state in (OrderState.SUBMITTED, OrderState.OPEN,
                           OrderState.PARTIALLY_FILLED, OrderState.PENDING):
                 try:
@@ -734,11 +732,11 @@ class BrokerStatusWidget(QWidget):
 # MODULE FUNCTIONS
 # ==============================================================================
 def create_status_widget(
-    config: Optional[StatusConfig] = None,
+    config: StatusConfig | None = None,
     tradier_client: Optional["TradierClient"] = None,
     order_manager: Optional["OrderManager"] = None,
     risk_manager: Optional["RiskManager"] = None,
-    parent: Optional[QWidget] = None,
+    parent: QWidget | None = None,
 ) -> BrokerStatusWidget:
     """
     Factory function to create a broker status widget.

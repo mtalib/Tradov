@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -62,13 +61,10 @@ Environment Variables (loaded from .env):
 # STANDARD IMPORTS
 # ==============================================================================
 import argparse
-import os
 import signal
 import sys
 import time
-from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -374,7 +370,7 @@ def main() -> int:
     """Entry point — returns process exit code."""
     args = _build_arg_parser().parse_args()
 
-    snapshot_dir: Optional[Path] = (
+    snapshot_dir: Path | None = (
         Path(args.snapshot_dir) if args.snapshot_dir else None
     )
 

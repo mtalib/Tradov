@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,8 +23,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -48,28 +47,21 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     SignalType,
     SignalStrength,
     PositionType,
-    PositionState,
     SIGNAL_EXPIRY_SECONDS
 )
 from Spyder.SpyderF_Analysis.SpyderF21_RenaissanceIndicators import (
     RenaissanceStyleSignalGenerator,
     MeanReversionIndicators,
     VolatilityIndicators,
-    MeanReversionSignal,
     VolatilityRegime,
     RenaissanceSignal,
     ZSCORE_OVERBOUGHT,
-    ZSCORE_OVERSOLD,
-    IV_HIGH_PERCENTILE,
-    IV_LOW_PERCENTILE
+    ZSCORE_OVERSOLD
 )
 from Spyder.SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer import (
     RenaissancePositionSizer,
-    PositionSizeMethod,
-    PositionSizeResult
+    PositionSizeMethod
 )
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -143,7 +135,7 @@ class OptionContract:
 class RenaissanceTradingSignal:
     """Extended trading signal for Renaissance strategy"""
     base_signal: TradingSignal
-    contract: Optional[OptionContract]
+    contract: OptionContract | None
     trade_action: TradeAction
     strategy_type: str  # 'mean_reversion' or 'theta_decay'
     zscore: float
@@ -171,7 +163,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         name: str,
         event_manager: EventManager,
         risk_profile: RiskProfile,
-        config: Dict[str, Any]
+        config: dict[str, Any]
     ):
         """
         Initialize the Renaissance mean reversion strategy.
@@ -214,7 +206,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         self.current_volatility_regime: VolatilityRegime = VolatilityRegime.NORMAL
 
         # Option chain reference
-        self.option_chain: List[OptionContract] = []
+        self.option_chain: list[OptionContract] = []
 
         self.logger.info(
             f"RenaissanceMeanReversionStrategy initialized: "
@@ -222,7 +214,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             f"IV range=[{self.min_iv_percentile}%, {self.max_iv_percentile}%]"
         )
 
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """
         Generate trading signals based on Renaissance-style analysis.
 
@@ -314,7 +306,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         contract: OptionContract,
         spy_price: float,
         ren_signal: RenaissanceSignal
-    ) -> Optional[TradingSignal]:
+    ) -> TradingSignal | None:
         """
         Evaluate a single option contract for trading opportunity.
 
@@ -475,12 +467,12 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
 
             # Check signal freshness
             if not signal.is_valid():
-                self.logger.debug(f"Signal rejected: expired")
+                self.logger.debug("Signal rejected: expired")
                 return False
 
             # Check position limits
             if len(self.positions) >= self.max_positions:
-                self.logger.debug(f"Signal rejected: max positions reached")
+                self.logger.debug("Signal rejected: max positions reached")
                 return False
 
             # Check for duplicate position
@@ -491,7 +483,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
 
             # Check entry price validity
             if signal.entry_price <= 0:
-                self.logger.debug(f"Signal rejected: invalid entry price")
+                self.logger.debug("Signal rejected: invalid entry price")
                 return False
 
             return True
@@ -530,7 +522,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         self,
         position: StrategyPosition,
         market_data: pd.DataFrame
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Determine if position should be exited.
 
@@ -582,7 +574,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             self.error_handler.handle_error(e, {'method': 'should_exit_position'})
             return False, ""
 
-    def update_option_chain(self, option_chain: List[OptionContract]) -> None:
+    def update_option_chain(self, option_chain: list[OptionContract]) -> None:
         """
         Update the available option chain.
 
@@ -592,7 +584,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         self.option_chain = option_chain
         self.logger.debug(f"Option chain updated: {len(option_chain)} contracts")
 
-    def get_strategy_stats(self) -> Dict[str, Any]:
+    def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy-specific statistics."""
         base_stats = self.get_state()
 
@@ -617,7 +609,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
 def create_renaissance_strategy(
     event_manager: EventManager,
     risk_profile: RiskProfile,
-    config: Optional[Dict[str, Any]] = None
+    config: dict[str, Any] | None = None
 ) -> RenaissanceMeanReversionStrategy:
     """
     Factory function to create a Renaissance mean reversion strategy.
@@ -658,9 +650,6 @@ def create_renaissance_strategy(
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER D30 - RENAISSANCE MEAN REVERSION STRATEGY DEMONSTRATION")
-    print("=" * 80)
 
     # Create components
     event_manager = EventManager()
@@ -680,11 +669,6 @@ if __name__ == "__main__":
     # Create strategy
     strategy = create_renaissance_strategy(event_manager, risk_profile, config)
 
-    print(f"\nStrategy Configuration:")
-    print(f"  Name: {strategy.name}")
-    print(f"  Min Confidence: {strategy.min_confidence:.2%}")
-    print(f"  IV Range: [{strategy.min_iv_percentile}%, {strategy.max_iv_percentile}%]")
-    print(f"  DTE Range: [{strategy.min_dte}, {strategy.max_dte}] days")
 
     # Generate sample market data
     np.random.seed(42)
@@ -706,9 +690,6 @@ if __name__ == "__main__":
         'implied_vol': np.random.uniform(0.15, 0.35, 100)
     }, index=dates)
 
-    print(f"\nMarket Data:")
-    print(f"  Current Price: ${prices[-1]:.2f}")
-    print(f"  Price Range: ${min(prices):.2f} - ${max(prices):.2f}")
 
     # Create sample option chain
     current_price = prices[-1]
@@ -736,51 +717,26 @@ if __name__ == "__main__":
 
     strategy.update_option_chain(sample_options)
 
-    print(f"\nOption Chain:")
-    print(f"  Loaded {len(sample_options)} contracts")
 
     # Start strategy
-    print("\n" + "=" * 50)
-    print("Starting Strategy")
-    print("=" * 50)
 
     if strategy.start():
-        print("Strategy started successfully")
+        pass
 
     # Process market data
     strategy.process_market_data(market_data)
 
     # Get signals
     signals = strategy.get_signals()
-    print(f"\nGenerated {len(signals)} signals")
 
-    for signal in signals:
-        print(f"\n  Signal: {signal.signal_id[:8]}...")
-        print(f"    Type: {signal.signal_type.value}")
-        print(f"    Symbol: {signal.symbol}")
-        print(f"    Confidence: {signal.confidence:.2%}")
-        print(f"    Entry: ${signal.entry_price:.2f}")
-        print(f"    Stop: ${signal.stop_loss:.2f}")
-        print(f"    Target: ${signal.take_profit:.2f}")
-        print(f"    Size: {signal.position_size} contracts")
+    for _signal in signals:
+        pass
 
     # Get strategy stats
-    print("\n" + "=" * 50)
-    print("Strategy Statistics")
-    print("=" * 50)
 
     stats = strategy.get_strategy_stats()
-    print(f"\n  Current Z-Score: {stats['current_zscore']:.2f}")
-    print(f"  Current IV Percentile: {stats['current_iv_percentile']:.1f}%")
-    print(f"  Volatility Regime: {stats['volatility_regime']}")
-    print(f"  Open Positions: {stats['open_positions']}")
-    print(f"  Active Signals: {stats['active_signals']}")
 
     # Stop strategy
     if strategy.stop():
-        print("\nStrategy stopped successfully")
+        pass
 
-    print("\n" + "=" * 80)
-    print("RENAISSANCE MEAN REVERSION STRATEGY READY!")
-    print("Philosophy: Small edge + High volume + Strict risk = Consistent profits")
-    print("=" * 80)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -34,17 +33,14 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import time
-import math
 import bisect
-import json
 import pickle
 import threading
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple, Union, Any, Set
-from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum
-from collections import defaultdict, deque
+from collections import defaultdict
 from pathlib import Path
 
 # ==============================================================================
@@ -52,8 +48,7 @@ from pathlib import Path
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from scipy import stats, optimize, interpolate
-from scipy.stats import norm
+from scipy import interpolate
 import warnings
 import logging
 warnings.filterwarnings('ignore')
@@ -63,7 +58,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 try:
     from SpyderN01_OptionsPricer import (
-        OptionsPricer, OptionContract, MarketData, OptionType,
+        OptionsPricer, OptionContract, MarketData, OptionType,  # noqa: F401
         ExerciseStyle, ImpliedVolatilitySolver
     )
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -72,21 +67,21 @@ try:
 except ImportError:
     LOCAL_IMPORTS = False
     import logging
-    
+
     # Mock imports for standalone testing
     class SpyderLogger:
         @staticmethod
         def get_logger(name):
             return logging.getLogger(name)
-    
+
     class SpyderErrorHandler:
         def handle_error(self, error, context):
             logging.info(f"Error in {context}: {error}")
-    
+
     class OptionType(Enum):
         CALL = "CALL"
         PUT = "PUT"
-    
+
     class ExerciseStyle(Enum):
         EUROPEAN = "EUROPEAN"
         AMERICAN = "AMERICAN"
@@ -183,15 +178,15 @@ class IVPoint:
     spot_price: float
     market_price: float
     implied_volatility: float
-    volume: Optional[int] = None
-    open_interest: Optional[int] = None
-    bid_ask_spread: Optional[float] = None
-    
+    volume: int | None = None
+    open_interest: int | None = None
+    bid_ask_spread: float | None = None
+
     @property
     def moneyness(self) -> float:
         """Calculate moneyness (spot/strike)"""
         return self.spot_price / self.strike if self.strike > 0 else 0
-    
+
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiry"""
@@ -204,29 +199,29 @@ class IVSnapshot:
     underlying: str
     spot_price: float
     atm_iv: float
-    iv_points: List[IVPoint]
-    term_structure: Dict[int, float]  # DTE -> IV
-    smile_parameters: Dict[str, float]
+    iv_points: list[IVPoint]
+    term_structure: dict[int, float]  # DTE -> IV
+    smile_parameters: dict[str, float]
     regime: VolatilityRegime
-    
-    def get_iv_by_strike(self, strike: float, option_type: OptionType) -> Optional[float]:
+
+    def get_iv_by_strike(self, strike: float, option_type: OptionType) -> float | None:
         """Get IV for specific strike"""
         for point in self.iv_points:
             if abs(point.strike - strike) < 0.01 and point.option_type == option_type:
                 return point.implied_volatility
         return None
-    
-    def get_iv_by_moneyness(self, moneyness: float) -> Optional[float]:
+
+    def get_iv_by_moneyness(self, moneyness: float) -> float | None:
         """Get IV for specific moneyness level"""
         closest_point = None
         min_diff = float('inf')
-        
+
         for point in self.iv_points:
             diff = abs(point.moneyness - moneyness)
             if diff < min_diff:
                 min_diff = diff
                 closest_point = point
-        
+
         return closest_point.implied_volatility if closest_point else None
 
 @dataclass
@@ -234,24 +229,24 @@ class IVTermStructure:
     """Implied volatility term structure"""
     timestamp: datetime
     underlying: str
-    expirations: List[datetime]
-    implied_vols: List[float]
+    expirations: list[datetime]
+    implied_vols: list[float]
     shape: TermStructureShape
     slope: float  # Annualized slope
     curvature: float
-    
+
     def interpolate_iv(self, target_dte: int) -> float:
         """Interpolate IV for specific DTE"""
         if not self.expirations:
             return 0
-        
+
         dtes = [(exp - self.timestamp).days for exp in self.expirations]
-        
+
         if target_dte <= min(dtes):
             return self.implied_vols[0]
         if target_dte >= max(dtes):
             return self.implied_vols[-1]
-        
+
         # Linear interpolation
         interp = interpolate.interp1d(dtes, self.implied_vols, kind='linear')
         return float(interp(target_dte))
@@ -261,8 +256,8 @@ class IVSmile:
     """Volatility smile/skew parameters"""
     timestamp: datetime
     expiry: datetime
-    strikes: List[float]
-    implied_vols: List[float]
+    strikes: list[float]
+    implied_vols: list[float]
     atm_strike: float
     atm_iv: float
     skew: float  # Slope at ATM
@@ -270,16 +265,16 @@ class IVSmile:
     shape: SmileShape
     put_wing_slope: float
     call_wing_slope: float
-    
+
     def fit_smile(self) -> callable:
         """Fit parametric smile model"""
         if len(self.strikes) < 3:
             return lambda k: self.atm_iv
-        
+
         # Use quadratic fit for simplicity
         moneyness = [k/self.atm_strike for k in self.strikes]
         coeffs = np.polyfit(moneyness, self.implied_vols, 2)
-        
+
         return lambda k: np.polyval(coeffs, k/self.atm_strike)
 
 @dataclass
@@ -288,30 +283,30 @@ class IVAnalytics:
     timestamp: datetime
     underlying: str
     spot_price: float
-    
+
     # Current metrics
     current_iv: float
     iv_rank: float
     iv_percentile: float
-    
+
     # Historical metrics
     hv_20day: float
     hv_ratio: float  # IV/HV ratio
-    
+
     # Term structure
     term_structure: IVTermStructure
     term_structure_slope: float
-    
+
     # Smile metrics
     smile: IVSmile
     put_call_spread: float
     skew_ratio: float  # 90% Put IV / 110% Call IV
-    
+
     # Regime analysis
     regime: VolatilityRegime
     regime_confidence: float
     regime_transition_prob: float
-    
+
     # Forecasts
     mean_reversion_target: float
     forecast_1d: float
@@ -322,41 +317,41 @@ class IVAnalytics:
 class IVHistory:
     """Historical IV data storage"""
     underlying: str
-    data: List[IVSnapshot]
-    
+    data: list[IVSnapshot]
+
     def get_series(self, metric: str = 'atm_iv') -> pd.Series:
         """Extract time series of specific metric"""
         timestamps = [d.timestamp for d in self.data]
         values = [getattr(d, metric) for d in self.data]
         return pd.Series(values, index=timestamps)
-    
+
     def calculate_rank(self, current_iv: float, period_days: int = 252) -> float:
         """Calculate IV rank over period"""
         cutoff_date = datetime.now() - timedelta(days=period_days)
         period_data = [d for d in self.data if d.timestamp >= cutoff_date]
-        
+
         if not period_data:
             return 50.0
-        
+
         ivs = [d.atm_iv for d in period_data]
         min_iv = min(ivs)
         max_iv = max(ivs)
-        
+
         if max_iv == min_iv:
             return 50.0
-        
+
         return 100 * (current_iv - min_iv) / (max_iv - min_iv)
-    
+
     def calculate_percentile(self, current_iv: float, period_days: int = 252) -> float:
         """Calculate IV percentile over period"""
         cutoff_date = datetime.now() - timedelta(days=period_days)
         period_data = [d for d in self.data if d.timestamp >= cutoff_date]
-        
+
         if not period_data:
             return 50.0
-        
+
         ivs = sorted([d.atm_iv for d in period_data])
-        
+
         # Find position in sorted list
         pos = bisect.bisect_left(ivs, current_iv)
         return 100 * pos / len(ivs)
@@ -368,17 +363,17 @@ class IVHistory:
 class ImpliedVolatilityEngine:
     """
     Comprehensive implied volatility analysis engine
-    
+
     This class provides real-time IV calculations, historical tracking,
     term structure analysis, smile modeling, and volatility regime detection.
     It integrates with the options pricer for accurate IV calculations and
     provides essential data for volatility-based trading strategies.
-    
+
     Attributes:
         pricer: Options pricing engine
         iv_history: Historical IV data by underlying
         current_snapshots: Current IV snapshots
-        
+
     Example:
         >>> iv_engine = ImpliedVolatilityEngine()
         >>> chain_data = get_option_chain('SPY')
@@ -386,17 +381,17 @@ class ImpliedVolatilityEngine:
         >>> print(f"ATM IV: {snapshot.atm_iv:.1%}")
         >>> print(f"IV Rank: {iv_engine.get_iv_rank('SPY'):.1f}")
     """
-    
-    def __init__(self, data_dir: Optional[Path] = None):
+
+    def __init__(self, data_dir: Path | None = None):
         """
         Initialize IV engine
-        
+
         Args:
             data_dir: Directory for IV data persistence
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Initialize options pricer
         if LOCAL_IMPORTS:
             self.pricer = OptionsPricer()
@@ -404,74 +399,74 @@ class ImpliedVolatilityEngine:
         else:
             self.pricer = None
             self.iv_solver = None
-        
+
         # Data storage
         self.data_dir = data_dir or IV_DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Historical data
-        self.iv_history: Dict[str, IVHistory] = {}
+        self.iv_history: dict[str, IVHistory] = {}
         self.load_historical_data()
-        
+
         # Current data
-        self.current_snapshots: Dict[str, IVSnapshot] = {}
-        self.current_analytics: Dict[str, IVAnalytics] = {}
-        
+        self.current_snapshots: dict[str, IVSnapshot] = {}
+        self.current_analytics: dict[str, IVAnalytics] = {}
+
         # Caching
-        self.cache: Dict[str, Tuple[Any, datetime]] = {}
+        self.cache: dict[str, tuple[Any, datetime]] = {}
         self.cache_lock = threading.Lock()
-        
+
         # Configuration
         self.min_volume = 10  # Minimum volume for IV calculation
         self.min_open_interest = 100  # Minimum OI
         self.max_bid_ask_spread = 0.50  # Maximum spread
-        
+
         self.logger.info("ImpliedVolatilityEngine initialized")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - IV CALCULATION
     # ==========================================================================
-    
-    def calculate_iv_snapshot(self, underlying: str, chain_data: List[Dict],
+
+    def calculate_iv_snapshot(self, underlying: str, chain_data: list[dict],
                              spot_price: float, risk_free_rate: float = DEFAULT_RISK_FREE_RATE) -> IVSnapshot:
         """
         Calculate complete IV snapshot from option chain
-        
+
         Args:
             underlying: Underlying symbol
             chain_data: List of option chain data
             spot_price: Current spot price
             risk_free_rate: Risk-free rate
-            
+
         Returns:
             IVSnapshot with all IV metrics
         """
         try:
             timestamp = datetime.now()
             iv_points = []
-            
+
             # Calculate IV for each option
             for option in chain_data:
                 iv_point = self._calculate_single_iv(option, spot_price, risk_free_rate)
                 if iv_point and self._is_valid_iv_point(iv_point):
                     iv_points.append(iv_point)
-            
+
             if not iv_points:
                 self.logger.warning(f"No valid IV points for {underlying}")
                 return self._create_empty_snapshot(underlying, spot_price)
-            
+
             # Calculate ATM IV
             atm_iv = self._calculate_atm_iv(iv_points, spot_price)
-            
+
             # Build term structure
             term_structure = self._build_term_structure(iv_points)
-            
+
             # Calculate smile parameters
             smile_params = self._calculate_smile_parameters(iv_points, spot_price)
-            
+
             # Detect regime
             regime = self._detect_volatility_regime(atm_iv, term_structure)
-            
+
             # Create snapshot
             snapshot = IVSnapshot(
                 timestamp=timestamp,
@@ -483,26 +478,26 @@ class ImpliedVolatilityEngine:
                 smile_parameters=smile_params,
                 regime=regime
             )
-            
+
             # Store snapshot
             self.current_snapshots[underlying] = snapshot
             self._add_to_history(underlying, snapshot)
-            
+
             return snapshot
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating IV snapshot: {e}")
             self.error_handler.handle_error(e, {"underlying": underlying})
             return self._create_empty_snapshot(underlying, spot_price)
-    
-    def calculate_iv_analytics(self, underlying: str, snapshot: Optional[IVSnapshot] = None) -> IVAnalytics:
+
+    def calculate_iv_analytics(self, underlying: str, snapshot: IVSnapshot | None = None) -> IVAnalytics:
         """
         Calculate comprehensive IV analytics
-        
+
         Args:
             underlying: Underlying symbol
             snapshot: IV snapshot (uses current if None)
-            
+
         Returns:
             IVAnalytics with all metrics
         """
@@ -510,40 +505,40 @@ class ImpliedVolatilityEngine:
             snapshot = self.current_snapshots.get(underlying)
             if not snapshot:
                 raise ValueError(f"No snapshot available for {underlying}")
-        
+
         # Get historical data
         history = self.iv_history.get(underlying)
-        
+
         # Calculate IV rank and percentile
         iv_rank = history.calculate_rank(snapshot.atm_iv) if history else 50.0
         iv_percentile = history.calculate_percentile(snapshot.atm_iv) if history else 50.0
-        
+
         # Calculate historical volatility
         hv_20day = self._calculate_historical_volatility(underlying, 20)
         hv_ratio = snapshot.atm_iv / hv_20day if hv_20day > 0 else 1.0
-        
+
         # Build term structure object
         term_structure = self._analyze_term_structure(snapshot)
-        
+
         # Build smile object
         smile = self._analyze_smile(snapshot)
-        
+
         # Calculate put-call spread
         put_call_spread = self._calculate_put_call_spread(snapshot)
-        
+
         # Calculate skew ratio
         skew_ratio = self._calculate_skew_ratio(snapshot)
-        
+
         # Mean reversion analysis
         mean_reversion_target = self._calculate_mean_reversion_target(underlying, snapshot.atm_iv)
-        
+
         # Volatility forecasts
         forecast_1d, forecast_5d, confidence = self._forecast_volatility(underlying, snapshot.atm_iv)
-        
+
         # Regime analysis
         regime_confidence = self._calculate_regime_confidence(snapshot.regime, snapshot.atm_iv)
         transition_prob = self._calculate_regime_transition_probability(snapshot.regime, history)
-        
+
         analytics = IVAnalytics(
             timestamp=snapshot.timestamp,
             underlying=underlying,
@@ -566,74 +561,74 @@ class ImpliedVolatilityEngine:
             forecast_5d=forecast_5d,
             forecast_confidence=confidence
         )
-        
+
         # Store analytics
         self.current_analytics[underlying] = analytics
-        
+
         return analytics
-    
+
     # ==========================================================================
     # PUBLIC METHODS - QUERIES
     # ==========================================================================
-    
-    def get_current_iv(self, underlying: str) -> Optional[float]:
+
+    def get_current_iv(self, underlying: str) -> float | None:
         """Get current ATM IV"""
         snapshot = self.current_snapshots.get(underlying)
         return snapshot.atm_iv if snapshot else None
-    
+
     def get_iv_rank(self, underlying: str, period_days: int = IV_RANK_PERIOD) -> float:
         """Get current IV rank"""
         current_iv = self.get_current_iv(underlying)
         if not current_iv:
             return 50.0
-        
+
         history = self.iv_history.get(underlying)
         if not history:
             return 50.0
-        
+
         return history.calculate_rank(current_iv, period_days)
-    
+
     def get_iv_percentile(self, underlying: str, period_days: int = IV_PERCENTILE_PERIOD) -> float:
         """Get current IV percentile"""
         current_iv = self.get_current_iv(underlying)
         if not current_iv:
             return 50.0
-        
+
         history = self.iv_history.get(underlying)
         if not history:
             return 50.0
-        
+
         return history.calculate_percentile(current_iv, period_days)
-    
-    def get_term_structure(self, underlying: str) -> Optional[IVTermStructure]:
+
+    def get_term_structure(self, underlying: str) -> IVTermStructure | None:
         """Get current term structure"""
         analytics = self.current_analytics.get(underlying)
         return analytics.term_structure if analytics else None
-    
-    def get_volatility_smile(self, underlying: str, expiry: datetime) -> Optional[IVSmile]:
+
+    def get_volatility_smile(self, underlying: str, expiry: datetime) -> IVSmile | None:
         """Get volatility smile for specific expiry"""
         snapshot = self.current_snapshots.get(underlying)
         if not snapshot:
             return None
-        
+
         # Filter points for specific expiry
-        expiry_points = [p for p in snapshot.iv_points 
+        expiry_points = [p for p in snapshot.iv_points
                         if abs((p.expiry - expiry).days) < 1]
-        
+
         if len(expiry_points) < MIN_STRIKES_FOR_SMILE:
             return None
-        
+
         return self._build_smile_from_points(expiry_points, snapshot.spot_price)
-    
+
     def get_volatility_regime(self, underlying: str) -> VolatilityRegime:
         """Get current volatility regime"""
         snapshot = self.current_snapshots.get(underlying)
         return snapshot.regime if snapshot else VolatilityRegime.NORMAL
-    
-    def get_iv_forecast(self, underlying: str, horizon_days: int = 5) -> Tuple[float, float]:
+
+    def get_iv_forecast(self, underlying: str, horizon_days: int = 5) -> tuple[float, float]:
         """
         Get IV forecast
-        
+
         Returns:
             Tuple of (forecast_iv, confidence)
         """
@@ -641,7 +636,7 @@ class ImpliedVolatilityEngine:
         if not analytics:
             current_iv = self.get_current_iv(underlying) or 0.16
             return current_iv, 0.5
-        
+
         if horizon_days <= 1:
             return analytics.forecast_1d, analytics.forecast_confidence
         elif horizon_days <= 5:
@@ -649,28 +644,28 @@ class ImpliedVolatilityEngine:
         else:
             # Longer horizon - use mean reversion
             return analytics.mean_reversion_target, max(0.3, analytics.forecast_confidence * 0.7)
-    
+
     # ==========================================================================
     # PRIVATE METHODS - IV CALCULATION
     # ==========================================================================
-    
-    def _calculate_single_iv(self, option_data: Dict, spot_price: float, 
-                           risk_free_rate: float) -> Optional[IVPoint]:
+
+    def _calculate_single_iv(self, option_data: dict, spot_price: float,
+                           risk_free_rate: float) -> IVPoint | None:
         """Calculate IV for single option"""
         try:
             strike = option_data['strike']
             expiry = option_data['expiry']
             option_type = OptionType[option_data['type']]
             market_price = option_data.get('mid_price') or option_data.get('last', 0)
-            
+
             if market_price <= 0:
                 return None
-            
+
             # Calculate time to expiry
             tte = (expiry - datetime.now()).days / 365.0
             if tte <= 0:
                 return None
-            
+
             # Calculate IV
             if self.iv_solver:
                 iv = self.iv_solver.calculate_iv(
@@ -681,10 +676,10 @@ class ImpliedVolatilityEngine:
             else:
                 # Fallback calculation
                 iv = self._estimate_iv(market_price, spot_price, strike, tte, option_type)
-            
+
             if not iv or iv < MIN_IV or iv > MAX_IV:
                 return None
-            
+
             return IVPoint(
                 timestamp=datetime.now(),
                 symbol=option_data.get('symbol', ''),
@@ -698,99 +693,96 @@ class ImpliedVolatilityEngine:
                 open_interest=option_data.get('open_interest'),
                 bid_ask_spread=option_data.get('ask', 0) - option_data.get('bid', 0)
             )
-            
+
         except Exception as e:
             self.logger.debug(f"Error calculating IV for option: {e}")
             return None
-    
+
     def _estimate_iv(self, market_price: float, spot: float, strike: float,
                     tte: float, option_type: OptionType) -> float:
         """Estimate IV using approximation (fallback)"""
         # Brenner-Subrahmanyam approximation
-        moneyness = spot / strike
-        
+        spot / strike
+
         if option_type == OptionType.CALL:
             intrinsic = max(spot - strike, 0)
         else:
             intrinsic = max(strike - spot, 0)
-        
+
         if market_price <= intrinsic:
             return MIN_IV
-        
+
         # Simple approximation
         time_value = market_price - intrinsic
         iv_estimate = np.sqrt(2 * np.pi / tte) * (time_value / spot)
-        
+
         return max(MIN_IV, min(MAX_IV, iv_estimate))
-    
+
     def _is_valid_iv_point(self, iv_point: IVPoint) -> bool:
         """Check if IV point meets quality criteria"""
         # Check volume/OI requirements
         if iv_point.volume is not None and iv_point.volume < self.min_volume:
             return False
-        
+
         if iv_point.open_interest is not None and iv_point.open_interest < self.min_open_interest:
             return False
-        
+
         # Check bid-ask spread
         if iv_point.bid_ask_spread is not None and iv_point.bid_ask_spread > self.max_bid_ask_spread:
             return False
-        
+
         # Check IV bounds
-        if iv_point.implied_volatility < MIN_IV or iv_point.implied_volatility > MAX_IV:
-            return False
-        
-        return True
-    
-    def _calculate_atm_iv(self, iv_points: List[IVPoint], spot_price: float) -> float:
+        return not (iv_point.implied_volatility < MIN_IV or iv_point.implied_volatility > MAX_IV)
+
+    def _calculate_atm_iv(self, iv_points: list[IVPoint], spot_price: float) -> float:
         """Calculate ATM implied volatility"""
         # Find options closest to ATM
         atm_points = []
-        
+
         for point in iv_points:
             moneyness = point.moneyness
             if 0.95 <= moneyness <= 1.05:  # Within 5% of ATM
                 atm_points.append(point)
-        
+
         if not atm_points:
             # Use all points weighted by moneyness distance
             weights = [1.0 / (1.0 + abs(p.moneyness - 1.0)) for p in iv_points]
             total_weight = sum(weights)
-            weighted_iv = sum(p.implied_volatility * w for p, w in zip(iv_points, weights))
+            weighted_iv = sum(p.implied_volatility * w for p, w in zip(iv_points, weights, strict=False))
             return weighted_iv / total_weight
-        
+
         # Average ATM points
         return np.mean([p.implied_volatility for p in atm_points])
-    
+
     # ==========================================================================
     # PRIVATE METHODS - TERM STRUCTURE
     # ==========================================================================
-    
-    def _build_term_structure(self, iv_points: List[IVPoint]) -> Dict[int, float]:
+
+    def _build_term_structure(self, iv_points: list[IVPoint]) -> dict[int, float]:
         """Build term structure from IV points"""
         term_structure = defaultdict(list)
-        
+
         # Group by DTE
         for point in iv_points:
             dte = point.days_to_expiry
             if MIN_DTE <= dte <= MAX_DTE:
                 term_structure[dte].append(point.implied_volatility)
-        
+
         # Average IVs for each DTE
         result = {}
         for dte, ivs in term_structure.items():
             result[dte] = np.mean(ivs)
-        
+
         return dict(sorted(result.items()))
-    
-    def _analyze_term_structure(self, snapshot: IVSnapshot) -> Optional[IVTermStructure]:
+
+    def _analyze_term_structure(self, snapshot: IVSnapshot) -> IVTermStructure | None:
         """Analyze term structure shape and characteristics"""
         if not snapshot.term_structure or len(snapshot.term_structure) < 2:
             return None
-        
+
         dtes = list(snapshot.term_structure.keys())
         ivs = list(snapshot.term_structure.values())
-        
+
         # Calculate slope (annualized)
         if len(dtes) >= 2:
             # Use linear regression
@@ -798,7 +790,7 @@ class ImpliedVolatilityEngine:
             slope_annual = slope * 365  # Convert to annual
         else:
             slope_annual = 0
-        
+
         # Calculate curvature
         if len(dtes) >= 3:
             # Fit quadratic
@@ -806,7 +798,7 @@ class ImpliedVolatilityEngine:
             curvature = coeffs[0] * 2  # Second derivative
         else:
             curvature = 0
-        
+
         # Determine shape
         if abs(slope_annual) < 0.01:  # Less than 1% per year
             shape = TermStructureShape.FLAT
@@ -814,7 +806,7 @@ class ImpliedVolatilityEngine:
             shape = TermStructureShape.CONTANGO
         else:
             shape = TermStructureShape.BACKWARDATION
-        
+
         # Check for hump
         if len(ivs) >= 5:
             max_iv = max(ivs)
@@ -822,7 +814,7 @@ class ImpliedVolatilityEngine:
             if 0 < max_idx < len(ivs) - 1:
                 if ivs[0] < max_iv > ivs[-1]:
                     shape = TermStructureShape.HUMPED
-        
+
         return IVTermStructure(
             timestamp=snapshot.timestamp,
             underlying=snapshot.underlying,
@@ -832,12 +824,12 @@ class ImpliedVolatilityEngine:
             slope=slope_annual,
             curvature=curvature
         )
-    
+
     # ==========================================================================
     # PRIVATE METHODS - SMILE ANALYSIS
     # ==========================================================================
-    
-    def _calculate_smile_parameters(self, iv_points: List[IVPoint], spot_price: float) -> Dict[str, float]:
+
+    def _calculate_smile_parameters(self, iv_points: list[IVPoint], spot_price: float) -> dict[str, float]:
         """Calculate volatility smile parameters"""
         params = {
             'skew': 0,
@@ -845,67 +837,67 @@ class ImpliedVolatilityEngine:
             'put_wing': 0,
             'call_wing': 0
         }
-        
+
         # Group by expiry
         by_expiry = defaultdict(list)
         for point in iv_points:
             key = point.expiry.date()
             by_expiry[key].append(point)
-        
+
         # Find expiry with most strikes
         best_expiry = max(by_expiry.items(), key=lambda x: len(x[1])) if by_expiry else None
-        
+
         if not best_expiry or len(best_expiry[1]) < MIN_STRIKES_FOR_SMILE:
             return params
-        
+
         points = best_expiry[1]
-        
+
         # Sort by strike
         points.sort(key=lambda p: p.strike)
-        
+
         strikes = [p.strike for p in points]
         ivs = [p.implied_volatility for p in points]
-        
+
         # Fit polynomial
         if len(strikes) >= 3:
             moneyness = [s/spot_price for s in strikes]
             coeffs = np.polyfit(moneyness, ivs, 2)
-            
+
             params['convexity'] = coeffs[0] * 2  # Second derivative
             params['skew'] = coeffs[1]  # First derivative at ATM
-            
+
             # Calculate wing slopes
             put_points = [p for p in points if p.moneyness < 0.95]
             call_points = [p for p in points if p.moneyness > 1.05]
-            
+
             if len(put_points) >= 2:
                 put_slope, _ = np.polyfit([p.moneyness for p in put_points],
                                          [p.implied_volatility for p in put_points], 1)
                 params['put_wing'] = put_slope
-            
+
             if len(call_points) >= 2:
                 call_slope, _ = np.polyfit([p.moneyness for p in call_points],
                                           [p.implied_volatility for p in call_points], 1)
                 params['call_wing'] = call_slope
-        
+
         return params
-    
-    def _build_smile_from_points(self, points: List[IVPoint], spot_price: float) -> IVSmile:
+
+    def _build_smile_from_points(self, points: list[IVPoint], spot_price: float) -> IVSmile:
         """Build smile object from IV points"""
         # Sort by strike
         points.sort(key=lambda p: p.strike)
-        
+
         strikes = [p.strike for p in points]
         ivs = [p.implied_volatility for p in points]
-        
+
         # Find ATM
         atm_idx = min(range(len(strikes)), key=lambda i: abs(strikes[i] - spot_price))
         atm_strike = strikes[atm_idx]
         atm_iv = ivs[atm_idx]
-        
+
         # Calculate metrics
         moneyness = [s/atm_strike for s in strikes]
-        
+
         # Fit polynomial for smooth curve
         if len(strikes) >= 3:
             coeffs = np.polyfit(moneyness, ivs, 2)
@@ -914,7 +906,7 @@ class ImpliedVolatilityEngine:
         else:
             skew = 0
             convexity = 0
-        
+
         # Determine shape
         if abs(skew) < 0.01:
             shape = SmileShape.SYMMETRIC
@@ -922,25 +914,25 @@ class ImpliedVolatilityEngine:
             shape = SmileShape.SKEWED_PUT
         else:
             shape = SmileShape.SKEWED_CALL
-        
+
         # Calculate wing slopes
         put_wing = 0
         call_wing = 0
-        
+
         if len(strikes) >= 5:
             put_idx = [i for i in range(len(strikes)) if strikes[i] < atm_strike * 0.95]
             call_idx = [i for i in range(len(strikes)) if strikes[i] > atm_strike * 1.05]
-            
+
             if len(put_idx) >= 2:
                 put_slope, _ = np.polyfit([moneyness[i] for i in put_idx],
                                          [ivs[i] for i in put_idx], 1)
                 put_wing = put_slope
-            
+
             if len(call_idx) >= 2:
                 call_slope, _ = np.polyfit([moneyness[i] for i in call_idx],
                                           [ivs[i] for i in call_idx], 1)
                 call_wing = call_slope
-        
+
         return IVSmile(
             timestamp=datetime.now(),
             expiry=points[0].expiry if points else datetime.now(),
@@ -954,45 +946,45 @@ class ImpliedVolatilityEngine:
             put_wing_slope=put_wing,
             call_wing_slope=call_wing
         )
-    
+
     def _calculate_put_call_spread(self, snapshot: IVSnapshot) -> float:
         """Calculate put-call IV spread"""
         atm_puts = []
         atm_calls = []
-        
+
         for point in snapshot.iv_points:
             if 0.95 <= point.moneyness <= 1.05:
                 if point.option_type == OptionType.PUT:
                     atm_puts.append(point.implied_volatility)
                 else:
                     atm_calls.append(point.implied_volatility)
-        
+
         if atm_puts and atm_calls:
             return np.mean(atm_puts) - np.mean(atm_calls)
-        
+
         return 0
-    
+
     def _calculate_skew_ratio(self, snapshot: IVSnapshot) -> float:
         """Calculate 90% Put IV / 110% Call IV ratio"""
         put_90 = None
         call_110 = None
-        
+
         for point in snapshot.iv_points:
             if point.option_type == OptionType.PUT and 0.88 <= point.moneyness <= 0.92:
                 put_90 = point.implied_volatility
             elif point.option_type == OptionType.CALL and 1.08 <= point.moneyness <= 1.12:
                 call_110 = point.implied_volatility
-        
+
         if put_90 and call_110 and call_110 > 0:
             return put_90 / call_110
-        
+
         return 1.0
-    
+
     # ==========================================================================
     # PRIVATE METHODS - REGIME DETECTION
     # ==========================================================================
-    
-    def _detect_volatility_regime(self, current_iv: float, term_structure: Dict[int, float]) -> VolatilityRegime:
+
+    def _detect_volatility_regime(self, current_iv: float, term_structure: dict[int, float]) -> VolatilityRegime:
         """Detect current volatility regime"""
         if current_iv < LOW_VOL_THRESHOLD:
             return VolatilityRegime.LOW
@@ -1004,7 +996,7 @@ class ImpliedVolatilityEngine:
             return VolatilityRegime.NORMAL
         else:
             return VolatilityRegime.TRANSITIONING
-    
+
     def _calculate_regime_confidence(self, regime: VolatilityRegime, current_iv: float) -> float:
         """Calculate confidence in regime classification"""
         if regime == VolatilityRegime.LOW:
@@ -1019,32 +1011,32 @@ class ImpliedVolatilityEngine:
             distance = (NORMAL_VOL_RANGE[1] - NORMAL_VOL_RANGE[0]) / 2 - distance
         else:
             return 0.5
-        
+
         # Convert distance to confidence (0-1)
         confidence = min(1.0, max(0.0, abs(distance) / 0.05))
         return confidence
-    
+
     def _calculate_regime_transition_probability(self, current_regime: VolatilityRegime,
-                                                history: Optional[IVHistory]) -> float:
+                                                history: IVHistory | None) -> float:
         """Calculate probability of regime transition"""
         if not history or len(history.data) < 30:
             return 0.5
-        
+
         # Look at recent regime changes
         recent_regimes = [d.regime for d in history.data[-30:]]
-        
+
         if not recent_regimes:
             return 0.5
-        
+
         # Count transitions
         transitions = 0
         for i in range(1, len(recent_regimes)):
             if recent_regimes[i] != recent_regimes[i-1]:
                 transitions += 1
-        
+
         # Calculate transition probability
         transition_rate = transitions / len(recent_regimes)
-        
+
         # Adjust based on current regime duration
         current_duration = 0
         for regime in reversed(recent_regimes):
@@ -1052,67 +1044,67 @@ class ImpliedVolatilityEngine:
                 current_duration += 1
             else:
                 break
-        
+
         # Longer duration = lower transition probability
         duration_factor = 1.0 / (1.0 + current_duration / 10)
-        
+
         return min(1.0, transition_rate * duration_factor)
-    
+
     # ==========================================================================
     # PRIVATE METHODS - FORECASTING
     # ==========================================================================
-    
+
     def _calculate_mean_reversion_target(self, underlying: str, current_iv: float) -> float:
         """Calculate mean reversion target"""
         history = self.iv_history.get(underlying)
-        
+
         if not history or len(history.data) < 30:
             return current_iv
-        
+
         # Use exponentially weighted average
         ivs = [d.atm_iv for d in history.data[-60:]]
         weights = np.exp(-np.arange(len(ivs))[::-1] / 30)
         weights /= weights.sum()
-        
+
         return np.average(ivs, weights=weights)
-    
-    def _forecast_volatility(self, underlying: str, current_iv: float) -> Tuple[float, float, float]:
+
+    def _forecast_volatility(self, underlying: str, current_iv: float) -> tuple[float, float, float]:
         """
         Forecast future volatility
-        
+
         Returns:
             Tuple of (1d_forecast, 5d_forecast, confidence)
         """
         history = self.iv_history.get(underlying)
-        
+
         if not history or len(history.data) < 10:
             return current_iv, current_iv, 0.3
-        
+
         # Get recent IVs
         recent_ivs = [d.atm_iv for d in history.data[-20:]]
-        
+
         # Calculate trend
         x = np.arange(len(recent_ivs))
         slope, intercept = np.polyfit(x, recent_ivs, 1)
-        
+
         # Mean reversion force
         mean_target = self._calculate_mean_reversion_target(underlying, current_iv)
         reversion_force = (mean_target - current_iv) * 0.1  # 10% mean reversion per day
-        
+
         # Combine trend and mean reversion
         forecast_1d = current_iv + slope + reversion_force
         forecast_5d = current_iv + 5*slope + 5*reversion_force
-        
+
         # Bound forecasts
         forecast_1d = max(MIN_IV, min(MAX_IV, forecast_1d))
         forecast_5d = max(MIN_IV, min(MAX_IV, forecast_5d))
-        
+
         # Calculate confidence based on recent stability
         recent_std = np.std(recent_ivs)
         confidence = max(0.3, min(0.9, 1.0 - recent_std / 0.1))
-        
+
         return forecast_1d, forecast_5d, confidence
-    
+
     def _calculate_historical_volatility(self, underlying: str, period: int = 20) -> float:
         """Calculate historical volatility from price data"""
         # This would need actual price history
@@ -1122,23 +1114,23 @@ class ImpliedVolatilityEngine:
             # HV is typically lower than IV
             return current_iv * 0.8
         return 0.15
-    
+
     # ==========================================================================
     # PRIVATE METHODS - DATA MANAGEMENT
     # ==========================================================================
-    
+
     def _add_to_history(self, underlying: str, snapshot: IVSnapshot):
         """Add snapshot to historical data"""
         if underlying not in self.iv_history:
             self.iv_history[underlying] = IVHistory(underlying=underlying, data=[])
-        
+
         history = self.iv_history[underlying]
         history.data.append(snapshot)
-        
+
         # Trim old data
         cutoff = datetime.now() - timedelta(days=IV_HISTORY_DAYS)
         history.data = [d for d in history.data if d.timestamp >= cutoff]
-    
+
     def _create_empty_snapshot(self, underlying: str, spot_price: float) -> IVSnapshot:
         """Create empty snapshot when no data available"""
         return IVSnapshot(
@@ -1151,7 +1143,7 @@ class ImpliedVolatilityEngine:
             smile_parameters={},
             regime=VolatilityRegime.NORMAL
         )
-    
+
     def load_historical_data(self):
         """Load historical IV data from disk"""
         try:
@@ -1162,7 +1154,7 @@ class ImpliedVolatilityEngine:
                 self.logger.info(f"Loaded IV history for {underlying}")
         except Exception as e:
             self.logger.error(f"Error loading historical data: {e}")
-    
+
     def save_historical_data(self):
         """Save historical IV data to disk"""
         try:
@@ -1178,51 +1170,51 @@ class ImpliedVolatilityEngine:
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_iv_engine(data_dir: Optional[Path] = None) -> ImpliedVolatilityEngine:
+def create_iv_engine(data_dir: Path | None = None) -> ImpliedVolatilityEngine:
     """Factory function to create IV engine"""
     return ImpliedVolatilityEngine(data_dir)
 
-def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> List[Dict]:
+def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> list[dict]:
     """Generate test option chain data"""
     chain_data = []
-    
+
     # Generate options for multiple expiries
     expiries = [7, 14, 30, 45, 60, 90]
-    
+
     for days_to_expiry in expiries:
         expiry = datetime.now() + timedelta(days=days_to_expiry)
-        
+
         # Generate strikes around ATM
         strikes = np.arange(spot * 0.85, spot * 1.15, 5)
-        
+
         for strike in strikes:
             moneyness = spot / strike
-            
+
             # Generate realistic IVs with smile
             base_iv = 0.16 + (days_to_expiry / 365) * 0.02  # Term structure
-            
+
             # Add smile effect
             smile_adjustment = 0.02 * (abs(moneyness - 1.0) ** 1.5)
-            
+
             # Skew effect (puts have higher IV)
             if moneyness < 1.0:
                 skew_adjustment = 0.01 * (1.0 - moneyness)
             else:
                 skew_adjustment = -0.005 * (moneyness - 1.0)
-            
+
             iv = base_iv + smile_adjustment + skew_adjustment
-            
+
             # Generate prices (simplified Black-Scholes approximation)
             for option_type in ['CALL', 'PUT']:
                 if option_type == 'CALL':
                     intrinsic = max(spot - strike, 0)
                 else:
                     intrinsic = max(strike - spot, 0)
-                
+
                 # Simplified pricing
                 time_value = spot * iv * np.sqrt(days_to_expiry/365) * 0.4
                 price = intrinsic + time_value
-                
+
                 chain_data.append({
                     'symbol': f"{underlying}{expiry.strftime('%y%m%d')}{option_type[0]}{int(strike*1000):08d}",
                     'strike': strike,
@@ -1235,7 +1227,7 @@ def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> Li
                     'volume': np.random.randint(10, 1000),
                     'open_interest': np.random.randint(100, 5000)
                 })
-    
+
     return chain_data
 
 # ==============================================================================
@@ -1243,100 +1235,51 @@ def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> Li
 # ==============================================================================
 
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER N02 - IMPLIED VOLATILITY ENGINE TEST")
-    print("=" * 80)
-    
+
     # Create IV engine
     iv_engine = create_iv_engine()
-    
+
     # Generate test data
     underlying = "SPY"
     spot_price = 585.00
     chain_data = generate_test_chain_data(underlying, spot_price)
-    
-    print(f"\n📊 Test Parameters:")
-    print(f"  Underlying: {underlying}")
-    print(f"  Spot Price: ${spot_price:.2f}")
-    print(f"  Options in Chain: {len(chain_data)}")
-    
+
+
     # Calculate IV snapshot
-    print("\n🔄 Calculating IV Snapshot...")
     snapshot = iv_engine.calculate_iv_snapshot(underlying, chain_data, spot_price)
-    
-    print(f"\n📈 IV SNAPSHOT RESULTS:")
-    print("-" * 50)
-    print(f"  ATM IV: {snapshot.atm_iv:.1%}")
-    print(f"  Valid IV Points: {len(snapshot.iv_points)}")
-    print(f"  Volatility Regime: {snapshot.regime.value}")
-    
+
+
     # Display term structure
     if snapshot.term_structure:
-        print(f"\n📅 TERM STRUCTURE:")
-        for dte, iv in list(snapshot.term_structure.items())[:5]:
-            print(f"    {dte:3d} days: {iv:.1%}")
-    
+        for _dte, _iv in list(snapshot.term_structure.items())[:5]:
+            pass
+
     # Display smile parameters
     if snapshot.smile_parameters:
-        print(f"\n😊 SMILE PARAMETERS:")
-        for param, value in snapshot.smile_parameters.items():
-            print(f"    {param}: {value:.4f}")
-    
+        for _param, _value in snapshot.smile_parameters.items():
+            pass
+
     # Calculate analytics
-    print("\n🔄 Calculating IV Analytics...")
     analytics = iv_engine.calculate_iv_analytics(underlying)
-    
-    print(f"\n📊 IV ANALYTICS:")
-    print("-" * 50)
-    print(f"  Current IV: {analytics.current_iv:.1%}")
-    print(f"  IV Rank: {analytics.iv_rank:.1f}")
-    print(f"  IV Percentile: {analytics.iv_percentile:.1f}")
-    print(f"  HV (20-day): {analytics.hv_20day:.1%}")
-    print(f"  IV/HV Ratio: {analytics.hv_ratio:.2f}")
-    
+
+
     # Term structure analysis
     if analytics.term_structure:
-        print(f"\n📈 TERM STRUCTURE ANALYSIS:")
-        print(f"  Shape: {analytics.term_structure.shape.value}")
-        print(f"  Slope (annual): {analytics.term_structure.slope:.3f}")
-        print(f"  Curvature: {analytics.term_structure.curvature:.5f}")
-    
+        pass
+
     # Smile analysis
     if analytics.smile:
-        print(f"\n😊 SMILE ANALYSIS:")
-        print(f"  ATM Strike: ${analytics.smile.atm_strike:.2f}")
-        print(f"  ATM IV: {analytics.smile.atm_iv:.1%}")
-        print(f"  Skew: {analytics.smile.skew:.4f}")
-        print(f"  Shape: {analytics.smile.shape.value}")
-    
+        pass
+
     # Regime analysis
-    print(f"\n🎯 REGIME ANALYSIS:")
-    print(f"  Current Regime: {analytics.regime.value}")
-    print(f"  Regime Confidence: {analytics.regime_confidence:.1%}")
-    print(f"  Transition Probability: {analytics.regime_transition_prob:.1%}")
-    
+
     # Forecasts
-    print(f"\n🔮 VOLATILITY FORECASTS:")
-    print(f"  Mean Reversion Target: {analytics.mean_reversion_target:.1%}")
-    print(f"  1-Day Forecast: {analytics.forecast_1d:.1%}")
-    print(f"  5-Day Forecast: {analytics.forecast_5d:.1%}")
-    print(f"  Forecast Confidence: {analytics.forecast_confidence:.1%}")
-    
+
     # Additional metrics
-    print(f"\n📏 ADDITIONAL METRICS:")
-    print(f"  Put-Call IV Spread: {analytics.put_call_spread:.3f}")
-    print(f"  Skew Ratio (90P/110C): {analytics.skew_ratio:.3f}")
-    
+
     # Test specific queries
-    print(f"\n🔍 SPECIFIC QUERIES:")
-    print(f"  Current IV: {iv_engine.get_current_iv(underlying):.1%}")
-    print(f"  IV Rank (252d): {iv_engine.get_iv_rank(underlying):.1f}")
-    print(f"  IV Percentile (252d): {iv_engine.get_iv_percentile(underlying):.1f}")
-    print(f"  Volatility Regime: {iv_engine.get_volatility_regime(underlying).value}")
-    
+
     # Test forecasting
     for horizon in [1, 5, 10, 30]:
         forecast, confidence = iv_engine.get_iv_forecast(underlying, horizon)
-        print(f"  {horizon:2d}-Day Forecast: {forecast:.1%} (confidence: {confidence:.1%})")
-    
-    print("\n✅ Implied Volatility Engine test completed successfully!")
+

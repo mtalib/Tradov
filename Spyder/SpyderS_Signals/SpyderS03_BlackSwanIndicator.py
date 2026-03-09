@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -18,21 +17,17 @@ Description:
     Returns a risk score on a 1-5 scale where 1=minimal risk, 5=extreme risk.
 """
 
-import json
 import logging
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -44,8 +39,6 @@ try:
 except ImportError:
     YFINANCE_AVAILABLE = False
 
-import requests
-from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -122,7 +115,7 @@ class ComponentScore:
     weight: float
     weighted_score: float
     description: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -132,10 +125,10 @@ class BlackSwanResult:
     timestamp: datetime
     overall_score: float
     status: RiskStatus
-    component_scores: Dict[str, ComponentScore]
+    component_scores: dict[str, ComponentScore]
     data_quality: DataQuality
     calculation_time_ms: float
-    raw_data: Optional[Dict] = None
+    raw_data: dict | None = None
 
 
 # ==============================================================================
@@ -161,7 +154,7 @@ class BlackSwanIndicator:
         >>> print(f"SWAN Score: {result.overall_score:.2f} ({result.status.value})")
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: dict | None = None):
         """Initialize Black Swan Indicator"""
         # Logging
         if SPYDER_INTEGRATION:
@@ -267,7 +260,7 @@ class BlackSwanIndicator:
                 self.error_handler.handle_error(e)
             return self._create_error_result()
 
-    def get_current_risk_level(self) -> Tuple[float, str]:
+    def get_current_risk_level(self) -> tuple[float, str]:
         """
         Get current risk level without full calculation.
 
@@ -283,7 +276,7 @@ class BlackSwanIndicator:
     # ==========================================================================
     # DATA COLLECTION METHODS (from old S06)
     # ==========================================================================
-    def _collect_market_data(self) -> Dict[str, Any]:
+    def _collect_market_data(self) -> dict[str, Any]:
         """Collect all required market data"""
         data = {
             "timestamp": datetime.now(),
@@ -330,7 +323,7 @@ class BlackSwanIndicator:
             self.logger.error(f"Error collecting market data: {e}")
             return data
 
-    def _fetch_quote(self, symbol: str) -> Optional[float]:
+    def _fetch_quote(self, symbol: str) -> float | None:
         """Fetch single quote from data source"""
         try:
             if YFINANCE_AVAILABLE:
@@ -357,7 +350,7 @@ class BlackSwanIndicator:
     # ==========================================================================
     # CALCULATION METHODS (new logic for S07)
     # ==========================================================================
-    def _calculate_volatility_score(self, data: Dict) -> ComponentScore:
+    def _calculate_volatility_score(self, data: dict) -> ComponentScore:
         """Calculate volatility component score"""
         vix = data.get("volatility", {}).get("vix", 15)
 
@@ -389,7 +382,7 @@ class BlackSwanIndicator:
             details={"vix": vix},
         )
 
-    def _calculate_credit_score(self, data: Dict) -> ComponentScore:
+    def _calculate_credit_score(self, data: dict) -> ComponentScore:
         """Calculate credit stress component score"""
         spread = data.get("credit", {}).get("spread", 0.71)
 
@@ -416,7 +409,7 @@ class BlackSwanIndicator:
             details={"spread": spread},
         )
 
-    def _calculate_liquidity_score(self, data: Dict) -> ComponentScore:
+    def _calculate_liquidity_score(self, data: dict) -> ComponentScore:
         """Calculate liquidity component score"""
         dxy = data.get("market", {}).get("dxy", 102)
 
@@ -443,7 +436,7 @@ class BlackSwanIndicator:
             details={"dxy": dxy},
         )
 
-    def _calculate_internals_score(self, data: Dict) -> ComponentScore:
+    def _calculate_internals_score(self, data: dict) -> ComponentScore:
         """Calculate market internals component score"""
         # Simplified for now - would use TICK, TRIN, ADD, etc.
         spy = data.get("market", {}).get("spy", 450)
@@ -486,7 +479,7 @@ class BlackSwanIndicator:
         else:
             return RiskStatus.RED
 
-    def _assess_data_quality(self, data: Dict) -> DataQuality:
+    def _assess_data_quality(self, data: dict) -> DataQuality:
         """Assess quality of collected data"""
         total_expected = len(VOLATILITY_SYMBOLS) + len(CREDIT_SYMBOLS) + len(MARKET_SYMBOLS)
         total_collected = (
@@ -558,9 +551,6 @@ def get_black_swan_indicator() -> BlackSwanIndicator:
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("BLACK SWAN INDICATOR TEST")
-    print("=" * 60)
 
     # Create indicator
     indicator = BlackSwanIndicator({"include_raw_data": True})
@@ -568,14 +558,7 @@ if __name__ == "__main__":
     # Calculate score
     result = indicator.calculate_swan_score()
 
-    print(f"\n📊 SWAN Score: {result.overall_score:.2f}")
-    print(f"🚦 Status: {result.status.value}")
-    print(f"⏱️ Calculation Time: {result.calculation_time_ms:.1f}ms")
-    print(f"📈 Data Quality: {result.data_quality.value}")
 
-    print("\n📋 Component Breakdown:")
-    for name, score in result.component_scores.items():
-        print(f"  {name}: {score.raw_score:.2f} (weight: {score.weight:.0%})")
-        print(f"    → {score.description}")
+    for _name, _score in result.component_scores.items():
+        pass
 
-    print("\n✅ Black Swan Indicator test completed!")

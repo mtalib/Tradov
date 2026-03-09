@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -205,7 +204,7 @@ class TestAddCustomHoliday:
     def test_adds_full_holiday(self):
         cal = _fresh_calendar()
         custom_date = date(2027, 3, 15)
-        before = len(cal.holidays)
+        len(cal.holidays)
         cal.add_custom_holiday(custom_date, "Custom Holiday")
         assert custom_date in cal.holidays
 
@@ -342,7 +341,7 @@ class TestPrivateHelpers10:
 
     def test_adjust_holiday_saturday(self):
         cal = _fresh_calendar()
-        sat = date(2025, 7, 4)  # July 4, 2025 is a Friday
+        date(2025, 7, 4)  # July 4, 2025 is a Friday
         # Find a Saturday
         sat_date = date(2026, 7, 4)
         while sat_date.weekday() != 5:
@@ -882,7 +881,7 @@ class TestGetMarketSchedule:
         start = date(2025, 1, 4)
         end = date(2025, 1, 5)
         df = get_market_schedule((start, end))
-        weekend_rows = df[df["trading_day"] == False]
+        weekend_rows = df[not df["trading_day"]]
         assert len(weekend_rows) == 2  # Both weekend days
 
     def test_weekday_is_trading(self):
@@ -891,7 +890,7 @@ class TestGetMarketSchedule:
         end = date(2025, 1, 6)
         df = get_market_schedule((start, end))
         # Use == True (not `is True`) because pandas returns np.bool_ not Python bool
-        assert df.iloc[0]["trading_day"] == True
+        assert df.iloc[0]["trading_day"]
 
 
 class TestToUtcDatetime:
@@ -1061,7 +1060,7 @@ class TestDateTimeUtilsSupplement:
         assert result is True
 
     def test_is_optimal_entry_time_outside_window(self):
-        dt_outside = datetime(2025, 1, 6, 8, 0)  # 8 AM  
+        dt_outside = datetime(2025, 1, 6, 8, 0)  # 8 AM
         result = DateTimeUtils.is_optimal_entry_time(dt_outside)
         assert result is False
 

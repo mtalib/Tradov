@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -165,10 +164,10 @@ def _ohlcv(n: int = 30):
     """Return high, low, close, volume Series."""
     base = np.linspace(100, 110, n)
     h = pd.Series(base + 1.0, dtype=float)
-    l = pd.Series(base - 1.0, dtype=float)
+    lo = pd.Series(base - 1.0, dtype=float)
     c = pd.Series(base, dtype=float)
     v = pd.Series(np.random.randint(1000, 10000, n), dtype=float)
-    return h, l, c, v
+    return h, lo, c, v
 
 
 def _returns(n: int = 100) -> pd.Series:
@@ -345,18 +344,18 @@ class TestU13ExceptionPaths:
     # --- Stochastic ---
     def test_stochastic_exception_path(self):
         """Lines 254-256: except Exception in calculate_stochastic."""
-        h, l, c, _ = _ohlcv(20)
+        h, lo, c, _ = _ohlcv(20)
         with patch.object(pd.Series, 'rolling', side_effect=RuntimeError("mock")):
-            result = self.ti.calculate_stochastic(h, l, c)
+            result = self.ti.calculate_stochastic(h, lo, c)
         assert isinstance(result, dict)
         assert all(v.isna().all() for v in result.values())
 
     # --- Williams %R ---
     def test_williams_r_exception_path(self):
         """Lines 284-286: except Exception in calculate_williams_r."""
-        h, l, c, _ = _ohlcv(20)
+        h, lo, c, _ = _ohlcv(20)
         with patch.object(pd.Series, 'rolling', side_effect=RuntimeError("mock")):
-            result = self.ti.calculate_williams_r(h, l, c)
+            result = self.ti.calculate_williams_r(h, lo, c)
         assert isinstance(result, pd.Series)
 
     # --- MACD (internal EMA calls) ---
@@ -371,9 +370,9 @@ class TestU13ExceptionPaths:
     # --- ADX (internal true_range calls) ---
     def test_adx_exception_path(self):
         """Lines 374-376: except Exception in calculate_adx."""
-        h, l, c, _ = _ohlcv(20)
+        h, lo, c, _ = _ohlcv(20)
         with patch.object(self.ti, 'calculate_true_range', side_effect=RuntimeError("tr error")):
-            result = self.ti.calculate_adx(h, l, c)
+            result = self.ti.calculate_adx(h, lo, c)
         assert isinstance(result, dict)
         assert "ADX" in result
 
@@ -389,17 +388,17 @@ class TestU13ExceptionPaths:
     # --- ATR (internal true_range calls) ---
     def test_atr_exception_path(self):
         """Lines 441-443: except Exception in calculate_atr."""
-        h, l, c, _ = _ohlcv(20)
+        h, lo, c, _ = _ohlcv(20)
         with patch.object(self.ti, 'calculate_true_range', side_effect=RuntimeError("tr error")):
-            result = self.ti.calculate_atr(h, l, c)
+            result = self.ti.calculate_atr(h, lo, c)
         assert isinstance(result, pd.Series)
 
     # --- True Range ---
     def test_true_range_exception_path(self):
         """Lines 468-470: except Exception in calculate_true_range."""
-        h, l, c, _ = _ohlcv(20)
+        h, lo, c, _ = _ohlcv(20)
         with patch('pandas.concat', side_effect=RuntimeError("concat error")):
-            result = self.ti.calculate_true_range(h, l, c)
+            result = self.ti.calculate_true_range(h, lo, c)
         assert isinstance(result, pd.Series)
 
     # --- SMA ---
@@ -437,9 +436,9 @@ class TestU13ExceptionPaths:
     # --- VWAP ---
     def test_vwap_exception_path(self):
         """Lines 581-583: except Exception in calculate_vwap."""
-        h, l, c, v = _ohlcv(20)
+        h, lo, c, v = _ohlcv(20)
         with patch.object(pd.Series, 'cumsum', side_effect=RuntimeError("cumsum error")):
-            result = self.ti.calculate_vwap(h, l, c, v)
+            result = self.ti.calculate_vwap(h, lo, c, v)
         assert isinstance(result, pd.Series)
 
     # --- OBV ---

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,34 +22,29 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import os
-import sys
-import time
 import asyncio
 import json
 import uuid
-import warnings
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field, asdict
-from collections import deque, defaultdict
-from enum import Enum, auto
-from threading import Lock, Event as ThreadEvent, RLock, Thread
-import copy
+from collections import deque
+from enum import Enum
+from threading import Event as ThreadEvent, RLock, Thread
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import math
 import statistics
 import numpy as np
-import pandas as pd
 
 try:
     from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
     from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import cross_val_score, train_test_split
-    from sklearn.metrics import mean_squared_error, r2_score
+    from sklearn.model_selection import cross_val_score, train_test_split  # noqa: F401
+    from sklearn.metrics import mean_squared_error, r2_score  # noqa: F401
     import joblib
 
     HAS_SKLEARN = True
@@ -60,8 +54,8 @@ except ImportError:
 
 # Deep Learning (optional)
 try:
-    import tensorflow as tf
-    from tensorflow import keras
+    import tensorflow as tf  # noqa: F401
+    from tensorflow import keras  # noqa: F401
 
     HAS_TENSORFLOW = True
 except ImportError:
@@ -69,7 +63,7 @@ except ImportError:
 
 # Natural Language Processing
 try:
-    from transformers import pipeline, AutoTokenizer, AutoModel
+    from transformers import pipeline, AutoTokenizer, AutoModel  # noqa: F401
 
     HAS_TRANSFORMERS = True
 except ImportError:
@@ -216,36 +210,36 @@ class AIGreeksAnalysis:
     analysis_mode: AnalysisMode
 
     # Core Greeks analysis
-    greeks_summary: Dict[str, float]
+    greeks_summary: dict[str, float]
     risk_score: float
     risk_level: RiskLevel
     confidence_score: float
 
     # AI insights
     natural_language_summary: str
-    key_insights: List[str]
+    key_insights: list[str]
     risk_explanation: str
     market_context_impact: str
 
     # Predictive analysis
-    pnl_scenarios: Dict[str, float]
-    sensitivity_analysis: Dict[str, Dict[str, float]]
-    probability_distributions: Dict[str, List[float]]
+    pnl_scenarios: dict[str, float]
+    sensitivity_analysis: dict[str, dict[str, float]]
+    probability_distributions: dict[str, list[float]]
 
     # Hedge recommendations
-    hedge_recommendations: List[Dict[str, Any]]
+    hedge_recommendations: list[dict[str, Any]]
     optimal_hedge_ratio: float
     hedge_cost_estimate: float
 
     # Market context
     market_regime: MarketRegime
     volatility_environment: str
-    correlation_risks: Dict[str, float]
+    correlation_risks: dict[str, float]
 
     # Model metadata
     model_confidence: float
     prediction_accuracy: float
-    feature_importance: Dict[str, float]
+    feature_importance: dict[str, float]
 
     analysis_timestamp: datetime = field(default_factory=datetime.now)
 
@@ -268,18 +262,18 @@ class PortfolioGreeksAnalysis:
     portfolio_risk_score: float
     portfolio_risk_level: RiskLevel
     diversification_score: float
-    correlation_risks: Dict[str, float]
+    correlation_risks: dict[str, float]
     hedge_efficiency: float
 
     # AI insights
     natural_language_summary: str
-    portfolio_insights: List[str]
-    rebalancing_recommendations: List[Dict[str, Any]]
+    portfolio_insights: list[str]
+    rebalancing_recommendations: list[dict[str, Any]]
 
     # Stress testing
-    stress_test_results: Dict[str, float]
-    optimal_hedges: List[Dict[str, Any]]
-    risk_attribution: Dict[str, float]
+    stress_test_results: dict[str, float]
+    optimal_hedges: list[dict[str, Any]]
+    risk_attribution: dict[str, float]
 
     analysis_timestamp: datetime = field(default_factory=datetime.now)
 
@@ -290,11 +284,11 @@ class MarketContext:
 
     vix_level: float
     market_regime: MarketRegime
-    volatility_term_structure: Dict[str, float]
+    volatility_term_structure: dict[str, float]
     underlying_trend: str
     correlation_environment: float
     liquidity_conditions: str
-    recent_events: List[str]
+    recent_events: list[str]
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -307,7 +301,7 @@ class MLModelMetrics:
     prediction_confidence: float
     training_samples: int
     last_training: datetime
-    feature_importance: Dict[str, float]
+    feature_importance: dict[str, float]
     cross_validation_score: float
     out_of_sample_error: float
     model_drift_score: float
@@ -348,7 +342,7 @@ class GreeksAgent:
         >>> print(analysis.natural_language_summary)
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         Initialize the AI Greeks Agent.
 
@@ -360,15 +354,15 @@ class GreeksAgent:
         self.config = config or {}
 
         # AI/ML infrastructure
-        self.ml_models: Dict[str, Any] = {}
+        self.ml_models: dict[str, Any] = {}
         self.feature_scaler = StandardScaler() if HAS_SKLEARN else None
-        self.model_metrics: Dict[str, MLModelMetrics] = {}
+        self.model_metrics: dict[str, MLModelMetrics] = {}
         self._model_lock = RLock()
 
         # Analysis history and caching
         self.analysis_history: deque = deque(maxlen=1000)
         self.feature_history: deque = deque(maxlen=10000)
-        self.prediction_cache: Dict[str, Any] = {}
+        self.prediction_cache: dict[str, Any] = {}
         self._cache_lock = RLock()
 
         # Market context and regime detection
@@ -399,11 +393,11 @@ class GreeksAgent:
 
         # Threading and async
         self._shutdown_event = ThreadEvent()
-        self._background_workers: List[Thread] = []
+        self._background_workers: list[Thread] = []
 
         # Performance tracking
         self.prediction_accuracy_history: deque = deque(maxlen=100)
-        self.model_performance_metrics: Dict[str, float] = {}
+        self.model_performance_metrics: dict[str, float] = {}
 
         self.logger.info("AI Greeks Agent initialized")
 
@@ -474,7 +468,7 @@ class GreeksAgent:
         self,
         greeks_data: GreeksData,
         mode: AnalysisMode = AnalysisMode.DETAILED,
-        market_context: Optional[MarketContext] = None,
+        market_context: MarketContext | None = None,
     ) -> AIGreeksAnalysis:
         """
         Perform AI-enhanced analysis of position Greeks.
@@ -583,7 +577,7 @@ class GreeksAgent:
             return await self._generate_fallback_analysis(greeks_data, mode)
 
     async def analyze_portfolio_greeks(
-        self, positions: List[GreeksData], portfolio_id: str = None
+        self, positions: list[GreeksData], portfolio_id: str = None
     ) -> PortfolioGreeksAnalysis:
         """
         Perform portfolio-level Greeks analysis.
@@ -720,7 +714,7 @@ class GreeksAgent:
             models_dir = "models/greeks_agent"
             os.makedirs(models_dir, exist_ok=True)
 
-            for model_name, model in self.ml_models.items():
+            for model_name, _model in self.ml_models.items():
                 model_path = os.path.join(models_dir, f"{model_name}.joblib")
 
                 if os.path.exists(model_path):
@@ -784,7 +778,7 @@ class GreeksAgent:
 
     def _generate_synthetic_training_data(
         self, model_name: str, n_samples: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Generate synthetic training data for model initialization."""
         try:
             if model_name == "risk_predictor":
@@ -847,7 +841,7 @@ class GreeksAgent:
     # CORE ANALYSIS METHODS
     # ==========================================================================
 
-    def _calculate_enhanced_greeks(self, greeks_data: GreeksData) -> Dict[str, float]:
+    def _calculate_enhanced_greeks(self, greeks_data: GreeksData) -> dict[str, float]:
         """Calculate enhanced Greeks with additional metrics."""
         try:
             # Standard Greeks
@@ -929,7 +923,7 @@ class GreeksAgent:
 
     async def _ai_risk_assessment(
         self, greeks_data: GreeksData, context: MarketContext
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Perform AI-powered risk assessment."""
         try:
             # Extract risk factors
@@ -949,7 +943,7 @@ class GreeksAgent:
 
     def _extract_risk_factors(
         self, greeks_data: GreeksData, context: MarketContext
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Extract risk factors for analysis."""
         try:
             factors = {}
@@ -1002,8 +996,8 @@ class GreeksAgent:
         self,
         greeks_data: GreeksData,
         context: MarketContext,
-        risk_factors: Dict[str, float],
-    ) -> Dict[str, float]:
+        risk_factors: dict[str, float],
+    ) -> dict[str, float]:
         """ML-powered risk assessment."""
         try:
             # Extract features for risk model
@@ -1023,8 +1017,8 @@ class GreeksAgent:
             return self._heuristic_risk_assessment(risk_factors)
 
     def _heuristic_risk_assessment(
-        self, risk_factors: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, risk_factors: dict[str, float]
+    ) -> dict[str, float]:
         """Heuristic risk assessment fallback."""
         try:
             # Weighted risk score calculation
@@ -1063,8 +1057,8 @@ class GreeksAgent:
         self,
         greeks_data: GreeksData,
         context: MarketContext,
-        risk_factors: Dict[str, float],
-    ) -> List[float]:
+        risk_factors: dict[str, float],
+    ) -> list[float]:
         """Extract features for ML risk model."""
         try:
             features = [
@@ -1084,7 +1078,7 @@ class GreeksAgent:
             return [0.0] * 8
 
     def _calculate_prediction_confidence(
-        self, features: List[float], model_type: str
+        self, features: list[float], model_type: str
     ) -> float:
         """Calculate prediction confidence based on model metrics."""
         try:
@@ -1111,7 +1105,7 @@ class GreeksAgent:
     async def _generate_natural_language_summary(
         self,
         greeks_data: GreeksData,
-        risk_assessment: Dict[str, float],
+        risk_assessment: dict[str, float],
         context: MarketContext,
     ) -> str:
         """Generate natural language summary of Greeks analysis."""
@@ -1190,8 +1184,8 @@ class GreeksAgent:
             return f"Analysis of {greeks_data.symbol} position shows {risk_assessment['score']:.0f}% risk score."
 
     async def _extract_key_insights(
-        self, greeks_data: GreeksData, risk_assessment: Dict[str, float]
-    ) -> List[str]:
+        self, greeks_data: GreeksData, risk_assessment: dict[str, float]
+    ) -> list[str]:
         """Extract key insights from Greeks analysis."""
         try:
             insights = []
@@ -1259,7 +1253,7 @@ class GreeksAgent:
             return ["Analysis completed with basic risk assessment"]
 
     async def _generate_risk_explanation(
-        self, greeks_data: GreeksData, risk_assessment: Dict[str, float]
+        self, greeks_data: GreeksData, risk_assessment: dict[str, float]
     ) -> str:
         """Generate detailed risk explanation."""
         try:
@@ -1328,7 +1322,7 @@ class GreeksAgent:
 
     async def _generate_pnl_scenarios(
         self, greeks_data: GreeksData, context: MarketContext
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Generate P&L scenarios for different market moves."""
         try:
             scenarios = {}
@@ -1383,7 +1377,7 @@ class GreeksAgent:
 
     async def _perform_sensitivity_analysis(
         self, greeks_data: GreeksData
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> dict[str, dict[str, float]]:
         """Perform sensitivity analysis across multiple parameters."""
         try:
             sensitivity = {}
@@ -1419,7 +1413,7 @@ class GreeksAgent:
 
     async def _generate_probability_distributions(
         self, greeks_data: GreeksData
-    ) -> Dict[str, List[float]]:
+    ) -> dict[str, list[float]]:
         """Generate probability distributions for key metrics."""
         try:
             distributions = {}
@@ -1465,8 +1459,8 @@ class GreeksAgent:
     # ==========================================================================
 
     async def _generate_hedge_recommendations(
-        self, greeks_data: GreeksData, risk_assessment: Dict[str, float]
-    ) -> List[Dict[str, Any]]:
+        self, greeks_data: GreeksData, risk_assessment: dict[str, float]
+    ) -> list[dict[str, Any]]:
         """Generate intelligent hedge recommendations."""
         try:
             recommendations = []
@@ -1568,7 +1562,7 @@ class GreeksAgent:
             return 0.5
 
     async def _estimate_hedge_cost(
-        self, hedge_recommendations: List[Dict[str, Any]]
+        self, hedge_recommendations: list[dict[str, Any]]
     ) -> float:
         """Estimate total cost of hedge recommendations."""
         try:
@@ -1654,7 +1648,7 @@ class GreeksAgent:
 
     async def _assess_correlation_risks(
         self, greeks_data: GreeksData, context: MarketContext
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Assess correlation risks for the position."""
         try:
             # Simplified correlation risk assessment
@@ -1700,7 +1694,7 @@ class GreeksAgent:
         except Exception:
             return 0.5
 
-    def _analyze_feature_importance(self, greeks_data: GreeksData) -> Dict[str, float]:
+    def _analyze_feature_importance(self, greeks_data: GreeksData) -> dict[str, float]:
         """Analyze feature importance for the current analysis."""
         try:
             # Get feature importance from risk model
@@ -1727,8 +1721,8 @@ class GreeksAgent:
     # ==========================================================================
 
     def _aggregate_portfolio_greeks(
-        self, positions: List[GreeksData]
-    ) -> Dict[str, float]:
+        self, positions: list[GreeksData]
+    ) -> dict[str, float]:
         """Aggregate Greeks across portfolio positions."""
         try:
             aggregated = {
@@ -1766,8 +1760,8 @@ class GreeksAgent:
             return {}
 
     async def _assess_portfolio_risk(
-        self, positions: List[GreeksData], aggregated: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, positions: list[GreeksData], aggregated: dict[str, float]
+    ) -> dict[str, float]:
         """Assess portfolio-level risk."""
         try:
             # Simplified portfolio risk assessment
@@ -1784,7 +1778,7 @@ class GreeksAgent:
             return {"score": 50.0, "confidence": 0.5}
 
     async def _calculate_diversification_score(
-        self, positions: List[GreeksData]
+        self, positions: list[GreeksData]
     ) -> float:
         """Calculate portfolio diversification score."""
         try:
@@ -1801,8 +1795,8 @@ class GreeksAgent:
             return 0.5
 
     async def _analyze_portfolio_correlations(
-        self, positions: List[GreeksData]
-    ) -> Dict[str, float]:
+        self, positions: list[GreeksData]
+    ) -> dict[str, float]:
         """Analyze portfolio correlations."""
         try:
             # Simplified correlation analysis
@@ -1816,10 +1810,10 @@ class GreeksAgent:
 
     async def _generate_portfolio_insights(
         self,
-        positions: List[GreeksData],
-        aggregated: Dict[str, float],
-        risk: Dict[str, float],
-    ) -> List[str]:
+        positions: list[GreeksData],
+        aggregated: dict[str, float],
+        risk: dict[str, float],
+    ) -> list[str]:
         """Generate portfolio insights."""
         try:
             insights = []
@@ -1846,8 +1840,8 @@ class GreeksAgent:
             return ["Portfolio analysis completed"]
 
     async def _generate_rebalancing_recommendations(
-        self, positions: List[GreeksData], aggregated: Dict[str, float]
-    ) -> List[Dict[str, Any]]:
+        self, positions: list[GreeksData], aggregated: dict[str, float]
+    ) -> list[dict[str, Any]]:
         """Generate rebalancing recommendations."""
         try:
             recommendations = []
@@ -1868,8 +1862,8 @@ class GreeksAgent:
             return []
 
     async def _perform_portfolio_stress_tests(
-        self, positions: List[GreeksData]
-    ) -> Dict[str, float]:
+        self, positions: list[GreeksData]
+    ) -> dict[str, float]:
         """Perform portfolio stress tests."""
         try:
             # Simplified stress testing
@@ -1882,8 +1876,8 @@ class GreeksAgent:
             return {}
 
     async def _find_optimal_portfolio_hedges(
-        self, positions: List[GreeksData], aggregated: Dict[str, float]
-    ) -> List[Dict[str, Any]]:
+        self, positions: list[GreeksData], aggregated: dict[str, float]
+    ) -> list[dict[str, Any]]:
         """Find optimal portfolio hedges."""
         try:
             hedges = []
@@ -1906,8 +1900,8 @@ class GreeksAgent:
             return []
 
     async def _calculate_risk_attribution(
-        self, positions: List[GreeksData]
-    ) -> Dict[str, float]:
+        self, positions: list[GreeksData]
+    ) -> dict[str, float]:
         """Calculate risk attribution by position."""
         try:
             # Simplified risk attribution
@@ -1930,7 +1924,7 @@ class GreeksAgent:
         except Exception:
             return {}
 
-    async def _calculate_hedge_efficiency(self, positions: List[GreeksData]) -> float:
+    async def _calculate_hedge_efficiency(self, positions: list[GreeksData]) -> float:
         """Calculate hedge efficiency."""
         try:
             # Simplified hedge efficiency calculation
@@ -1940,9 +1934,9 @@ class GreeksAgent:
 
     async def _generate_portfolio_summary(
         self,
-        positions: List[GreeksData],
-        aggregated: Dict[str, float],
-        risk: Dict[str, float],
+        positions: list[GreeksData],
+        aggregated: dict[str, float],
+        risk: dict[str, float],
     ) -> str:
         """Generate portfolio natural language summary."""
         try:
@@ -2204,7 +2198,7 @@ class GreeksAgent:
             )
 
     async def _generate_fallback_portfolio_analysis(
-        self, positions: List[GreeksData], portfolio_id: str
+        self, positions: list[GreeksData], portfolio_id: str
     ) -> PortfolioGreeksAnalysis:
         """Generate fallback portfolio analysis."""
         try:
@@ -2292,7 +2286,7 @@ class GreeksAgent:
 # ==============================================================================
 
 
-def create_greeks_agent(config: Dict[str, Any] = None) -> GreeksAgent:
+def create_greeks_agent(config: dict[str, Any] = None) -> GreeksAgent:
     """
     Create a configured Greeks Agent instance.
 
@@ -2305,7 +2299,7 @@ def create_greeks_agent(config: Dict[str, Any] = None) -> GreeksAgent:
     return GreeksAgent(config)
 
 
-def get_greeks_agent(config: Dict[str, Any] = None) -> GreeksAgent:
+def get_greeks_agent(config: dict[str, Any] = None) -> GreeksAgent:
     """
     Get a configured Greeks Agent instance (alias for create_greeks_agent).
 
@@ -2324,24 +2318,16 @@ def get_greeks_agent(config: Dict[str, Any] = None) -> GreeksAgent:
 
 if __name__ == "__main__":
     # Example usage and testing
-    print("🤖 Spyder AI Greeks Agent - Advanced Options Analysis")
-    print("=" * 60)
 
     async def main():
         # Create agent
         agent = GreeksAgent({"risk_tolerance": 0.6, "confidence_threshold": 0.7})
 
-        print("\n1. Agent Initialization...")
         if await agent.initialize():
-            print("✅ AI Greeks Agent initialized successfully")
-            print(f"   - ML Models: {len(agent.ml_models)}")
-            print(f"   - Market Context: {agent.market_context.market_regime.value}")
-            print(f"   - VIX Level: {agent.market_context.vix_level:.1f}")
+            pass
         else:
-            print("❌ Agent initialization failed")
             return
 
-        print("\n2. Sample Greeks Analysis...")
         # Create sample Greeks data
         sample_greeks = GreeksData(
             symbol="SPY",
@@ -2365,85 +2351,33 @@ if __name__ == "__main__":
             sample_greeks, AnalysisMode.DETAILED
         )
 
-        print("✅ Greeks analysis completed")
-        print(f"   - Risk Score: {analysis.risk_score:.1f}")
-        print(f"   - Risk Level: {analysis.risk_level.value}")
-        print(f"   - Confidence: {analysis.confidence_score:.2f}")
-        print(f"   - Model Confidence: {analysis.model_confidence:.2f}")
 
-        print("\n3. Natural Language Summary...")
-        print(f"📝 {analysis.natural_language_summary}")
 
-        print("\n4. Key Insights...")
-        for i, insight in enumerate(analysis.key_insights[:3], 1):
-            print(f"   {i}. {insight}")
+        for _i, _insight in enumerate(analysis.key_insights[:3], 1):
+            pass
 
-        print("\n5. P&L Scenarios...")
-        for scenario, pnl in list(analysis.pnl_scenarios.items())[:5]:
-            print(f"   - {scenario}: ${pnl:+.0f}")
+        for _scenario, _pnl in list(analysis.pnl_scenarios.items())[:5]:
+            pass
 
-        print("\n6. Hedge Recommendations...")
-        for i, hedge in enumerate(analysis.hedge_recommendations[:3], 1):
-            print(
-                f"   {i}. {hedge['description']} (Cost: ${hedge['cost_estimate']:.0f})"
-            )
+        for _i, _hedge in enumerate(analysis.hedge_recommendations[:3], 1):
+            pass
 
-        print("\n7. Portfolio Analysis...")
         # Test portfolio analysis with multiple positions
         positions = [sample_greeks]  # Single position for demo
-        portfolio_analysis = await agent.analyze_portfolio_greeks(
+        await agent.analyze_portfolio_greeks(
             positions, "demo_portfolio"
         )
 
-        print("✅ Portfolio analysis completed")
-        print(f"   - Total Delta: {portfolio_analysis.total_delta:.2f}")
-        print(f"   - Total Gamma: {portfolio_analysis.total_gamma:.3f}")
-        print(f"   - Portfolio Risk: {portfolio_analysis.portfolio_risk_score:.1f}")
-        print(f"   - Diversification: {portfolio_analysis.diversification_score:.2f}")
 
-        print("\n8. Agent Shutdown...")
         if await agent.shutdown():
-            print("✅ AI Greeks Agent shutdown completed")
+            pass
 
-        print("\n" + "=" * 60)
-        print("🎉 AI Greeks Agent Demo Completed Successfully!")
-        print("\nKey Features Demonstrated:")
-        print("  • AI-enhanced Greeks calculation and risk assessment")
-        print("  • Natural language insights and explanations")
-        print("  • Predictive P&L scenarios and sensitivity analysis")
-        print("  • Intelligent hedge recommendations")
-        print("  • Portfolio-level analysis and optimization")
-        print("  • Machine learning model integration")
-        print("  • Market context awareness and regime detection")
-        print("  • Professional error handling and fallbacks")
 
-        print("\nNext Steps:")
-        print("  1. Integrate with real market data feeds")
-        print("  2. Train models with historical options data")
-        print("  3. Set up live model monitoring and retraining")
-        print("  4. Configure custom risk thresholds")
-        print("  5. Implement advanced NLP for insights generation")
 
-        print("\nExample Usage:")
-        print("  >>> agent = create_greeks_agent()")
-        print("  >>> await agent.initialize()")
-        print("  >>> analysis = await agent.analyze_position_greeks(greeks_data)")
-        print("  >>> print(analysis.natural_language_summary)")
-        print("  >>> hedges = analysis.hedge_recommendations")
 
-        print("\n🧠 AI-Powered Options Analysis Ready!")
-        print("   - Machine learning risk assessment")
-        print("   - Natural language insights generation")
-        print("   - Predictive scenario modeling")
-        print("   - Intelligent hedge optimization")
-        print("   - Market regime awareness")
-        print("   - Professional portfolio analytics")
 
     # Run the async demo
     try:
         asyncio.run(main())
-    except Exception as e:
-        print(f"Demo failed: {e}")
-        print(
-            "Note: Some features require additional dependencies (scikit-learn, tensorflow)"
-        )
+    except Exception:
+        pass

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,21 +25,16 @@ Change Log:
 import json
 import logging
 import os
-import sys
-import threading
 import time as time_module
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
 import pytz
 import requests
-import schedule
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -139,7 +133,7 @@ class CalculationResult:
     dix_percentage: float
     sentiment: str
     status: SchedulerStatus
-    error_message: Optional[str]
+    error_message: str | None
     execution_time: float
 
 
@@ -169,7 +163,7 @@ class SpyderDIXScheduler:
         >>> scheduler.start()
     """
 
-    def __init__(self, config: Optional[SchedulerConfig] = None):
+    def __init__(self, config: SchedulerConfig | None = None):
         """
         Initialize the DIX Scheduler.
 
@@ -274,7 +268,7 @@ class SpyderDIXScheduler:
         except Exception as e:
             self.logger.error(f"Error stopping scheduler: {e}")
 
-    def run_scheduled_calculation(self) -> Optional[CalculationResult]:
+    def run_scheduled_calculation(self) -> CalculationResult | None:
         """
         Run the scheduled DIX calculation with automatic data fetching.
 
@@ -335,7 +329,7 @@ class SpyderDIXScheduler:
 
             return None
 
-    def get_latest_dix(self) -> Optional[Dict]:
+    def get_latest_dix(self) -> dict | None:
         """
         Get the latest DIX calculation result.
 
@@ -461,7 +455,7 @@ class SpyderDIXScheduler:
         self.logger.error("FINRA data not available after timeout")
         return False
 
-    def _calculate_with_retry(self) -> Optional[Dict]:
+    def _calculate_with_retry(self) -> dict | None:
         """
         Calculate DIX with retry logic.
 
@@ -503,7 +497,7 @@ class SpyderDIXScheduler:
     # ==========================================================================
     # PRIVATE METHODS - PROCESSING
     # ==========================================================================
-    def _process_results(self, results: Dict, start_time: datetime) -> CalculationResult:
+    def _process_results(self, results: dict, start_time: datetime) -> CalculationResult:
         """Process calculation results."""
 
         dix_pct = results["dix_percentage"]
@@ -537,7 +531,7 @@ class SpyderDIXScheduler:
 
         return calculation_result
 
-    def _generate_visualizations(self, results: Dict) -> None:
+    def _generate_visualizations(self, results: dict) -> None:
         """Generate DIX visualizations."""
         try:
             self.logger.info("Generating DIX visualizations...")
@@ -708,7 +702,7 @@ Age: {(datetime.now() - self.latest_result.timestamp).total_seconds() / 3600:.1f
 
         self.email_sender.send_email(subject=subject, body=body, recipients=ALERT_EMAIL_RECIPIENTS)
 
-    def _send_morning_update(self, dix_data: Dict) -> None:
+    def _send_morning_update(self, dix_data: dict) -> None:
         """Send morning DIX update."""
 
         subject = f"DIX Morning Update - {dix_data['dix_percentage']:.2f}%"
@@ -860,39 +854,29 @@ def create_dix_scheduler(use_demo: bool = True) -> SpyderDIXScheduler:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 70)
-    print("DIX SCHEDULER TEST")
-    print("=" * 70)
 
     # Create scheduler
     scheduler = create_dix_scheduler(use_demo=True)
 
     if scheduler.initialize():
-        print("✅ Scheduler initialized")
 
         # Run test calculation
-        print("\n📊 Running test calculation...")
         result = scheduler.run_scheduled_calculation()
 
         if result:
-            print(f"✅ DIX calculated: {result.dix_percentage:.2f}% ({result.sentiment})")
-            print(f"   Execution time: {result.execution_time:.1f} seconds")
+            pass
 
         # Show scheduled jobs
-        print("\n📅 Scheduled Jobs:")
-        for job in scheduler.scheduler.get_jobs():
-            print(f"   - {job.name}: {job.trigger}")
+        for _job in scheduler.scheduler.get_jobs():
+            pass
 
         # Test morning check
-        print("\n🌅 Testing morning check...")
         scheduler._morning_check()
 
         # Run scheduler for demo (30 seconds)
-        print("\n⏰ Running scheduler for 30 seconds...")
         scheduler.start()
         time_module.sleep(30)
         scheduler.stop()
 
-        print("\n✅ Scheduler test completed")
     else:
-        print("❌ Scheduler initialization failed")
+        pass

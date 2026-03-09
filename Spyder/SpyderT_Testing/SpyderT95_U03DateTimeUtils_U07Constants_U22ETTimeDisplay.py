@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 T95 — SpyderU03 DateTimeUtils | SpyderU07 Constants | SpyderU22 ETTimeDisplay
 

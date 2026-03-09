@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderI_Integration
-Module: SpyderI04_DiagnosticsEngine_Analyzers.py
+Module: SpyderI05_DiagnosticsEngine_Analyzers.py
 Purpose: Performance analysis and advanced diagnostics for the DiagnosticsEngine
 
 Author: Mohamed Talib
@@ -29,7 +28,7 @@ Module Description:
 # ==============================================================================
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -71,19 +70,19 @@ class AnalysisManager:
         config: Configuration dictionary forwarded from DiagnosticsEngine.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
 
         # Rolling buffer: last N metric snapshots used for trend detection.
-        self._history: List[Dict[str, Any]] = []
+        self._history: list[dict[str, Any]] = []
         self._max_history: int = int(self.config.get("analysis_history_size", 60))
 
     # -------------------------------------------------------------------------
     # PUBLIC API
     # -------------------------------------------------------------------------
 
-    def analyze_performance(self) -> Dict[str, Any]:
+    def analyze_performance(self) -> dict[str, Any]:
         """
         Collect a current metrics snapshot and return a performance summary.
 
@@ -98,14 +97,14 @@ class AnalysisManager:
         self._store(snapshot)
         return snapshot
 
-    def run_advanced_analysis(self) -> List[DiagnosticIssue]:
+    def run_advanced_analysis(self) -> list[DiagnosticIssue]:
         """
         Analyse collected history for sustained or trending problems.
 
         Returns:
             List of DiagnosticIssue objects; empty list when system is healthy.
         """
-        issues: List[DiagnosticIssue] = []
+        issues: list[DiagnosticIssue] = []
 
         if not self._history:
             return issues
@@ -127,7 +126,7 @@ class AnalysisManager:
     # PRIVATE HELPERS
     # -------------------------------------------------------------------------
 
-    def _snapshot(self) -> Dict[str, Any]:
+    def _snapshot(self) -> dict[str, Any]:
         """Return current system metrics as a flat dict."""
         if not _PSUTIL_AVAILABLE:
             return {
@@ -166,7 +165,7 @@ class AnalysisManager:
                 "timestamp": datetime.now().isoformat(),
             }
 
-    def _store(self, snapshot: Dict[str, Any]) -> None:
+    def _store(self, snapshot: dict[str, Any]) -> None:
         """Append a snapshot to the rolling history, evicting the oldest."""
         self._history.append(snapshot)
         if len(self._history) > self._max_history:
@@ -176,7 +175,7 @@ class AnalysisManager:
     # Single-point threshold checks
     # ------------------------------------------------------------------
 
-    def _check_cpu(self, snap: Dict[str, Any]) -> List[DiagnosticIssue]:
+    def _check_cpu(self, snap: dict[str, Any]) -> list[DiagnosticIssue]:
         cpu = snap.get("cpu_percent", 0.0)
         if cpu < CPU_HIGH_THRESHOLD:
             return []
@@ -195,7 +194,7 @@ class AnalysisManager:
             ],
         )]
 
-    def _check_memory(self, snap: Dict[str, Any]) -> List[DiagnosticIssue]:
+    def _check_memory(self, snap: dict[str, Any]) -> list[DiagnosticIssue]:
         mem = snap.get("memory_percent", 0.0)
         if mem < MEMORY_HIGH_THRESHOLD:
             return []
@@ -215,7 +214,7 @@ class AnalysisManager:
             ],
         )]
 
-    def _check_disk(self, snap: Dict[str, Any]) -> List[DiagnosticIssue]:
+    def _check_disk(self, snap: dict[str, Any]) -> list[DiagnosticIssue]:
         disk = snap.get("disk_percent", 0.0)
         if disk < DISK_HIGH_THRESHOLD:
             return []
@@ -234,7 +233,7 @@ class AnalysisManager:
             ],
         )]
 
-    def _check_threads(self, snap: Dict[str, Any]) -> List[DiagnosticIssue]:
+    def _check_threads(self, snap: dict[str, Any]) -> list[DiagnosticIssue]:
         threads = snap.get("thread_count", 0)
         if threads < THREAD_HIGH_THRESHOLD:
             return []
@@ -256,7 +255,7 @@ class AnalysisManager:
     # Trend detection
     # ------------------------------------------------------------------
 
-    def _detect_memory_growth(self) -> List[DiagnosticIssue]:
+    def _detect_memory_growth(self) -> list[DiagnosticIssue]:
         """Flag a steadily growing memory trend over the history window."""
         mem_series = [s.get("memory_percent", 0.0) for s in self._history]
         if not mem_series:
@@ -295,10 +294,10 @@ class AnalysisManager:
         severity: ProblemSeverity,
         title: str,
         description: str,
-        components: List[str],
-        symptoms: List[str],
-        root_cause: Optional[str] = None,
-        recommendations: Optional[List[str]] = None,
+        components: list[str],
+        symptoms: list[str],
+        root_cause: str | None = None,
+        recommendations: list[str] | None = None,
         auto_fixable: bool = False,
     ) -> DiagnosticIssue:
         """Construct a DiagnosticIssue with a generated UUID."""

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -935,7 +934,7 @@ class TestOptimizeTCPKeepalive:
     def test_fails_without_root(self):
         opt = SystemOptimizer()
         # Running as non-root → should fail
-        if not os.geteuid() == 0:
+        if os.geteuid() != 0:
             result = opt.optimize_tcp_keepalive()
             assert result.success is False
 
@@ -943,14 +942,14 @@ class TestOptimizeTCPKeepalive:
         opt = SystemOptimizer()
         opt.optimize_tcp_keepalive()
         # When not root, returns early WITHOUT appending to applied_optimizations
-        if not os.geteuid() == 0:
+        if os.geteuid() != 0:
             assert len(opt.applied_optimizations) == 0
         else:
             assert len(opt.applied_optimizations) == 1
 
     def test_failure_message_set(self):
         opt = SystemOptimizer()
-        if not os.geteuid() == 0:
+        if os.geteuid() != 0:
             result = opt.optimize_tcp_keepalive()
             assert len(result.message) > 0
 
@@ -988,8 +987,7 @@ class TestConfigureFirewall:
 class TestOptimizeIbGatewayJvm:
     def test_returns_optimization_result(self):
         opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.home",
+        with tempfile.TemporaryDirectory() as tmpdir, patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.home",
                        return_value=type("p", (), {
                            "__truediv__": lambda self, x: type("pp", (), {
                                "parent": type("ppp", (), {
@@ -1004,7 +1002,7 @@ class TestOptimizeIbGatewayJvm:
                            })()
                        })()
                        ):
-                result = opt.optimize_ib_gateway_jvm()
+            result = opt.optimize_ib_gateway_jvm()
         assert isinstance(result, OptimizationResult)
 
     def test_component_is_jvm(self):
@@ -1043,8 +1041,7 @@ class TestOptimizeIbGatewayJvm:
 class TestGenerateDockerCompose:
     def test_returns_optimization_result(self):
         opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
+        with tempfile.TemporaryDirectory() as tmpdir, patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
                        return_value=type("P", (), {
                            "__truediv__": lambda self, x: type("F", (), {
                                "__str__": lambda self: f"{tmpdir}/{x}",
@@ -1052,33 +1049,31 @@ class TestGenerateDockerCompose:
                                "open": lambda self, mode: open(f"{tmpdir}/{x}", mode),
                            })()
                        })()):
-                import io
-                with patch("builtins.open", mock_open()):
-                    result = opt.generate_docker_compose()
+            import io
+            with patch("builtins.open", mock_open()):
+                result = opt.generate_docker_compose()
         assert isinstance(result, OptimizationResult)
 
     def test_component_is_docker(self):
         opt = SystemOptimizer()
-        with patch("builtins.open", mock_open()):
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
+        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
                        return_value=type("P", (), {
                            "__truediv__": lambda self, x: type("F", (), {
                                "__str__": lambda self: f"/tmp/{x}",
                            })()
                        })()):
-                result = opt.generate_docker_compose()
+            result = opt.generate_docker_compose()
         assert result.component == SystemComponent.DOCKER
 
     def test_appended_to_applied(self):
         opt = SystemOptimizer()
-        with patch("builtins.open", mock_open()):
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
+        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
                        return_value=type("P", (), {
                            "__truediv__": lambda self, x: type("F", (), {
                                "__str__": lambda self: f"/tmp/{x}",
                            })()
                        })()):
-                opt.generate_docker_compose()
+            opt.generate_docker_compose()
         assert len(opt.applied_optimizations) == 1
 
 
@@ -1153,14 +1148,13 @@ class TestPrivateMethods:
 class TestOptimizeAll:
     def test_returns_list(self):
         opt = SystemOptimizer(OptimizationLevel.STANDARD)
-        with patch("builtins.open", mock_open()):
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
+        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
                        return_value=type("P", (), {
                            "__truediv__": lambda self, x: type("F", (), {
                                "__str__": lambda self: f"/tmp/{x}",
                            })()
                        })()):
-                results = opt.optimize_all()
+            results = opt.optimize_all()
         assert isinstance(results, list)
 
     def test_standard_level_has_three_results(self):
@@ -1171,14 +1165,13 @@ class TestOptimizeAll:
 
     def test_aggressive_level_has_four_results(self):
         opt = SystemOptimizer(OptimizationLevel.AGGRESSIVE)
-        with patch("builtins.open", mock_open()):
-            with patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
+        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
                        return_value=type("P", (), {
                            "__truediv__": lambda self, x: type("F", (), {
                                "__str__": lambda self: f"/tmp/{x}",
                            })()
                        })()):
-                results = opt.optimize_all()
+            results = opt.optimize_all()
         # AGGRESSIVE: tcp + firewall + jvm + docker = 4 results
         assert len(results) == 4
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -860,13 +859,13 @@ class TestU11ModuleFunctions:
     def test_enable_feature_module_function(self):
         instance = get_feature_flags()
         with patch.object(instance, "enable_feature", return_value=True) as mock_enable:
-            result = enable_feature("some_feature")
+            enable_feature("some_feature")
             mock_enable.assert_called_once_with("some_feature")
 
     def test_disable_feature_module_function(self):
         instance = get_feature_flags()
         with patch.object(instance, "disable_feature", return_value=True) as mock_disable:
-            result = disable_feature("some_feature")
+            disable_feature("some_feature")
             mock_disable.assert_called_once_with("some_feature")
 
 

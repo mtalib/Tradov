@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,16 +25,12 @@ Change Log:
 import json
 import os
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import importlib
-import subprocess
 
 SPYDER_HOME = os.environ.get("SPYDER_HOME", "/home/adam/Projects/Spyder")
 sys.path.insert(0, SPYDER_HOME)
@@ -136,7 +131,7 @@ class DashboardIntegrationVerifier:
         try:
             import PySide6.QtCore
             import PySide6.QtGui
-            import PySide6.QtWidgets
+            import PySide6.QtWidgets  # noqa: F401
 
             self.pyqt_available = True
             self.print_ok("PySide6 installed and available")
@@ -146,7 +141,7 @@ class DashboardIntegrationVerifier:
             self.print_info("Install with: pip install PySide6")
             return False
 
-    def verify_dashboard_modules(self) -> Dict[str, bool]:
+    def verify_dashboard_modules(self) -> dict[str, bool]:
         """Verify dashboard modules can be imported"""
         self.print_section("Dashboard Modules Verification")
 
@@ -188,7 +183,7 @@ class DashboardIntegrationVerifier:
         self.results["modules"] = results
         return results
 
-    def verify_q_series_scripts(self) -> Dict[str, bool]:
+    def verify_q_series_scripts(self) -> dict[str, bool]:
         """Verify Q-series scripts exist and are executable"""
         self.print_section("Q-Series Scripts Verification")
 
@@ -230,7 +225,7 @@ class DashboardIntegrationVerifier:
     def verify_script_integration(self, name: str, script_path: Path):
         """Verify script has proper dashboard integration"""
         try:
-            with open(script_path, "r") as f:
+            with open(script_path) as f:
                 content = f.read()
 
             # Check for dashboard references
@@ -245,7 +240,7 @@ class DashboardIntegrationVerifier:
             if "multi" in content.lower() and "client" in content.lower():
                 self.print_info(f"  → {name} has multi-client support")
 
-        except Exception as e:
+        except Exception:
             pass
 
     def verify_prometheus_integration(self) -> bool:
@@ -279,7 +274,7 @@ class DashboardIntegrationVerifier:
 
         # Check for multi-client data manager
         try:
-            from SpyderB_Broker import SpyderB08_MultiClientDataManager
+            from SpyderB_Broker import SpyderB08_MultiClientDataManager  # noqa: F401
 
             self.print_ok("Multi-client data manager available")
 

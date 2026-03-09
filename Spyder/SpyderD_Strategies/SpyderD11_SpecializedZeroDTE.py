@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,13 +22,11 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -42,10 +39,9 @@ from scipy.stats import norm
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
 
-                                                       MarketCondition,
                                                        SignalStrength,
                                                        TradingSignal)
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
@@ -56,9 +52,7 @@ from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import \
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (SPY_CONTRACT_MULTIPLIER,
-                                                   ZERO_DTE_PROFIT_TARGET,
-                                                   ZERO_DTE_STOP_LOSS,
-                                                   OptionType, SignalType)
+                                                   SignalType)
 import logging
 
 # ==============================================================================
@@ -150,7 +144,7 @@ class ZeroDTESetup:
     """0DTE trade setup details"""
 
     strategy_type: ZeroDTEStrategy
-    strikes: Dict[str, float]
+    strikes: dict[str, float]
     entry_time: datetime
     expiration_time: datetime
     contracts: int
@@ -160,7 +154,7 @@ class ZeroDTESetup:
     profit_target: float
     stop_loss: float
     time_stop: datetime
-    entry_conditions: Dict[str, Any]
+    entry_conditions: dict[str, Any]
     probability_profit: float
     expected_value: float
 
@@ -173,11 +167,11 @@ class ZeroDTEPosition:
     setup: ZeroDTESetup
     entry_price: float
     current_pnl: float = 0.0
-    greeks: Dict[str, float] = field(default_factory=dict)
+    greeks: dict[str, float] = field(default_factory=dict)
     state: ZeroDTEState = ZeroDTEState.ENTERING
-    management_actions: List[Dict] = field(default_factory=list)
-    exit_time: Optional[datetime] = None
-    exit_reason: Optional[str] = None
+    management_actions: list[dict] = field(default_factory=list)
+    exit_time: datetime | None = None
+    exit_reason: str | None = None
 
 
 @dataclass
@@ -210,7 +204,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     """
 
     def __init__(
-        self, event_manager: EventManager, risk_profile: RiskProfile, config: Dict[str, Any] = None
+        self, event_manager: EventManager, risk_profile: RiskProfile, config: dict[str, Any] = None
     ):
         """Initialize Specialized Zero DTE strategy"""
         super().__init__(
@@ -229,7 +223,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         self.market_regime_detector = MarketRegimeDetector()
 
         # Strategy state
-        self.active_positions: Dict[str, ZeroDTEPosition] = {}
+        self.active_positions: dict[str, ZeroDTEPosition] = {}
         self.daily_trades = 0
         self.daily_pnl = 0.0
         self.fed_calendar = self._load_fed_calendar()
@@ -259,7 +253,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     # FED AND ECONOMIC CALENDAR
     # ==========================================================================
 
-    def _load_fed_calendar(self) -> List[datetime]:
+    def _load_fed_calendar(self) -> list[datetime]:
         """Load Fed meeting dates"""
         # In production, this would load from external source
         fed_dates = []
@@ -268,7 +262,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             fed_dates.append(fed_date)
         return fed_dates
 
-    def _load_economic_calendar(self) -> Dict[datetime, List[str]]:
+    def _load_economic_calendar(self) -> dict[datetime, list[str]]:
         """Load economic event calendar"""
         # In production, this would connect to economic calendar API
         # For now, return mock data
@@ -284,10 +278,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     def _is_fed_day(self, date: datetime) -> bool:
         """Check if date is a Fed meeting day"""
         check_date = date.date()
-        for fed_date in self.fed_calendar:
-            if fed_date.date() == check_date:
-                return True
-        return False
+        return any(fed_date.date() == check_date for fed_date in self.fed_calendar)
 
     def _has_major_economic_event(self, date: datetime) -> bool:
         """Check if date has major economic events"""
@@ -303,7 +294,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     # SIGNAL GENERATION
     # ==========================================================================
 
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Generate 0DTE trading signals"""
         try:
             signals = []
@@ -354,7 +345,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             self.error_handler.handle_error(e, market_data)
             return []
 
-    def _analyze_market_conditions(self, market_data: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_market_conditions(self, market_data: pd.DataFrame) -> dict[str, Any]:
         """Analyze current market conditions for 0DTE"""
         try:
             current_price = market_data["close"].iloc[-1]
@@ -403,7 +394,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             self.logger.error(f"Error analyzing market conditions: {e}")
             return {}
 
-    def _validate_market_conditions(self, conditions: Dict[str, Any]) -> bool:
+    def _validate_market_conditions(self, conditions: dict[str, Any]) -> bool:
         """Validate if market conditions are suitable for 0DTE"""
         # Check overnight gap
         if abs(conditions.get("overnight_gap", 0)) > MAX_OVERNIGHT_GAP:
@@ -428,7 +419,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
 
         return True
 
-    def _determine_market_bias(self, conditions: Dict[str, Any]) -> MarketBias:
+    def _determine_market_bias(self, conditions: dict[str, Any]) -> MarketBias:
         """Determine market directional bias"""
         trend_strength = conditions.get("trend_strength", 0)
         overnight_gap = conditions.get("overnight_gap", 0)
@@ -467,7 +458,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         except Exception:
             return 0.0
 
-    def _identify_support_resistance(self, market_data: pd.DataFrame) -> Dict[str, float]:
+    def _identify_support_resistance(self, market_data: pd.DataFrame) -> dict[str, float]:
         """Identify key support and resistance levels"""
         try:
             high = market_data["high"].iloc[-50:].max()
@@ -495,7 +486,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return {}
 
     def _select_zero_dte_strategy(
-        self, market_bias: MarketBias, conditions: Dict[str, Any]
+        self, market_bias: MarketBias, conditions: dict[str, Any]
     ) -> ZeroDTEStrategy:
         """Select appropriate 0DTE strategy based on conditions"""
         vol_regime = conditions.get("volatility_regime", "normal")
@@ -524,8 +515,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         return ZeroDTEStrategy.IRON_CONDOR
 
     def _create_zero_dte_setup(
-        self, strategy: ZeroDTEStrategy, market_data: pd.DataFrame, conditions: Dict[str, Any]
-    ) -> Optional[ZeroDTESetup]:
+        self, strategy: ZeroDTEStrategy, market_data: pd.DataFrame, conditions: dict[str, Any]
+    ) -> ZeroDTESetup | None:
         """Create specific 0DTE setup based on strategy"""
         try:
             current_price = conditions["current_price"]
@@ -578,8 +569,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return None
 
     def _setup_iron_butterfly(
-        self, current_price: float, conditions: Dict[str, Any]
-    ) -> Optional[Dict]:
+        self, current_price: float, conditions: dict[str, Any]
+    ) -> dict | None:
         """Setup Iron Butterfly for 0DTE"""
         try:
             # ATM strike
@@ -618,8 +609,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return None
 
     def _setup_iron_condor(
-        self, current_price: float, conditions: Dict[str, Any]
-    ) -> Optional[Dict]:
+        self, current_price: float, conditions: dict[str, Any]
+    ) -> dict | None:
         """Setup Iron Condor for 0DTE"""
         try:
             # Calculate expected move
@@ -660,8 +651,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return None
 
     def _setup_credit_spread(
-        self, current_price: float, conditions: Dict[str, Any]
-    ) -> Optional[Dict]:
+        self, current_price: float, conditions: dict[str, Any]
+    ) -> dict | None:
         """Setup Credit Spread for 0DTE"""
         try:
             market_bias = self._determine_market_bias(conditions)
@@ -698,8 +689,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return None
 
     def _setup_broken_wing_butterfly(
-        self, current_price: float, conditions: Dict[str, Any]
-    ) -> Optional[Dict]:
+        self, current_price: float, conditions: dict[str, Any]
+    ) -> dict | None:
         """Setup Broken Wing Butterfly for 0DTE"""
         try:
             market_bias = self._determine_market_bias(conditions)
@@ -740,8 +731,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return None
 
     def _setup_short_strangle(
-        self, current_price: float, conditions: Dict[str, Any]
-    ) -> Optional[Dict]:
+        self, current_price: float, conditions: dict[str, Any]
+    ) -> dict | None:
         """Setup Short Strangle for 0DTE"""
         try:
             # Calculate expected move
@@ -780,7 +771,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         contracts = int(max_risk / estimated_loss_per_contract)
         return max(1, min(contracts, 5))  # Between 1 and 5 contracts
 
-    def _calculate_win_probability(self, setup: Dict, conditions: Dict[str, Any]) -> float:
+    def _calculate_win_probability(self, setup: dict, conditions: dict[str, Any]) -> float:
         """Calculate probability of profit for setup"""
         try:
             current_price = conditions["current_price"]
@@ -825,7 +816,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             self.logger.error(f"Error calculating win probability: {e}")
             return 0.5
 
-    def _calculate_expected_value(self, setup: Dict, conditions: Dict[str, Any]) -> float:
+    def _calculate_expected_value(self, setup: dict, conditions: dict[str, Any]) -> float:
         """Calculate expected value of setup"""
         win_prob = self._calculate_win_probability(setup, conditions)
 
@@ -837,7 +828,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         return expected_value
 
     def _create_entry_signal(
-        self, setup: ZeroDTESetup, conditions: Dict[str, Any]
+        self, setup: ZeroDTESetup, conditions: dict[str, Any]
     ) -> TradingSignal:
         """Create entry signal for 0DTE setup"""
         # Determine signal strength based on expected value
@@ -868,13 +859,13 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     # POSITION MANAGEMENT
     # ==========================================================================
 
-    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def manage_positions(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """Manage active 0DTE positions with rapid monitoring"""
         signals = []
 
         current_time = datetime.now(self.eastern_tz)
 
-        for position_id, position in self.active_positions.items():
+        for _position_id, position in self.active_positions.items():
             # Update position metrics
             metrics = self._calculate_position_metrics(position, market_data)
 
@@ -988,13 +979,13 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
 
     def _calculate_position_greeks(
         self, position: ZeroDTEPosition, current_price: float, time_to_expiry: float
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate Greeks for 0DTE position"""
         # Simplified Greeks calculation for 0DTE
         # In production, would use proper options pricing model
 
         # Delta changes rapidly near expiration
-        delta_decay_factor = np.exp(-time_to_expiry)
+        np.exp(-time_to_expiry)
 
         # Gamma peaks near ATM at expiration
         gamma_peak_factor = 1 / (time_to_expiry + 0.1)
@@ -1107,7 +1098,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     # PUBLIC INTERFACE
     # ==========================================================================
 
-    def get_daily_summary(self) -> Dict[str, Any]:
+    def get_daily_summary(self) -> dict[str, Any]:
         """Get daily performance summary"""
         return {
             "date": datetime.now(self.eastern_tz).date(),
@@ -1126,7 +1117,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         self.active_positions.clear()
         self.logger.info("Daily stats reset for new trading day")
 
-    def get_position_summary(self) -> List[Dict[str, Any]]:
+    def get_position_summary(self) -> list[dict[str, Any]]:
         """Get summary of all active positions"""
         summaries = []
 
@@ -1219,7 +1210,7 @@ def test_specialized_zero_dte():
         signal = signals[0]
         setup = signal.metadata["setup"]
 
-        logging.info(f"\n0DTE Setup Details:")
+        logging.info("\n0DTE Setup Details:")
         logging.info(f"Strategy: {setup['strategy_type']}")
         logging.info(f"Contracts: {setup['contracts']}")
         logging.info(f"Credit: ${setup['credit_received']:.2f}")
@@ -1259,7 +1250,7 @@ def test_specialized_zero_dte():
         # Test position management
         management_signals = strategy.manage_positions(market_data)
 
-        logging.info(f"\nPosition Management:")
+        logging.info("\nPosition Management:")
         logging.info(f"Management signals: {len(management_signals)}")
 
         if management_signals:
@@ -1270,7 +1261,7 @@ def test_specialized_zero_dte():
 
     # Get daily summary
     summary = strategy.get_daily_summary()
-    logging.info(f"\nDaily Summary:")
+    logging.info("\nDaily Summary:")
     logging.info(f"Total Trades: {summary['total_trades']}")
     logging.info(f"Daily P&L: ${summary['daily_pnl']:.2f}")
     logging.info(

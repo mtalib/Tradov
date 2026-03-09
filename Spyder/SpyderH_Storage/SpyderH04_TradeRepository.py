@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,13 +23,11 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Iterator
+from datetime import datetime, date
+from typing import Any
 from dataclasses import dataclass, field, asdict
-from pathlib import Path
 from enum import Enum
 import threading
-from contextlib import contextmanager
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -98,8 +95,8 @@ class TradeType(Enum):
 @dataclass
 class Trade:
     """Trade record structure."""
-    trade_id: Optional[str] = None
-    order_id: Optional[str] = None
+    trade_id: str | None = None
+    order_id: str | None = None
     account_id: str = ""
     symbol: str = ""
     underlying: str = ""
@@ -112,7 +109,7 @@ class Trade:
 
     # Execution details
     status: TradeStatus = TradeStatus.PENDING
-    executed_at: Optional[datetime] = None
+    executed_at: datetime | None = None
     created_at: datetime = field(default_factory=datetime.now)
 
     # P&L
@@ -121,35 +118,35 @@ class Trade:
 
     # Strategy info
     strategy_name: str = ""
-    strategy_id: Optional[str] = None
-    signal_id: Optional[str] = None
+    strategy_id: str | None = None
+    signal_id: str | None = None
 
     # Option-specific
-    expiration: Optional[date] = None
-    strike: Optional[float] = None
-    option_type: Optional[str] = None  # 'call' or 'put'
+    expiration: date | None = None
+    strike: float | None = None
+    option_type: str | None = None  # 'call' or 'put'
 
     # Metadata
     notes: str = ""
-    tags: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TradeFilter:
     """Filter criteria for querying trades."""
-    account_id: Optional[str] = None
-    symbol: Optional[str] = None
-    underlying: Optional[str] = None
-    strategy_name: Optional[str] = None
-    trade_type: Optional[TradeType] = None
-    side: Optional[TradeSide] = None
-    status: Optional[TradeStatus] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    min_pnl: Optional[float] = None
-    max_pnl: Optional[float] = None
-    tags: Optional[List[str]] = None
+    account_id: str | None = None
+    symbol: str | None = None
+    underlying: str | None = None
+    strategy_name: str | None = None
+    trade_type: TradeType | None = None
+    side: TradeSide | None = None
+    status: TradeStatus | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    min_pnl: float | None = None
+    max_pnl: float | None = None
+    tags: list[str] | None = None
 
 
 @dataclass
@@ -186,8 +183,8 @@ class TradeRepository:
 
     def __init__(
         self,
-        data_access_layer: Optional[Any] = None,
-        config: Optional[Dict[str, Any]] = None
+        data_access_layer: Any | None = None,
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize trade repository.
@@ -201,7 +198,7 @@ class TradeRepository:
 
         # Database access
         self._dal = data_access_layer
-        self._in_memory_store: Dict[str, Trade] = {}
+        self._in_memory_store: dict[str, Trade] = {}
         self._use_memory = self._dal is None
 
         # Thread safety
@@ -335,7 +332,7 @@ class TradeRepository:
 
         self._dal.execute(sql, params)
 
-    def get_trade(self, trade_id: str) -> Optional[Trade]:
+    def get_trade(self, trade_id: str) -> Trade | None:
         """
         Get a trade by ID.
 
@@ -351,7 +348,7 @@ class TradeRepository:
             else:
                 return self._get_from_database(trade_id)
 
-    def _get_from_database(self, trade_id: str) -> Optional[Trade]:
+    def _get_from_database(self, trade_id: str) -> Trade | None:
         """Retrieve trade from database."""
         if self._dal is None:
             return None
@@ -363,7 +360,7 @@ class TradeRepository:
             return self._row_to_trade(result)
         return None
 
-    def _row_to_trade(self, row: Dict[str, Any]) -> Trade:
+    def _row_to_trade(self, row: dict[str, Any]) -> Trade:
         """Convert database row to Trade object."""
         return Trade(
             trade_id=row.get('trade_id'),
@@ -395,12 +392,12 @@ class TradeRepository:
 
     def get_trades(
         self,
-        filter: Optional[TradeFilter] = None,
+        filter: TradeFilter | None = None,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
         order_by: str = 'executed_at',
         descending: bool = True
-    ) -> List[Trade]:
+    ) -> list[Trade]:
         """
         Get trades with optional filtering and pagination.
 
@@ -422,12 +419,12 @@ class TradeRepository:
 
     def _get_trades_from_memory(
         self,
-        filter: Optional[TradeFilter],
+        filter: TradeFilter | None,
         page: int,
         page_size: int,
         order_by: str,
         descending: bool
-    ) -> List[Trade]:
+    ) -> list[Trade]:
         """Get trades from in-memory store."""
         trades = list(self._in_memory_store.values())
 
@@ -476,12 +473,12 @@ class TradeRepository:
 
     def _get_trades_from_database(
         self,
-        filter: Optional[TradeFilter],
+        filter: TradeFilter | None,
         page: int,
         page_size: int,
         order_by: str,
         descending: bool
-    ) -> List[Trade]:
+    ) -> list[Trade]:
         """Get trades from database with filtering."""
         if self._dal is None:
             return []
@@ -582,7 +579,7 @@ class TradeRepository:
 
     def get_trade_summary(
         self,
-        filter: Optional[TradeFilter] = None
+        filter: TradeFilter | None = None
     ) -> TradeSummary:
         """
         Get aggregated trade statistics.
@@ -632,9 +629,9 @@ class TradeRepository:
     def get_trades_by_strategy(
         self,
         strategy_name: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> List[Trade]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
+    ) -> list[Trade]:
         """
         Get all trades for a specific strategy.
 
@@ -656,9 +653,9 @@ class TradeRepository:
     def get_trades_by_symbol(
         self,
         symbol: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> List[Trade]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
+    ) -> list[Trade]:
         """
         Get all trades for a specific symbol.
 
@@ -677,7 +674,7 @@ class TradeRepository:
         )
         return self.get_trades(filter, page_size=MAX_BATCH_SIZE)
 
-    def get_recent_trades(self, count: int = 10) -> List[Trade]:
+    def get_recent_trades(self, count: int = 10) -> list[Trade]:
         """
         Get most recent trades.
 
@@ -691,7 +688,7 @@ class TradeRepository:
 
     def to_dataframe(
         self,
-        filter: Optional[TradeFilter] = None
+        filter: TradeFilter | None = None
     ) -> pd.DataFrame:
         """
         Export trades to pandas DataFrame.
@@ -718,7 +715,7 @@ class TradeRepository:
 
         return pd.DataFrame(records)
 
-    def count_trades(self, filter: Optional[TradeFilter] = None) -> int:
+    def count_trades(self, filter: TradeFilter | None = None) -> int:
         """
         Count trades matching filter criteria.
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -1498,7 +1497,7 @@ class TestInteractionMatrixThreadSafety:
             except Exception as e:
                 errors.append(str(e))
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(5)]
         for t in threads:
             t.start()
         for t in threads:

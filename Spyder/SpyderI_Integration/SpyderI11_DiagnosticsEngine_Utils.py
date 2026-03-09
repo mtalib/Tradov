@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,8 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Any
-from datetime import datetime
+from typing import Any
 from collections import defaultdict
 
 # ==============================================================================
@@ -50,11 +48,11 @@ from Spyder.SpyderI_Integration.SpyderI10_DiagnosticsEngine_Types import (
 class DiagnosticUtils:
     """
     Utility functions for diagnostic operations.
-    
+
     Provides methods for calculating health scores, generating recommendations,
     creating summaries, and other diagnostic utility functions.
     """
-    
+
     def __init__(self):
         """Initialize diagnostic utilities."""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -63,51 +61,51 @@ class DiagnosticUtils:
     # ==========================================================================
     # HEALTH SCORE CALCULATIONS
     # ==========================================================================
-    
-    def calculate_overall_health_score(self, 
+
+    def calculate_overall_health_score(self,
                                      system_metrics: SystemMetrics,
-                                     module_health: List[ModuleHealth],
-                                     integration_health: List[IntegrationHealth],
-                                     issues: List[DiagnosticIssue]) -> float:
+                                     module_health: list[ModuleHealth],
+                                     integration_health: list[IntegrationHealth],
+                                     issues: list[DiagnosticIssue]) -> float:
         """
         Calculate overall system health score (0-1).
-        
+
         Args:
             system_metrics: Current system metrics
             module_health: List of module health status
             integration_health: List of integration health status
             issues: List of current issues
-            
+
         Returns:
             Overall health score (0.0 to 1.0)
         """
         try:
             scores = []
-            
+
             # System health score (40% weight)
             system_score = self._calculate_system_score(system_metrics)
             scores.append(('system', system_score, HEALTH_SCORE_WEIGHTS['system']))
-            
+
             # Module health score (30% weight)
             if module_health:
                 module_score = self._calculate_module_score(module_health)
                 scores.append(('modules', module_score, HEALTH_SCORE_WEIGHTS['modules']))
-            
+
             # Integration health score (20% weight)
             if integration_health:
                 integration_score = self._calculate_integration_score(integration_health)
                 scores.append(('integrations', integration_score, HEALTH_SCORE_WEIGHTS['integration']))
-            
+
             # Issue impact score (10% weight)
             issue_score = self._calculate_issue_score(issues)
             scores.append(('issues', issue_score, HEALTH_SCORE_WEIGHTS['issues']))
-            
+
             # Calculate weighted average
             total_score = sum(score * weight for name, score, weight in scores)
             total_weight = sum(weight for name, score, weight in scores)
-            
+
             return total_score / total_weight if total_weight > 0 else 0.0
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "calculate_overall_health_score")
             return 0.5  # Default to medium health on error
@@ -116,57 +114,57 @@ class DiagnosticUtils:
         """Calculate system health score based on metrics."""
         try:
             score = 1.0
-            
+
             # CPU impact (30% of system score)
             cpu_impact = max(0, (metrics.cpu_percent - 50) / 50) * 0.3
             score -= cpu_impact
-            
+
             # Memory impact (30% of system score)
             memory_impact = max(0, (metrics.memory_percent - 50) / 50) * 0.3
             score -= memory_impact
-            
+
             # Disk impact (40% of system score)
             disk_impact = max(0, (metrics.disk_usage_percent - 70) / 30) * 0.4
             score -= disk_impact
-            
+
             return max(0.0, min(1.0, score))
-            
+
         except Exception:
             return 0.5
 
-    def _calculate_module_score(self, module_health: List[ModuleHealth]) -> float:
+    def _calculate_module_score(self, module_health: list[ModuleHealth]) -> float:
         """Calculate module health score."""
         try:
             if not module_health:
                 return 1.0
-            
+
             module_scores = [health_status_to_score(module.status) for module in module_health]
             return statistics.mean(module_scores)
-            
+
         except Exception:
             return 0.5
 
-    def _calculate_integration_score(self, integration_health: List[IntegrationHealth]) -> float:
+    def _calculate_integration_score(self, integration_health: list[IntegrationHealth]) -> float:
         """Calculate integration health score."""
         try:
             if not integration_health:
                 return 1.0
-            
+
             integration_scores = [
-                health_status_to_score(integration.connection_status) 
+                health_status_to_score(integration.connection_status)
                 for integration in integration_health
             ]
             return statistics.mean(integration_scores)
-            
+
         except Exception:
             return 0.5
 
-    def _calculate_issue_score(self, issues: List[DiagnosticIssue]) -> float:
+    def _calculate_issue_score(self, issues: list[DiagnosticIssue]) -> float:
         """Calculate issue impact score."""
         try:
             if not issues:
                 return 1.0
-            
+
             # Calculate total issue impact
             total_impact = 0.0
             for issue in issues:
@@ -178,65 +176,65 @@ class DiagnosticUtils:
                     total_impact += 0.1
                 elif issue.severity == ProblemSeverity.LOW:
                     total_impact += 0.05
-            
+
             # Convert to score (less impact = higher score)
             return max(0.0, 1.0 - min(1.0, total_impact))
-            
+
         except Exception:
             return 0.5
 
     # ==========================================================================
     # RECOMMENDATION GENERATION
     # ==========================================================================
-    
-    def generate_recommendations(self, 
-                               issues: List[DiagnosticIssue], 
-                               performance_summary: Dict[str, Any]) -> List[str]:
+
+    def generate_recommendations(self,
+                               issues: list[DiagnosticIssue],
+                               performance_summary: dict[str, Any]) -> list[str]:
         """
         Generate actionable recommendations based on issues and performance.
-        
+
         Args:
             issues: List of diagnostic issues
             performance_summary: Performance analysis summary
-            
+
         Returns:
             List of recommendation strings
         """
         try:
             recommendations = []
-            
+
             # Group issues by severity
             critical_issues = [i for i in issues if i.severity == ProblemSeverity.CRITICAL]
             high_issues = [i for i in issues if i.severity == ProblemSeverity.HIGH]
             medium_issues = [i for i in issues if i.severity == ProblemSeverity.MEDIUM]
-            
+
             # Critical issue recommendations
             if critical_issues:
                 recommendations.append("🚨 IMMEDIATE ACTION REQUIRED:")
                 for issue in critical_issues[:3]:  # Top 3 critical
                     for rec in issue.recommendations[:2]:  # Top 2 per issue
                         recommendations.append(f"  • {rec}")
-            
+
             # High priority recommendations
             if high_issues:
                 recommendations.append("⚠️  HIGH PRIORITY:")
                 for issue in high_issues[:3]:  # Top 3 high
                     if issue.recommendations:
                         recommendations.append(f"  • {issue.recommendations[0]}")
-            
+
             # Medium priority recommendations
             if medium_issues and len(recommendations) < 10:
                 recommendations.append("📋 MEDIUM PRIORITY:")
                 for issue in medium_issues[:2]:  # Top 2 medium
                     if issue.recommendations:
                         recommendations.append(f"  • {issue.recommendations[0]}")
-            
+
             # Performance recommendations
             if performance_summary.get('bottlenecks'):
                 recommendations.append("📈 PERFORMANCE OPTIMIZATION:")
                 for bottleneck in performance_summary['bottlenecks'][:2]:
                     recommendations.append(f"  • Optimize {bottleneck}")
-            
+
             # General maintenance recommendations
             if not critical_issues and not high_issues:
                 recommendations.extend([
@@ -244,10 +242,10 @@ class DiagnosticUtils:
                     "📊 Continue monitoring performance trends",
                     "🔄 Consider routine maintenance during low-activity periods"
                 ])
-            
+
             # Limit total recommendations
             return recommendations[:15]
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "generate_recommendations")
             return ["❌ Error generating recommendations - review system manually"]
@@ -255,19 +253,19 @@ class DiagnosticUtils:
     # ==========================================================================
     # EXECUTIVE SUMMARY CREATION
     # ==========================================================================
-    
-    def create_executive_summary(self, 
-                               health_score: float, 
-                               issues: List[DiagnosticIssue], 
-                               performance_summary: Dict[str, Any]) -> str:
+
+    def create_executive_summary(self,
+                               health_score: float,
+                               issues: list[DiagnosticIssue],
+                               performance_summary: dict[str, Any]) -> str:
         """
         Create executive summary of system health.
-        
+
         Args:
             health_score: Overall health score (0-1)
             issues: List of diagnostic issues
             performance_summary: Performance analysis summary
-            
+
         Returns:
             Executive summary string
         """
@@ -288,38 +286,38 @@ class DiagnosticUtils:
             else:
                 status = "FAILING"
                 status_emoji = "💀"
-            
+
             # Count issues by severity
             critical_count = len([i for i in issues if i.severity == ProblemSeverity.CRITICAL])
             high_count = len([i for i in issues if i.severity == ProblemSeverity.HIGH])
             medium_count = len([i for i in issues if i.severity == ProblemSeverity.MEDIUM])
-            
+
             # Create summary sections
             summary_parts = [
                 f"{status_emoji} **SYSTEM STATUS: {status}** (Health Score: {health_score:.1%})",
                 ""
             ]
-            
+
             # Issue summary
             if critical_count > 0:
                 summary_parts.append(f"🚨 **{critical_count} CRITICAL ISSUES** require immediate attention")
-            
+
             if high_count > 0:
                 summary_parts.append(f"⚠️  {high_count} high-priority issues detected")
-            
+
             if medium_count > 0:
                 summary_parts.append(f"📋 {medium_count} medium-priority issues for review")
-            
+
             if critical_count == 0 and high_count == 0:
                 summary_parts.append("✅ No critical or high-priority issues detected")
-            
+
             # Performance insights
             if performance_summary.get('trends'):
                 summary_parts.append("")
                 summary_parts.append("📈 **Performance Trends:**")
                 for trend in performance_summary['trends'][:3]:
                     summary_parts.append(f"  • {trend}")
-            
+
             # Key recommendations for critical issues
             if critical_count > 0:
                 summary_parts.append("")
@@ -328,9 +326,9 @@ class DiagnosticUtils:
                 for issue in critical_issues[:2]:
                     if issue.recommendations:
                         summary_parts.append(f"  • {issue.recommendations[0]}")
-            
+
             return "\n".join(summary_parts)
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "create_executive_summary")
             return f"Executive summary generation failed: {str(e)}"
@@ -338,14 +336,14 @@ class DiagnosticUtils:
     # ==========================================================================
     # DATA ANALYSIS HELPERS
     # ==========================================================================
-    
-    def analyze_issue_patterns(self, issues: List[DiagnosticIssue]) -> Dict[str, Any]:
+
+    def analyze_issue_patterns(self, issues: list[DiagnosticIssue]) -> dict[str, Any]:
         """
         Analyze patterns in diagnostic issues.
-        
+
         Args:
             issues: List of diagnostic issues
-            
+
         Returns:
             Pattern analysis results
         """
@@ -357,71 +355,71 @@ class DiagnosticUtils:
                 'recurring_issues': [],
                 'most_impacted_components': []
             }
-            
+
             # Count by category and severity
             for issue in issues:
                 patterns['by_category'][issue.category.value] += 1
                 patterns['by_severity'][issue.severity.value] += 1
-                
+
                 # Count affected components
                 for component in issue.affected_components:
                     patterns['by_component'][component] += 1
-            
+
             # Find most impacted components
             if patterns['by_component']:
                 sorted_components = sorted(
-                    patterns['by_component'].items(), 
-                    key=lambda x: x[1], 
+                    patterns['by_component'].items(),
+                    key=lambda x: x[1],
                     reverse=True
                 )
                 patterns['most_impacted_components'] = sorted_components[:5]
-            
+
             return dict(patterns)
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "analyze_issue_patterns")
             return {}
 
-    def calculate_system_availability(self, 
-                                    module_health: List[ModuleHealth]) -> float:
+    def calculate_system_availability(self,
+                                    module_health: list[ModuleHealth]) -> float:
         """
         Calculate system availability based on module health.
-        
+
         Args:
             module_health: List of module health status
-            
+
         Returns:
             Availability percentage (0-100)
         """
         try:
             if not module_health:
                 return 100.0
-            
+
             # Count healthy modules
             healthy_count = len([
-                m for m in module_health 
+                m for m in module_health
                 if m.status in [HealthStatus.EXCELLENT, HealthStatus.GOOD]
             ])
-            
+
             return (healthy_count / len(module_health)) * 100.0
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "calculate_system_availability")
             return 0.0
 
-    def get_performance_insights(self, performance_summary: Dict[str, Any]) -> List[str]:
+    def get_performance_insights(self, performance_summary: dict[str, Any]) -> list[str]:
         """
         Extract key performance insights.
-        
+
         Args:
             performance_summary: Performance analysis summary
-            
+
         Returns:
             List of insight strings
         """
         try:
             insights = []
-            
+
             # Trend insights
             if performance_summary.get('trends'):
                 trend_count = len(performance_summary['trends'])
@@ -429,7 +427,7 @@ class DiagnosticUtils:
                     insights.append(f"Multiple performance trends detected ({trend_count} metrics)")
                 elif trend_count > 0:
                     insights.append("Performance trends identified in key metrics")
-            
+
             # Bottleneck insights
             if performance_summary.get('bottlenecks'):
                 bottleneck_count = len(performance_summary['bottlenecks'])
@@ -437,20 +435,20 @@ class DiagnosticUtils:
                     insights.append(f"Multiple bottlenecks detected ({bottleneck_count} components)")
                 elif bottleneck_count > 0:
                     insights.append("Performance bottlenecks identified")
-            
+
             # Anomaly insights
             if performance_summary.get('anomalies'):
                 anomaly_count = len(performance_summary['anomalies'])
                 if anomaly_count > 1:
                     insights.append(f"Performance anomalies detected ({anomaly_count} metrics)")
-            
+
             # Baseline insights
             if performance_summary.get('baselines'):
                 baseline_count = len(performance_summary['baselines'])
                 insights.append(f"Performance baselines established for {baseline_count} metrics")
-            
+
             return insights
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "get_performance_insights")
             return []
@@ -458,14 +456,14 @@ class DiagnosticUtils:
     # ==========================================================================
     # FORMATTING UTILITIES
     # ==========================================================================
-    
+
     def format_health_status(self, status: HealthStatus) -> str:
         """
         Format health status with emoji.
-        
+
         Args:
             status: HealthStatus enum
-            
+
         Returns:
             Formatted status string
         """
@@ -481,10 +479,10 @@ class DiagnosticUtils:
     def format_severity(self, severity: ProblemSeverity) -> str:
         """
         Format problem severity with emoji.
-        
+
         Args:
             severity: ProblemSeverity enum
-            
+
         Returns:
             Formatted severity string
         """
@@ -500,10 +498,10 @@ class DiagnosticUtils:
     def format_duration(self, duration_seconds: float) -> str:
         """
         Format duration in human-readable format.
-        
+
         Args:
             duration_seconds: Duration in seconds
-            
+
         Returns:
             Formatted duration string
         """
@@ -516,17 +514,17 @@ class DiagnosticUtils:
                 return f"{duration_seconds/3600:.1f}h"
             else:
                 return f"{duration_seconds/86400:.1f}d"
-                
+
         except Exception:
             return "unknown"
 
     def format_bytes(self, bytes_value: int) -> str:
         """
         Format bytes in human-readable format.
-        
+
         Args:
             bytes_value: Size in bytes
-            
+
         Returns:
             Formatted size string
         """
@@ -536,18 +534,18 @@ class DiagnosticUtils:
                     return f"{bytes_value:.1f}{unit}"
                 bytes_value /= 1024.0
             return f"{bytes_value:.1f}PB"
-            
+
         except Exception:
             return "unknown"
 
     def format_percentage(self, value: float, decimal_places: int = 1) -> str:
         """
         Format value as percentage.
-        
+
         Args:
             value: Value to format (0-1 or 0-100)
             decimal_places: Number of decimal places
-            
+
         Returns:
             Formatted percentage string
         """
@@ -557,23 +555,23 @@ class DiagnosticUtils:
                 percentage = value * 100
             else:
                 percentage = value
-            
+
             return f"{percentage:.{decimal_places}f}%"
-            
+
         except Exception:
             return "unknown"
 
     # ==========================================================================
     # UTILITY HELPERS
     # ==========================================================================
-    
-    def prioritize_issues(self, issues: List[DiagnosticIssue]) -> List[DiagnosticIssue]:
+
+    def prioritize_issues(self, issues: list[DiagnosticIssue]) -> list[DiagnosticIssue]:
         """
         Prioritize issues by severity and impact.
-        
+
         Args:
             issues: List of diagnostic issues
-            
+
         Returns:
             Sorted list of issues by priority
         """
@@ -586,36 +584,36 @@ class DiagnosticUtils:
                 ProblemSeverity.LOW: 3,
                 ProblemSeverity.INFO: 4
             }
-            
+
             # Sort by severity first, then by impact score
             return sorted(
-                issues, 
+                issues,
                 key=lambda x: (severity_order.get(x.severity, 999), -x.impact_score)
             )
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "prioritize_issues")
             return issues
 
-    def filter_issues_by_category(self, 
-                                 issues: List[DiagnosticIssue], 
-                                 categories: List[str]) -> List[DiagnosticIssue]:
+    def filter_issues_by_category(self,
+                                 issues: list[DiagnosticIssue],
+                                 categories: list[str]) -> list[DiagnosticIssue]:
         """
         Filter issues by categories.
-        
+
         Args:
             issues: List of diagnostic issues
             categories: List of category names to include
-            
+
         Returns:
             Filtered list of issues
         """
         try:
             return [
-                issue for issue in issues 
+                issue for issue in issues
                 if issue.category.value in categories
             ]
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "filter_issues_by_category")
             return []
@@ -623,11 +621,11 @@ class DiagnosticUtils:
     def get_health_trend_indicator(self, current_score: float, previous_score: float) -> str:
         """
         Get health trend indicator.
-        
+
         Args:
             current_score: Current health score
             previous_score: Previous health score
-            
+
         Returns:
             Trend indicator string
         """
@@ -638,7 +636,7 @@ class DiagnosticUtils:
                 return "↗ Improving"
             else:
                 return "↘ Declining"
-                
+
         except Exception:
             return "? Unknown"
 
@@ -649,7 +647,7 @@ class DiagnosticUtils:
 def create_diagnostic_utils() -> DiagnosticUtils:
     """
     Factory function to create diagnostic utilities.
-    
+
     Returns:
         DiagnosticUtils instance
     """
@@ -661,26 +659,11 @@ def create_diagnostic_utils() -> DiagnosticUtils:
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER I04 - Diagnostic Utils Test")
-    print("=" * 80)
-    
+
     # Create utils
     utils = DiagnosticUtils()
-    
+
     # Test formatting functions
-    print("\n1. Testing formatting functions...")
-    print(f"Health Status: {utils.format_health_status(HealthStatus.GOOD)}")
-    print(f"Severity: {utils.format_severity(ProblemSeverity.HIGH)}")
-    print(f"Duration: {utils.format_duration(3665)}")
-    print(f"Bytes: {utils.format_bytes(1024*1024*512)}")
-    print(f"Percentage: {utils.format_percentage(0.856)}")
-    
+
     # Test trend indicator
-    print("\n2. Testing trend indicators...")
-    print(f"Trend: {utils.get_health_trend_indicator(0.85, 0.80)}")
-    print(f"Trend: {utils.get_health_trend_indicator(0.75, 0.85)}")
-    print(f"Trend: {utils.get_health_trend_indicator(0.80, 0.81)}")
-    
-    print("\n" + "=" * 80)
-    print("Diagnostic Utils test completed!")
+

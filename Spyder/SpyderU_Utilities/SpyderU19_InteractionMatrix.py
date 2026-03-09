@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,11 +23,9 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Dict, List, Set, Tuple, Optional, Any, Union
+from typing import Any, Union
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import defaultdict, deque
-import json
+from enum import Enum
 import threading
 import time
 
@@ -36,7 +33,6 @@ import time
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -89,16 +85,16 @@ class Interaction:
     interaction_type: InteractionType
     timestamp: datetime
     status: InteractionStatus = InteractionStatus.PENDING
-    latency_ms: Optional[float] = None
-    data_size: Optional[int] = None
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
+    latency_ms: float | None = None
+    data_size: int | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
     @property
     def is_successful(self) -> bool:
         """Check if interaction was successful"""
         return self.status == InteractionStatus.SUCCESS
-    
+
     @property
     def duration_ms(self) -> float:
         """Get interaction duration in milliseconds"""
@@ -115,15 +111,15 @@ class ModuleStats:
     total_data_sent: int = 0
     total_data_received: int = 0
     error_count: int = 0
-    last_activity: Optional[datetime] = None
-    
+    last_activity: datetime | None = None
+
     @property
     def success_rate(self) -> float:
         """Calculate success rate percentage"""
         if self.total_interactions == 0:
             return 0.0
         return (self.successful_interactions / self.total_interactions) * 100
-    
+
     @property
     def error_rate(self) -> float:
         """Calculate error rate percentage"""
@@ -135,14 +131,14 @@ class ModuleStats:
 class MatrixAnalysis:
     """Analysis results from interaction matrix"""
     matrix_data: np.ndarray
-    module_names: List[str]
+    module_names: list[str]
     metric_type: MatrixMetric
-    hotspots: List[Tuple[str, str, float]] = field(default_factory=list)
-    bottlenecks: List[str] = field(default_factory=list)
-    isolated_modules: List[str] = field(default_factory=list)
-    critical_paths: List[List[str]] = field(default_factory=list)
+    hotspots: list[tuple[str, str, float]] = field(default_factory=list)
+    bottlenecks: list[str] = field(default_factory=list)
+    isolated_modules: list[str] = field(default_factory=list)
+    critical_paths: list[list[str]] = field(default_factory=list)
     health_score: float = 0.0
-    recommendations: List[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
 # ==============================================================================
 # INTERACTION MATRIX CLASS
@@ -150,7 +146,7 @@ class MatrixAnalysis:
 class InteractionMatrix:
     """
     Module interaction matrix for system communication analysis.
-    
+
     Features:
     - Real-time interaction tracking
     - Communication pattern analysis
@@ -159,56 +155,56 @@ class InteractionMatrix:
     - Data flow visualization
     - Module coupling analysis
     """
-    
+
     def __init__(self, max_modules: int = DEFAULT_MATRIX_SIZE):
         """
         Initialize interaction matrix.
-        
+
         Args:
             max_modules: Maximum number of modules to track
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Configuration
         self.max_modules = max_modules
-        
+
         # Data storage
-        self.modules: Dict[str, int] = {}  # module_name -> index
-        self.module_names: List[str] = []
-        self.interactions: List[Interaction] = []
-        self.module_stats: Dict[str, ModuleStats] = {}
-        
+        self.modules: dict[str, int] = {}  # module_name -> index
+        self.module_names: list[str] = []
+        self.interactions: list[Interaction] = []
+        self.module_stats: dict[str, ModuleStats] = {}
+
         # Matrices for different metrics
         self.frequency_matrix = np.zeros((max_modules, max_modules), dtype=int)
         self.latency_matrix = np.zeros((max_modules, max_modules), dtype=float)
         self.success_matrix = np.zeros((max_modules, max_modules), dtype=float)
         self.data_volume_matrix = np.zeros((max_modules, max_modules), dtype=int)
-        
+
         # Monitoring
         self._monitoring = False
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._lock = threading.RLock()
-        
+
         # Cache for analysis results
-        self._analysis_cache: Dict[str, MatrixAnalysis] = {}
+        self._analysis_cache: dict[str, MatrixAnalysis] = {}
         self._cache_timestamp = datetime.now()
-        
+
         self.logger.info(f"InteractionMatrix initialized (max_modules: {max_modules})")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - INTERACTION RECORDING
     # ==========================================================================
-    def record_interaction(self, source: str, target: str, 
+    def record_interaction(self, source: str, target: str,
                           interaction_type: InteractionType,
                           status: InteractionStatus = InteractionStatus.SUCCESS,
-                          latency_ms: Optional[float] = None,
-                          data_size: Optional[int] = None,
-                          error_message: Optional[str] = None,
-                          metadata: Optional[Dict[str, Any]] = None) -> None:
+                          latency_ms: float | None = None,
+                          data_size: int | None = None,
+                          error_message: str | None = None,
+                          metadata: dict[str, Any] | None = None) -> None:
         """
         Record an interaction between modules.
-        
+
         Args:
             source: Source module name
             target: Target module name
@@ -224,7 +220,7 @@ class InteractionMatrix:
                 # Ensure modules are registered
                 self._register_module(source)
                 self._register_module(target)
-                
+
                 # Create interaction record
                 interaction = Interaction(
                     source=source,
@@ -237,44 +233,44 @@ class InteractionMatrix:
                     error_message=error_message,
                     metadata=metadata or {}
                 )
-                
+
                 # Store interaction
                 self.interactions.append(interaction)
-                
+
                 # Limit history size
                 if len(self.interactions) > MAX_HISTORY_SIZE:
                     self.interactions = self.interactions[-MAX_HISTORY_SIZE:]
-                
+
                 # Update matrices
                 self._update_matrices(interaction)
-                
+
                 # Update module statistics
                 self._update_module_stats(interaction)
-                
+
                 # Invalidate cache
                 self._invalidate_cache()
-                
+
         except Exception as e:
             self.logger.error(f"Error recording interaction: {str(e)}")
-    
+
     def start_interaction(self, source: str, target: str,
                          interaction_type: InteractionType,
-                         metadata: Optional[Dict[str, Any]] = None) -> str:
+                         metadata: dict[str, Any] | None = None) -> str:
         """
         Start tracking an interaction (returns interaction ID for completion).
-        
+
         Args:
             source: Source module name
             target: Target module name
             interaction_type: Type of interaction
             metadata: Additional metadata
-            
+
         Returns:
             Interaction ID for completion tracking
         """
         try:
             interaction_id = f"{source}->{target}:{datetime.now().timestamp()}"
-            
+
             # Record as pending
             self.record_interaction(
                 source=source,
@@ -283,21 +279,21 @@ class InteractionMatrix:
                 status=InteractionStatus.PENDING,
                 metadata=metadata
             )
-            
+
             return interaction_id
-            
+
         except Exception as e:
             self.logger.error(f"Error starting interaction: {str(e)}")
             return ""
-    
+
     def complete_interaction(self, interaction_id: str,
                            status: InteractionStatus = InteractionStatus.SUCCESS,
-                           latency_ms: Optional[float] = None,
-                           data_size: Optional[int] = None,
-                           error_message: Optional[str] = None) -> None:
+                           latency_ms: float | None = None,
+                           data_size: int | None = None,
+                           error_message: str | None = None) -> None:
         """
         Complete a tracked interaction.
-        
+
         Args:
             interaction_id: Interaction ID from start_interaction
             status: Final status
@@ -309,43 +305,43 @@ class InteractionMatrix:
             # For simplicity, just record the completion
             # In a full implementation, you'd track pending interactions
             self.logger.debug(f"Completed interaction {interaction_id} with status {status.value}")
-            
+
         except Exception as e:
             self.logger.error(f"Error completing interaction: {str(e)}")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS
     # ==========================================================================
     def analyze_matrix(self, metric: MatrixMetric = MatrixMetric.FREQUENCY,
-                      time_window: Optional[timedelta] = None) -> MatrixAnalysis:
+                      time_window: timedelta | None = None) -> MatrixAnalysis:
         """
         Analyze the interaction matrix for patterns and insights.
-        
+
         Args:
             metric: Metric to analyze
             time_window: Optional time window for analysis
-            
+
         Returns:
             MatrixAnalysis object with results
         """
         try:
             cache_key = f"{metric.value}_{time_window}"
-            
+
             # Check cache
-            if (cache_key in self._analysis_cache and 
+            if (cache_key in self._analysis_cache and
                 datetime.now() - self._cache_timestamp < timedelta(minutes=5)):
                 return self._analysis_cache[cache_key]
-            
+
             with self._lock:
                 # Filter interactions by time window if specified
                 filtered_interactions = self.interactions
                 if time_window:
                     cutoff_time = datetime.now() - time_window
                     filtered_interactions = [
-                        i for i in self.interactions 
+                        i for i in self.interactions
                         if i.timestamp >= cutoff_time
                     ]
-                
+
                 # Get matrix data based on metric
                 if metric == MatrixMetric.FREQUENCY:
                     matrix_data = self._calculate_frequency_matrix(filtered_interactions)
@@ -357,15 +353,15 @@ class InteractionMatrix:
                     matrix_data = self._calculate_data_volume_matrix(filtered_interactions)
                 else:
                     matrix_data = self.frequency_matrix[:len(self.module_names), :len(self.module_names)]
-                
+
                 # Perform analysis
                 analysis = self._perform_matrix_analysis(matrix_data, metric)
-                
+
                 # Cache result
                 self._analysis_cache[cache_key] = analysis
-                
+
                 return analysis
-                
+
         except Exception as e:
             self.logger.error(f"Error analyzing matrix: {str(e)}")
             return MatrixAnalysis(
@@ -373,14 +369,14 @@ class InteractionMatrix:
                 module_names=[],
                 metric_type=metric
             )
-    
-    def get_module_statistics(self, module_name: Optional[str] = None) -> Union[ModuleStats, Dict[str, ModuleStats]]:
+
+    def get_module_statistics(self, module_name: str | None = None) -> Union[ModuleStats, dict[str, ModuleStats]]:
         """
         Get statistics for a module or all modules.
-        
+
         Args:
             module_name: Specific module name (None for all)
-            
+
         Returns:
             ModuleStats or dictionary of all stats
         """
@@ -390,100 +386,96 @@ class InteractionMatrix:
                     return self.module_stats.get(module_name, ModuleStats(module_name))
                 else:
                     return self.module_stats.copy()
-                    
+
         except Exception as e:
             self.logger.error(f"Error getting module statistics: {str(e)}")
             if module_name:
                 return ModuleStats(module_name)
             else:
                 return {}
-    
-    def get_interaction_history(self, source: Optional[str] = None,
-                               target: Optional[str] = None,
-                               limit: int = 100) -> List[Interaction]:
+
+    def get_interaction_history(self, source: str | None = None,
+                               target: str | None = None,
+                               limit: int = 100) -> list[Interaction]:
         """
         Get interaction history with optional filtering.
-        
+
         Args:
             source: Filter by source module
             target: Filter by target module
             limit: Maximum number of interactions to return
-            
+
         Returns:
             List of filtered interactions
         """
         try:
             with self._lock:
                 filtered = self.interactions
-                
+
                 if source:
                     filtered = [i for i in filtered if i.source == source]
-                
+
                 if target:
                     filtered = [i for i in filtered if i.target == target]
-                
+
                 # Sort by timestamp (most recent first) and limit
                 filtered.sort(key=lambda x: x.timestamp, reverse=True)
                 return filtered[:limit]
-                
+
         except Exception as e:
             self.logger.error(f"Error getting interaction history: {str(e)}")
             return []
-    
+
     def identify_hotspots(self, metric: MatrixMetric = MatrixMetric.FREQUENCY,
-                         top_n: int = 10) -> List[Tuple[str, str, float]]:
+                         top_n: int = 10) -> list[tuple[str, str, float]]:
         """
         Identify interaction hotspots (high activity pairs).
-        
+
         Args:
             metric: Metric to analyze
             top_n: Number of top hotspots to return
-            
+
         Returns:
             List of (source, target, value) tuples
         """
         try:
             analysis = self.analyze_matrix(metric)
             return analysis.hotspots[:top_n]
-            
+
         except Exception as e:
             self.logger.error(f"Error identifying hotspots: {str(e)}")
             return []
-    
-    def detect_bottlenecks(self) -> List[str]:
+
+    def detect_bottlenecks(self) -> list[str]:
         """
         Detect potential bottleneck modules.
-        
+
         Returns:
             List of module names that may be bottlenecks
         """
         try:
             bottlenecks = []
-            
+
             with self._lock:
                 for module_name, stats in self.module_stats.items():
                     # High interaction volume with high latency
-                    if (stats.total_interactions > 100 and 
-                        stats.average_latency > 1000):  # > 1 second
+                    if (stats.total_interactions > 100 and
+                        stats.average_latency > 1000) or stats.error_rate > 10:  # > 1 second
                         bottlenecks.append(module_name)
-                    
-                    # High error rate
-                    elif stats.error_rate > 10:  # > 10% error rate
-                        bottlenecks.append(module_name)
-            
+
             return bottlenecks
-            
+
         except Exception as e:
             self.logger.error(f"Error detecting bottlenecks: {str(e)}")
             return []
-    
+
     # ==========================================================================
     # PUBLIC METHODS - MONITORING
     # ==========================================================================
     def start_monitoring(self, update_interval: int = UPDATE_INTERVAL) -> None:
         """
         Start continuous monitoring and analysis.
-        
+
         Args:
             update_interval: Update interval in seconds
         """
@@ -491,7 +483,7 @@ class InteractionMatrix:
             if self._monitoring:
                 self.logger.warning("Monitoring already active")
                 return
-            
+
             self._monitoring = True
             self._monitor_thread = threading.Thread(
                 target=self._monitor_loop,
@@ -499,25 +491,25 @@ class InteractionMatrix:
                 daemon=True
             )
             self._monitor_thread.start()
-            
+
             self.logger.info(f"Interaction monitoring started (interval: {update_interval}s)")
-            
+
         except Exception as e:
             self.logger.error(f"Error starting monitoring: {str(e)}")
-    
+
     def stop_monitoring(self) -> None:
         """Stop continuous monitoring."""
         try:
             self._monitoring = False
             self.logger.info("Interaction monitoring stopped")
-            
+
         except Exception as e:
             self.logger.error(f"Error stopping monitoring: {str(e)}")
-    
-    def get_system_health(self) -> Dict[str, Any]:
+
+    def get_system_health(self) -> dict[str, Any]:
         """
         Get overall system interaction health metrics.
-        
+
         Returns:
             Dictionary with health metrics
         """
@@ -533,22 +525,22 @@ class InteractionMatrix:
                         'error_rate': 0.0,
                         'status': 'idle'
                     }
-                
+
                 # Calculate metrics
                 successful = sum(1 for i in self.interactions if i.is_successful)
                 success_rate = (successful / total_interactions) * 100
-                
+
                 latencies = [i.latency_ms for i in self.interactions if i.latency_ms is not None]
                 avg_latency = np.mean(latencies) if latencies else 0.0
-                
+
                 error_rate = 100 - success_rate
-                
+
                 # Calculate health score
                 health_score = 100.0
                 health_score -= error_rate * 0.5  # Penalize errors
                 health_score -= min(avg_latency / 100, 20)  # Penalize high latency
                 health_score = max(0.0, min(100.0, health_score))
-                
+
                 # Determine status
                 if health_score >= 90:
                     status = 'excellent'
@@ -558,7 +550,7 @@ class InteractionMatrix:
                     status = 'fair'
                 else:
                     status = 'poor'
-                
+
                 return {
                     'health_score': health_score,
                     'total_interactions': total_interactions,
@@ -568,11 +560,11 @@ class InteractionMatrix:
                     'error_rate': error_rate,
                     'status': status
                 }
-                
+
         except Exception as e:
             self.logger.error(f"Error getting system health: {str(e)}")
             return {'health_score': 0.0, 'status': 'error'}
-    
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
@@ -582,35 +574,35 @@ class InteractionMatrix:
             if len(self.module_names) >= self.max_modules:
                 self.logger.warning(f"Maximum modules reached ({self.max_modules})")
                 return
-            
+
             index = len(self.module_names)
             self.modules[module_name] = index
             self.module_names.append(module_name)
             self.module_stats[module_name] = ModuleStats(module_name)
-            
+
             self.logger.debug(f"Registered module: {module_name} (index: {index})")
-    
+
     def _update_matrices(self, interaction: Interaction) -> None:
         """Update the interaction matrices"""
         try:
             source_idx = self.modules.get(interaction.source)
             target_idx = self.modules.get(interaction.target)
-            
+
             if source_idx is None or target_idx is None:
                 return
-            
+
             # Update frequency matrix
             self.frequency_matrix[source_idx, target_idx] += 1
-            
+
             # Update latency matrix
             if interaction.latency_ms is not None:
                 current_count = self.frequency_matrix[source_idx, target_idx]
                 current_avg = self.latency_matrix[source_idx, target_idx]
-                
+
                 # Running average
                 new_avg = ((current_avg * (current_count - 1)) + interaction.latency_ms) / current_count
                 self.latency_matrix[source_idx, target_idx] = new_avg
-            
+
             # Update success matrix
             if interaction.is_successful:
                 success_count = self.success_matrix[source_idx, target_idx]
@@ -620,14 +612,14 @@ class InteractionMatrix:
                 success_count = self.success_matrix[source_idx, target_idx]
                 total_count = self.frequency_matrix[source_idx, target_idx]
                 self.success_matrix[source_idx, target_idx] = (success_count * (total_count - 1)) / total_count
-            
+
             # Update data volume matrix
             if interaction.data_size is not None:
                 self.data_volume_matrix[source_idx, target_idx] += interaction.data_size
-                
+
         except Exception as e:
             self.logger.error(f"Error updating matrices: {str(e)}")
-    
+
     def _update_module_stats(self, interaction: Interaction) -> None:
         """Update module statistics"""
         try:
@@ -639,130 +631,130 @@ class InteractionMatrix:
             else:
                 source_stats.failed_interactions += 1
                 source_stats.error_count += 1
-            
+
             if interaction.latency_ms is not None:
                 # Running average
                 total = source_stats.total_interactions
                 current_avg = source_stats.average_latency
                 source_stats.average_latency = ((current_avg * (total - 1)) + interaction.latency_ms) / total
-            
+
             if interaction.data_size is not None:
                 source_stats.total_data_sent += interaction.data_size
-            
+
             source_stats.last_activity = interaction.timestamp
-            
+
             # Update target stats
             target_stats = self.module_stats[interaction.target]
             if interaction.data_size is not None:
                 target_stats.total_data_received += interaction.data_size
             target_stats.last_activity = interaction.timestamp
-            
+
         except Exception as e:
             self.logger.error(f"Error updating module stats: {str(e)}")
-    
-    def _calculate_frequency_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+
+    def _calculate_frequency_matrix(self, interactions: list[Interaction]) -> np.ndarray:
         """Calculate frequency matrix from interactions"""
         matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
-        
+
         for interaction in interactions:
             source_idx = self.modules.get(interaction.source)
             target_idx = self.modules.get(interaction.target)
-            
+
             if source_idx is not None and target_idx is not None:
                 matrix[source_idx, target_idx] += 1
-        
+
         return matrix
-    
-    def _calculate_latency_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+
+    def _calculate_latency_matrix(self, interactions: list[Interaction]) -> np.ndarray:
         """Calculate average latency matrix from interactions"""
         matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=float)
         count_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
-        
+
         for interaction in interactions:
             if interaction.latency_ms is None:
                 continue
-                
+
             source_idx = self.modules.get(interaction.source)
             target_idx = self.modules.get(interaction.target)
-            
+
             if source_idx is not None and target_idx is not None:
                 matrix[source_idx, target_idx] += interaction.latency_ms
                 count_matrix[source_idx, target_idx] += 1
-        
+
         # Calculate averages
         with np.errstate(divide='ignore', invalid='ignore'):
             matrix = np.divide(matrix, count_matrix, out=np.zeros_like(matrix), where=count_matrix!=0)
-        
+
         return matrix
-    
-    def _calculate_success_rate_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+
+    def _calculate_success_rate_matrix(self, interactions: list[Interaction]) -> np.ndarray:
         """Calculate success rate matrix from interactions"""
         success_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
         total_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
-        
+
         for interaction in interactions:
             source_idx = self.modules.get(interaction.source)
             target_idx = self.modules.get(interaction.target)
-            
+
             if source_idx is not None and target_idx is not None:
                 total_matrix[source_idx, target_idx] += 1
                 if interaction.is_successful:
                     success_matrix[source_idx, target_idx] += 1
-        
+
         # Calculate success rates
         with np.errstate(divide='ignore', invalid='ignore'):
             rate_matrix = np.divide(success_matrix, total_matrix, out=np.zeros_like(success_matrix, dtype=float), where=total_matrix!=0)
-        
+
         return rate_matrix * 100  # Convert to percentage
-    
-    def _calculate_data_volume_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+
+    def _calculate_data_volume_matrix(self, interactions: list[Interaction]) -> np.ndarray:
         """Calculate data volume matrix from interactions"""
         matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
-        
+
         for interaction in interactions:
             if interaction.data_size is None:
                 continue
-                
+
             source_idx = self.modules.get(interaction.source)
             target_idx = self.modules.get(interaction.target)
-            
+
             if source_idx is not None and target_idx is not None:
                 matrix[source_idx, target_idx] += interaction.data_size
-        
+
         return matrix
-    
+
     def _perform_matrix_analysis(self, matrix_data: np.ndarray, metric: MatrixMetric) -> MatrixAnalysis:
         """Perform comprehensive analysis on matrix data"""
         try:
             # Find hotspots (high values)
             hotspots = []
             flat_indices = np.argsort(matrix_data.flatten())[::-1]  # Descending order
-            
+
             for idx in flat_indices[:20]:  # Top 20
                 row, col = np.unravel_index(idx, matrix_data.shape)
                 value = matrix_data[row, col]
-                
+
                 if value > 0 and row < len(self.module_names) and col < len(self.module_names):
                     hotspots.append((self.module_names[row], self.module_names[col], float(value)))
-            
+
             # Find bottlenecks (modules with high outgoing traffic)
             outgoing_sums = np.sum(matrix_data, axis=1)
             bottleneck_indices = np.argsort(outgoing_sums)[::-1][:5]  # Top 5
-            bottlenecks = [self.module_names[i] for i in bottleneck_indices 
+            bottlenecks = [self.module_names[i] for i in bottleneck_indices
                           if i < len(self.module_names) and outgoing_sums[i] > 0]
-            
+
             # Find isolated modules (no interactions)
             row_sums = np.sum(matrix_data, axis=1)
             col_sums = np.sum(matrix_data, axis=0)
             isolated_indices = np.where((row_sums == 0) & (col_sums == 0))[0]
-            isolated_modules = [self.module_names[i] for i in isolated_indices 
+            isolated_modules = [self.module_names[i] for i in isolated_indices
                               if i < len(self.module_names)]
-            
+
             # Calculate health score
-            total_interactions = np.sum(matrix_data)
+            np.sum(matrix_data)
             non_zero_count = np.count_nonzero(matrix_data)
             connectivity = non_zero_count / (len(self.module_names) ** 2) if len(self.module_names) > 0 else 0
-            
+
             health_score = connectivity * 100
             if metric == MatrixMetric.SUCCESS_RATE:
                 avg_success_rate = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 100
@@ -770,12 +762,12 @@ class InteractionMatrix:
             elif metric == MatrixMetric.LATENCY:
                 avg_latency = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 0
                 health_score = max(0, 100 - (avg_latency / 10))  # Penalize high latency
-            
+
             # Generate recommendations
             recommendations = self._generate_matrix_recommendations(
                 matrix_data, metric, hotspots, bottlenecks, isolated_modules
             )
-            
+
             return MatrixAnalysis(
                 matrix_data=matrix_data,
                 module_names=self.module_names.copy(),
@@ -786,7 +778,7 @@ class InteractionMatrix:
                 health_score=health_score,
                 recommendations=recommendations
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error performing matrix analysis: {str(e)}")
             return MatrixAnalysis(
@@ -794,63 +786,63 @@ class InteractionMatrix:
                 module_names=self.module_names.copy(),
                 metric_type=metric
             )
-    
+
     def _generate_matrix_recommendations(self, matrix_data: np.ndarray, metric: MatrixMetric,
-                                       hotspots: List[Tuple[str, str, float]],
-                                       bottlenecks: List[str],
-                                       isolated_modules: List[str]) -> List[str]:
+                                       hotspots: list[tuple[str, str, float]],
+                                       bottlenecks: list[str],
+                                       isolated_modules: list[str]) -> list[str]:
         """Generate recommendations based on matrix analysis"""
         recommendations = []
-        
+
         try:
             if hotspots:
                 recommendations.append(f"Monitor {len(hotspots)} high-traffic module pairs")
-            
+
             if bottlenecks:
                 recommendations.append(f"Optimize {len(bottlenecks)} potential bottleneck modules")
-            
+
             if isolated_modules:
                 recommendations.append(f"Review {len(isolated_modules)} isolated modules")
-            
+
             if metric == MatrixMetric.LATENCY:
                 high_latency = [h for h in hotspots if h[2] > 1000]  # > 1 second
                 if high_latency:
                     recommendations.append(f"Reduce latency for {len(high_latency)} slow interactions")
-            
+
             elif metric == MatrixMetric.SUCCESS_RATE:
                 low_success = [h for h in hotspots if h[2] < 95]  # < 95% success
                 if low_success:
                     recommendations.append(f"Improve reliability for {len(low_success)} error-prone interactions")
-            
+
         except Exception as e:
             self.logger.error(f"Error generating recommendations: {str(e)}")
-        
+
         return recommendations
-    
+
     def _monitor_loop(self, update_interval: int) -> None:
         """Background monitoring loop"""
         while self._monitoring:
             try:
                 # Perform periodic analysis
                 health = self.get_system_health()
-                
+
                 # Log health status
                 if health['health_score'] < 70:
                     self.logger.warning(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
                 else:
                     self.logger.debug(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
-                
+
                 # Clean old interactions
                 cutoff_time = datetime.now() - timedelta(hours=24)
                 with self._lock:
                     self.interactions = [i for i in self.interactions if i.timestamp >= cutoff_time]
-                
+
                 time.sleep(update_interval)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {str(e)}")
                 time.sleep(update_interval)
-    
+
     def _invalidate_cache(self) -> None:
         """Invalidate analysis cache"""
         self._analysis_cache.clear()
@@ -859,12 +851,12 @@ class InteractionMatrix:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_interaction_matrix: Optional[InteractionMatrix] = None
+_interaction_matrix: InteractionMatrix | None = None
 
 def get_interaction_matrix() -> InteractionMatrix:
     """
     Get singleton instance of interaction matrix.
-    
+
     Returns:
         InteractionMatrix instance
     """
@@ -874,12 +866,12 @@ def get_interaction_matrix() -> InteractionMatrix:
     return _interaction_matrix
 
 def record_interaction(source: str, target: str, interaction_type: str = "function_call",
-                      success: bool = True, latency_ms: Optional[float] = None) -> None:
+                      success: bool = True, latency_ms: float | None = None) -> None:
     """Quick interaction recording"""
     matrix = get_interaction_matrix()
     status = InteractionStatus.SUCCESS if success else InteractionStatus.FAILURE
     int_type = InteractionType(interaction_type) if interaction_type in [t.value for t in InteractionType] else InteractionType.FUNCTION_CALL
-    
+
     matrix.record_interaction(source, target, int_type, status, latency_ms)
 
 # ==============================================================================
@@ -888,20 +880,18 @@ def record_interaction(source: str, target: str, interaction_type: str = "functi
 if __name__ == "__main__":
     # Test interaction matrix
     import random
-    
-    print("Testing Interaction Matrix...")
-    
+
+
     matrix = get_interaction_matrix()
-    
+
     # Test interaction recording
-    print(f"\n✅ Testing interaction recording...")
     modules = ["SpyderA01_Main", "SpyderB01_SpyderClient", "SpyderC01_DataFeed", "SpyderD01_BaseStrategy"]
-    
+
     # Generate sample interactions
-    for i in range(100):
+    for _i in range(100):
         source = random.choice(modules)
         target = random.choice([m for m in modules if m != source])
-        
+
         matrix.record_interaction(
             source=source,
             target=target,
@@ -910,39 +900,24 @@ if __name__ == "__main__":
             latency_ms=random.uniform(10, 500),
             data_size=random.randint(100, 10000)
         )
-    
-    print(f"   Recorded 100 sample interactions")
-    
+
+
     # Test analysis
-    print(f"\n✅ Testing matrix analysis...")
     analysis = matrix.analyze_matrix(MatrixMetric.FREQUENCY)
-    print(f"   Matrix shape: {analysis.matrix_data.shape}")
-    print(f"   Hotspots found: {len(analysis.hotspots)}")
-    print(f"   Health score: {analysis.health_score:.1f}")
-    
+
     # Test hotspot identification
-    print(f"\n✅ Testing hotspot identification...")
     hotspots = matrix.identify_hotspots(MatrixMetric.FREQUENCY, 5)
-    for i, (source, target, value) in enumerate(hotspots[:3], 1):
-        print(f"   {i}. {source} → {target}: {value}")
-    
+    for _i, (_, _, _value) in enumerate(hotspots[:3], 1):
+        pass
+
     # Test module statistics
-    print(f"\n✅ Testing module statistics...")
     stats = matrix.get_module_statistics()
-    for module_name, module_stats in list(stats.items())[:3]:
-        print(f"   {module_name}: {module_stats.total_interactions} interactions, {module_stats.success_rate:.1f}% success")
-    
+    for _module_name, _module_stats in list(stats.items())[:3]:
+        pass
+
     # Test system health
-    print(f"\n✅ Testing system health...")
     health = matrix.get_system_health()
-    print(f"   Health Score: {health['health_score']:.1f}")
-    print(f"   Status: {health['status']}")
-    print(f"   Active Modules: {health['active_modules']}")
-    print(f"   Success Rate: {health['success_rate']:.1f}%")
-    
+
     # Test quick function
-    print(f"\n✅ Testing quick function...")
     record_interaction("TestModule1", "TestModule2", "function_call", True, 25.5)
-    print(f"   Recorded interaction via quick function")
-    
-    print("\n✅ Interaction matrix test completed!")
+

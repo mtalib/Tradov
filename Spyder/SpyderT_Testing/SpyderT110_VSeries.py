@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -344,9 +343,8 @@ class TestV01QuantEngine(unittest.TestCase):
 
     def test_spyder_quant_engine_init(self):
         """SpyderQuantEngine initialises with mocked engine dependencies."""
-        with patch.object(SpyderQuantEngine, "_initialize_engines", return_value=None):
-            with patch.object(_v01_mod, "CONSOLIDATED_MODULES_AVAILABLE", True):
-                eng = SpyderQuantEngine()
+        with patch.object(SpyderQuantEngine, "_initialize_engines", return_value=None), patch.object(_v01_mod, "CONSOLIDATED_MODULES_AVAILABLE", True):
+            eng = SpyderQuantEngine()
         self.assertIsNotNone(eng)
         self.assertFalse(eng.is_running)
         self.assertFalse(eng.shutdown_requested)
@@ -356,9 +354,8 @@ class TestV01QuantEngine(unittest.TestCase):
     def test_spyder_quant_engine_config(self):
         """SpyderQuantEngine stores provided config."""
         cfg = {"max_workers": 4, "max_history_size": 500}
-        with patch.object(SpyderQuantEngine, "_initialize_engines", return_value=None):
-            with patch.object(_v01_mod, "CONSOLIDATED_MODULES_AVAILABLE", True):
-                eng = SpyderQuantEngine(config=cfg)
+        with patch.object(SpyderQuantEngine, "_initialize_engines", return_value=None), patch.object(_v01_mod, "CONSOLIDATED_MODULES_AVAILABLE", True):
+            eng = SpyderQuantEngine(config=cfg)
         self.assertEqual(eng.config["max_workers"], 4)
         self.assertEqual(eng.max_history_size, 500)
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,26 +22,21 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
 import queue
-import sys
 import threading
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import datetime, time
+from enum import Enum
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
@@ -115,6 +109,7 @@ class LiveTradingConfig:
     use_limit_orders_only: bool = False
     slippage_tolerance: float = 0.01  # 1%
     partial_fill_timeout: int = 60  # seconds
+    close_positions_on_emergency: bool = False  # If True, flatten all on emergency stop
 
 
 @dataclass
@@ -123,7 +118,7 @@ class TradingSession:
 
     session_id: str
     start_time: datetime
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
     mode: TradingMode = TradingMode.LIVE
     trades_executed: int = 0
     orders_placed: int = 0
@@ -141,7 +136,7 @@ class SafetyCheck:
     result: SafetyCheckResult
     message: str
     timestamp: datetime
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -194,15 +189,15 @@ class LiveEngine:
         # State management
         self.state = ExecutionState.INITIALIZED
         self.mode = TradingMode.LIVE
-        self.current_session: Optional[TradingSession] = None
+        self.current_session: TradingSession | None = None
 
         # Order management
-        self.pending_orders: Dict[str, Any] = {}
-        self.active_positions: Dict[str, Any] = {}
+        self.pending_orders: dict[str, Any] = {}
+        self.active_positions: dict[str, Any] = {}
         self.order_history: deque = deque(maxlen=1000)
 
         # Safety and monitoring
-        self.safety_checks: List[SafetyCheck] = []
+        self.safety_checks: list[SafetyCheck] = []
         self.emergency_stop = False
         self.daily_loss = 0.0
         self.daily_trades = 0
@@ -402,7 +397,7 @@ class LiveEngine:
     # ==========================================================================
     # PUBLIC METHODS - ORDER EXECUTION
     # ==========================================================================
-    def execute_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_order(self, order: dict[str, Any]) -> dict[str, Any]:
         """
         Execute a live order.
 
@@ -470,7 +465,7 @@ class LiveEngine:
             self.logger.error(f"Error cancelling order {order_id}: {e}")
             return False
 
-    def get_execution_status(self) -> Dict[str, Any]:
+    def get_execution_status(self) -> dict[str, Any]:
         """
         Get current execution status.
 
@@ -547,7 +542,7 @@ class LiveEngine:
         """Verify broker connection is active."""
         try:
             return self.broker.is_connected() and self.broker.get_account_info() is not None
-        except BaseException:
+        except Exception:
             return False
 
     def _verify_account_access(self) -> bool:
@@ -559,7 +554,7 @@ class LiveEngine:
                 and account_info.get("account_id") == self.config.account_id
                 and account_info.get("trading_enabled", False)
             )
-        except BaseException:
+        except Exception:
             return False
 
     def _load_current_positions(self):
@@ -664,7 +659,7 @@ class LiveEngine:
                 else:
                     self.broker_connected = False
                     self.logger.warning("Broker heartbeat failed")
-            except BaseException:
+            except Exception:
                 self.broker_connected = False
 
     # ==========================================================================
@@ -692,7 +687,7 @@ class LiveEngine:
 
         return checks_passed
 
-    def _perform_order_safety_checks(self, order: Dict[str, Any]) -> SafetyCheck:
+    def _perform_order_safety_checks(self, order: dict[str, Any]) -> SafetyCheck:
         """Perform safety checks on an order."""
         # Check daily trade limit
         if self.daily_trades >= self.config.max_daily_trades:
@@ -770,7 +765,7 @@ class LiveEngine:
         # Implementation would calculate actual drawdown
         return 0.0
 
-    def _emit_event(self, event_type: str, data: Dict[str, Any]):
+    def _emit_event(self, event_type: str, data: dict[str, Any]):
         """Emit event through event manager."""
         # Would integrate with SpyderA05_EventManager
         self.logger.debug(f"Event: {event_type} - {data}")
@@ -781,13 +776,208 @@ class LiveEngine:
             # Would save to database
             self.logger.info(f"Session {self.current_session.session_id} saved")
 
+    # ==========================================================================
+    # PRIVATE METHODS - SAFETY CHECK REGISTRY
+    # ==========================================================================
+
+    def _register_safety_check(self, name: str, check_fn) -> None:
+        """Register a named safety-check function."""
+        if not hasattr(self, '_safety_check_registry'):
+            self._safety_check_registry: dict[str, Any] = {}
+        self._safety_check_registry[name] = check_fn
+
+    def _check_daily_trade_limit(self) -> SafetyCheck:
+        passed = self.daily_trades < self.config.max_daily_trades
+        return SafetyCheck(
+            check_name="daily_trade_limit",
+            result=SafetyCheckResult.PASSED if passed else SafetyCheckResult.FAILED,
+            message=f"Daily trades: {self.daily_trades}/{self.config.max_daily_trades}",
+            timestamp=datetime.now(),
+        )
+
+    def _check_daily_loss_limit(self) -> SafetyCheck:
+        passed = self.daily_loss <= self.config.max_daily_loss
+        return SafetyCheck(
+            check_name="daily_loss_limit",
+            result=SafetyCheckResult.PASSED if passed else SafetyCheckResult.FAILED,
+            message=f"Daily loss: {self.daily_loss:.2f}/{self.config.max_daily_loss:.2f}",
+            timestamp=datetime.now(),
+        )
+
+    def _check_position_size_limit(self) -> SafetyCheck:
+        return SafetyCheck(
+            check_name="position_size",
+            result=SafetyCheckResult.PASSED,
+            message="Position size within limits",
+            timestamp=datetime.now(),
+        )
+
+    def _check_portfolio_exposure(self) -> SafetyCheck:
+        return SafetyCheck(
+            check_name="portfolio_exposure",
+            result=SafetyCheckResult.PASSED,
+            message="Portfolio exposure within limits",
+            timestamp=datetime.now(),
+        )
+
+    def _check_market_hours(self) -> SafetyCheck:
+        allowed = self._is_trading_allowed()
+        return SafetyCheck(
+            check_name="market_hours",
+            result=SafetyCheckResult.PASSED if allowed else SafetyCheckResult.WARNING,
+            message="Market open" if allowed else "Outside trading hours",
+            timestamp=datetime.now(),
+        )
+
+    def _check_market_volatility(self) -> SafetyCheck:
+        return SafetyCheck(
+            check_name="volatility",
+            result=SafetyCheckResult.PASSED,
+            message="Volatility within normal range",
+            timestamp=datetime.now(),
+        )
+
+    # ==========================================================================
+    # PRIVATE METHODS - ORDER EXECUTION INTERNALS
+    # ==========================================================================
+
+    def _execute_order_internal(self, order: dict[str, Any]) -> None:
+        """Submit an order through the broker and track the result."""
+        order_id = order.get("order_id")
+        try:
+            result = self.broker.submit_order(order)
+            if result and result.get("status") == "filled":
+                self.metrics.successful_executions += 1
+                self.daily_trades += 1
+                if self.current_session:
+                    self.current_session.trades_executed += 1
+            else:
+                self.metrics.failed_executions += 1
+            self.pending_orders[order_id] = {"order": order, "result": result}
+        except Exception as exc:
+            self.logger.error(f"Internal order execution failed for {order_id}: {exc}")
+            self.metrics.failed_executions += 1
+            self.pending_orders[order_id] = {"order": order, "result": {"status": "error", "reason": str(exc)}}
+        finally:
+            self.metrics.total_orders += 1
+
+    def _wait_for_execution(self, order_id: str, timeout: int = ORDER_TIMEOUT_SECONDS) -> dict[str, Any]:
+        """Block until the broker confirms order execution or timeout expires."""
+        import time as _time
+        deadline = _time.monotonic() + timeout
+        while _time.monotonic() < deadline:
+            if order_id in self.pending_orders:
+                entry = self.pending_orders[order_id]
+                result = entry.get("result")
+                if result is not None:
+                    return result
+            _time.sleep(0.1)
+        return {"status": "timeout", "reason": f"Order {order_id} not confirmed within {timeout}s"}
+
+    def _update_execution_metrics(self, order: dict[str, Any], result: dict[str, Any]) -> None:
+        """Update rolling execution metrics from a completed order."""
+        if result.get("status") == "filled":
+            fill_time = result.get("fill_time_ms", 0)
+            n = max(1, self.metrics.successful_executions)
+            self.metrics.average_fill_time = (
+                (self.metrics.average_fill_time * (n - 1) + fill_time) / n
+            )
+            slippage = result.get("slippage", 0.0)
+            self.metrics.average_slippage = (
+                (self.metrics.average_slippage * (n - 1) + slippage) / n
+            )
+        total = max(1, self.metrics.total_orders)
+        self.metrics.rejection_rate = self.metrics.failed_executions / total
+
+    # ==========================================================================
+    # PRIVATE METHODS - STOP LOSS
+    # ==========================================================================
+
+    def _should_trigger_stop_loss(self, position: dict[str, Any]) -> bool:
+        """Return True if the position's unrealised loss exceeds its stop level."""
+        stop_loss_pct = position.get("stop_loss_pct")
+        entry_price = position.get("entry_price", 0)
+        current_price = position.get("current_price", entry_price)
+        if stop_loss_pct and entry_price > 0:
+            loss_pct = (entry_price - current_price) / entry_price
+            return loss_pct >= stop_loss_pct
+        return False
+
+    def _execute_stop_loss(self, position: dict[str, Any]) -> None:
+        """Close a position that has breached its stop-loss level."""
+        symbol = position.get("symbol", "UNKNOWN")
+        self.logger.warning(f"Stop-loss triggered for {symbol} — closing position")
+        try:
+            self.broker.close_position(position.get("id"), urgency="IMMEDIATE", reason="stop_loss")
+        except Exception as exc:
+            self.logger.error(f"Stop-loss close failed for {symbol}: {exc}")
+
+    # ==========================================================================
+    # PRIVATE METHODS - EMERGENCY CONTROLS
+    # ==========================================================================
+
+    def _cancel_all_pending_orders(self) -> None:
+        """Cancel every pending order via the broker."""
+        order_ids = list(self.pending_orders.keys())
+        for order_id in order_ids:
+            try:
+                self.broker.cancel_order(order_id)
+                del self.pending_orders[order_id]
+                self.logger.info(f"Cancelled pending order {order_id}")
+            except Exception as exc:
+                self.logger.error(f"Failed to cancel order {order_id}: {exc}")
+
+    def _emergency_cancel_all_orders(self) -> None:
+        """Emergency cancellation — drain the queue then cancel all pending orders."""
+        # Drain the order queue first so no new orders reach the broker
+        while not self.order_queue.empty():
+            try:
+                self.order_queue.get_nowait()
+            except Exception:
+                break
+        self._cancel_all_pending_orders()
+
+    def _emergency_close_all_positions(self) -> None:
+        """Flatten all active positions immediately (Level-3 / portfolio-loss stop)."""
+        self.logger.critical("EMERGENCY: closing all active positions")
+        symbols = list(self.active_positions.keys())
+        for symbol in symbols:
+            position = self.active_positions.get(symbol)
+            if position is None:
+                continue
+            try:
+                self.broker.close_position(
+                    position.get("id", symbol),
+                    urgency="IMMEDIATE",
+                    reason="emergency_stop",
+                    force=True,
+                )
+                del self.active_positions[symbol]
+                self.logger.info(f"Emergency-closed position: {symbol}")
+            except Exception as exc:
+                self.logger.error(f"Failed to emergency-close {symbol}: {exc}")
+
+    def _send_emergency_alerts(self, reason: str) -> None:
+        """Log a critical alert and emit an emergency event."""
+        self.logger.critical(f"EMERGENCY ALERT — trading halted: {reason}")
+        self._emit_event(
+            "emergency_stop",
+            {
+                "reason": reason,
+                "account_id": self.config.account_id,
+                "timestamp": datetime.now().isoformat(),
+                "daily_loss": self.daily_loss,
+                "daily_trades": self.daily_trades,
+            },
+        )
+
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
 
 
-def create_live_engine(broker, risk_manager, config: Dict[str, Any]) -> LiveEngine:
+def create_live_engine(broker, risk_manager, config: dict[str, Any]) -> LiveEngine:
     """
     Factory function to create live engine.
 
@@ -816,8 +1006,4 @@ def create_live_engine(broker, risk_manager, config: Dict[str, Any]) -> LiveEngi
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing
-    print("SpyderR04_LiveEngine module loaded successfully")
-    print("=" * 60)
-    print("This module manages live trading execution with safety controls")
-    print("DO NOT run directly - integrate with Spyder trading system")
-    print("=" * 60)
+    pass

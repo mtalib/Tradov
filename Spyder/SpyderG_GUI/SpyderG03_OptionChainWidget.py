@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,26 +22,23 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QComboBox, QSpinBox, QGroupBox
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
-from PySide6.QtGui import QFont, QPalette, QColor, QPen, QBrush, QPixmap
-import numpy as np
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtGui import QColor
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
 
 # ==============================================================================
 # CONSTANTS
@@ -117,16 +113,16 @@ class OptionChainWidget(QWidget):
         self.logger = SpyderLogger.get_logger(__name__)
 
         # Data storage
-        self.option_chains: Dict[date, Dict[float, Dict[str, OptionData]]] = {}
-        self.current_expiration: Optional[date] = None
+        self.option_chains: dict[date, dict[float, dict[str, OptionData]]] = {}
+        self.current_expiration: date | None = None
         self.underlying_price = 0.0
-        self.selected_strikes: List[Tuple[float, str]] = []
+        self.selected_strikes: list[tuple[float, str]] = []
 
         # UI components
-        self.expiration_combo: Optional[QComboBox] = None
-        self.chain_table: Optional[QTableWidget] = None
-        self.strike_filter: Optional[QSpinBox] = None
-        self.update_timer: Optional[QTimer] = None
+        self.expiration_combo: QComboBox | None = None
+        self.chain_table: QTableWidget | None = None
+        self.strike_filter: QSpinBox | None = None
+        self.update_timer: QTimer | None = None
 
         # Setup UI
         self.setup_ui()

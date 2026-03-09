@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,11 +27,10 @@ import threading
 import datetime
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
-import json
 import uuid
 
 # ==============================================================================
@@ -107,8 +105,8 @@ class SystemMetrics:
     open_files: int
     thread_count: int
     process_count: int
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'timestamp': self.timestamp.isoformat(),
@@ -140,8 +138,8 @@ class PerformanceMetrics:
     active_strategies: int
     open_positions: int
     pending_orders: int
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'timestamp': self.timestamp.isoformat(),
@@ -168,7 +166,7 @@ class SystemAlert:
     value: float
     threshold: float
     resolved: bool = False
-    resolution_time: Optional[datetime.datetime] = None
+    resolution_time: datetime.datetime | None = None
 
 @dataclass
 class HealthCheck:
@@ -177,7 +175,7 @@ class HealthCheck:
     timestamp: datetime.datetime
     status: HealthStatus
     message: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 # ==============================================================================
 # SYSTEM MONITOR CLASS
@@ -185,7 +183,7 @@ class HealthCheck:
 class SystemMonitor:
     """
     System health and performance monitor.
-    
+
     Features:
     - Resource usage monitoring (CPU, memory, disk)
     - Performance metrics tracking
@@ -194,59 +192,59 @@ class SystemMonitor:
     - Historical metrics storage
     - Diagnostic reporting
     """
-    
+
     def __init__(self, event_manager=None):
         """
         Initialize system monitor.
-        
+
         Args:
             event_manager: Optional event manager instance
         """
         self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Process info
         self.process = psutil.Process(os.getpid())
         self.start_time = datetime.datetime.now()
-        
+
         # Metrics storage
         self.system_metrics: deque = deque(maxlen=METRICS_WINDOW // MONITOR_INTERVAL)
         self.performance_metrics: deque = deque(maxlen=METRICS_WINDOW // MONITOR_INTERVAL)
-        self.health_checks: Dict[str, HealthCheck] = {}
-        
+        self.health_checks: dict[str, HealthCheck] = {}
+
         # Alerts
-        self.active_alerts: Dict[str, SystemAlert] = {}
+        self.active_alerts: dict[str, SystemAlert] = {}
         self.alert_history: deque = deque(maxlen=1000)
-        self.alert_cooldowns: Dict[str, datetime.datetime] = {}
-        
+        self.alert_cooldowns: dict[str, datetime.datetime] = {}
+
         # Performance tracking
-        self.latency_tracker: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
+        self.latency_tracker: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         self.error_tracker: deque = deque(maxlen=1000)
         self.event_counter = 0
         self.order_counter = 0
-        
+
         # Component monitors
-        self.component_monitors: Dict[str, Callable] = {}
-        
+        self.component_monitors: dict[str, Callable] = {}
+
         # Monitoring thread
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._running = False
         self._monitor_lock = threading.RLock()
-        
+
         # Network baseline
         net_io = psutil.net_io_counters()
         self._network_baseline = {
             'sent': net_io.bytes_sent,
             'recv': net_io.bytes_recv
         }
-        
+
         # Register event handlers if event manager provided
         if self.event_manager:
             self._register_event_handlers()
-        
+
         self.logger.info("SystemMonitor initialized")
-    
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
@@ -254,9 +252,9 @@ class SystemMonitor:
         """Start system monitoring"""
         if self._running:
             return
-        
+
         self._running = True
-        
+
         # Start monitoring thread
         self._monitor_thread = threading.Thread(
             target=self._monitor_loop,
@@ -264,18 +262,18 @@ class SystemMonitor:
             name="SystemMonitor"
         )
         self._monitor_thread.start()
-        
+
         self.logger.info("System monitoring started")
-    
+
     def stop(self) -> None:
         """Stop system monitoring"""
         self._running = False
-        
+
         if self._monitor_thread:
             self._monitor_thread.join(timeout=10.0)
-        
+
         self.logger.info("System monitoring stopped")
-    
+
     # ==========================================================================
     # MONITORING
     # ==========================================================================
@@ -286,24 +284,24 @@ class SystemMonitor:
                 # Collect metrics
                 system_metrics = self._collect_system_metrics()
                 performance_metrics = self._collect_performance_metrics()
-                
+
                 # Store metrics
                 with self._monitor_lock:
                     self.system_metrics.append(system_metrics)
                     self.performance_metrics.append(performance_metrics)
-                
+
                 # Check thresholds
                 self._check_thresholds(system_metrics, performance_metrics)
-                
+
                 # Run component health checks
                 self._run_health_checks()
-                
+
                 # Clean up old data
                 self._cleanup_old_data()
-                
+
                 # Sleep
                 time.sleep(MONITOR_INTERVAL)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in monitor loop: {e}")
                 self.error_tracker.append({
@@ -311,34 +309,34 @@ class SystemMonitor:
                     'error': str(e),
                     'traceback': traceback.format_exc()
                 })
-    
+
     def _collect_system_metrics(self) -> SystemMetrics:
         """Collect system resource metrics"""
         # CPU
         cpu_percent = self.process.cpu_percent(interval=0.1)
-        
+
         # Memory
         memory_info = self.process.memory_info()
         memory_percent = self.process.memory_percent()
         system_memory = psutil.virtual_memory()
-        
+
         # Disk
         disk_usage = psutil.disk_usage('/')
-        
+
         # Network
         net_io = psutil.net_io_counters()
         network_sent_mb = (net_io.bytes_sent - self._network_baseline['sent']) / 1024 / 1024
         network_recv_mb = (net_io.bytes_recv - self._network_baseline['recv']) / 1024 / 1024
-        
+
         # Process info
         try:
             open_files = len(self.process.open_files())
-        except:
+        except Exception:
             open_files = 0
-        
+
         thread_count = self.process.num_threads()
         process_count = len(psutil.pids())
-        
+
         return SystemMetrics(
             timestamp=datetime.datetime.now(),
             cpu_percent=cpu_percent,
@@ -354,32 +352,32 @@ class SystemMonitor:
             thread_count=thread_count,
             process_count=process_count
         )
-    
+
     def _collect_performance_metrics(self) -> PerformanceMetrics:
         """Collect application performance metrics"""
         # Calculate latencies
         event_latency = self._calculate_average_latency('event')
         order_latency = self._calculate_average_latency('order')
         data_latency = self._calculate_average_latency('data')
-        
+
         # Calculate rates
         events_per_second = self.event_counter / MONITOR_INTERVAL
         orders_per_second = self.order_counter / MONITOR_INTERVAL
-        
+
         # Calculate error rate
-        recent_errors = sum(1 for e in self.error_tracker 
+        recent_errors = sum(1 for e in self.error_tracker
                           if (datetime.datetime.now() - e['timestamp']).seconds < 60)
         error_rate = recent_errors / max(self.event_counter, 1)
-        
+
         # Reset counters
         self.event_counter = 0
         self.order_counter = 0
-        
+
         # Get active components (placeholder - would get from actual components)
         active_strategies = 0
         open_positions = 0
         pending_orders = 0
-        
+
         return PerformanceMetrics(
             timestamp=datetime.datetime.now(),
             event_latency_ms=event_latency,
@@ -393,14 +391,14 @@ class SystemMonitor:
             open_positions=open_positions,
             pending_orders=pending_orders
         )
-    
+
     def _calculate_average_latency(self, metric_type: str) -> float:
         """Calculate average latency for a metric type"""
         latencies = self.latency_tracker.get(metric_type, [])
         if latencies:
             return statistics.mean(latencies)
         return 0.0
-    
+
     # ==========================================================================
     # THRESHOLD CHECKING
     # ==========================================================================
@@ -429,7 +427,7 @@ class SystemMonitor:
             )
         else:
             self._resolve_alert(MetricType.CPU)
-        
+
         # Memory
         if system_metrics.memory_percent >= MEMORY_CRITICAL_THRESHOLD:
             self._create_alert(
@@ -449,7 +447,7 @@ class SystemMonitor:
             )
         else:
             self._resolve_alert(MetricType.MEMORY)
-        
+
         # Disk
         if system_metrics.disk_percent >= DISK_CRITICAL_THRESHOLD:
             self._create_alert(
@@ -469,7 +467,7 @@ class SystemMonitor:
             )
         else:
             self._resolve_alert(MetricType.DISK)
-        
+
         # Latency
         if performance_metrics.event_latency_ms >= LATENCY_CRITICAL_MS:
             self._create_alert(
@@ -489,7 +487,7 @@ class SystemMonitor:
             )
         else:
             self._resolve_alert(MetricType.LATENCY)
-        
+
         # Error rate
         if performance_metrics.error_rate >= ERROR_RATE_CRITICAL:
             self._create_alert(
@@ -509,7 +507,7 @@ class SystemMonitor:
             )
         else:
             self._resolve_alert(MetricType.ERROR_RATE)
-    
+
     def _create_alert(
         self,
         metric_type: MetricType,
@@ -520,12 +518,12 @@ class SystemMonitor:
     ) -> None:
         """Create or update an alert"""
         alert_key = metric_type.value
-        
+
         # Check cooldown
         if alert_key in self.alert_cooldowns:
             if datetime.datetime.now() < self.alert_cooldowns[alert_key]:
                 return
-        
+
         # Create or update alert
         if alert_key in self.active_alerts:
             alert = self.active_alerts[alert_key]
@@ -545,31 +543,31 @@ class SystemMonitor:
             )
             self.active_alerts[alert_key] = alert
             self.alert_history.append(alert)
-            
+
             # Emit alert event
             if self.event_manager:
                 self._emit_alert_event(alert)
-        
+
         # Set cooldown
         self.alert_cooldowns[alert_key] = datetime.datetime.now() + datetime.timedelta(seconds=ALERT_COOLDOWN)
-    
+
     def _resolve_alert(self, metric_type: MetricType) -> None:
         """Resolve an active alert"""
         alert_key = metric_type.value
-        
+
         if alert_key in self.active_alerts:
             alert = self.active_alerts[alert_key]
             alert.resolved = True
             alert.resolution_time = datetime.datetime.now()
-            
+
             del self.active_alerts[alert_key]
-            
+
             # Clear cooldown
             if alert_key in self.alert_cooldowns:
                 del self.alert_cooldowns[alert_key]
-            
+
             self.logger.info(f"Alert resolved: {metric_type.value}")
-    
+
     # ==========================================================================
     # HEALTH CHECKS
     # ==========================================================================
@@ -578,7 +576,7 @@ class SystemMonitor:
         for component, check_func in self.component_monitors.items():
             try:
                 status, message, details = check_func()
-                
+
                 self.health_checks[component] = HealthCheck(
                     component=component,
                     timestamp=datetime.datetime.now(),
@@ -586,7 +584,7 @@ class SystemMonitor:
                     message=message,
                     details=details
                 )
-                
+
                 # Create alert if unhealthy
                 if status == HealthStatus.CRITICAL:
                     self._create_alert(
@@ -604,10 +602,10 @@ class SystemMonitor:
                         0,
                         0
                     )
-                    
+
             except Exception as e:
                 self.logger.error(f"Error running health check for {component}: {e}")
-                
+
                 self.health_checks[component] = HealthCheck(
                     component=component,
                     timestamp=datetime.datetime.now(),
@@ -615,40 +613,40 @@ class SystemMonitor:
                     message=f"Health check failed: {str(e)}",
                     details={}
                 )
-    
+
     def register_component_monitor(
         self,
         component: str,
-        check_func: Callable[[], Tuple[HealthStatus, str, Dict[str, Any]]]
+        check_func: Callable[[], tuple[HealthStatus, str, dict[str, Any]]]
     ) -> None:
         """
         Register a component health check function.
-        
+
         Args:
             component: Component name
             check_func: Function that returns (status, message, details)
         """
         self.component_monitors[component] = check_func
         self.logger.info(f"Registered health monitor for {component}")
-    
+
     # ==========================================================================
     # PUBLIC API
     # ==========================================================================
     def record_latency(self, metric_type: str, latency_ms: float) -> None:
         """
         Record a latency measurement.
-        
+
         Args:
             metric_type: Type of metric (e.g., 'event', 'order', 'data')
             latency_ms: Latency in milliseconds
         """
         with self._monitor_lock:
             self.latency_tracker[metric_type].append(latency_ms)
-    
-    def record_error(self, error: str, source: Optional[str] = None) -> None:
+
+    def record_error(self, error: str, source: str | None = None) -> None:
         """
         Record an error.
-        
+
         Args:
             error: Error message
             source: Error source
@@ -660,14 +658,14 @@ class SystemMonitor:
                 'source': source,
                 'traceback': traceback.format_exc()
             })
-    
+
     # ==========================================================================
     # DIAGNOSTICS
     # ==========================================================================
-    def get_system_status(self) -> Dict[str, Any]:
+    def get_system_status(self) -> dict[str, Any]:
         """
         Get comprehensive system status.
-        
+
         Returns:
             System status dictionary
         """
@@ -675,13 +673,13 @@ class SystemMonitor:
             # Current metrics
             current_system = self.system_metrics[-1] if self.system_metrics else None
             current_performance = self.performance_metrics[-1] if self.performance_metrics else None
-            
+
             # Calculate uptime
             uptime = datetime.datetime.now() - self.start_time
-            
+
             # Overall health
             overall_health = self._calculate_overall_health()
-            
+
             status = {
                 'health': overall_health.value,
                 'uptime_seconds': uptime.total_seconds(),
@@ -709,29 +707,29 @@ class SystemMonitor:
                     for comp, check in self.health_checks.items()
                 }
             }
-            
+
             return status
-    
-    def get_metrics_summary(self, window_minutes: int = 5) -> Dict[str, Any]:
+
+    def get_metrics_summary(self, window_minutes: int = 5) -> dict[str, Any]:
         """
         Get metrics summary for a time window.
-        
+
         Args:
             window_minutes: Time window in minutes
-            
+
         Returns:
             Metrics summary
         """
         with self._monitor_lock:
             cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=window_minutes)
-            
+
             # Filter metrics
             system_metrics = [m for m in self.system_metrics if m.timestamp > cutoff_time]
             performance_metrics = [m for m in self.performance_metrics if m.timestamp > cutoff_time]
-            
+
             if not system_metrics:
                 return {}
-            
+
             # Calculate summaries
             summary = {
                 'window_minutes': window_minutes,
@@ -750,20 +748,20 @@ class SystemMonitor:
                     'current': system_metrics[-1].disk_percent if system_metrics else 0
                 }
             }
-            
+
             if performance_metrics:
                 summary['performance'] = {
                     'avg_event_latency_ms': statistics.mean(m.event_latency_ms for m in performance_metrics),
                     'avg_error_rate': statistics.mean(m.error_rate for m in performance_metrics),
                     'total_errors': sum(m.error_count for m in performance_metrics)
                 }
-            
+
             return summary
-    
+
     def generate_diagnostic_report(self) -> str:
         """
         Generate a detailed diagnostic report.
-        
+
         Returns:
             Diagnostic report text
         """
@@ -772,19 +770,19 @@ class SystemMonitor:
         report.append("SPYDER SYSTEM DIAGNOSTIC REPORT")
         report.append(f"Generated: {datetime.datetime.now()}")
         report.append("=" * 60)
-        
+
         # System info
         report.append("\nSYSTEM INFORMATION:")
         report.append(f"  Python: {sys.version}")
         report.append(f"  Platform: {sys.platform}")
         report.append(f"  Process ID: {os.getpid()}")
         report.append(f"  Uptime: {datetime.datetime.now() - self.start_time}")
-        
+
         # Current status
         status = self.get_system_status()
         report.append(f"\nOVERALL HEALTH: {status['health']}")
         report.append(f"Active Alerts: {status['active_alerts']}")
-        
+
         # Resource usage
         if status['current_metrics']['system']:
             metrics = status['current_metrics']['system']
@@ -793,7 +791,7 @@ class SystemMonitor:
             report.append(f"  Memory: {metrics['memory_percent']:.1f}% ({metrics['memory_used_mb']:.0f} MB)")
             report.append(f"  Disk: {metrics['disk_percent']:.1f}%")
             report.append(f"  Threads: {metrics['thread_count']}")
-        
+
         # Performance
         if status['current_metrics']['performance']:
             metrics = status['current_metrics']['performance']
@@ -801,110 +799,110 @@ class SystemMonitor:
             report.append(f"  Event Latency: {metrics['event_latency_ms']:.1f} ms")
             report.append(f"  Error Rate: {metrics['error_rate']:.2%}")
             report.append(f"  Events/sec: {metrics['events_per_second']:.1f}")
-        
+
         # Component health
         report.append("\nCOMPONENT HEALTH:")
         for comp, health in status['component_health'].items():
             report.append(f"  {comp}: {health['status']} - {health['message']}")
-        
+
         # Active alerts
         if status['alerts']:
             report.append("\nACTIVE ALERTS:")
             for alert in status['alerts']:
                 report.append(f"  [{alert['level']}] {alert['metric']}: {alert['message']}")
-        
+
         # Recent errors
-        recent_errors = [e for e in self.error_tracker if 
+        recent_errors = [e for e in self.error_tracker if
                         (datetime.datetime.now() - e['timestamp']).seconds < 300]
         if recent_errors:
             report.append(f"\nRECENT ERRORS (last 5 min): {len(recent_errors)}")
             for error in recent_errors[-5:]:  # Last 5 errors
                 report.append(f"  {error['timestamp']}: {error['error'][:100]}")
-        
+
         report.append("\n" + "=" * 60)
-        
+
         return "\n".join(report)
-    
+
     # ==========================================================================
     # UTILITIES
     # ==========================================================================
     def _calculate_overall_health(self) -> HealthStatus:
         """Calculate overall system health"""
         # Check active alerts
-        critical_alerts = sum(1 for a in self.active_alerts.values() 
+        critical_alerts = sum(1 for a in self.active_alerts.values()
                             if a.level == AlertLevel.CRITICAL)
-        warning_alerts = sum(1 for a in self.active_alerts.values() 
+        warning_alerts = sum(1 for a in self.active_alerts.values()
                            if a.level == AlertLevel.WARNING)
-        
+
         if critical_alerts > 0:
             return HealthStatus.CRITICAL
         elif warning_alerts > 0:
             return HealthStatus.WARNING
         else:
             return HealthStatus.HEALTHY
-    
+
     def _cleanup_old_data(self) -> None:
         """Clean up old monitoring data"""
         # Metrics are automatically cleaned by deque maxlen
-        
+
         # Clean old errors
         cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=1)
         self.error_tracker = deque(
             (e for e in self.error_tracker if e['timestamp'] > cutoff_time),
             maxlen=1000
         )
-    
-    def force_garbage_collection(self) -> Dict[str, Any]:
+
+    def force_garbage_collection(self) -> dict[str, Any]:
         """
         Force garbage collection and return stats.
-        
+
         Returns:
             GC statistics
         """
         before = self.process.memory_info().rss
         collected = gc.collect()
         after = self.process.memory_info().rss
-        
+
         freed_mb = (before - after) / 1024 / 1024
-        
+
         stats = {
             'objects_collected': collected,
             'memory_freed_mb': freed_mb,
             'memory_before_mb': before / 1024 / 1024,
             'memory_after_mb': after / 1024 / 1024
         }
-        
+
         self.logger.info(f"Garbage collection: {collected} objects, {freed_mb:.1f} MB freed")
-        
+
         return stats
-    
+
     def _register_event_handlers(self) -> None:
         """Register event handlers with event manager"""
         try:
             # Import here to avoid circular dependency
             from SpyderA_Core.SpyderA05_EventManager import EventType
-            
+
             # Subscribe to relevant events
             self.event_manager.subscribe(
                 EventType.TRADE_EXECUTED,
                 lambda e: self.order_counter.__add__(1)
             )
-            
+
             self.event_manager.subscribe(
                 EventType.MARKET_DATA,
                 lambda e: self.event_counter.__add__(1)
             )
-            
+
         except Exception as e:
             self.logger.warning(f"Could not register event handlers: {e}")
-    
+
     def _emit_alert_event(self, alert: SystemAlert) -> None:
         """Emit alert event to event manager"""
         if self.event_manager:
             try:
                 # Import here to avoid circular dependency
                 from SpyderA_Core.SpyderA05_EventManager import EventType
-                
+
                 self.event_manager.publish(
                     EventType.SYSTEM_ALERT,
                     {
@@ -925,39 +923,33 @@ class SystemMonitor:
 if __name__ == "__main__":
     # Test system monitor
     monitor = SystemMonitor()
-    
+
     # Start monitoring
     monitor.start()
-    
+
     # Simulate some activity
     for i in range(10):
         monitor.record_latency('event', 50 + i * 10)
         monitor.record_latency('order', 100 + i * 5)
-        
+
         if i % 3 == 0:
             monitor.record_error(f"Test error {i}")
-    
+
     # Wait a bit
     time.sleep(10)
-    
+
     # Get status
     status = monitor.get_system_status()
-    print("\nSystem Status:")
-    print(json.dumps(status, indent=2))
-    
+
     # Get metrics summary
     summary = monitor.get_metrics_summary(5)
-    print("\nMetrics Summary:")
-    print(json.dumps(summary, indent=2))
-    
+
     # Generate report
     report = monitor.generate_diagnostic_report()
-    print("\n" + report)
-    
+
     # Stop
     monitor.stop()
-    
-    print("\n✅ SystemMonitor test completed")
+
 
 
 def get_system_monitor(*args, **kwargs):

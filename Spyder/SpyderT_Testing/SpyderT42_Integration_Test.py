@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -225,7 +224,7 @@ class TestEndToEndWorkflow:
         start_time = time.time()
 
         # Get current quote
-        quotes = tradier_client.get_quotes(["SPY"])
+        tradier_client.get_quotes(["SPY"])
         quote_time = time.time() - start_time
 
         # Simulate strategy decision (instant)
@@ -235,7 +234,7 @@ class TestEndToEndWorkflow:
         with patch.object(tradier_client, 'place_order') as mock_place:
             mock_place.return_value = {"order": {"id": 12345}}
 
-            order = tradier_client.place_order(
+            tradier_client.place_order(
                 symbol="SPY",
                 side=OrderSide.BUY,
                 quantity=1,
@@ -248,7 +247,7 @@ class TestEndToEndWorkflow:
 
         # Verify latency is reasonable (<1 second for mock)
         assert total_time < 1.0
-        print(f"\nLatency breakdown:")
+        print("\nLatency breakdown:")
         print(f"  Quote retrieval: {quote_time*1000:.2f}ms")
         print(f"  Order placement: {execution_time*1000:.2f}ms")
         print(f"  Total: {total_time*1000:.2f}ms")
@@ -288,7 +287,7 @@ class TestEndToEndWorkflow:
 
             assert order["order"]["status"] == "ok"
 
-        print(f"\nPaper trading workflow:")
+        print("\nPaper trading workflow:")
         print(f"  Initial equity: ${initial_equity:,.2f}")
         print(f"  SPY price: ${spy_price:.2f}")
         print(f"  Position size: {quantity} shares")
@@ -316,7 +315,7 @@ class TestPerformance:
         max_latency = max(latencies)
         min_latency = min(latencies)
 
-        print(f"\nTradier API latency:")
+        print("\nTradier API latency:")
         print(f"  Average: {avg_latency:.2f}ms")
         print(f"  Min: {min_latency:.2f}ms")
         print(f"  Max: {max_latency:.2f}ms")

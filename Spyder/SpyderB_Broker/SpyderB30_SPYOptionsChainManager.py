@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -43,28 +42,23 @@ Dependencies:
     • Standard Python libraries for data processing
 """
 
-import calendar
 import logging
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable
 
-import numpy as np
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
 
 # ==============================================================================
 # INTERACTIVE BROKERS WEB API IMPORTS - Migrated from ib_async
@@ -229,7 +223,7 @@ class OptionsContract:
     strike: float
     option_type: OptionType
     chain_type: OptionsChainType
-    contract: Optional[Contract] = None
+    contract: Contract | None = None
     last_price: float = 0.0
     bid: float = 0.0
     ask: float = 0.0
@@ -240,8 +234,8 @@ class OptionsContract:
     gamma: float = 0.0
     theta: float = 0.0
     vega: float = 0.0
-    last_update: Optional[datetime] = None
-    request_id: Optional[int] = None
+    last_update: datetime | None = None
+    request_id: int | None = None
     active: bool = False
 
 
@@ -253,11 +247,11 @@ class OptionsChain:
     expiration: date
     chain_type: OptionsChainType
     underlying_price: float
-    calls: Dict[float, OptionsContract] = field(default_factory=dict)
-    puts: Dict[float, OptionsContract] = field(default_factory=dict)
+    calls: dict[float, OptionsContract] = field(default_factory=dict)
+    puts: dict[float, OptionsContract] = field(default_factory=dict)
     atm_strike: float = 0.0
     status: ChainStatus = ChainStatus.PENDING
-    last_update: Optional[datetime] = None
+    last_update: datetime | None = None
     total_contracts: int = 0
 
 
@@ -305,7 +299,7 @@ class SPYOptionsChainManager:
         >>> chain_manager.subscribe_to_chain(OptionsChainType.ZERO_DTE, callback)
     """
 
-    def __init__(self, data_manager: Optional[MultiClientDataManager] = None):
+    def __init__(self, data_manager: MultiClientDataManager | None = None):
         """Initialize the SPY options chain manager."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
@@ -314,9 +308,9 @@ class SPYOptionsChainManager:
         self.data_manager = data_manager or get_manager_instance()
 
         # Options chain management
-        self.active_chains: Dict[OptionsChainType, OptionsChain] = {}
-        self.contract_registry: Dict[str, OptionsContract] = {}
-        self.subscription_callbacks: Dict[OptionsChainType, List[Callable]] = (
+        self.active_chains: dict[OptionsChainType, OptionsChain] = {}
+        self.contract_registry: dict[str, OptionsContract] = {}
+        self.subscription_callbacks: dict[OptionsChainType, list[Callable]] = (
             defaultdict(list)
         )
 
@@ -478,7 +472,7 @@ class SPYOptionsChainManager:
             self.logger.error(f"Error unsubscribing from chain {chain_type}: {e}")
             return False
 
-    def get_options_chain(self, chain_type: OptionsChainType) -> Optional[OptionsChain]:
+    def get_options_chain(self, chain_type: OptionsChainType) -> OptionsChain | None:
         """
         Get current options chain data.
 
@@ -491,7 +485,7 @@ class SPYOptionsChainManager:
         with self._lock:
             return self.active_chains.get(chain_type)
 
-    def get_all_options_chains(self) -> Dict[OptionsChainType, OptionsChain]:
+    def get_all_options_chains(self) -> dict[OptionsChainType, OptionsChain]:
         """
         Get all current options chain data.
 
@@ -522,7 +516,7 @@ class SPYOptionsChainManager:
         except Exception as e:
             self.logger.error(f"Error updating SPY price: {e}")
 
-    def get_manager_status(self) -> Dict[str, Any]:
+    def get_manager_status(self) -> dict[str, Any]:
         """
         Get comprehensive manager status.
 
@@ -660,7 +654,7 @@ class SPYOptionsChainManager:
 
     def _generate_strikes_around_price(
         self, current_price: float, max_strikes: int
-    ) -> List[float]:
+    ) -> list[float]:
         """Generate strikes around current SPY price."""
         strikes = []
         strikes_per_side = max_strikes // 2
@@ -681,7 +675,7 @@ class SPYOptionsChainManager:
 
         return sorted(strikes)
 
-    def _find_closest_strike(self, price: float, strikes: List[float]) -> float:
+    def _find_closest_strike(self, price: float, strikes: list[float]) -> float:
         """Find the strike closest to the given price."""
         return min(strikes, key=lambda x: abs(x - price))
 
@@ -691,7 +685,7 @@ class SPYOptionsChainManager:
         strike: float,
         option_type: OptionType,
         chain_type: OptionsChainType,
-    ) -> Optional[OptionsContract]:
+    ) -> OptionsContract | None:
         """
         Create an options contract using IBKR Web API data types.
 
@@ -855,7 +849,7 @@ class SPYOptionsChainManager:
 
 
 def create_spy_options_manager(
-    data_manager: Optional[MultiClientDataManager] = None,
+    data_manager: MultiClientDataManager | None = None,
 ) -> SPYOptionsChainManager:
     """
     Create SPY options chain manager.
@@ -874,7 +868,7 @@ def create_spy_options_manager(
 # ==============================================================================
 
 # Global manager instance
-_options_manager_instance: Optional[SPYOptionsChainManager] = None
+_options_manager_instance: SPYOptionsChainManager | None = None
 
 
 def get_spy_options_manager() -> SPYOptionsChainManager:
@@ -896,50 +890,27 @@ def get_spy_options_manager() -> SPYOptionsChainManager:
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER B17 - SPY Options Chain Manager Test")
-    print("=" * 80)
 
     # Create options manager
     options_manager = SPYOptionsChainManager()
 
     if options_manager.initialize():
-        print("✅ Options manager initialized successfully with ib_async")
 
         # Test chain creation
-        print("\n📋 Options Chain Specifications:")
-        for chain_type, spec in OPTIONS_SPECIFICATIONS.items():
-            print(f"  {chain_type}:")
-            print(f"    Days to Expiration: {spec['days']}")
-            print(f"    Strike Count: {spec['strikes']}")
-            print(f"    Update Frequency: {spec['frequency']} seconds")
-            print(f"    Client ID: {spec['client_id']}")
-            print("")
+        for _chain_type, _spec in OPTIONS_SPECIFICATIONS.items():
+            pass
 
         # Test status
         status = options_manager.get_manager_status()
-        print("📊 Manager Status:")
-        for key, value in status.items():
+        for key, _value in status.items():
             if key != "chain_details":
-                print(f"  {key}: {value}")
+                pass
 
-        print("\n📈 Active Chains:")
-        for chain_name, details in status["chain_details"].items():
-            print(f"  {chain_name}:")
-            for detail_key, detail_value in details.items():
-                print(f"    {detail_key}: {detail_value}")
-            print("")
+        for _chain_name, details in status["chain_details"].items():
+            for _detail_key, _detail_value in details.items():
+                pass
 
-        print("🎯 COMPLETE SPY OPTIONS COVERAGE IMPLEMENTED!")
-        print("   0DTE: 10 strikes, 1s updates, Client ID 2")
-        print("   1DTE: 10 strikes, 5s updates, Client ID 5")
-        print("   WEEKLY: 20 strikes, 15s updates, Client ID 6")
-        print("   MONTHLY: 30 strikes, 60s updates, Client ID 7")
-        print("   Dynamic strike selection based on SPY price")
-        print("   Automatic expiration handling")
-        print("   ✅ Modern ib_async integration for enhanced stability")
 
     else:
-        print("❌ Options manager initialization failed")
+        pass
 
-    print("=" * 80)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,24 +22,19 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum, auto
-import json
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 import asyncio
 import threading
-from concurrent.futures import ThreadPoolExecutor
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pickle
-import hashlib
 import secrets
 
 warnings.filterwarnings("ignore")
@@ -48,31 +42,26 @@ warnings.filterwarnings("ignore")
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from collections import defaultdict
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization
-import grpc
 from flask import Flask, request, jsonify
 import requests
 from scipy import stats
-import plotly.graph_objects as go
-import plotly.express as px
-import seaborn as sns
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import get_enhanced_lstm_pricer
-from Spyder.SpyderL_ML.SpyderL01_MLPredictor import MLPredictor
 
 # ==============================================================================
 # CONSTANTS
@@ -157,8 +146,8 @@ class ClientConfig:
     role: ClientRole
     host: str
     port: int
-    public_key: Optional[bytes] = None
-    model_types: List[ModelType] = field(default_factory=list)
+    public_key: bytes | None = None
+    model_types: list[ModelType] = field(default_factory=list)
     privacy_budget: float = EPSILON
     min_data_points: int = 1000
     max_batch_size: int = 64
@@ -172,9 +161,9 @@ class FederatedModel:
     architecture: nn.Module
     version: str
     global_rounds: int = 0
-    participants: List[str] = field(default_factory=list)
-    performance_history: List[float] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    participants: list[str] = field(default_factory=list)
+    performance_history: list[float] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -183,11 +172,11 @@ class ModelUpdate:
 
     client_id: str
     round_number: int
-    model_weights: Dict[str, torch.Tensor]
+    model_weights: dict[str, torch.Tensor]
     num_samples: int
-    metrics: Dict[str, float]
+    metrics: dict[str, float]
     timestamp: datetime
-    signature: Optional[bytes] = None
+    signature: bytes | None = None
 
 
 @dataclass
@@ -195,10 +184,10 @@ class AggregationResult:
     """Result of model aggregation"""
 
     round_number: int
-    aggregated_weights: Dict[str, torch.Tensor]
-    participating_clients: List[str]
+    aggregated_weights: dict[str, torch.Tensor]
+    participating_clients: list[str]
     aggregation_method: AggregationMethod
-    metrics: Dict[str, float]
+    metrics: dict[str, float]
     privacy_spent: float
     timestamp: datetime
 
@@ -208,11 +197,11 @@ class FederatedRound:
     """Information about a federated learning round"""
 
     round_number: int
-    selected_clients: List[str]
-    model_updates: List[ModelUpdate]
-    aggregation_result: Optional[AggregationResult] = None
+    selected_clients: list[str]
+    model_updates: list[ModelUpdate]
+    aggregation_result: AggregationResult | None = None
     start_time: datetime = field(default_factory=datetime.now)
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
     success: bool = False
 
 
@@ -240,8 +229,8 @@ class DifferentialPrivacy:
         return NOISE_MULTIPLIER * (1.0 / self.epsilon)
 
     def add_noise_to_gradients(
-        self, gradients: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, gradients: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Add Gaussian noise to gradients for differential privacy"""
         noisy_gradients = {}
 
@@ -261,8 +250,8 @@ class DifferentialPrivacy:
         return noisy_gradients
 
     def add_noise_to_weights(
-        self, weights: Dict[str, torch.Tensor], sensitivity: float = 1.0
-    ) -> Dict[str, torch.Tensor]:
+        self, weights: dict[str, torch.Tensor], sensitivity: float = 1.0
+    ) -> dict[str, torch.Tensor]:
         """Add Laplace noise to model weights"""
         noisy_weights = {}
 
@@ -279,7 +268,7 @@ class DifferentialPrivacy:
 
         return noisy_weights
 
-    def clip_weights(self, weights: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def clip_weights(self, weights: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Clip weights to bound sensitivity"""
         clipped_weights = {}
 
@@ -311,7 +300,7 @@ class SecureAggregator:
         self.threshold = threshold
         self.logger = SpyderLogger.get_logger(__name__)
 
-    def generate_masks(self, num_clients: int) -> Dict[str, np.ndarray]:
+    def generate_masks(self, num_clients: int) -> dict[str, np.ndarray]:
         """Generate pairwise masks for secure aggregation"""
         masks = {}
 
@@ -333,8 +322,8 @@ class SecureAggregator:
         return masks
 
     def secure_aggregate(
-        self, updates: List[ModelUpdate], masks: Dict[str, np.ndarray]
-    ) -> Dict[str, torch.Tensor]:
+        self, updates: list[ModelUpdate], masks: dict[str, np.ndarray]
+    ) -> dict[str, torch.Tensor]:
         """Perform secure aggregation of model updates"""
         if len(updates) < self.threshold:
             raise ValueError(
@@ -347,7 +336,7 @@ class SecureAggregator:
         # Get first update as template
         template = updates[0].model_weights
 
-        for param_name in template.keys():
+        for param_name in template:
             # Sum all updates
             param_sum = torch.zeros_like(template[param_name])
 
@@ -360,7 +349,7 @@ class SecureAggregator:
         return aggregated
 
     def verify_aggregation(
-        self, aggregated: Dict[str, torch.Tensor], updates: List[ModelUpdate]
+        self, aggregated: dict[str, torch.Tensor], updates: list[ModelUpdate]
     ) -> bool:
         """Verify integrity of aggregation"""
         # Simplified verification - check dimensions match
@@ -443,7 +432,7 @@ class FederatedClient:
 
             if response.status_code == 200:
                 self.is_active = True
-                self.logger.info(f"Successfully registered with coordinator")
+                self.logger.info("Successfully registered with coordinator")
                 return True
             else:
                 self.logger.error(f"Registration failed: {response.text}")
@@ -476,7 +465,7 @@ class FederatedClient:
     def train_local_model(
         self,
         model_type: ModelType,
-        global_weights: Dict[str, torch.Tensor],
+        global_weights: dict[str, torch.Tensor],
         round_number: int,
     ) -> ModelUpdate:
         """Train model locally on private data"""
@@ -512,7 +501,7 @@ class FederatedClient:
             total_loss = 0
             num_batches = 0
 
-            for epoch in range(LOCAL_EPOCHS):
+            for _epoch in range(LOCAL_EPOCHS):
                 epoch_loss = 0
 
                 for batch_X, batch_y in loader:
@@ -620,7 +609,7 @@ class FederatedClient:
 
     def _prepare_training_data(
         self, data: pd.DataFrame, model_type: ModelType
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Prepare data for training"""
         # Simplified data preparation
         if model_type == ModelType.PRICE_PREDICTION:
@@ -658,8 +647,8 @@ class FederatedClient:
         return signature
 
     def validate_global_model(
-        self, global_weights: Dict[str, torch.Tensor], model_type: ModelType
-    ) -> Dict[str, float]:
+        self, global_weights: dict[str, torch.Tensor], model_type: ModelType
+    ) -> dict[str, float]:
         """Validate global model on local test data"""
         try:
             if model_type not in self.local_models:
@@ -709,7 +698,7 @@ class FederatedClient:
             self.error_handler.handle_error(e, {"method": "validate_global_model"})
             return {}
 
-    def get_client_stats(self) -> Dict[str, Any]:
+    def get_client_stats(self) -> dict[str, Any]:
         """Get client statistics"""
         return {
             "client_id": self.config.client_id,
@@ -728,22 +717,22 @@ class FederatedClient:
 class FederatedCoordinator:
     """Coordinator for federated learning across multiple clients"""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.logger = SpyderLogger.get_logger("FederatedCoordinator")
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
 
         # Registered clients
-        self.clients: Dict[str, ClientConfig] = {}
+        self.clients: dict[str, ClientConfig] = {}
         self.client_public_keys = {}
 
         # Models
-        self.global_models: Dict[ModelType, FederatedModel] = {}
+        self.global_models: dict[ModelType, FederatedModel] = {}
         self.model_aggregators = {}
 
         # Rounds
         self.current_round = 0
-        self.round_history: List[FederatedRound] = []
+        self.round_history: list[FederatedRound] = []
 
         # Security
         self.secure_aggregator = SecureAggregator()
@@ -1000,8 +989,8 @@ class FederatedCoordinator:
             return None
 
     def _federated_averaging(
-        self, updates: List[ModelUpdate], global_weights: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, updates: list[ModelUpdate], global_weights: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Perform federated averaging"""
         # Initialize aggregated weights
         aggregated = {}
@@ -1009,7 +998,7 @@ class FederatedCoordinator:
         # Total samples across all clients
         total_samples = sum(u.num_samples for u in updates)
 
-        for param_name in global_weights.keys():
+        for param_name in global_weights:
             # Weighted sum of updates
             weighted_sum = torch.zeros_like(global_weights[param_name])
 
@@ -1024,8 +1013,8 @@ class FederatedCoordinator:
         return aggregated
 
     def _weighted_averaging(
-        self, updates: List[ModelUpdate], global_weights: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, updates: list[ModelUpdate], global_weights: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Weighted averaging based on client performance"""
         # Calculate weights based on loss (lower is better)
         losses = [u.metrics.get("loss", float("inf")) for u in updates]
@@ -1038,10 +1027,10 @@ class FederatedCoordinator:
         # Aggregate
         aggregated = {}
 
-        for param_name in global_weights.keys():
+        for param_name in global_weights:
             weighted_sum = torch.zeros_like(global_weights[param_name])
 
-            for update, weight in zip(updates, weights):
+            for update, weight in zip(updates, weights, strict=False):
                 if param_name in update.model_weights:
                     weighted_sum += weight * update.model_weights[param_name]
 
@@ -1050,8 +1039,8 @@ class FederatedCoordinator:
         return aggregated
 
     def _krum_aggregation(
-        self, updates: List[ModelUpdate], global_weights: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, updates: list[ModelUpdate], global_weights: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Krum aggregation for Byzantine-robust learning"""
         n = len(updates)
         f = int(n * 0.2)  # Assume 20% could be Byzantine
@@ -1068,7 +1057,7 @@ class FederatedCoordinator:
             for j in range(i + 1, n):
                 # Calculate L2 distance between updates
                 dist = 0
-                for param_name in updates[i].model_weights.keys():
+                for param_name in updates[i].model_weights:
                     if param_name in updates[j].model_weights:
                         diff = (
                             updates[i].model_weights[param_name]
@@ -1095,7 +1084,7 @@ class FederatedCoordinator:
         aggregated = {}
         best_update = updates[best_idx]
 
-        for param_name in global_weights.keys():
+        for param_name in global_weights:
             if param_name in best_update.model_weights:
                 aggregated[param_name] = (
                     global_weights[param_name] + best_update.model_weights[param_name]
@@ -1106,8 +1095,8 @@ class FederatedCoordinator:
         return aggregated
 
     def _calculate_aggregation_metrics(
-        self, updates: List[ModelUpdate], aggregated_weights: Dict[str, torch.Tensor]
-    ) -> Dict[str, float]:
+        self, updates: list[ModelUpdate], aggregated_weights: dict[str, torch.Tensor]
+    ) -> dict[str, float]:
         """Calculate metrics for aggregation"""
         # Average metrics from clients
         avg_loss = np.mean([u.metrics.get("loss", 0) for u in updates])
@@ -1131,7 +1120,7 @@ class FederatedCoordinator:
 
     def evaluate_global_model(
         self, model_type: ModelType, test_data: pd.DataFrame
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Evaluate global model on test data"""
         try:
             if model_type not in self.global_models:
@@ -1167,7 +1156,7 @@ class FederatedCoordinator:
             return {}
 
     def _notify_clients_for_training(
-        self, client_ids: List[str], model_type: ModelType
+        self, client_ids: list[str], model_type: ModelType
     ):
         """Notify clients to start training"""
         # In production, this would send actual network requests
@@ -1179,7 +1168,7 @@ class FederatedCoordinator:
             current_round = self.round_history[-1]
             current_round.model_updates.append(update)
 
-    def _deserialize_update(self, data: Dict) -> ModelUpdate:
+    def _deserialize_update(self, data: dict) -> ModelUpdate:
         """Deserialize model update from JSON"""
         # Convert weight lists back to tensors
         weights = {}
@@ -1299,7 +1288,7 @@ class FederatedLearningManager:
         self.local_client = None
         self.is_coordinator = False
 
-    def setup_as_coordinator(self, config: Optional[Dict[str, Any]] = None):
+    def setup_as_coordinator(self, config: dict[str, Any] | None = None):
         """Setup as federated learning coordinator"""
         self.coordinator = FederatedCoordinator(config)
         self.is_coordinator = True
@@ -1487,10 +1476,10 @@ class FederatedLearningManager:
 
     def run_federated_round_distributed(
         self,
-        global_model_state: Dict[str, Any],
-        client_datasets: List[Dict[str, Any]],
-        num_cpus: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        global_model_state: dict[str, Any],
+        client_datasets: list[dict[str, Any]],
+        num_cpus: int | None = None,
+    ) -> dict[str, Any]:
         """
         Run a federated learning round with Ray actors as clients.
 
@@ -1518,7 +1507,7 @@ class FederatedLearningManager:
         model_ref = ray.put(global_model_state)
 
         @ray.remote
-        def _train_client(model_ref, client_data: dict, client_id: int) -> Dict:
+        def _train_client(model_ref, client_data: dict, client_id: int) -> dict:
             """Simulate local client training on a Ray worker."""
             import numpy as _np
             import time as _time
@@ -1568,7 +1557,7 @@ class FederatedLearningManager:
             values = [r['updates'][key] for r in completed if key in r.get('updates', {})]
             weights = [r['n_samples'] / total_samples for r in completed]
             if all(isinstance(v, (int, float)) for v in values):
-                aggregated[key] = sum(v * w for v, w in zip(values, weights))
+                aggregated[key] = sum(v * w for v, w in zip(values, weights, strict=False))
             else:
                 aggregated[key] = values[0]
 
@@ -1630,7 +1619,6 @@ if __name__ == "__main__":
 
     if args.mode == "coordinator":
         # Setup as coordinator
-        print("Setting up as Federated Learning Coordinator...")
         manager.setup_as_coordinator({"min_clients": 2, "client_fraction": 0.5})
 
         # Start server in background thread
@@ -1641,8 +1629,6 @@ if __name__ == "__main__":
         )
         server_thread.start()
 
-        print("Coordinator server started on http://localhost:5555")
-        print("Waiting for clients to connect...")
 
         # Wait for clients
         import time
@@ -1650,7 +1636,6 @@ if __name__ == "__main__":
         time.sleep(10)
 
         # Run training
-        print(f"\nStarting federated training for {args.rounds} rounds...")
         asyncio.run(
             manager.run_federated_training(
                 num_rounds=args.rounds, model_type=ModelType.PRICE_PREDICTION
@@ -1658,17 +1643,13 @@ if __name__ == "__main__":
         )
 
         # Visualize results
-        print("\nGenerating visualization...")
         manager.visualize_training_progress()
 
-        print("\nFederated learning complete!")
 
     else:  # Client mode
         if not args.client_id:
-            print("Error: --client-id required for client mode")
             exit(1)
 
-        print(f"Setting up as Federated Learning Client: {args.client_id}")
         manager.setup_as_client(
             client_id=args.client_id,
             coordinator_url=args.coordinator_url,
@@ -1676,7 +1657,6 @@ if __name__ == "__main__":
         )
 
         # Load sample data
-        print("Loading local training data...")
         sample_data = pd.DataFrame(
             {
                 "open": np.random.randn(1000) * 2 + 450,
@@ -1690,16 +1670,11 @@ if __name__ == "__main__":
 
         manager.local_client.load_local_data(sample_data, ModelType.PRICE_PREDICTION)
 
-        print("Client ready for federated learning!")
-        print("Waiting for training rounds from coordinator...")
 
         # Keep client running
         try:
             while True:
                 time.sleep(60)
                 stats = manager.local_client.get_client_stats()
-                print(
-                    f"\nClient Stats: Rounds participated: {stats['rounds_participated']}"
-                )
         except KeyboardInterrupt:
-            print("\nClient shutting down...")
+            pass

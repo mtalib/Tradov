@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -23,15 +22,12 @@ Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
-import json
 import threading
 import sqlite3
 from datetime import datetime, timedelta, date, time
-from typing import Dict, List, Optional, Tuple, Any, Union, Set
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum
-from collections import defaultdict
 import calendar
 import warnings
 warnings.filterwarnings('ignore')
@@ -154,7 +150,7 @@ class ExpiringPosition:
     pin_risk_level: PinRiskLevel
     recommended_action: ExpirationAction
     action_reason: str
-    
+
 @dataclass
 class PinRiskAnalysis:
     """Pin risk analysis for expiring positions"""
@@ -167,8 +163,8 @@ class PinRiskAnalysis:
     max_loss: float
     max_gain: float
     probability_of_pin: float
-    hedge_recommendation: Optional[Dict[str, Any]] = None
-    
+    hedge_recommendation: dict[str, Any] | None = None
+
 @dataclass
 class RollOpportunity:
     """Options roll opportunity"""
@@ -182,31 +178,31 @@ class RollOpportunity:
     risk_reduction: float  # Percentage risk reduction
     execution_priority: int  # 1 = highest priority
     notes: str
-    
+
 @dataclass
 class ExpirationSchedule:
     """Expiration schedule and key dates"""
     expiry_date: date
     expiry_type: ExpirationType
     settlement_type: SettlementType
-    symbols: List[str]
+    symbols: list[str]
     total_positions: int
     total_exposure: float
     actions_required: int
     last_trading_day: date
     exercise_cutoff: datetime
-    
+
 @dataclass
 class AssignmentRisk:
     """Early assignment risk assessment"""
     position: ExpiringPosition
-    dividend_date: Optional[date]
+    dividend_date: date | None
     dividend_amount: float
     interest_cost: float
     probability_of_assignment: float
     economic_benefit: float  # Benefit to counterparty for early exercise
     risk_level: str  # 'LOW', 'MEDIUM', 'HIGH'
-    mitigation_action: Optional[str] = None
+    mitigation_action: str | None = None
 
 # ==============================================================================
 # OPTIONS EXPIRATION MANAGER CLASS
@@ -214,7 +210,7 @@ class AssignmentRisk:
 class OptionsExpirationManager:
     """
     Comprehensive options expiration management system.
-    
+
     Features:
         - Expiration tracking and scheduling
         - Pin risk analysis and mitigation
@@ -224,62 +220,62 @@ class OptionsExpirationManager:
         - Expiration day strategy execution
         - Historical expiration analysis
     """
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """
         Initialize the Options Expiration Manager
-        
+
         Args:
             config: Configuration dictionary
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Configuration
         self.config = config or {}
         self.auto_exercise_enabled = self.config.get('auto_exercise', True)
         self.auto_roll_enabled = self.config.get('auto_roll', False)
         self.pin_risk_hedging = self.config.get('pin_risk_hedging', True)
-        
+
         # Positions tracking
-        self.positions: List[ExpiringPosition] = []
-        self.expiration_schedule: Dict[date, ExpirationSchedule] = {}
-        self.roll_opportunities: List[RollOpportunity] = []
-        
+        self.positions: list[ExpiringPosition] = []
+        self.expiration_schedule: dict[date, ExpirationSchedule] = {}
+        self.roll_opportunities: list[RollOpportunity] = []
+
         # Analytics engines
         self.pricer = OptionsPricer() if ANALYTICS_AVAILABLE else None
         self.greeks_calculator = OptionsGreeksCalculator() if ANALYTICS_AVAILABLE else None
-        
+
         # Market data
-        self.underlying_prices: Dict[str, float] = {}
-        self.dividend_schedule: Dict[str, List[Tuple[date, float]]] = {}
+        self.underlying_prices: dict[str, float] = {}
+        self.dividend_schedule: dict[str, list[tuple[date, float]]] = {}
         self.interest_rate = 0.05
-        
+
         # US market holidays
         self.us_holidays = holidays.US(years=range(2020, 2030))
-        
+
         # Threading
         self.lock = threading.Lock()
         self.monitoring_thread = None
         self.monitoring_active = False
-        
+
         # Database for historical tracking
         self.db_path = self.config.get('db_path', 'expiration_history.db')
         self._initialize_database()
-        
+
         self.logger.info("OptionsExpirationManager initialized")
-    
+
     # ==========================================================================
     # EXPIRATION TRACKING
     # ==========================================================================
-    
+
     def add_position(self, symbol: str, strike: float, expiry: datetime,
                     option_type: str, quantity: int,
                     current_price: float,
-                    underlying_price: Optional[float] = None) -> ExpiringPosition:
+                    underlying_price: float | None = None) -> ExpiringPosition:
         """
         Add position to expiration tracking
-        
+
         Args:
             symbol: Underlying symbol
             strike: Strike price
@@ -288,7 +284,7 @@ class OptionsExpirationManager:
             quantity: Position quantity (negative for short)
             current_price: Current option price
             underlying_price: Current underlying price
-            
+
         Returns:
             ExpiringPosition object
         """
@@ -298,12 +294,12 @@ class OptionsExpirationManager:
                 underlying_price = self.underlying_prices.get(symbol, strike)
             else:
                 self.underlying_prices[symbol] = underlying_price
-            
+
             # Calculate time to expiry
             now = datetime.now()
             days_to_expiry = (expiry.date() - now.date()).days
             hours_to_expiry = (expiry - now).total_seconds() / 3600
-            
+
             # Calculate moneyness
             if option_type == 'CALL':
                 moneyness = (underlying_price - strike) / strike
@@ -311,25 +307,25 @@ class OptionsExpirationManager:
             else:  # PUT
                 moneyness = (strike - underlying_price) / strike
                 intrinsic = max(0, strike - underlying_price)
-            
+
             extrinsic = current_price - intrinsic
-            
+
             # Calculate assignment probability
             assignment_prob = self._calculate_assignment_probability(
                 symbol, strike, expiry, option_type, underlying_price
             )
-            
+
             # Analyze pin risk
             pin_risk = self._analyze_pin_risk(
                 strike, underlying_price, quantity, option_type
             )
-            
+
             # Determine recommended action
             action, reason = self._determine_expiration_action(
                 symbol, strike, expiry, option_type, quantity,
                 underlying_price, days_to_expiry, intrinsic
             )
-            
+
             # Create position
             position = ExpiringPosition(
                 symbol=symbol,
@@ -349,69 +345,69 @@ class OptionsExpirationManager:
                 recommended_action=action,
                 action_reason=reason
             )
-            
+
             self.positions.append(position)
-            
+
             # Update expiration schedule
             self._update_expiration_schedule(position)
-            
+
             return position
-    
-    def get_expiring_positions(self, days_ahead: int = 7) -> List[ExpiringPosition]:
+
+    def get_expiring_positions(self, days_ahead: int = 7) -> list[ExpiringPosition]:
         """
         Get positions expiring within specified days
-        
+
         Args:
             days_ahead: Number of days to look ahead
-            
+
         Returns:
             List of expiring positions
         """
         cutoff_date = datetime.now() + timedelta(days=days_ahead)
-        
+
         expiring = [
             pos for pos in self.positions
             if pos.expiry <= cutoff_date
         ]
-        
+
         # Sort by expiry and moneyness
         expiring.sort(key=lambda x: (x.expiry, abs(x.moneyness)))
-        
+
         return expiring
-    
+
     def get_expiration_calendar(self, months_ahead: int = 3) -> pd.DataFrame:
         """
         Get expiration calendar
-        
+
         Args:
             months_ahead: Number of months to look ahead
-            
+
         Returns:
             DataFrame with expiration dates and details
         """
         expirations = []
-        
+
         # Generate expiration dates
         start_date = date.today()
         end_date = start_date + timedelta(days=months_ahead * 30)
-        
+
         current_date = start_date
         while current_date <= end_date:
             # Check for monthly expiration (3rd Friday)
             if self._is_monthly_expiration(current_date):
                 exp_type = ExpirationType.MONTHLY
-                
+
                 # Check if quarterly
                 if current_date.month in [3, 6, 9, 12]:
                     exp_type = ExpirationType.QUARTERLY
-                
+
                 expirations.append({
                     'date': current_date,
                     'type': exp_type.value,
                     'day_of_week': current_date.strftime('%A'),
                     'symbols': self._get_symbols_for_expiry(current_date, exp_type)
                 })
-            
+
             # Check for weekly expiration (Friday)
             elif current_date.weekday() == 4:  # Friday
                 # Check if this is a weekly (not monthly)
@@ -422,37 +418,37 @@ class OptionsExpirationManager:
                         'day_of_week': 'Friday',
                         'symbols': WEEKLY_SYMBOLS
                     })
-            
+
             current_date += timedelta(days=1)
-        
+
         if expirations:
             df = pd.DataFrame(expirations)
             df['date'] = pd.to_datetime(df['date'])
             return df
-        
+
         return pd.DataFrame()
-    
+
     # ==========================================================================
     # PIN RISK ANALYSIS
     # ==========================================================================
-    
+
     def _analyze_pin_risk(self, strike: float, underlying: float,
                          quantity: int, option_type: str) -> PinRiskAnalysis:
         """
         Analyze pin risk for position
-        
+
         Args:
             strike: Strike price
             underlying: Underlying price
             quantity: Position quantity
             option_type: 'CALL' or 'PUT'
-            
+
         Returns:
             PinRiskAnalysis object
         """
         distance = underlying - strike
         distance_pct = abs(distance) / strike
-        
+
         # Determine risk level based on distance
         if distance_pct > 0.05:  # More than 5% away
             risk_level = PinRiskLevel.NONE
@@ -464,7 +460,7 @@ class OptionsExpirationManager:
             risk_level = PinRiskLevel.HIGH
         else:  # Less than 1% away
             risk_level = PinRiskLevel.CRITICAL
-        
+
         # Calculate gamma exposure (simplified)
         if self.greeks_calculator and abs(quantity) > 0:
             greeks = self.greeks_calculator.calculate_greeks(
@@ -473,15 +469,15 @@ class OptionsExpirationManager:
             gamma_exposure = greeks['gamma'] * quantity * 100 * underlying**2 / 100
         else:
             gamma_exposure = 0.0
-        
+
         # Calculate max loss/gain
         if quantity > 0:  # Long position
-            max_loss = quantity * 100 * current_price
+            max_loss = quantity * 100 * underlying
             max_gain = float('inf') if option_type == 'CALL' else quantity * 100 * strike
         else:  # Short position
-            max_gain = abs(quantity) * 100 * current_price
+            max_gain = abs(quantity) * 100 * underlying
             max_loss = float('inf') if option_type == 'CALL' else abs(quantity) * 100 * strike
-        
+
         # Calculate probability of pin
         # Use normal distribution around strike
         volatility = 0.20  # Assumed
@@ -489,12 +485,12 @@ class OptionsExpirationManager:
         std_dev = underlying * volatility * np.sqrt(time_to_expiry)
         prob_of_pin = 2 * stats.norm.cdf(strike + strike * PIN_RISK_THRESHOLD, underlying, std_dev) - \
                      2 * stats.norm.cdf(strike - strike * PIN_RISK_THRESHOLD, underlying, std_dev)
-        
+
         # Hedge recommendation for high risk
         hedge_rec = None
         if risk_level in [PinRiskLevel.HIGH, PinRiskLevel.CRITICAL]:
             hedge_rec = self._get_pin_risk_hedge(strike, underlying, quantity, option_type)
-        
+
         return PinRiskAnalysis(
             strike=strike,
             underlying_price=underlying,
@@ -507,15 +503,15 @@ class OptionsExpirationManager:
             probability_of_pin=prob_of_pin,
             hedge_recommendation=hedge_rec
         )
-    
+
     def _get_pin_risk_hedge(self, strike: float, underlying: float,
-                           quantity: int, option_type: str) -> Dict[str, Any]:
+                           quantity: int, option_type: str) -> dict[str, Any]:
         """Get hedge recommendation for pin risk"""
         hedge = {
             'action': 'HEDGE_PIN_RISK',
             'trades': []
         }
-        
+
         if quantity < 0:  # Short position with pin risk
             # Buy protective option
             hedge['trades'].append({
@@ -534,33 +530,33 @@ class OptionsExpirationManager:
                 'quantity': quantity,
                 'reason': 'Avoid pin risk'
             })
-        
+
         return hedge
-    
+
     # ==========================================================================
     # AUTO-EXERCISE DECISIONS
     # ==========================================================================
-    
-    def determine_exercise_decisions(self) -> List[Dict[str, Any]]:
+
+    def determine_exercise_decisions(self) -> list[dict[str, Any]]:
         """
         Determine auto-exercise decisions for expiring positions
-        
+
         Returns:
             List of exercise decisions
         """
         decisions = []
-        
+
         # Get positions expiring today
         today_expiring = self.get_expiring_positions(days_ahead=0)
-        
+
         for position in today_expiring:
             if position.quantity > 0:  # Long position only
                 decision = self._make_exercise_decision(position)
                 decisions.append(decision)
-        
+
         return decisions
-    
-    def _make_exercise_decision(self, position: ExpiringPosition) -> Dict[str, Any]:
+
+    def _make_exercise_decision(self, position: ExpiringPosition) -> dict[str, Any]:
         """Make exercise decision for position"""
         decision = {
             'symbol': position.symbol,
@@ -571,13 +567,13 @@ class OptionsExpirationManager:
             'reason': '',
             'economic_value': 0.0
         }
-        
+
         # Check if ITM
         if position.intrinsic_value > AUTO_EXERCISE_THRESHOLD:
             # Calculate economic benefit
             exercise_value = position.intrinsic_value * position.quantity * 100
             commission_cost = 0.65 * abs(position.quantity)  # Estimated commission
-            
+
             if exercise_value > commission_cost:
                 decision['action'] = 'EXERCISE'
                 decision['reason'] = f'ITM by ${position.intrinsic_value:.2f}'
@@ -586,7 +582,7 @@ class OptionsExpirationManager:
                 decision['reason'] = 'Commission exceeds intrinsic value'
         else:
             decision['reason'] = f'OTM or ATM (intrinsic: ${position.intrinsic_value:.2f})'
-        
+
         # Check for dividend capture (calls only)
         if position.option_type == 'CALL' and position.symbol in self.dividend_schedule:
             div_decision = self._check_dividend_exercise(position)
@@ -594,101 +590,101 @@ class OptionsExpirationManager:
                 decision['action'] = 'EXERCISE'
                 decision['reason'] = div_decision['reason']
                 decision['economic_value'] = div_decision['value']
-        
+
         return decision
-    
-    def _check_dividend_exercise(self, position: ExpiringPosition) -> Dict[str, Any]:
+
+    def _check_dividend_exercise(self, position: ExpiringPosition) -> dict[str, Any]:
         """Check if early exercise is beneficial for dividend capture"""
         result = {'exercise': False, 'reason': '', 'value': 0.0}
-        
+
         if position.symbol not in self.dividend_schedule:
             return result
-        
+
         # Check for upcoming dividend
         for div_date, div_amount in self.dividend_schedule[position.symbol]:
             if position.expiry.date() >= div_date > date.today():
                 # Calculate if early exercise is beneficial
                 interest_cost = position.strike * self.interest_rate * \
                                (position.expiry.date() - date.today()).days / 365
-                
+
                 if div_amount > position.extrinsic_value + interest_cost:
                     result['exercise'] = True
                     result['reason'] = f'Dividend capture: ${div_amount:.2f}'
                     result['value'] = div_amount - position.extrinsic_value - interest_cost
                     break
-        
+
         return result
-    
+
     # ==========================================================================
     # ROLL MANAGEMENT
     # ==========================================================================
-    
-    def identify_roll_opportunities(self) -> List[RollOpportunity]:
+
+    def identify_roll_opportunities(self) -> list[RollOpportunity]:
         """
         Identify options roll opportunities
-        
+
         Returns:
             List of roll opportunities
         """
         opportunities = []
-        
+
         # Get positions eligible for rolling
         roll_candidates = [
             pos for pos in self.positions
             if pos.days_to_expiry <= ROLL_DAYS_BEFORE and pos.quantity != 0
         ]
-        
+
         for position in roll_candidates:
             # Analyze different roll strategies
             roll_ops = []
-            
+
             # Calendar roll (same strike, next expiry)
             calendar = self._analyze_calendar_roll(position)
             if calendar:
                 roll_ops.append(calendar)
-            
+
             # Diagonal roll (different strike and expiry)
             diagonal = self._analyze_diagonal_roll(position)
             if diagonal:
                 roll_ops.append(diagonal)
-            
+
             # Defensive roll (if at risk)
             if position.quantity < 0 and position.intrinsic_value > 0:
                 defensive = self._analyze_defensive_roll(position)
                 if defensive:
                     roll_ops.append(defensive)
-            
+
             opportunities.extend(roll_ops)
-        
+
         # Sort by priority
         opportunities.sort(key=lambda x: x.execution_priority)
-        
+
         self.roll_opportunities = opportunities
         return opportunities
-    
-    def _analyze_calendar_roll(self, position: ExpiringPosition) -> Optional[RollOpportunity]:
+
+    def _analyze_calendar_roll(self, position: ExpiringPosition) -> RollOpportunity | None:
         """Analyze calendar roll opportunity"""
         # Find next expiration
         next_expiry = self._get_next_expiry(position.symbol, position.expiry)
-        
+
         if not next_expiry:
             return None
-        
+
         # Estimate prices (would use actual market data)
         current_price = position.current_price
         time_value_decay = current_price * 0.3  # 30% time decay estimate
         new_price = current_price + time_value_decay
-        
+
         # Calculate net credit/debit
         if position.quantity < 0:  # Short position
             net_credit = new_price - current_price
         else:  # Long position
             net_credit = -(new_price - current_price)
-        
+
         # Only proceed if favorable
         if net_credit < MIN_PREMIUM_FOR_ROLL and position.quantity < 0:
             return None
-        
+
         return RollOpportunity(
             current_position=position,
             roll_type=RollType.CALENDAR,
@@ -701,14 +697,14 @@ class OptionsExpirationManager:
             execution_priority=2,
             notes="Calendar roll to next expiry"
         )
-    
-    def _analyze_diagonal_roll(self, position: ExpiringPosition) -> Optional[RollOpportunity]:
+
+    def _analyze_diagonal_roll(self, position: ExpiringPosition) -> RollOpportunity | None:
         """Analyze diagonal roll opportunity"""
         next_expiry = self._get_next_expiry(position.symbol, position.expiry)
-        
+
         if not next_expiry:
             return None
-        
+
         # Determine new strike based on market move
         if position.option_type == 'CALL':
             if position.underlying_price > position.strike:
@@ -724,11 +720,11 @@ class OptionsExpirationManager:
             else:
                 # Roll up and out
                 new_strike = position.strike + 5.0
-        
+
         # Estimate net credit (simplified)
         strike_adjustment = abs(new_strike - position.strike) * 0.01
         net_credit = strike_adjustment if position.quantity < 0 else -strike_adjustment
-        
+
         return RollOpportunity(
             current_position=position,
             roll_type=RollType.DIAGONAL,
@@ -741,29 +737,29 @@ class OptionsExpirationManager:
             execution_priority=3,
             notes=f"Diagonal roll to {new_strike}"
         )
-    
-    def _analyze_defensive_roll(self, position: ExpiringPosition) -> Optional[RollOpportunity]:
+
+    def _analyze_defensive_roll(self, position: ExpiringPosition) -> RollOpportunity | None:
         """Analyze defensive roll for challenged position"""
         if position.quantity >= 0:  # Only for short positions
             return None
-        
+
         next_expiry = self._get_next_expiry(position.symbol, position.expiry)
-        
+
         if not next_expiry:
             return None
-        
+
         # Roll to OTM strike
         if position.option_type == 'CALL':
             new_strike = position.underlying_price * 1.05  # 5% OTM
         else:  # PUT
             new_strike = position.underlying_price * 0.95  # 5% OTM
-        
+
         # Round to nearest strike interval
         new_strike = round(new_strike / 5) * 5
-        
+
         # This will likely cost money (defensive)
         roll_cost = -position.intrinsic_value - MAX_ROLL_COST
-        
+
         return RollOpportunity(
             current_position=position,
             roll_type=RollType.DEFENSIVE,
@@ -776,55 +772,55 @@ class OptionsExpirationManager:
             execution_priority=1,  # High priority
             notes="Defensive roll to avoid assignment"
         )
-    
+
     # ==========================================================================
     # ASSIGNMENT RISK
     # ==========================================================================
-    
-    def assess_assignment_risk(self) -> List[AssignmentRisk]:
+
+    def assess_assignment_risk(self) -> list[AssignmentRisk]:
         """
         Assess early assignment risk for short positions
-        
+
         Returns:
             List of assignment risk assessments
         """
         risks = []
-        
+
         # Only check short positions
         short_positions = [pos for pos in self.positions if pos.quantity < 0]
-        
+
         for position in short_positions:
             risk = self._calculate_assignment_risk(position)
             risks.append(risk)
-        
+
         # Sort by risk level
         risks.sort(key=lambda x: x.probability_of_assignment, reverse=True)
-        
+
         return risks
-    
+
     def _calculate_assignment_risk(self, position: ExpiringPosition) -> AssignmentRisk:
         """Calculate assignment risk for position"""
         # Check for dividend risk (calls)
         div_date = None
         div_amount = 0.0
-        
+
         if position.option_type == 'CALL' and position.symbol in self.dividend_schedule:
             for date, amount in self.dividend_schedule[position.symbol]:
                 if date <= position.expiry.date():
                     div_date = date
                     div_amount = amount
                     break
-        
+
         # Calculate interest cost
         interest_cost = position.strike * self.interest_rate * position.days_to_expiry / 365
-        
+
         # Calculate economic benefit to counterparty
         economic_benefit = 0.0
         if position.option_type == 'CALL':
             economic_benefit = max(0, position.intrinsic_value + div_amount - position.extrinsic_value - interest_cost)
         else:  # PUT
             economic_benefit = max(0, position.intrinsic_value - position.extrinsic_value + interest_cost)
-        
+
         # Calculate probability
         if economic_benefit > 0:
             # Higher benefit = higher probability
@@ -837,7 +833,7 @@ class OptionsExpirationManager:
                 prob = 0.50
             else:  # OTM
                 prob = 0.05
-        
+
         # Determine risk level
         if prob > 0.80:
             risk_level = 'HIGH'
@@ -848,7 +844,7 @@ class OptionsExpirationManager:
         else:
             risk_level = 'LOW'
             mitigation = 'Monitor'
-        
+
         return AssignmentRisk(
             position=position,
             dividend_date=div_date,
@@ -859,14 +855,14 @@ class OptionsExpirationManager:
             risk_level=risk_level,
             mitigation_action=mitigation
         )
-    
+
     def _calculate_assignment_probability(self, symbol: str, strike: float,
                                          expiry: datetime, option_type: str,
                                          underlying: float) -> float:
         """Calculate probability of assignment"""
         # Simplified calculation
         moneyness = (underlying - strike) / strike if option_type == 'CALL' else (strike - underlying) / strike
-        
+
         if moneyness > 0.05:  # Deep ITM
             return 0.95
         elif moneyness > 0.02:  # ITM
@@ -877,19 +873,19 @@ class OptionsExpirationManager:
             return 0.20
         else:  # OTM
             return 0.05
-    
+
     # ==========================================================================
     # EXPIRATION ACTIONS
     # ==========================================================================
-    
+
     def _determine_expiration_action(self, symbol: str, strike: float,
                                     expiry: datetime, option_type: str,
                                     quantity: int, underlying: float,
                                     days_to_expiry: int,
-                                    intrinsic: float) -> Tuple[ExpirationAction, str]:
+                                    intrinsic: float) -> tuple[ExpirationAction, str]:
         """
         Determine recommended action for expiring position
-        
+
         Returns:
             Tuple of (action, reason)
         """
@@ -905,7 +901,7 @@ class OptionsExpirationManager:
                     return ExpirationAction.CLOSE, "ITM short - close to avoid assignment"
                 else:
                     return ExpirationAction.MONITOR, "OTM short - monitor until close"
-        
+
         # Pre-expiration
         elif days_to_expiry <= ROLL_DAYS_BEFORE:
             if quantity < 0 and intrinsic > 0:  # Short and ITM
@@ -914,18 +910,18 @@ class OptionsExpirationManager:
                 return ExpirationAction.HEDGE, "Near strike - pin risk"
             else:
                 return ExpirationAction.MONITOR, "Monitor position"
-        
+
         else:
             return ExpirationAction.MONITOR, "Time remaining"
-    
+
     # ==========================================================================
     # SCHEDULING AND UTILITIES
     # ==========================================================================
-    
+
     def _update_expiration_schedule(self, position: ExpiringPosition) -> None:
         """Update expiration schedule with position"""
         exp_date = position.expiry.date()
-        
+
         if exp_date not in self.expiration_schedule:
             # Determine expiration type
             if self._is_monthly_expiration(exp_date):
@@ -936,13 +932,13 @@ class OptionsExpirationManager:
                 exp_type = ExpirationType.WEEKLY
             else:
                 exp_type = ExpirationType.SPECIAL
-            
+
             # Determine settlement type
             if position.symbol in AM_SETTLEMENT:
                 settlement = SettlementType.AM
             else:
                 settlement = SettlementType.PM
-            
+
             schedule = ExpirationSchedule(
                 expiry_date=exp_date,
                 expiry_type=exp_type,
@@ -954,7 +950,7 @@ class OptionsExpirationManager:
                 last_trading_day=self._get_last_trading_day(exp_date),
                 exercise_cutoff=datetime.combine(exp_date, OPTIONS_CUTOFF)
             )
-            
+
             self.expiration_schedule[exp_date] = schedule
         else:
             # Update existing schedule
@@ -965,32 +961,32 @@ class OptionsExpirationManager:
             schedule.total_exposure += abs(position.quantity * 100 * position.current_price)
             if position.recommended_action != ExpirationAction.MONITOR:
                 schedule.actions_required += 1
-    
+
     def _is_monthly_expiration(self, check_date: date) -> bool:
         """Check if date is monthly options expiration (3rd Friday)"""
         if check_date.weekday() != 4:  # Not Friday
             return False
-        
+
         # Check if it's the 3rd Friday
         first_day = check_date.replace(day=1)
         first_friday = first_day + timedelta(days=(4 - first_day.weekday()) % 7)
         third_friday = first_friday + timedelta(weeks=2)
-        
+
         return check_date == third_friday
-    
+
     def _get_last_trading_day(self, expiry_date: date) -> date:
         """Get last trading day before expiration"""
         # For most options, last trading day is expiration day
         # For AM settlement, it's the day before
         last_day = expiry_date
-        
+
         # Check if market is open
         while last_day in self.us_holidays or last_day.weekday() >= 5:
             last_day -= timedelta(days=1)
-        
+
         return last_day
-    
-    def _get_next_expiry(self, symbol: str, current_expiry: datetime) -> Optional[datetime]:
+
+    def _get_next_expiry(self, symbol: str, current_expiry: datetime) -> datetime | None:
         """Get next available expiry date"""
         # Determine if weekly or monthly
         if symbol in WEEKLY_SYMBOLS:
@@ -1003,15 +999,15 @@ class OptionsExpirationManager:
             # Next monthly expiration
             next_month = current_expiry.replace(day=1) + timedelta(days=32)
             next_month = next_month.replace(day=1)
-            
+
             # Find 3rd Friday
             first_friday = next_month + timedelta(days=(4 - next_month.weekday()) % 7)
             third_friday = first_friday + timedelta(weeks=2)
-            
+
             return datetime.combine(third_friday, current_expiry.time())
-    
+
     def _get_symbols_for_expiry(self, expiry_date: date,
-                               exp_type: ExpirationType) -> List[str]:
+                               exp_type: ExpirationType) -> list[str]:
         """Get symbols that have options expiring on date"""
         if exp_type == ExpirationType.WEEKLY:
             return WEEKLY_SYMBOLS
@@ -1019,17 +1015,17 @@ class OptionsExpirationManager:
             return WEEKLY_SYMBOLS + MONTHLY_SYMBOLS
         else:
             return []
-    
+
     # ==========================================================================
     # DATABASE OPERATIONS
     # ==========================================================================
-    
+
     def _initialize_database(self) -> None:
         """Initialize database for historical tracking"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Create tables
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS expiration_history (
@@ -1045,7 +1041,7 @@ class OptionsExpirationManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS roll_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1058,30 +1054,30 @@ class OptionsExpirationManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
+
             conn.commit()
             conn.close()
-            
+
         except Exception as e:
             self.logger.error(f"Database initialization failed: {e}")
-    
+
     def save_expiration_action(self, position: ExpiringPosition,
                               action: str, pnl: float, notes: str = "") -> None:
         """Save expiration action to database"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             cursor.execute('''
-                INSERT INTO expiration_history 
+                INSERT INTO expiration_history
                 (symbol, strike, expiry, option_type, quantity, action_taken, pnl, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (position.symbol, position.strike, position.expiry,
                  position.option_type, position.quantity, action, pnl, notes))
-            
+
             conn.commit()
             conn.close()
-            
+
         except Exception as e:
             self.logger.error(f"Failed to save expiration action: {e}")
 
@@ -1089,16 +1085,12 @@ class OptionsExpirationManager:
 # TEST/DEMO CODE
 # ==============================================================================
 if __name__ == "__main__":
-    print("="*80)
-    print(" SPYDER OPTIONS EXPIRATION MANAGER TEST")
-    print("="*80)
-    
+
     # Create manager
     manager = OptionsExpirationManager()
-    
+
     # Test 1: Add expiring positions
-    print("\n1. Adding Expiring Positions...")
-    
+
     # Positions with different expiration scenarios
     positions_data = [
         # Expiring today - ITM call
@@ -1112,62 +1104,38 @@ if __name__ == "__main__":
         # Expiring in 7 days - OTM call
         ('SPY', 595, datetime.now() + timedelta(days=7), 'CALL', 5, 0.50, 585.0),
     ]
-    
+
     for data in positions_data:
         position = manager.add_position(*data)
-        print(f"  {position.symbol} {position.strike} {position.option_type}: "
-              f"Action={position.recommended_action.value}, "
-              f"Pin Risk={position.pin_risk_level.value}")
-    
+
     # Test 2: Get expiration calendar
-    print("\n2. Expiration Calendar...")
     calendar = manager.get_expiration_calendar(months_ahead=2)
     if not calendar.empty:
-        print(f"  Next 5 expirations:")
-        for _, row in calendar.head().iterrows():
-            print(f"    {row['date'].strftime('%Y-%m-%d')} ({row['type']})")
-    
+        for _, _row in calendar.head().iterrows():
+            pass
+
     # Test 3: Exercise decisions
-    print("\n3. Auto-Exercise Decisions...")
     decisions = manager.determine_exercise_decisions()
-    for decision in decisions:
-        print(f"  {decision['symbol']} {decision['strike']} {decision['option_type']}: "
-              f"{decision['action']} - {decision['reason']}")
-    
+    for _decision in decisions:
+        pass
+
     # Test 4: Roll opportunities
-    print("\n4. Roll Opportunities...")
     rolls = manager.identify_roll_opportunities()
-    for roll in rolls[:3]:  # Show top 3
-        print(f"  {roll.current_position.symbol} {roll.current_position.strike}: "
-              f"{roll.roll_type.value} to {roll.target_strike} @ {roll.target_expiry.date()}")
-        print(f"    Net Credit: ${roll.net_credit:.2f}, "
-              f"Risk Reduction: {roll.risk_reduction:.0f}%")
-    
+    for _roll in rolls[:3]:  # Show top 3
+        pass
+
     # Test 5: Assignment risk
-    print("\n5. Assignment Risk Assessment...")
     risks = manager.assess_assignment_risk()
     for risk in risks:
         if risk.probability_of_assignment > 0.20:
-            print(f"  {risk.position.symbol} {risk.position.strike} {risk.position.option_type}: "
-                  f"P(Assignment)={risk.probability_of_assignment:.0%}, "
-                  f"Risk={risk.risk_level}")
-            print(f"    Mitigation: {risk.mitigation_action}")
-    
+            pass
+
     # Test 6: Pin risk analysis
-    print("\n6. Pin Risk Analysis...")
     for position in manager.positions:
         if position.pin_risk_level not in [PinRiskLevel.NONE, PinRiskLevel.LOW]:
-            print(f"  {position.symbol} {position.strike}: "
-                  f"Pin Risk={position.pin_risk_level.value}, "
-                  f"Distance={abs(position.underlying_price - position.strike):.2f}")
-    
+            pass
+
     # Test 7: Expiration schedule
-    print("\n7. Expiration Schedule Summary...")
-    for exp_date, schedule in sorted(manager.expiration_schedule.items()):
-        print(f"  {exp_date}: {schedule.total_positions} positions, "
-              f"${schedule.total_exposure:,.0f} exposure, "
-              f"{schedule.actions_required} actions required")
-    
-    print("\n" + "="*80)
-    print(" ALL TESTS COMPLETED SUCCESSFULLY!")
-    print("="*80)
+    for _exp_date, _schedule in sorted(manager.expiration_schedule.items()):
+        pass
+

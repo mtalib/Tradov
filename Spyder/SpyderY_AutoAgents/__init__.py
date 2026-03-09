@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -249,7 +248,7 @@ def create_all_agents(**kwargs):
         Dict[str, BaseAutoAgent]: Mapping of agent_id to agent instance
     """
     agents = {}
-    for reg_id, reg in AGENT_REGISTRY.items():
+    for _reg_id, reg in AGENT_REGISTRY.items():
         factory = reg["factory"]
         agent = factory(**kwargs)
         agents[agent.AGENT_ID] = agent
@@ -267,7 +266,7 @@ def create_scheduler(**kwargs) -> AgentScheduler:
         AgentScheduler: Ready-to-run scheduler with all agents registered
     """
     scheduler = AgentScheduler(**kwargs)
-    for reg_id, reg in AGENT_REGISTRY.items():
+    for _reg_id, reg in AGENT_REGISTRY.items():
         scheduler.register(reg["class"])
     return scheduler
 

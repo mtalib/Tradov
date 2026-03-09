@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -435,8 +434,8 @@ for _bare in [
 def _load_d_module(filename: str, module_name: str):
     """Load a D-series module by filename, registering it in sys.modules."""
     from enum import auto as _enum_auto
-    from typing import (Union, Optional, List, Dict, Tuple, Any,
-                        Set, Callable, Type, ClassVar, FrozenSet)
+    from typing import (Union, Optional, Any,
+                        Callable)
     filepath = os.path.join(_D_PKG_PATH, filename)
     spec = _ilu.spec_from_file_location(module_name, filepath)
     mod = _ilu.module_from_spec(spec)
@@ -445,15 +444,15 @@ def _load_d_module(filename: str, module_name: str):
     mod.auto = _enum_auto
     mod.Union = Union
     mod.Optional = Optional
-    mod.List = List
-    mod.Dict = Dict
-    mod.Tuple = Tuple
+    mod.List = list
+    mod.Dict = dict
+    mod.Tuple = tuple
     mod.Any = Any
-    mod.Set = Set
+    mod.Set = set
     mod.Callable = Callable
-    mod.Type = Type
+    mod.Type = type
     mod.ClassVar = ClassVar
-    mod.FrozenSet = FrozenSet
+    mod.FrozenSet = frozenset
     sys.modules[module_name] = mod
     bare_key = module_name.replace("Spyder.", "", 1)
     sys.modules.setdefault(bare_key, mod)
@@ -681,8 +680,14 @@ _d31.__package__ = "Spyder.SpyderD_Strategies"
 from typing import (Union, Optional, List, Dict, Tuple, Any, Set, Callable, Type, ClassVar, FrozenSet)
 from enum import auto as _enum_auto2
 _d31.auto = _enum_auto2
-_d31.Union = Union; _d31.Optional = Optional; _d31.List = List; _d31.Dict = Dict
-_d31.Tuple = Tuple; _d31.Any = Any; _d31.Set = Set; _d31.Callable = Callable
+_d31.Union = Union
+_d31.Optional = Optional
+_d31.List = list
+_d31.Dict = dict
+_d31.Tuple = tuple
+_d31.Any = Any
+_d31.Set = set
+_d31.Callable = Callable
 _d31.IntegratedConnectivityManager = MagicMock  # fallback if try/except fires
 sys.modules[_d31_name] = _d31
 sys.modules.setdefault(_d31_name.replace("Spyder.", "", 1), _d31)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -42,11 +41,9 @@ Change Log:
 # ==============================================================================
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -141,7 +138,7 @@ class CandlestickChartTemplate:
     def create_advanced_candlestick(
         df: pd.DataFrame,
         symbol: str = "SPY",
-        indicators: Optional[Dict] = None,
+        indicators: dict | None = None,
         height: int = 700,
     ) -> go.Figure:
         """Create advanced candlestick chart with multiple technical indicators."""
@@ -285,7 +282,7 @@ class CandlestickChartTemplate:
             current_row += 1
             colors = [
                 COLORS["positive"] if close >= open_price else COLORS["negative"]
-                for close, open_price in zip(df["close"], df["open"])
+                for close, open_price in zip(df["close"], df["open"], strict=False)
             ]
 
             fig.add_trace(
@@ -419,7 +416,7 @@ class VolatilityChartTemplate:
     """Templates for volatility analysis."""
 
     @staticmethod
-    def create_vix_term_structure(vix_data: Dict, height: int = 400) -> go.Figure:
+    def create_vix_term_structure(vix_data: dict, height: int = 400) -> go.Figure:
         """Create VIX term structure chart."""
         fig = go.Figure()
 
@@ -748,5 +745,3 @@ if __name__ == "__main__":
         indicators={"sma_20": True, "sma_50": True, "vwap": True, "volume": True},
     )
 
-    print("Chart templates ready for use!")
-    print("Example candlestick chart created with technical indicators")

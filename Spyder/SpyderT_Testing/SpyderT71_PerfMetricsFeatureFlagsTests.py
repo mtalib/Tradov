@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -990,7 +989,7 @@ class TestModuleFunctionEnableFeature:
 
     def test_enables_feature(self):
         enable_feature("module_enabled")
-        cfg_path = os.path.join(_ROOT, "config/feature_flags.json")
+        os.path.join(_ROOT, "config/feature_flags.json")
         # We just verify it returns True without checking file persistence
         assert enable_feature("module_enabled") is True
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -29,7 +28,6 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
 import json
 import logging
 import os
@@ -38,10 +36,10 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -173,7 +171,7 @@ class AgentHeartbeat:
     llm_calls: int = 0
     llm_avg_latency_ms: float = 0.0
     errors: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
     current_task: str = "idle"
     memory_mb: float = 0.0
 
@@ -184,7 +182,7 @@ class AgentOutput:
     agent_id: str
     output_type: str          # "analysis", "signal", "alert", "decision", "report"
     topic: str                # Message bus topic
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0   # 0.0 - 1.0
     reasoning: str = ""       # LLM-generated explanation
     timestamp: datetime = field(default_factory=datetime.now)
@@ -215,7 +213,7 @@ class BaseAutoAgent(ABC):
     DESCRIPTION: str = ""
 
     # Which market sessions this agent is active during
-    ACTIVE_SESSIONS: Set[MarketSession] = {
+    ACTIVE_SESSIONS: set[MarketSession] = {
         MarketSession.OVERNIGHT,
         MarketSession.PRE_MARKET,
         MarketSession.MARKET_OPEN,
@@ -229,9 +227,9 @@ class BaseAutoAgent(ABC):
 
     def __init__(
         self,
-        ollama_config: Optional[OllamaConfig] = None,
-        message_bus: Optional[Any] = None,
-        state_dir: Optional[Path] = None,
+        ollama_config: OllamaConfig | None = None,
+        message_bus: Any | None = None,
+        state_dir: Path | None = None,
     ):
         # Configuration
         self.ollama_config = ollama_config or OllamaConfig.from_env()
@@ -239,11 +237,11 @@ class BaseAutoAgent(ABC):
 
         # State
         self.state = AgentState.INITIALIZING
-        self._start_time: Optional[datetime] = None
+        self._start_time: datetime | None = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._pause_event.set()  # Not paused initially
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         # Metrics
         self._messages_sent: int = 0
@@ -251,7 +249,7 @@ class BaseAutoAgent(ABC):
         self._llm_calls: int = 0
         self._llm_total_latency_ms: float = 0.0
         self._errors: int = 0
-        self._last_error: Optional[str] = None
+        self._last_error: str | None = None
 
         # Persistence
         self._state_dir = state_dir or Path("data/agent_state")
@@ -259,7 +257,7 @@ class BaseAutoAgent(ABC):
         self._state_file = self._state_dir / f"{self.AGENT_ID}_state.json"
 
         # Subscriptions tracking
-        self._subscriptions: List[str] = []
+        self._subscriptions: list[str] = []
 
         logger.info(
             f"[{self.AGENT_ID}] {self.AGENT_NAME} v{self.AGENT_VERSION} initialized"
@@ -391,7 +389,7 @@ class BaseAutoAgent(ABC):
         ...
 
     @abstractmethod
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         """Return agent-specific state for persistence.
 
         Called during stop() and periodically for checkpointing.
@@ -400,7 +398,7 @@ class BaseAutoAgent(ABC):
         ...
 
     @abstractmethod
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore agent-specific state from a previously saved snapshot.
 
         Called during start() if a state file exists.
@@ -410,11 +408,11 @@ class BaseAutoAgent(ABC):
     # ==========================================================================
     # OPTIONAL HOOKS — Subclasses CAN override these
     # ==========================================================================
-    def on_start(self) -> None:
+    def on_start(self) -> None:  # noqa: B027
         """Called once when the agent starts, before the main loop."""
         pass
 
-    def on_stop(self) -> None:
+    def on_stop(self) -> None:  # noqa: B027
         """Called once when the agent stops, after the main loop exits."""
         pass
 
@@ -433,10 +431,10 @@ class BaseAutoAgent(ABC):
         self,
         prompt: str,
         role: LLMRole = LLMRole.PRIMARY,
-        system_prompt: Optional[str] = None,
-        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
         max_tokens: int = 2048,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Send a prompt to the local Ollama LLM and return the response.
 
         Args:
@@ -497,9 +495,9 @@ class BaseAutoAgent(ABC):
         self,
         prompt: str,
         role: LLMRole = LLMRole.PRIMARY,
-        system_prompt: Optional[str] = None,
-        temperature: Optional[float] = None,
-    ) -> Optional[Dict[str, Any]]:
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+    ) -> dict[str, Any] | None:
         """Send a prompt to the LLM and parse the response as JSON.
 
         Adds instructions to return valid JSON. Attempts to extract JSON
@@ -743,7 +741,7 @@ class BaseAutoAgent(ABC):
             ttl_seconds=120,
         ))
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return current agent status for the dashboard/monitoring."""
         uptime = 0.0
         if self._start_time:

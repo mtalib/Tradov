@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -27,9 +26,8 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -157,11 +155,11 @@ class Pattern:
     start_time: datetime
     end_time: datetime
     confidence: float
-    candles: List[Candle]
-    support_level: Optional[float] = None
-    resistance_level: Optional[float] = None
-    target_price: Optional[float] = None
-    stop_loss: Optional[float] = None
+    candles: list[Candle]
+    support_level: float | None = None
+    resistance_level: float | None = None
+    target_price: float | None = None
+    stop_loss: float | None = None
 
 
 @dataclass
@@ -196,8 +194,8 @@ class PriceActionAnalyzer:
 
     def __init__(
         self,
-        config_manager: Optional[ConfigManager] = None,
-        monitor: Optional[SystemMonitor] = None,
+        config_manager: ConfigManager | None = None,
+        monitor: SystemMonitor | None = None,
     ):
         """Initialize price action analyzer."""
         self.logger = SpyderLogger.get_logger(__name__)
@@ -248,8 +246,8 @@ class PriceActionAnalyzer:
     # ==========================================================================
 
     def detect_patterns(
-        self, data: pd.DataFrame, pattern_types: Optional[List[PatternType]] = None
-    ) -> List[Pattern]:
+        self, data: pd.DataFrame, pattern_types: list[PatternType] | None = None
+    ) -> list[Pattern]:
         """
         Detect patterns with performance monitoring.
 
@@ -306,7 +304,7 @@ class PriceActionAnalyzer:
 
         return patterns
 
-    def analyze_trend(self, data: pd.DataFrame, period: int = 20) -> Dict:
+    def analyze_trend(self, data: pd.DataFrame, period: int = 20) -> dict:
         """
         Analyze price trend with performance monitoring.
 
@@ -368,7 +366,7 @@ class PriceActionAnalyzer:
 
     def find_support_resistance(
         self, data: pd.DataFrame, min_touches: int = 3
-    ) -> Dict[str, List[float]]:
+    ) -> dict[str, list[float]]:
         """
         Find support and resistance levels with performance monitoring.
 
@@ -414,7 +412,7 @@ class PriceActionAnalyzer:
             self.error_handler.handle_error(e, "Support/Resistance detection failed")
             return {"support": [], "resistance": []}
 
-    def get_performance_stats(self) -> Dict:
+    def get_performance_stats(self) -> dict:
         """Get performance statistics."""
         with self._metrics_lock:
             if not self.execution_times:
@@ -459,8 +457,8 @@ class PriceActionAnalyzer:
     # ==========================================================================
 
     def _detect_patterns_sequential(
-        self, candles: List[Candle], pattern_types: Optional[List[PatternType]]
-    ) -> List[Pattern]:
+        self, candles: list[Candle], pattern_types: list[PatternType] | None
+    ) -> list[Pattern]:
         """Sequential pattern detection."""
         patterns = []
 
@@ -478,8 +476,8 @@ class PriceActionAnalyzer:
         return patterns
 
     def _detect_patterns_parallel(
-        self, candles: List[Candle], pattern_types: Optional[List[PatternType]]
-    ) -> List[Pattern]:
+        self, candles: list[Candle], pattern_types: list[PatternType] | None
+    ) -> list[Pattern]:
         """Parallel pattern detection using thread pool."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -509,8 +507,8 @@ class PriceActionAnalyzer:
         return patterns
 
     def _detect_candlestick_patterns(
-        self, candles: List[Candle], pattern_types: Optional[List[PatternType]]
-    ) -> List[Pattern]:
+        self, candles: list[Candle], pattern_types: list[PatternType] | None
+    ) -> list[Pattern]:
         """Detect candlestick patterns."""
         patterns = []
 
@@ -521,7 +519,7 @@ class PriceActionAnalyzer:
         for i in range(2, len(candles)):
             candle = candles[i]
             prev_candle = candles[i - 1]
-            prev_prev_candle = candles[i - 2] if i >= 2 else None
+            candles[i - 2] if i >= 2 else None
 
             # Doji
             if self._should_check_pattern(PatternType.DOJI, pattern_types):
@@ -594,8 +592,8 @@ class PriceActionAnalyzer:
         return patterns
 
     def _detect_chart_patterns(
-        self, candles: List[Candle], pattern_types: Optional[List[PatternType]]
-    ) -> List[Pattern]:
+        self, candles: list[Candle], pattern_types: list[PatternType] | None
+    ) -> list[Pattern]:
         """Detect chart patterns (placeholder for complex patterns)."""
         patterns = []
 
@@ -605,8 +603,8 @@ class PriceActionAnalyzer:
         return patterns
 
     def _detect_micro_patterns(
-        self, candles: List[Candle], pattern_types: Optional[List[PatternType]]
-    ) -> List[Pattern]:
+        self, candles: list[Candle], pattern_types: list[PatternType] | None
+    ) -> list[Pattern]:
         """Detect micro-structure patterns."""
         patterns = []
 
@@ -668,7 +666,7 @@ class PriceActionAnalyzer:
             and curr.close < prev.open
         )
 
-    def _is_absorption(self, candles: List[Candle]) -> bool:
+    def _is_absorption(self, candles: list[Candle]) -> bool:
         """Check for volume absorption pattern."""
         if len(candles) < 5:
             return False
@@ -684,7 +682,7 @@ class PriceActionAnalyzer:
     # HELPER METHODS
     # ==========================================================================
 
-    def _df_to_candles(self, df: pd.DataFrame) -> List[Candle]:
+    def _df_to_candles(self, df: pd.DataFrame) -> list[Candle]:
         """Convert DataFrame to Candle objects."""
         candles = []
 
@@ -702,7 +700,7 @@ class PriceActionAnalyzer:
 
         return candles
 
-    def _cluster_levels(self, prices: np.ndarray, threshold: float) -> List[float]:
+    def _cluster_levels(self, prices: np.ndarray, threshold: float) -> list[float]:
         """Cluster price levels within threshold."""
         if len(prices) == 0:
             return []
@@ -726,7 +724,7 @@ class PriceActionAnalyzer:
         return clusters
 
     def _should_check_pattern(
-        self, pattern_type: PatternType, pattern_types: Optional[List[PatternType]]
+        self, pattern_type: PatternType, pattern_types: list[PatternType] | None
     ) -> bool:
         """Check if we should look for this pattern type."""
         if pattern_types is None:
@@ -806,27 +804,17 @@ if __name__ == "__main__":
     analyzer = PriceActionAnalyzer(config_manager, monitor)
 
     # Detect patterns
-    print("=== Pattern Detection ===")
     patterns = analyzer.detect_patterns(data)
-    print(f"Found {len(patterns)} patterns")
-    for pattern in patterns[:5]:  # Show first 5
-        print(f"  {pattern.pattern_type.value}: {pattern.confidence:.2f} confidence")
+    for _pattern in patterns[:5]:  # Show first 5
+        pass
 
     # Analyze trend
-    print("\n=== Trend Analysis ===")
     trend = analyzer.analyze_trend(data)
-    print(f"Direction: {trend['direction'].value}")
-    print(f"Strength: {trend['strength']:.4f}")
-    print(f"R-squared: {trend['r_squared']:.3f}")
 
     # Find support/resistance
-    print("\n=== Support/Resistance ===")
     levels = analyzer.find_support_resistance(data)
-    print(f"Support levels: {[f'{l:.2f}' for l in levels['support']]}")
-    print(f"Resistance levels: {[f'{l:.2f}' for l in levels['resistance']]}")
 
     # Performance test
-    print("\n=== Performance Test ===")
 
     # First run (no cache)
     start = time.time()
@@ -838,21 +826,16 @@ if __name__ == "__main__":
     patterns2 = analyzer.detect_patterns(data)
     time2 = (time.time() - start) * 1000
 
-    print(f"First run: {time1:.1f}ms ({len(patterns1)} patterns)")
-    print(f"Second run (cached): {time2:.1f}ms ({len(patterns2)} patterns)")
-    print(f"Speed improvement: {time1/time2:.1f}x")
 
     # Get performance stats
-    print("\n=== Performance Statistics ===")
     stats = analyzer.get_performance_stats()
-    for key, value in stats.items():
+    for _key, value in stats.items():
         if isinstance(value, float):
-            print(f"{key}: {value:.2f}")
+            pass
         else:
-            print(f"{key}: {value}")
+            pass
 
     # Test parallel detection
-    print("\n=== Parallel vs Sequential ===")
 
     # Large dataset
     large_data = pd.DataFrame(
@@ -887,6 +870,3 @@ if __name__ == "__main__":
     par_patterns = analyzer.detect_patterns(large_data)
     par_time = (time.time() - start) * 1000
 
-    print(f"Sequential: {seq_time:.1f}ms ({len(seq_patterns)} patterns)")
-    print(f"Parallel: {par_time:.1f}ms ({len(par_patterns)} patterns)")
-    print(f"Speed improvement: {seq_time/par_time:.1f}x")

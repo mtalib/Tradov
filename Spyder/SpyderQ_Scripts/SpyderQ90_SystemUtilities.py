@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,18 +22,14 @@ Module Description:
 # ==============================================================================
 import os
 import sys
-import shutil
 import sqlite3
 import tarfile
 import json
-import csv
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-import subprocess
-import glob
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -105,7 +100,7 @@ class CleanupReport:
     """Report of cleanup operations"""
     files_deleted: int
     space_freed_mb: float
-    errors: List[str]
+    errors: list[str]
     status: OperationStatus
     timestamp: datetime
 
@@ -118,7 +113,7 @@ class BackupInfo:
     size_mb: float
     files_count: int
     location: Path
-    manifest: Dict[str, Any]
+    manifest: dict[str, Any]
 
 # ==============================================================================
 # MAIN CLASS
@@ -126,78 +121,78 @@ class BackupInfo:
 class SystemUtilities:
     """
     Consolidated system utilities for Spyder maintenance operations.
-    
+
     This class provides centralized functionality for system maintenance
     including cleanup of logs and temporary files, backup operations,
     data export, and system health checks. Replaces multiple shell
     scripts with Python implementations for better integration.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
         dry_run: If True, shows what would be done without doing it
-        
+
     Example:
         >>> utils = SystemUtilities()
         >>> utils.cleanup_logs(retention_days=30)
         >>> utils.create_backup(backup_type=BackupType.FULL)
         >>> utils.export_trading_data(format="csv")
     """
-    
+
     def __init__(self, dry_run: bool = False):
         """Initialize system utilities."""
         self.logger = SpyderLogger.get_logger(__name__) if SpyderLogger else logging.getLogger(__name__)
         self.error_handler = SpyderErrorHandler() if SpyderErrorHandler else None
         self.dry_run = dry_run
-        
+
         # Create necessary directories
         for directory in [BACKUP_DIR, EXPORT_DIR, TEMP_DIR]:
             directory.mkdir(parents=True, exist_ok=True)
-            
+
         self.logger.info(f"SystemUtilities initialized (dry_run={dry_run})")
-        
+
     # ==========================================================================
     # CLEANUP METHODS
     # ==========================================================================
     def cleanup_all(self, retention_days: int = DEFAULT_LOG_RETENTION_DAYS) -> CleanupReport:
         """
         Perform complete system cleanup.
-        
+
         Args:
             retention_days: Number of days to retain logs
-            
+
         Returns:
             CleanupReport with operation results
         """
         self.logger.info("Starting complete system cleanup")
-        
+
         total_deleted = 0
         total_freed = 0.0
         all_errors = []
-        
+
         # Clean logs
         log_report = self.cleanup_logs(retention_days)
         total_deleted += log_report.files_deleted
         total_freed += log_report.space_freed_mb
         all_errors.extend(log_report.errors)
-        
+
         # Clean temp files
         temp_report = self.cleanup_temp_files()
         total_deleted += temp_report.files_deleted
         total_freed += temp_report.space_freed_mb
         all_errors.extend(temp_report.errors)
-        
+
         # Clean old backups
         backup_report = self.cleanup_old_backups(DEFAULT_BACKUP_RETENTION_DAYS)
         total_deleted += backup_report.files_deleted
         total_freed += backup_report.space_freed_mb
         all_errors.extend(backup_report.errors)
-        
+
         # Optimize databases
         self.optimize_databases()
-        
+
         status = OperationStatus.SUCCESS if not all_errors else OperationStatus.PARTIAL
-        
+
         report = CleanupReport(
             files_deleted=total_deleted,
             space_freed_mb=total_freed,
@@ -205,27 +200,27 @@ class SystemUtilities:
             status=status,
             timestamp=datetime.now()
         )
-        
+
         self.logger.info(f"Cleanup complete: {total_deleted} files deleted, {total_freed:.2f} MB freed")
         return report
-        
+
     def cleanup_logs(self, retention_days: int = DEFAULT_LOG_RETENTION_DAYS) -> CleanupReport:
         """
         Clean up old log files.
-        
+
         Args:
             retention_days: Number of days to retain logs
-            
+
         Returns:
             CleanupReport with operation results
         """
         self.logger.info(f"Cleaning logs older than {retention_days} days")
-        
+
         files_deleted = 0
         space_freed = 0.0
         errors = []
         cutoff_date = datetime.now() - timedelta(days=retention_days)
-        
+
         try:
             if LOGS_DIR.exists():
                 for pattern in LOG_PATTERNS:
@@ -233,28 +228,28 @@ class SystemUtilities:
                         try:
                             if log_file.stat().st_mtime < cutoff_date.timestamp():
                                 size_mb = log_file.stat().st_size / (1024 * 1024)
-                                
+
                                 if self.dry_run:
                                     self.logger.info(f"[DRY RUN] Would delete: {log_file} ({size_mb:.2f} MB)")
                                 else:
                                     log_file.unlink()
                                     self.logger.debug(f"Deleted: {log_file}")
-                                    
+
                                 files_deleted += 1
                                 space_freed += size_mb
-                                
+
                         except Exception as e:
                             error_msg = f"Error deleting {log_file}: {e}"
                             errors.append(error_msg)
                             self.logger.error(error_msg)
-                            
+
         except Exception as e:
             error_msg = f"Error accessing logs directory: {e}"
             errors.append(error_msg)
             self.logger.error(error_msg)
-            
+
         status = OperationStatus.SUCCESS if not errors else OperationStatus.PARTIAL
-        
+
         return CleanupReport(
             files_deleted=files_deleted,
             space_freed_mb=space_freed,
@@ -262,20 +257,20 @@ class SystemUtilities:
             status=status,
             timestamp=datetime.now()
         )
-        
+
     def cleanup_temp_files(self) -> CleanupReport:
         """
         Clean up temporary files.
-        
+
         Returns:
             CleanupReport with operation results
         """
         self.logger.info("Cleaning temporary files")
-        
+
         files_deleted = 0
         space_freed = 0.0
         errors = []
-        
+
         # Clean system temp directory
         for temp_location in [TEMP_DIR, Path("/tmp")]:
             if temp_location.exists():
@@ -283,20 +278,20 @@ class SystemUtilities:
                     for temp_file in temp_location.glob(f"spyder_{pattern}"):
                         try:
                             size_mb = temp_file.stat().st_size / (1024 * 1024)
-                            
+
                             if self.dry_run:
                                 self.logger.info(f"[DRY RUN] Would delete: {temp_file}")
                             else:
                                 temp_file.unlink()
-                                
+
                             files_deleted += 1
                             space_freed += size_mb
-                            
+
                         except Exception as e:
                             errors.append(f"Error deleting {temp_file}: {e}")
-                            
+
         status = OperationStatus.SUCCESS if not errors else OperationStatus.PARTIAL
-        
+
         return CleanupReport(
             files_deleted=files_deleted,
             space_freed_mb=space_freed,
@@ -304,43 +299,43 @@ class SystemUtilities:
             status=status,
             timestamp=datetime.now()
         )
-        
+
     def cleanup_old_backups(self, retention_days: int = DEFAULT_BACKUP_RETENTION_DAYS) -> CleanupReport:
         """
         Clean up old backup files.
-        
+
         Args:
             retention_days: Number of days to retain backups
-            
+
         Returns:
             CleanupReport with operation results
         """
         self.logger.info(f"Cleaning backups older than {retention_days} days")
-        
+
         files_deleted = 0
         space_freed = 0.0
         errors = []
         cutoff_date = datetime.now() - timedelta(days=retention_days)
-        
+
         if BACKUP_DIR.exists():
             for backup_file in BACKUP_DIR.glob("spyder_backup_*.tar.gz"):
                 try:
                     if backup_file.stat().st_mtime < cutoff_date.timestamp():
                         size_mb = backup_file.stat().st_size / (1024 * 1024)
-                        
+
                         if self.dry_run:
                             self.logger.info(f"[DRY RUN] Would delete backup: {backup_file}")
                         else:
                             backup_file.unlink()
-                            
+
                         files_deleted += 1
                         space_freed += size_mb
-                        
+
                 except Exception as e:
                     errors.append(f"Error deleting backup {backup_file}: {e}")
-                    
+
         status = OperationStatus.SUCCESS if not errors else OperationStatus.PARTIAL
-        
+
         return CleanupReport(
             files_deleted=files_deleted,
             space_freed_mb=space_freed,
@@ -348,31 +343,31 @@ class SystemUtilities:
             status=status,
             timestamp=datetime.now()
         )
-        
+
     # ==========================================================================
     # BACKUP METHODS
     # ==========================================================================
     def create_backup(
-        self, 
+        self,
         backup_type: BackupType = BackupType.FULL,
         description: str = ""
-    ) -> Optional[BackupInfo]:
+    ) -> BackupInfo | None:
         """
         Create a system backup.
-        
+
         Args:
             backup_type: Type of backup to create
             description: Optional description for the backup
-            
+
         Returns:
             BackupInfo if successful, None otherwise
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_id = f"spyder_backup_{backup_type.value}_{timestamp}"
         backup_file = BACKUP_DIR / f"{backup_id}.tar.gz"
-        
+
         self.logger.info(f"Creating {backup_type.value} backup: {backup_id}")
-        
+
         try:
             files_count = 0
             manifest = {
@@ -384,22 +379,22 @@ class SystemUtilities:
                 "configs": [],
                 "data": []
             }
-            
+
             with tarfile.open(backup_file, "w:gz") as tar:
                 # Backup based on type
                 if backup_type in [BackupType.FULL, BackupType.CONFIG_ONLY]:
                     # Backup configuration files
                     if CONFIG_DIR.exists():
                         tar.add(CONFIG_DIR, arcname="config")
-                        manifest["configs"] = [str(f.relative_to(CONFIG_DIR)) 
+                        manifest["configs"] = [str(f.relative_to(CONFIG_DIR))
                                                for f in CONFIG_DIR.rglob("*") if f.is_file()]
                         files_count += len(manifest["configs"])
-                        
+
                     # Backup .env files
                     for env_file in Path(SPYDER_HOME).glob("*.env"):
                         tar.add(env_file, arcname=f"env/{env_file.name}")
                         files_count += 1
-                        
+
                 if backup_type in [BackupType.FULL, BackupType.DATA_ONLY]:
                     # Backup databases
                     if DATA_DIR.exists():
@@ -408,7 +403,7 @@ class SystemUtilities:
                             self._backup_sqlite_database(db_file, tar)
                             manifest["data"].append(db_file.name)
                             files_count += 1
-                            
+
                 if backup_type == BackupType.FULL:
                     # Backup Python modules (exclude __pycache__)
                     for module_dir in Path(SPYDER_HOME).glob("Spyder*"):
@@ -416,17 +411,17 @@ class SystemUtilities:
                             tar.add(module_dir, arcname=module_dir.name,
                                    filter=lambda x: None if "__pycache__" in x.name else x)
                             manifest["modules"].append(module_dir.name)
-                            
+
                 # Add manifest to backup
                 manifest_file = TEMP_DIR / f"{backup_id}_manifest.json"
                 with open(manifest_file, "w") as f:
                     json.dump(manifest, f, indent=2)
                 tar.add(manifest_file, arcname="manifest.json")
                 manifest_file.unlink()
-                
+
             # Get backup size
             size_mb = backup_file.stat().st_size / (1024 * 1024)
-            
+
             backup_info = BackupInfo(
                 backup_id=backup_id,
                 backup_type=backup_type,
@@ -436,20 +431,20 @@ class SystemUtilities:
                 location=backup_file,
                 manifest=manifest
             )
-            
+
             self.logger.info(f"Backup created successfully: {backup_file} ({size_mb:.2f} MB, {files_count} files)")
             return backup_info
-            
+
         except Exception as e:
             self.logger.error(f"Backup failed: {e}")
             if backup_file.exists():
                 backup_file.unlink()
             return None
-            
+
     def _backup_sqlite_database(self, db_path: Path, tar: tarfile.TarFile) -> None:
         """
         Create consistent SQLite database backup.
-        
+
         Args:
             db_path: Path to database file
             tar: Tar archive to add backup to
@@ -457,40 +452,39 @@ class SystemUtilities:
         try:
             # Use SQLite backup API for consistency
             backup_path = TEMP_DIR / f"{db_path.stem}_backup{db_path.suffix}"
-            
-            with sqlite3.connect(db_path) as source:
-                with sqlite3.connect(backup_path) as backup:
-                    source.backup(backup)
-                    
+
+            with sqlite3.connect(db_path) as source, sqlite3.connect(backup_path) as backup:
+                source.backup(backup)
+
             tar.add(backup_path, arcname=f"data/{db_path.name}")
             backup_path.unlink()
-            
+
         except Exception as e:
             self.logger.warning(f"SQLite backup failed, using file copy: {e}")
             tar.add(db_path, arcname=f"data/{db_path.name}")
-            
-    def restore_backup(self, backup_id: str, target_dir: Optional[Path] = None) -> bool:
+
+    def restore_backup(self, backup_id: str, target_dir: Path | None = None) -> bool:
         """
         Restore from a backup.
-        
+
         Args:
             backup_id: ID of the backup to restore
             target_dir: Target directory (defaults to SPYDER_HOME)
-            
+
         Returns:
             True if successful, False otherwise
         """
         backup_file = BACKUP_DIR / f"{backup_id}.tar.gz"
-        
+
         if not backup_file.exists():
             self.logger.error(f"Backup not found: {backup_file}")
             return False
-            
+
         target = target_dir or Path(SPYDER_HOME)
-        
+
         try:
             self.logger.info(f"Restoring backup: {backup_id}")
-            
+
             with tarfile.open(backup_file, "r:gz") as tar:
                 # Check manifest first
                 try:
@@ -500,52 +494,52 @@ class SystemUtilities:
                     self.logger.info(f"Restoring {manifest['type']} backup from {manifest['timestamp']}")
                 except KeyError:
                     self.logger.warning("No manifest found in backup")
-                    
+
                 # Extract all files
                 tar.extractall(target)
-                
+
             self.logger.info("Backup restored successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Restore failed: {e}")
             return False
-            
+
     # ==========================================================================
     # EXPORT METHODS
     # ==========================================================================
     def export_trading_data(
         self,
         format: str = "csv",
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> Optional[Path]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
+    ) -> Path | None:
         """
         Export trading data in specified format.
-        
+
         Args:
             format: Export format (csv, json, excel, parquet)
             start_date: Start date for data export
             end_date: End date for data export
-            
+
         Returns:
             Path to exported file if successful
         """
         if format not in EXPORT_FORMATS:
             self.logger.error(f"Invalid export format: {format}")
             return None
-            
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         export_file = EXPORT_DIR / f"spyder_export_{timestamp}.{format}"
-        
+
         try:
             # Collect data from databases
             data = self._collect_trading_data(start_date, end_date)
-            
+
             if not data:
                 self.logger.warning("No data to export")
                 return None
-                
+
             # Export based on format
             if format == "csv":
                 data.to_csv(export_file, index=False)
@@ -556,129 +550,129 @@ class SystemUtilities:
                     data.to_excel(writer, sheet_name='Trading Data', index=False)
             elif format == "parquet":
                 data.to_parquet(export_file, index=False)
-                
+
             self.logger.info(f"Data exported successfully: {export_file}")
             return export_file
-            
+
         except Exception as e:
             self.logger.error(f"Export failed: {e}")
             return None
-            
+
     def _collect_trading_data(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> Optional[pd.DataFrame]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
+    ) -> pd.DataFrame | None:
         """
         Collect trading data from databases.
-        
+
         Args:
             start_date: Start date for data collection
             end_date: End date for data collection
-            
+
         Returns:
             DataFrame with trading data
         """
         db_file = DATA_DIR / "spyder_trades.db"
-        
+
         if not db_file.exists():
             self.logger.warning("No trading database found")
             return None
-            
+
         try:
             conn = sqlite3.connect(db_file)
-            
+
             query = "SELECT * FROM trades WHERE 1=1"
             params = []
-            
+
             if start_date:
                 query += " AND timestamp >= ?"
                 params.append(start_date.isoformat())
-                
+
             if end_date:
                 query += " AND timestamp <= ?"
                 params.append(end_date.isoformat())
-                
+
             query += " ORDER BY timestamp"
-            
+
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
-            
+
             return df
-            
+
         except Exception as e:
             self.logger.error(f"Failed to collect trading data: {e}")
             return None
-            
+
     # ==========================================================================
     # DATABASE METHODS
     # ==========================================================================
     def optimize_databases(self) -> bool:
         """
         Optimize all SQLite databases.
-        
+
         Returns:
             True if successful, False otherwise
         """
         self.logger.info("Optimizing databases")
-        
+
         if not DATA_DIR.exists():
             return True
-            
+
         success = True
-        
+
         for db_file in DATA_DIR.glob("*.db"):
             try:
                 conn = sqlite3.connect(db_file)
-                
+
                 # VACUUM to reclaim space
                 conn.execute("VACUUM")
-                
+
                 # ANALYZE to update statistics
                 conn.execute("ANALYZE")
-                
+
                 conn.close()
                 self.logger.debug(f"Optimized: {db_file.name}")
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to optimize {db_file.name}: {e}")
                 success = False
-                
+
         return success
-        
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    def check_disk_space(self) -> Dict[str, float]:
+    def check_disk_space(self) -> dict[str, float]:
         """
         Check available disk space.
-        
+
         Returns:
             Dictionary with disk space information in GB
         """
         try:
             stat = os.statvfs(SPYDER_HOME)
-            
+
             total_gb = (stat.f_blocks * stat.f_frsize) / (1024**3)
             available_gb = (stat.f_available * stat.f_frsize) / (1024**3)
             used_gb = total_gb - available_gb
             percent_used = (used_gb / total_gb) * 100
-            
+
             return {
                 "total_gb": total_gb,
                 "available_gb": available_gb,
                 "used_gb": used_gb,
                 "percent_used": percent_used
             }
-            
+
         except Exception as e:
             self.logger.error(f"Failed to check disk space: {e}")
             return {}
-            
+
     def generate_maintenance_report(self) -> str:
         """
         Generate a maintenance report.
-        
+
         Returns:
             Formatted maintenance report string
         """
@@ -688,7 +682,7 @@ class SystemUtilities:
         report.append("=" * 60)
         report.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         report.append("")
-        
+
         # Disk space
         disk_info = self.check_disk_space()
         if disk_info:
@@ -697,7 +691,7 @@ class SystemUtilities:
             report.append(f"  Used: {disk_info['used_gb']:.2f} GB ({disk_info['percent_used']:.1f}%)")
             report.append(f"  Available: {disk_info['available_gb']:.2f} GB")
             report.append("")
-            
+
         # Log files
         if LOGS_DIR.exists():
             log_files = list(LOGS_DIR.glob("*.log"))
@@ -706,7 +700,7 @@ class SystemUtilities:
             report.append(f"  Count: {len(log_files)}")
             report.append(f"  Total Size: {total_size:.2f} MB")
             report.append("")
-            
+
         # Backups
         if BACKUP_DIR.exists():
             backup_files = list(BACKUP_DIR.glob("spyder_backup_*.tar.gz"))
@@ -718,7 +712,7 @@ class SystemUtilities:
                 report.append(f"  Total Size: {total_size:.2f} MB")
                 report.append(f"  Latest: {latest.name}")
                 report.append("")
-                
+
         # Databases
         if DATA_DIR.exists():
             db_files = list(DATA_DIR.glob("*.db"))
@@ -728,9 +722,9 @@ class SystemUtilities:
                     size_mb = db.stat().st_size / (1024**2)
                     report.append(f"  {db.name}: {size_mb:.2f} MB")
                 report.append("")
-                
+
         report.append("=" * 60)
-        
+
         return "\n".join(report)
 
 # ==============================================================================
@@ -739,47 +733,47 @@ class SystemUtilities:
 def perform_daily_maintenance() -> bool:
     """
     Perform daily maintenance tasks.
-    
+
     Returns:
         True if successful
     """
     utils = SystemUtilities()
-    
+
     # Cleanup old logs (keep 30 days)
     utils.cleanup_logs(retention_days=30)
-    
+
     # Cleanup temp files
     utils.cleanup_temp_files()
-    
+
     # Optimize databases
     utils.optimize_databases()
-    
+
     # Create daily backup (config only)
     utils.create_backup(backup_type=BackupType.CONFIG_ONLY, description="Daily backup")
-    
+
     return True
 
 def perform_weekly_maintenance() -> bool:
     """
     Perform weekly maintenance tasks.
-    
+
     Returns:
         True if successful
     """
     utils = SystemUtilities()
-    
+
     # Full cleanup
     utils.cleanup_all(retention_days=30)
-    
+
     # Create weekly full backup
     utils.create_backup(backup_type=BackupType.FULL, description="Weekly full backup")
-    
+
     # Generate and save report
     report = utils.generate_maintenance_report()
     report_file = LOGS_DIR / f"maintenance_report_{datetime.now().strftime('%Y%m%d')}.txt"
     with open(report_file, "w") as f:
         f.write(report)
-        
+
     return True
 
 # ==============================================================================
@@ -788,60 +782,60 @@ def perform_weekly_maintenance() -> bool:
 def main():
     """Main entry point for command line usage."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Spyder System Utilities - Maintenance and Management Tools"
     )
-    
+
     parser.add_argument(
         "action",
         choices=["cleanup", "backup", "restore", "export", "report", "daily", "weekly"],
         help="Action to perform"
     )
-    
+
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be done without doing it"
     )
-    
+
     parser.add_argument(
         "--retention-days",
         type=int,
         default=30,
         help="Days to retain files (for cleanup)"
     )
-    
+
     parser.add_argument(
         "--backup-type",
         choices=["full", "incremental", "config", "data"],
         default="full",
         help="Type of backup to create"
     )
-    
+
     parser.add_argument(
         "--backup-id",
         help="Backup ID for restore operation"
     )
-    
+
     parser.add_argument(
         "--export-format",
         choices=["csv", "json", "excel", "parquet"],
         default="csv",
         help="Export format for data"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Initialize utilities
     utils = SystemUtilities(dry_run=args.dry_run)
-    
+
     # Perform requested action
     if args.action == "cleanup":
         report = utils.cleanup_all(retention_days=args.retention_days)
         print(f"Cleanup complete: {report.files_deleted} files deleted, "
               f"{report.space_freed_mb:.2f} MB freed")
-        
+
     elif args.action == "backup":
         backup_type = BackupType[args.backup_type.upper()]
         info = utils.create_backup(backup_type=backup_type)
@@ -850,7 +844,7 @@ def main():
         else:
             print("Backup failed")
             sys.exit(1)
-            
+
     elif args.action == "restore":
         if not args.backup_id:
             print("Error: --backup-id required for restore")
@@ -861,7 +855,7 @@ def main():
         else:
             print("Restore failed")
             sys.exit(1)
-            
+
     elif args.action == "export":
         export_file = utils.export_trading_data(format=args.export_format)
         if export_file:
@@ -869,15 +863,15 @@ def main():
         else:
             print("Export failed")
             sys.exit(1)
-            
+
     elif args.action == "report":
         report = utils.generate_maintenance_report()
         print(report)
-        
+
     elif args.action == "daily":
         success = perform_daily_maintenance()
         print("Daily maintenance completed" if success else "Daily maintenance failed")
-        
+
     elif args.action == "weekly":
         success = perform_weekly_maintenance()
         print("Weekly maintenance completed" if success else "Weekly maintenance failed")

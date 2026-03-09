@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,31 +22,20 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
 import threading
-import json
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple, Any, Set, Deque
-from dataclasses import dataclass, field
-from collections import defaultdict, deque
-from enum import Enum, auto
-import warnings
+from typing import Any
+from dataclasses import dataclass
+from collections import deque
+from enum import Enum
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import bisect
 import math
 import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-import seaborn as sns
-from scipy import stats, optimize
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
+from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -56,7 +44,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed, get_data_feed_manager
+from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import get_data_feed_manager
 from Spyder.SpyderC_MarketData.SpyderC02_HistoricalData import HistoricalDataManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
@@ -138,9 +126,9 @@ class ESFuturesData:
     ask: float
     volume: int
     open_interest: int
-    settlement: Optional[float] = None
-    change: Optional[float] = None
-    change_pct: Optional[float] = None
+    settlement: float | None = None
+    change: float | None = None
+    change_pct: float | None = None
 
 @dataclass
 class SPYData:
@@ -150,9 +138,9 @@ class SPYData:
     bid: float
     ask: float
     volume: int
-    nav: Optional[float] = None  # Net Asset Value
-    premium_discount: Optional[float] = None
-    dividend_yield: Optional[float] = None
+    nav: float | None = None  # Net Asset Value
+    premium_discount: float | None = None
+    dividend_yield: float | None = None
 
 @dataclass
 class BasisData:
@@ -194,9 +182,9 @@ class ArbitrageSignal:
     risk_score: float
     entry_price_es: float
     entry_price_spy: float
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    max_holding_period: Optional[int] = None  # minutes
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    max_holding_period: int | None = None  # minutes
 
 @dataclass
 class BasisStatistics:
@@ -241,11 +229,11 @@ class FuturesBasisAnalyzer:
     ES/SPY basis analysis system for arbitrage opportunity detection,
     fair value calculations, and real-time monitoring.
     """
-    
-    def __init__(self, config: Optional[Dict] = None, provider: Optional[str] = None):
+
+    def __init__(self, config: dict | None = None, provider: str | None = None):
         """
         Initialize futures basis analyzer.
-        
+
         Args:
             config: Configuration dictionary
             provider: Market data provider name (e.g. 'databento')
@@ -256,62 +244,62 @@ class FuturesBasisAnalyzer:
         self.event_manager = get_event_manager()
         self.datetime_utils = DateTimeUtils()
         self.trading_calendar = TradingCalendar()
-        
+
         # Configuration
         self.config = config or {}
         self.provider = provider
-        
+
         # Data storage
-        self.current_es_data: Optional[ESFuturesData] = None
-        self.current_spy_data: Optional[SPYData] = None
-        self.current_basis: Optional[BasisData] = None
+        self.current_es_data: ESFuturesData | None = None
+        self.current_spy_data: SPYData | None = None
+        self.current_basis: BasisData | None = None
         self.basis_history: deque = deque(maxlen=HISTORICAL_BASIS_DAYS * 1440)  # Minute data
-        
+
         # Market data components
         self.data_feed = get_data_feed_manager(provider=provider)
         self.historical_manager = HistoricalDataManager() if provider else None
-        
+
         # Analysis components
         self.fair_value_calculator = FairValueCalculator()
         self.arbitrage_detector = ArbitrageDetector()
         self.basis_statistics = BasisStatisticsCalculator()
         self.dividend_tracker = DividendTracker()
-        
+
         # State tracking
         self.is_running = False
         self.last_update = None
         self.update_thread = None
         self.current_session = MarketSession.REGULAR
-        
+
         # Market parameters
         self.risk_free_rate = RISK_FREE_RATE_DEFAULT
         self.dividend_yield = DIVIDEND_YIELD_DEFAULT
         self.next_dividend = None
-        
+
         # Performance tracking
         self.arbitrage_signals: deque = deque(maxlen=1000)
         self.alert_history: deque = deque(maxlen=500)
-        
+
         # Initialize
         self._initialize_market_parameters()
         self._load_historical_basis_data()
-        
+
         self.logger.info("Futures Basis Analyzer initialized successfully")
 
     # ==========================================================================
     # PUBLIC METHODS - DATA UPDATES
     # ==========================================================================
-    
+
     def start_real_time_monitoring(self) -> None:
         """Start real-time basis monitoring"""
         if self.is_running:
             self.logger.warning("Basis monitoring already running")
             return
-            
+
         self.is_running = True
         self.update_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
         self.update_thread.start()
-        
+
         self.logger.info("Started real-time basis monitoring")
 
     def stop_real_time_monitoring(self) -> None:
@@ -319,13 +307,13 @@ class FuturesBasisAnalyzer:
         self.is_running = False
         if self.update_thread:
             self.update_thread.join(timeout=5.0)
-        
+
         self.logger.info("Stopped real-time basis monitoring")
 
-    def update_market_data(self) -> Tuple[ESFuturesData, SPYData]:
+    def update_market_data(self) -> tuple[ESFuturesData, SPYData]:
         """
         Update ES and SPY market data.
-        
+
         Returns:
             Tuple of (ES data, SPY data)
         """
@@ -337,14 +325,14 @@ class FuturesBasisAnalyzer:
             else:
                 es_data = self._fetch_simulated_es_data()
                 spy_data = self._fetch_simulated_spy_data()
-            
+
             self.current_es_data = es_data
             self.current_spy_data = spy_data
             self.last_update = datetime.now()
-            
+
             # Calculate basis
             self._calculate_current_basis()
-            
+
             # Emit update event
             self.event_manager.emit_event(Event(
                 type=EventType.DATA_UPDATE,
@@ -355,9 +343,9 @@ class FuturesBasisAnalyzer:
                     'basis': self.current_basis
                 }
             ))
-            
+
             return es_data, spy_data
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "update_market_data")
             raise
@@ -365,13 +353,13 @@ class FuturesBasisAnalyzer:
     def calculate_fair_value(self) -> FairValueCalculation:
         """
         Calculate theoretical fair value for ES futures.
-        
+
         Returns:
             Fair value calculation
         """
         if not self.current_spy_data:
             raise ValueError("No SPY data available for fair value calculation")
-        
+
         try:
             fair_value = self.fair_value_calculator.calculate(
                 spy_price=self.current_spy_data.price,
@@ -380,9 +368,9 @@ class FuturesBasisAnalyzer:
                 days_to_expiry=self._get_days_to_expiry(),
                 next_dividend=self.next_dividend
             )
-            
+
             return fair_value
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "calculate_fair_value")
             raise
@@ -390,17 +378,17 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS
     # ==========================================================================
-    
-    def detect_arbitrage_opportunities(self) -> List[ArbitrageSignal]:
+
+    def detect_arbitrage_opportunities(self) -> list[ArbitrageSignal]:
         """
         Detect arbitrage opportunities.
-        
+
         Returns:
             List of arbitrage signals
         """
         if not all([self.current_es_data, self.current_spy_data, self.current_basis]):
             return []
-        
+
         try:
             opportunities = self.arbitrage_detector.detect(
                 es_data=self.current_es_data,
@@ -409,17 +397,17 @@ class FuturesBasisAnalyzer:
                 fair_value=self.calculate_fair_value(),
                 historical_basis=list(self.basis_history)
             )
-            
+
             # Store signals
             self.arbitrage_signals.extend(opportunities)
-            
+
             # Emit signals
             for signal in opportunities:
                 if signal.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY:
                     self._emit_arbitrage_signal(signal)
-            
+
             return opportunities
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "detect_arbitrage_opportunities")
             return []
@@ -427,21 +415,21 @@ class FuturesBasisAnalyzer:
     def analyze_basis_regime(self) -> BasisRegime:
         """
         Analyze current basis trading regime.
-        
+
         Returns:
             Current basis regime
         """
         if len(self.basis_history) < 100:
             return BasisRegime.STABLE
-        
+
         try:
             # Calculate regime metrics
             recent_basis = [b.basis_points for b in list(self.basis_history)[-60:]]  # Last hour
             recent_volatility = np.std(recent_basis)
-            
+
             # Get statistical analysis
             stats = self.basis_statistics.calculate(list(self.basis_history))
-            
+
             # Determine regime
             if abs(stats.zscore) > 3.0:
                 return BasisRegime.ANOMALY
@@ -453,7 +441,7 @@ class FuturesBasisAnalyzer:
                 return BasisRegime.STABLE
             else:
                 return BasisRegime.CONVERGENCE
-                
+
         except Exception as e:
             self.error_handler.handle_error(e, "analyze_basis_regime")
             return BasisRegime.STABLE
@@ -461,37 +449,37 @@ class FuturesBasisAnalyzer:
     def get_basis_statistics(self) -> BasisStatistics:
         """
         Get comprehensive basis statistics.
-        
+
         Returns:
             Basis statistics
         """
         if len(self.basis_history) < 20:
             raise ValueError("Insufficient basis history for statistics")
-        
+
         try:
             return self.basis_statistics.calculate(list(self.basis_history))
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "get_basis_statistics")
             raise
 
-    def check_dividend_impact(self) -> Dict[str, Any]:
+    def check_dividend_impact(self) -> dict[str, Any]:
         """
         Check upcoming dividend impact on basis.
-        
+
         Returns:
             Dividend impact analysis
         """
         try:
             dividend_info = self.dividend_tracker.get_next_dividend_info()
-            
+
             if not dividend_info:
                 return {'has_upcoming_dividend': False}
-            
+
             # Calculate impact
             days_to_ex = dividend_info.days_to_ex_date
             impact_on_basis = dividend_info.amount * dividend_info.adjustment_factor
-            
+
             return {
                 'has_upcoming_dividend': True,
                 'ex_date': dividend_info.ex_date,
@@ -501,7 +489,7 @@ class FuturesBasisAnalyzer:
                 'yield_impact': dividend_info.yield_impact,
                 'recommended_action': self._get_dividend_trading_recommendation(dividend_info)
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "check_dividend_impact")
             return {'has_upcoming_dividend': False, 'error': str(e)}
@@ -509,23 +497,23 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PUBLIC METHODS - UTILITY
     # ==========================================================================
-    
-    def get_monitoring_summary(self) -> Dict[str, Any]:
+
+    def get_monitoring_summary(self) -> dict[str, Any]:
         """
         Get comprehensive monitoring summary.
-        
+
         Returns:
             Dictionary containing monitoring summary
         """
         if not all([self.current_es_data, self.current_spy_data, self.current_basis]):
             return {'status': 'insufficient_data'}
-        
+
         try:
             fair_value = self.calculate_fair_value()
             regime = self.analyze_basis_regime()
             opportunities = self.detect_arbitrage_opportunities()
             dividend_info = self.check_dividend_impact()
-            
+
             return {
                 'timestamp': datetime.now().isoformat(),
                 'es_price': f"{self.current_es_data.price:.2f}",
@@ -538,7 +526,7 @@ class FuturesBasisAnalyzer:
                 'fair_value': f"{fair_value.fair_value:.2f}",
                 'theoretical_es': f"{fair_value.theoretical_es_price:.2f}",
                 'regime': regime.value,
-                'arbitrage_opportunities': len([o for o in opportunities 
+                'arbitrage_opportunities': len([o for o in opportunities
                                                if o.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY]),
                 'best_opportunity': opportunities[0].opportunity_type.value if opportunities else 'none',
                 'expected_profit_bps': f"{opportunities[0].profit_bps:.1f}" if opportunities else "0.0",
@@ -546,41 +534,41 @@ class FuturesBasisAnalyzer:
                 'session': self.current_session.value,
                 'last_update': self.last_update.isoformat() if self.last_update else None
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "get_monitoring_summary")
             return {'status': 'error', 'message': str(e)}
 
-    def get_historical_performance(self, days: int = 30) -> Dict[str, Any]:
+    def get_historical_performance(self, days: int = 30) -> dict[str, Any]:
         """
         Get historical arbitrage performance.
-        
+
         Args:
             days: Number of days to analyze
-            
+
         Returns:
             Historical performance metrics
         """
         try:
             cutoff_time = datetime.now() - timedelta(days=days)
-            recent_signals = [s for s in self.arbitrage_signals 
+            recent_signals = [s for s in self.arbitrage_signals
                             if s.timestamp >= cutoff_time]
-            
+
             if not recent_signals:
                 return {'period_days': days, 'total_signals': 0}
-            
+
             # Calculate performance metrics
             total_signals = len(recent_signals)
             profitable_signals = len([s for s in recent_signals if s.expected_profit > 0])
             avg_profit_bps = np.mean([s.profit_bps for s in recent_signals])
             max_profit_bps = max([s.profit_bps for s in recent_signals])
-            
+
             # Signal distribution
             signal_types = {}
             for signal in recent_signals:
                 signal_type = signal.opportunity_type.value
                 signal_types[signal_type] = signal_types.get(signal_type, 0) + 1
-            
+
             return {
                 'period_days': days,
                 'total_signals': total_signals,
@@ -591,7 +579,7 @@ class FuturesBasisAnalyzer:
                 'signal_distribution': signal_types,
                 'daily_avg_signals': f"{total_signals/days:.1f}"
             }
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "get_historical_performance")
             return {'error': str(e)}
@@ -599,7 +587,7 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - DATA FETCHING
     # ==========================================================================
-    
+
     def _fetch_live_es_data(self) -> ESFuturesData:
         """Fetch live ES futures data from IB"""
         # Implementation for live ES data fetching
@@ -616,11 +604,11 @@ class FuturesBasisAnalyzer:
         base_price = 4500.0
         if self.current_es_data:
             base_price = self.current_es_data.price
-        
+
         # Simple random walk
         change = np.random.normal(0, 2.5)
         new_price = base_price + change
-        
+
         return ESFuturesData(
             timestamp=datetime.now(),
             contract_month='M',  # June contract
@@ -641,11 +629,11 @@ class FuturesBasisAnalyzer:
             base_spy = self.current_es_data.price / ES_MULTIPLIER
         else:
             base_spy = 450.0
-        
+
         # Add small random variation
         change = np.random.normal(0, 0.05)
         new_price = base_spy + change
-        
+
         return SPYData(
             timestamp=datetime.now(),
             price=new_price,
@@ -660,24 +648,24 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - CALCULATIONS
     # ==========================================================================
-    
+
     def _calculate_current_basis(self) -> None:
         """Calculate current basis between ES and SPY"""
         if not all([self.current_es_data, self.current_spy_data]):
             return
-        
+
         try:
             # Calculate raw basis (ES - SPY*50)
             spy_equivalent = self.current_spy_data.price * ES_MULTIPLIER
             raw_basis = self.current_es_data.price - spy_equivalent
-            
+
             # Calculate fair value basis
             fair_value = self.calculate_fair_value()
             fair_value_basis = self.current_es_data.price - fair_value.theoretical_es_price
-            
+
             # Convert to basis points
             basis_points = (fair_value_basis / spy_equivalent) * 10000
-            
+
             # Determine direction
             if abs(basis_points) < 1.0:
                 direction = BasisDirection.FAIR
@@ -685,7 +673,7 @@ class FuturesBasisAnalyzer:
                 direction = BasisDirection.POSITIVE
             else:
                 direction = BasisDirection.NEGATIVE
-            
+
             # Create basis data
             self.current_basis = BasisData(
                 timestamp=datetime.now(),
@@ -700,10 +688,10 @@ class FuturesBasisAnalyzer:
                 dividend_yield=self.dividend_yield,
                 cost_of_carry=self._calculate_cost_of_carry()
             )
-            
+
             # Add to history
             self.basis_history.append(self.current_basis)
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "_calculate_current_basis")
 
@@ -711,7 +699,7 @@ class FuturesBasisAnalyzer:
         """Get days to ES futures expiry"""
         if not self.current_es_data:
             return 30  # Default
-        
+
         today = date.today()
         return (self.current_es_data.expiration_date - today).days
 
@@ -722,7 +710,7 @@ class FuturesBasisAnalyzer:
     def _get_dividend_trading_recommendation(self, dividend_info: DividendSchedule) -> str:
         """Get trading recommendation based on dividend timing"""
         days_to_ex = dividend_info.days_to_ex_date
-        
+
         if days_to_ex <= 1:
             return "AVOID_NEW_POSITIONS"
         elif days_to_ex <= 3:
@@ -735,20 +723,20 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - INITIALIZATION
     # ==========================================================================
-    
+
     def _initialize_market_parameters(self) -> None:
         """Initialize market parameters"""
         try:
             # Update interest rates
             self._update_interest_rates()
-            
+
             # Update dividend information
             self.dividend_tracker.update_dividend_schedule()
             self.next_dividend = self.dividend_tracker.get_next_dividend_info()
-            
+
             # Determine current session
             self.current_session = self._determine_market_session()
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, "_initialize_market_parameters")
 
@@ -764,7 +752,7 @@ class FuturesBasisAnalyzer:
                     # Simulate historical basis
                     timestamp = datetime.now() - timedelta(minutes=i)
                     basis_points = np.random.normal(0, 5)  # Historical mean ~0, std ~5 bps
-                    
+
                     basis_data = BasisData(
                         timestamp=timestamp,
                         es_price=4500 + np.random.normal(0, 20),
@@ -778,9 +766,9 @@ class FuturesBasisAnalyzer:
                         dividend_yield=self.dividend_yield,
                         cost_of_carry=self._calculate_cost_of_carry()
                     )
-                    
+
                     self.basis_history.appendleft(basis_data)
-                    
+
         except Exception as e:
             self.error_handler.handle_error(e, "_load_historical_basis_data")
 
@@ -793,7 +781,7 @@ class FuturesBasisAnalyzer:
     def _determine_market_session(self) -> MarketSession:
         """Determine current market session"""
         now = datetime.now().time()
-        
+
         if datetime.time(4, 0) <= now < datetime.time(9, 30):
             return MarketSession.PRE_MARKET
         elif datetime.time(9, 30) <= now < datetime.time(16, 0):
@@ -806,27 +794,27 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - MONITORING
     # ==========================================================================
-    
+
     def _monitoring_loop(self) -> None:
         """Main monitoring loop"""
         while self.is_running:
             try:
                 # Update market data
                 self.update_market_data()
-                
+
                 # Check for arbitrage opportunities
-                opportunities = self.detect_arbitrage_opportunities()
-                
+                self.detect_arbitrage_opportunities()
+
                 # Check for alerts
                 self._check_monitoring_alerts()
-                
+
                 # Update market parameters periodically
-                if (not self.last_update or 
+                if (not self.last_update or
                     (datetime.now() - self.last_update).seconds >= INTEREST_RATE_UPDATE_FREQUENCY):
                     self._update_interest_rates()
-                
+
                 time.sleep(BASIS_UPDATE_FREQUENCY)
-                
+
             except Exception as e:
                 self.error_handler.handle_error(e, "_monitoring_loop")
                 time.sleep(10)  # Wait longer on error
@@ -835,10 +823,10 @@ class FuturesBasisAnalyzer:
         """Check for monitoring alerts"""
         if not self.current_basis:
             return
-        
+
         try:
             alerts = []
-            
+
             # Extreme basis alert
             if abs(self.current_basis.basis_points) > 20:
                 alerts.append(BasisMonitoringAlert(
@@ -850,13 +838,13 @@ class FuturesBasisAnalyzer:
                     threshold_breached=20.0,
                     recommended_action="INVESTIGATE_ARBITRAGE"
                 ))
-            
+
             # Arbitrage opportunity alert
             opportunities = self.detect_arbitrage_opportunities()
-            profitable_ops = [o for o in opportunities 
-                            if o.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY 
+            profitable_ops = [o for o in opportunities
+                            if o.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY
                             and o.profit_bps > MIN_PROFIT_THRESHOLD]
-            
+
             if profitable_ops:
                 best_op = max(profitable_ops, key=lambda x: x.profit_bps)
                 alerts.append(BasisMonitoringAlert(
@@ -868,12 +856,12 @@ class FuturesBasisAnalyzer:
                     threshold_breached=MIN_PROFIT_THRESHOLD,
                     recommended_action=best_op.opportunity_type.value.upper()
                 ))
-            
+
             # Store and emit alerts
             for alert in alerts:
                 self.alert_history.append(alert)
                 self._emit_monitoring_alert(alert)
-                
+
         except Exception as e:
             self.error_handler.handle_error(e, "_check_monitoring_alerts")
 
@@ -887,7 +875,7 @@ class FuturesBasisAnalyzer:
             'entry_price_es': signal.entry_price_es,
             'entry_price_spy': signal.entry_price_spy
         }
-        
+
         self.event_manager.emit_event(Event(
             type=EventType.SIGNAL_GENERATED,
             source=self.__class__.__name__,
@@ -902,7 +890,7 @@ class FuturesBasisAnalyzer:
             'message': alert.message,
             'recommended_action': alert.recommended_action
         }
-        
+
         self.event_manager.emit_event(Event(
             type=EventType.ALERT_GENERATED,
             source=self.__class__.__name__,
@@ -914,18 +902,18 @@ class FuturesBasisAnalyzer:
 # ==============================================================================
 class FairValueCalculator:
     """Fair value calculation for ES futures"""
-    
-    def calculate(self, spy_price: float, interest_rate: float, 
+
+    def calculate(self, spy_price: float, interest_rate: float,
                  dividend_yield: float, days_to_expiry: int,
-                 next_dividend: Optional[DividendSchedule] = None) -> FairValueCalculation:
+                 next_dividend: DividendSchedule | None = None) -> FairValueCalculation:
         """Calculate theoretical fair value"""
-        
+
         # Time to expiry in years
         time_to_expiry = days_to_expiry / 365.0
-        
+
         # Interest adjustment (compound interest)
         interest_adjustment = spy_price * (math.exp(interest_rate * time_to_expiry) - 1)
-        
+
         # Dividend adjustment
         dividend_adjustment = 0.0
         if next_dividend and next_dividend.days_to_ex_date <= days_to_expiry:
@@ -937,11 +925,11 @@ class FairValueCalculator:
         else:
             # Estimated dividend yield
             dividend_adjustment = spy_price * dividend_yield * time_to_expiry
-        
+
         # Fair value calculation
         fair_value = spy_price + interest_adjustment - dividend_adjustment
         theoretical_es_price = fair_value * ES_MULTIPLIER
-        
+
         return FairValueCalculation(
             timestamp=datetime.now(),
             spy_price=spy_price,
@@ -958,20 +946,20 @@ class FairValueCalculator:
 
 class ArbitrageDetector:
     """Arbitrage opportunity detection"""
-    
+
     def detect(self, es_data: ESFuturesData, spy_data: SPYData,
               basis_data: BasisData, fair_value: FairValueCalculation,
-              historical_basis: List[BasisData]) -> List[ArbitrageSignal]:
+              historical_basis: list[BasisData]) -> list[ArbitrageSignal]:
         """Detect arbitrage opportunities"""
-        
+
         signals = []
-        
+
         # Calculate mispricing
         theoretical_es = fair_value.theoretical_es_price
         actual_es = es_data.price
         mispricing = actual_es - theoretical_es
         mispricing_bps = (mispricing / (spy_data.price * ES_MULTIPLIER)) * 10000
-        
+
         # Check if mispricing exceeds threshold
         if abs(mispricing_bps) < MIN_BASIS_POINTS:
             signals.append(ArbitrageSignal(
@@ -985,21 +973,21 @@ class ArbitrageDetector:
                 entry_price_spy=spy_data.price
             ))
             return signals
-        
+
         # Determine opportunity type
         if mispricing > 0:  # ES overvalued
             opportunity_type = ArbitrageOpportunity.SELL_ES_BUY_SPY
         else:  # ES undervalued
             opportunity_type = ArbitrageOpportunity.BUY_ES_SELL_SPY
-        
+
         # Calculate expected profit
         expected_profit = abs(mispricing) - TRANSACTION_COSTS
         profit_bps = abs(mispricing_bps) - (TRANSACTION_COSTS / (spy_data.price * ES_MULTIPLIER) * 10000)
-        
+
         # Calculate confidence and risk scores
         confidence_score = self._calculate_confidence_score(mispricing_bps, historical_basis)
         risk_score = self._calculate_risk_score(es_data, spy_data, basis_data)
-        
+
         # Check if profitable after costs
         if profit_bps > MIN_PROFIT_THRESHOLD:
             signals.append(ArbitrageSignal(
@@ -1025,20 +1013,20 @@ class ArbitrageDetector:
                 entry_price_es=es_data.price,
                 entry_price_spy=spy_data.price
             ))
-        
+
         return signals
-    
-    def _calculate_confidence_score(self, mispricing_bps: float, 
-                                  historical_basis: List[BasisData]) -> float:
+
+    def _calculate_confidence_score(self, mispricing_bps: float,
+                                  historical_basis: list[BasisData]) -> float:
         """Calculate confidence score for arbitrage signal"""
         if len(historical_basis) < 50:
             return 0.5  # Medium confidence with limited data
-        
+
         # Calculate historical statistics
         historical_bps = [b.basis_points for b in historical_basis[-252:]]  # Last year
         mean_basis = np.mean(historical_bps)
         std_basis = np.std(historical_bps)
-        
+
         # Z-score of current mispricing
         if std_basis > 0:
             z_score = abs((mispricing_bps - mean_basis) / std_basis)
@@ -1046,53 +1034,53 @@ class ArbitrageDetector:
             confidence = min(0.95, z_score / 3.0)
         else:
             confidence = 0.5
-        
+
         return confidence
-    
+
     def _calculate_risk_score(self, es_data: ESFuturesData, spy_data: SPYData,
                             basis_data: BasisData) -> float:
         """Calculate risk score for arbitrage signal"""
         risk_factors = []
-        
+
         # Volume risk (low volume = higher risk)
         if es_data.volume < 1000:
             risk_factors.append(0.3)
         elif es_data.volume < 5000:
             risk_factors.append(0.1)
-        
+
         # Spread risk (wide spreads = higher risk)
         es_spread_bps = ((es_data.ask - es_data.bid) / es_data.price) * 10000
         spy_spread_bps = ((spy_data.ask - spy_data.bid) / spy_data.price) * 10000
-        
+
         if es_spread_bps > 10 or spy_spread_bps > 5:
             risk_factors.append(0.2)
-        
+
         # Time to expiry risk (close to expiry = higher risk)
         if basis_data.days_to_expiry < 5:
             risk_factors.append(0.4)
         elif basis_data.days_to_expiry < 15:
             risk_factors.append(0.2)
-        
+
         # Calculate overall risk score
         base_risk = 0.1  # Base risk level
         additional_risk = sum(risk_factors)
-        
+
         return min(0.9, base_risk + additional_risk)
 
 
 class BasisStatisticsCalculator:
     """Basis statistics calculation"""
-    
-    def calculate(self, basis_history: List[BasisData]) -> BasisStatistics:
+
+    def calculate(self, basis_history: list[BasisData]) -> BasisStatistics:
         """Calculate comprehensive basis statistics"""
-        
+
         if len(basis_history) < 20:
             raise ValueError("Insufficient data for statistics calculation")
-        
+
         # Extract basis points
         basis_points = [b.basis_points for b in basis_history]
         current_basis = basis_points[-1]
-        
+
         # Basic statistics
         mean_basis = np.mean(basis_points)
         std_basis = np.std(basis_points)
@@ -1100,22 +1088,22 @@ class BasisStatisticsCalculator:
         percentile_95 = np.percentile(basis_points, 95)
         current_percentile = stats.percentileofscore(basis_points, current_basis)
         zscore = (current_basis - mean_basis) / std_basis if std_basis > 0 else 0
-        
+
         # Volatility (rolling standard deviation)
         if len(basis_points) >= 20:
             recent_volatility = np.std(basis_points[-20:])
         else:
             recent_volatility = std_basis
-        
+
         # Autocorrelation
         if len(basis_points) >= 50:
             autocorr = np.corrcoef(basis_points[:-1], basis_points[1:])[0, 1]
         else:
             autocorr = 0.0
-        
+
         # Mean reversion half-life estimation
         half_life = self._calculate_mean_reversion_half_life(basis_points)
-        
+
         return BasisStatistics(
             timestamp=datetime.now(),
             mean_basis=mean_basis,
@@ -1128,49 +1116,49 @@ class BasisStatisticsCalculator:
             autocorrelation=autocorr,
             mean_reversion_half_life=half_life
         )
-    
-    def _calculate_mean_reversion_half_life(self, basis_points: List[float]) -> float:
+
+    def _calculate_mean_reversion_half_life(self, basis_points: list[float]) -> float:
         """Calculate mean reversion half-life in minutes"""
         if len(basis_points) < 100:
             return 60.0  # Default 1 hour
-        
+
         try:
             # Simple AR(1) estimation
             y = np.array(basis_points[1:])
             x = np.array(basis_points[:-1])
-            
+
             # Add constant term
             X = np.column_stack([np.ones(len(x)), x])
-            
+
             # OLS regression
             beta = np.linalg.lstsq(X, y, rcond=None)[0]
             phi = beta[1]  # AR coefficient
-            
+
             # Half-life calculation
             if 0 < phi < 1:
                 half_life = -np.log(2) / np.log(phi)
             else:
                 half_life = 60.0  # Default if no mean reversion detected
-            
+
             return min(max(half_life, 5.0), 1440.0)  # Bound between 5 minutes and 1 day
-            
-        except:
+
+        except Exception:
             return 60.0  # Default on error
 
 
 class DividendTracker:
     """SPY dividend tracking and impact analysis"""
-    
+
     def __init__(self):
-        self.dividend_schedule: List[DividendSchedule] = []
+        self.dividend_schedule: list[DividendSchedule] = []
         self.last_update = None
-    
+
     def update_dividend_schedule(self) -> None:
         """Update SPY dividend schedule"""
         # In real implementation, would fetch from market data provider
         # For now, create sample dividend schedule
         today = date.today()
-        
+
         # SPY typically pays quarterly dividends
         sample_dividends = [
             DividendSchedule(
@@ -1206,29 +1194,29 @@ class DividendTracker:
                 adjustment_factor=0.95
             )
         ]
-        
+
         # Filter for future dividends
         self.dividend_schedule = [d for d in sample_dividends if d.days_to_ex_date >= 0]
         self.last_update = datetime.now()
-    
-    def get_next_dividend_info(self) -> Optional[DividendSchedule]:
+
+    def get_next_dividend_info(self) -> DividendSchedule | None:
         """Get information about the next upcoming dividend"""
         if not self.dividend_schedule:
             return None
-        
+
         # Find the next dividend (minimum days to ex-date)
         upcoming_dividends = [d for d in self.dividend_schedule if d.days_to_ex_date >= 0]
         if not upcoming_dividends:
             return None
-        
+
         return min(upcoming_dividends, key=lambda x: x.days_to_ex_date)
-    
+
     def get_dividend_impact_factor(self, days_to_expiry: int) -> float:
         """Calculate dividend impact factor for basis calculation"""
         next_div = self.get_next_dividend_info()
         if not next_div or next_div.days_to_ex_date > days_to_expiry:
             return 0.0
-        
+
         # Impact decreases as we get closer to ex-date
         time_factor = max(0.1, next_div.days_to_ex_date / days_to_expiry)
         return next_div.amount * next_div.adjustment_factor * time_factor
@@ -1237,31 +1225,31 @@ class DividendTracker:
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_futures_basis_analyzer(config: Optional[Dict] = None,
-                                 provider: Optional[str] = None) -> FuturesBasisAnalyzer:
+def create_futures_basis_analyzer(config: dict | None = None,
+                                 provider: str | None = None) -> FuturesBasisAnalyzer:
     """
     Factory function to create futures basis analyzer.
-    
+
     Args:
         config: Configuration dictionary
 provider: Market data provider name (e.g. 'databento')
-        
+
     Returns:
         Configured FuturesBasisAnalyzer instance
     """
     return FuturesBasisAnalyzer(config=config, provider=provider)
 
-def calculate_theoretical_basis(spy_price: float, interest_rate: float, 
+def calculate_theoretical_basis(spy_price: float, interest_rate: float,
                               dividend_yield: float, days_to_expiry: int) -> float:
     """
     Calculate theoretical basis between ES and SPY.
-    
+
     Args:
         spy_price: Current SPY price
         interest_rate: Risk-free interest rate
         dividend_yield: SPY dividend yield
         days_to_expiry: Days to ES futures expiry
-        
+
     Returns:
         Theoretical basis in points
     """
@@ -1269,20 +1257,20 @@ def calculate_theoretical_basis(spy_price: float, interest_rate: float,
     fair_value = calculator.calculate(spy_price, interest_rate, dividend_yield, days_to_expiry)
     return fair_value.theoretical_es_price - (spy_price * ES_MULTIPLIER)
 
-def get_basis_percentile(current_basis: float, historical_basis: List[float]) -> float:
+def get_basis_percentile(current_basis: float, historical_basis: list[float]) -> float:
     """
     Get percentile ranking of current basis.
-    
+
     Args:
         current_basis: Current basis value
         historical_basis: List of historical basis values
-        
+
     Returns:
         Percentile ranking (0-100)
     """
     if not historical_basis:
         return 50.0
-    
+
     return stats.percentileofscore(historical_basis, current_basis)
 
 # ==============================================================================
@@ -1290,9 +1278,9 @@ def get_basis_percentile(current_basis: float, historical_basis: List[float]) ->
 # ==============================================================================
 
 # Module-level initialization code
-_global_analyzer: Optional[FuturesBasisAnalyzer] = None
+_global_analyzer: FuturesBasisAnalyzer | None = None
 
-def get_global_analyzer() -> Optional[FuturesBasisAnalyzer]:
+def get_global_analyzer() -> FuturesBasisAnalyzer | None:
     """Get global analyzer instance"""
     return _global_analyzer
 
@@ -1307,129 +1295,67 @@ def set_global_analyzer(analyzer: FuturesBasisAnalyzer) -> None:
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER C11 - Futures Basis Analyzer Test")
-    print("=" * 80)
-    
+
     # Create analyzer
     basis_analyzer = FuturesBasisAnalyzer()
-    
+
     # Update market data
-    print("\n1. Updating Market Data...")
     es_data, spy_data = basis_analyzer.update_market_data()
-    print(f"ES Price: {es_data.price:.2f}")
-    print(f"SPY Price: {spy_data.price:.2f}")
-    print(f"ES Volume: {es_data.volume:,}")
-    print(f"SPY Volume: {spy_data.volume:,}")
-    
+
     # Calculate fair value
-    print("\n2. Calculating Fair Value...")
     fair_value = basis_analyzer.calculate_fair_value()
-    print(f"SPY Price: ${fair_value.spy_price:.2f}")
-    print(f"Fair Value: ${fair_value.fair_value:.2f}")
-    print(f"Theoretical ES: {fair_value.theoretical_es_price:.2f}")
-    print(f"Interest Adjustment: ${fair_value.interest_adjustment:.4f}")
-    print(f"Dividend Adjustment: ${fair_value.dividend_adjustment:.4f}")
-    
+
     # Analyze current basis
-    print("\n3. Analyzing Current Basis...")
     if basis_analyzer.current_basis:
         basis = basis_analyzer.current_basis
-        print(f"Raw Basis: {basis.raw_basis:.2f} points")
-        print(f"Fair Value Basis: {basis.fair_value_basis:.2f} points")
-        print(f"Basis Points: {basis.basis_points:.1f} bps")
-        print(f"Direction: {basis.direction.value}")
-        print(f"Days to Expiry: {basis.days_to_expiry}")
-    
+
     # Detect arbitrage opportunities
-    print("\n4. Detecting Arbitrage Opportunities...")
     opportunities = basis_analyzer.detect_arbitrage_opportunities()
     if opportunities:
-        for i, opp in enumerate(opportunities):
-            print(f"  Opportunity {i+1}:")
-            print(f"    Type: {opp.opportunity_type.value}")
-            print(f"    Expected Profit: ${opp.expected_profit:.4f}")
-            print(f"    Profit (bps): {opp.profit_bps:.2f}")
-            print(f"    Confidence: {opp.confidence_score:.1%}")
-            print(f"    Risk Score: {opp.risk_score:.1%}")
-    
+        for _i, _opp in enumerate(opportunities):
+            pass
+
     # Get basis statistics
-    print("\n5. Basis Statistics...")
     try:
         stats = basis_analyzer.get_basis_statistics()
-        print(f"Mean Basis: {stats.mean_basis:.2f} bps")
-        print(f"Std Dev: {stats.std_basis:.2f} bps")
-        print(f"Current Percentile: {stats.current_percentile:.0f}%")
-        print(f"Z-Score: {stats.zscore:.2f}")
-        print(f"Volatility: {stats.volatility:.2f} bps")
-        print(f"Mean Reversion Half-Life: {stats.mean_reversion_half_life:.0f} minutes")
-    except ValueError as e:
-        print(f"Statistics not available: {e}")
-    
+    except ValueError:
+        pass
+
     # Check dividend impact
-    print("\n6. Dividend Impact Analysis...")
     dividend_info = basis_analyzer.check_dividend_impact()
     if dividend_info['has_upcoming_dividend']:
-        print(f"Next Ex-Date: {dividend_info['ex_date']}")
-        print(f"Days to Ex-Date: {dividend_info['days_to_ex_date']}")
-        print(f"Dividend Amount: ${dividend_info['dividend_amount']:.2f}")
-        print(f"Estimated Basis Impact: {dividend_info['estimated_basis_impact']:.2f} points")
-        print(f"Recommended Action: {dividend_info['recommended_action']}")
+        pass
     else:
-        print("No upcoming dividend impact")
-    
+        pass
+
     # Get monitoring summary
-    print("\n7. Monitoring Summary...")
     summary = basis_analyzer.get_monitoring_summary()
     if summary.get('status') != 'insufficient_data':
-        print(f"ES Price: {summary['es_price']}")
-        print(f"SPY Price: {summary['spy_price']}")
-        print(f"Basis Points: {summary['basis_points']}")
-        print(f"Fair Value: {summary['fair_value']}")
-        print(f"Regime: {summary['regime']}")
-        print(f"Arbitrage Opportunities: {summary['arbitrage_opportunities']}")
-        print(f"Best Opportunity: {summary['best_opportunity']}")
-        print(f"Expected Profit: {summary['expected_profit_bps']} bps")
-    
+        pass
+
     # Test real-time monitoring for a few seconds
-    print("\n8. Testing Real-Time Monitoring (5 seconds)...")
     basis_analyzer.start_real_time_monitoring()
     time.sleep(5)
     basis_analyzer.stop_real_time_monitoring()
-    
+
     # Get historical performance
-    print("\n9. Historical Performance (Last 7 days)...")
     performance = basis_analyzer.get_historical_performance(days=7)
     if 'error' not in performance:
-        print(f"Total Signals: {performance['total_signals']}")
-        print(f"Success Rate: {performance['success_rate']}")
-        print(f"Avg Profit: {performance['avg_profit_bps']} bps")
-        print(f"Max Profit: {performance['max_profit_bps']} bps")
-        print(f"Daily Avg Signals: {performance['daily_avg_signals']}")
-    
-    print("\n✅ Futures Basis Analyzer test completed successfully")
-    
+        pass
+
+
     # Demonstrate utility functions
-    print("\n" + "=" * 80)
-    print("UTILITY FUNCTIONS TEST")
-    print("=" * 80)
-    
+
     # Test theoretical basis calculation
-    print("\n1. Theoretical Basis Calculation...")
     theoretical_basis = calculate_theoretical_basis(
         spy_price=450.0,
         interest_rate=0.05,
         dividend_yield=0.015,
         days_to_expiry=30
     )
-    print(f"Theoretical Basis: {theoretical_basis:.2f} points")
-    
+
     # Test basis percentile calculation
-    print("\n2. Basis Percentile Calculation...")
     historical_data = [np.random.normal(0, 5) for _ in range(100)]  # Sample data
     current_basis_val = 8.5
     percentile = get_basis_percentile(current_basis_val, historical_data)
-    print(f"Current Basis: {current_basis_val:.1f} bps")
-    print(f"Historical Percentile: {percentile:.0f}%")
-    
-    print("\n✅ All tests completed successfully")
+

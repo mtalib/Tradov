@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -36,9 +35,9 @@ Key Features:
 import math
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Union, Any
-from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum
 import scipy.optimize as optimize
 from scipy.stats import norm
@@ -51,7 +50,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 try:
     from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-    from sklearn.preprocessing import StandardScaler
+    from sklearn.preprocessing import StandardScaler  # noqa: F401
     ML_AVAILABLE = True
 except ImportError:
     ML_AVAILABLE = False
@@ -139,7 +138,7 @@ class MarketConditions:
     volatility_implied: float  # Current implied volatility
     order_book_depth: float  # Total size on book within 1%
     trade_frequency: float  # Trades per minute
-    market_cap: Optional[float] = None
+    market_cap: float | None = None
     sector_correlation: float = 0.5
 
 @dataclass
@@ -152,11 +151,11 @@ class OrderCharacteristics:
     urgency: OrderUrgency
     duration_minutes: float  # Expected execution duration
     participation_rate: float  # Target % of volume
-    limit_price: Optional[float] = None
+    limit_price: float | None = None
     is_option: bool = False
-    strike: Optional[float] = None
-    expiry: Optional[datetime] = None
-    option_type: Optional[str] = None  # CALL or PUT
+    strike: float | None = None
+    expiry: datetime | None = None
+    option_type: str | None = None  # CALL or PUT
 
 @dataclass
 class OptionGreeks:
@@ -219,101 +218,101 @@ class MarketImpactModel:
     Advanced market impact modeling system
     Predicts and minimizes price impact of large orders
     """
-    
+
     def __init__(self, model_type: ImpactModel = ImpactModel.HYBRID):
         """Initialize market impact model"""
         self.model_type = model_type
-        
+
         # Logging
         if LOCAL_IMPORTS:
             self.logger = SpyderLogger.get_logger(__name__)
             self.error_handler = SpyderErrorHandler()
         else:
             self.logger = logging.getLogger(__name__)
-            
+
         # Model parameters (calibrated)
         self.linear_coefficient = 0.0001  # 1 bp per 1% of ADV
         self.sqrt_coefficient = 0.001
         self.power_law_exponent = 0.6
-        
+
         # Almgren-Chriss parameters
         self.ac_eta = 2.5e-6  # Temporary impact
         self.ac_gamma = 2.5e-7  # Permanent impact
         self.ac_lambda = 1e-5  # Risk aversion
-        
+
         # ML models
         self.ml_models = {}
         if ML_AVAILABLE:
             self._initialize_ml_models()
-            
+
         # Calibration data storage
-        self.calibration_history: List[CalibrationData] = []
-        self.impact_cache: Dict[str, ImpactEstimate] = {}
-        
+        self.calibration_history: list[CalibrationData] = []
+        self.impact_cache: dict[str, ImpactEstimate] = {}
+
         # Statistics
         self.total_estimates = 0
         self.avg_prediction_error = 0.0
-        
+
         self.logger.info(f"✅ MarketImpactModel initialized with {model_type.value}")
-        
+
     # ==========================================================================
     # MAIN IMPACT ESTIMATION
     # ==========================================================================
-    
+
     def estimate_impact(self,
                        order: OrderCharacteristics,
                        market: MarketConditions,
-                       greeks: Optional[OptionGreeks] = None) -> ImpactEstimate:
+                       greeks: OptionGreeks | None = None) -> ImpactEstimate:
         """
         Estimate market impact for an order
-        
+
         Args:
             order: Order characteristics
             market: Current market conditions
             greeks: Option Greeks if applicable
-            
+
         Returns:
             Comprehensive impact estimate
         """
         self.total_estimates += 1
-        
+
         # Calculate base impact using selected model
         if self.model_type == ImpactModel.LINEAR:
             base_impact = self._linear_impact(order, market)
-            
+
         elif self.model_type == ImpactModel.SQUARE_ROOT:
             base_impact = self._square_root_impact(order, market)
-            
+
         elif self.model_type == ImpactModel.ALMGREN_CHRISS:
             base_impact = self._almgren_chriss_impact(order, market)
-            
+
         elif self.model_type == ImpactModel.POWER_LAW:
             base_impact = self._power_law_impact(order, market)
-            
+
         elif self.model_type == ImpactModel.ML_ENSEMBLE and ML_AVAILABLE:
             base_impact = self._ml_ensemble_impact(order, market)
-            
+
         else:  # HYBRID
             base_impact = self._hybrid_impact(order, market)
-            
+
         # Adjust for options if applicable
         if order.is_option and greeks:
             base_impact = self._adjust_for_options(base_impact, order, greeks)
-            
+
         # Decompose into temporary and permanent
         temporary_impact, permanent_impact = self._decompose_impact(
             base_impact, order, market
         )
-        
+
         # Calculate confidence intervals
         lower_bound, upper_bound = self._calculate_confidence_interval(
             base_impact, market.volatility_30d
         )
-        
+
         # Calculate dollar impact
         reference_price = market.mid_price
         position_value = order.total_quantity * reference_price
-        
+
         # Create impact estimate
         estimate = ImpactEstimate(
             order_id=f"{order.symbol}_{datetime.now().strftime('%H%M%S')}",
@@ -333,22 +332,22 @@ class MarketImpactModel:
             estimated_slippage=base_impact * reference_price,
             break_even_probability=self._calculate_break_even_prob(base_impact, market)
         )
-        
+
         # Cache estimate
         self.impact_cache[estimate.order_id] = estimate
-        
+
         # Log if impact is significant
         if estimate.total_impact_bps > MAX_ACCEPTABLE_IMPACT_BPS:
             self.logger.warning(
                 f"⚠️ High impact estimated: {estimate.total_impact_bps:.1f} bps for {order.symbol}"
             )
-            
+
         return estimate
-        
+
     # ==========================================================================
     # IMPACT MODELS
     # ==========================================================================
-    
+
     def _linear_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Linear market impact model
@@ -356,13 +355,13 @@ class MarketImpactModel:
         """
         size_ratio = order.total_quantity / market.volume_30d_avg
         impact = self.linear_coefficient * size_ratio
-        
+
         # Adjust for spread
         spread_adjustment = market.spread_bps / 10000
         impact += spread_adjustment * 0.5  # Half spread cost
-        
+
         return impact
-        
+
     def _square_root_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Square-root market impact model
@@ -370,15 +369,15 @@ class MarketImpactModel:
         """
         size_ratio = order.total_quantity / market.volume_30d_avg
         volatility = market.volatility_30d
-        
+
         impact = self.sqrt_coefficient * volatility * math.sqrt(size_ratio)
-        
+
         # Participation rate adjustment
         if order.participation_rate > 0.1:  # More than 10% participation
             impact *= (1 + (order.participation_rate - 0.1) * 2)
-            
+
         return impact
-        
+
     def _almgren_chriss_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Almgren-Chriss optimal execution model
@@ -388,36 +387,36 @@ class MarketImpactModel:
         X = order.total_quantity  # Total shares
         T = order.duration_minutes / 1440  # Convert to days
         sigma = market.volatility_30d
-        
+
         # Daily volume
         V = market.volume_30d_avg
-        
+
         # Temporary impact function
         def h(v):
             return self.ac_eta * v
-            
+
         # Permanent impact function
         def g(v):
             return self.ac_gamma * v
-            
+
         # Calculate optimal trajectory
         n_slices = max(1, int(order.duration_minutes / 5))  # 5-minute slices
         tau = T / n_slices
-        
+
         # Risk aversion parameter
-        kappa = self.ac_lambda * sigma * math.sqrt(tau)
-        
+        self.ac_lambda * sigma * math.sqrt(tau)
+
         # Optimal trading rate
         trading_rate = X / T
-        
+
         # Total impact
         permanent = g(X)
         temporary = h(trading_rate) * math.sqrt(X / V)
-        
+
         total_impact = permanent + temporary
-        
+
         return total_impact
-        
+
     def _power_law_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Power law impact model
@@ -425,13 +424,13 @@ class MarketImpactModel:
         """
         size_ratio = order.total_quantity / market.volume_30d_avg
         impact = self.sqrt_coefficient * (size_ratio ** self.power_law_exponent)
-        
+
         # Adjust for market conditions
         if market.volatility_30d > 0.02:  # High volatility
             impact *= 1.2
-            
+
         return impact
-        
+
     def _ml_ensemble_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Machine learning ensemble impact prediction
@@ -439,19 +438,19 @@ class MarketImpactModel:
         if not ML_AVAILABLE or order.symbol not in self.ml_models:
             # Fallback to hybrid model
             return self._hybrid_impact(order, market)
-            
+
         # Prepare features
         features = self._prepare_ml_features(order, market)
-        
+
         # Get predictions from ensemble
         model = self.ml_models[order.symbol]
         impact_pred = model.predict(features.reshape(1, -1))[0]
-        
+
         # Ensure reasonable bounds
         impact_pred = max(0, min(impact_pred, 0.05))  # Cap at 5%
-        
+
         return impact_pred
-        
+
     def _hybrid_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
         """
         Hybrid model combining multiple approaches
@@ -460,7 +459,7 @@ class MarketImpactModel:
         linear = self._linear_impact(order, market)
         sqrt = self._square_root_impact(order, market)
         almgren = self._almgren_chriss_impact(order, market)
-        
+
         # Weighted average based on market conditions
         if market.volatility_30d > 0.025:  # High volatility
             # Weight Almgren-Chriss more
@@ -470,19 +469,19 @@ class MarketImpactModel:
             weights = [0.5, 0.3, 0.2]
         else:  # Normal conditions
             weights = [0.33, 0.34, 0.33]
-            
+
         hybrid_impact = (
             weights[0] * linear +
             weights[1] * sqrt +
             weights[2] * almgren
         )
-        
+
         return hybrid_impact
-        
+
     # ==========================================================================
     # OPTIONS ADJUSTMENTS
     # ==========================================================================
-    
+
     def _adjust_for_options(self,
                            base_impact: float,
                            order: OrderCharacteristics,
@@ -491,62 +490,62 @@ class MarketImpactModel:
         Adjust impact for options based on Greeks
         """
         adjustment_factor = 1.0
-        
+
         # Delta adjustment - higher delta means more stock-like
         delta_adj = 1 + (abs(greeks.delta) - 0.5) * DELTA_IMPACT_MULTIPLIER
         adjustment_factor *= delta_adj
-        
+
         # Gamma adjustment - hedging flows amplify impact
         if greeks.gamma > 0.01:  # Significant gamma
             gamma_adj = 1 + greeks.gamma * GAMMA_IMPACT_MULTIPLIER
             adjustment_factor *= gamma_adj
-            
+
         # Vega adjustment - volatility sensitivity
         if abs(greeks.vega) > 0.5:
             vega_adj = 1 + abs(greeks.vega) * 0.01 * VEGA_IMPACT_MULTIPLIER
             adjustment_factor *= vega_adj
-            
+
         # OTM adjustment - out-of-money has less impact
         if order.strike:
             current_price = base_impact  # This would use actual price
             moneyness = order.strike / current_price
-            
+
             if (order.option_type == "CALL" and moneyness > 1.05) or \
                (order.option_type == "PUT" and moneyness < 0.95):
                 adjustment_factor *= OTM_IMPACT_REDUCTION
-                
+
         adjusted_impact = base_impact * adjustment_factor
-        
+
         return adjusted_impact
-        
+
     # ==========================================================================
     # IMPACT DECOMPOSITION
     # ==========================================================================
-    
+
     def _decompose_impact(self,
                          total_impact: float,
                          order: OrderCharacteristics,
-                         market: MarketConditions) -> Tuple[float, float]:
+                         market: MarketConditions) -> tuple[float, float]:
         """
         Decompose total impact into temporary and permanent components
         """
         # Factors affecting decomposition
         urgency_factor = order.urgency.value / 4.0
         participation_factor = min(1, order.participation_rate / 0.2)
-        
+
         # Higher urgency = more temporary impact
         temp_ratio = 0.5 + (urgency_factor * 0.3) + (participation_factor * 0.2)
         temp_ratio = min(0.8, temp_ratio)  # Cap at 80% temporary
-        
+
         temporary = total_impact * temp_ratio
         permanent = total_impact * (1 - temp_ratio)
-        
+
         # Apply decay to temporary impact
         decay_factor = math.exp(-IMPACT_DECAY_RATE * order.duration_minutes)
         temporary *= (1 - decay_factor)
-        
+
         return temporary, permanent
-        
+
     def calculate_impact_trajectory(self,
                                    order: OrderCharacteristics,
                                    market: MarketConditions,
@@ -557,69 +556,69 @@ class MarketImpactModel:
         timestamps = []
         cumulative_impact = []
         instantaneous_impact = []
-        
+
         time_step = order.duration_minutes / n_points
-        
+
         for i in range(n_points + 1):
             t = i * time_step
-            
+
             # Cumulative execution fraction
             exec_fraction = (i / n_points)
-            
+
             # Instantaneous impact (decreases as order completes)
             inst_impact = self._instantaneous_impact(
                 order.total_quantity * (1 - exec_fraction),
                 market
             )
-            
+
             # Cumulative impact with decay
             cum_impact = self._cumulative_impact(
                 order.total_quantity * exec_fraction,
                 t,
                 market
             )
-            
+
             timestamps.append(t)
             instantaneous_impact.append(inst_impact * 10000)  # Convert to bps
             cumulative_impact.append(cum_impact * 10000)
-            
+
         return pd.DataFrame({
             'time_minutes': timestamps,
             'instantaneous_impact_bps': instantaneous_impact,
             'cumulative_impact_bps': cumulative_impact
         })
-        
+
     def _instantaneous_impact(self, remaining_quantity: int, market: MarketConditions) -> float:
         """Calculate instantaneous impact for remaining quantity"""
         if remaining_quantity == 0:
             return 0
-            
+
         size_ratio = remaining_quantity / market.volume_30d_avg
         return self.sqrt_coefficient * math.sqrt(size_ratio) * market.volatility_30d
-        
-    def _cumulative_impact(self, executed_quantity: int, time_minutes: float, 
+
+    def _cumulative_impact(self, executed_quantity: int, time_minutes: float,
                           market: MarketConditions) -> float:
         """Calculate cumulative impact with decay"""
         if executed_quantity == 0:
             return 0
-            
+
         size_ratio = executed_quantity / market.volume_30d_avg
         base_impact = self.sqrt_coefficient * math.sqrt(size_ratio) * market.volatility_30d
-        
+
         # Apply decay
         decay = math.exp(-time_minutes / (TEMPORARY_IMPACT_HALFLIFE / 60))
-        
-        return base_impact * (PERMANENT_IMPACT_FACTOR + 
+
+        return base_impact * (PERMANENT_IMPACT_FACTOR +
                              (1 - PERMANENT_IMPACT_FACTOR) * decay)
-        
+
     # ==========================================================================
     # OPTIMIZATION
     # ==========================================================================
-    
+
     def optimize_execution_schedule(self,
                                    order: OrderCharacteristics,
                                    market: MarketConditions,
-                                   risk_aversion: float = 0.5) -> Dict[str, Any]:
+                                   risk_aversion: float = 0.5) -> dict[str, Any]:
         """
         Optimize execution schedule to minimize cost and risk
         """
@@ -628,19 +627,19 @@ class MarketImpactModel:
             cost = self._calculate_schedule_cost(schedule, order, market)
             risk = self._calculate_schedule_risk(schedule, order, market)
             return cost + risk_aversion * risk
-            
+
         # Constraints
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - order.total_quantity}  # Sum to total
         ]
-        
+
         # Bounds (each slice between 0 and total)
         n_slices = max(5, min(20, int(order.duration_minutes / 5)))
         bounds = [(0, order.total_quantity) for _ in range(n_slices)]
-        
+
         # Initial guess (uniform distribution)
         x0 = np.full(n_slices, order.total_quantity / n_slices)
-        
+
         # Optimize
         result = optimize.minimize(
             objective,
@@ -649,12 +648,12 @@ class MarketImpactModel:
             bounds=bounds,
             constraints=constraints
         )
-        
+
         if result.success:
             optimal_schedule = result.x
             optimal_cost = self._calculate_schedule_cost(optimal_schedule, order, market)
             optimal_risk = self._calculate_schedule_risk(optimal_schedule, order, market)
-            
+
             return {
                 'schedule': optimal_schedule.tolist(),
                 'total_cost_bps': optimal_cost * 10000,
@@ -671,15 +670,15 @@ class MarketImpactModel:
                 'slices': n_slices,
                 'slice_duration_minutes': order.duration_minutes / n_slices
             }
-            
-    def _calculate_schedule_cost(self, schedule: np.ndarray, 
+
+    def _calculate_schedule_cost(self, schedule: np.ndarray,
                                 order: OrderCharacteristics,
                                 market: MarketConditions) -> float:
         """Calculate total cost for execution schedule"""
         total_cost = 0
         cumulative_executed = 0
-        
-        for i, slice_size in enumerate(schedule):
+
+        for _i, slice_size in enumerate(schedule):
             if slice_size > 0:
                 # Impact cost for this slice
                 slice_order = OrderCharacteristics(
@@ -691,14 +690,14 @@ class MarketImpactModel:
                     duration_minutes=order.duration_minutes / len(schedule),
                     participation_rate=order.participation_rate
                 )
-                
+
                 impact = self._square_root_impact(slice_order, market)
                 total_cost += impact * slice_size / order.total_quantity
-                
+
             cumulative_executed += slice_size
-            
+
         return total_cost
-        
+
     def _calculate_schedule_risk(self, schedule: np.ndarray,
                                 order: OrderCharacteristics,
                                 market: MarketConditions) -> float:
@@ -707,44 +706,44 @@ class MarketImpactModel:
         variance = 0
         remaining = order.total_quantity
         time_per_slice = order.duration_minutes / len(schedule)
-        
+
         for i, slice_size in enumerate(schedule):
             remaining -= slice_size
             time_remaining = (len(schedule) - i - 1) * time_per_slice
-            
+
             # Variance of remaining position
             if remaining > 0 and time_remaining > 0:
                 slice_variance = (remaining ** 2) * (market.volatility_30d ** 2) * \
                                (time_remaining / 1440)  # Convert to daily
                 variance += slice_variance
-                
+
         risk = math.sqrt(variance) / order.total_quantity
         return risk
-        
+
     # ==========================================================================
     # ANALYTICS AND HELPERS
     # ==========================================================================
-    
-    def _calculate_confidence_interval(self, 
+
+    def _calculate_confidence_interval(self,
                                       base_impact: float,
                                       volatility: float,
-                                      confidence: float = 0.95) -> Tuple[float, float]:
+                                      confidence: float = 0.95) -> tuple[float, float]:
         """Calculate confidence interval for impact estimate"""
         # Standard error based on volatility
         std_error = base_impact * volatility * 0.5
-        
+
         # Z-score for confidence level
         z_score = norm.ppf((1 + confidence) / 2)
-        
+
         lower = base_impact - z_score * std_error
         upper = base_impact + z_score * std_error
-        
+
         return max(0, lower), upper
-        
+
     def _calculate_execution_risk(self, impact: float, market: MarketConditions) -> float:
         """Calculate execution risk score (0-100)"""
         risk_score = 0
-        
+
         # Impact component (0-40 points)
         impact_bps = impact * 10000
         if impact_bps < 10:
@@ -755,9 +754,9 @@ class MarketImpactModel:
             impact_score = 30
         else:
             impact_score = 40
-            
+
         risk_score += impact_score
-        
+
         # Spread component (0-30 points)
         if market.spread_bps < 5:
             spread_score = 0
@@ -765,9 +764,9 @@ class MarketImpactModel:
             spread_score = 15
         else:
             spread_score = 30
-            
+
         risk_score += spread_score
-        
+
         # Volatility component (0-30 points)
         if market.volatility_30d < 0.01:
             vol_score = 0
@@ -775,15 +774,15 @@ class MarketImpactModel:
             vol_score = 15
         else:
             vol_score = 30
-            
+
         risk_score += vol_score
-        
+
         return min(100, risk_score)
-        
+
     def _recommend_strategy(self, impact: float, order: OrderCharacteristics) -> str:
         """Recommend execution strategy based on impact"""
         impact_bps = impact * 10000
-        
+
         if impact_bps < 5:
             return "AGGRESSIVE - Low impact expected, execute quickly"
         elif impact_bps < 20:
@@ -795,53 +794,53 @@ class MarketImpactModel:
             return "ICEBERG - Hide order size, execute patiently"
         else:
             return "PASSIVE - Minimize impact, extend duration"
-            
+
     def _calculate_optimal_duration(self,
                                    order: OrderCharacteristics,
                                    market: MarketConditions) -> float:
         """Calculate optimal execution duration"""
         # Base on participation rate target
         target_participation = 0.1  # 10% of volume
-        
+
         # Daily volume in minutes (6.5 hour trading day)
         volume_per_minute = market.volume_30d_avg / 390
-        
+
         # Minutes needed at target participation
         optimal_minutes = order.total_quantity / (volume_per_minute * target_participation)
-        
+
         # Adjust for urgency
         urgency_multiplier = 2.0 - (order.urgency.value - 1) * 0.3
         optimal_minutes *= urgency_multiplier
-        
+
         # Practical bounds
         return max(5, min(optimal_minutes, 390))  # Between 5 min and full day
-        
+
     def _calculate_break_even_prob(self, impact: float, market: MarketConditions) -> float:
         """Calculate probability that price moves favorably to offset impact"""
         # Simplified model: probability that favorable drift exceeds impact
         drift_per_day = 0.0  # Assume no drift
         vol_per_day = market.volatility_30d
-        
+
         # Standardize impact
         z_score = (impact - drift_per_day) / vol_per_day
-        
+
         # Probability of favorable move
         prob = 1 - norm.cdf(z_score)
-        
+
         return prob
-        
+
     # ==========================================================================
     # ML MODEL MANAGEMENT
     # ==========================================================================
-    
+
     def _initialize_ml_models(self):
         """Initialize machine learning models"""
         if not ML_AVAILABLE:
             return
-            
+
         # Create ensemble models for common symbols
         symbols = ['SPY', 'QQQ', 'IWM']
-        
+
         for symbol in symbols:
             # Random Forest for robustness
             rf = RandomForestRegressor(
@@ -849,19 +848,19 @@ class MarketImpactModel:
                 max_depth=10,
                 random_state=42
             )
-            
+
             # Gradient Boosting for accuracy
-            gb = GradientBoostingRegressor(
+            GradientBoostingRegressor(
                 n_estimators=100,
                 learning_rate=0.1,
                 max_depth=5,
                 random_state=42
             )
-            
+
             self.ml_models[symbol] = rf  # Use RF as primary
-            
+
         self.logger.info(f"✅ ML models initialized for {len(self.ml_models)} symbols")
-        
+
     def _prepare_ml_features(self,
                             order: OrderCharacteristics,
                             market: MarketConditions) -> np.ndarray:
@@ -878,18 +877,18 @@ class MarketImpactModel:
             market.trade_frequency,
             1 if order.side == "BUY" else -1
         ]
-        
+
         return np.array(features)
-        
-    def train_ml_model(self, symbol: str, training_data: List[CalibrationData]):
+
+    def train_ml_model(self, symbol: str, training_data: list[CalibrationData]):
         """Train ML model with historical data"""
         if not ML_AVAILABLE or len(training_data) < MIN_OBSERVATIONS_FOR_CALIBRATION:
             return
-            
+
         # Prepare training data
         X = []
         y = []
-        
+
         for data in training_data:
             features = [
                 data.order_size / data.volume,
@@ -900,10 +899,10 @@ class MarketImpactModel:
             ]
             X.append(features)
             y.append(data.realized_impact_bps / 10000)  # Convert to decimal
-            
+
         X = np.array(X)
         y = np.array(y)
-        
+
         # Train model
         if symbol not in self.ml_models:
             self.ml_models[symbol] = RandomForestRegressor(
@@ -911,43 +910,43 @@ class MarketImpactModel:
                 max_depth=10,
                 random_state=42
             )
-            
+
         self.ml_models[symbol].fit(X, y)
-        
+
         self.logger.info(f"✅ ML model trained for {symbol} with {len(training_data)} samples")
-        
+
     # ==========================================================================
     # CALIBRATION
     # ==========================================================================
-    
-    def calibrate_model(self, historical_data: List[CalibrationData]):
+
+    def calibrate_model(self, historical_data: list[CalibrationData]):
         """Calibrate model parameters using historical data"""
         if len(historical_data) < MIN_OBSERVATIONS_FOR_CALIBRATION:
             self.logger.warning("Insufficient data for calibration")
             return
-            
+
         # Group by symbol
         symbol_data = {}
         for data in historical_data:
             if data.symbol not in symbol_data:
                 symbol_data[data.symbol] = []
             symbol_data[data.symbol].append(data)
-            
+
         # Calibrate per symbol
         for symbol, data_points in symbol_data.items():
             self._calibrate_symbol_parameters(symbol, data_points)
-            
+
             # Train ML model if available
             if ML_AVAILABLE:
                 self.train_ml_model(symbol, data_points)
-                
+
         self.logger.info(f"✅ Model calibrated with {len(historical_data)} data points")
-        
-    def _calibrate_symbol_parameters(self, symbol: str, data_points: List[CalibrationData]):
+
+    def _calibrate_symbol_parameters(self, symbol: str, data_points: list[CalibrationData]):
         """Calibrate parameters for specific symbol"""
         # Calculate average prediction error
         errors = []
-        
+
         for data in data_points:
             # Create order characteristics from historical data
             order = OrderCharacteristics(
@@ -959,7 +958,7 @@ class MarketImpactModel:
                 duration_minutes=data.duration_minutes,
                 participation_rate=data.participation_rate
             )
-            
+
             # Create market conditions
             market = MarketConditions(
                 symbol=symbol,
@@ -975,19 +974,19 @@ class MarketImpactModel:
                 order_book_depth=data.volume * 0.01,
                 trade_frequency=100
             )
-            
+
             # Estimate impact
             estimate = self.estimate_impact(order, market)
-            
+
             # Calculate error
             predicted = estimate.total_impact_bps
             actual = data.realized_impact_bps
             error = abs(predicted - actual) / actual if actual > 0 else 0
             errors.append(error)
-            
+
         # Update average error
         self.avg_prediction_error = np.mean(errors) if errors else 0
-        
+
         # Adjust coefficients based on errors
         if self.avg_prediction_error > 0.2:  # More than 20% error
             # Increase coefficients if underestimating
@@ -1017,15 +1016,15 @@ class MarketImpactModel:
                                trade_frequency=100
                            )
                        ).total_impact_bps for d in data_points])
-            
+
             self.linear_coefficient *= avg_ratio
             self.sqrt_coefficient *= avg_ratio
-            
+
     # ==========================================================================
     # PUBLIC INTERFACE
     # ==========================================================================
-    
-    def get_model_statistics(self) -> Dict[str, Any]:
+
+    def get_model_statistics(self) -> dict[str, Any]:
         """Get model performance statistics"""
         return {
             'model_type': self.model_type.value,
@@ -1035,7 +1034,7 @@ class MarketImpactModel:
             'ml_models_available': len(self.ml_models),
             'cached_estimates': len(self.impact_cache)
         }
-        
+
     def clear_cache(self):
         """Clear impact estimate cache"""
         self.impact_cache.clear()
@@ -1136,7 +1135,7 @@ class MarketImpactModel:
 
         return MarketImpactEnvironment()
 
-    def train_impact_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+    def train_impact_policy(self, total_timesteps: int = 50000) -> Any | None:
         """
         Train a SAC policy for optimal execution trajectory.
 
@@ -1175,19 +1174,16 @@ def create_impact_model(model_type: ImpactModel = ImpactModel.HYBRID) -> MarketI
 
 if __name__ == "__main__":
     import logging
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
-    print("=" * 80)
-    print("MARKET IMPACT MODEL TEST")
-    print("=" * 80)
-    
+
+
     # Create model
     model = create_impact_model(ImpactModel.HYBRID)
-    
+
     # Test market conditions
     market = MarketConditions(
         symbol="SPY",
@@ -1204,7 +1200,7 @@ if __name__ == "__main__":
         trade_frequency=100,  # trades per minute
         market_cap=500_000_000_000
     )
-    
+
     # Test orders with different characteristics
     test_orders = [
         OrderCharacteristics(
@@ -1235,42 +1231,20 @@ if __name__ == "__main__":
             participation_rate=0.05
         )
     ]
-    
-    print("\n📊 Market Impact Estimates:\n")
-    
-    for i, order in enumerate(test_orders, 1):
+
+
+    for _i, order in enumerate(test_orders, 1):
         estimate = model.estimate_impact(order, market)
-        
-        print(f"Order {i}: {order.total_quantity:,} shares, {order.urgency.value} urgency")
-        print(f"  Model: {estimate.model_used.value}")
-        print(f"  Total Impact: {estimate.total_impact_bps:.1f} bps "
-              f"(${estimate.total_impact_dollars:,.0f})")
-        print(f"  Temporary: {estimate.temporary_impact_bps:.1f} bps")
-        print(f"  Permanent: {estimate.permanent_impact_bps:.1f} bps")
-        print(f"  Confidence: [{estimate.confidence_interval_lower:.1f}, "
-              f"{estimate.confidence_interval_upper:.1f}] bps")
-        print(f"  Execution Risk: {estimate.execution_risk_score:.0f}/100")
-        print(f"  Strategy: {estimate.recommended_strategy}")
-        print(f"  Optimal Duration: {estimate.optimal_duration_minutes:.0f} minutes")
-        print()
-    
+
+
     # Test trajectory calculation
-    print("\n📈 Impact Trajectory for Order 1:")
     trajectory = model.calculate_impact_trajectory(test_orders[0], market, n_points=5)
-    print(trajectory.to_string())
-    
+
     # Test optimization
-    print("\n🎯 Optimal Execution Schedule for Order 2:")
     optimal = model.optimize_execution_schedule(test_orders[1], market, risk_aversion=0.5)
-    print(f"  Slices: {optimal['slices']}")
-    print(f"  Cost: {optimal['total_cost_bps']:.1f} bps")
-    print(f"  Risk: {optimal['risk_bps']:.1f} bps")
-    print(f"  Schedule: {[f'{s:,.0f}' for s in optimal['schedule'][:5]]}...")
-    
+
     # Get statistics
     stats = model.get_model_statistics()
-    print("\n📊 Model Statistics:")
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
-    
-    print("\n✅ Market impact model test completed")
+    for _key, _value in stats.items():
+        pass
+

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
 Spyder Version: 1.0
 Module: SpyderN07_OptionsFlowTracker.py
-Group: N (Options Analytics)  
+Group: N (Options Analytics)
 Purpose: Real-time options flow analysis, unusual activity detection, and sentiment tracking
 Author: Mohamed Talib
 Date Created: 2025-08-07
@@ -22,13 +21,11 @@ Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
-import json
 import threading
 import queue
 from datetime import datetime, timedelta, time
-from typing import Dict, List, Optional, Tuple, Any, Set
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict, deque
 import warnings
@@ -38,8 +35,6 @@ warnings.filterwarnings('ignore')
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -84,6 +79,14 @@ class OrderType(Enum):
     BUY_TO_CLOSE = "BTC"
     SELL_TO_CLOSE = "STC"
     UNKNOWN = "UNK"
+
+# Module-level aliases for backwards-compatible bare-name usage
+BUY_TO_OPEN = OrderType.BUY_TO_OPEN
+SELL_TO_OPEN = OrderType.SELL_TO_OPEN
+BUY_TO_CLOSE = OrderType.BUY_TO_CLOSE
+SELL_TO_CLOSE = OrderType.SELL_TO_CLOSE
+UNKNOWN = OrderType.UNKNOWN
+
 
 class FlowType(Enum):
     """Options flow classification"""
@@ -134,7 +137,7 @@ class OptionsFlow:
     implied_volatility: float
     delta: float
     gamma: float
-    
+
     # Flow characteristics
     order_type: OrderType
     flow_type: FlowType
@@ -142,18 +145,18 @@ class OptionsFlow:
     at_ask: bool
     at_bid: bool
     between_market: bool
-    
+
     # Context
     volume_today: int
     open_interest: int
     volume_oi_ratio: float
-    
+
     # Unusual indicators
     is_unusual: bool
     is_sweep: bool
     is_block: bool
     is_repeat: bool
-    
+
     # Sentiment
     sentiment_score: float  # -1 to 1
     toxicity_score: float  # 0 to 1
@@ -165,41 +168,41 @@ class AggregatedFlow:
     time_window: timedelta
     start_time: datetime
     end_time: datetime
-    
+
     # Volume metrics
     total_call_volume: int
     total_put_volume: int
     total_call_premium: float
     total_put_premium: float
-    
+
     # Directional flow
     buy_call_volume: int
     sell_call_volume: int
     buy_put_volume: int
     sell_put_volume: int
-    
+
     # Premium flow
     buy_call_premium: float
     sell_call_premium: float
     buy_put_premium: float
     sell_put_premium: float
-    
+
     # Ratios
     call_put_ratio: float
     put_call_ratio: float
     buy_sell_ratio: float
-    
+
     # Greeks flow
     net_delta_flow: float
     net_gamma_flow: float
     net_vega_flow: float
-    
+
     # Sentiment
     sentiment: Sentiment
     sentiment_strength: float
-    
+
     # Unusual activity
-    unusual_trades: List[OptionsFlow]
+    unusual_trades: list[OptionsFlow]
     sweep_count: int
     block_count: int
 
@@ -233,14 +236,14 @@ class FlowToxicity:
     adverse_selection: float
     informed_trading_probability: float
     order_imbalance: float
-    
+
 # ==============================================================================
 # OPTIONS FLOW TRACKER CLASS
 # ==============================================================================
 class OptionsFlowTracker:
     """
     Real-time options flow tracking and analysis.
-    
+
     Features:
         - Real-time flow processing
         - Unusual activity detection
@@ -251,124 +254,124 @@ class OptionsFlowTracker:
         - Flow toxicity metrics
         - Smart money detection
     """
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """
         Initialize the Options Flow Tracker
-        
+
         Args:
             config: Configuration dictionary
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        
+
         # Configuration
         self.config = config or {}
         self.min_premium = self.config.get('min_premium', MIN_PREMIUM)
         self.min_size = self.config.get('min_size', MIN_SIZE)
-        
+
         # Flow storage
         self.flows: deque = deque(maxlen=10000)  # Recent flows
-        self.aggregated_flows: Dict[str, AggregatedFlow] = {}
-        self.unusual_activity: List[OptionsFlow] = []
-        self.alerts: List[FlowAlert] = []
-        
+        self.aggregated_flows: dict[str, AggregatedFlow] = {}
+        self.unusual_activity: list[OptionsFlow] = []
+        self.alerts: list[FlowAlert] = []
+
         # Tracking
-        self.symbol_flows: Dict[str, List[OptionsFlow]] = defaultdict(list)
-        self.sweep_tracker: Dict[str, List[OptionsFlow]] = defaultdict(list)
-        self.repeat_tracker: Dict[Tuple, List[datetime]] = defaultdict(list)
-        
+        self.symbol_flows: dict[str, list[OptionsFlow]] = defaultdict(list)
+        self.sweep_tracker: dict[str, list[OptionsFlow]] = defaultdict(list)
+        self.repeat_tracker: dict[tuple, list[datetime]] = defaultdict(list)
+
         # Market maker tracking
-        self.mm_activity: Dict[str, MarketMakerActivity] = {}
-        
+        self.mm_activity: dict[str, MarketMakerActivity] = {}
+
         # Sentiment tracking
-        self.sentiment_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
-        self.current_sentiment: Dict[str, Sentiment] = {}
-        
+        self.sentiment_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
+        self.current_sentiment: dict[str, Sentiment] = {}
+
         # Statistics
-        self.daily_stats: Dict[str, Dict] = {}
-        self.historical_averages: Dict[str, Dict] = {}
-        
+        self.daily_stats: dict[str, dict] = {}
+        self.historical_averages: dict[str, dict] = {}
+
         # Threading
         self.lock = threading.Lock()
         self.flow_queue = queue.Queue()
         self.processing_thread = None
         self.monitoring = False
-        
+
         self.logger.info("OptionsFlowTracker initialized")
-    
+
     # ==========================================================================
     # FLOW PROCESSING
     # ==========================================================================
-    
-    def process_flow(self, trade_data: Dict[str, Any]) -> OptionsFlow:
+
+    def process_flow(self, trade_data: dict[str, Any]) -> OptionsFlow:
         """
         Process incoming options trade
-        
+
         Args:
             trade_data: Trade data dictionary
-            
+
         Returns:
             OptionsFlow object
         """
         with self.lock:
             # Create flow object
             flow = self._create_flow_object(trade_data)
-            
+
             # Classify flow
             flow = self._classify_flow(flow)
-            
+
             # Check for unusual activity
             flow = self._check_unusual_activity(flow)
-            
+
             # Calculate sentiment
             flow.sentiment_score = self._calculate_flow_sentiment(flow)
-            
+
             # Calculate toxicity
             flow.toxicity_score = self._calculate_toxicity(flow)
-            
+
             # Store flow
             self.flows.append(flow)
             self.symbol_flows[flow.symbol].append(flow)
-            
+
             # Check for patterns
             self._check_sweep(flow)
             self._check_repeat(flow)
             self._check_block(flow)
-            
+
             # Update aggregated flow
             self._update_aggregated_flow(flow)
-            
+
             # Generate alerts if needed
             self._generate_alerts(flow)
-            
+
             return flow
-    
-    def _create_flow_object(self, trade_data: Dict) -> OptionsFlow:
+
+    def _create_flow_object(self, trade_data: dict) -> OptionsFlow:
         """Create OptionsFlow object from trade data"""
         # Calculate premium
         size = trade_data.get('size', 0)
         price = trade_data.get('price', 0)
         premium = size * price * 100
-        
+
         # Determine order type
         order_type = self._determine_order_type(trade_data)
-        
+
         # Determine aggressor
         aggressor = self._determine_aggressor(trade_data)
-        
+
         # Price location
         bid = trade_data.get('bid', 0)
         ask = trade_data.get('ask', 0)
         at_ask = abs(price - ask) < 0.01 if ask > 0 else False
         at_bid = abs(price - bid) < 0.01 if bid > 0 else False
         between_market = not at_ask and not at_bid
-        
+
         # Volume/OI ratio
         volume = trade_data.get('volume', 0)
         oi = trade_data.get('open_interest', 1)
         vol_oi_ratio = volume / oi if oi > 0 else 0
-        
+
         flow = OptionsFlow(
             timestamp=trade_data.get('timestamp', datetime.now()),
             symbol=trade_data['symbol'],
@@ -398,14 +401,14 @@ class OptionsFlowTracker:
             sentiment_score=0.0,
             toxicity_score=0.0
         )
-        
+
         return flow
-    
-    def _determine_order_type(self, trade_data: Dict) -> OrderType:
+
+    def _determine_order_type(self, trade_data: dict) -> OrderType:
         """Determine if trade is opening or closing"""
         # Simplified logic - would use more sophisticated methods
         oi_change = trade_data.get('oi_change', 0)
-        
+
         if oi_change > 0:
             # Opening position
             if trade_data.get('aggressor') == 'BUY':
@@ -420,13 +423,13 @@ class OptionsFlowTracker:
                 return SELL_TO_CLOSE
         else:
             return UNKNOWN
-    
-    def _determine_aggressor(self, trade_data: Dict) -> AggressorSide:
+
+    def _determine_aggressor(self, trade_data: dict) -> AggressorSide:
         """Determine trade aggressor"""
         price = trade_data.get('price', 0)
         bid = trade_data.get('bid', 0)
         ask = trade_data.get('ask', 0)
-        
+
         if ask > 0 and abs(price - ask) < 0.01:
             return AggressorSide.BUY
         elif bid > 0 and abs(price - bid) < 0.01:
@@ -440,74 +443,74 @@ class OptionsFlowTracker:
                 return AggressorSide.SELL
             else:
                 return AggressorSide.NEUTRAL
-    
+
     def _classify_flow(self, flow: OptionsFlow) -> OptionsFlow:
         """Classify flow type"""
         # Check for block trade
         if flow.size >= BLOCK_SIZE:
             flow.flow_type = FlowType.BLOCK
             flow.is_block = True
-        
+
         # Check for split trade (multiple exchanges)
         # This would need exchange data
-        
+
         # Check for unusual volume
         if flow.volume_oi_ratio >= UNUSUAL_VOLUME_RATIO:
             flow.flow_type = FlowType.UNUSUAL
             flow.is_unusual = True
-        
+
         return flow
-    
+
     # ==========================================================================
     # UNUSUAL ACTIVITY DETECTION
     # ==========================================================================
-    
+
     def _check_unusual_activity(self, flow: OptionsFlow) -> OptionsFlow:
         """Check for unusual options activity"""
         unusual_indicators = 0
-        
+
         # High volume relative to OI
         if flow.volume_oi_ratio >= UNUSUAL_VOLUME_RATIO:
             unusual_indicators += 1
-        
+
         # Large premium
         if flow.premium >= self.min_premium * 5:
             unusual_indicators += 1
-        
+
         # Far OTM with high volume
         moneyness = flow.strike / flow.underlying_price
         if (flow.option_type == 'CALL' and moneyness > 1.10) or \
            (flow.option_type == 'PUT' and moneyness < 0.90):
             if flow.volume_today > 1000:
                 unusual_indicators += 1
-        
+
         # Near expiry with high activity
         days_to_expiry = (flow.expiry - datetime.now()).days
         if days_to_expiry <= 7 and flow.size >= 500:
             unusual_indicators += 1
-        
+
         # Mark as unusual if multiple indicators
         if unusual_indicators >= 2:
             flow.is_unusual = True
             flow.flow_type = FlowType.UNUSUAL
             self.unusual_activity.append(flow)
-        
+
         return flow
-    
+
     def _check_sweep(self, flow: OptionsFlow) -> None:
         """Check for sweep orders"""
         key = (flow.symbol, flow.strike, flow.expiry, flow.option_type)
-        
+
         # Add to sweep tracker
         self.sweep_tracker[key].append(flow)
-        
+
         # Remove old flows outside window
         cutoff = datetime.now() - timedelta(seconds=SWEEP_TIME_WINDOW)
         self.sweep_tracker[key] = [
             f for f in self.sweep_tracker[key]
             if f.timestamp > cutoff
         ]
-        
+
         # Check if this is a sweep
         if len(self.sweep_tracker[key]) >= 3:
             # Multiple trades at different prices in quick succession
@@ -515,45 +518,45 @@ class OptionsFlowTracker:
             if len(set(prices)) >= 2:
                 flow.is_sweep = True
                 flow.flow_type = FlowType.SWEEP
-                
+
                 # Mark all related flows as sweep
                 for f in self.sweep_tracker[key]:
                     f.is_sweep = True
                     f.flow_type = FlowType.SWEEP
-    
+
     def _check_repeat(self, flow: OptionsFlow) -> None:
         """Check for repeat buying"""
         key = (flow.symbol, flow.strike, flow.expiry, flow.option_type)
-        
+
         # Track repeat activity
         self.repeat_tracker[key].append(flow.timestamp)
-        
+
         # Remove old timestamps
         cutoff = datetime.now() - timedelta(hours=1)
         self.repeat_tracker[key] = [
             t for t in self.repeat_tracker[key]
             if t > cutoff
         ]
-        
+
         # Check for repeat pattern
         if len(self.repeat_tracker[key]) >= 3:
             flow.is_repeat = True
             flow.flow_type = FlowType.REPEAT
-    
+
     def _check_block(self, flow: OptionsFlow) -> None:
         """Check for block trades"""
         if flow.size >= BLOCK_SIZE:
             flow.is_block = True
             flow.flow_type = FlowType.BLOCK
-    
+
     # ==========================================================================
     # SENTIMENT ANALYSIS
     # ==========================================================================
-    
+
     def _calculate_flow_sentiment(self, flow: OptionsFlow) -> float:
         """Calculate sentiment score for individual flow"""
         sentiment = 0.0
-        
+
         # Base sentiment from option type and order type
         if flow.option_type == 'CALL':
             if flow.order_type == BUY_TO_OPEN:
@@ -565,35 +568,35 @@ class OptionsFlowTracker:
                 sentiment = -0.8  # Bearish
             elif flow.order_type == SELL_TO_OPEN:
                 sentiment = 0.3  # Slightly bullish (could be cash-secured put)
-        
+
         # Adjust for aggressiveness
         if flow.at_ask:
             sentiment *= 1.2  # More aggressive
         elif flow.at_bid:
             sentiment *= 0.8  # Less aggressive
-        
+
         # Adjust for size
         if flow.is_block:
             sentiment *= 1.5  # Institutional likely
-        
+
         # Adjust for unusual activity
         if flow.is_unusual:
             sentiment *= 1.3
-        
+
         # Clamp to [-1, 1]
         sentiment = max(-1.0, min(1.0, sentiment))
-        
+
         return sentiment
-    
+
     def calculate_market_sentiment(self, symbol: str,
                                   window: int = SENTIMENT_WINDOW) -> Sentiment:
         """
         Calculate overall market sentiment for symbol
-        
+
         Args:
             symbol: Symbol to analyze
             window: Time window in seconds
-            
+
         Returns:
             Sentiment enum
         """
@@ -602,32 +605,32 @@ class OptionsFlowTracker:
             f for f in self.symbol_flows[symbol]
             if f.timestamp > cutoff
         ]
-        
+
         if not recent_flows:
             return Sentiment.NEUTRAL
-        
+
         # Calculate call/put ratios
         call_volume = sum(f.size for f in recent_flows if f.option_type == 'CALL')
         put_volume = sum(f.size for f in recent_flows if f.option_type == 'PUT')
-        
+
         call_premium = sum(f.premium for f in recent_flows if f.option_type == 'CALL')
         put_premium = sum(f.premium for f in recent_flows if f.option_type == 'PUT')
-        
+
         # Volume-based sentiment
         if put_volume > 0:
             vol_ratio = call_volume / put_volume
         else:
             vol_ratio = float('inf') if call_volume > 0 else 1.0
-        
+
         # Premium-based sentiment (more accurate)
         if put_premium > 0:
             prem_ratio = call_premium / put_premium
         else:
             prem_ratio = float('inf') if call_premium > 0 else 1.0
-        
+
         # Average sentiment scores
         avg_sentiment = np.mean([f.sentiment_score for f in recent_flows])
-        
+
         # Determine sentiment
         if prem_ratio > 2.0 or (vol_ratio > 2.5 and avg_sentiment > 0.5):
             sentiment = Sentiment.VERY_BULLISH
@@ -639,59 +642,59 @@ class OptionsFlowTracker:
             sentiment = Sentiment.BEARISH
         else:
             sentiment = Sentiment.NEUTRAL
-        
+
         # Store sentiment
         self.current_sentiment[symbol] = sentiment
         self.sentiment_history[symbol].append((datetime.now(), sentiment))
-        
+
         return sentiment
-    
+
     # ==========================================================================
     # TOXICITY METRICS
     # ==========================================================================
-    
+
     def _calculate_toxicity(self, flow: OptionsFlow) -> float:
         """Calculate flow toxicity (adverse selection)"""
         toxicity = 0.0
-        
+
         # Quick price reversal after trade indicates toxicity
         # This would need tick data to implement properly
-        
+
         # Proxy metrics for toxicity
         factors = []
-        
+
         # Large size at market
         if flow.at_ask and flow.size >= BLOCK_SIZE:
             factors.append(0.3)
-        
+
         # Sweep orders can be toxic
         if flow.is_sweep:
             factors.append(0.4)
-        
+
         # Far OTM with urgency
         moneyness = flow.strike / flow.underlying_price
         if abs(1.0 - moneyness) > 0.15 and flow.at_ask:
             factors.append(0.2)
-        
+
         # High IV trades
         if flow.implied_volatility > 0.50:
             factors.append(0.2)
-        
+
         # Calculate weighted toxicity
         if factors:
             toxicity = min(1.0, sum(factors))
-        
+
         return toxicity
-    
+
     def calculate_flow_toxicity(self, symbol: str,
                                window: int = TOXICITY_WINDOW) -> FlowToxicity:
         """
         Calculate overall flow toxicity metrics
-        
+
         Args:
             symbol: Symbol to analyze
             window: Time window in seconds
-            
+
         Returns:
             FlowToxicity object
         """
@@ -700,7 +703,7 @@ class OptionsFlowTracker:
             f for f in self.symbol_flows[symbol]
             if f.timestamp > cutoff
         ]
-        
+
         if not recent_flows:
             return FlowToxicity(
                 timestamp=datetime.now(),
@@ -710,20 +713,20 @@ class OptionsFlowTracker:
                 informed_trading_probability=0.0,
                 order_imbalance=0.0
             )
-        
+
         # Average toxicity
         avg_toxicity = np.mean([f.toxicity_score for f in recent_flows])
-        
+
         # Order imbalance
         buy_volume = sum(f.size for f in recent_flows if f.aggressor == AggressorSide.BUY)
         sell_volume = sum(f.size for f in recent_flows if f.aggressor == AggressorSide.SELL)
         total_volume = buy_volume + sell_volume
-        
+
         if total_volume > 0:
             order_imbalance = abs(buy_volume - sell_volume) / total_volume
         else:
             order_imbalance = 0.0
-        
+
         # Informed trading probability (PIN)
         # Simplified version
         unusual_count = sum(1 for f in recent_flows if f.is_unusual)
@@ -731,11 +734,11 @@ class OptionsFlowTracker:
             informed_prob = unusual_count / len(recent_flows)
         else:
             informed_prob = 0.0
-        
+
         # Adverse selection (price impact)
         # This would need post-trade price data
         adverse_selection = avg_toxicity * 0.5  # Proxy
-        
+
         return FlowToxicity(
             timestamp=datetime.now(),
             symbol=symbol,
@@ -744,25 +747,25 @@ class OptionsFlowTracker:
             informed_trading_probability=informed_prob,
             order_imbalance=order_imbalance
         )
-    
+
     # ==========================================================================
     # AGGREGATION AND ANALYSIS
     # ==========================================================================
-    
+
     def _update_aggregated_flow(self, flow: OptionsFlow) -> None:
         """Update aggregated flow statistics"""
         symbol = flow.symbol
-        
+
         if symbol not in self.aggregated_flows:
             self.aggregated_flows[symbol] = self._create_aggregated_flow(symbol)
-        
+
         agg = self.aggregated_flows[symbol]
-        
+
         # Update volumes
         if flow.option_type == 'CALL':
             agg.total_call_volume += flow.size
             agg.total_call_premium += flow.premium
-            
+
             if flow.aggressor == AggressorSide.BUY:
                 agg.buy_call_volume += flow.size
                 agg.buy_call_premium += flow.premium
@@ -772,40 +775,40 @@ class OptionsFlowTracker:
         else:  # PUT
             agg.total_put_volume += flow.size
             agg.total_put_premium += flow.premium
-            
+
             if flow.aggressor == AggressorSide.BUY:
                 agg.buy_put_volume += flow.size
                 agg.buy_put_premium += flow.premium
             else:
                 agg.sell_put_volume += flow.size
                 agg.sell_put_premium += flow.premium
-        
+
         # Update Greeks flow
         agg.net_delta_flow += flow.delta * flow.size * 100
         agg.net_gamma_flow += flow.gamma * flow.size * 100
-        
+
         # Update ratios
         if agg.total_put_volume > 0:
             agg.call_put_ratio = agg.total_call_volume / agg.total_put_volume
-        
+
         if agg.total_call_volume > 0:
             agg.put_call_ratio = agg.total_put_volume / agg.total_call_volume
-        
+
         total_buy = agg.buy_call_volume + agg.buy_put_volume
         total_sell = agg.sell_call_volume + agg.sell_put_volume
         if total_sell > 0:
             agg.buy_sell_ratio = total_buy / total_sell
-        
+
         # Track unusual
         if flow.is_unusual:
             agg.unusual_trades.append(flow)
-        
+
         if flow.is_sweep:
             agg.sweep_count += 1
-        
+
         if flow.is_block:
             agg.block_count += 1
-    
+
     def _create_aggregated_flow(self, symbol: str) -> AggregatedFlow:
         """Create new aggregated flow object"""
         return AggregatedFlow(
@@ -837,15 +840,15 @@ class OptionsFlowTracker:
             sweep_count=0,
             block_count=0
         )
-    
+
     # ==========================================================================
     # ALERTS AND SIGNALS
     # ==========================================================================
-    
+
     def _generate_alerts(self, flow: OptionsFlow) -> None:
         """Generate alerts for significant flow"""
         alerts_generated = []
-        
+
         # Unusual activity alert
         if flow.is_unusual:
             alert = FlowAlert(
@@ -858,7 +861,7 @@ class OptionsFlowTracker:
                 action_required=True
             )
             alerts_generated.append(alert)
-        
+
         # Sweep alert
         if flow.is_sweep:
             alert = FlowAlert(
@@ -871,7 +874,7 @@ class OptionsFlowTracker:
                 action_required=True
             )
             alerts_generated.append(alert)
-        
+
         # Large block alert
         if flow.is_block and flow.premium >= self.min_premium * 10:
             alert = FlowAlert(
@@ -884,7 +887,7 @@ class OptionsFlowTracker:
                 action_required=False
             )
             alerts_generated.append(alert)
-        
+
         # Repeat buying alert
         if flow.is_repeat:
             alert = FlowAlert(
@@ -897,36 +900,36 @@ class OptionsFlowTracker:
                 action_required=False
             )
             alerts_generated.append(alert)
-        
+
         # Store alerts
         self.alerts.extend(alerts_generated)
-        
+
         # Log critical alerts
         for alert in alerts_generated:
             if alert.significance >= 0.8:
                 self.logger.info(f"ALERT: {alert.message}")
-    
-    def get_trading_signals(self, symbol: str) -> List[Dict[str, Any]]:
+
+    def get_trading_signals(self, symbol: str) -> list[dict[str, Any]]:
         """
         Get trading signals based on flow analysis
-        
+
         Args:
             symbol: Symbol to analyze
-            
+
         Returns:
             List of trading signals
         """
         signals = []
-        
+
         # Get recent sentiment
         sentiment = self.calculate_market_sentiment(symbol)
-        
+
         # Get aggregated flow
         if symbol in self.aggregated_flows:
             agg = self.aggregated_flows[symbol]
-            
+
             # Strong bullish signal
-            if (sentiment == Sentiment.VERY_BULLISH and 
+            if (sentiment == Sentiment.VERY_BULLISH and
                 agg.call_put_ratio > 2.0 and
                 agg.sweep_count > 3):
                 signals.append({
@@ -936,7 +939,7 @@ class OptionsFlowTracker:
                     'reason': 'Strong bullish flow with sweeps',
                     'confidence': 0.8
                 })
-            
+
             # Strong bearish signal
             elif (sentiment == Sentiment.VERY_BEARISH and
                   agg.put_call_ratio > 2.0 and
@@ -948,7 +951,7 @@ class OptionsFlowTracker:
                     'reason': 'Strong bearish flow with sweeps',
                     'confidence': 0.8
                 })
-            
+
             # Unusual activity signal
             if len(agg.unusual_trades) >= 5:
                 signals.append({
@@ -958,7 +961,7 @@ class OptionsFlowTracker:
                     'reason': f'{len(agg.unusual_trades)} unusual trades detected',
                     'confidence': 0.6
                 })
-            
+
             # High toxicity warning
             toxicity = self.calculate_flow_toxicity(symbol)
             if toxicity.toxicity_score > 0.7:
@@ -969,25 +972,25 @@ class OptionsFlowTracker:
                     'reason': 'High flow toxicity detected',
                     'confidence': 0.9
                 })
-        
+
         return signals
-    
+
     # ==========================================================================
     # MARKET MAKER DETECTION
     # ==========================================================================
-    
+
     def detect_market_maker_activity(self, symbol: str) -> MarketMakerActivity:
         """
         Detect market maker positioning
-        
+
         Args:
             symbol: Symbol to analyze
-            
+
         Returns:
             MarketMakerActivity object
         """
         recent_flows = self.symbol_flows[symbol][-100:]  # Last 100 trades
-        
+
         if not recent_flows:
             return MarketMakerActivity(
                 symbol=symbol,
@@ -997,28 +1000,28 @@ class OptionsFlowTracker:
                 pin_risk_management=False,
                 likely_direction='NEUTRAL'
             )
-        
+
         # Calculate net delta position
         net_delta = sum(f.delta * f.size * 100 for f in recent_flows)
-        
+
         # Detect hedging patterns
         delta_neutral_trades = 0
         for i in range(1, len(recent_flows)):
             if abs(recent_flows[i].delta + recent_flows[i-1].delta) < 0.1:
                 delta_neutral_trades += 1
-        
+
         hedging_ratio = delta_neutral_trades / len(recent_flows) if recent_flows else 0
-        
+
         # Check for pin risk management (near expiry, ATM activity)
         pin_risk = False
         for flow in recent_flows:
             days_to_expiry = (flow.expiry - datetime.now()).days
             moneyness = flow.strike / flow.underlying_price
-            
+
             if days_to_expiry <= 1 and 0.98 <= moneyness <= 1.02:
                 pin_risk = True
                 break
-        
+
         # Determine likely direction
         if net_delta > 1000:
             direction = 'LONG'
@@ -1026,7 +1029,7 @@ class OptionsFlowTracker:
             direction = 'SHORT'
         else:
             direction = 'NEUTRAL'
-        
+
         mm_activity = MarketMakerActivity(
             symbol=symbol,
             timestamp=datetime.now(),
@@ -1035,33 +1038,33 @@ class OptionsFlowTracker:
             pin_risk_management=pin_risk,
             likely_direction=direction
         )
-        
+
         self.mm_activity[symbol] = mm_activity
-        
+
         return mm_activity
-    
+
     # ==========================================================================
     # REPORTING
     # ==========================================================================
-    
-    def get_flow_summary(self, symbol: str) -> Dict[str, Any]:
+
+    def get_flow_summary(self, symbol: str) -> dict[str, Any]:
         """
         Get comprehensive flow summary for symbol
-        
+
         Args:
             symbol: Symbol to summarize
-            
+
         Returns:
             Summary dictionary
         """
         if symbol not in self.aggregated_flows:
             return {}
-        
+
         agg = self.aggregated_flows[symbol]
         sentiment = self.current_sentiment.get(symbol, Sentiment.NEUTRAL)
         toxicity = self.calculate_flow_toxicity(symbol)
         mm_activity = self.mm_activity.get(symbol)
-        
+
         summary = {
             'symbol': symbol,
             'timestamp': datetime.now(),
@@ -1095,15 +1098,15 @@ class OptionsFlowTracker:
             },
             'signals': self.get_trading_signals(symbol)
         }
-        
+
         return summary
-    
-    def get_top_flows(self, n: int = 10) -> List[OptionsFlow]:
+
+    def get_top_flows(self, n: int = 10) -> list[OptionsFlow]:
         """Get top flows by premium"""
         sorted_flows = sorted(self.flows, key=lambda x: x.premium, reverse=True)
         return sorted_flows[:n]
-    
-    def get_unusual_flows(self, symbol: Optional[str] = None) -> List[OptionsFlow]:
+
+    def get_unusual_flows(self, symbol: str | None = None) -> list[OptionsFlow]:
         """Get unusual flows"""
         if symbol:
             return [f for f in self.unusual_activity if f.symbol == symbol]
@@ -1113,16 +1116,12 @@ class OptionsFlowTracker:
 # TEST/DEMO CODE
 # ==============================================================================
 if __name__ == "__main__":
-    print("="*80)
-    print(" SPYDER OPTIONS FLOW TRACKER TEST")
-    print("="*80)
-    
+
     # Create tracker
     tracker = OptionsFlowTracker()
-    
+
     # Generate synthetic flow data
-    print("\n1. Generating synthetic options flow...")
-    
+
     test_flows = [
         # Unusual large call sweep
         {
@@ -1179,74 +1178,42 @@ if __name__ == "__main__":
             'gamma': 0.03
         }
     ]
-    
+
     # Process flows
     processed_flows = []
     for flow_data in test_flows:
         flow = tracker.process_flow(flow_data)
         processed_flows.append(flow)
-        print(f"  Processed: {flow.symbol} {flow.strike} {flow.option_type} - "
-              f"Type: {flow.flow_type.value}, Premium: ${flow.premium:,.0f}")
-    
+
     # Analyze sentiment
-    print("\n2. Market Sentiment Analysis...")
     sentiment = tracker.calculate_market_sentiment('SPY')
-    print(f"  Current Sentiment: {sentiment.value}")
-    
+
     # Get aggregated flow
-    print("\n3. Aggregated Flow Summary...")
     if 'SPY' in tracker.aggregated_flows:
         agg = tracker.aggregated_flows['SPY']
-        print(f"  Call Volume: {agg.total_call_volume:,}")
-        print(f"  Put Volume: {agg.total_put_volume:,}")
-        print(f"  Call/Put Ratio: {agg.call_put_ratio:.2f}")
-        print(f"  Sweep Count: {agg.sweep_count}")
-        print(f"  Block Count: {agg.block_count}")
-        print(f"  Unusual Trades: {len(agg.unusual_trades)}")
-    
+
     # Check toxicity
-    print("\n4. Flow Toxicity Analysis...")
     toxicity = tracker.calculate_flow_toxicity('SPY')
-    print(f"  Toxicity Score: {toxicity.toxicity_score:.2f}")
-    print(f"  Informed Trading Probability: {toxicity.informed_trading_probability:.2%}")
-    print(f"  Order Imbalance: {toxicity.order_imbalance:.2f}")
-    
+
     # Detect market maker activity
-    print("\n5. Market Maker Detection...")
     mm_activity = tracker.detect_market_maker_activity('SPY')
-    print(f"  Net Delta Position: {mm_activity.net_position_delta:.0f}")
-    print(f"  Hedging Flow: {mm_activity.hedging_flow:.2%}")
-    print(f"  Pin Risk Management: {mm_activity.pin_risk_management}")
-    print(f"  Likely Direction: {mm_activity.likely_direction}")
-    
+
     # Get trading signals
-    print("\n6. Trading Signals...")
     signals = tracker.get_trading_signals('SPY')
-    for signal in signals:
-        print(f"  {signal['type']}: {signal['action']} - {signal['reason']}")
-        print(f"    Confidence: {signal['confidence']:.0%}")
-    
+    for _signal in signals:
+        pass
+
     # Check alerts
-    print(f"\n7. Alerts Generated: {len(tracker.alerts)}")
-    for alert in tracker.alerts:
-        print(f"  [{alert.alert_type}] {alert.message}")
-        print(f"    Significance: {alert.significance:.0%}")
-    
+    for _alert in tracker.alerts:
+        pass
+
     # Get top flows
-    print("\n8. Top Flows by Premium...")
     top_flows = tracker.get_top_flows(3)
-    for i, flow in enumerate(top_flows, 1):
-        print(f"  {i}. {flow.symbol} {flow.strike} {flow.option_type}: ${flow.premium:,.0f}")
-    
+    for _i, _ in enumerate(top_flows, 1):
+        pass
+
     # Get comprehensive summary
-    print("\n9. Comprehensive Flow Summary...")
     summary = tracker.get_flow_summary('SPY')
     if summary:
-        print(f"  Total Premium: ${summary['volumes']['total_premium']:,.0f}")
-        print(f"  Sentiment: {summary['sentiment']['current']}")
-        print(f"  Unusual Activity Count: {summary['unusual_activity']['count']}")
-        print(f"  Number of Signals: {len(summary['signals'])}")
-    
-    print("\n" + "="*80)
-    print(" ALL TESTS COMPLETED SUCCESSFULLY!")
-    print("="*80)
+        pass
+

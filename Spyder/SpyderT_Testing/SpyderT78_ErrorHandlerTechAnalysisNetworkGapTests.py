@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -454,7 +453,7 @@ class TestErrorCallbacks:
 class TestRegisterComponent:
     def test_register_component_stores_weakref(self):
         h = _fresh_handler()
-        obj = object()
+        object()
         # Can't weakref plain object, use a list (not weakref-able either).
         # Use a lambda workaround — register with a class instance as component.
         class Dummy:
@@ -723,7 +722,7 @@ class TestAnalyzeTrendAllDirections:
     """Cover all 5 TrendDirection branches."""
 
     def _df_with_prices(self, prices):
-        n = len(prices)
+        len(prices)
         close = pd.Series(prices, dtype=float)
         return close
 
@@ -1096,13 +1095,13 @@ class TestTestHostConnection:
 
     def test_failure_returns_false(self):
         net = _fresh_net()
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             result = net._test_host_connection("0.0.0.0", 9999, 1)
             assert result is False
 
     def test_socket_timeout_returns_false(self):
         net = _fresh_net()
-        with patch("socket.create_connection", side_effect=socket.timeout("timed out")):
+        with patch("socket.create_connection", side_effect=TimeoutError("timed out")):
             result = net._test_host_connection("0.0.0.0", 9999, 1)
             assert result is False
 
@@ -1163,7 +1162,7 @@ class TestTestHttpConnection:
             # The inner except catches OSError → tries logger.debug → NameError
             # This is a known U05 bug; assert it at least doesn't crash with non-OSError path
             try:
-                result = net._test_http_connection(timeout=1)
+                net._test_http_connection(timeout=1)
             except NameError:
                 # Known U05 bug: module-level `logger` not defined; xfail acceptable
                 pytest.skip("U05 _test_http_connection has module-level logger bug")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,14 +23,12 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import sys
 import asyncio
-import warnings
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from collections import defaultdict, deque
+from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -39,32 +36,17 @@ from collections import defaultdict, deque
 import pickle
 import pandas as pd
 import numpy as np
-from scipy import stats
-from scipy.cluster.hierarchy import linkage, dendrogram, cut_tree
+from scipy.cluster.hierarchy import linkage, cut_tree
 from scipy.spatial.distance import squareform
-from sklearn.decomposition import PCA, FactorAnalysis
+from sklearn.decomposition import FactorAnalysis
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
-import networkx as nx
-import seaborn as sns
-import plotly.graph_objects as go
-import plotly.express as px
+from sklearn.ensemble import IsolationForest
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import RegimeType
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import create_unified_regime_engine as create_regime_classifier
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime
 
 # ==============================================================================
 # CONSTANTS
@@ -108,15 +90,15 @@ class CorrelationMetrics:
 @dataclass
 class ClusterResult:
     """Result of correlation cluster analysis."""
-    clusters: Dict[int, List[str]]
+    clusters: dict[int, list[str]]
     silhouette_score: float = 0.0
-    linkage_matrix: Optional[np.ndarray] = None
+    linkage_matrix: np.ndarray | None = None
 
 
 @dataclass
 class FactorResult:
     """Result of factor analysis."""
-    loadings: Optional[np.ndarray] = None
+    loadings: np.ndarray | None = None
     common_factor_risk: float = 0.0
     explained_variance: float = 0.0
 
@@ -143,21 +125,21 @@ class CorrelationAnalyzer:
         config: Optional configuration dictionary.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
         self.logger = SpyderLogger("CorrelationAnalyzer")
         self.error_handler = SpyderErrorHandler()
-        self.correlation_history: List[CorrelationMetrics] = []
-        self.strategy_returns: Dict[str, pd.Series] = {}
+        self.correlation_history: list[CorrelationMetrics] = []
+        self.strategy_returns: dict[str, pd.Series] = {}
         self.current_regime = CorrelationRegime.NORMAL_CORRELATION
-        self._alerts: List[Dict[str, Any]] = []
+        self._alerts: list[dict[str, Any]] = []
 
     def update_strategy_returns(self, strategy_name: str, returns: pd.Series) -> None:
         """Update returns data for a strategy."""
         self.strategy_returns[strategy_name] = returns
 
     async def analyze_portfolio_correlations(
-        self, strategy_returns: Dict[str, pd.Series]
+        self, strategy_returns: dict[str, pd.Series]
     ) -> CorrelationMetrics:
         """
         Analyze correlations across portfolio strategies.
@@ -205,7 +187,7 @@ class CorrelationAnalyzer:
 
     async def calculate_rolling_correlations(
         self, window: int = DEFAULT_ROLLING_WINDOW
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Calculate rolling correlations between strategy pairs.
 
@@ -229,7 +211,7 @@ class CorrelationAnalyzer:
 
     async def forecast_correlations(
         self, pair_name: str, horizon: int = 10
-    ) -> Optional[CorrelationForecast]:
+    ) -> CorrelationForecast | None:
         """
         Forecast future correlation for a strategy pair.
 
@@ -256,7 +238,7 @@ class CorrelationAnalyzer:
             forecast_horizon=horizon,
         )
 
-    async def perform_cluster_analysis(self) -> Optional[ClusterResult]:
+    async def perform_cluster_analysis(self) -> ClusterResult | None:
         """Perform hierarchical cluster analysis on strategy correlations."""
         df = pd.DataFrame(self.strategy_returns).dropna()
         if df.shape[1] < 3 or len(df) < 20:
@@ -271,7 +253,7 @@ class CorrelationAnalyzer:
         n_clusters = min(3, df.shape[1])
         labels = cut_tree(Z, n_clusters=n_clusters).flatten()
 
-        clusters: Dict[int, List[str]] = defaultdict(list)
+        clusters: dict[int, list[str]] = defaultdict(list)
         for idx, label in enumerate(labels):
             clusters[int(label)].append(df.columns[idx])
 
@@ -281,7 +263,7 @@ class CorrelationAnalyzer:
 
         return ClusterResult(clusters=dict(clusters), silhouette_score=sil, linkage_matrix=Z)
 
-    async def perform_factor_analysis(self, n_factors: int = 2) -> Optional[FactorResult]:
+    async def perform_factor_analysis(self, n_factors: int = 2) -> FactorResult | None:
         """Perform factor analysis on strategy returns."""
         df = pd.DataFrame(self.strategy_returns).dropna()
         if df.shape[1] < n_factors + 1 or len(df) < 30:
@@ -300,7 +282,7 @@ class CorrelationAnalyzer:
             explained_variance=float(np.sum(fa.explained_variance_ratio_) if hasattr(fa, 'explained_variance_ratio_') else common_var),
         )
 
-    async def detect_correlation_anomalies(self) -> List[Dict[str, Any]]:
+    async def detect_correlation_anomalies(self) -> list[dict[str, Any]]:
         """Detect anomalies in correlation structure using Isolation Forest."""
         if len(self.correlation_history) < 10:
             return []
@@ -324,9 +306,9 @@ class CorrelationAnalyzer:
                 })
         return anomalies
 
-    async def generate_correlation_report(self) -> Dict[str, Any]:
+    async def generate_correlation_report(self) -> dict[str, Any]:
         """Generate a comprehensive correlation analysis report."""
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             'timestamp': datetime.now().isoformat(),
             'regime': self.current_regime.value,
             'history_length': len(self.correlation_history),
@@ -350,14 +332,14 @@ class CorrelationAnalyzer:
 
         return report
 
-    def get_active_alerts(self, hours: int = 24) -> List[Dict[str, Any]]:
+    def get_active_alerts(self, hours: int = 24) -> list[dict[str, Any]]:
         """Get alerts generated in the last N hours."""
         cutoff = datetime.now() - timedelta(hours=hours)
         return [a for a in self._alerts if a.get('timestamp', datetime.min) > cutoff]
 
-    def get_correlation_summary(self) -> Dict[str, Any]:
+    def get_correlation_summary(self) -> dict[str, Any]:
         """Get a summary of current correlation state."""
-        summary: Dict[str, Any] = {
+        summary: dict[str, Any] = {
             'regime': self.current_regime.value,
             'num_strategies': len(self.strategy_returns),
             'history_entries': len(self.correlation_history),
@@ -369,9 +351,9 @@ class CorrelationAnalyzer:
             summary['diversification_ratio'] = latest.diversification_ratio
         return summary
 
-    def get_strategy_correlation_profile(self, strategy_name: str) -> Dict[str, Any]:
+    def get_strategy_correlation_profile(self, strategy_name: str) -> dict[str, Any]:
         """Get correlation profile for a specific strategy."""
-        profile: Dict[str, Any] = {'strategy': strategy_name, 'average_correlation': 0.0}
+        profile: dict[str, Any] = {'strategy': strategy_name, 'average_correlation': 0.0}
         if strategy_name not in self.strategy_returns or not self.correlation_history:
             return profile
 
@@ -465,7 +447,7 @@ class CorrelationAnalyzer:
             import json as json_mod
 
             if format.lower() == 'json':
-                with open(file_path, 'r') as f:
+                with open(file_path) as f:
                     import_data = json_mod.load(f)
             elif format.lower() == 'pickle':
                 with open(file_path, 'rb') as f:
@@ -504,7 +486,7 @@ class CorrelationAnalyzer:
         self,
         returns_data: pd.DataFrame,
         method: str = 'ledoit_wolf',
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Compute robust covariance matrix using RiskFolio-Lib's estimators.
 
@@ -550,13 +532,13 @@ class CorrelationAnalyzer:
 # UTILITY FUNCTIONS
 # ==============================================================================
 
-def create_correlation_analyzer(config: Optional[Dict[str, Any]] = None) -> CorrelationAnalyzer:
+def create_correlation_analyzer(config: dict[str, Any] | None = None) -> CorrelationAnalyzer:
     """
     Factory function to create a CorrelationAnalyzer instance.
-    
+
     Args:
         config: Configuration parameters
-        
+
     Returns:
         Configured CorrelationAnalyzer instance
     """
@@ -566,34 +548,34 @@ def calculate_pairwise_correlation(returns1: pd.Series, returns2: pd.Series,
                                  method: str = 'pearson') -> float:
     """
     Calculate correlation between two return series.
-    
+
     Args:
         returns1: First return series
         returns2: Second return series
         method: Correlation method ('pearson', 'spearman', 'kendall')
-        
+
     Returns:
         Correlation coefficient
     """
     try:
         # Align series
         aligned_data = pd.DataFrame({'series1': returns1, 'series2': returns2}).dropna()
-        
+
         if len(aligned_data) < 2:
             return 0.0
-        
+
         return aligned_data['series1'].corr(aligned_data['series2'], method=method)
-        
+
     except Exception:
         return 0.0
 
 def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> CorrelationRegime:
     """
     Simple correlation regime detection utility.
-    
+
     Args:
         correlation_matrix: Correlation matrix
-        
+
     Returns:
         Detected correlation regime
     """
@@ -601,7 +583,7 @@ def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> Correlat
         # Calculate average off-diagonal correlation
         mask = ~np.eye(correlation_matrix.shape[0], dtype=bool)
         avg_correlation = np.mean(np.abs(correlation_matrix[mask]))
-        
+
         if avg_correlation >= EXTREME_CORRELATION_THRESHOLD:
             return CorrelationRegime.CRISIS_CORRELATION
         elif avg_correlation >= HIGH_CORRELATION_THRESHOLD:
@@ -610,7 +592,7 @@ def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> Correlat
             return CorrelationRegime.NORMAL_CORRELATION
         else:
             return CorrelationRegime.LOW_CORRELATION
-            
+
     except Exception:
         return CorrelationRegime.NORMAL_CORRELATION
 
@@ -619,9 +601,9 @@ def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> Correlat
 # ==============================================================================
 
 # Global correlation analyzer instance
-_global_correlation_analyzer: Optional[CorrelationAnalyzer] = None
+_global_correlation_analyzer: CorrelationAnalyzer | None = None
 
-def get_global_correlation_analyzer() -> Optional[CorrelationAnalyzer]:
+def get_global_correlation_analyzer() -> CorrelationAnalyzer | None:
     """Get global correlation analyzer instance"""
     return _global_correlation_analyzer
 
@@ -636,151 +618,108 @@ def set_global_correlation_analyzer(analyzer: CorrelationAnalyzer) -> None:
 
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER P03 - Correlation Analyzer Test")
-    print("=" * 80)
-    
+
     # Create analyzer
     analyzer = CorrelationAnalyzer()
-    
+
     # Test data generation
-    print("\n1. Generating Test Data...")
     np.random.seed(42)
     dates = pd.date_range('2023-01-01', periods=252, freq='D')
-    
+
     # Generate correlated strategy returns
     base_returns = np.random.normal(0.0005, 0.02, 252)
-    
+
     strategy_returns = {
         'strategy_1': pd.Series(base_returns + np.random.normal(0, 0.01, 252), index=dates),
         'strategy_2': pd.Series(0.8 * base_returns + np.random.normal(0, 0.01, 252), index=dates),
         'strategy_3': pd.Series(0.3 * base_returns + np.random.normal(0, 0.015, 252), index=dates),
         'strategy_4': pd.Series(-0.2 * base_returns + np.random.normal(0, 0.012, 252), index=dates)
     }
-    
-    print(f"Generated returns for {len(strategy_returns)} strategies over {len(dates)} days")
-    
+
+
     # Test correlation analysis
-    print("\n2. Testing Correlation Analysis...")
-    
+
     async def run_tests():
         # Basic correlation analysis
-        metrics = await analyzer.analyze_portfolio_correlations(strategy_returns)
-        print(f"Average correlation: {metrics.average_correlation:.3f}")
-        print(f"Diversification ratio: {metrics.diversification_ratio:.3f}")
-        print(f"Current regime: {metrics.regime.value}")
-        
+        await analyzer.analyze_portfolio_correlations(strategy_returns)
+
         # Rolling correlation analysis
         rolling_results = await analyzer.calculate_rolling_correlations(60)
-        print(f"Rolling correlations calculated for {len(rolling_results)} pairs")
-        
+
         # Correlation forecasting
         if rolling_results:
             first_pair = list(rolling_results.keys())[0]
             forecast = await analyzer.forecast_correlations(first_pair, horizon=10)
             if forecast:
-                print(f"Forecast generated for {first_pair}: confidence={forecast.model_confidence:.3f}")
-        
+                pass
+
         # Cluster analysis
         cluster_result = await analyzer.perform_cluster_analysis()
         if cluster_result:
-            print(f"Cluster analysis: {len(cluster_result.clusters)} clusters found")
-            print(f"Silhouette score: {cluster_result.silhouette_score:.3f}")
-        
+            pass
+
         # Factor analysis
         factor_result = await analyzer.perform_factor_analysis(n_factors=2)
         if factor_result:
-            print(f"Factor analysis: common factor risk={factor_result.common_factor_risk:.3f}")
-        
+            pass
+
         # Anomaly detection
-        anomalies = await analyzer.detect_correlation_anomalies()
-        print(f"Anomaly detection: {len(anomalies)} anomalies found")
-        
+        await analyzer.detect_correlation_anomalies()
+
         # Generate comprehensive report
-        report = await analyzer.generate_correlation_report()
-        print(f"Report generated with {len(report.get('recommendations', []))} recommendations")
-    
+        await analyzer.generate_correlation_report()
+
     # Run async tests
     import asyncio
     asyncio.run(run_tests())
-    
+
     # Test utility functions
-    print("\n3. Testing Utility Functions...")
-    
+
     # Test pairwise correlation
     corr = calculate_pairwise_correlation(
-        strategy_returns['strategy_1'], 
+        strategy_returns['strategy_1'],
         strategy_returns['strategy_2']
     )
-    print(f"Pairwise correlation: {corr:.3f}")
-    
+
     # Test simple regime detection
     test_matrix = np.array([[1.0, 0.8, 0.6], [0.8, 1.0, 0.7], [0.6, 0.7, 1.0]])
     regime = detect_correlation_regime_simple(test_matrix)
-    print(f"Simple regime detection: {regime.value}")
-    
+
     # Test data export/import
-    print("\n4. Testing Data Export/Import...")
     export_success = analyzer.export_correlation_data("test_correlation_data.json", "json")
-    print(f"Export successful: {export_success}")
-    
+
     if export_success:
         # Clear data and reimport
         analyzer.correlation_history.clear()
         import_success = analyzer.import_correlation_data("test_correlation_data.json", "json")
-        print(f"Import successful: {import_success}")
-        print(f"Correlation history restored: {len(analyzer.correlation_history)} entries")
-        
+
         # Clean up test file
         import os
         try:
             os.remove("test_correlation_data.json")
-            print("Test file cleaned up")
-        except:
+        except Exception:
             pass
-    
+
     # Test summary functions
-    print("\n5. Testing Summary Functions...")
     summary = analyzer.get_correlation_summary()
-    print(f"Summary generated with {len(summary)} fields")
-    
+
     if strategy_returns:
         profile = analyzer.get_strategy_correlation_profile('strategy_1')
-        print(f"Strategy profile: avg_correlation={profile.get('average_correlation', 0):.3f}")
-    
-    print("\n✅ Correlation Analyzer test completed successfully")
-    
+
+
     # Demonstrate integration examples
-    print("\n" + "=" * 80)
-    print("INTEGRATION EXAMPLES")
-    print("=" * 80)
-    
-    print("\n1. Real-time Monitoring Setup...")
-    print("# To start real-time monitoring:")
-    print("# await analyzer.start_real_time_monitoring(update_frequency=300)")
-    print("# This will continuously monitor correlations every 5 minutes")
-    
-    print("\n2. Integration with Portfolio Manager...")
-    print("# Update strategy returns from portfolio:")
-    print("# analyzer.update_strategy_returns('new_strategy', returns_series)")
-    print("# Get active correlation alerts:")
-    print(f"# Active alerts: {len(analyzer.get_active_alerts(24))}")
-    
-    print("\n3. Risk Management Integration...")
-    print("# Check current correlation regime for risk decisions:")
-    print(f"# Current regime: {analyzer.current_regime.value}")
-    print("# Get correlation-based recommendations:")
-    
+
+
+
+
     example_recommendations = [
         "Monitor correlation spikes during market stress",
-        "Implement dynamic position sizing based on correlation regime", 
+        "Implement dynamic position sizing based on correlation regime",
         "Use correlation forecasts for proactive risk management",
         "Set up automated alerts for correlation threshold breaches",
         "Integrate cluster analysis for strategy grouping"
     ]
-    
-    print("Risk management recommendations:")
-    for rec in example_recommendations:
-        print(f"  • {rec}")
-    
-    print("\n✅ All integration examples completed successfully")
+
+    for _rec in example_recommendations:
+        pass
+

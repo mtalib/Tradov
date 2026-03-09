@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -235,7 +234,7 @@ class TestOrderPlacement:
         mock_response.json.return_value = {"order": {"id": 123457}}
         mock_request.return_value = mock_response
 
-        order = tradier_client.place_order(
+        tradier_client.place_order(
             symbol="SPY",
             side=OrderSide.SELL,
             quantity=5,

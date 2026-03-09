@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -30,11 +29,10 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -93,7 +91,7 @@ class ExecutionPlan:
     reasoning: str = ""
     status: str = "planned"       # planned | submitted | filled | cancelled | failed
     created: datetime = field(default_factory=datetime.now)
-    filled_price: Optional[float] = None
+    filled_price: float | None = None
     slippage_bps: float = 0.0
 
 
@@ -160,32 +158,32 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         super().__init__(**kwargs)
 
         # State
-        self._pending_signals: List[Dict[str, Any]] = []
-        self._execution_plans: List[ExecutionPlan] = []
-        self._active_orders: Dict[str, ExecutionPlan] = {}  # order_id -> plan
+        self._pending_signals: list[dict[str, Any]] = []
+        self._execution_plans: list[ExecutionPlan] = []
+        self._active_orders: dict[str, ExecutionPlan] = {}  # order_id -> plan
         self._fills: deque = deque(maxlen=500)
         self._fill_metrics = FillMetrics()
         self._circuit_breaker_state: str = "normal"
-        self._current_allocation: Dict[str, float] = {}
+        self._current_allocation: dict[str, float] = {}
         self._account_value: float = 0.0
         self._tick_count: int = 0
 
         # Delegates
-        self._x07_agent: Optional[Any] = None
+        self._x07_agent: Any | None = None
         if X07_AVAILABLE:
             try:
                 self._x07_agent = SpyderX07_ExecutionStrategyAgent()
             except Exception:
                 pass
 
-        self._tradier: Optional[Any] = None
+        self._tradier: Any | None = None
         if TRADIER_AVAILABLE:
             try:
                 self._tradier = SpyderB40_TradierClient()
             except Exception:
                 pass
 
-        self._order_mgr: Optional[Any] = None
+        self._order_mgr: Any | None = None
         if ORDER_MGR_AVAILABLE:
             try:
                 self._order_mgr = SpyderB02_OrderManager()
@@ -248,8 +246,8 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         self._pending_signals.clear()
 
     def _create_execution_plan(
-        self, signal: Dict[str, Any], session: MarketSession
-    ) -> Optional[ExecutionPlan]:
+        self, signal: dict[str, Any], session: MarketSession
+    ) -> ExecutionPlan | None:
         """Create an execution plan from a validated signal."""
         payload = signal.get("payload", {})
         original = payload.get("original_signal", {})
@@ -503,7 +501,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming bus messages."""
         if topic == "signals.validated":
             self._pending_signals.append(message)
@@ -524,7 +522,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "tick_count": self._tick_count,
             "circuit_breaker_state": self._circuit_breaker_state,
@@ -537,7 +535,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
             },
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         self._tick_count = state.get("tick_count", 0)
         self._circuit_breaker_state = state.get("circuit_breaker_state", "normal")
         self._account_value = state.get("account_value", 0.0)

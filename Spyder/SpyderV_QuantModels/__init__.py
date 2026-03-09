@@ -197,6 +197,26 @@ VOLATILITY_MODELS_AVAILABLE = VOLATILITY_ENGINE_AVAILABLE
 CORRELATION_MODELS_AVAILABLE = ADVANCED_MODELS_AVAILABLE
 
 # ==============================================================================
+# CONVENIENCE ALIASES (map legacy/expected names to actual classes)
+# ==============================================================================
+if OPTIONS_MODELS_AVAILABLE:
+    OptionsModels = SpyderPricingEngine
+    BlackScholesModel = SpyderPricingEngine
+
+if RISK_MODELS_AVAILABLE:
+    RiskModels = RiskManager
+    VaRCalculator = RiskManager
+    StressTestEngine = RiskManager
+
+if VOLATILITY_MODELS_AVAILABLE:
+    VolatilityModels = VolatilityEngine
+    VolatilitySmile = VolatilitySurface
+
+if CORRELATION_MODELS_AVAILABLE:
+    CorrelationModels = AdvancedModels
+    CovarianceMatrix = AdvancedModels
+
+# ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
 # ==============================================================================
 

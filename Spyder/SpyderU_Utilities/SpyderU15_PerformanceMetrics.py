@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,18 +22,15 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import math
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -108,7 +104,7 @@ class PerformanceReport:
     losing_trades: int
     rating: PerformanceRating
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "total_return": self.total_return,
@@ -139,7 +135,7 @@ class DrawdownInfo:
     max_drawdown: float
     max_drawdown_duration: int
     recovery_time: int
-    drawdown_periods: List[Tuple[int, int, float]]  # (start, end, depth)
+    drawdown_periods: list[tuple[int, int, float]]  # (start, end, depth)
 
 
 # ==============================================================================
@@ -507,7 +503,7 @@ class PerformanceCalculator:
             self.logger.error(f"Profit factor calculation failed: {e}")
             return 0.0
 
-    def calculate_trade_statistics(self, returns: pd.Series) -> Dict[str, float]:
+    def calculate_trade_statistics(self, returns: pd.Series) -> dict[str, float]:
         """
         Calculate comprehensive trade statistics.
 
@@ -744,7 +740,7 @@ def generate_performance_report(returns: pd.Series) -> PerformanceReport:
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_performance_calculator_instance: Optional[PerformanceCalculator] = None
+_performance_calculator_instance: PerformanceCalculator | None = None
 
 
 def get_performance_calculator() -> PerformanceCalculator:
@@ -765,9 +761,6 @@ def get_performance_calculator() -> PerformanceCalculator:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U15 - Performance Metrics Test")
-    print("=" * 80)
 
     calc = PerformanceCalculator()
 
@@ -777,35 +770,21 @@ if __name__ == "__main__":
     returns = pd.Series(np.random.normal(0.001, 0.02, 252), index=dates)
 
     # Test individual metrics
-    print("\n1. Testing individual metrics...")
     total_return = calc.calculate_total_return(returns)
-    print(f"   Total Return: {total_return:.2%}")
 
     annualized_return = calc.calculate_annualized_return(returns)
-    print(f"   Annualized Return: {annualized_return:.2%}")
 
     volatility = calc.calculate_volatility(returns)
-    print(f"   Volatility: {volatility:.2%}")
 
     sharpe_ratio = calc.calculate_sharpe_ratio(returns)
-    print(f"   Sharpe Ratio: {sharpe_ratio:.3f}")
 
     # Test drawdown analysis
-    print("\n2. Testing drawdown analysis...")
     cumulative_returns = (1 + returns).cumprod() - 1
     max_drawdown = calc.calculate_max_drawdown(cumulative_returns)
-    print(f"   Max Drawdown: {max_drawdown:.2%}")
 
     # Test comprehensive report
-    print("\n3. Testing comprehensive report...")
     report = calc.generate_performance_report(returns)
-    print(f"   Overall Rating: {report.rating.value}")
-    print(f"   Calmar Ratio: {report.calmar_ratio:.3f}")
-    print(f"   Win Rate: {report.win_rate:.1f}%")
-    print(f"   Profit Factor: {report.profit_factor:.2f}")
 
-    print("\n" + "=" * 80)
-    print("✅ Performance Metrics test completed!")
 
 # Add at the end of the file
 

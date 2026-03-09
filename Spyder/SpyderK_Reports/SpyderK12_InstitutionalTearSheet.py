@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -33,13 +32,10 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import warnings
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Union
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from enum import Enum
-from io import BytesIO
 from pathlib import Path
 
 # ==============================================================================
@@ -109,7 +105,7 @@ class TearSheetConfig:
     benchmark_symbol: str = 'SPY'
     var_confidence: float = 0.95
     output_format: str = 'dict'  # 'dict', 'html', 'png'
-    output_dir: Optional[str] = None
+    output_dir: str | None = None
     include_positions: bool = False
     include_transactions: bool = False
     title: str = 'SPYDER Strategy Tear Sheet'
@@ -139,7 +135,7 @@ class InstitutionalTearSheet:
         config: Tear sheet configuration.
     """
 
-    def __init__(self, config: Optional[TearSheetConfig] = None):
+    def __init__(self, config: TearSheetConfig | None = None):
         self.config = config or TearSheetConfig()
         self.logger = SpyderLogger("K12_InstitutionalTearSheet")
         self.error_handler = SpyderErrorHandler()
@@ -151,8 +147,8 @@ class InstitutionalTearSheet:
     def compute_return_metrics(
         self,
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-    ) -> Dict[str, float]:
+        benchmark_returns: pd.Series | None = None,
+    ) -> dict[str, float]:
         """
         Compute comprehensive return metrics using empyrical.
 
@@ -167,7 +163,7 @@ class InstitutionalTearSheet:
             return self._fallback_return_metrics(returns)
 
         rf = self.config.risk_free_rate / TRADING_DAYS_PER_YEAR
-        metrics: Dict[str, float] = {}
+        metrics: dict[str, float] = {}
 
         try:
             metrics['annual_return'] = float(empyrical.annual_return(returns))
@@ -246,7 +242,7 @@ class InstitutionalTearSheet:
 
         return metrics
 
-    def _fallback_return_metrics(self, returns: pd.Series) -> Dict[str, float]:
+    def _fallback_return_metrics(self, returns: pd.Series) -> dict[str, float]:
         """Compute basic metrics without empyrical."""
         if len(returns) == 0:
             return {'status': 'empty_returns'}
@@ -275,7 +271,7 @@ class InstitutionalTearSheet:
     # DRAWDOWN ANALYSIS
     # ==========================================================================
 
-    def compute_drawdown_analysis(self, returns: pd.Series) -> Dict[str, Any]:
+    def compute_drawdown_analysis(self, returns: pd.Series) -> dict[str, Any]:
         """
         Detailed drawdown analysis with top-N waterfall table.
 
@@ -297,7 +293,7 @@ class InstitutionalTearSheet:
         max_dd = 0
         trough_date = None
 
-        for i, (date, val) in enumerate(dd_series.items()):
+        for _i, (date, val) in enumerate(dd_series.items()):
             if val < 0 and not in_dd:
                 in_dd = True
                 start = date
@@ -360,8 +356,8 @@ class InstitutionalTearSheet:
     def compute_rolling_metrics(
         self,
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-    ) -> Dict[str, Any]:
+        benchmark_returns: pd.Series | None = None,
+    ) -> dict[str, Any]:
         """
         Compute rolling performance metrics.
 
@@ -382,7 +378,7 @@ class InstitutionalTearSheet:
 
         rolling_vol = rolling_std * np.sqrt(TRADING_DAYS_PER_YEAR)
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'rolling_sharpe': rolling_sharpe.dropna().to_dict(),
             'rolling_volatility': rolling_vol.dropna().to_dict(),
             'sharpe_window': window,
@@ -409,11 +405,11 @@ class InstitutionalTearSheet:
     def generate_full_tearsheet(
         self,
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-        positions: Optional[pd.DataFrame] = None,
-        transactions: Optional[pd.DataFrame] = None,
-        title: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        benchmark_returns: pd.Series | None = None,
+        positions: pd.DataFrame | None = None,
+        transactions: pd.DataFrame | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a full institutional tear sheet.
 
@@ -430,7 +426,7 @@ class InstitutionalTearSheet:
         title = title or self.config.title
         self.logger.info(f"Generating full tear sheet: {title}")
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'title': title,
             'generated_at': datetime.now().isoformat(),
             'data_range': {
@@ -477,8 +473,8 @@ class InstitutionalTearSheet:
     def generate_risk_tearsheet(
         self,
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-    ) -> Dict[str, Any]:
+        benchmark_returns: pd.Series | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a risk-focused tear sheet.
 
@@ -539,8 +535,8 @@ class InstitutionalTearSheet:
     def generate_returns_tearsheet(
         self,
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-    ) -> Dict[str, Any]:
+        benchmark_returns: pd.Series | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a returns-focused tear sheet.
 
@@ -557,7 +553,7 @@ class InstitutionalTearSheet:
         rolling = self.compute_rolling_metrics(returns, benchmark_returns)
 
         # Cumulative returns
-        cumulative = (1 + returns).cumprod()
+        (1 + returns).cumprod()
 
         # Annual returns by year
         annual_by_year = {}
@@ -593,10 +589,10 @@ class InstitutionalTearSheet:
     # HELPER METHODS
     # ==========================================================================
 
-    def _monthly_returns_table(self, returns: pd.Series) -> Dict[str, Dict[str, float]]:
+    def _monthly_returns_table(self, returns: pd.Series) -> dict[str, dict[str, float]]:
         """Build a year x month returns matrix."""
         monthly = returns.resample('ME').apply(lambda x: (1 + x).prod() - 1)
-        result: Dict[str, Dict[str, float]] = {}
+        result: dict[str, dict[str, float]] = {}
         for date, ret in monthly.items():
             year = str(date.year)
             month = str(date.month)
@@ -605,7 +601,7 @@ class InstitutionalTearSheet:
             result[year][month] = round(float(ret), 6)
         return result
 
-    def _save_figure(self, fig, name: str) -> Optional[str]:
+    def _save_figure(self, fig, name: str) -> str | None:
         """Save a matplotlib figure if configured."""
         if not HAS_MATPLOTLIB or not self.config.output_dir:
             return None
@@ -623,9 +619,9 @@ class InstitutionalTearSheet:
 
     def compare_strategies(
         self,
-        strategy_returns: Dict[str, pd.Series],
-        benchmark_returns: Optional[pd.Series] = None,
-    ) -> Dict[str, Any]:
+        strategy_returns: dict[str, pd.Series],
+        benchmark_returns: pd.Series | None = None,
+    ) -> dict[str, Any]:
         """
         Compare multiple strategies side-by-side.
 
@@ -638,7 +634,7 @@ class InstitutionalTearSheet:
         """
         self.logger.info(f"Comparing {len(strategy_returns)} strategies")
 
-        comparison: Dict[str, Dict[str, float]] = {}
+        comparison: dict[str, dict[str, float]] = {}
         for name, returns in strategy_returns.items():
             comparison[name] = self.compute_return_metrics(returns, benchmark_returns)
 
@@ -667,8 +663,8 @@ class InstitutionalTearSheet:
         self,
         returns: pd.Series,
         positions: pd.DataFrame,
-        transactions: Optional[pd.DataFrame] = None,
-    ) -> Dict[str, Any]:
+        transactions: pd.DataFrame | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a portfolio-level tear sheet with position analytics.
 
@@ -714,7 +710,7 @@ class InstitutionalTearSheet:
     # SUMMARY
     # ==========================================================================
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get tear sheet generator status."""
         return {
             'pyfolio_available': HAS_PYFOLIO,
@@ -732,7 +728,7 @@ class InstitutionalTearSheet:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_institutional_tearsheet(
-    config: Optional[TearSheetConfig] = None,
+    config: TearSheetConfig | None = None,
 ) -> InstitutionalTearSheet:
     """Create an InstitutionalTearSheet instance."""
     return InstitutionalTearSheet(config)
@@ -741,7 +737,7 @@ def create_institutional_tearsheet(
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_instance: Optional[InstitutionalTearSheet] = None
+_instance: InstitutionalTearSheet | None = None
 
 
 def get_institutional_tearsheet() -> InstitutionalTearSheet:
@@ -756,15 +752,9 @@ def get_institutional_tearsheet() -> InstitutionalTearSheet:
 # MAIN EXECUTION (FOR TESTING)
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("SPYDER K12 — Institutional Tear Sheet Generator")
-    print("=" * 60)
 
     ts = create_institutional_tearsheet()
     summary = ts.get_summary()
-    print(f"\nEmpyrical: {summary['empyrical_available']}")
-    print(f"PyFolio: {summary['pyfolio_available']}")
-    print(f"Matplotlib: {summary['matplotlib_available']}")
 
     # Generate test data
     np.random.seed(42)
@@ -780,26 +770,13 @@ if __name__ == "__main__":
         name='benchmark',
     )
 
-    print("\n--- Full Tear Sheet ---")
     full = ts.generate_full_tearsheet(
         strategy_returns, benchmark_returns,
         title='Test Strategy')
     rm = full['return_metrics']
-    print(f"Annual Return:     {rm.get('annual_return', 0):.2%}")
-    print(f"Sharpe Ratio:      {rm.get('sharpe_ratio', 0):.4f}")
-    print(f"Sortino Ratio:     {rm.get('sortino_ratio', 0):.4f}")
-    print(f"Max Drawdown:      {rm.get('max_drawdown', 0):.2%}")
-    print(f"Calmar Ratio:      {rm.get('calmar_ratio', 0):.4f}")
-    print(f"VaR (95%):         {rm.get('var_95', 0):.4f}")
-    print(f"CVaR (95%):        {rm.get('cvar_95', 0):.4f}")
 
-    print("\n--- Risk Tear Sheet ---")
     risk = ts.generate_risk_tearsheet(strategy_returns)
-    print(f"Historical VaR95:  {risk['var_historical']['var_95']:.4f}")
-    print(f"Parametric VaR95:  {risk['var_parametric']['var_95']:.4f}")
-    print(f"Tail Ratio:        {risk['tail_analysis']['tail_ratio']:.4f}")
 
-    print("\n--- Strategy Comparison ---")
     comp = ts.compare_strategies({
         'Momentum': strategy_returns,
         'Mean Reversion': pd.Series(np.random.randn(504) * 0.012 + 0.0001,
@@ -807,7 +784,4 @@ if __name__ == "__main__":
         'Vol Trading': pd.Series(np.random.randn(504) * 0.015 + 0.0004,
                                  index=dates),
     })
-    print(f"Best Strategy:     {comp['best_strategy']}")
-    print(f"Rankings:          {comp['rankings_by_sharpe']}")
 
-    print("\nDone.")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,23 +22,19 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
-import os
-import sys
 import threading
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Optional
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import statistics
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 # ==============================================================================
@@ -172,8 +167,8 @@ class InternalsAnalysis:
     volume_confirmation: bool
     signal_strength: float  # -1 to 1
     confidence: float  # 0 to 1
-    indicators: Dict[str, float]
-    warnings: List[str]
+    indicators: dict[str, float]
+    warnings: list[str]
 
 
 # ==============================================================================
@@ -209,23 +204,23 @@ class MarketInternalsAnalyzer:
         self.event_bus = EventBus()
 
         # Data storage
-        self.internals_data: Dict[str, InternalData] = {}
-        self.history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
+        self.internals_data: dict[str, InternalData] = {}
+        self.history: dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
         self.snapshots: deque = deque(maxlen=500)
 
         # Analysis state
-        self.current_analysis: Optional[InternalsAnalysis] = None
+        self.current_analysis: InternalsAnalysis | None = None
         self.market_phase_history: deque = deque(maxlen=100)
         self.divergence_history: deque = deque(maxlen=50)
 
         # Control flags
         self.is_running = False
-        self.update_thread: Optional[threading.Thread] = None
-        self.analysis_thread: Optional[threading.Thread] = None
+        self.update_thread: threading.Thread | None = None
+        self.analysis_thread: threading.Thread | None = None
         self.lock = threading.Lock()
 
         # Callbacks
-        self.analysis_callbacks: List[callable] = []
+        self.analysis_callbacks: list[callable] = []
 
         self.logger.info("MarketInternalsAnalyzer initialized")
 
@@ -307,7 +302,7 @@ class MarketInternalsAnalyzer:
                 # Add to history
                 self.history[symbol].append({"timestamp": datetime.now(), "value": value})
 
-    def get_current_analysis(self) -> Optional[InternalsAnalysis]:
+    def get_current_analysis(self) -> InternalsAnalysis | None:
         """
         Get current market internals analysis.
 
@@ -316,7 +311,7 @@ class MarketInternalsAnalyzer:
         """
         return self.current_analysis
 
-    def get_internal_value(self, symbol: str) -> Optional[float]:
+    def get_internal_value(self, symbol: str) -> float | None:
         """
         Get current value for internal.
 
@@ -364,7 +359,7 @@ class MarketInternalsAnalyzer:
     # ==========================================================================
     # ANALYSIS METHODS
     # ==========================================================================
-    def analyze_tick(self) -> Tuple[float, bool]:
+    def analyze_tick(self) -> tuple[float, bool]:
         """
         Analyze NYSE TICK.
 
@@ -392,7 +387,7 @@ class MarketInternalsAnalyzer:
 
         return signal, extreme
 
-    def analyze_breadth(self) -> Tuple[BreadthCondition, float]:
+    def analyze_breadth(self) -> tuple[BreadthCondition, float]:
         """
         Analyze market breadth.
 
@@ -446,7 +441,7 @@ class MarketInternalsAnalyzer:
 
         return signal
 
-    def detect_divergence(self) -> Tuple[bool, float]:
+    def detect_divergence(self) -> tuple[bool, float]:
         """
         Detect price/breadth divergence.
 
@@ -561,7 +556,7 @@ class MarketInternalsAnalyzer:
                 self.logger.error(f"Analysis loop error: {e}")
                 time.sleep(ANALYSIS_INTERVAL)
 
-    def _create_snapshot(self) -> Optional[MarketInternalsSnapshot]:
+    def _create_snapshot(self) -> MarketInternalsSnapshot | None:
         """Create snapshot of current internals."""
         try:
             with self.lock:
@@ -588,7 +583,7 @@ class MarketInternalsAnalyzer:
             self.logger.error(f"Error creating snapshot: {e}")
             return None
 
-    def _perform_analysis(self) -> Optional[InternalsAnalysis]:
+    def _perform_analysis(self) -> InternalsAnalysis | None:
         """Perform comprehensive internals analysis."""
         try:
             # Get component analyses
@@ -682,7 +677,7 @@ class MarketInternalsAnalyzer:
     # ==========================================================================
     # ADVANCED ANALYSIS
     # ==========================================================================
-    def get_sector_rotation_signals(self) -> Dict[str, float]:
+    def get_sector_rotation_signals(self) -> dict[str, float]:
         """
         Get sector rotation signals based on internals.
 
@@ -727,7 +722,7 @@ class MarketInternalsAnalyzer:
 
         return signals
 
-    def get_trading_signals(self) -> Dict[str, Any]:
+    def get_trading_signals(self) -> dict[str, Any]:
         """
         Generate trading signals based on internals.
 
@@ -802,7 +797,6 @@ if __name__ == "__main__":
     analyzer = MarketInternalsAnalyzer()
 
     if analyzer.initialize():
-        print("Market Internals Analyzer initialized successfully")
 
         # Simulate some data updates
         test_data = {"TICK": 450, "ADD": 1200, "VOLD": 1.5e9, "TRIN": 0.85, "VIX": 18.5}
@@ -816,60 +810,52 @@ if __name__ == "__main__":
         # Get analysis
         analysis = analyzer.get_current_analysis()
         if analysis:
-            print(f"\nMarket Condition: {analysis.market_condition.value}")
-            print(f"Breadth Condition: {analysis.breadth_condition.value}")
-            print(f"Market Phase: {analysis.market_phase.value}")
-            print(f"Signal Strength: {analysis.signal_strength:.2f}")
-            print(f"Confidence: {analysis.confidence:.2f}")
 
             if analysis.warnings:
-                print("\nWarnings:")
-                for warning in analysis.warnings:
-                    print(f"  - {warning}")
+                for _warning in analysis.warnings:
+                    pass
 
         # Get trading signals
         signals = analyzer.get_trading_signals()
         if signals.get("recommendations"):
-            print("\nTrading Recommendations:")
-            for rec in signals["recommendations"]:
-                print(f"  - {rec['action']}: {rec['reason']} ({rec['strategy']})")
+            for _rec in signals["recommendations"]:
+                pass
 
         # Stop analyzer
         analyzer.stop()
-        print("\nMarket Internals Analyzer stopped")
 
 class MarketInternals:
     """Main market internals coordinator class"""
-    
+
     def __init__(self):
-        self.current_data: Optional[InternalData] = None
-        self.current_snapshot: Optional[MarketInternalsSnapshot] = None
-        self.current_analysis: Optional[InternalsAnalysis] = None
-    
+        self.current_data: InternalData | None = None
+        self.current_snapshot: MarketInternalsSnapshot | None = None
+        self.current_analysis: InternalsAnalysis | None = None
+
     def update_data(self, data: InternalData) -> None:
         """Update internal data"""
         self.current_data = data
-    
+
     def update_snapshot(self, snapshot: MarketInternalsSnapshot) -> None:
         """Update market internals snapshot"""
         self.current_snapshot = snapshot
-    
+
     def update_analysis(self, analysis: InternalsAnalysis) -> None:
         """Update internals analysis"""
         self.current_analysis = analysis
-    
+
     def get_current_condition(self) -> MarketCondition:
         """Get current market condition"""
         if self.current_analysis:
             return getattr(self.current_analysis, 'condition', MarketCondition.UNKNOWN)
         return MarketCondition.UNKNOWN
-    
+
     def get_breadth_condition(self) -> BreadthCondition:
         """Get current breadth condition"""
         if self.current_analysis:
             return getattr(self.current_analysis, 'breadth', BreadthCondition.NEUTRAL)
         return BreadthCondition.NEUTRAL
-    
+
     def get_market_phase(self) -> MarketPhase:
         """Get current market phase"""
         if self.current_analysis:

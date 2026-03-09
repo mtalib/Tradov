@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,42 +23,31 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Set, Callable
+from datetime import datetime
+from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
 import json
 from pathlib import Path
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Categorical
 import gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from sklearn.preprocessing import StandardScaler
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-
-    MAX_AGENTS,
-    ORCHESTRATOR_UPDATE_INTERVAL,
-    PERFORMANCE_WINDOW,
-)
 
 # Import all agents
 from SpyderX_Agents import (
@@ -113,7 +101,7 @@ class AgentOutput:
     reasoning: str
     processing_time: float
     timestamp: datetime
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -122,12 +110,12 @@ class OrchestratorDecision:
 
     action: str
     confidence: float
-    contributing_agents: List[str]
-    agent_weights: Dict[str, float]
+    contributing_agents: list[str]
+    agent_weights: dict[str, float]
     consensus_score: float
-    dissenting_opinions: List[Dict[str, Any]]
+    dissenting_opinions: list[dict[str, Any]]
     reasoning: str
-    execution_params: Dict[str, Any]
+    execution_params: dict[str, Any]
 
 
 @dataclass
@@ -138,7 +126,7 @@ class AgentPerformance:
     accuracy_history: deque = field(default_factory=lambda: deque(maxlen=1000))
     latency_history: deque = field(default_factory=lambda: deque(maxlen=1000))
     reliability_score: float = 1.0
-    specialization_areas: Set[str] = field(default_factory=set)
+    specialization_areas: set[str] = field(default_factory=set)
     failure_count: int = 0
     success_count: int = 0
 
@@ -188,7 +176,7 @@ class MetaLearningNetwork(nn.Module):
 
     def forward(
         self, state: torch.Tensor, agent_outputs: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass to predict agent weights.
 
@@ -302,7 +290,7 @@ class SpyderX14_OrchestratorAgent:
     and the current market regime.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize the orchestrator agent.
 
@@ -350,7 +338,7 @@ class SpyderX14_OrchestratorAgent:
     # INITIALIZATION METHODS
     # ==========================================================================
 
-    def _initialize_agents(self) -> Dict[str, Any]:
+    def _initialize_agents(self) -> dict[str, Any]:
         """Initialize all available agents."""
         agents = {
             "greeks": SpyderX01_GreeksAgent.get_instance(),
@@ -414,7 +402,7 @@ class SpyderX14_OrchestratorAgent:
                     with open(weights_path, 'w', encoding='utf-8') as _f:
                         json.dump(dict(_wd), _f, indent=2)
             if weights_path.exists():
-                with open(weights_path, 'r', encoding='utf-8') as f:
+                with open(weights_path, encoding='utf-8') as f:
                     saved_weights = json.load(f)
                     for agent_id, weights in saved_weights.items():
                         self.weight_history[agent_id].extend(weights)
@@ -429,7 +417,7 @@ class SpyderX14_OrchestratorAgent:
 
     async def coordinate_agents(
         self,
-        market_state: Dict[str, Any],
+        market_state: dict[str, Any],
         query: str,
         timeout: float = MAX_AGENT_TIMEOUT,
     ) -> OrchestratorDecision:
@@ -495,8 +483,8 @@ class SpyderX14_OrchestratorAgent:
             return self._create_fallback_decision(str(e))
 
     async def _collect_agent_outputs(
-        self, market_state: Dict[str, Any], query: str, timeout: float
-    ) -> List[AgentOutput]:
+        self, market_state: dict[str, Any], query: str, timeout: float
+    ) -> list[AgentOutput]:
         """Collect outputs from all active agents in parallel."""
         agent_futures = {}
 
@@ -523,8 +511,8 @@ class SpyderX14_OrchestratorAgent:
         return outputs
 
     def _get_agent_output(
-        self, agent_id: str, agent: Any, market_state: Dict[str, Any], query: str
-    ) -> Optional[AgentOutput]:
+        self, agent_id: str, agent: Any, market_state: dict[str, Any], query: str
+    ) -> AgentOutput | None:
         """Get output from a single agent."""
         try:
             start_time = datetime.now()
@@ -568,8 +556,8 @@ class SpyderX14_OrchestratorAgent:
     # ==========================================================================
 
     async def _calculate_dynamic_weights(
-        self, market_state: Dict[str, Any], agent_outputs: List[AgentOutput]
-    ) -> Dict[str, float]:
+        self, market_state: dict[str, Any], agent_outputs: list[AgentOutput]
+    ) -> dict[str, float]:
         """Calculate dynamic weights using meta-learning."""
         try:
             # Prepare state tensor
@@ -613,8 +601,8 @@ class SpyderX14_OrchestratorAgent:
             }
 
     def _adjust_weights_by_performance(
-        self, weights: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, weights: dict[str, float]
+    ) -> dict[str, float]:
         """Adjust weights based on recent agent performance."""
         adjusted = {}
 
@@ -641,8 +629,8 @@ class SpyderX14_OrchestratorAgent:
     # ==========================================================================
 
     def _build_consensus(
-        self, agent_outputs: List[AgentOutput], weights: Dict[str, float]
-    ) -> Dict[str, Any]:
+        self, agent_outputs: list[AgentOutput], weights: dict[str, float]
+    ) -> dict[str, Any]:
         """Build consensus from weighted agent outputs."""
         consensus = {
             "action": None,
@@ -682,8 +670,8 @@ class SpyderX14_OrchestratorAgent:
         return consensus
 
     def _detect_conflicts(
-        self, agent_outputs: List[AgentOutput], consensus: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        self, agent_outputs: list[AgentOutput], consensus: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Detect conflicting opinions among agents."""
         conflicts = []
         consensus_action = consensus["action"]
@@ -705,7 +693,7 @@ class SpyderX14_OrchestratorAgent:
     # COMPETITIVE/COOPERATIVE DYNAMICS
     # ==========================================================================
 
-    def implement_competitive_dynamics(self, task: str) -> Dict[str, Any]:
+    def implement_competitive_dynamics(self, task: str) -> dict[str, Any]:
         """
         Implement competitive dynamics between agents.
         Agents compete for resource allocation based on performance.
@@ -729,7 +717,7 @@ class SpyderX14_OrchestratorAgent:
         # Top performers get resource boost
         sorted_agents = sorted(agent_scores.items(), key=lambda x: x[1], reverse=True)
 
-        for i, (agent_id, score) in enumerate(sorted_agents):
+        for i, (agent_id, _) in enumerate(sorted_agents):
             if i < 3:  # Top 3 agents
                 competition_results["winners"].append(agent_id)
                 competition_results["resource_allocation"][
@@ -742,7 +730,7 @@ class SpyderX14_OrchestratorAgent:
 
         return competition_results
 
-    def implement_cooperative_dynamics(self, agent_outputs: List[AgentOutput]) -> float:
+    def implement_cooperative_dynamics(self, agent_outputs: list[AgentOutput]) -> float:
         """
         Calculate cooperation score based on agent alignment.
         Higher score means better cooperation.
@@ -776,10 +764,10 @@ class SpyderX14_OrchestratorAgent:
 
     def _create_orchestrated_decision(
         self,
-        consensus: Dict[str, Any],
-        conflicts: List[Dict[str, Any]],
-        agent_outputs: List[AgentOutput],
-        weights: Dict[str, float],
+        consensus: dict[str, Any],
+        conflicts: list[dict[str, Any]],
+        agent_outputs: list[AgentOutput],
+        weights: dict[str, float],
     ) -> OrchestratorDecision:
         """Create final orchestrated decision."""
         # Calculate consensus score
@@ -841,7 +829,7 @@ class SpyderX14_OrchestratorAgent:
     # ==========================================================================
 
     def _update_performance_tracking(
-        self, decision: OrchestratorDecision, agent_outputs: List[AgentOutput]
+        self, decision: OrchestratorDecision, agent_outputs: list[AgentOutput]
     ) -> None:
         """Update performance metrics for all agents."""
         # Store decision
@@ -868,7 +856,7 @@ class SpyderX14_OrchestratorAgent:
             self.weight_history[output.agent_id].append(weight)
 
     def update_with_results(
-        self, decision_id: str, actual_outcome: Dict[str, Any]
+        self, decision_id: str, actual_outcome: dict[str, Any]
     ) -> None:
         """
         Update agent performance based on actual trading results.
@@ -910,7 +898,7 @@ class SpyderX14_OrchestratorAgent:
     # UTILITY METHODS
     # ==========================================================================
 
-    def _extract_state_features(self, market_state: Dict[str, Any]) -> np.ndarray:
+    def _extract_state_features(self, market_state: dict[str, Any]) -> np.ndarray:
         """Extract features from market state."""
         features = []
 
@@ -940,7 +928,7 @@ class SpyderX14_OrchestratorAgent:
 
         return np.array(features[:100], dtype=np.float32)
 
-    def _extract_output_features(self, agent_outputs: List[AgentOutput]) -> np.ndarray:
+    def _extract_output_features(self, agent_outputs: list[AgentOutput]) -> np.ndarray:
         """Extract features from agent outputs."""
         features = []
 
@@ -974,7 +962,7 @@ class SpyderX14_OrchestratorAgent:
             self.agent_states[agent_id] = AgentState.DEGRADED
             self.logger.warning(f"Agent {agent_id} degraded due to failures")
 
-    def get_agent_status(self) -> Dict[str, Any]:
+    def get_agent_status(self) -> dict[str, Any]:
         """Get current status of all agents."""
         status = {}
 
@@ -1016,11 +1004,11 @@ class SpyderX14_OrchestratorAgent:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_module_instance: Optional[SpyderX14_OrchestratorAgent] = None
+_module_instance: SpyderX14_OrchestratorAgent | None = None
 
 
 def create_orchestrator_agent(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> SpyderX14_OrchestratorAgent:
     """Factory function to create orchestrator agent."""
     global _module_instance
@@ -1029,7 +1017,7 @@ def create_orchestrator_agent(
     return _module_instance
 
 
-def get_orchestrator_agent() -> Optional[SpyderX14_OrchestratorAgent]:
+def get_orchestrator_agent() -> SpyderX14_OrchestratorAgent | None:
     """Get existing orchestrator instance."""
     return _module_instance
 

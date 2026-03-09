@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -47,7 +46,7 @@ class MonitorConfig:
 
     update_interval: int = 5  # seconds
     history_size: int = 100  # number of samples to keep
-    alert_thresholds: Dict = None
+    alert_thresholds: dict = None
 
     def __post_init__(self):
         if self.alert_thresholds is None:
@@ -69,10 +68,10 @@ class SystemHealth:
     """System health snapshot"""
 
     timestamp: datetime
-    components: Dict[str, bool]
-    signals: Dict[str, float]
-    performance: Dict[str, float]
-    alerts: List[str]
+    components: dict[str, bool]
+    signals: dict[str, float]
+    performance: dict[str, float]
+    alerts: list[str]
     overall_status: str
 
 
@@ -314,12 +313,12 @@ class SystemHealthMonitor:
         alerts = []
 
         # Check signal thresholds
-        for signal, value in health.signals.items():
-            thresholds = self.config.alert_thresholds.get(signal, {})
+        for sig_name, value in health.signals.items():
+            thresholds = self.config.alert_thresholds.get(sig_name, {})
             if "min" in thresholds and value < thresholds["min"]:
-                alerts.append(f"{signal} below minimum: {value:.2f} < {thresholds['min']}")
+                alerts.append(f"{sig_name} below minimum: {value:.2f} < {thresholds['min']}")
             if "max" in thresholds and value > thresholds["max"]:
-                alerts.append(f"{signal} above maximum: {value:.2f} > {thresholds['max']}")
+                alerts.append(f"{sig_name} above maximum: {value:.2f} > {thresholds['max']}")
 
         # Check component failures
         failed_components = [k for k, v in health.components.items() if not v]
@@ -345,7 +344,7 @@ class SystemHealthMonitor:
         except Exception as e:
             print(f"{Fore.RED}Failed to log alert: {e}")
 
-    def get_health_summary(self) -> Dict:
+    def get_health_summary(self) -> dict:
         """Get health summary"""
         if not self.health_history:
             return {}
@@ -354,10 +353,10 @@ class SystemHealthMonitor:
         recent_health = list(self.health_history)[-10:]  # Last 10 samples
 
         avg_signals = {}
-        for signal in self.signals.keys():
-            values = [h.signals[signal] for h in recent_health]
-            avg_signals[signal] = {
-                "current": self.signals[signal],
+        for sig_name in self.signals:
+            values = [h.signals[sig_name] for h in recent_health]
+            avg_signals[sig_name] = {
+                "current": self.signals[sig_name],
                 "average": sum(values) / len(values),
                 "min": min(values),
                 "max": max(values),

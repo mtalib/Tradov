@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 SPYDER - Autonomous Options Trading System v1.0
@@ -8,8 +7,8 @@ Series: SpyderD_Strategies
 Module: SpyderD31_StrategyOrchestrator.py
 Purpose: Master Strategy Coordination and Portfolio Management System
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-28 Time: 18:00:00  
+Year Created: 2025
+Last Updated: 2025-08-28 Time: 18:00:00
 
 Module Description:
     Advanced strategy orchestration engine that coordinates multiple simultaneous
@@ -34,45 +33,30 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import json
 import logging
-import os
-import statistics
-import sys
 import threading
-import time
 import uuid
-from collections import defaultdict, deque
-from datetime import datetime, timedelta, time as dt_time
-from dataclasses import dataclass, field, asdict
-from enum import Enum, auto
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union, Callable, Set
-import copy
-import weakref
-import heapq
+from collections import deque
+from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
 import numpy as np
 import pandas as pd
-from scipy import stats, optimize
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS  
+# THIRD-PARTY IMPORTS
 # ==============================================================================
-import pytz
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QTextEdit, QProgressBar, QGroupBox,
-                            QCheckBox, QMessageBox, QTabWidget, QListWidget,
-                            QListWidgetItem, QTableWidget, QTableWidgetItem,
-                            QSplitter, QFrame, QScrollArea, QComboBox,
-                            QSpinBox, QDoubleSpinBox, QSlider, QTreeWidget,
-                            QTreeWidgetItem, QHeaderView)
-from PySide6.QtCore import QTimer, QThread, Signal, Qt, QAbstractTableModel, QModelIndex
-from PySide6.QtGui import QFont, QColor, QIcon, QPalette
-import plotly.graph_objects as go
-import plotly.express as px
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                            QPushButton, QGroupBox,
+                            QTabWidget, QListWidget,
+                            QTableWidget, QTableWidgetItem,
+                            QFrame, QComboBox,
+                            QSpinBox, QDoubleSpinBox, QHeaderView)
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import plotly.graph_objects as go
+from matplotlib.figure import Figure
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -80,39 +64,39 @@ import plotly.graph_objects as go
 try:
     # Core imports
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError
-    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError  # noqa: F401
+    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics  # noqa: F401
     from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-    
+
     # Strategy imports
-    from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, StrategyState
+    from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, StrategyState  # noqa: F401
     from SpyderD_Strategies.SpyderD02_IronCondor import IronCondorStrategy
-    from SpyderD_Strategies.SpyderD03_CreditSpread import CreditSpreadStrategy  
+    from SpyderD_Strategies.SpyderD03_CreditSpread import CreditSpreadStrategy
     from SpyderD_Strategies.SpyderD04_ZeroDTE import ZeroDTEStrategy
     from SpyderD_Strategies.SpyderD05_Straddle import StraddleStrategy
     from SpyderD_Strategies.SpyderD11_SpecializedZeroDTE import SpecializedZeroDTEStrategy
-    
+
     # Event management
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-    
+
     # Connectivity integration
     from SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState
-    
+
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
     logging.info(f"⚠️ Some Spyder modules not available: {e}")
     SPYDER_MODULES_AVAILABLE = False
-    
+
     # Fallback enums
     class StrategyState(Enum):
         ACTIVE = "active"
         INACTIVE = "inactive"
         PAUSED = "paused"
         ERROR = "error"
-    
+
     class ConnectivityState(Enum):
         OPTIMAL = "optimal"
-        GOOD = "good" 
+        GOOD = "good"
         DEGRADED = "degraded"
         FAILED = "failed"
 
@@ -204,7 +188,7 @@ class StrategyAllocation:
     risk_score: float
     health_score: float
     last_rebalance: datetime
-    allocation_history: List[Tuple[datetime, float]] = field(default_factory=list)
+    allocation_history: list[tuple[datetime, float]] = field(default_factory=list)
 
 @dataclass
 class MarketRegimeData:
@@ -216,7 +200,7 @@ class MarketRegimeData:
     vix_level: float
     regime_duration_days: int
     last_regime_change: datetime
-    regime_history: List[Tuple[datetime, MarketRegime]] = field(default_factory=list)
+    regime_history: list[tuple[datetime, MarketRegime]] = field(default_factory=list)
 
 @dataclass
 class PortfolioMetrics:
@@ -234,12 +218,12 @@ class PortfolioMetrics:
     profit_factor: float
     active_strategies: int
     total_positions: int
-    correlation_matrix: Optional[pd.DataFrame] = None
+    correlation_matrix: pd.DataFrame | None = None
 
 @dataclass
 class StrategyConflict:
     """Strategy conflict detection"""
-    strategy_ids: List[str]
+    strategy_ids: list[str]
     conflict_type: str
     severity: str  # 'low', 'medium', 'high'
     description: str
@@ -251,10 +235,10 @@ class RebalanceEvent:
     """Portfolio rebalancing event"""
     timestamp: datetime
     reason: RebalanceReason
-    previous_allocations: Dict[str, float]
-    new_allocations: Dict[str, float]
-    capital_movements: Dict[str, float]
-    expected_impact: Dict[str, float]
+    previous_allocations: dict[str, float]
+    new_allocations: dict[str, float]
+    capital_movements: dict[str, float]
+    expected_impact: dict[str, float]
     execution_status: str = "pending"
 
 # ==============================================================================
@@ -264,7 +248,7 @@ class RebalanceEvent:
 class StrategyOrchestrator:
     """
     Master strategy coordination and portfolio management engine.
-    
+
     This class orchestrates multiple trading strategies simultaneously with:
     - Dynamic portfolio allocation based on performance and market conditions
     - Strategy conflict resolution and optimization
@@ -273,16 +257,16 @@ class StrategyOrchestrator:
     - Risk management at portfolio level
     - Integration with connectivity and execution systems
     """
-    
-    def __init__(self, 
+
+    def __init__(self,
                  base_capital: float = DEFAULT_BASE_CAPITAL,
                  orchestration_mode: OrchestrationMode = OrchestrationMode.BALANCED,
                  allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,
-                 connectivity_manager: Optional[IntegratedConnectivityManager] = None,
-                 event_manager: Optional[EventManager] = None):
+                 connectivity_manager: IntegratedConnectivityManager | None = None,
+                 event_manager: EventManager | None = None):
         """
         Initialize Strategy Orchestrator.
-        
+
         Args:
             base_capital: Base capital for allocation
             orchestration_mode: Operating mode for strategy coordination
@@ -295,22 +279,22 @@ class StrategyOrchestrator:
             self.logger = SpyderLogger.get_logger(__name__)
         else:
             self.logger = logging.getLogger(__name__)
-            
+
         self.error_handler = SpyderErrorHandler() if SpyderErrorHandler else None
-        
+
         # Core configuration
         self.base_capital = base_capital
         self.orchestration_mode = orchestration_mode
         self.allocation_method = allocation_method
         self.connectivity_manager = connectivity_manager
         self.event_manager = event_manager or EventManager()
-        
+
         # Portfolio state
-        self.active_strategies: Dict[str, BaseStrategy] = {}
-        self.strategy_allocations: Dict[str, StrategyAllocation] = {}
-        self.available_strategies: Dict[str, type] = {}
-        self.paused_strategies: Set[str] = set()
-        
+        self.active_strategies: dict[str, BaseStrategy] = {}
+        self.strategy_allocations: dict[str, StrategyAllocation] = {}
+        self.available_strategies: dict[str, type] = {}
+        self.paused_strategies: set[str] = set()
+
         # Market analysis
         self.market_regime = MarketRegimeData(
             current_regime=MarketRegime.SIDEWAYS_LOW_VOL,
@@ -321,7 +305,7 @@ class StrategyOrchestrator:
             regime_duration_days=0,
             last_regime_change=datetime.now()
         )
-        
+
         # Performance tracking
         self.portfolio_metrics = PortfolioMetrics(
             total_capital=base_capital,
@@ -338,26 +322,26 @@ class StrategyOrchestrator:
             active_strategies=0,
             total_positions=0
         )
-        
+
         # Monitoring and control
         self.orchestration_active = False
         self.last_rebalance = datetime.now()
-        self.rebalance_history: List[RebalanceEvent] = []
-        self.strategy_conflicts: List[StrategyConflict] = []
-        
+        self.rebalance_history: list[RebalanceEvent] = []
+        self.strategy_conflicts: list[StrategyConflict] = []
+
         # Threading
         self.orchestration_thread = None
         self.monitoring_thread = None
         self.shutdown_event = threading.Event()
-        
+
         # Market data cache
         self.market_data_cache = {}
         self.last_market_update = None
-        
+
         # Performance attribution
         self.performance_history = deque(maxlen=1000)
         self.strategy_correlations = {}
-        
+
         # Trading calendar
         try:
             self.trading_calendar = TradingCalendar() if TradingCalendar else None
@@ -365,23 +349,23 @@ class StrategyOrchestrator:
             # TradingCalendar not available or failed to initialize
             self.logger.debug(f"TradingCalendar not available: {e}")
             self.trading_calendar = None
-        
+
         # Initialize available strategies
         self._initialize_strategy_registry()
-        
+
         # Setup event subscriptions
         self._setup_event_subscriptions()
-        
+
         self.logger.info(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")
-    
+
     # ==========================================================================
     # PUBLIC INTERFACE - ORCHESTRATION CONTROL
     # ==========================================================================
-    
+
     def start_orchestration(self) -> bool:
         """
         Start strategy orchestration.
-        
+
         Returns:
             bool: True if started successfully
         """
@@ -389,51 +373,51 @@ class StrategyOrchestrator:
             if self.orchestration_active:
                 self.logger.warning("Strategy orchestration already active")
                 return True
-                
+
             self.logger.info("🚀 Starting strategy orchestration...")
-            
+
             # Validate connectivity if available
             if self.connectivity_manager:
                 connectivity_report = self.connectivity_manager.get_connectivity_report()
                 if connectivity_report.overall_state == ConnectivityState.FAILED:
                     self.logger.error("❌ Cannot start orchestration - connectivity failed")
                     return False
-            
+
             # Initialize market regime detection
             self._update_market_regime()
-            
+
             # Load optimal strategy configuration for current regime
             self._configure_strategies_for_regime()
-            
+
             # Start monitoring threads
             self.orchestration_active = True
             self.shutdown_event.clear()
-            
+
             self.orchestration_thread = threading.Thread(target=self._orchestration_loop, daemon=True)
             self.orchestration_thread.start()
-            
+
             self.monitoring_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
             self.monitoring_thread.start()
-            
+
             # Initial portfolio allocation
             self._perform_initial_allocation()
-            
+
             self.logger.info("✅ Strategy orchestration started successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to start strategy orchestration: {e}")
             if self.error_handler:
                 self.error_handler.handle_error(e, "StrategyOrchestrator.start_orchestration")
             return False
-    
+
     def stop_orchestration(self, graceful: bool = True) -> bool:
         """
         Stop strategy orchestration.
-        
+
         Args:
             graceful: Whether to stop gracefully
-            
+
         Returns:
             bool: True if stopped successfully
         """
@@ -441,13 +425,13 @@ class StrategyOrchestrator:
             if not self.orchestration_active:
                 self.logger.info("Strategy orchestration already stopped")
                 return True
-                
+
             self.logger.info("🛑 Stopping strategy orchestration...")
-            
+
             # Signal shutdown
             self.orchestration_active = False
             self.shutdown_event.set()
-            
+
             # Stop all strategies
             if graceful:
                 for strategy_id, strategy in self.active_strategies.items():
@@ -456,33 +440,33 @@ class StrategyOrchestrator:
                         strategy.stop()
                     except Exception as e:
                         self.logger.error(f"Error stopping strategy {strategy_id}: {e}")
-            
+
             # Wait for threads to complete
             if self.orchestration_thread:
                 self.orchestration_thread.join(timeout=30)
             if self.monitoring_thread:
                 self.monitoring_thread.join(timeout=30)
-            
+
             # Final portfolio report
             self._generate_final_report()
-            
+
             self.logger.info("✅ Strategy orchestration stopped")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Error stopping orchestration: {e}")
             return False
-    
-    def add_strategy(self, strategy_class: type, config: Dict[str, Any], 
-                     initial_allocation: Optional[float] = None) -> str:
+
+    def add_strategy(self, strategy_class: type, config: dict[str, Any],
+                     initial_allocation: float | None = None) -> str:
         """
         Add a new strategy to the orchestrator.
-        
+
         Args:
             strategy_class: Strategy class to instantiate
             config: Strategy configuration
             initial_allocation: Initial capital allocation (0.0-1.0)
-            
+
         Returns:
             str: Strategy ID
         """
@@ -490,10 +474,10 @@ class StrategyOrchestrator:
             # Validate strategy class
             if not issubclass(strategy_class, BaseStrategy):
                 raise ValueError("Strategy class must inherit from BaseStrategy")
-            
+
             # Generate strategy ID
             strategy_id = f"{strategy_class.__name__}_{uuid.uuid4().hex[:8]}"
-            
+
             # Create strategy instance
             strategy = strategy_class(
                 name=strategy_id,
@@ -501,16 +485,16 @@ class StrategyOrchestrator:
                 risk_profile=self._get_risk_profile_for_strategy(strategy_class),
                 config=config
             )
-            
+
             # Calculate initial allocation
             if initial_allocation is None:
                 initial_allocation = self._calculate_optimal_allocation(strategy_class.__name__)
-            
+
             allocated_capital = self.base_capital * initial_allocation
-            
+
             # Add to active strategies
             self.active_strategies[strategy_id] = strategy
-            
+
             # Create allocation record
             self.strategy_allocations[strategy_id] = StrategyAllocation(
                 strategy_id=strategy_id,
@@ -524,31 +508,31 @@ class StrategyOrchestrator:
                 health_score=1.0,
                 last_rebalance=datetime.now()
             )
-            
+
             # Update portfolio metrics
             self._update_portfolio_metrics()
-            
+
             # Start strategy if orchestration is active
             if self.orchestration_active:
                 strategy.start()
-            
+
             self.logger.info(f"✅ Added strategy: {strategy_id} with {initial_allocation:.1%} allocation")
             return strategy_id
-            
+
         except Exception as e:
             self.logger.error(f"❌ Failed to add strategy: {e}")
             if self.error_handler:
                 self.error_handler.handle_error(e, "StrategyOrchestrator.add_strategy")
             raise
-    
+
     def remove_strategy(self, strategy_id: str, close_positions: bool = True) -> bool:
         """
         Remove a strategy from orchestration.
-        
+
         Args:
             strategy_id: Strategy to remove
             close_positions: Whether to close existing positions
-            
+
         Returns:
             bool: True if removed successfully
         """
@@ -556,90 +540,90 @@ class StrategyOrchestrator:
             if strategy_id not in self.active_strategies:
                 self.logger.warning(f"Strategy {strategy_id} not found")
                 return False
-            
+
             strategy = self.active_strategies[strategy_id]
-            
+
             # Stop strategy
             if close_positions:
                 strategy.close_all_positions()
             strategy.stop()
-            
+
             # Remove from active strategies
             del self.active_strategies[strategy_id]
-            
+
             # Redistribute capital
             if strategy_id in self.strategy_allocations:
                 freed_capital = self.strategy_allocations[strategy_id].allocated_capital
                 del self.strategy_allocations[strategy_id]
-                
+
                 # Redistribute to remaining strategies
                 self._redistribute_capital(freed_capital)
-            
+
             # Update portfolio metrics
             self._update_portfolio_metrics()
-            
+
             self.logger.info(f"✅ Removed strategy: {strategy_id}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ Error removing strategy {strategy_id}: {e}")
             return False
-    
+
     def pause_strategy(self, strategy_id: str) -> bool:
         """Pause a specific strategy"""
         try:
             if strategy_id not in self.active_strategies:
                 return False
-                
+
             self.active_strategies[strategy_id].pause()
             self.paused_strategies.add(strategy_id)
-            
+
             self.logger.info(f"⏸️ Paused strategy: {strategy_id}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error pausing strategy {strategy_id}: {e}")
             return False
-    
+
     def resume_strategy(self, strategy_id: str) -> bool:
         """Resume a paused strategy"""
         try:
             if strategy_id not in self.active_strategies:
                 return False
-                
+
             self.active_strategies[strategy_id].resume()
             self.paused_strategies.discard(strategy_id)
-            
+
             self.logger.info(f"▶️ Resumed strategy: {strategy_id}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error resuming strategy {strategy_id}: {e}")
             return False
-    
+
     def rebalance_portfolio(self, reason: RebalanceReason = RebalanceReason.SCHEDULED) -> bool:
         """
         Manually trigger portfolio rebalancing.
-        
+
         Args:
             reason: Reason for rebalancing
-            
+
         Returns:
             bool: True if rebalancing was successful
         """
         try:
             self.logger.info(f"🔄 Manual portfolio rebalancing triggered - Reason: {reason.value}")
             return self._execute_rebalancing(reason)
-            
+
         except Exception as e:
             self.logger.error(f"❌ Manual rebalancing failed: {e}")
             return False
-    
+
     # ==========================================================================
     # PORTFOLIO ANALYTICS AND REPORTING
     # ==========================================================================
-    
-    def get_portfolio_status(self) -> Dict[str, Any]:
+
+    def get_portfolio_status(self) -> dict[str, Any]:
         """Get comprehensive portfolio status"""
         try:
             return {
@@ -667,24 +651,24 @@ class StrategyOrchestrator:
                     for sid, alloc in self.strategy_allocations.items()
                 }
             }
-            
+
         except Exception as e:
             self.logger.error(f"Error getting portfolio status: {e}")
             return {}
-    
+
     def get_strategy_performance_attribution(self) -> pd.DataFrame:
         """Get detailed strategy performance attribution"""
         try:
             data = []
-            
+
             for strategy_id, allocation in self.strategy_allocations.items():
                 if strategy_id in self.active_strategies:
                     strategy = self.active_strategies[strategy_id]
-                    
+
                     # Calculate strategy contribution to portfolio
                     strategy_pnl = getattr(strategy, 'total_pnl', 0.0)
                     portfolio_contribution = strategy_pnl * allocation.current_allocation
-                    
+
                     data.append({
                         'strategy_id': strategy_id,
                         'strategy_name': allocation.strategy_name,
@@ -702,162 +686,162 @@ class StrategyOrchestrator:
                         'total_trades': getattr(strategy, 'total_trades', 0),
                         'active_positions': len(getattr(strategy, 'positions', {}))
                     })
-            
+
             return pd.DataFrame(data)
-            
+
         except Exception as e:
             self.logger.error(f"Error generating performance attribution: {e}")
             return pd.DataFrame()
-    
-    def detect_strategy_conflicts(self) -> List[StrategyConflict]:
+
+    def detect_strategy_conflicts(self) -> list[StrategyConflict]:
         """Detect potential conflicts between strategies"""
         try:
             conflicts = []
             strategies = list(self.active_strategies.items())
-            
+
             # Check for overlapping positions
             for i, (id1, strategy1) in enumerate(strategies):
                 for id2, strategy2 in strategies[i+1:]:
                     conflict = self._analyze_strategy_pair_for_conflicts(id1, strategy1, id2, strategy2)
                     if conflict:
                         conflicts.append(conflict)
-            
+
             # Check for concentration risks
             concentration_conflicts = self._check_concentration_conflicts()
             conflicts.extend(concentration_conflicts)
-            
+
             # Update stored conflicts
             self.strategy_conflicts = conflicts
-            
+
             return conflicts
-            
+
         except Exception as e:
             self.logger.error(f"Error detecting strategy conflicts: {e}")
             return []
-    
-    def get_correlation_matrix(self) -> Optional[pd.DataFrame]:
+
+    def get_correlation_matrix(self) -> pd.DataFrame | None:
         """Get strategy correlation matrix"""
         try:
             if len(self.active_strategies) < 2:
                 return None
-                
+
             # Collect strategy returns
             strategy_returns = {}
-            
+
             for strategy_id, strategy in self.active_strategies.items():
                 if hasattr(strategy, 'daily_returns') and len(strategy.daily_returns) > 10:
                     strategy_returns[strategy_id] = strategy.daily_returns[-30:]  # Last 30 days
-            
+
             if len(strategy_returns) < 2:
                 return None
-            
+
             # Create DataFrame and calculate correlations
             returns_df = pd.DataFrame(strategy_returns)
             correlation_matrix = returns_df.corr()
-            
+
             return correlation_matrix
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating correlation matrix: {e}")
             return None
-    
+
     # ==========================================================================
     # PRIVATE METHODS - ORCHESTRATION LOOPS
     # ==========================================================================
-    
+
     def _orchestration_loop(self):
         """Main orchestration loop"""
         while self.orchestration_active and not self.shutdown_event.is_set():
             try:
                 # Update market regime
                 self._update_market_regime()
-                
+
                 # Check if rebalancing is needed
                 if self._should_rebalance():
                     reason = self._determine_rebalance_reason()
                     self._execute_rebalancing(reason)
-                
+
                 # Check for strategy conflicts
                 conflicts = self.detect_strategy_conflicts()
                 if conflicts:
                     self._resolve_strategy_conflicts(conflicts)
-                
+
                 # Adaptive strategy management
                 if self.orchestration_mode == OrchestrationMode.ADAPTIVE:
                     self._adaptive_strategy_management()
-                
+
                 # Sleep until next iteration
                 self.shutdown_event.wait(REBALANCE_FREQUENCY_MINUTES * 60)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in orchestration loop: {e}")
                 self.shutdown_event.wait(60)  # Wait 1 minute on error
-    
+
     def _monitoring_loop(self):
         """Strategy health monitoring loop"""
         while self.orchestration_active and not self.shutdown_event.is_set():
             try:
                 # Monitor strategy health
                 self._monitor_strategy_health()
-                
+
                 # Update portfolio metrics
                 self._update_portfolio_metrics()
-                
+
                 # Check risk limits
                 self._check_risk_limits()
-                
+
                 # Update performance attribution
                 self._update_performance_attribution()
-                
+
                 # Sleep until next check
                 self.shutdown_event.wait(STRATEGY_HEALTH_CHECK_INTERVAL)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
                 self.shutdown_event.wait(30)  # Short wait on error
-    
+
     # ==========================================================================
     # PRIVATE METHODS - ALLOCATION AND REBALANCING
     # ==========================================================================
-    
+
     def _execute_rebalancing(self, reason: RebalanceReason) -> bool:
         """Execute portfolio rebalancing"""
         try:
             self.logger.info(f"🔄 Executing portfolio rebalancing - Reason: {reason.value}")
-            
+
             # Calculate new allocations
             new_allocations = self._calculate_optimal_allocations()
-            
+
             if not new_allocations:
                 self.logger.warning("No valid allocations calculated")
                 return False
-            
+
             # Store previous allocations
             previous_allocations = {
-                sid: alloc.current_allocation 
+                sid: alloc.current_allocation
                 for sid, alloc in self.strategy_allocations.items()
             }
-            
+
             # Calculate capital movements
             capital_movements = {}
             total_capital = self.portfolio_metrics.total_capital
-            
+
             for strategy_id, new_allocation in new_allocations.items():
                 if strategy_id in self.strategy_allocations:
                     old_allocation = self.strategy_allocations[strategy_id].current_allocation
                     capital_change = (new_allocation - old_allocation) * total_capital
                     capital_movements[strategy_id] = capital_change
-            
+
             # Execute rebalancing
             rebalance_successful = True
-            
+
             for strategy_id, capital_change in capital_movements.items():
                 if abs(capital_change) > 100:  # Only rebalance if change > $100
                     success = self._adjust_strategy_capital(strategy_id, capital_change)
                     if not success:
                         rebalance_successful = False
                         self.logger.error(f"Failed to adjust capital for strategy {strategy_id}")
-            
+
             # Update allocations if successful
             if rebalance_successful:
                 for strategy_id, new_allocation in new_allocations.items():
@@ -867,7 +851,7 @@ class StrategyOrchestrator:
                         allocation.allocated_capital = new_allocation * total_capital
                         allocation.last_rebalance = datetime.now()
                         allocation.allocation_history.append((datetime.now(), new_allocation))
-            
+
             # Record rebalance event
             rebalance_event = RebalanceEvent(
                 timestamp=datetime.now(),
@@ -878,28 +862,28 @@ class StrategyOrchestrator:
                 expected_impact={},  # Could calculate expected impact
                 execution_status="completed" if rebalance_successful else "failed"
             )
-            
+
             self.rebalance_history.append(rebalance_event)
             self.last_rebalance = datetime.now()
-            
+
             # Update portfolio metrics
             self._update_portfolio_metrics()
-            
+
             status = "✅ completed" if rebalance_successful else "❌ failed"
             self.logger.info(f"Portfolio rebalancing {status}")
-            
+
             return rebalance_successful
-            
+
         except Exception as e:
             self.logger.error(f"❌ Rebalancing execution failed: {e}")
             return False
-    
-    def _calculate_optimal_allocations(self) -> Dict[str, float]:
+
+    def _calculate_optimal_allocations(self) -> dict[str, float]:
         """Calculate optimal portfolio allocations"""
         try:
             if not self.active_strategies:
                 return {}
-            
+
             # Choose allocation method
             if self.allocation_method == AllocationMethod.EQUAL_WEIGHT:
                 return self._calculate_equal_weight_allocations()
@@ -913,17 +897,17 @@ class StrategyOrchestrator:
                 return self._calculate_regime_based_allocations()
             else:  # ADAPTIVE_ML
                 return self._calculate_adaptive_ml_allocations()
-                
+
         except Exception as e:
             self.logger.error(f"Error calculating optimal allocations: {e}")
             return {}
-    
-    def _calculate_performance_based_allocations(self) -> Dict[str, float]:
+
+    def _calculate_performance_based_allocations(self) -> dict[str, float]:
         """Calculate allocations based on strategy performance"""
         try:
             allocations = {}
             performance_scores = {}
-            
+
             # Calculate performance scores for each strategy
             for strategy_id, allocation in self.strategy_allocations.items():
                 if strategy_id in self.active_strategies:
@@ -933,192 +917,192 @@ class StrategyOrchestrator:
                         allocation.health_score * 0.3 +       # Current health
                         (1 - allocation.risk_score) * 0.3     # Risk-adjusted (lower risk = higher score)
                     )
-                    
+
                     # Apply regime adjustment
                     regime_multiplier = self._get_strategy_regime_multiplier(allocation.strategy_type)
                     performance_score *= regime_multiplier
-                    
+
                     performance_scores[strategy_id] = max(0.1, performance_score)  # Minimum score
-            
+
             # Normalize scores to allocations
             total_score = sum(performance_scores.values())
-            
+
             if total_score > 0:
                 for strategy_id, score in performance_scores.items():
                     base_allocation = score / total_score
-                    
+
                     # Apply allocation limits
-                    allocation = max(MIN_STRATEGY_ALLOCATION, 
+                    allocation = max(MIN_STRATEGY_ALLOCATION,
                                    min(MAX_STRATEGY_ALLOCATION, base_allocation))
-                    
+
                     allocations[strategy_id] = allocation
-                
+
                 # Normalize to ensure allocations sum to 1.0
                 total_allocation = sum(allocations.values())
                 if total_allocation > 0:
                     allocations = {
-                        sid: alloc / total_allocation 
+                        sid: alloc / total_allocation
                         for sid, alloc in allocations.items()
                     }
-            
+
             return allocations
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating performance-based allocations: {e}")
             return {}
-    
-    def _calculate_equal_weight_allocations(self) -> Dict[str, float]:
+
+    def _calculate_equal_weight_allocations(self) -> dict[str, float]:
         """Calculate equal weight allocations"""
         if not self.active_strategies:
             return {}
-        
+
         equal_weight = 1.0 / len(self.active_strategies)
-        return {strategy_id: equal_weight for strategy_id in self.active_strategies.keys()}
-    
-    def _calculate_risk_parity_allocations(self) -> Dict[str, float]:
+        return {strategy_id: equal_weight for strategy_id in self.active_strategies}
+
+    def _calculate_risk_parity_allocations(self) -> dict[str, float]:
         """Calculate risk parity allocations"""
         try:
             allocations = {}
             risk_contributions = {}
-            
+
             # Calculate risk contribution for each strategy
             for strategy_id, allocation in self.strategy_allocations.items():
                 if strategy_id in self.active_strategies:
                     # Use inverse of risk score as weight (higher risk = lower weight)
                     risk_weight = 1.0 / max(0.1, allocation.risk_score)
                     risk_contributions[strategy_id] = risk_weight
-            
+
             # Normalize to allocations
             total_risk_weight = sum(risk_contributions.values())
             if total_risk_weight > 0:
                 for strategy_id, weight in risk_contributions.items():
                     allocation = weight / total_risk_weight
-                    allocations[strategy_id] = max(MIN_STRATEGY_ALLOCATION, 
+                    allocations[strategy_id] = max(MIN_STRATEGY_ALLOCATION,
                                                  min(MAX_STRATEGY_ALLOCATION, allocation))
-                
+
                 # Renormalize
                 total_allocation = sum(allocations.values())
                 if total_allocation > 0:
                     allocations = {
-                        sid: alloc / total_allocation 
+                        sid: alloc / total_allocation
                         for sid, alloc in allocations.items()
                     }
-            
+
             return allocations
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating risk parity allocations: {e}")
             return {}
-    
-    def _calculate_kelly_allocations(self) -> Dict[str, float]:
+
+    def _calculate_kelly_allocations(self) -> dict[str, float]:
         """Calculate Kelly criterion allocations"""
         try:
             allocations = {}
             kelly_fractions = {}
-            
-            for strategy_id, allocation in self.strategy_allocations.items():
+
+            for strategy_id, _allocation in self.strategy_allocations.items():
                 if strategy_id in self.active_strategies:
                     strategy = self.active_strategies[strategy_id]
-                    
+
                     # Calculate Kelly fraction based on win rate and profit factor
                     win_rate = getattr(strategy, 'win_rate', 0.5)
                     profit_factor = getattr(strategy, 'profit_factor', 1.0)
-                    
+
                     if profit_factor > 1.0 and win_rate > 0:
                         # Kelly formula: f = (bp - q) / b
                         # where b = odds received (profit_factor - 1), p = win_rate, q = 1 - p
                         b = profit_factor - 1
                         p = win_rate
                         q = 1 - p
-                        
+
                         kelly_fraction = (b * p - q) / b
                         kelly_fraction = max(0, min(KELLY_FRACTION_CAP, kelly_fraction))
                     else:
                         kelly_fraction = MIN_STRATEGY_ALLOCATION
-                    
+
                     kelly_fractions[strategy_id] = kelly_fraction
-            
+
             # Normalize Kelly fractions to portfolio allocations
             total_kelly = sum(kelly_fractions.values())
             if total_kelly > 0:
                 for strategy_id, fraction in kelly_fractions.items():
                     allocations[strategy_id] = fraction / total_kelly
-            
+
             return allocations
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating Kelly allocations: {e}")
             return {}
-    
-    def _calculate_regime_based_allocations(self) -> Dict[str, float]:
+
+    def _calculate_regime_based_allocations(self) -> dict[str, float]:
         """Calculate allocations based on current market regime"""
         try:
             allocations = {}
             regime_weights = self._get_regime_strategy_weights()
-            
+
             if not regime_weights:
                 # Fallback to equal weight
                 return self._calculate_equal_weight_allocations()
-            
+
             # Apply regime weights to active strategies
             total_weight = 0
             strategy_weights = {}
-            
+
             for strategy_id, allocation in self.strategy_allocations.items():
                 if strategy_id in self.active_strategies:
                     strategy_type = allocation.strategy_type
                     weight = regime_weights.get(strategy_type, 0.1)  # Default low weight
-                    
+
                     # Adjust for strategy health
                     weight *= allocation.health_score
-                    
+
                     strategy_weights[strategy_id] = weight
                     total_weight += weight
-            
+
             # Normalize to allocations
             if total_weight > 0:
                 for strategy_id, weight in strategy_weights.items():
                     allocation = weight / total_weight
-                    allocations[strategy_id] = max(MIN_STRATEGY_ALLOCATION, 
+                    allocations[strategy_id] = max(MIN_STRATEGY_ALLOCATION,
                                                  min(MAX_STRATEGY_ALLOCATION, allocation))
-                
+
                 # Final normalization
                 total_allocation = sum(allocations.values())
                 if total_allocation > 0:
                     allocations = {
-                        sid: alloc / total_allocation 
+                        sid: alloc / total_allocation
                         for sid, alloc in allocations.items()
                     }
-            
+
             return allocations
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating regime-based allocations: {e}")
             return {}
-    
+
     # ==========================================================================
     # PRIVATE METHODS - MARKET REGIME ANALYSIS
     # ==========================================================================
-    
+
     def _update_market_regime(self):
         """Update current market regime analysis"""
         try:
             # This would integrate with market data feeds
             # For now, using simplified regime detection
-            
+
             # Calculate volatility metrics
             current_vix = 20.0  # Would get from market data
             vix_percentile = self._calculate_vix_percentile(current_vix)
-            
+
             # Determine trend strength
             trend_strength = self._calculate_trend_strength()
-            
+
             # Classify regime
             new_regime = self._classify_market_regime(current_vix, vix_percentile, trend_strength)
-            
+
             # Update regime data
             regime_changed = new_regime != self.market_regime.current_regime
-            
+
             if regime_changed:
                 self.market_regime.last_regime_change = datetime.now()
                 self.market_regime.regime_duration_days = 0
@@ -1127,21 +1111,21 @@ class StrategyOrchestrator:
                 # Update duration
                 days_since_change = (datetime.now() - self.market_regime.last_regime_change).days
                 self.market_regime.regime_duration_days = days_since_change
-            
+
             self.market_regime.current_regime = new_regime
             self.market_regime.vix_level = current_vix
             self.market_regime.volatility_percentile = vix_percentile
             self.market_regime.trend_strength = trend_strength
-            
+
             # Calculate confidence based on regime stability
             self.market_regime.regime_confidence = min(1.0, self.market_regime.regime_duration_days / 5.0)
-            
+
             if regime_changed:
                 self.logger.info(f"📊 Market regime changed to: {new_regime.value}")
-                
+
         except Exception as e:
             self.logger.error(f"Error updating market regime: {e}")
-    
+
     def _classify_market_regime(self, vix_level: float, vix_percentile: float, trend_strength: float) -> MarketRegime:
         """Classify current market regime"""
         # Simplified regime classification
@@ -1149,7 +1133,7 @@ class StrategyOrchestrator:
         is_crisis = vix_level > VIX_REGIME_THRESHOLDS['extreme']
         is_trending_up = trend_strength > 0.3
         is_trending_down = trend_strength < -0.3
-        
+
         if is_crisis:
             return MarketRegime.CRISIS
         elif is_trending_up:
@@ -1158,11 +1142,11 @@ class StrategyOrchestrator:
             return MarketRegime.BEAR_HIGH_VOL if is_high_vol else MarketRegime.BEAR_LOW_VOL
         else:
             return MarketRegime.SIDEWAYS_HIGH_VOL if is_high_vol else MarketRegime.SIDEWAYS_LOW_VOL
-    
-    def _get_regime_strategy_weights(self) -> Dict[str, float]:
+
+    def _get_regime_strategy_weights(self) -> dict[str, float]:
         """Get optimal strategy weights for current regime"""
         regime = self.market_regime.current_regime
-        
+
         # Strategy weights by regime (this would be backtested/optimized)
         regime_weights = {
             MarketRegime.BULL_LOW_VOL: {
@@ -1206,13 +1190,13 @@ class StrategyOrchestrator:
                 'Straddle': 0.4
             }
         }
-        
+
         return regime_weights.get(regime, {})
-    
+
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
-    
+
     def _initialize_strategy_registry(self):
         """Initialize available strategy registry"""
         if SPYDER_MODULES_AVAILABLE:
@@ -1225,9 +1209,9 @@ class StrategyOrchestrator:
             }
         else:
             self.available_strategies = {}
-            
+
         self.logger.info(f"📋 Registered {len(self.available_strategies)} strategy types")
-    
+
     def _setup_event_subscriptions(self):
         """Setup event system subscriptions"""
         try:
@@ -1236,108 +1220,104 @@ class StrategyOrchestrator:
                 self.event_manager.subscribe(EventType.MARKET_DATA, self._on_market_data_event)
                 self.event_manager.subscribe(EventType.STRATEGY_SIGNAL, self._on_strategy_signal)
                 self.event_manager.subscribe(EventType.RISK_ALERT, self._on_risk_alert)
-                
+
         except Exception as e:
             self.logger.error(f"Error setting up event subscriptions: {e}")
-    
+
     def _on_market_data_event(self, event: Event):
         """Handle market data events"""
         self.market_data_cache = event.data
         self.last_market_update = datetime.now()
-    
+
     def _on_strategy_signal(self, event: Event):
         """Handle strategy signal events"""
         # Could implement cross-strategy signal analysis here
         pass
-    
+
     def _on_risk_alert(self, event: Event):
         """Handle risk alert events"""
         if event.data.get('severity') == 'critical':
             # Implement emergency procedures
             self.logger.warning(f"🚨 Critical risk alert: {event.data}")
-    
+
     def _should_rebalance(self) -> bool:
         """Check if portfolio rebalancing is needed"""
         # Time-based rebalancing
         time_since_rebalance = datetime.now() - self.last_rebalance
-        if time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES):
-            return True
-        
         # Performance-driven rebalancing
         # (Implementation would check allocation drift, performance changes, etc.)
-        
-        return False
-    
+        return time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES)
+
     def _determine_rebalance_reason(self) -> RebalanceReason:
         """Determine the reason for rebalancing"""
         # Simplified logic - would be more sophisticated in practice
         time_since_rebalance = datetime.now() - self.last_rebalance
         if time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES):
             return RebalanceReason.SCHEDULED
-        
+
         return RebalanceReason.PERFORMANCE_DRIFT
-    
+
     def _update_portfolio_metrics(self):
         """Update portfolio-level metrics"""
         try:
             # Calculate total allocated capital
             total_allocated = sum(alloc.allocated_capital for alloc in self.strategy_allocations.values())
-            
+
             # Update basic metrics
             self.portfolio_metrics.allocated_capital = total_allocated
             self.portfolio_metrics.available_capital = self.base_capital - total_allocated
             self.portfolio_metrics.active_strategies = len(self.active_strategies)
-            
+
             # Calculate portfolio PnL (sum of all strategy PnL)
             total_pnl = 0.0
-            for strategy_id, strategy in self.active_strategies.items():
+            for _strategy_id, strategy in self.active_strategies.items():
                 strategy_pnl = getattr(strategy, 'total_pnl', 0.0)
                 total_pnl += strategy_pnl
-            
+
             self.portfolio_metrics.total_pnl = total_pnl
-            
+
             # Calculate other metrics if we have enough data
             if len(self.performance_history) > 10:
                 returns = [entry['daily_return'] for entry in self.performance_history]
-                
+
                 if returns and len(returns) > 1:
                     self.portfolio_metrics.portfolio_sharpe = self._calculate_sharpe_ratio(returns)
                     self.portfolio_metrics.max_drawdown = self._calculate_max_drawdown(returns)
-                    
+
         except Exception as e:
             self.logger.error(f"Error updating portfolio metrics: {e}")
-    
-    def _calculate_sharpe_ratio(self, returns: List[float]) -> float:
+
+    def _calculate_sharpe_ratio(self, returns: list[float]) -> float:
         """Calculate portfolio Sharpe ratio"""
         try:
             if not returns or len(returns) < 2:
                 return 0.0
-                
+
             mean_return = np.mean(returns)
             std_return = np.std(returns)
-            
+
             if std_return == 0:
                 return 0.0
-                
+
             # Annualized Sharpe ratio
             return (mean_return * 252) / (std_return * np.sqrt(252))
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating Sharpe ratio: {e}")
             return 0.0
-    
-    def _calculate_max_drawdown(self, returns: List[float]) -> float:
+
+    def _calculate_max_drawdown(self, returns: list[float]) -> float:
         """Calculate maximum drawdown"""
         try:
             if not returns:
                 return 0.0
-                
+
             cumulative = np.cumprod(1 + np.array(returns))
             running_max = np.maximum.accumulate(cumulative)
             drawdown = (cumulative - running_max) / running_max
-            
+
             return abs(np.min(drawdown))
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating max drawdown: {e}")
             return 0.0
@@ -1348,10 +1328,10 @@ class StrategyOrchestrator:
 
     def execute_strategies_distributed(
         self,
-        market_data: Dict[str, Any],
-        strategy_configs: Optional[List[Dict[str, Any]]] = None,
-        num_cpus: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        market_data: dict[str, Any],
+        strategy_configs: list[dict[str, Any]] | None = None,
+        num_cpus: int | None = None,
+    ) -> dict[str, Any]:
         """
         Execute multiple strategies in parallel using Ray actors.
 
@@ -1388,7 +1368,7 @@ class StrategyOrchestrator:
         market_ref = ray.put(market_data)
 
         @ray.remote
-        def _execute_strategy(market_ref, config: dict) -> Dict:
+        def _execute_strategy(market_ref, config: dict) -> dict:
             """Execute a single strategy on a Ray worker."""
             import numpy as _np
             import time as _time
@@ -1397,8 +1377,8 @@ class StrategyOrchestrator:
             _np.random.seed(hash(config.get('strategy_id', '')) % (2**32))
 
             market = market_ref
-            price = market.get('price', 450)
-            iv = market.get('iv', 0.20)
+            market.get('price', 450)
+            market.get('iv', 0.20)
 
             # Simulate strategy signal generation
             signal_strength = float(_np.random.uniform(-1, 1))
@@ -1436,7 +1416,7 @@ class StrategyOrchestrator:
         strategy_returns: pd.DataFrame,
         risk_measure: str = 'CVaR',
         objective: str = 'max_sharpe',
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Optimize strategy weights using RiskFolio-Lib with risk constraints.
 
@@ -1494,389 +1474,389 @@ class StrategyOrchestrator:
 class StrategyOrchestratorDashboard(QWidget):
     """
     PyQt6 dashboard for Strategy Orchestrator monitoring and control.
-    
+
     Provides comprehensive real-time monitoring of:
     - Portfolio allocation and performance
-    - Strategy performance attribution  
+    - Strategy performance attribution
     - Market regime analysis
     - Risk monitoring and alerts
     - Manual orchestration controls
     """
-    
+
     # Qt signals
     portfolioUpdated = Signal(dict)
     rebalanceCompleted = Signal(str)
-    
-    def __init__(self, orchestrator: Optional[StrategyOrchestrator] = None):
+
+    def __init__(self, orchestrator: StrategyOrchestrator | None = None):
         super().__init__()
-        
+
         self.orchestrator = orchestrator
-        
+
         # Setup logging
         if SpyderLogger:
             self.logger = SpyderLogger.get_logger(__name__)
         else:
             self.logger = logging.getLogger(__name__)
-        
+
         # Data models for tables
         self.strategy_model = None
         self.performance_model = None
-        
+
         # Setup UI
         self.setup_ui()
         self.setup_monitoring()
-        
+
         # Connect orchestrator if available
         if self.orchestrator:
             self.setup_orchestrator_integration()
-    
+
     def setup_ui(self):
         """Setup the user interface"""
         main_layout = QVBoxLayout()
-        
+
         # Header with control buttons
         self.create_header_section(main_layout)
-        
+
         # Main content with tabs
         self.create_main_content(main_layout)
-        
+
         # Status bar
         self.create_status_bar(main_layout)
-        
+
         self.setLayout(main_layout)
         self.setMinimumSize(1200, 800)
         self.setWindowTitle("SPYDER - Strategy Orchestrator Dashboard")
-    
+
     def create_header_section(self, layout):
         """Create header with controls"""
         header_frame = QFrame()
         header_frame.setFrameStyle(QFrame.Shape.Box)
         header_layout = QHBoxLayout()
-        
+
         # Title
         title_label = QLabel("🎯 SPYDER Strategy Orchestrator")
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(16)
         title_label.setFont(title_font)
-        
+
         # Status indicator
         self.status_label = QLabel("🔄 Initializing...")
         status_font = QFont()
         status_font.setPointSize(14)
         self.status_label.setFont(status_font)
-        
+
         # Control buttons
         self.start_btn = QPushButton("🚀 Start Orchestration")
         self.start_btn.clicked.connect(self.start_orchestration)
-        
+
         self.stop_btn = QPushButton("🛑 Stop Orchestration")
         self.stop_btn.clicked.connect(self.stop_orchestration)
-        
+
         self.rebalance_btn = QPushButton("⚖️ Rebalance Now")
         self.rebalance_btn.clicked.connect(self.manual_rebalance)
-        
+
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(self.status_label)
         header_layout.addWidget(self.start_btn)
         header_layout.addWidget(self.stop_btn)
         header_layout.addWidget(self.rebalance_btn)
-        
+
         header_frame.setLayout(header_layout)
         layout.addWidget(header_frame)
-    
+
     def create_main_content(self, layout):
         """Create main content with tabs"""
         self.tab_widget = QTabWidget()
-        
+
         # Portfolio Overview
         self.create_portfolio_overview_tab()
-        
-        # Strategy Performance  
+
+        # Strategy Performance
         self.create_strategy_performance_tab()
-        
+
         # Market Regime
         self.create_market_regime_tab()
-        
+
         # Risk Management
         self.create_risk_management_tab()
-        
+
         # Configuration
         self.create_configuration_tab()
-        
+
         layout.addWidget(self.tab_widget)
-    
+
     def create_portfolio_overview_tab(self):
         """Create portfolio overview tab"""
         overview_widget = QWidget()
         layout = QVBoxLayout()
-        
+
         # Portfolio metrics
         metrics_group = QGroupBox("📊 Portfolio Metrics")
         metrics_layout = QHBoxLayout()
-        
+
         # Left column metrics
         left_metrics = QVBoxLayout()
         self.total_capital_label = QLabel("Total Capital: $0")
         self.allocated_capital_label = QLabel("Allocated: $0")
         self.total_pnl_label = QLabel("Total P&L: $0")
         self.daily_pnl_label = QLabel("Daily P&L: $0")
-        
+
         left_metrics.addWidget(self.total_capital_label)
         left_metrics.addWidget(self.allocated_capital_label)
         left_metrics.addWidget(self.total_pnl_label)
         left_metrics.addWidget(self.daily_pnl_label)
-        
+
         # Right column metrics
         right_metrics = QVBoxLayout()
         self.sharpe_ratio_label = QLabel("Sharpe Ratio: 0.00")
         self.max_drawdown_label = QLabel("Max Drawdown: 0.0%")
         self.active_strategies_label = QLabel("Active Strategies: 0")
         self.win_rate_label = QLabel("Win Rate: 0.0%")
-        
+
         right_metrics.addWidget(self.sharpe_ratio_label)
         right_metrics.addWidget(self.max_drawdown_label)
         right_metrics.addWidget(self.active_strategies_label)
         right_metrics.addWidget(self.win_rate_label)
-        
+
         metrics_layout.addLayout(left_metrics)
         metrics_layout.addLayout(right_metrics)
         metrics_group.setLayout(metrics_layout)
         layout.addWidget(metrics_group)
-        
+
         # Allocation chart placeholder
         allocation_group = QGroupBox("📈 Strategy Allocations")
         allocation_layout = QVBoxLayout()
-        
+
         # Create matplotlib figure for allocation pie chart
         self.allocation_figure = Figure(figsize=(8, 6))
         self.allocation_canvas = FigureCanvas(self.allocation_figure)
         allocation_layout.addWidget(self.allocation_canvas)
-        
+
         allocation_group.setLayout(allocation_layout)
         layout.addWidget(allocation_group)
-        
+
         overview_widget.setLayout(layout)
         self.tab_widget.addTab(overview_widget, "Portfolio Overview")
-    
+
     def create_strategy_performance_tab(self):
         """Create strategy performance tab"""
         performance_widget = QWidget()
         layout = QVBoxLayout()
-        
+
         # Strategy table
         strategies_group = QGroupBox("📋 Active Strategies")
         strategies_layout = QVBoxLayout()
-        
+
         self.strategies_table = QTableWidget()
         self.strategies_table.setColumnCount(8)
         self.strategies_table.setHorizontalHeaderLabels([
             'Strategy', 'Type', 'Allocation', 'Capital', 'P&L', 'Performance Score', 'Health', 'Status'
         ])
-        
+
         header = self.strategies_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        
+
         strategies_layout.addWidget(self.strategies_table)
-        
+
         # Strategy controls
         controls_layout = QHBoxLayout()
-        
+
         self.pause_strategy_btn = QPushButton("⏸️ Pause Strategy")
         self.resume_strategy_btn = QPushButton("▶️ Resume Strategy")
         self.remove_strategy_btn = QPushButton("❌ Remove Strategy")
-        
+
         controls_layout.addWidget(self.pause_strategy_btn)
         controls_layout.addWidget(self.resume_strategy_btn)
         controls_layout.addWidget(self.remove_strategy_btn)
         controls_layout.addStretch()
-        
+
         strategies_layout.addLayout(controls_layout)
         strategies_group.setLayout(strategies_layout)
         layout.addWidget(strategies_group)
-        
+
         # Performance chart
         performance_group = QGroupBox("📈 Performance Chart")
         performance_layout = QVBoxLayout()
-        
+
         self.performance_figure = Figure(figsize=(12, 6))
         self.performance_canvas = FigureCanvas(self.performance_figure)
         performance_layout.addWidget(self.performance_canvas)
-        
+
         performance_group.setLayout(performance_layout)
         layout.addWidget(performance_group)
-        
+
         performance_widget.setLayout(layout)
         self.tab_widget.addTab(performance_widget, "Strategy Performance")
-    
+
     def create_market_regime_tab(self):
         """Create market regime analysis tab"""
         regime_widget = QWidget()
         layout = QVBoxLayout()
-        
+
         # Current regime
         current_regime_group = QGroupBox("🌡️ Current Market Regime")
         regime_layout = QHBoxLayout()
-        
+
         self.current_regime_label = QLabel("Regime: Unknown")
         self.regime_confidence_label = QLabel("Confidence: 0%")
         self.vix_level_label = QLabel("VIX: 0.0")
         self.trend_strength_label = QLabel("Trend: 0.0")
-        
+
         regime_layout.addWidget(self.current_regime_label)
         regime_layout.addWidget(self.regime_confidence_label)
         regime_layout.addWidget(self.vix_level_label)
         regime_layout.addWidget(self.trend_strength_label)
-        
+
         current_regime_group.setLayout(regime_layout)
         layout.addWidget(current_regime_group)
-        
+
         # Regime strategy weights
         weights_group = QGroupBox("⚖️ Optimal Strategy Weights for Current Regime")
         weights_layout = QVBoxLayout()
-        
+
         self.regime_weights_table = QTableWidget()
         self.regime_weights_table.setColumnCount(3)
         self.regime_weights_table.setHorizontalHeaderLabels(['Strategy Type', 'Optimal Weight', 'Current Weight'])
-        
+
         weights_layout.addWidget(self.regime_weights_table)
         weights_group.setLayout(weights_layout)
         layout.addWidget(weights_group)
-        
+
         regime_widget.setLayout(layout)
         self.tab_widget.addTab(regime_widget, "Market Regime")
-    
+
     def create_risk_management_tab(self):
         """Create risk management tab"""
         risk_widget = QWidget()
         layout = QVBoxLayout()
-        
+
         # Risk metrics
         risk_metrics_group = QGroupBox("⚠️ Risk Metrics")
         risk_layout = QHBoxLayout()
-        
+
         self.portfolio_var_label = QLabel("Portfolio VaR: 0.0%")
         self.concentration_label = QLabel("Max Concentration: 0.0%")
         self.correlation_label = QLabel("Avg Correlation: 0.00")
-        
+
         risk_layout.addWidget(self.portfolio_var_label)
         risk_layout.addWidget(self.concentration_label)
         risk_layout.addWidget(self.correlation_label)
-        
+
         risk_metrics_group.setLayout(risk_layout)
         layout.addWidget(risk_metrics_group)
-        
+
         # Strategy conflicts
         conflicts_group = QGroupBox("⚡ Strategy Conflicts")
         conflicts_layout = QVBoxLayout()
-        
+
         self.conflicts_list = QListWidget()
         conflicts_layout.addWidget(self.conflicts_list)
-        
+
         conflicts_group.setLayout(conflicts_layout)
         layout.addWidget(conflicts_group)
-        
+
         risk_widget.setLayout(layout)
         self.tab_widget.addTab(risk_widget, "Risk Management")
-    
+
     def create_configuration_tab(self):
         """Create configuration tab"""
         config_widget = QWidget()
         layout = QVBoxLayout()
-        
+
         # Orchestration mode
         mode_group = QGroupBox("🎛️ Orchestration Configuration")
         mode_layout = QVBoxLayout()
-        
+
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([mode.value for mode in OrchestrationMode])
         mode_layout.addWidget(QLabel("Orchestration Mode:"))
         mode_layout.addWidget(self.mode_combo)
-        
+
         self.allocation_combo = QComboBox()
         self.allocation_combo.addItems([method.value for method in AllocationMethod])
         mode_layout.addWidget(QLabel("Allocation Method:"))
         mode_layout.addWidget(self.allocation_combo)
-        
+
         self.rebalance_freq_spin = QSpinBox()
         self.rebalance_freq_spin.setRange(5, 120)
         self.rebalance_freq_spin.setValue(30)
         self.rebalance_freq_spin.setSuffix(" minutes")
         mode_layout.addWidget(QLabel("Rebalance Frequency:"))
         mode_layout.addWidget(self.rebalance_freq_spin)
-        
+
         mode_group.setLayout(mode_layout)
         layout.addWidget(mode_group)
-        
+
         # Risk limits
         limits_group = QGroupBox("🛡️ Risk Limits")
         limits_layout = QVBoxLayout()
-        
+
         self.max_allocation_spin = QDoubleSpinBox()
         self.max_allocation_spin.setRange(0.1, 0.8)
         self.max_allocation_spin.setValue(0.4)
         self.max_allocation_spin.setSuffix("%")
         limits_layout.addWidget(QLabel("Max Strategy Allocation:"))
         limits_layout.addWidget(self.max_allocation_spin)
-        
+
         self.var_limit_spin = QDoubleSpinBox()
         self.var_limit_spin.setRange(0.01, 0.1)
         self.var_limit_spin.setValue(0.02)
         self.var_limit_spin.setSuffix("%")
         limits_layout.addWidget(QLabel("Portfolio VaR Limit:"))
         limits_layout.addWidget(self.var_limit_spin)
-        
+
         limits_group.setLayout(limits_layout)
         layout.addWidget(limits_group)
-        
+
         config_widget.setLayout(layout)
         self.tab_widget.addTab(config_widget, "Configuration")
-    
+
     def create_status_bar(self, layout):
         """Create status bar"""
         status_frame = QFrame()
         status_frame.setFrameStyle(QFrame.Shape.StyledPanel)
         status_layout = QHBoxLayout()
-        
+
         self.status_bar_label = QLabel("Ready")
         self.last_update_label = QLabel("")
-        
+
         status_layout.addWidget(QLabel("Status:"))
         status_layout.addWidget(self.status_bar_label)
         status_layout.addStretch()
         status_layout.addWidget(self.last_update_label)
-        
+
         status_frame.setLayout(status_layout)
         layout.addWidget(status_frame)
-    
+
     def setup_monitoring(self):
         """Setup monitoring timer"""
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_display)
         self.update_timer.start(2000)  # Update every 2 seconds
-        
+
         # Initial update
         self.update_display()
-    
+
     def setup_orchestrator_integration(self):
         """Setup integration with orchestrator"""
         # Connect signals and setup callbacks
         pass
-    
+
     # ==========================================================================
     # EVENT HANDLERS
     # ==========================================================================
-    
+
     def update_display(self):
         """Update all dashboard displays"""
         if not self.orchestrator:
             return
-            
+
         try:
             # Get portfolio status
             status = self.orchestrator.get_portfolio_status()
-            
+
             # Update status indicator
             if status.get('orchestration_active'):
                 self.status_label.setText("✅ Running")
@@ -1884,54 +1864,54 @@ class StrategyOrchestratorDashboard(QWidget):
             else:
                 self.status_label.setText("⏸️ Stopped")
                 self.status_label.setStyleSheet("color: red; font-weight: bold;")
-            
+
             # Update portfolio metrics
             self.update_portfolio_metrics(status)
-            
+
             # Update strategy table
             self.update_strategy_table()
-            
+
             # Update market regime
             self.update_market_regime_display()
-            
+
             # Update charts
             self.update_allocation_chart()
-            
+
             # Update status bar
             self.last_update_label.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
-            
+
         except Exception as e:
             self.logger.error(f"Error updating dashboard: {e}")
-    
-    def update_portfolio_metrics(self, status: Dict[str, Any]):
+
+    def update_portfolio_metrics(self, status: dict[str, Any]):
         """Update portfolio metrics display"""
         try:
             self.total_capital_label.setText(f"Total Capital: ${status.get('total_capital', 0):,.2f}")
             self.allocated_capital_label.setText(f"Allocated: ${status.get('allocated_capital', 0):,.2f}")
             self.total_pnl_label.setText(f"Total P&L: ${status.get('total_pnl', 0):,.2f}")
             self.daily_pnl_label.setText(f"Daily P&L: ${status.get('daily_pnl', 0):,.2f}")
-            
+
             self.sharpe_ratio_label.setText(f"Sharpe Ratio: {status.get('portfolio_sharpe', 0):.2f}")
             self.max_drawdown_label.setText(f"Max Drawdown: {status.get('max_drawdown', 0):.1%}")
             self.active_strategies_label.setText(f"Active Strategies: {status.get('active_strategies', 0)}")
-            
+
         except Exception as e:
             self.logger.error(f"Error updating portfolio metrics: {e}")
-    
+
     def update_strategy_table(self):
         """Update strategy performance table"""
         if not self.orchestrator:
             return
-            
+
         try:
             performance_data = self.orchestrator.get_strategy_performance_attribution()
-            
+
             if performance_data.empty:
                 return
-            
+
             # Update table
             self.strategies_table.setRowCount(len(performance_data))
-            
+
             for row, (_, data) in enumerate(performance_data.iterrows()):
                 self.strategies_table.setItem(row, 0, QTableWidgetItem(data['strategy_name']))
                 self.strategies_table.setItem(row, 1, QTableWidgetItem(data['strategy_type']))
@@ -1941,54 +1921,54 @@ class StrategyOrchestratorDashboard(QWidget):
                 self.strategies_table.setItem(row, 5, QTableWidgetItem(f"{data['performance_score']:.2f}"))
                 self.strategies_table.setItem(row, 6, QTableWidgetItem(f"{data['health_score']:.2f}"))
                 self.strategies_table.setItem(row, 7, QTableWidgetItem("Active"))
-                
+
         except Exception as e:
             self.logger.error(f"Error updating strategy table: {e}")
-    
+
     def update_market_regime_display(self):
         """Update market regime information"""
         if not self.orchestrator:
             return
-            
+
         try:
             regime_data = self.orchestrator.market_regime
-            
+
             self.current_regime_label.setText(f"Regime: {regime_data.current_regime.value}")
             self.regime_confidence_label.setText(f"Confidence: {regime_data.regime_confidence:.1%}")
             self.vix_level_label.setText(f"VIX: {regime_data.vix_level:.1f}")
             self.trend_strength_label.setText(f"Trend: {regime_data.trend_strength:.2f}")
-            
+
         except Exception as e:
             self.logger.error(f"Error updating market regime display: {e}")
-    
+
     def update_allocation_chart(self):
         """Update allocation pie chart"""
         if not self.orchestrator:
             return
-            
+
         try:
             # Clear previous plot
             self.allocation_figure.clear()
             ax = self.allocation_figure.add_subplot(111)
-            
+
             # Get allocation data
             allocations = {}
-            for strategy_id, allocation in self.orchestrator.strategy_allocations.items():
+            for _strategy_id, allocation in self.orchestrator.strategy_allocations.items():
                 allocations[allocation.strategy_name] = allocation.current_allocation
-            
+
             if allocations:
                 # Create pie chart
                 labels = list(allocations.keys())
                 sizes = list(allocations.values())
-                
+
                 ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
                 ax.set_title('Strategy Allocations')
-            
+
             self.allocation_canvas.draw()
-            
+
         except Exception as e:
             self.logger.error(f"Error updating allocation chart: {e}")
-    
+
     def start_orchestration(self):
         """Start orchestration"""
         if self.orchestrator:
@@ -1997,7 +1977,7 @@ class StrategyOrchestratorDashboard(QWidget):
                 self.status_bar_label.setText("Orchestration started")
             else:
                 self.status_bar_label.setText("Failed to start orchestration")
-    
+
     def stop_orchestration(self):
         """Stop orchestration"""
         if self.orchestrator:
@@ -2006,7 +1986,7 @@ class StrategyOrchestratorDashboard(QWidget):
                 self.status_bar_label.setText("Orchestration stopped")
             else:
                 self.status_bar_label.setText("Failed to stop orchestration")
-    
+
     def manual_rebalance(self):
         """Trigger manual rebalancing"""
         if self.orchestrator:
@@ -2023,11 +2003,11 @@ class StrategyOrchestratorDashboard(QWidget):
 def create_strategy_orchestrator(base_capital: float = DEFAULT_BASE_CAPITAL,
                                 orchestration_mode: OrchestrationMode = OrchestrationMode.BALANCED,
                                 allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,
-                                connectivity_manager: Optional[IntegratedConnectivityManager] = None) -> StrategyOrchestrator:
+                                connectivity_manager: IntegratedConnectivityManager | None = None) -> StrategyOrchestrator:
     """Factory function to create strategy orchestrator"""
     return StrategyOrchestrator(base_capital, orchestration_mode, allocation_method, connectivity_manager)
 
-def create_orchestrator_dashboard(orchestrator: Optional[StrategyOrchestrator] = None) -> StrategyOrchestratorDashboard:
+def create_orchestrator_dashboard(orchestrator: StrategyOrchestrator | None = None) -> StrategyOrchestratorDashboard:
     """Factory function to create orchestrator dashboard"""
     return StrategyOrchestratorDashboard(orchestrator)
 
@@ -2039,7 +2019,7 @@ def main():
     """Main execution function for testing and demonstration"""
     logging.info("🎯 SPYDER D12 - Strategy Orchestrator")
     logging.info("=" * 60)
-    
+
     try:
         # Create orchestrator
         orchestrator = StrategyOrchestrator(
@@ -2047,28 +2027,28 @@ def main():
             orchestration_mode=OrchestrationMode.BALANCED,
             allocation_method=AllocationMethod.PERFORMANCE_BASED
         )
-        
+
         logging.info("✅ Strategy Orchestrator initialized")
-        logging.info(f"📊 Configuration:")
+        logging.info("📊 Configuration:")
         logging.info(f"  Base Capital: ${orchestrator.base_capital:,.2f}")
         logging.info(f"  Orchestration Mode: {orchestrator.orchestration_mode.value}")
         logging.info(f"  Allocation Method: {orchestrator.allocation_method.value}")
         logging.info(f"  Available Strategies: {len(orchestrator.available_strategies)}")
-        
+
         # Test portfolio status
         status = orchestrator.get_portfolio_status()
-        logging.info(f"\n📈 Portfolio Status:")
+        logging.info("\n📈 Portfolio Status:")
         logging.info(f"  Total Capital: ${status['total_capital']:,.2f}")
         logging.info(f"  Available Capital: ${status['available_capital']:,.2f}")
         logging.info(f"  Active Strategies: {status['active_strategies']}")
         logging.info(f"  Market Regime: {status['market_regime']}")
-        
-        logging.info(f"\n✅ Strategy Orchestrator test completed!")
-        
+
+        logging.info("\n✅ Strategy Orchestrator test completed!")
+
     except Exception as e:
         logging.info(f"❌ Error during testing: {e}")
         return False
-        
+
     return True
 
 if __name__ == "__main__":

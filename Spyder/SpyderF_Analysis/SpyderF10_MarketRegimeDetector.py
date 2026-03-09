@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,14 +22,13 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Tuple, Any
-from dataclasses import dataclass, field
-from enum import Enum, auto
+from datetime import datetime
+from typing import Callable, Any
+from dataclasses import dataclass
+from enum import Enum
 from collections import deque
 import threading
 import time
-import asyncio
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -52,8 +50,6 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
-from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
-from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 
 VIX_LOW_THRESHOLD = 16.0
 VIX_MEDIUM_THRESHOLD = 25.0
@@ -189,7 +185,7 @@ class RegimeState:
     transition_probability: float
 
     # Strategy implications
-    optimal_strategies: List[str]
+    optimal_strategies: list[str]
     risk_adjustment_factor: float
 
     # Regime stability
@@ -208,8 +204,8 @@ class RegimeTransition:
     from_regime: MarketRegime
     to_regime: MarketRegime
     transition_probability: float
-    trigger_factors: List[str]
-    recommended_actions: List[str]
+    trigger_factors: list[str]
+    recommended_actions: list[str]
 
 
 # ==============================================================================
@@ -248,7 +244,7 @@ class MarketRegimeDetector:
         self.time_utils = TradingTimeUtils()
 
         # Current state
-        self.current_regime: Optional[RegimeState] = None
+        self.current_regime: RegimeState | None = None
         self.regime_history: deque = deque(maxlen=252)  # 1 year of regime history
 
         # Historical data for analysis
@@ -262,11 +258,11 @@ class MarketRegimeDetector:
 
         # Monitoring
         self.monitoring_active = False
-        self.monitor_thread: Optional[threading.Thread] = None
+        self.monitor_thread: threading.Thread | None = None
 
         # Callbacks
-        self.regime_change_callbacks: List[Callable] = []
-        self.stress_alert_callbacks: List[Callable] = []
+        self.regime_change_callbacks: list[Callable] = []
+        self.stress_alert_callbacks: list[Callable] = []
 
         # Performance tracking
         self.regime_accuracy_history = deque(maxlen=50)
@@ -302,11 +298,11 @@ class MarketRegimeDetector:
             self.monitor_thread.join(timeout=5.0)
         self.logger.info("Market regime monitoring stopped")
 
-    def get_current_regime(self) -> Optional[RegimeState]:
+    def get_current_regime(self) -> RegimeState | None:
         """Get current market regime state."""
         return self.current_regime
 
-    def detect_regime_change(self) -> Optional[RegimeTransition]:
+    def detect_regime_change(self) -> RegimeTransition | None:
         """Detect potential regime change."""
         try:
             # Calculate current metrics
@@ -352,8 +348,8 @@ class MarketRegimeDetector:
             return None
 
     def get_optimal_strategies_for_regime(
-        self, regime: Optional[MarketRegime] = None
-    ) -> List[str]:
+        self, regime: MarketRegime | None = None
+    ) -> list[str]:
         """Get optimal strategies for current or specified regime."""
         try:
             if regime is None:
@@ -425,7 +421,7 @@ class MarketRegimeDetector:
             self.error_handler.handle_error(e, "get_risk_adjustment_factor")
             return 1.0
 
-    def analyze_volatility_clustering(self) -> Dict[str, float]:
+    def analyze_volatility_clustering(self) -> dict[str, float]:
         """Analyze volatility clustering using GARCH model."""
         try:
             if len(self.spy_price_history) < 100:
@@ -475,7 +471,7 @@ class MarketRegimeDetector:
             self.error_handler.handle_error(e, "analyze_volatility_clustering")
             return {"clustering_strength": 0.5, "persistence": 0.5, "half_life": 20.0}
 
-    def calculate_mean_reversion_metrics(self) -> Dict[str, float]:
+    def calculate_mean_reversion_metrics(self) -> dict[str, float]:
         """Calculate mean reversion metrics using Ornstein-Uhlenbeck process."""
         try:
             if len(self.vix_history) < 50:
@@ -532,7 +528,7 @@ class MarketRegimeDetector:
                 "reversion_probability": 0.5,
             }
 
-    def assess_market_stress(self) -> Dict[str, float]:
+    def assess_market_stress(self) -> dict[str, float]:
         """Assess market stress indicators."""
         try:
             stress_indicators = {}
@@ -585,12 +581,12 @@ class MarketRegimeDetector:
         self.regime_change_callbacks.append(callback)
 
     def add_stress_alert_callback(
-        self, callback: Callable[[Dict[str, float]], None]
+        self, callback: Callable[[dict[str, float]], None]
     ) -> None:
         """Add callback for market stress alerts."""
         self.stress_alert_callbacks.append(callback)
 
-    def get_regime_analysis_report(self) -> Dict[str, Any]:
+    def get_regime_analysis_report(self) -> dict[str, Any]:
         """Generate comprehensive regime analysis report."""
         try:
             current_metrics = self._calculate_regime_metrics()
@@ -647,7 +643,7 @@ class MarketRegimeDetector:
     # ==========================================================================
     # PRIVATE METHODS - REGIME DETECTION
     # ==========================================================================
-    def _calculate_regime_metrics(self) -> Optional[RegimeMetrics]:
+    def _calculate_regime_metrics(self) -> RegimeMetrics | None:
         """Calculate current regime metrics."""
         try:
             # Get market data
@@ -1156,9 +1152,7 @@ class MarketRegimeDetector:
             metric_factor = 1.0
 
             # VIX trend supports transition
-            if metrics.vix_trend > 0 and to_idx > from_idx:
-                metric_factor *= 1.5
-            elif metrics.vix_trend < 0 and to_idx < from_idx:
+            if metrics.vix_trend > 0 and to_idx > from_idx or metrics.vix_trend < 0 and to_idx < from_idx:
                 metric_factor *= 1.5
 
             # Stress indicators
@@ -1216,7 +1210,7 @@ class MarketRegimeDetector:
         except Exception as e:
             self.error_handler.handle_error(e, "_handle_regime_transition")
 
-    def _handle_stress_alert(self, stress_indicators: Dict[str, float]) -> None:
+    def _handle_stress_alert(self, stress_indicators: dict[str, float]) -> None:
         """Handle market stress alert."""
         try:
             self.logger.warning(
@@ -1236,7 +1230,7 @@ class MarketRegimeDetector:
     # ==========================================================================
     # PRIVATE METHODS - HELPERS
     # ==========================================================================
-    def _identify_transition_triggers(self, metrics: RegimeMetrics) -> List[str]:
+    def _identify_transition_triggers(self, metrics: RegimeMetrics) -> list[str]:
         """Identify factors triggering regime transition."""
         triggers = []
 
@@ -1262,7 +1256,7 @@ class MarketRegimeDetector:
 
     def _get_transition_recommendations(
         self, from_regime: MarketRegime, to_regime: MarketRegime
-    ) -> List[str]:
+    ) -> list[str]:
         """Get recommended actions for regime transition."""
         recommendations = []
 
@@ -1379,7 +1373,7 @@ class MarketRegimeDetector:
         except Exception as e:
             self.error_handler.handle_error(e, "_load_configuration")
 
-    def _get_mock_market_data(self) -> Dict[str, float]:
+    def _get_mock_market_data(self) -> dict[str, float]:
         """Get mock market data for testing."""
         return {
             "vix": 20.0 + np.random.randn() * 5,
@@ -1404,7 +1398,7 @@ class MarketRegimeDetector:
         n_bkps: int = 5,
         model: str = "rbf",
         min_size: int = 10,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Detect structural break-points in a price/volatility signal using the
         ruptures library (Pelt algorithm with RBF cost by default).
@@ -1430,7 +1424,7 @@ class MarketRegimeDetector:
             self.error_handler.handle_error(e, "detect_change_points")
             return []
 
-    def detect_regime_change_points_from_history(self, n_bkps: int = 5) -> List[int]:
+    def detect_regime_change_points_from_history(self, n_bkps: int = 5) -> list[int]:
         """
         Run change-point detection on the internal VIX history buffer.
 
@@ -1453,66 +1447,37 @@ class MarketRegimeDetector:
 # MODULE TEST
 # ==============================================================================
 if __name__ == "__main__":
-    print("Market Regime Detector - Professional Analysis")
-    print("=" * 55)
 
     # Create detector
     detector = MarketRegimeDetector()
 
-    print("\nKey Features:")
-    print("• VIX-based regime classification (16/25/30 thresholds)")
-    print("• Volatility clustering detection using GARCH models")
-    print("• Mean reversion analysis with Ornstein-Uhlenbeck process")
-    print("• Market stress indicators and correlation breakdown")
-    print("• Real-time regime monitoring with confidence levels")
-    print("• Strategy optimization based on regime state")
-    print("• Professional risk adjustment factors")
-    print("• Institutional transition probability models")
-    print("• ConfigManager integration for dynamic settings")
-    print("• ML integration hooks for enhanced detection")
 
-    print("\n\nRunning Analysis Demo...")
-    print("-" * 55)
 
     # Start monitoring
     detector.start_monitoring()
 
     # Simulate some data updates
-    for i in range(5):
+    for _i in range(5):
         time.sleep(2)
 
         # Get current regime
         regime = detector.get_current_regime()
         if regime:
-            print(f"\nRegime Update {i+1}:")
-            print(f"  Volatility: {regime.volatility_regime.value}")
-            print(f"  Trend: {regime.trend_regime.value}")
-            print(f"  Confidence: {regime.regime_confidence:.2%}")
-            print(f"  Optimal Strategies: {', '.join(regime.optimal_strategies[:3])}")
-            print(f"  Risk Factor: {regime.risk_adjustment_factor:.2f}x")
+            pass
 
     # Get analysis report
     report = detector.get_regime_analysis_report()
 
-    print("\n\nRegime Analysis Report:")
-    print("-" * 55)
-    print(f"Current Regime: {report['current_regime']['volatility_regime']}")
-    print(f"Confidence: {report['current_regime']['confidence']:.2%}")
-    print(f"Duration: {report['current_regime']['duration_days']} days")
-    print(f"\nMarket Metrics:")
-    for key, value in report["market_metrics"].items():
+    for _key, value in report["market_metrics"].items():
         if value is not None:
-            print(f"  {key}: {value:.2f}")
+            pass
 
-    print(f"\nStress Indicators:")
-    for key, value in report["stress_indicators"].items():
-        print(f"  {key}: {value:.2%}")
+    for _key, _ in report["stress_indicators"].items():
+        pass
 
-    print(f"\nOptimal Strategies:")
-    for strategy in report["optimal_strategies"]:
-        print(f"  - {strategy}")
+    for _strategy in report["optimal_strategies"]:
+        pass
 
     # Stop monitoring
     detector.stop_monitoring()
 
-    print("\n\nMonitoring stopped. Demo complete.")

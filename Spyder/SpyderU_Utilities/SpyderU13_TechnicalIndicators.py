@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,15 +22,13 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import math
 import numpy as np
 import pandas as pd
 
@@ -105,12 +102,12 @@ class IndicatorResult:
     """Technical indicator result structure."""
 
     name: str
-    value: Union[float, Dict[str, float]]
+    value: Union[float, dict[str, float]]
     signal: SignalType
     timestamp: pd.Timestamp
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "name": self.name,
@@ -225,7 +222,7 @@ class TechnicalIndicators:
         close: pd.Series,
         k_period: int = DEFAULT_STOCH_K,
         d_period: int = DEFAULT_STOCH_D,
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Calculate Stochastic Oscillator (%K and %D).
 
@@ -294,7 +291,7 @@ class TechnicalIndicators:
         fast: int = DEFAULT_MACD_FAST,
         slow: int = DEFAULT_MACD_SLOW,
         signal: int = DEFAULT_MACD_SIGNAL,
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Calculate MACD (Moving Average Convergence Divergence).
 
@@ -333,7 +330,7 @@ class TechnicalIndicators:
 
     def calculate_adx(
         self, high: pd.Series, low: pd.Series, close: pd.Series, period: int = DEFAULT_ADX_PERIOD
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Calculate Average Directional Index (ADX) and directional indicators.
 
@@ -384,7 +381,7 @@ class TechnicalIndicators:
     # ==========================================================================
     def calculate_bollinger_bands(
         self, prices: pd.Series, period: int = DEFAULT_BB_PERIOD, std_dev: float = DEFAULT_BB_STDDEV
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Calculate Bollinger Bands.
 
@@ -638,7 +635,7 @@ class TechnicalIndicators:
             self.logger.error(f"RSI signal generation failed: {e}")
             return SignalType.NEUTRAL
 
-    def generate_macd_signal(self, macd_data: Dict[str, pd.Series]) -> SignalType:
+    def generate_macd_signal(self, macd_data: dict[str, pd.Series]) -> SignalType:
         """
         Generate trading signal from MACD.
 
@@ -697,7 +694,7 @@ def calculate_macd(
     fast: int = DEFAULT_MACD_FAST,
     slow: int = DEFAULT_MACD_SLOW,
     signal: int = DEFAULT_MACD_SIGNAL,
-) -> Dict[str, pd.Series]:
+) -> dict[str, pd.Series]:
     """
     Quick MACD calculation function.
 
@@ -716,7 +713,7 @@ def calculate_macd(
 
 def calculate_bollinger_bands(
     prices: pd.Series, period: int = DEFAULT_BB_PERIOD, std_dev: float = DEFAULT_BB_STDDEV
-) -> Dict[str, pd.Series]:
+) -> dict[str, pd.Series]:
     """
     Quick Bollinger Bands calculation function.
 
@@ -736,7 +733,7 @@ def calculate_bollinger_bands(
 # MODULE INITIALIZATION
 # ==============================================================================
 # Module-level initialization code
-_technical_indicators_instance: Optional[TechnicalIndicators] = None
+_technical_indicators_instance: TechnicalIndicators | None = None
 
 
 def get_technical_indicators() -> TechnicalIndicators:
@@ -757,9 +754,6 @@ def get_technical_indicators() -> TechnicalIndicators:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER U13 - Technical Indicators Test")
-    print("=" * 80)
 
     indicators = TechnicalIndicators()
 
@@ -772,35 +766,17 @@ if __name__ == "__main__":
     volume = pd.Series(np.random.randint(1000, 10000, 100), index=dates)
 
     # Test RSI
-    print("\n1. Testing RSI calculation...")
     rsi = indicators.calculate_rsi(prices, period=14)
-    print(f"   Current RSI: {rsi.iloc[-1]:.2f}")
-    print(f"   RSI Signal: {indicators.generate_rsi_signal(rsi).value}")
 
     # Test MACD
-    print("\n2. Testing MACD calculation...")
     macd = indicators.calculate_macd(prices)
-    print(f"   Current MACD: {macd['MACD'].iloc[-1]:.4f}")
-    print(f"   Signal Line: {macd['Signal'].iloc[-1]:.4f}")
-    print(f"   Histogram: {macd['Histogram'].iloc[-1]:.4f}")
 
     # Test Bollinger Bands
-    print("\n3. Testing Bollinger Bands...")
     bb = indicators.calculate_bollinger_bands(prices)
-    print(f"   Upper Band: {bb['Upper'].iloc[-1]:.2f}")
-    print(f"   Middle Band: {bb['Middle'].iloc[-1]:.2f}")
-    print(f"   Lower Band: {bb['Lower'].iloc[-1]:.2f}")
 
     # Test Stochastic
-    print("\n4. Testing Stochastic Oscillator...")
     stoch = indicators.calculate_stochastic(high, low, prices)
-    print(f"   %K: {stoch['%K'].iloc[-1]:.2f}")
-    print(f"   %D: {stoch['%D'].iloc[-1]:.2f}")
 
     # Test ATR
-    print("\n5. Testing ATR...")
     atr = indicators.calculate_atr(high, low, prices)
-    print(f"   Current ATR: {atr.iloc[-1]:.4f}")
 
-    print("\n" + "=" * 80)
-    print("✅ Technical Indicators test completed!")

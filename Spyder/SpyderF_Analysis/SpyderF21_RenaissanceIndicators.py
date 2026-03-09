@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,8 +22,8 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Any, Tuple, Union
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
@@ -110,7 +109,7 @@ class RenaissanceSignal:
     vol_component: float = 0.0
     bb_component: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'timestamp': self.timestamp.isoformat(),
@@ -187,7 +186,7 @@ class MeanReversionIndicators:
             return pd.Series(index=prices.index, dtype=float)
 
     def bollinger_bands(self, prices: pd.Series, window: int = 20,
-                       num_std: float = 2.0) -> Dict[str, pd.Series]:
+                       num_std: float = 2.0) -> dict[str, pd.Series]:
         """
         Calculate Bollinger Bands for statistical deviation detection.
 
@@ -698,7 +697,7 @@ class RenaissanceStyleSignalGenerator:
             self.error_handler.handle_error(e, {'method': 'generate_signals'})
             return pd.DataFrame()
 
-    def get_current_signal(self, data: pd.DataFrame) -> Optional[RenaissanceSignal]:
+    def get_current_signal(self, data: pd.DataFrame) -> RenaissanceSignal | None:
         """
         Get the current trading signal with full context.
 
@@ -802,9 +801,6 @@ def create_renaissance_signal_generator(confidence_threshold: float = 0.5) -> Re
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER F21 - RENAISSANCE-STYLE INDICATORS DEMONSTRATION")
-    print("=" * 80)
 
     # Generate sample data
     np.random.seed(42)
@@ -827,74 +823,38 @@ if __name__ == "__main__":
         'implied_vol': np.random.uniform(0.15, 0.35, 252)
     }, index=dates)
 
-    print(f"\nSample data created:")
-    print(f"Date range: {dates[0].date()} to {dates[-1].date()}")
-    print(f"Price range: ${min(prices):.2f} - ${max(prices):.2f}")
-    print(f"Current price: ${prices[-1]:.2f}")
 
     # Test indicators
-    print("\n" + "=" * 50)
-    print("Testing Individual Indicators")
-    print("=" * 50)
 
     mean_rev = MeanReversionIndicators()
     vol_ind = VolatilityIndicators()
 
     # Z-score
     zscore = mean_rev.calculate_zscore(data['close'])
-    print(f"\nZ-Score (current): {zscore.iloc[-1]:.3f}")
-    print(f"Z-Score range: {zscore.min():.3f} to {zscore.max():.3f}")
 
     # Bollinger Bands
     bb = mean_rev.bollinger_bands(data['close'])
-    print(f"\nBollinger Bands:")
-    print(f"  Upper: ${bb['upper'].iloc[-1]:.2f}")
-    print(f"  Middle: ${bb['middle'].iloc[-1]:.2f}")
-    print(f"  Lower: ${bb['lower'].iloc[-1]:.2f}")
-    print(f"  %B: {bb['percent_b'].iloc[-1]:.3f}")
 
     # IV Percentile
     iv_pct = vol_ind.iv_percentile(data['implied_vol'])
-    print(f"\nIV Percentile (current): {iv_pct.iloc[-1]:.1f}%")
 
     # Historical Volatility
     hist_vol = vol_ind.historical_volatility(data['close'])
-    print(f"Historical Volatility: {hist_vol.iloc[-1]*100:.1f}%")
 
     # Generate signals
-    print("\n" + "=" * 50)
-    print("Generating Renaissance-Style Trading Signals")
-    print("=" * 50)
 
     signal_gen = create_renaissance_signal_generator(confidence_threshold=0.5)
     signals = signal_gen.generate_signals(data)
 
-    print(f"\nLast 10 days:")
-    print(signals[['zscore', 'iv_percentile', 'confidence', 'final_signal']].tail(10))
 
     # Count signals
     buy_signals = (signals['final_signal'] == 1).sum()
     sell_signals = (signals['final_signal'] == -1).sum()
     neutral = (signals['final_signal'] == 0).sum()
 
-    print(f"\nSignal Distribution:")
-    print(f"  Buy Signals: {buy_signals}")
-    print(f"  Sell Signals: {sell_signals}")
-    print(f"  Neutral: {neutral}")
 
     # Get current signal
     current_signal = signal_gen.get_current_signal(data)
     if current_signal:
-        print(f"\nCurrent Signal:")
-        print(f"  Type: {current_signal.signal_type.value}")
-        print(f"  Confidence: {current_signal.confidence:.2%}")
-        print(f"  Z-Score: {current_signal.zscore:.3f}")
-        print(f"  IV Percentile: {current_signal.iv_percentile:.1f}%")
-        print(f"  Volatility Regime: {current_signal.volatility_regime.value}")
-        print(f"  Reasoning: {current_signal.reasoning}")
+        pass
 
-    print("\n" + "=" * 80)
-    print("RENAISSANCE-STYLE INDICATORS SYSTEM READY!")
-    print("Target win rate: ~50.75% (small edge, high volume)")
-    print("Strategy: Statistical arbitrage + Mean reversion + Volatility")
-    print("=" * 80)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -1015,9 +1014,8 @@ class TestCheckInternetConnection:
 
     def test_returns_false_when_all_connections_fail(self):
         net = _make_network_utils()
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
-            with patch.object(net, "_test_http_connection", return_value=False):
-                result = net.check_internet_connection()
+        with patch("socket.create_connection", side_effect=OSError("refused")), patch.object(net, "_test_http_connection", return_value=False):
+            result = net.check_internet_connection()
         assert result is False
 
     def test_returns_bool(self):
@@ -1078,7 +1076,7 @@ class TestMeasureLatency:
 
     def test_returns_negative_one_on_failure(self):
         net = _make_network_utils()
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             result = net.measure_latency(host="badhost", count=2)
         assert result == -1.0
 
@@ -1100,7 +1098,7 @@ class TestTestHostConnection:
 
     def test_returns_false_on_socket_error(self):
         net = _make_network_utils()
-        with patch("socket.create_connection", side_effect=socket.error("timeout")):
+        with patch("socket.create_connection", side_effect=OSError("timeout")):
             result = net._test_host_connection("badhost", 9999, 1)
         assert result is False
 
@@ -1208,42 +1206,26 @@ class TestGetNetworkStatus:
 
     def test_returns_dict(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True):
-            with patch.object(net, "check_ib_connection", return_value=False):
-                with patch.object(net, "measure_latency", return_value=10.0):
-                    with patch.object(net, "_test_dns_resolution", return_value=True):
-                        with patch.object(net, "_test_http_connection", return_value=True):
-                            status = net.get_network_status()
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+            status = net.get_network_status()
         assert isinstance(status, dict)
 
     def test_status_has_internet_connected_key(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True):
-            with patch.object(net, "check_ib_connection", return_value=False):
-                with patch.object(net, "measure_latency", return_value=10.0):
-                    with patch.object(net, "_test_dns_resolution", return_value=True):
-                        with patch.object(net, "_test_http_connection", return_value=True):
-                            status = net.get_network_status()
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+            status = net.get_network_status()
         assert "internet_connected" in status
 
     def test_status_has_latency_key(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=False):
-            with patch.object(net, "check_ib_connection", return_value=False):
-                with patch.object(net, "measure_latency", return_value=5.5):
-                    with patch.object(net, "_test_dns_resolution", return_value=False):
-                        with patch.object(net, "_test_http_connection", return_value=False):
-                            status = net.get_network_status()
+        with patch.object(net, "check_internet_connection", return_value=False), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=5.5), patch.object(net, "_test_dns_resolution", return_value=False), patch.object(net, "_test_http_connection", return_value=False):
+            status = net.get_network_status()
         assert "latency_ms" in status
 
     def test_stats_latency_updated(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True):
-            with patch.object(net, "check_ib_connection", return_value=False):
-                with patch.object(net, "measure_latency", return_value=42.0):
-                    with patch.object(net, "_test_dns_resolution", return_value=True):
-                        with patch.object(net, "_test_http_connection", return_value=True):
-                            net.get_network_status()
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=42.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+            net.get_network_status()
         assert net.stats.latency_ms == 42.0
 
 
@@ -1264,7 +1246,7 @@ class TestModuleLevelFunctions:
         assert result is True
 
     def test_module_check_connection_fails(self):
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             result = module_check_connection("badhost", 9999)
         assert result is False
 

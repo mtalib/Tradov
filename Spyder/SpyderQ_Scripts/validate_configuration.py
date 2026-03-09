@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,7 +25,6 @@ Change Log:
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
 from enum import Enum
 
 project_root = Path(__file__).parent.parent
@@ -48,7 +46,7 @@ class ValidationResult:
         key: str,
         level: ValidationLevel,
         message: str,
-        suggestion: Optional[str] = None
+        suggestion: str | None = None
     ):
         self.key = key
         self.level = level
@@ -66,9 +64,9 @@ class ConfigurationValidator:
     """Validates Spyder system configuration"""
 
     def __init__(self):
-        self.errors: List[ValidationResult] = []
-        self.warnings: List[ValidationResult] = []
-        self.info: List[ValidationResult] = []
+        self.errors: list[ValidationResult] = []
+        self.warnings: list[ValidationResult] = []
+        self.info: list[ValidationResult] = []
 
     def add_result(self, result: ValidationResult):
         """Add validation result"""
@@ -421,7 +419,7 @@ def main():
             load_dotenv(env_file)
         else:
             print("No .env file found - using environment variables only")
-            print(f"Create .env from template: cp .env.template .env")
+            print("Create .env from template: cp .env.template .env")
             print()
 
         # Run validation

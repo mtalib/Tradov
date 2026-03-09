@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -175,15 +174,13 @@ class TestValidateStartupConfigMissingTradierApiKey(unittest.TestCase):
 
     def test_raises_configuration_error(self):
         env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError):
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError):
+            validate_startup_config()
 
     def test_error_mentions_tradier_api_key(self):
         env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("TRADIER_API_KEY", str(ctx.exception))
 
 
@@ -192,15 +189,13 @@ class TestValidateStartupConfigMissingTradierAccountId(unittest.TestCase):
 
     def test_raises_configuration_error(self):
         env = {**_VALID_SANDBOX_ENV, "TRADIER_ACCOUNT_ID": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError):
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError):
+            validate_startup_config()
 
     def test_error_mentions_tradier_account_id(self):
         env = {**_VALID_SANDBOX_ENV, "TRADIER_ACCOUNT_ID": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("TRADIER_ACCOUNT_ID", str(ctx.exception))
 
 
@@ -209,21 +204,18 @@ class TestValidateStartupConfigInvalidMode(unittest.TestCase):
 
     def test_empty_mode_raises(self):
         env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError):
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError):
+            validate_startup_config()
 
     def test_typo_mode_raises(self):
         env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "Live"}  # wrong case
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError):
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError):
+            validate_startup_config()
 
     def test_unknown_mode_error_mentions_value(self):
         env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "production"}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("production", str(ctx.exception))
 
     def test_valid_modes_accepted(self):
@@ -238,9 +230,8 @@ class TestValidateStartupConfigDataProvider(unittest.TestCase):
 
     def test_missing_databento_key_raises(self):
         env = {**_VALID_SANDBOX_ENV, "DATABENTO_API_KEY": "", "DATA_PROVIDER": "databento"}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("DATABENTO_API_KEY", str(ctx.exception))
 
     def test_missing_polygon_key_raises(self):
@@ -250,16 +241,14 @@ class TestValidateStartupConfigDataProvider(unittest.TestCase):
             "POLYGON_API_KEY": "",
             "DATABENTO_API_KEY": "irrelevant",
         }
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("POLYGON_API_KEY", str(ctx.exception))
 
     def test_invalid_provider_name_raises(self):
         env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "quandl"}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("DATA_PROVIDER", str(ctx.exception))
 
     def test_databento_key_not_required_for_polygon_mode(self):
@@ -292,20 +281,18 @@ class TestValidateStartupConfigLiveModeGate(unittest.TestCase):
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "false",
         }
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn("LIVE_TRADING_CONFIRMED", str(ctx.exception))
 
     def test_live_without_confirmation_key_raises(self):
         env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "live"}
         # Remove LIVE_TRADING_CONFIRMED entirely
         env.pop("LIVE_TRADING_CONFIRMED", None)
-        with _patched_module(env):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("LIVE_TRADING_CONFIRMED", None)
-                with self.assertRaises(ConfigurationError):
-                    validate_startup_config()
+        with _patched_module(env), patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LIVE_TRADING_CONFIRMED", None)
+            with self.assertRaises(ConfigurationError):
+                validate_startup_config()
 
     def test_live_with_confirmation_passes(self):
         env = {
@@ -334,9 +321,8 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
             "TRADIER_API_KEY": "",
             "TRADIER_ACCOUNT_ID": "",
         }
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         msg = str(ctx.exception)
         self.assertIn("TRADIER_API_KEY", msg)
         self.assertIn("TRADIER_ACCOUNT_ID", msg)
@@ -350,9 +336,8 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
             "DATABENTO_API_KEY": "",
             "LIVE_TRADING_CONFIRMED": "false",
         }
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         msg = str(ctx.exception)
         self.assertIn("TRADIER_API_KEY", msg)
         self.assertIn("TRADIER_ACCOUNT_ID", msg)
@@ -364,18 +349,16 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
             "TRADIER_API_KEY": "",
             "TRADIER_ACCOUNT_ID": "",
         }
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         # The message should reference the count of problems
         msg = str(ctx.exception)
         self.assertIn("2", msg)
 
     def test_error_references_dot_env(self):
         env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
-        with _patched_module(env):
-            with self.assertRaises(ConfigurationError) as ctx:
-                validate_startup_config()
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
         self.assertIn(".env", str(ctx.exception))
 
 
@@ -471,9 +454,8 @@ class TestA03StartupValidatorIntegration(unittest.TestCase):
 
         # Inject fake module so lazy import inside _validate_configuration
         # retrieves our mock instead of the real config.config
-        with patch.dict(sys.modules, {"config.config": fake_config_mod}):
-            with self.assertRaises((ConfigurationError, RuntimeError)):
-                bound_method()
+        with patch.dict(sys.modules, {"config.config": fake_config_mod}), self.assertRaises((ConfigurationError, RuntimeError)):
+            bound_method()
 
     def test_validate_configuration_passes_when_no_errors(self):
         """When validate_startup_config does NOT raise, method completes normally."""

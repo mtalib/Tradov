@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -30,20 +29,20 @@ LAUNCHER_FILE = Path.home() / "Projects" / "Spyder" / "SpyderG_GUI" / "SpyderG08
 
 def apply_fix():
     print("🔧 Applying widget creation order fix...")
-    
+
     if not LAUNCHER_FILE.exists():
         print(f"❌ Error: File not found: {LAUNCHER_FILE}")
         return 1
-    
+
     # Read the file
-    with open(LAUNCHER_FILE, 'r') as f:
+    with open(LAUNCHER_FILE) as f:
         content = f.read()
-    
+
     # Check if already fixed
     if "# Update info based on initial mode (after button is created)" in content:
         print("✅ File is already fixed!")
         return 0
-    
+
     # Find and replace the problematic section
     old_code = """        self.info_label.pack(fill='both')
 
@@ -67,7 +66,7 @@ def apply_fix():
             pady=15
         )
         self.launch_btn.pack(pady=20)"""
-    
+
     new_code = """        self.info_label.pack(fill='both')
 
         # Launch button (create BEFORE calling _on_mode_change)
@@ -90,30 +89,30 @@ def apply_fix():
 
         # Update info based on initial mode (after button is created)
         self._on_mode_change()"""
-    
+
     if old_code not in content:
         print("❌ Error: Could not find the code to replace")
         print("The file may have been modified. Please download the fixed version.")
         return 1
-    
+
     # Create backup
     backup_file = LAUNCHER_FILE.with_suffix('.py.fix_backup')
     with open(backup_file, 'w') as f:
         f.write(content)
     print(f"✅ Backup created: {backup_file}")
-    
+
     # Apply fix
     fixed_content = content.replace(old_code, new_code)
-    
+
     # Write fixed file
     with open(LAUNCHER_FILE, 'w') as f:
         f.write(fixed_content)
-    
+
     print("✅ Fix applied successfully!")
     print(f"📝 File updated: {LAUNCHER_FILE}")
     print("\n🧪 You can now test the launcher:")
     print(f"   python {LAUNCHER_FILE}")
-    
+
     return 0
 
 if __name__ == "__main__":

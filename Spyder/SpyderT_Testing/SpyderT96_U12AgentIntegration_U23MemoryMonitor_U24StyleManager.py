@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 T96 — SpyderU12 AgentIntegration | SpyderU23 MemoryMonitor | SpyderU24 StyleManager
 
@@ -600,7 +599,7 @@ class TestU23ModuleFunctions:
     def test_start_global_monitoring(self):
         with patch("threading.Thread") as mock_thread:
             mock_thread.return_value = MagicMock()
-            result = u23_mod.start_global_monitoring()
+            u23_mod.start_global_monitoring()
             # After starting, set monitoring_active back
             monitor = u23_mod._global_memory_monitor
             if monitor:
@@ -827,7 +826,7 @@ class TestU24StyleManagerMethods:
         assert self.manager.current_theme == "dark"
 
     def test_refresh_styles(self):
-        original_ss = self.manager.get_stylesheet()
+        self.manager.get_stylesheet()
         self.manager.refresh_styles()
         new_ss = self.manager.get_stylesheet()
         assert isinstance(new_ss, str)

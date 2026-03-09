@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -22,7 +21,7 @@ Description:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from typing import Any, Dict
+from typing import Any
 import logging
 
 # ==============================================================================
@@ -239,7 +238,7 @@ VALIDATION_RANGES = {
 # ==============================================================================
 
 
-def get_strategy_constants() -> Dict[str, Any]:
+def get_strategy_constants() -> dict[str, Any]:
     """
     Get all strategy constants as a dictionary.
 

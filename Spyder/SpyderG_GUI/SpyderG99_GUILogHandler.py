@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,7 +23,6 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
-from typing import Optional, Set
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -66,7 +64,7 @@ class GUILogHandler(QObject, logging.Handler):
         logging.Handler.__init__(self)
 
         self.dashboard = dashboard
-        self.last_messages: Set[str] = set()
+        self.last_messages: set[str] = set()
         self.max_cache_size = 50
 
         # Connect signal to slot
@@ -118,7 +116,7 @@ class GUILogHandler(QObject, logging.Handler):
             # Emit signal to GUI thread
             self.log_signal.emit(level, msg, logger_name)
 
-        except Exception as e:
+        except Exception:
             # Don't let logging errors crash the application
             # Use standard error handler
             self.handleError(record)
@@ -216,8 +214,8 @@ class FilteredGUILogHandler(GUILogHandler):
     allowing fine-grained control over what appears in the GUI.
     """
 
-    def __init__(self, dashboard=None, include_modules: Optional[list] = None,
-                 exclude_modules: Optional[list] = None):
+    def __init__(self, dashboard=None, include_modules: list | None = None,
+                 exclude_modules: list | None = None):
         """
         Initialize filtered GUI log handler.
 
@@ -249,8 +247,8 @@ class FilteredGUILogHandler(GUILogHandler):
 
 
 def setup_gui_logging(dashboard, log_level: str = "INFO",
-                     include_modules: Optional[list] = None,
-                     exclude_modules: Optional[list] = None) -> GUILogHandler:
+                     include_modules: list | None = None,
+                     exclude_modules: list | None = None) -> GUILogHandler:
     """
     Convenience function to set up GUI logging.
 

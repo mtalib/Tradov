@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -300,24 +299,24 @@ class TestCalculateStochastic:
         self.ind = TechnicalIndicators()
 
     def test_returns_dict_with_keys(self):
-        h, l, c, _ = _make_ohlcv(40)
-        result = self.ind.calculate_stochastic(h, l, c)
+        h, lo, c, _ = _make_ohlcv(40)
+        result = self.ind.calculate_stochastic(h, lo, c)
         assert "%K" in result and "%D" in result
 
     def test_k_in_range(self):
-        h, l, c, _ = _make_ohlcv(40)
-        k = self.ind.calculate_stochastic(h, l, c)["%K"]
+        h, lo, c, _ = _make_ohlcv(40)
+        k = self.ind.calculate_stochastic(h, lo, c)["%K"]
         valid = k.dropna()
         assert (valid >= 0).all() and (valid <= 100).all()
 
     def test_d_length_matches_close(self):
-        h, l, c, _ = _make_ohlcv(40)
-        d = self.ind.calculate_stochastic(h, l, c)["%D"]
+        h, lo, c, _ = _make_ohlcv(40)
+        d = self.ind.calculate_stochastic(h, lo, c)["%D"]
         assert len(d) == len(c)
 
     def test_custom_periods(self):
-        h, l, c, _ = _make_ohlcv(40)
-        result = self.ind.calculate_stochastic(h, l, c, k_period=5, d_period=3)
+        h, lo, c, _ = _make_ohlcv(40)
+        result = self.ind.calculate_stochastic(h, lo, c, k_period=5, d_period=3)
         assert isinstance(result["%K"], pd.Series)
 
 
@@ -326,19 +325,19 @@ class TestCalculateWilliamsR:
         self.ind = TechnicalIndicators()
 
     def test_returns_series(self):
-        h, l, c, _ = _make_ohlcv(30)
-        result = self.ind.calculate_williams_r(h, l, c)
+        h, lo, c, _ = _make_ohlcv(30)
+        result = self.ind.calculate_williams_r(h, lo, c)
         assert isinstance(result, pd.Series)
 
     def test_values_in_range(self):
-        h, l, c, _ = _make_ohlcv(50)
-        wr = self.ind.calculate_williams_r(h, l, c, period=14)
+        h, lo, c, _ = _make_ohlcv(50)
+        wr = self.ind.calculate_williams_r(h, lo, c, period=14)
         valid = wr.dropna()
         assert (valid >= -100).all() and (valid <= 0).all()
 
     def test_length_preserved(self):
-        h, l, c, _ = _make_ohlcv(50)
-        wr = self.ind.calculate_williams_r(h, l, c)
+        h, lo, c, _ = _make_ohlcv(50)
+        wr = self.ind.calculate_williams_r(h, lo, c)
         assert len(wr) == len(c)
 
 
@@ -373,13 +372,13 @@ class TestCalculateADX:
         self.ind = TechnicalIndicators()
 
     def test_returns_dict(self):
-        h, l, c, _ = _make_ohlcv(50)
-        result = self.ind.calculate_adx(h, l, c)
+        h, lo, c, _ = _make_ohlcv(50)
+        result = self.ind.calculate_adx(h, lo, c)
         assert "ADX" in result and "+DI" in result and "-DI" in result
 
     def test_adx_series_length(self):
-        h, l, c, _ = _make_ohlcv(50)
-        adx = self.ind.calculate_adx(h, l, c)["ADX"]
+        h, lo, c, _ = _make_ohlcv(50)
+        adx = self.ind.calculate_adx(h, lo, c)["ADX"]
         assert len(adx) == len(c)
 
 
@@ -416,13 +415,13 @@ class TestCalculateATR:
         self.ind = TechnicalIndicators()
 
     def test_returns_series(self):
-        h, l, c, _ = _make_ohlcv(30)
-        result = self.ind.calculate_atr(h, l, c)
+        h, lo, c, _ = _make_ohlcv(30)
+        result = self.ind.calculate_atr(h, lo, c)
         assert isinstance(result, pd.Series)
 
     def test_atr_non_negative(self):
-        h, l, c, _ = _make_ohlcv(30)
-        atr = self.ind.calculate_atr(h, l, c)
+        h, lo, c, _ = _make_ohlcv(30)
+        atr = self.ind.calculate_atr(h, lo, c)
         assert (atr.dropna() >= 0).all()
 
 
@@ -431,26 +430,26 @@ class TestCalculateTrueRange:
         self.ind = TechnicalIndicators()
 
     def test_returns_series(self):
-        h, l, c, _ = _make_ohlcv(20)
-        result = self.ind.calculate_true_range(h, l, c)
+        h, lo, c, _ = _make_ohlcv(20)
+        result = self.ind.calculate_true_range(h, lo, c)
         assert isinstance(result, pd.Series)
 
     def test_non_negative(self):
-        h, l, c, _ = _make_ohlcv(20)
-        tr = self.ind.calculate_true_range(h, l, c)
+        h, lo, c, _ = _make_ohlcv(20)
+        tr = self.ind.calculate_true_range(h, lo, c)
         assert (tr.dropna() >= 0).all()
 
     def test_length_preserved(self):
-        h, l, c, _ = _make_ohlcv(20)
-        tr = self.ind.calculate_true_range(h, l, c)
+        h, lo, c, _ = _make_ohlcv(20)
+        tr = self.ind.calculate_true_range(h, lo, c)
         assert len(tr) == len(c)
 
     def test_first_value_is_high_minus_low(self):
-        # At index 0, prev_close is NaN → tr2 and tr3 are NaN → falls back to h-l
+        # At index 0, prev_close is NaN → tr2 and tr3 are NaN → falls back to h-lo
         h = pd.Series([102.0, 103.0])
-        l = pd.Series([98.0, 99.0])
+        lo = pd.Series([98.0, 99.0])
         c = pd.Series([100.0, 101.0])
-        tr = self.ind.calculate_true_range(h, l, c)
+        tr = self.ind.calculate_true_range(h, lo, c)
         assert tr.iloc[0] == pytest.approx(4.0)
 
 
@@ -539,20 +538,20 @@ class TestCalculateVWAP:
         self.ind = TechnicalIndicators()
 
     def test_returns_series(self):
-        h, l, c, vol = _make_ohlcv(30)
-        result = self.ind.calculate_vwap(h, l, c, vol)
+        h, lo, c, vol = _make_ohlcv(30)
+        result = self.ind.calculate_vwap(h, lo, c, vol)
         assert isinstance(result, pd.Series)
 
     def test_length_preserved(self):
-        h, l, c, vol = _make_ohlcv(30)
-        vwap = self.ind.calculate_vwap(h, l, c, vol)
+        h, lo, c, vol = _make_ohlcv(30)
+        vwap = self.ind.calculate_vwap(h, lo, c, vol)
         assert len(vwap) == 30
 
     def test_cumulative_nature(self):
         # VWAP should be within the high-low range approximately
-        h, l, c, vol = _make_ohlcv(30)
-        vwap = self.ind.calculate_vwap(h, l, c, vol)
-        assert (vwap >= l.min()).all() and (vwap <= h.max()).all()
+        h, lo, c, vol = _make_ohlcv(30)
+        vwap = self.ind.calculate_vwap(h, lo, c, vol)
+        assert (vwap >= lo.min()).all() and (vwap <= h.max()).all()
 
 
 class TestCalculateOBV:
@@ -560,7 +559,7 @@ class TestCalculateOBV:
         self.ind = TechnicalIndicators()
 
     def test_returns_series(self):
-        h, l, c, vol = _make_ohlcv(20)
+        h, lo, c, vol = _make_ohlcv(20)
         result = self.ind.calculate_obv(c, vol)
         assert isinstance(result, pd.Series)
 
@@ -681,7 +680,7 @@ class TestU15Constants:
         assert _u15.TRADING_DAYS_PER_YEAR == 252
 
     def test_risk_free_rate(self):
-        assert _u15.RISK_FREE_RATE == pytest.approx(0.045)
+        assert pytest.approx(0.045) == _u15.RISK_FREE_RATE
 
     def test_min_periods(self):
         assert _u15.MIN_PERIODS_FOR_CALCULATION == 30

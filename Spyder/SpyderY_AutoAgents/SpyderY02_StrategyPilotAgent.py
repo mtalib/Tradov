@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -27,11 +26,10 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -52,7 +50,7 @@ except ImportError:
     X03_AVAILABLE = False
 
 try:
-    from Spyder.SpyderD_Strategies import StrategyRegistry
+    from Spyder.SpyderD_Strategies import StrategyRegistry  # noqa: F401
     STRATEGIES_AVAILABLE = True
 except ImportError:
     STRATEGIES_AVAILABLE = False
@@ -83,7 +81,7 @@ class StrategyAllocation:
     regime: str = ""
     reasoning: str = ""
     confidence: float = 0.0
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -136,16 +134,16 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
         # Internal state
         self._current_regime: str = "unknown"
         self._regime_confidence: float = 0.0
-        self._pending_signals: List[Dict[str, Any]] = []
-        self._validated_signals: List[SignalValidation] = []
-        self._current_allocation: List[StrategyAllocation] = []
-        self._signal_stats: Dict[str, Dict[str, int]] = defaultdict(
+        self._pending_signals: list[dict[str, Any]] = []
+        self._validated_signals: list[SignalValidation] = []
+        self._current_allocation: list[StrategyAllocation] = []
+        self._signal_stats: dict[str, dict[str, int]] = defaultdict(
             lambda: {"received": 0, "approved": 0, "rejected": 0}
         )
         self._tick_count: int = 0
 
         # X-agent delegate
-        self._x03_agent: Optional[Any] = None
+        self._x03_agent: Any | None = None
         if X03_AVAILABLE:
             try:
                 self._x03_agent = SpyderX03_StrategyDirectorAgent()
@@ -215,7 +213,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
                 self._signal_stats[source]["rejected"] += 1
 
     def _validate_signal(
-        self, signal: Dict[str, Any], session: MarketSession
+        self, signal: dict[str, Any], session: MarketSession
     ) -> SignalValidation:
         """Validate a signal using regime alignment and LLM reasoning."""
         validation = SignalValidation(
@@ -228,9 +226,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
 
         # Check regime alignment
         direction = signal.get("direction", "neutral")
-        if self._current_regime in ("bull_quiet", "bull_volatile") and direction == "bullish":
-            validation.regime_alignment = True
-        elif self._current_regime in ("bear_quiet", "bear_volatile") and direction == "bearish":
+        if self._current_regime in ("bull_quiet", "bull_volatile") and direction == "bullish" or self._current_regime in ("bear_quiet", "bear_volatile") and direction == "bearish":
             validation.regime_alignment = True
         elif self._current_regime == "neutral":
             validation.regime_alignment = True  # Neutral allows both
@@ -422,7 +418,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
     # PUBLISHING
     # ==========================================================================
     def _publish_validated_signal(
-        self, validation: SignalValidation, original_signal: Dict[str, Any]
+        self, validation: SignalValidation, original_signal: dict[str, Any]
     ) -> None:
         """Publish an approved signal."""
         self.publish(AgentOutput(
@@ -462,7 +458,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming bus messages."""
         if topic == "market.regime":
             payload = message.get("payload", {})
@@ -476,7 +472,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         """Return state for persistence."""
         return {
             "current_regime": self._current_regime,
@@ -493,7 +489,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             ],
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore state from persistence."""
         self._current_regime = state.get("current_regime", "unknown")
         self._regime_confidence = state.get("regime_confidence", 0.0)

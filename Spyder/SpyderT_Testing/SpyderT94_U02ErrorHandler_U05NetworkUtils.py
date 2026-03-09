@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -929,7 +928,6 @@ class TestErrorHandlerDecorator:
 
     def test_decorator_handles_exception(self):
         handler_instance = make_handler()
-        called = []
 
         class FakeClass:
             error_handler = handler_instance
@@ -1129,13 +1127,13 @@ class TestTestHostConnection:
 
     def test_failed_connection_socket_error(self):
         nu = NetworkUtils()
-        with patch("socket.create_connection", side_effect=socket.error("refused")):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
             result = nu._test_host_connection("1.2.3.4", 9999, 5)
         assert result is False
 
     def test_failed_connection_timeout(self):
         nu = NetworkUtils()
-        with patch("socket.create_connection", side_effect=socket.timeout("timeout")):
+        with patch("socket.create_connection", side_effect=TimeoutError("timeout")):
             result = nu._test_host_connection("1.2.3.4", 9999, 5)
         assert result is False
 
@@ -1149,16 +1147,14 @@ class TestCheckInternetConnection:
 
     def test_falls_back_to_http(self):
         nu = NetworkUtils()
-        with patch.object(nu, "_test_host_connection", return_value=False):
-            with patch.object(nu, "_test_http_connection", return_value=True):
-                result = nu.check_internet_connection()
+        with patch.object(nu, "_test_host_connection", return_value=False), patch.object(nu, "_test_http_connection", return_value=True):
+            result = nu.check_internet_connection()
         assert result is True
 
     def test_no_connection(self):
         nu = NetworkUtils()
-        with patch.object(nu, "_test_host_connection", return_value=False):
-            with patch.object(nu, "_test_http_connection", return_value=False):
-                result = nu.check_internet_connection()
+        with patch.object(nu, "_test_host_connection", return_value=False), patch.object(nu, "_test_http_connection", return_value=False):
+            result = nu.check_internet_connection()
         assert result is False
 
     def test_exception_returns_false(self):
@@ -1199,30 +1195,27 @@ class TestMeasureLatency:
         mock_ctx = MagicMock()
         mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
         mock_ctx.__exit__ = MagicMock(return_value=False)
-        with patch(
+        with patch(  # noqa: SIM117
             "Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils.PING3_AVAILABLE", False
-        ):
-            with patch("socket.create_connection", return_value=mock_ctx):
-                with patch("time.time", side_effect=[0.0, 0.005, 0.005, 0.015, 0.015, 0.025]):
-                    result = nu.measure_latency("8.8.8.8", count=3)
+        ), patch("socket.create_connection", return_value=mock_ctx):
+            with patch("time.time", side_effect=[0.0, 0.005, 0.005, 0.015, 0.015, 0.025]):
+                result = nu.measure_latency("8.8.8.8", count=3)
         assert isinstance(result, float)
 
     def test_all_attempts_fail_returns_negative(self):
         nu = NetworkUtils()
         with patch(
             "Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils.PING3_AVAILABLE", False
-        ):
-            with patch("socket.create_connection", side_effect=OSError("refused")):
-                result = nu.measure_latency("1.2.3.4", count=3)
+        ), patch("socket.create_connection", side_effect=OSError("refused")):
+            result = nu.measure_latency("1.2.3.4", count=3)
         assert result == -1.0
 
     def test_exception_returns_negative(self):
         nu = NetworkUtils()
         with patch(
             "Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils.PING3_AVAILABLE", False
-        ):
-            with patch("socket.create_connection", side_effect=RuntimeError("unexpected")):
-                result = nu.measure_latency("8.8.8.8", count=1)
+        ), patch("socket.create_connection", side_effect=RuntimeError("unexpected")):
+            result = nu.measure_latency("8.8.8.8", count=1)
         assert result == -1.0
 
 
@@ -1382,9 +1375,8 @@ class TestMonitorConnection:
             created_threads.append(t)
             return t
 
-        with patch.object(nu, "get_network_status", return_value={"internet_connected": True, "ib_gateway_connected": True}):
-            with patch("threading.Thread", side_effect=mock_thread):
-                nu.monitor_connection(interval=9999)
+        with patch.object(nu, "get_network_status", return_value={"internet_connected": True, "ib_gateway_connected": True}), patch("threading.Thread", side_effect=mock_thread):
+            nu.monitor_connection(interval=9999)
         assert len(created_threads) > 0
         assert created_threads[0].daemon is True
 

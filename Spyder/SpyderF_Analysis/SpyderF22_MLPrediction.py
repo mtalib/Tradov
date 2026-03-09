@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderF_Analysis
-Module: SpyderF20_MLPrediction.py
+Module: SpyderF22_MLPrediction.py
 Purpose: Machine Learning prediction engine for price direction and volatility
 
 Author: Claude (Maestro)
@@ -34,22 +33,19 @@ References:
 # ==============================================================================
 import os
 import json
-import pickle
 import warnings
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Any
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
-import threading
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import joblib
@@ -62,13 +58,12 @@ try:
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
-    warnings.warn("PyTorch not available - using sklearn fallback models")
+    warnings.warn("PyTorch not available - using sklearn fallback models", stacklevel=2)
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -127,14 +122,14 @@ class PredictionResult:
     predicted_return: float  # Expected % return
     prediction_horizon: int  # Bars ahead
     model_type: ModelType
-    features_used: List[str] = field(default_factory=list)
+    features_used: list[str] = field(default_factory=list)
 
     @property
     def is_actionable(self) -> bool:
         """Check if prediction confidence meets threshold."""
         return self.confidence >= 0.6 and self.direction != PredictionDirection.NEUTRAL
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -155,7 +150,7 @@ class VolatilityPrediction:
     timestamp: datetime
     current_regime: VolatilityRegime
     predicted_regime: VolatilityRegime
-    regime_probability: Dict[str, float]
+    regime_probability: dict[str, float]
     predicted_iv: float  # Predicted implied volatility
     iv_percentile: float  # IV rank/percentile
 
@@ -164,7 +159,7 @@ class VolatilityPrediction:
         """Check if regime change is expected."""
         return self.current_regime != self.predicted_regime
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -184,13 +179,13 @@ class StrikeRecommendation:
     symbol: str
     timestamp: datetime
     underlying_price: float
-    recommended_strikes: Dict[str, float]  # call/put -> strike
+    recommended_strikes: dict[str, float]  # call/put -> strike
     recommended_expiry: str
     expected_probability_of_profit: float
     strategy_type: str  # credit_spread, iron_condor, etc.
     rationale: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -212,12 +207,12 @@ class ModelMetrics:
     precision: float
     recall: float
     f1: float
-    sharpe_ratio: Optional[float] = None
-    max_drawdown: Optional[float] = None
+    sharpe_ratio: float | None = None
+    max_drawdown: float | None = None
     training_date: datetime = field(default_factory=datetime.now)
     samples_used: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "model_name": self.model_name,
@@ -247,7 +242,7 @@ if HAS_TORCH:
             num_classes: int = 3,
             dropout: float = 0.2
         ):
-            super(LSTMModel, self).__init__()
+            super().__init__()
             self.hidden_size = hidden_size
             self.num_layers = num_layers
 
@@ -291,7 +286,7 @@ if HAS_TORCH:
             num_classes: int = 3,
             dropout: float = 0.2
         ):
-            super(GRUModel, self).__init__()
+            super().__init__()
             self.hidden_size = hidden_size
             self.num_layers = num_layers
 
@@ -338,7 +333,7 @@ class FeatureEngineer:
 
     def __init__(self):
         self.scaler = StandardScaler()
-        self.feature_names: List[str] = []
+        self.feature_names: list[str] = []
 
     def create_features(
         self,
@@ -482,7 +477,7 @@ class FeatureEngineer:
         target_col: str = 'returns',
         sequence_length: int = DEFAULT_SEQUENCE_LENGTH,
         prediction_horizon: int = DEFAULT_PREDICTION_HORIZON
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Prepare sequences for LSTM/GRU input.
 
@@ -574,8 +569,8 @@ class MLPredictionEngine:
         self.strike_model = None
 
         # Metrics
-        self.model_metrics: Dict[str, ModelMetrics] = {}
-        self._last_training: Optional[datetime] = None
+        self.model_metrics: dict[str, ModelMetrics] = {}
+        self._last_training: datetime | None = None
 
         # Ensemble models (sklearn fallback)
         self.rf_model = RandomForestClassifier(
@@ -937,7 +932,7 @@ class MLPredictionEngine:
         self,
         symbol: str,
         features: pd.DataFrame
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make prediction using neural network."""
         if self.direction_model is None:
             raise ValueError("Model not trained. Call train() first.")
@@ -965,7 +960,7 @@ class MLPredictionEngine:
         self,
         symbol: str,
         features: pd.DataFrame
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make prediction using ensemble model."""
         # Prepare features
         feature_cols = [c for c in self.feature_engineer.feature_names
@@ -1186,7 +1181,7 @@ class MLPredictionEngine:
 
     def _calculate_pop(
         self,
-        strikes: Dict[str, float],
+        strikes: dict[str, float],
         underlying: float,
         iv: float
     ) -> float:
@@ -1266,7 +1261,7 @@ class MLPredictionEngine:
             # Load feature names
             features_path = f"{model_path}_features.json"
             if os.path.exists(features_path):
-                with open(features_path, 'r') as f:
+                with open(features_path) as f:
                     self.feature_engineer.feature_names = json.load(f)
 
             # Load PyTorch model if exists
@@ -1299,18 +1294,18 @@ class MLPredictionEngine:
             return True
         return (datetime.now() - self._last_training).total_seconds() > hours * 3600
 
-    def get_model_metrics(self, symbol: str = "SPY") -> Optional[ModelMetrics]:
+    def get_model_metrics(self, symbol: str = "SPY") -> ModelMetrics | None:
         """Get model performance metrics."""
         return self.model_metrics.get(symbol)
 
-    def get_feature_importance(self, symbol: str = "SPY") -> Dict[str, float]:
+    def get_feature_importance(self, symbol: str = "SPY") -> dict[str, float]:
         """Get feature importance from ensemble models."""
         if self.rf_model is None:
             return {}
 
         importance = dict(zip(
             self.feature_engineer.feature_names,
-            self.rf_model.feature_importances_
+            self.rf_model.feature_importances_, strict=False
         ))
 
         # Sort by importance
@@ -1342,8 +1337,6 @@ def create_ml_engine_from_env() -> MLPredictionEngine:
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("ML Prediction Engine Test")
-    print("=" * 60)
 
     # Create sample data
     np.random.seed(42)
@@ -1364,35 +1357,18 @@ if __name__ == "__main__":
     engine = MLPredictionEngine(model_type=ModelType.ENSEMBLE)
 
     # Train
-    print("\n=== Training ===")
     metrics = engine.train(data, symbol="SPY")
-    print(f"Accuracy: {metrics.accuracy:.2%}")
-    print(f"F1 Score: {metrics.f1:.2%}")
 
     # Predict
-    print("\n=== Prediction ===")
     prediction = engine.predict_direction("SPY", data.tail(100))
-    print(f"Direction: {prediction.direction.value}")
-    print(f"Confidence: {prediction.confidence:.2%}")
-    print(f"Expected Return: {prediction.predicted_return:.4f}")
-    print(f"Actionable: {prediction.is_actionable}")
 
     # Volatility
-    print("\n=== Volatility Regime ===")
     vol_pred = engine.predict_volatility_regime("SPY", data)
-    print(f"Current: {vol_pred.current_regime.value}")
-    print(f"Predicted: {vol_pred.predicted_regime.value}")
-    print(f"IV Percentile: {vol_pred.iv_percentile:.1f}")
 
     # Strike Recommendation
-    print("\n=== Strike Recommendation ===")
     strikes = engine.recommend_strikes("SPY", data, 450.0, "iron_condor")
-    print(f"Strikes: {strikes.recommended_strikes}")
-    print(f"POP: {strikes.expected_probability_of_profit:.2%}")
-    print(f"Rationale: {strikes.rationale}")
 
     # Feature Importance
-    print("\n=== Top Features ===")
     importance = engine.get_feature_importance()
-    for feat, imp in list(importance.items())[:10]:
-        print(f"  {feat}: {imp:.4f}")
+    for _feat, _imp in list(importance.items())[:10]:
+        pass

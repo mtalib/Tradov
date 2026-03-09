@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -189,7 +188,7 @@ class SpyderSystemTest(QObject):
     # COMPONENT TESTS
     # ==========================================================================
 
-    def test_core_components(self) -> Dict[str, bool]:
+    def test_core_components(self) -> dict[str, bool]:
         """Test A-Series core components"""
         results = {}
 
@@ -217,7 +216,7 @@ class SpyderSystemTest(QObject):
 
         return results
 
-    def test_broker_connectivity(self) -> Dict[str, bool]:
+    def test_broker_connectivity(self) -> dict[str, bool]:
         """Test B-Series broker connectivity"""
         results = {}
 
@@ -242,7 +241,7 @@ class SpyderSystemTest(QObject):
 
         return results
 
-    def test_signal_calculations(self) -> Dict[str, Any]:
+    def test_signal_calculations(self) -> dict[str, Any]:
         """Test S-Series signal calculations"""
         results = {}
 
@@ -324,7 +323,7 @@ class SpyderSystemTest(QObject):
 
         return results
 
-    def test_risk_management(self) -> Dict[str, bool]:
+    def test_risk_management(self) -> dict[str, bool]:
         """Test E-Series risk management"""
         results = {}
 
@@ -342,7 +341,7 @@ class SpyderSystemTest(QObject):
             print(f"{Fore.GREEN}  ✅ Position Sizing: ${position_size:.2f}")
 
             # Test risk metrics
-            risk_metrics = risk_mgr.calculate_portfolio_risk(
+            risk_mgr.calculate_portfolio_risk(
                 {"SPY": {"value": 10000, "beta": 1.0}, "QQQ": {"value": 5000, "beta": 1.2}}
             )
             results["risk_metrics"] = True
@@ -355,7 +354,7 @@ class SpyderSystemTest(QObject):
 
         return results
 
-    def test_data_flow(self) -> Dict[str, bool]:
+    def test_data_flow(self) -> dict[str, bool]:
         """Test market data flow through the system"""
         results = {}
 
@@ -393,7 +392,7 @@ class SpyderSystemTest(QObject):
     # MAIN TEST EXECUTION
     # ==========================================================================
 
-    def run_full_system_test(self) -> Dict[str, Any]:
+    def run_full_system_test(self) -> dict[str, Any]:
         """
         Run complete system integration test
         """
@@ -455,7 +454,7 @@ class SpyderSystemTest(QObject):
 
         return all_results
 
-    def _print_test_summary(self, results: Dict[str, Any]):
+    def _print_test_summary(self, results: dict[str, Any]):
         """Print formatted test summary"""
         print(f"\n{Fore.CYAN}{'='*80}")
         print(f"{Fore.CYAN}TEST SUMMARY")
@@ -498,7 +497,7 @@ class SpyderSystemTest(QObject):
             if "SKEW" in signals and signals["SKEW"].get("status"):
                 print(f"  SKEW: {signals['SKEW']['value']:.2f}")
 
-    def _save_test_results(self, results: Dict[str, Any]):
+    def _save_test_results(self, results: dict[str, Any]):
         """Save test results to file"""
         try:
             results_dir = Path("test_results")
@@ -554,7 +553,7 @@ class SystemTestDashboard(QMainWindow):
 
         try:
             results = self.test_runner.run_full_system_test()
-            self.output_display.append(f"\nTest Complete!")
+            self.output_display.append("\nTest Complete!")
             self.output_display.append(f"Status: {results['overall_status']}")
             self.output_display.append(f"Success Rate: {results.get('success_rate', 0):.1f}%")
         except Exception as e:

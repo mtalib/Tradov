@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -27,7 +26,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -37,8 +36,6 @@ from collections import defaultdict, deque
 # ==============================================================================
 import psutil
 import platform
-import statistics
-import traceback
 import numpy as np
 
 try:
@@ -135,7 +132,7 @@ class SystemMetric:
     timestamp: datetime
     value: float
     unit: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ComponentHealth:
@@ -143,8 +140,8 @@ class ComponentHealth:
     component: SystemComponent
     status: HealthStatus
     health_score: float  # 0-100
-    metrics: Dict[MetricType, float]
-    issues: List[str]
+    metrics: dict[MetricType, float]
+    issues: list[str]
     dependencies_ok: bool
     last_check: datetime
     uptime_percentage: float
@@ -155,11 +152,11 @@ class SystemDiagnostic:
     timestamp: datetime
     overall_status: HealthStatus
     overall_health_score: float
-    component_health: Dict[SystemComponent, ComponentHealth]
-    active_issues: List[Dict[str, Any]]
-    predictions: List[Dict[str, Any]]
-    recommendations: List[str]
-    ai_analysis: Dict[str, Any]
+    component_health: dict[SystemComponent, ComponentHealth]
+    active_issues: list[dict[str, Any]]
+    predictions: list[dict[str, Any]]
+    recommendations: list[str]
+    ai_analysis: dict[str, Any]
 
 @dataclass
 class HealthAlert:
@@ -169,8 +166,8 @@ class HealthAlert:
     severity: str  # 'low', 'medium', 'high', 'critical'
     title: str
     description: str
-    metric_data: Dict[str, Any]
-    resolution_steps: List[str]
+    metric_data: dict[str, Any]
+    resolution_steps: list[str]
     auto_remediation_available: bool
 
 @dataclass
@@ -182,7 +179,7 @@ class PerformancePrediction:
     predicted_value: float
     confidence: float
     risk_level: str  # 'low', 'medium', 'high'
-    recommended_action: Optional[str]
+    recommended_action: str | None
 
 # ==============================================================================
 # SYSTEM HEALTH AGENT CLASS
@@ -191,16 +188,16 @@ class PerformancePrediction:
 class SpyderX12_SystemHealthAgent:
     """
     AI-Enhanced System Health Monitoring Agent.
-    
+
     This agent monitors system health, predicts failures, and provides
     AI-driven diagnostics and remediation recommendations.
     """
-    
+
     def __init__(self, model_name: str = DEFAULT_MODEL,
                  temperature: float = DEFAULT_TEMPERATURE):
         """
         Initialize the System Health Agent.
-        
+
         Args:
             model_name: Ollama model to use
             temperature: Temperature for AI responses
@@ -209,7 +206,7 @@ class SpyderX12_SystemHealthAgent:
         self.temperature = temperature
         self.logger = self._setup_logger()
         self.config = DEFAULT_CONFIG.copy()
-        
+
         # Initialize Ollama if available
         self.ollama_client = None
         if OLLAMA_AVAILABLE:
@@ -219,23 +216,23 @@ class SpyderX12_SystemHealthAgent:
                 self.logger.info("Ollama connection established")
             except Exception as e:
                 self.logger.error(f"Failed to connect to Ollama: {e}")
-        
+
         # Metric storage
         self.metrics_history = defaultdict(lambda: deque(maxlen=1440))  # 24h at 1min
         self.component_status = {}
-        
+
         # Alert management
         self.active_alerts = []
         self.alert_history = deque(maxlen=1000)
         self.last_alert_time = {}
-        
+
         # Performance baselines
         self.performance_baselines = defaultdict(dict)
         self.anomaly_detectors = {}
-        
+
         # System info
         self.system_info = self._get_system_info()
-    
+
     def _setup_logger(self) -> logging.Logger:
         """Set up module logger."""
         logger = logging.getLogger(__name__)
@@ -248,55 +245,55 @@ class SpyderX12_SystemHealthAgent:
             handler.setFormatter(formatter)
             logger.addHandler(handler)
         return logger
-    
+
     # ==========================================================================
     # MAIN MONITORING METHODS
     # ==========================================================================
-    
+
     async def monitor_system_health(self) -> SystemDiagnostic:
         """
         Monitor overall system health.
-        
+
         Returns:
             SystemDiagnostic report
         """
         self.logger.info("Monitoring system health")
-        
+
         try:
             # Collect metrics
             metrics = await self._collect_system_metrics()
-            
+
             # Update history
             self._update_metrics_history(metrics)
-            
+
             # Check component health
             component_health = {}
             for component in SystemComponent:
                 health = await self._check_component_health(component)
                 component_health[component] = health
-            
+
             # Detect anomalies
             anomalies = self._detect_anomalies()
-            
+
             # Generate predictions
             predictions = await self._predict_issues()
-            
+
             # Determine overall status
             overall_status, overall_score = self._calculate_overall_health(component_health)
-            
+
             # Get AI analysis
             ai_analysis = await self._get_ai_system_analysis(
                 component_health, anomalies, predictions
             )
-            
+
             # Generate recommendations
             recommendations = self._generate_recommendations(
                 component_health, anomalies, ai_analysis
             )
-            
+
             # Create active issues list
             active_issues = self._compile_active_issues(component_health, anomalies)
-            
+
             return SystemDiagnostic(
                 timestamp=datetime.now(),
                 overall_status=overall_status,
@@ -307,46 +304,46 @@ class SpyderX12_SystemHealthAgent:
                 recommendations=recommendations,
                 ai_analysis=ai_analysis
             )
-            
+
         except Exception as e:
             self.logger.error(f"System health monitoring failed: {e}")
             return self._create_error_diagnostic(str(e))
-    
-    async def check_component_status(self, 
+
+    async def check_component_status(self,
                                    component: SystemComponent) -> ComponentHealth:
         """
         Check specific component status.
-        
+
         Args:
             component: Component to check
-            
+
         Returns:
             ComponentHealth status
         """
         return await self._check_component_health(component)
-    
-    async def predict_failures(self, 
-                             horizon_minutes: int = 30) -> List[PerformancePrediction]:
+
+    async def predict_failures(self,
+                             horizon_minutes: int = 30) -> list[PerformancePrediction]:
         """
         Predict potential system failures.
-        
+
         Args:
             horizon_minutes: Prediction horizon
-            
+
         Returns:
             List of performance predictions
         """
         self.logger.info(f"Predicting failures for next {horizon_minutes} minutes")
-        
+
         predictions = []
-        
+
         for component in SystemComponent:
             # Get component metrics history
             component_metrics = self._get_component_metrics(component)
-            
+
             if not component_metrics:
                 continue
-            
+
             # Predict each metric type
             for metric_type in MetricType:
                 prediction = await self._predict_metric(
@@ -354,31 +351,31 @@ class SpyderX12_SystemHealthAgent:
                 )
                 if prediction and prediction.risk_level in ['medium', 'high']:
                     predictions.append(prediction)
-        
+
         # Sort by risk level
-        predictions.sort(key=lambda p: ['low', 'medium', 'high'].index(p.risk_level), 
+        predictions.sort(key=lambda p: ['low', 'medium', 'high'].index(p.risk_level),
                         reverse=True)
-        
+
         return predictions
-    
-    async def auto_remediate(self, alert: HealthAlert) -> Dict[str, Any]:
+
+    async def auto_remediate(self, alert: HealthAlert) -> dict[str, Any]:
         """
         Attempt automatic remediation of issues.
-        
+
         Args:
             alert: Health alert to remediate
-            
+
         Returns:
             Remediation result
         """
         self.logger.info(f"Attempting auto-remediation for {alert.component.value}")
-        
+
         if not alert.auto_remediation_available:
             return {
                 'success': False,
                 'reason': 'No automatic remediation available'
             }
-        
+
         try:
             # Component-specific remediation
             if alert.component == SystemComponent.DATABASE:
@@ -389,30 +386,30 @@ class SpyderX12_SystemHealthAgent:
                 result = await self._remediate_data_feed(alert)
             else:
                 result = await self._generic_remediation(alert)
-            
+
             # Log remediation attempt
             self._log_remediation(alert, result)
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Auto-remediation failed: {e}")
             return {
                 'success': False,
                 'error': str(e)
             }
-    
+
     # ==========================================================================
     # AI INTEGRATION METHODS
     # ==========================================================================
-    
-    async def _get_ai_system_analysis(self, component_health: Dict[SystemComponent, ComponentHealth],
-                                    anomalies: List[Dict[str, Any]],
-                                    predictions: List[Dict[str, Any]]) -> Dict[str, Any]:
+
+    async def _get_ai_system_analysis(self, component_health: dict[SystemComponent, ComponentHealth],
+                                    anomalies: list[dict[str, Any]],
+                                    predictions: list[dict[str, Any]]) -> dict[str, Any]:
         """Get AI analysis of system health."""
         if not self.ollama_client:
             return {'analysis': 'No AI available'}
-        
+
         # Prepare health summary
         health_summary = {
             comp.value: {
@@ -422,7 +419,7 @@ class SpyderX12_SystemHealthAgent:
             }
             for comp, health in component_health.items()
         }
-        
+
         prompt = f"""Analyze this system health data:
 
 Component Health:
@@ -432,7 +429,7 @@ Detected Anomalies: {len(anomalies)}
 {json.dumps(anomalies[:3], indent=2) if anomalies else 'None'}
 
 Predictions:
-{json.dumps([{'component': p.get('component'), 'risk': p.get('risk_level')} 
+{json.dumps([{'component': p.get('component'), 'risk': p.get('risk_level')}
             for p in predictions[:3]], indent=2)}
 
 System Info:
@@ -450,7 +447,7 @@ Provide a JSON response:
     "priority_actions": ["action1", "action2"],
     "confidence": 0.0-1.0
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -458,37 +455,37 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 return json.loads(text[start:end])
             else:
                 return {'analysis': 'Failed to parse AI response'}
-                
+
         except Exception as e:
             self.logger.error(f"AI system analysis failed: {e}")
             return {'error': str(e)}
-    
+
     async def _predict_metric(self, component: SystemComponent,
                             metric_type: MetricType,
-                            horizon_minutes: int) -> Optional[PerformancePrediction]:
+                            horizon_minutes: int) -> PerformancePrediction | None:
         """Predict future metric values using AI and statistics."""
         history = self._get_metric_history(component, metric_type)
-        
+
         if len(history) < 10:
             return None
-        
+
         # Statistical prediction
         values = [h['value'] for h in history[-30:]]
         trend = self._calculate_trend(values)
-        
+
         # Simple linear projection
         predicted_value = values[-1] + trend * horizon_minutes
-        
+
         # Get AI enhancement if available
         if self.ollama_client:
             ai_prediction = await self._get_ai_metric_prediction(
@@ -501,13 +498,13 @@ Provide a JSON response:
                 confidence = 0.6
         else:
             confidence = 0.5
-        
+
         # Determine risk level
         risk_level = self._assess_prediction_risk(metric_type, predicted_value)
-        
+
         # Get recommended action
         action = self._get_recommended_action(component, metric_type, risk_level)
-        
+
         return PerformancePrediction(
             component=component,
             metric_type=metric_type,
@@ -517,15 +514,15 @@ Provide a JSON response:
             risk_level=risk_level,
             recommended_action=action
         )
-    
+
     async def _get_ai_metric_prediction(self, component: SystemComponent,
                                       metric_type: MetricType,
-                                      values: List[float],
-                                      horizon: int) -> Optional[Dict[str, Any]]:
+                                      values: list[float],
+                                      horizon: int) -> dict[str, Any] | None:
         """Get AI prediction for metric."""
         if not self.ollama_client:
             return None
-        
+
         prompt = f"""Predict future values for this system metric:
 
 Component: {component.value}
@@ -549,7 +546,7 @@ Provide a JSON response:
     "reasoning": "explanation",
     "risk_factors": ["factor1", "factor2"]
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -557,29 +554,29 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 return json.loads(text[start:end])
             else:
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"AI metric prediction failed: {e}")
             return None
-    
+
     # ==========================================================================
     # MONITORING METHODS
     # ==========================================================================
-    
-    async def _collect_system_metrics(self) -> List[SystemMetric]:
+
+    async def _collect_system_metrics(self) -> list[SystemMetric]:
         """Collect current system metrics."""
         metrics = []
-        
+
         # CPU metrics
         cpu_percent = psutil.cpu_percent(interval=1)
         metrics.append(SystemMetric(
@@ -589,7 +586,7 @@ Provide a JSON response:
             value=cpu_percent,
             unit='%'
         ))
-        
+
         # Memory metrics
         memory = psutil.virtual_memory()
         metrics.append(SystemMetric(
@@ -599,7 +596,7 @@ Provide a JSON response:
             value=memory.percent,
             unit='%'
         ))
-        
+
         # Disk metrics
         disk = psutil.disk_usage('/')
         metrics.append(SystemMetric(
@@ -609,7 +606,7 @@ Provide a JSON response:
             value=disk.percent,
             unit='%'
         ))
-        
+
         # Network I/O (simplified)
         net_io = psutil.net_io_counters()
         metrics.append(SystemMetric(
@@ -620,13 +617,13 @@ Provide a JSON response:
             unit='bytes',
             metadata={'sent': net_io.bytes_sent, 'recv': net_io.bytes_recv}
         ))
-        
+
         # Component-specific metrics (simulated)
         await self._collect_component_metrics(metrics)
-        
+
         return metrics
-    
-    async def _collect_component_metrics(self, metrics: List[SystemMetric]):
+
+    async def _collect_component_metrics(self, metrics: list[SystemMetric]):
         """Collect component-specific metrics."""
         # Simulate component metrics
         components_metrics = {
@@ -643,7 +640,7 @@ Provide a JSON response:
                 MetricType.QUEUE_DEPTH: np.random.poisson(5)
             }
         }
-        
+
         for component, component_metrics in components_metrics.items():
             for metric_type, value in component_metrics.items():
                 metrics.append(SystemMetric(
@@ -653,24 +650,24 @@ Provide a JSON response:
                     value=max(0, value),  # Ensure non-negative
                     unit=self._get_metric_unit(metric_type)
                 ))
-    
+
     async def _check_component_health(self, component: SystemComponent) -> ComponentHealth:
         """Check health of a specific component."""
         # Get recent metrics
         metrics = self._get_recent_component_metrics(component)
-        
+
         # Calculate health score
         health_score, issues = self._calculate_component_health_score(component, metrics)
-        
+
         # Determine status
         status = self._score_to_status(health_score)
-        
+
         # Check dependencies
         deps_ok = self._check_dependencies(component)
-        
+
         # Calculate uptime
         uptime = self._calculate_uptime(component)
-        
+
         return ComponentHealth(
             component=component,
             status=status,
@@ -681,13 +678,13 @@ Provide a JSON response:
             last_check=datetime.now(),
             uptime_percentage=uptime
         )
-    
+
     def _calculate_component_health_score(self, component: SystemComponent,
-                                        metrics: Dict[MetricType, float]) -> Tuple[float, List[str]]:
+                                        metrics: dict[MetricType, float]) -> tuple[float, list[str]]:
         """Calculate health score for component."""
         issues = []
         scores = []
-        
+
         # CPU check
         if MetricType.CPU_USAGE in metrics:
             cpu = metrics[MetricType.CPU_USAGE]
@@ -699,7 +696,7 @@ Provide a JSON response:
                 issues.append(f"High CPU usage: {cpu:.1f}%")
             else:
                 scores.append(100)
-        
+
         # Memory check
         if MetricType.MEMORY_USAGE in metrics:
             memory = metrics[MetricType.MEMORY_USAGE]
@@ -711,7 +708,7 @@ Provide a JSON response:
                 issues.append(f"High memory usage: {memory:.1f}%")
             else:
                 scores.append(100)
-        
+
         # Latency check
         if MetricType.LATENCY in metrics:
             latency = metrics[MetricType.LATENCY]
@@ -723,7 +720,7 @@ Provide a JSON response:
                 issues.append(f"High latency: {latency:.0f}ms")
             else:
                 scores.append(100)
-        
+
         # Error rate check
         if MetricType.ERROR_RATE in metrics:
             error_rate = metrics[MetricType.ERROR_RATE]
@@ -735,37 +732,37 @@ Provide a JSON response:
                 issues.append(f"High error rate: {error_rate:.1%}")
             else:
                 scores.append(100)
-        
+
         # Calculate overall score
         health_score = np.mean(scores) if scores else 100
-        
+
         return health_score, issues
-    
+
     # ==========================================================================
     # ANOMALY DETECTION METHODS
     # ==========================================================================
-    
-    def _detect_anomalies(self) -> List[Dict[str, Any]]:
+
+    def _detect_anomalies(self) -> list[dict[str, Any]]:
         """Detect anomalies in system metrics."""
         anomalies = []
-        
+
         for component in SystemComponent:
             for metric_type in MetricType:
                 history = self._get_metric_history(component, metric_type)
-                
+
                 if len(history) < 20:
                     continue
-                
+
                 # Statistical anomaly detection
                 values = [h['value'] for h in history]
                 mean = np.mean(values[:-5])  # Exclude recent for baseline
                 std = np.std(values[:-5])
-                
+
                 if std > 0:
                     recent_values = values[-5:]
                     for i, value in enumerate(recent_values):
                         z_score = abs((value - mean) / std)
-                        
+
                         if z_score > 3:  # 3 sigma rule
                             anomalies.append({
                                 'component': component.value,
@@ -775,14 +772,14 @@ Provide a JSON response:
                                 'baseline_mean': mean,
                                 'timestamp': history[-(5-i)]['timestamp'].isoformat()
                             })
-        
+
         return anomalies
-    
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    
-    def _get_system_info(self) -> Dict[str, Any]:
+
+    def _get_system_info(self) -> dict[str, Any]:
         """Get system information."""
         return {
             'platform': platform.system(),
@@ -791,8 +788,8 @@ Provide a JSON response:
             'cpu_count': psutil.cpu_count(),
             'memory_gb': round(psutil.virtual_memory().total / (1024**3), 1)
         }
-    
-    def _update_metrics_history(self, metrics: List[SystemMetric]):
+
+    def _update_metrics_history(self, metrics: list[SystemMetric]):
         """Update metrics history."""
         for metric in metrics:
             key = f"{metric.component.value}_{metric.metric_type.value}"
@@ -801,58 +798,58 @@ Provide a JSON response:
                 'value': metric.value,
                 'metadata': metric.metadata
             })
-    
+
     def _get_metric_history(self, component: SystemComponent,
-                          metric_type: MetricType) -> List[Dict[str, Any]]:
+                          metric_type: MetricType) -> list[dict[str, Any]]:
         """Get metric history for component."""
         key = f"{component.value}_{metric_type.value}"
         return list(self.metrics_history.get(key, []))
-    
-    def _get_recent_component_metrics(self, component: SystemComponent) -> Dict[MetricType, float]:
+
+    def _get_recent_component_metrics(self, component: SystemComponent) -> dict[MetricType, float]:
         """Get recent metrics for component."""
         metrics = {}
-        
+
         for metric_type in MetricType:
             history = self._get_metric_history(component, metric_type)
             if history:
                 metrics[metric_type] = history[-1]['value']
-        
+
         return metrics
-    
-    def _get_component_metrics(self, component: SystemComponent) -> Dict[str, List[float]]:
+
+    def _get_component_metrics(self, component: SystemComponent) -> dict[str, list[float]]:
         """Get all metrics for component."""
         metrics = {}
-        
+
         for metric_type in MetricType:
             history = self._get_metric_history(component, metric_type)
             if history:
                 metrics[metric_type.value] = [h['value'] for h in history]
-        
+
         return metrics
-    
-    def _calculate_overall_health(self, 
-                                component_health: Dict[SystemComponent, ComponentHealth]) -> Tuple[HealthStatus, float]:
+
+    def _calculate_overall_health(self,
+                                component_health: dict[SystemComponent, ComponentHealth]) -> tuple[HealthStatus, float]:
         """Calculate overall system health."""
         if not component_health:
             return HealthStatus.FAILED, 0.0
-        
+
         # Get all health scores
         scores = [h.health_score for h in component_health.values()]
         overall_score = np.mean(scores)
-        
+
         # Check for critical components
         critical_components = [SystemComponent.TRADING_ENGINE, SystemComponent.RISK_MANAGER]
-        critical_scores = [component_health[c].health_score 
-                          for c in critical_components 
+        critical_scores = [component_health[c].health_score
+                          for c in critical_components
                           if c in component_health]
-        
+
         # If any critical component is failing, overall status is critical
         if any(score < 50 for score in critical_scores):
             return HealthStatus.CRITICAL, overall_score
-        
+
         # Determine status based on overall score
         return self._score_to_status(overall_score), overall_score
-    
+
     def _score_to_status(self, score: float) -> HealthStatus:
         """Convert health score to status."""
         if score >= 90:
@@ -865,36 +862,36 @@ Provide a JSON response:
             return HealthStatus.CRITICAL
         else:
             return HealthStatus.FAILED
-    
+
     def _check_dependencies(self, component: SystemComponent) -> bool:
         """Check if component dependencies are healthy."""
         dependencies = COMPONENT_DEPENDENCIES.get(component, [])
-        
+
         for dep in dependencies:
             dep_health = self.component_status.get(dep)
             if dep_health and dep_health.status in [HealthStatus.CRITICAL, HealthStatus.FAILED]:
                 return False
-        
+
         return True
-    
+
     def _calculate_uptime(self, component: SystemComponent) -> float:
         """Calculate component uptime percentage."""
         # Simplified: based on recent health checks
         history_key = f"{component.value}_health"
         history = self.metrics_history.get(history_key, [])
-        
+
         if not history:
             return 100.0
-        
+
         # Count healthy periods
         healthy_count = sum(1 for h in history if h.get('status') != 'FAILED')
         return (healthy_count / len(history)) * 100 if history else 100.0
-    
-    def _compile_active_issues(self, component_health: Dict[SystemComponent, ComponentHealth],
-                             anomalies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _compile_active_issues(self, component_health: dict[SystemComponent, ComponentHealth],
+                             anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Compile list of active issues."""
         issues = []
-        
+
         # Component issues
         for component, health in component_health.items():
             if health.issues:
@@ -906,7 +903,7 @@ Provide a JSON response:
                         'description': issue,
                         'timestamp': health.last_check.isoformat()
                     })
-        
+
         # Anomaly issues
         for anomaly in anomalies[:5]:  # Top 5 anomalies
             issues.append({
@@ -916,9 +913,9 @@ Provide a JSON response:
                 'description': f"Anomaly in {anomaly['metric']}: {anomaly['value']:.2f}",
                 'timestamp': anomaly['timestamp']
             })
-        
+
         return issues
-    
+
     def _issue_severity(self, status: HealthStatus) -> str:
         """Get issue severity from health status."""
         severity_map = {
@@ -929,63 +926,63 @@ Provide a JSON response:
             HealthStatus.FAILED: 'critical'
         }
         return severity_map.get(status, 'medium')
-    
-    def _generate_recommendations(self, component_health: Dict[SystemComponent, ComponentHealth],
-                                anomalies: List[Dict[str, Any]],
-                                ai_analysis: Dict[str, Any]) -> List[str]:
+
+    def _generate_recommendations(self, component_health: dict[SystemComponent, ComponentHealth],
+                                anomalies: list[dict[str, Any]],
+                                ai_analysis: dict[str, Any]) -> list[str]:
         """Generate system recommendations."""
         recommendations = []
-        
+
         # Component-based recommendations
         for component, health in component_health.items():
             if health.status in [HealthStatus.CRITICAL, HealthStatus.FAILED]:
                 recommendations.append(f"Immediate attention required for {component.value}")
             elif health.status == HealthStatus.DEGRADED:
                 recommendations.append(f"Monitor and optimize {component.value}")
-        
+
         # Resource-based recommendations
-        cpu_issues = any('CPU' in issue for health in component_health.values() 
+        cpu_issues = any('CPU' in issue for health in component_health.values()
                         for issue in health.issues)
         if cpu_issues:
             recommendations.append("Consider scaling compute resources or optimizing algorithms")
-        
-        memory_issues = any('memory' in issue.lower() for health in component_health.values() 
+
+        memory_issues = any('memory' in issue.lower() for health in component_health.values()
                            for issue in health.issues)
         if memory_issues:
             recommendations.append("Review memory usage patterns and consider optimization")
-        
+
         # AI recommendations
         ai_priority_actions = ai_analysis.get('priority_actions', [])
         recommendations.extend(ai_priority_actions[:2])
-        
+
         return recommendations[:5]  # Top 5 recommendations
-    
-    def _calculate_trend(self, values: List[float]) -> float:
+
+    def _calculate_trend(self, values: list[float]) -> float:
         """Calculate trend from values."""
         if len(values) < 2:
             return 0.0
-        
+
         # Simple linear trend
         x = list(range(len(values)))
         n = len(x)
-        
+
         if n < 2:
             return 0.0
-        
+
         # Calculate slope
         sum_x = sum(x)
         sum_y = sum(values)
         sum_xy = sum(i * v for i, v in enumerate(values))
         sum_x2 = sum(i**2 for i in x)
-        
+
         denominator = n * sum_x2 - sum_x**2
         if denominator == 0:
             return 0.0
-        
+
         slope = (n * sum_xy - sum_x * sum_y) / denominator
         return slope
-    
-    def _assess_prediction_risk(self, metric_type: MetricType, 
+
+    def _assess_prediction_risk(self, metric_type: MetricType,
                               predicted_value: float) -> str:
         """Assess risk level of prediction."""
         if metric_type == MetricType.CPU_USAGE:
@@ -1003,30 +1000,30 @@ Provide a JSON response:
                 return 'high'
             elif predicted_value > HEALTH_THRESHOLDS['error_rate_warning']:
                 return 'medium'
-        
+
         return 'low'
-    
+
     def _get_recommended_action(self, component: SystemComponent,
                                metric_type: MetricType,
-                               risk_level: str) -> Optional[str]:
+                               risk_level: str) -> str | None:
         """Get recommended action for prediction."""
         if risk_level == 'low':
             return None
-        
+
         actions = {
-            (SystemComponent.TRADING_ENGINE, MetricType.CPU_USAGE): 
+            (SystemComponent.TRADING_ENGINE, MetricType.CPU_USAGE):
                 "Scale trading engine resources or optimize algorithms",
-            (SystemComponent.DATABASE, MetricType.DISK_USAGE): 
+            (SystemComponent.DATABASE, MetricType.DISK_USAGE):
                 "Archive old data or expand storage capacity",
-            (SystemComponent.ML_MODELS, MetricType.MEMORY_USAGE): 
+            (SystemComponent.ML_MODELS, MetricType.MEMORY_USAGE):
                 "Optimize model memory usage or increase allocation",
-            (SystemComponent.DATA_FEED, MetricType.LATENCY): 
+            (SystemComponent.DATA_FEED, MetricType.LATENCY):
                 "Check network connectivity and data provider status"
         }
-        
-        return actions.get((component, metric_type), 
+
+        return actions.get((component, metric_type),
                           f"Monitor {component.value} {metric_type.value}")
-    
+
     def _get_metric_unit(self, metric_type: MetricType) -> str:
         """Get unit for metric type."""
         units = {
@@ -1040,8 +1037,8 @@ Provide a JSON response:
             MetricType.QUEUE_DEPTH: 'count'
         }
         return units.get(metric_type, '')
-    
-    async def _remediate_database(self, alert: HealthAlert) -> Dict[str, Any]:
+
+    async def _remediate_database(self, alert: HealthAlert) -> dict[str, Any]:
         """Database-specific remediation."""
         # Simulated remediation
         await asyncio.sleep(1)
@@ -1050,8 +1047,8 @@ Provide a JSON response:
             'action': 'Cleared query cache and optimized indexes',
             'duration': 1.2
         }
-    
-    async def _remediate_ml_models(self, alert: HealthAlert) -> Dict[str, Any]:
+
+    async def _remediate_ml_models(self, alert: HealthAlert) -> dict[str, Any]:
         """ML model remediation."""
         # Simulated remediation
         await asyncio.sleep(0.5)
@@ -1060,8 +1057,8 @@ Provide a JSON response:
             'action': 'Reloaded model weights and cleared prediction cache',
             'duration': 0.5
         }
-    
-    async def _remediate_data_feed(self, alert: HealthAlert) -> Dict[str, Any]:
+
+    async def _remediate_data_feed(self, alert: HealthAlert) -> dict[str, Any]:
         """Data feed remediation."""
         # Simulated remediation
         await asyncio.sleep(0.8)
@@ -1070,8 +1067,8 @@ Provide a JSON response:
             'action': 'Reconnected to data provider and synchronized feed',
             'duration': 0.8
         }
-    
-    async def _generic_remediation(self, alert: HealthAlert) -> Dict[str, Any]:
+
+    async def _generic_remediation(self, alert: HealthAlert) -> dict[str, Any]:
         """Generic remediation."""
         # Simulated remediation
         await asyncio.sleep(0.5)
@@ -1080,13 +1077,13 @@ Provide a JSON response:
             'action': f'Restarted {alert.component.value} component',
             'duration': 0.5
         }
-    
-    def _log_remediation(self, alert: HealthAlert, result: Dict[str, Any]):
+
+    def _log_remediation(self, alert: HealthAlert, result: dict[str, Any]):
         """Log remediation attempt."""
         self.logger.info(f"Remediation for {alert.component.value}: "
                         f"{'Success' if result.get('success') else 'Failed'} - "
                         f"{result.get('action', 'Unknown action')}")
-    
+
     def _create_error_diagnostic(self, error: str) -> SystemDiagnostic:
         """Create diagnostic report for error case."""
         return SystemDiagnostic(
@@ -1112,11 +1109,11 @@ def create_system_health_agent(model_name: str = DEFAULT_MODEL,
                              temperature: float = DEFAULT_TEMPERATURE) -> SpyderX12_SystemHealthAgent:
     """
     Factory function to create System Health Agent instance.
-    
+
     Args:
         model_name: Ollama model to use
         temperature: Temperature for AI responses
-        
+
     Returns:
         SpyderX12_SystemHealthAgent instance
     """
@@ -1141,36 +1138,36 @@ async def test_system_health():
     logging.info("="*80)
     logging.info("Testing SpyderX12_SystemHealthAgent")
     logging.info("="*80)
-    
+
     agent = create_system_health_agent()
-    
+
     # Test 1: System Health Monitoring
     logging.info("\nTest 1: System Health Monitoring")
     logging.info("-"*40)
-    
+
     diagnostic = await agent.monitor_system_health()
-    
+
     logging.info(f"Overall Status: {diagnostic.overall_status.value}")
     logging.info(f"Overall Health Score: {diagnostic.overall_health_score:.1f}/100")
-    
-    logging.info(f"\nComponent Health:")
+
+    logging.info("\nComponent Health:")
     for component, health in list(diagnostic.component_health.items())[:5]:
         logging.info(f"  {component.value}:")
         logging.info(f"    Status: {health.status.value}")
         logging.info(f"    Score: {health.health_score:.1f}")
         if health.issues:
             logging.info(f"    Issues: {', '.join(health.issues[:2])}")
-    
+
     logging.info(f"\nActive Issues: {len(diagnostic.active_issues)}")
     for issue in diagnostic.active_issues[:3]:
         logging.info(f"  [{issue['severity']}] {issue['description']}")
-    
+
     # Test 2: Failure Predictions
     logging.info("\n\nTest 2: Failure Predictions")
     logging.info("-"*40)
-    
+
     predictions = await agent.predict_failures(horizon_minutes=30)
-    
+
     logging.info(f"Predicted Issues: {len(predictions)}")
     for pred in predictions[:3]:
         logging.info(f"\n{pred.component.value} - {pred.metric_type.value}:")
@@ -1179,27 +1176,27 @@ async def test_system_health():
         logging.info(f"  Confidence: {pred.confidence:.1%}")
         if pred.recommended_action:
             logging.info(f"  Action: {pred.recommended_action}")
-    
+
     # Test 3: Component Status Check
     logging.info("\n\nTest 3: Component Status Check")
     logging.info("-"*40)
-    
+
     trading_health = await agent.check_component_status(SystemComponent.TRADING_ENGINE)
-    
+
     logging.info(f"Component: {trading_health.component.value}")
     logging.info(f"Status: {trading_health.status.value}")
     logging.info(f"Health Score: {trading_health.health_score:.1f}")
     logging.info(f"Uptime: {trading_health.uptime_percentage:.1f}%")
     logging.info(f"Dependencies OK: {trading_health.dependencies_ok}")
-    
-    logging.info(f"\nMetrics:")
+
+    logging.info("\nMetrics:")
     for metric, value in list(trading_health.metrics.items())[:3]:
         logging.info(f"  {metric.value}: {value:.2f}")
-    
+
     # Test 4: Auto-remediation
     logging.info("\n\nTest 4: Auto-remediation Test")
     logging.info("-"*40)
-    
+
     # Create a test alert
     test_alert = HealthAlert(
         timestamp=datetime.now(),
@@ -1211,10 +1208,10 @@ async def test_system_health():
         resolution_steps=['Clear temp files', 'Archive old data'],
         auto_remediation_available=True
     )
-    
+
     remediation_result = await agent.auto_remediate(test_alert)
-    
-    logging.info(f"Remediation Result:")
+
+    logging.info("Remediation Result:")
     logging.info(f"  Success: {remediation_result.get('success', False)}")
     logging.info(f"  Action: {remediation_result.get('action', 'N/A')}")
     logging.info(f"  Duration: {remediation_result.get('duration', 0):.1f}s")
@@ -1224,12 +1221,7 @@ async def test_system_health():
 # ==============================================================================
 
 if __name__ == "__main__":
-    print(f"Initializing {__name__}")
-    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
-    
+
     # Run async tests
     asyncio.run(test_system_health())
-    
-    print("\n" + "="*80)
-    print("SpyderX12_SystemHealthAgent module loaded successfully!")
-    print("="*80)
+

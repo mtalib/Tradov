@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -7,8 +6,8 @@ Series: SpyderE_Risk
 Module: SpyderE18_FSeriesRiskIntegrator.py
 Purpose: F-Series Analytics Risk Management Integration Engine
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-31 Time: 00:15:00  
+Year Created: 2025
+Last Updated: 2025-08-31 Time: 00:15:00
 
 Module Description:
     Institutional-grade risk management integration system that connects F12-F16
@@ -46,26 +45,21 @@ Dependencies:
 # IMPORTS
 # ==============================================================================
 import sys
-import os
 import time
 import asyncio
-import threading
 import logging
 import traceback
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from datetime import datetime
+from typing import Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
 import json
-import warnings
 
 # Third-party imports
 import numpy as np
-import pandas as pd
 from scipy import stats
-from scipy.optimize import minimize
 
 # Add Spyder modules to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -111,7 +105,7 @@ class RiskLimit:
     current_value: float = 0.0
     utilization_percent: float = 0.0
     breach_count: int = 0
-    last_breach: Optional[datetime] = None
+    last_breach: datetime | None = None
     auto_action: RiskAction = RiskAction.ALERT
     enabled: bool = True
 
@@ -174,8 +168,8 @@ class PositionSizingRecommendation:
     confidence_level: float
     risk_budget_utilization: float
     max_position_size: float
-    reasoning: List[str] = field(default_factory=list)
-    f_series_signals: Dict[str, float] = field(default_factory=dict)
+    reasoning: list[str] = field(default_factory=list)
+    f_series_signals: dict[str, float] = field(default_factory=dict)
 
 # ==============================================================================
 # F-SERIES RISK INTEGRATOR
@@ -184,41 +178,41 @@ class PositionSizingRecommendation:
 class FSeriesRiskIntegrator:
     """
     F-Series Analytics Risk Management Integration Engine
-    
+
     This class provides institutional-grade risk management integration that
     connects F12-F16 analytics modules with comprehensive risk controls,
     ensuring safe and profitable autonomous SPY options trading operations.
     """
-    
+
     def __init__(self):
         """Initialize the F-Series Risk Integrator"""
         self.logger = self._setup_logging()
-        
+
         # Core risk management components
-        self.risk_limits: Dict[str, RiskLimit] = {}
-        self.f_series_metrics: Dict[str, FSeriesRiskMetrics] = {}
-        self.risk_alerts: List[RiskAlert] = []
-        self.position_sizing_cache: Dict[str, PositionSizingRecommendation] = {}
-        
+        self.risk_limits: dict[str, RiskLimit] = {}
+        self.f_series_metrics: dict[str, FSeriesRiskMetrics] = {}
+        self.risk_alerts: list[RiskAlert] = []
+        self.position_sizing_cache: dict[str, PositionSizingRecommendation] = {}
+
         # Greeks risk management
         self.greeks_profile = GreeksRiskProfile()
         self.greeks_history = deque(maxlen=1000)
-        
+
         # Integration interfaces
         self.f_series_interfaces = {}
         self.e_series_interfaces = {}
         self.orchestrator_interface = None
-        
+
         # Risk monitoring and control
         self.risk_monitoring_active = False
         self.risk_thread = None
-        self.alert_callbacks: List[Callable] = []
-        
+        self.alert_callbacks: list[Callable] = []
+
         # Performance and attribution integration
         self.attribution_risk_cache = {}
         self.model_risk_assessments = {}
         self.execution_risk_metrics = {}
-        
+
         # Configuration
         self.config = {
             "max_portfolio_var": 50000.0,      # Maximum portfolio VaR
@@ -231,16 +225,16 @@ class FSeriesRiskIntegrator:
             "auto_hedge_enabled": True,          # Enable auto-hedging
             "emergency_stop_enabled": True       # Enable emergency stops
         }
-        
+
         self.logger.info("F-Series Risk Integrator initialized")
         self._initialize_risk_limits()
         self._initialize_f_series_metrics()
-    
+
     def _setup_logging(self) -> logging.Logger:
         """Setup comprehensive logging configuration"""
         logger = logging.getLogger("FSeriesRiskIntegrator")
         logger.setLevel(logging.INFO)
-        
+
         if not logger.handlers:
             # Console handler with risk-specific formatting
             console_handler = logging.StreamHandler()
@@ -249,23 +243,23 @@ class FSeriesRiskIntegrator:
             )
             console_handler.setFormatter(console_formatter)
             logger.addHandler(console_handler)
-            
+
             # Risk-specific file handler
             log_file = Path("logs") / f"f_series_risk_{datetime.now().strftime('%Y%m%d')}.log"
             log_file.parent.mkdir(exist_ok=True)
-            
+
             file_handler = logging.FileHandler(log_file)
             file_formatter = logging.Formatter(
                 '%(asctime)s | RISK | %(levelname)s | %(funcName)s | %(message)s'
             )
             file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
-        
+
         return logger
-    
+
     def _initialize_risk_limits(self) -> None:
         """Initialize comprehensive risk limits"""
-        
+
         # Portfolio-level risk limits
         self.risk_limits["portfolio_var"] = RiskLimit(
             limit_type=RiskMetricType.MARKET_RISK,
@@ -274,7 +268,7 @@ class FSeriesRiskIntegrator:
             hard_limit=50000.0,
             auto_action=RiskAction.REDUCE
         )
-        
+
         self.risk_limits["portfolio_expected_shortfall"] = RiskLimit(
             limit_type=RiskMetricType.MARKET_RISK,
             limit_name="Portfolio Expected Shortfall",
@@ -282,7 +276,7 @@ class FSeriesRiskIntegrator:
             hard_limit=75000.0,
             auto_action=RiskAction.HEDGE
         )
-        
+
         # Greeks-based risk limits
         self.risk_limits["net_delta"] = RiskLimit(
             limit_type=RiskMetricType.Greeks_RISK,
@@ -291,7 +285,7 @@ class FSeriesRiskIntegrator:
             hard_limit=10000.0,
             auto_action=RiskAction.HEDGE
         )
-        
+
         self.risk_limits["net_gamma"] = RiskLimit(
             limit_type=RiskMetricType.Greeks_RISK,
             limit_name="Net Portfolio Gamma",
@@ -299,7 +293,7 @@ class FSeriesRiskIntegrator:
             hard_limit=5000.0,
             auto_action=RiskAction.REDUCE
         )
-        
+
         self.risk_limits["net_vega"] = RiskLimit(
             limit_type=RiskMetricType.Greeks_RISK,
             limit_name="Net Portfolio Vega",
@@ -307,7 +301,7 @@ class FSeriesRiskIntegrator:
             hard_limit=8000.0,
             auto_action=RiskAction.HEDGE
         )
-        
+
         # F-series specific limits
         self.risk_limits["model_confidence"] = RiskLimit(
             limit_type=RiskMetricType.MODEL_RISK,
@@ -316,7 +310,7 @@ class FSeriesRiskIntegrator:
             hard_limit=0.5,
             auto_action=RiskAction.REDUCE
         )
-        
+
         self.risk_limits["execution_slippage"] = RiskLimit(
             limit_type=RiskMetricType.EXECUTION_RISK,
             limit_name="F14 Execution Slippage",
@@ -324,7 +318,7 @@ class FSeriesRiskIntegrator:
             hard_limit=0.002,
             auto_action=RiskAction.ALERT
         )
-        
+
         self.risk_limits["attribution_explanation"] = RiskLimit(
             limit_type=RiskMetricType.MODEL_RISK,
             limit_name="F15 Attribution Explanation Ratio",
@@ -332,7 +326,7 @@ class FSeriesRiskIntegrator:
             hard_limit=0.6,
             auto_action=RiskAction.MONITOR
         )
-        
+
         # Real-time analytics limits
         self.risk_limits["f16_latency"] = RiskLimit(
             limit_type=RiskMetricType.OPERATIONAL_RISK,
@@ -341,115 +335,115 @@ class FSeriesRiskIntegrator:
             hard_limit=200.0,
             auto_action=RiskAction.ALERT
         )
-        
+
         self.logger.info(f"Initialized {len(self.risk_limits)} risk limits")
-    
+
     def _initialize_f_series_metrics(self) -> None:
         """Initialize F-series risk metrics tracking"""
         f_series_modules = ["F12", "F13", "F14", "F15", "F16"]
-        
+
         for module in f_series_modules:
             self.f_series_metrics[module] = FSeriesRiskMetrics(module_name=module)
-        
+
         self.logger.info("F-series risk metrics initialized")
-    
+
     # ==========================================================================
     # F-SERIES INTEGRATION INTERFACES
     # ==========================================================================
-    
+
     def register_f_series_interface(self, module_name: str, interface: Any) -> bool:
         """Register F-series module interface for risk integration"""
         try:
             if module_name not in ["F12", "F13", "F14", "F15", "F16"]:
                 raise ValueError(f"Invalid F-series module: {module_name}")
-            
+
             self.f_series_interfaces[module_name] = interface
             self.logger.info(f"F-series interface registered: {module_name}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to register F-series interface {module_name}: {e}")
             return False
-    
+
     def register_e_series_interface(self, module_name: str, interface: Any) -> bool:
         """Register E-series risk module interface"""
         try:
             self.e_series_interfaces[module_name] = interface
             self.logger.info(f"E-series interface registered: {module_name}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to register E-series interface {module_name}: {e}")
             return False
-    
+
     def register_orchestrator_interface(self, orchestrator_interface: Any) -> bool:
         """Register A08 F-Series Orchestrator interface"""
         try:
             self.orchestrator_interface = orchestrator_interface
             self.logger.info("F-Series Orchestrator interface registered")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to register orchestrator interface: {e}")
             return False
-    
+
     # ==========================================================================
     # REAL-TIME RISK MONITORING
     # ==========================================================================
-    
+
     async def start_risk_monitoring(self) -> None:
         """Start real-time risk monitoring across all F-series modules"""
         if self.risk_monitoring_active:
             self.logger.warning("Risk monitoring already active")
             return
-        
+
         self.risk_monitoring_active = True
         self.logger.info("Starting F-Series risk monitoring")
-        
+
         # Start risk monitoring task
         self.risk_monitoring_task = asyncio.create_task(self._risk_monitoring_loop())
-        
+
         self.logger.info("F-Series risk monitoring started successfully")
-    
+
     async def stop_risk_monitoring(self) -> None:
         """Stop real-time risk monitoring"""
         self.logger.info("Stopping F-Series risk monitoring")
-        
+
         self.risk_monitoring_active = False
-        
+
         if hasattr(self, 'risk_monitoring_task'):
             self.risk_monitoring_task.cancel()
-        
+
         self.logger.info("F-Series risk monitoring stopped")
-    
+
     async def _risk_monitoring_loop(self) -> None:
         """Main risk monitoring loop"""
         self.logger.info("Risk monitoring loop started")
-        
+
         while self.risk_monitoring_active:
             try:
                 # Update F-series risk metrics
                 await self._update_f_series_risk_metrics()
-                
+
                 # Check all risk limits
                 self._check_risk_limits()
-                
+
                 # Update Greeks risk profile
                 await self._update_greeks_risk_profile()
-                
+
                 # Process risk alerts
                 self._process_risk_alerts()
-                
+
                 # Update position sizing recommendations
                 await self._update_position_sizing_recommendations()
-                
+
                 # Sleep until next monitoring cycle
                 await asyncio.sleep(self.config["risk_check_interval_s"])
-                
+
             except Exception as e:
                 self.logger.error(f"Risk monitoring loop error: {e}")
                 await asyncio.sleep(5)  # Longer sleep on error
-    
+
     async def _update_f_series_risk_metrics(self) -> None:
         """Update risk metrics from all F-series modules"""
         try:
@@ -458,58 +452,58 @@ class FSeriesRiskIntegrator:
                 f12_metrics = await self._get_f12_risk_metrics()
                 self.f_series_metrics["F12"].backtest_stability = f12_metrics.get("stability", 0.0)
                 self.f_series_metrics["F12"].overall_risk_score = self._calculate_f12_risk_score(f12_metrics)
-            
+
             # F13 Model Validation Risk Metrics
             if "F13" in self.f_series_interfaces:
                 f13_metrics = await self._get_f13_risk_metrics()
                 self.f_series_metrics["F13"].model_confidence = f13_metrics.get("confidence", 0.0)
                 self.f_series_metrics["F13"].prediction_accuracy = f13_metrics.get("accuracy", 0.0)
                 self.f_series_metrics["F13"].overall_risk_score = self._calculate_f13_risk_score(f13_metrics)
-            
+
             # F14 Market Microstructure Risk Metrics
             if "F14" in self.f_series_interfaces:
                 f14_metrics = await self._get_f14_risk_metrics()
                 self.f_series_metrics["F14"].execution_slippage = f14_metrics.get("slippage", 0.0)
                 self.f_series_metrics["F14"].microstructure_impact = f14_metrics.get("impact", 0.0)
                 self.f_series_metrics["F14"].overall_risk_score = self._calculate_f14_risk_score(f14_metrics)
-            
+
             # F15 Performance Attribution Risk Metrics
             if "F15" in self.f_series_interfaces:
                 f15_metrics = await self._get_f15_risk_metrics()
                 self.f_series_metrics["F15"].attribution_explanation_ratio = f15_metrics.get("explanation_ratio", 0.0)
                 self.f_series_metrics["F15"].overall_risk_score = self._calculate_f15_risk_score(f15_metrics)
-            
+
             # F16 Real-time Analytics Risk Metrics
             if "F16" in self.f_series_interfaces:
                 f16_metrics = await self._get_f16_risk_metrics()
                 self.f_series_metrics["F16"].latency_risk_score = f16_metrics.get("latency_risk", 0.0)
                 self.f_series_metrics["F16"].data_quality_score = f16_metrics.get("data_quality", 0.0)
                 self.f_series_metrics["F16"].overall_risk_score = self._calculate_f16_risk_score(f16_metrics)
-            
+
             # Update all timestamps
             for metrics in self.f_series_metrics.values():
                 metrics.last_updated = datetime.now()
-                
+
         except Exception as e:
             self.logger.error(f"F-series risk metrics update failed: {e}")
-    
+
     def _check_risk_limits(self) -> None:
         """Check all risk limits and trigger alerts if necessary"""
         try:
             for limit_name, limit in self.risk_limits.items():
                 if not limit.enabled:
                     continue
-                
+
                 # Update current value based on limit type
                 current_value = self._get_current_risk_value(limit)
                 limit.current_value = current_value
-                
+
                 # Calculate utilization percentage
                 if limit.hard_limit > 0:
                     limit.utilization_percent = (current_value / limit.hard_limit) * 100
                 else:
                     limit.utilization_percent = 0.0
-                
+
                 # Check for limit breaches
                 severity = None
                 if current_value >= limit.hard_limit:
@@ -520,59 +514,59 @@ class FSeriesRiskIntegrator:
                     severity = RiskSeverity.HIGH
                 elif current_value >= limit.soft_limit * 0.5:
                     severity = RiskSeverity.MEDIUM
-                
+
                 if severity:
                     self._create_risk_alert(limit_name, limit, severity)
-                    
+
         except Exception as e:
             self.logger.error(f"Risk limit checking failed: {e}")
-    
+
     def _get_current_risk_value(self, limit: RiskLimit) -> float:
         """Get current value for a specific risk limit"""
         try:
             if limit.limit_name == "F13 Model Confidence":
                 return 1.0 - self.f_series_metrics["F13"].model_confidence  # Inverted - higher is better
-            
+
             elif limit.limit_name == "F14 Execution Slippage":
                 return self.f_series_metrics["F14"].execution_slippage
-            
+
             elif limit.limit_name == "F15 Attribution Explanation Ratio":
                 return 1.0 - self.f_series_metrics["F15"].attribution_explanation_ratio  # Inverted
-            
+
             elif limit.limit_name == "F16 Processing Latency (μs)":
                 return self.f_series_metrics["F16"].latency_risk_score
-            
+
             elif limit.limit_name == "Net Portfolio Delta":
                 return abs(self.greeks_profile.delta_exposure)
-            
+
             elif limit.limit_name == "Net Portfolio Gamma":
                 return abs(self.greeks_profile.gamma_exposure)
-            
+
             elif limit.limit_name == "Net Portfolio Vega":
                 return abs(self.greeks_profile.vega_exposure)
-            
+
             elif limit.limit_name == "Portfolio VaR (95%, 1-day)":
                 return self._calculate_portfolio_var()
-            
+
             elif limit.limit_name == "Portfolio Expected Shortfall":
                 return self._calculate_portfolio_expected_shortfall()
-            
+
             else:
                 return 0.0
-                
+
         except Exception as e:
             self.logger.error(f"Failed to get current risk value for {limit.limit_name}: {e}")
             return 0.0
-    
+
     def _create_risk_alert(self, limit_name: str, limit: RiskLimit, severity: RiskSeverity) -> None:
         """Create and process risk alert"""
         try:
             # Check for alert cooldown
             now = datetime.now()
-            if (limit.last_breach and 
+            if (limit.last_breach and
                 (now - limit.last_breach).total_seconds() < self.config["alert_cooldown_s"]):
                 return
-            
+
             # Create risk alert
             alert = RiskAlert(
                 alert_id=f"{limit_name}_{int(time.time())}",
@@ -585,31 +579,31 @@ class FSeriesRiskIntegrator:
                 limit_value=limit.soft_limit if severity != RiskSeverity.EMERGENCY else limit.hard_limit,
                 suggested_action=limit.auto_action
             )
-            
+
             # Add to alerts list
             self.risk_alerts.append(alert)
-            
+
             # Update limit breach tracking
             limit.breach_count += 1
             limit.last_breach = now
-            
+
             # Execute automatic actions if configured
             if self.config.get("auto_hedge_enabled", False) and severity in [RiskSeverity.CRITICAL, RiskSeverity.EMERGENCY]:
                 asyncio.create_task(self._execute_risk_action(alert))
-            
+
             # Log the alert
             self.logger.warning(f"RISK ALERT [{severity.value}]: {alert.message}")
-            
+
             # Notify callbacks
             for callback in self.alert_callbacks:
                 try:
                     callback(alert)
                 except Exception as e:
                     self.logger.error(f"Alert callback failed: {e}")
-                    
+
         except Exception as e:
             self.logger.error(f"Risk alert creation failed: {e}")
-    
+
     def _identify_source_module(self, limit_name: str) -> str:
         """Identify F-series source module for risk limit"""
         if "F13" in limit_name or "Model" in limit_name:
@@ -626,37 +620,37 @@ class FSeriesRiskIntegrator:
             return "GREEKS"
         else:
             return "PORTFOLIO"
-    
+
     # ==========================================================================
     # GREEKS RISK MANAGEMENT
     # ==========================================================================
-    
+
     async def _update_greeks_risk_profile(self) -> None:
         """Update Greeks risk profile from portfolio positions"""
         try:
             # This would integrate with portfolio manager to get current Greeks
             # For now, simulate Greeks calculation
             portfolio_greeks = await self._calculate_portfolio_greeks()
-            
+
             self.greeks_profile.delta_exposure = portfolio_greeks.get("delta", 0.0)
             self.greeks_profile.gamma_exposure = portfolio_greeks.get("gamma", 0.0)
             self.greeks_profile.theta_exposure = portfolio_greeks.get("theta", 0.0)
             self.greeks_profile.vega_exposure = portfolio_greeks.get("vega", 0.0)
             self.greeks_profile.rho_exposure = portfolio_greeks.get("rho", 0.0)
-            
+
             # Calculate P&L attribution to Greeks
             if len(self.greeks_history) > 0:
-                prev_greeks = self.greeks_history[-1]
-                
+                self.greeks_history[-1]
+
                 # Estimate P&L from Greeks changes (simplified)
                 spot_change = np.random.normal(0, 0.01)  # Mock spot price change
                 vol_change = np.random.normal(0, 0.02)   # Mock volatility change
-                
+
                 self.greeks_profile.net_delta_pnl = self.greeks_profile.delta_exposure * spot_change * 100
                 self.greeks_profile.net_gamma_pnl = 0.5 * self.greeks_profile.gamma_exposure * (spot_change ** 2) * 100
                 self.greeks_profile.net_vega_pnl = self.greeks_profile.vega_exposure * vol_change
                 self.greeks_profile.net_theta_pnl = self.greeks_profile.theta_exposure * (1/365)  # Daily theta decay
-            
+
             # Store in history
             self.greeks_history.append({
                 "timestamp": datetime.now(),
@@ -666,11 +660,11 @@ class FSeriesRiskIntegrator:
                 "vega": self.greeks_profile.vega_exposure,
                 "rho": self.greeks_profile.rho_exposure
             })
-            
+
         except Exception as e:
             self.logger.error(f"Greeks risk profile update failed: {e}")
-    
-    async def _calculate_portfolio_greeks(self) -> Dict[str, float]:
+
+    async def _calculate_portfolio_greeks(self) -> dict[str, float]:
         """Calculate portfolio-level Greeks (mock implementation)"""
         # This would integrate with actual portfolio positions
         # For demo purposes, return simulated Greeks
@@ -681,80 +675,80 @@ class FSeriesRiskIntegrator:
             "vega": np.random.normal(0, 3000),
             "rho": np.random.normal(0, 1000)
         }
-    
+
     # ==========================================================================
     # POSITION SIZING INTEGRATION
     # ==========================================================================
-    
+
     async def _update_position_sizing_recommendations(self) -> None:
         """Update dynamic position sizing recommendations based on F-series analytics"""
         try:
             # Get current F-series signals
             f_series_signals = await self._gather_f_series_signals()
-            
+
             # Update recommendations for key symbols
             symbols = ["SPY"]  # Focus on SPY for options trading
-            
+
             for symbol in symbols:
                 recommendation = await self._calculate_position_sizing(symbol, f_series_signals)
                 self.position_sizing_cache[symbol] = recommendation
-                
+
         except Exception as e:
             self.logger.error(f"Position sizing recommendations update failed: {e}")
-    
-    async def _gather_f_series_signals(self) -> Dict[str, float]:
+
+    async def _gather_f_series_signals(self) -> dict[str, float]:
         """Gather predictive signals from all F-series modules"""
         signals = {}
-        
+
         try:
             # F13 Model predictions
             if "F13" in self.f_series_interfaces:
                 f13_signals = await self._get_f13_signals()
                 signals.update(f13_signals)
-            
+
             # F14 Microstructure signals
             if "F14" in self.f_series_interfaces:
                 f14_signals = await self._get_f14_signals()
                 signals.update(f14_signals)
-            
+
             # F15 Attribution insights
             if "F15" in self.f_series_interfaces:
                 f15_signals = await self._get_f15_signals()
                 signals.update(f15_signals)
-            
+
             return signals
-            
+
         except Exception as e:
             self.logger.error(f"F-series signal gathering failed: {e}")
             return {}
-    
-    async def _calculate_position_sizing(self, symbol: str, signals: Dict[str, float]) -> PositionSizingRecommendation:
+
+    async def _calculate_position_sizing(self, symbol: str, signals: dict[str, float]) -> PositionSizingRecommendation:
         """Calculate risk-adjusted position sizing recommendation"""
         try:
             # Base position sizing parameters
             base_position = 100.0  # Base position size
             max_position = 1000.0  # Maximum position size
             risk_budget = 10000.0  # Risk budget allocation
-            
+
             # Get current risk metrics
             current_var = self._calculate_single_position_var(symbol)
-            portfolio_var = self._calculate_portfolio_var()
-            
+            self._calculate_portfolio_var()
+
             # Risk-based sizing factor
             risk_factor = min(1.0, risk_budget / max(current_var, 1.0))
-            
+
             # F-series signal-based adjustment
             signal_factor = self._calculate_signal_factor(signals)
-            
+
             # Model confidence adjustment
             confidence_factor = self.f_series_metrics["F13"].model_confidence
-            
+
             # Combined sizing factor
             combined_factor = risk_factor * signal_factor * confidence_factor
-            
+
             # Calculate recommendation
             recommended_position = min(base_position * combined_factor, max_position)
-            
+
             # Generate reasoning
             reasoning = [
                 f"Risk factor: {risk_factor:.2f} (VaR: ${current_var:,.0f})",
@@ -762,7 +756,7 @@ class FSeriesRiskIntegrator:
                 f"Confidence factor: {confidence_factor:.2f}",
                 f"Combined factor: {combined_factor:.2f}"
             ]
-            
+
             recommendation = PositionSizingRecommendation(
                 symbol=symbol,
                 strategy_type="options",
@@ -775,14 +769,14 @@ class FSeriesRiskIntegrator:
                 reasoning=reasoning,
                 f_series_signals=signals
             )
-            
+
             return recommendation
-            
+
         except Exception as e:
             self.logger.error(f"Position sizing calculation failed for {symbol}: {e}")
             return PositionSizingRecommendation(symbol=symbol, strategy_type="options", current_position=0, recommended_position=0, sizing_factor=0, confidence_level=0, risk_budget_utilization=0, max_position_size=0)
-    
-    def _calculate_signal_factor(self, signals: Dict[str, float]) -> float:
+
+    def _calculate_signal_factor(self, signals: dict[str, float]) -> float:
         """Calculate position sizing factor based on F-series signals"""
         try:
             # Weight different signal types
@@ -792,110 +786,110 @@ class FSeriesRiskIntegrator:
                 "f15_factor_momentum": 0.2,
                 "f16_real_time_signal": 0.1
             }
-            
+
             weighted_signal = 0.0
             total_weight = 0.0
-            
+
             for signal_name, weight in signal_weights.items():
                 if signal_name in signals:
                     weighted_signal += signals[signal_name] * weight
                     total_weight += weight
-            
+
             if total_weight > 0:
                 normalized_signal = weighted_signal / total_weight
                 # Convert to sizing factor (0.5 to 1.5 range)
                 return max(0.5, min(1.5, 0.5 + normalized_signal))
             else:
                 return 1.0  # Neutral if no signals
-                
+
         except Exception as e:
             self.logger.error(f"Signal factor calculation failed: {e}")
             return 1.0
-    
+
     # ==========================================================================
     # RISK CALCULATIONS
     # ==========================================================================
-    
+
     def _calculate_portfolio_var(self, confidence_level: float = 0.95) -> float:
         """Calculate portfolio Value-at-Risk"""
         try:
             # This would integrate with actual portfolio positions and market data
             # For demo, return simulated VaR calculation
-            
+
             # Simulate portfolio returns distribution
             portfolio_value = 1000000.0  # $1M portfolio
             daily_volatility = 0.02  # 2% daily volatility
-            
+
             # Calculate VaR using normal distribution approximation
             z_score = stats.norm.ppf(1 - confidence_level)
             var_estimate = portfolio_value * daily_volatility * abs(z_score)
-            
+
             return var_estimate
-            
+
         except Exception as e:
             self.logger.error(f"Portfolio VaR calculation failed: {e}")
             return 0.0
-    
+
     def _calculate_portfolio_expected_shortfall(self, confidence_level: float = 0.95) -> float:
         """Calculate portfolio Expected Shortfall (Conditional VaR)"""
         try:
             # Expected Shortfall is typically 1.2-1.3x VaR for normal distribution
             var = self._calculate_portfolio_var(confidence_level)
             expected_shortfall = var * 1.25  # Approximation
-            
+
             return expected_shortfall
-            
+
         except Exception as e:
             self.logger.error(f"Expected Shortfall calculation failed: {e}")
             return 0.0
-    
+
     def _calculate_single_position_var(self, symbol: str, confidence_level: float = 0.95) -> float:
         """Calculate single position Value-at-Risk"""
         try:
             # This would use actual position data and volatility
             # For demo, return simulated single position VaR
-            
+
             position_value = 100000.0  # $100K position
             symbol_volatility = 0.015  # 1.5% daily volatility for SPY
-            
+
             z_score = stats.norm.ppf(1 - confidence_level)
             var_estimate = position_value * symbol_volatility * abs(z_score)
-            
+
             return var_estimate
-            
+
         except Exception as e:
             self.logger.error(f"Single position VaR calculation failed for {symbol}: {e}")
             return 0.0
-    
+
     # ==========================================================================
     # AUTOMATED RISK ACTIONS
     # ==========================================================================
-    
+
     async def _execute_risk_action(self, alert: RiskAlert) -> None:
         """Execute automated risk management action"""
         try:
             self.logger.info(f"Executing risk action: {alert.suggested_action.value} for {alert.alert_id}")
-            
+
             if alert.suggested_action == RiskAction.REDUCE:
                 await self._execute_position_reduction(alert)
-            
+
             elif alert.suggested_action == RiskAction.HEDGE:
                 await self._execute_hedge_trades(alert)
-            
+
             elif alert.suggested_action == RiskAction.CLOSE:
                 await self._execute_position_closure(alert)
-            
+
             elif alert.suggested_action == RiskAction.HALT:
                 await self._execute_trading_halt(alert)
-            
+
             # Mark action as executed
             alert.auto_executed = True
-            
+
             self.logger.info(f"Risk action completed: {alert.suggested_action.value}")
-            
+
         except Exception as e:
             self.logger.error(f"Risk action execution failed: {e}")
-    
+
     async def _execute_position_reduction(self, alert: RiskAlert) -> None:
         """Execute position reduction to manage risk"""
         try:
@@ -905,18 +899,18 @@ class FSeriesRiskIntegrator:
                 RiskSeverity.CRITICAL: 0.50,  # 50% reduction
                 RiskSeverity.EMERGENCY: 0.75  # 75% reduction
             }
-            
+
             reduction_pct = reduction_percentages.get(alert.severity, 0.25)
-            
+
             # This would integrate with portfolio manager to reduce positions
             self.logger.info(f"Reducing positions by {reduction_pct*100:.0f}% due to {alert.risk_type.value}")
-            
+
             # Mock execution
             await asyncio.sleep(0.1)
-            
+
         except Exception as e:
             self.logger.error(f"Position reduction execution failed: {e}")
-    
+
     async def _execute_hedge_trades(self, alert: RiskAlert) -> None:
         """Execute hedge trades to neutralize risk"""
         try:
@@ -926,10 +920,10 @@ class FSeriesRiskIntegrator:
             else:
                 # Execute general portfolio hedging
                 await self._execute_portfolio_hedge(alert)
-                
+
         except Exception as e:
             self.logger.error(f"Hedge trade execution failed: {e}")
-    
+
     async def _execute_greeks_hedge(self, alert: RiskAlert) -> None:
         """Execute Greeks-specific hedging"""
         try:
@@ -937,55 +931,55 @@ class FSeriesRiskIntegrator:
             if "Delta" in alert.message:
                 hedge_delta = -self.greeks_profile.delta_exposure * 0.8  # 80% hedge
                 self.logger.info(f"Executing delta hedge: {hedge_delta:.0f}")
-            
+
             elif "Gamma" in alert.message:
                 # Gamma hedging typically requires options
                 self.logger.info("Executing gamma hedge with options straddles")
-            
+
             elif "Vega" in alert.message:
                 hedge_vega = -self.greeks_profile.vega_exposure * 0.6  # 60% hedge
                 self.logger.info(f"Executing vega hedge: {hedge_vega:.0f}")
-            
+
             # Mock execution
             await asyncio.sleep(0.1)
-            
+
         except Exception as e:
             self.logger.error(f"Greeks hedge execution failed: {e}")
-    
+
     async def _execute_portfolio_hedge(self, alert: RiskAlert) -> None:
         """Execute general portfolio hedging"""
         try:
             # This would execute broad portfolio hedges (e.g., index puts)
             self.logger.info(f"Executing portfolio hedge for {alert.risk_type.value}")
-            
+
             # Mock execution
             await asyncio.sleep(0.1)
-            
+
         except Exception as e:
             self.logger.error(f"Portfolio hedge execution failed: {e}")
-    
+
     async def _execute_position_closure(self, alert: RiskAlert) -> None:
         """Execute position closure for extreme risk"""
         try:
             self.logger.warning(f"Executing position closure due to {alert.risk_type.value}")
-            
+
             # This would close all positions related to the risk alert
             # Mock execution
             await asyncio.sleep(0.1)
-            
+
         except Exception as e:
             self.logger.error(f"Position closure execution failed: {e}")
-    
+
     async def _execute_trading_halt(self, alert: RiskAlert) -> None:
         """Execute trading halt for emergency situations"""
         try:
             self.logger.critical(f"EXECUTING TRADING HALT: {alert.message}")
-            
+
             # This would halt all trading activities
             if self.orchestrator_interface:
                 # Stop orchestrator
                 await self.orchestrator_interface.stop_orchestration()
-            
+
             # Notify all systems of emergency halt
             for callback in self.alert_callbacks:
                 emergency_alert = RiskAlert(
@@ -1003,10 +997,10 @@ class FSeriesRiskIntegrator:
                     callback(emergency_alert)
                 except Exception as e:
                     self.logger.error(f"Emergency halt notification failed: {e}")
-                    
+
         except Exception as e:
             self.logger.error(f"Trading halt execution failed: {e}")
-    
+
     def _process_risk_alerts(self) -> None:
         """Process and manage risk alerts"""
         try:
@@ -1016,29 +1010,29 @@ class FSeriesRiskIntegrator:
                 alert for alert in self.risk_alerts
                 if (current_time - alert.timestamp).total_seconds() < 3600
             ]
-            
+
             # Count active alerts by severity
             severity_counts = defaultdict(int)
             for alert in self.risk_alerts:
                 if not alert.acknowledged:
                     severity_counts[alert.severity] += 1
-            
+
             # Log summary if there are active alerts
             if sum(severity_counts.values()) > 0:
                 alert_summary = ", ".join([
-                    f"{severity.value}: {count}" 
+                    f"{severity.value}: {count}"
                     for severity, count in severity_counts.items() if count > 0
                 ])
                 self.logger.info(f"Active risk alerts: {alert_summary}")
-                
+
         except Exception as e:
             self.logger.error(f"Risk alert processing failed: {e}")
-    
+
     # ==========================================================================
     # MOCK F-SERIES INTERFACE METHODS (Replace with actual integrations)
     # ==========================================================================
-    
-    async def _get_f12_risk_metrics(self) -> Dict[str, float]:
+
+    async def _get_f12_risk_metrics(self) -> dict[str, float]:
         """Get risk metrics from F12 Backtesting Engine"""
         await asyncio.sleep(0.01)
         return {
@@ -1046,8 +1040,8 @@ class FSeriesRiskIntegrator:
             "max_drawdown": np.random.uniform(0.05, 0.15),
             "volatility": np.random.uniform(0.15, 0.25)
         }
-    
-    async def _get_f13_risk_metrics(self) -> Dict[str, float]:
+
+    async def _get_f13_risk_metrics(self) -> dict[str, float]:
         """Get risk metrics from F13 Model Validation"""
         await asyncio.sleep(0.005)
         return {
@@ -1055,8 +1049,8 @@ class FSeriesRiskIntegrator:
             "accuracy": np.random.uniform(0.7, 0.85),
             "drift_score": np.random.uniform(0.0, 0.3)
         }
-    
-    async def _get_f14_risk_metrics(self) -> Dict[str, float]:
+
+    async def _get_f14_risk_metrics(self) -> dict[str, float]:
         """Get risk metrics from F14 Market Microstructure"""
         await asyncio.sleep(0.003)
         return {
@@ -1064,8 +1058,8 @@ class FSeriesRiskIntegrator:
             "impact": np.random.uniform(0.01, 0.05),
             "execution_quality": np.random.uniform(0.8, 0.95)
         }
-    
-    async def _get_f15_risk_metrics(self) -> Dict[str, float]:
+
+    async def _get_f15_risk_metrics(self) -> dict[str, float]:
         """Get risk metrics from F15 Performance Attribution"""
         await asyncio.sleep(0.002)
         return {
@@ -1073,8 +1067,8 @@ class FSeriesRiskIntegrator:
             "attribution_stability": np.random.uniform(0.8, 0.95),
             "factor_consistency": np.random.uniform(0.7, 0.9)
         }
-    
-    async def _get_f16_risk_metrics(self) -> Dict[str, float]:
+
+    async def _get_f16_risk_metrics(self) -> dict[str, float]:
         """Get risk metrics from F16 Real-time Analytics"""
         await asyncio.sleep(0.001)
         return {
@@ -1082,71 +1076,71 @@ class FSeriesRiskIntegrator:
             "data_quality": np.random.uniform(0.9, 0.99),
             "throughput": np.random.uniform(10000, 20000)
         }
-    
-    async def _get_f13_signals(self) -> Dict[str, float]:
+
+    async def _get_f13_signals(self) -> dict[str, float]:
         """Get predictive signals from F13"""
         await asyncio.sleep(0.005)
         return {
             "f13_prediction_confidence": np.random.uniform(0.6, 0.9),
             "f13_directional_signal": np.random.uniform(-1.0, 1.0)
         }
-    
-    async def _get_f14_signals(self) -> Dict[str, float]:
+
+    async def _get_f14_signals(self) -> dict[str, float]:
         """Get microstructure signals from F14"""
         await asyncio.sleep(0.003)
         return {
             "f14_microstructure_alpha": np.random.uniform(-0.5, 0.5),
             "f14_liquidity_signal": np.random.uniform(0.0, 1.0)
         }
-    
-    async def _get_f15_signals(self) -> Dict[str, float]:
+
+    async def _get_f15_signals(self) -> dict[str, float]:
         """Get attribution insights from F15"""
         await asyncio.sleep(0.002)
         return {
             "f15_factor_momentum": np.random.uniform(-0.3, 0.3),
             "f15_attribution_strength": np.random.uniform(0.0, 1.0)
         }
-    
+
     # Helper methods for risk score calculations
-    def _calculate_f12_risk_score(self, metrics: Dict[str, float]) -> float:
+    def _calculate_f12_risk_score(self, metrics: dict[str, float]) -> float:
         """Calculate overall risk score for F12"""
         stability = metrics.get("stability", 0.0)
         max_drawdown = metrics.get("max_drawdown", 0.0)
         return (stability * 0.7) + ((1.0 - max_drawdown) * 0.3)
-    
-    def _calculate_f13_risk_score(self, metrics: Dict[str, float]) -> float:
+
+    def _calculate_f13_risk_score(self, metrics: dict[str, float]) -> float:
         """Calculate overall risk score for F13"""
         confidence = metrics.get("confidence", 0.0)
         accuracy = metrics.get("accuracy", 0.0)
         drift = 1.0 - metrics.get("drift_score", 0.0)
         return (confidence * 0.4) + (accuracy * 0.4) + (drift * 0.2)
-    
-    def _calculate_f14_risk_score(self, metrics: Dict[str, float]) -> float:
+
+    def _calculate_f14_risk_score(self, metrics: dict[str, float]) -> float:
         """Calculate overall risk score for F14"""
         slippage_score = max(0.0, 1.0 - (metrics.get("slippage", 0.0) / 0.005))
         impact_score = max(0.0, 1.0 - (metrics.get("impact", 0.0) / 0.1))
         quality = metrics.get("execution_quality", 0.0)
         return (slippage_score * 0.4) + (impact_score * 0.3) + (quality * 0.3)
-    
-    def _calculate_f15_risk_score(self, metrics: Dict[str, float]) -> float:
+
+    def _calculate_f15_risk_score(self, metrics: dict[str, float]) -> float:
         """Calculate overall risk score for F15"""
         explanation = metrics.get("explanation_ratio", 0.0)
         stability = metrics.get("attribution_stability", 0.0)
         consistency = metrics.get("factor_consistency", 0.0)
         return (explanation * 0.5) + (stability * 0.3) + (consistency * 0.2)
-    
-    def _calculate_f16_risk_score(self, metrics: Dict[str, float]) -> float:
+
+    def _calculate_f16_risk_score(self, metrics: dict[str, float]) -> float:
         """Calculate overall risk score for F16"""
         latency_score = max(0.0, 1.0 - (metrics.get("latency_risk", 0.0) / 200.0))
         quality = metrics.get("data_quality", 0.0)
         throughput_score = min(1.0, metrics.get("throughput", 0.0) / 15000.0)
         return (latency_score * 0.4) + (quality * 0.4) + (throughput_score * 0.2)
-    
+
     # ==========================================================================
     # PUBLIC API METHODS
     # ==========================================================================
-    
-    def get_risk_status(self) -> Dict[str, Any]:
+
+    def get_risk_status(self) -> dict[str, Any]:
         """Get comprehensive risk status"""
         try:
             # Count alerts by severity
@@ -1154,7 +1148,7 @@ class FSeriesRiskIntegrator:
             for alert in self.risk_alerts:
                 if not alert.acknowledged:
                     alert_counts[alert.severity.value] += 1
-            
+
             # Get risk limit utilizations
             limit_utilizations = {}
             for name, limit in self.risk_limits.items():
@@ -1165,7 +1159,7 @@ class FSeriesRiskIntegrator:
                         "utilization_percent": limit.utilization_percent,
                         "status": "BREACH" if limit.current_value >= limit.soft_limit else "OK"
                     }
-            
+
             return {
                 "monitoring_active": self.risk_monitoring_active,
                 "overall_risk_level": self._calculate_overall_risk_level(),
@@ -1189,23 +1183,23 @@ class FSeriesRiskIntegrator:
                     "expected_shortfall": self._calculate_portfolio_expected_shortfall()
                 }
             }
-            
+
         except Exception as e:
             self.logger.error(f"Risk status retrieval failed: {e}")
             return {"error": str(e)}
-    
+
     def _calculate_overall_risk_level(self) -> str:
         """Calculate overall system risk level"""
         try:
             # Count critical and emergency alerts
-            critical_alerts = sum(1 for alert in self.risk_alerts 
-                                if alert.severity in [RiskSeverity.CRITICAL, RiskSeverity.EMERGENCY] 
+            critical_alerts = sum(1 for alert in self.risk_alerts
+                                if alert.severity in [RiskSeverity.CRITICAL, RiskSeverity.EMERGENCY]
                                 and not alert.acknowledged)
-            
+
             # Check limit utilizations
-            high_utilizations = sum(1 for limit in self.risk_limits.values() 
+            high_utilizations = sum(1 for limit in self.risk_limits.values()
                                   if limit.utilization_percent > 75.0 and limit.enabled)
-            
+
             # Determine overall risk level
             if critical_alerts > 0 or high_utilizations > 2:
                 return "HIGH"
@@ -1213,15 +1207,15 @@ class FSeriesRiskIntegrator:
                 return "MEDIUM"
             else:
                 return "LOW"
-                
+
         except Exception as e:
             self.logger.error(f"Overall risk level calculation failed: {e}")
             return "UNKNOWN"
-    
-    def get_position_sizing_recommendation(self, symbol: str) -> Optional[PositionSizingRecommendation]:
+
+    def get_position_sizing_recommendation(self, symbol: str) -> PositionSizingRecommendation | None:
         """Get position sizing recommendation for symbol"""
         return self.position_sizing_cache.get(symbol)
-    
+
     def acknowledge_alert(self, alert_id: str) -> bool:
         """Acknowledge a risk alert"""
         try:
@@ -1231,22 +1225,22 @@ class FSeriesRiskIntegrator:
                     self.logger.info(f"Risk alert acknowledged: {alert_id}")
                     return True
             return False
-            
+
         except Exception as e:
             self.logger.error(f"Alert acknowledgment failed: {e}")
             return False
-    
+
     def add_alert_callback(self, callback: Callable) -> None:
         """Add callback function for risk alerts"""
         self.alert_callbacks.append(callback)
-    
-    def export_risk_report(self, output_file: Optional[str] = None) -> str:
+
+    def export_risk_report(self, output_file: str | None = None) -> str:
         """Export comprehensive risk report"""
         try:
             if output_file is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_file = f"f_series_risk_report_{timestamp}.json"
-            
+
             # Generate comprehensive risk report
             risk_report = {
                 "report_timestamp": datetime.now().isoformat(),
@@ -1298,13 +1292,13 @@ class FSeriesRiskIntegrator:
                     for symbol, rec in self.position_sizing_cache.items()
                 }
             }
-            
+
             with open(output_file, 'w') as f:
                 json.dump(risk_report, f, indent=2, default=str)
-            
+
             self.logger.info(f"Risk report exported to: {output_file}")
             return output_file
-            
+
         except Exception as e:
             self.logger.error(f"Risk report export failed: {e}")
             raise
@@ -1316,54 +1310,54 @@ class FSeriesRiskIntegrator:
 async def main():
     """Main execution function for testing and demonstration"""
     logging.info("🛡️ F-Series Risk Integrator Starting...")
-    
+
     # Create risk integrator
     risk_integrator = FSeriesRiskIntegrator()
-    
+
     try:
         # Start risk monitoring
         await risk_integrator.start_risk_monitoring()
-        
+
         # Simulate risk monitoring for 60 seconds
         logging.info("📊 Risk monitoring active for 60 seconds...")
-        
+
         # Add test alert callback
         def alert_callback(alert):
             logging.info(f"🚨 RISK ALERT: {alert.severity.value} - {alert.message}")
-        
+
         risk_integrator.add_alert_callback(alert_callback)
-        
+
         for i in range(60):
             # Get risk status every 10 seconds
             if i % 10 == 0:
                 status = risk_integrator.get_risk_status()
                 logging.info(f"Overall Risk Level: {status['overall_risk_level']}")
                 logging.info(f"Active Alerts: {sum(status['active_alerts'].values())}")
-                
+
                 # Show F-series health
                 for module, health in status['f_series_health'].items():
                     logging.info(f"{module} Risk Score: {health['risk_score']:.2f}")
-                
+
                 logging.info("---")
-            
+
             await asyncio.sleep(1)
-        
+
         # Generate final risk report
         logging.info("\n📈 Generating Risk Report...")
         report_file = risk_integrator.export_risk_report()
         logging.info(f"Risk report exported to: {report_file}")
-        
+
         # Show final status
         final_status = risk_integrator.get_risk_status()
-        logging.info(f"\nFinal Risk Status:")
+        logging.info("\nFinal Risk Status:")
         logging.info(f"  Overall Risk Level: {final_status['overall_risk_level']}")
         logging.info(f"  Portfolio VaR: ${final_status['portfolio_metrics']['var_95']:,.0f}")
         logging.info(f"  Net Delta Exposure: {final_status['greeks_exposure']['delta']:.0f}")
-        
+
     except Exception as e:
         logging.info(f"❌ Risk integrator test failed: {e}")
         traceback.print_exc()
-    
+
     finally:
         # Stop risk monitoring
         await risk_integrator.stop_risk_monitoring()

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -52,11 +51,10 @@ import json
 import logging
 import math
 import os
-from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timedelta, timezone
-from enum import Enum
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, UTC
+from enum import StrEnum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # ==============================================================================
 # OPTIONAL BROKER IMPORT
@@ -107,7 +105,7 @@ _MIN_SHARPE_WINDOW: int = 2
 # ==============================================================================
 
 
-class DrawdownLevel(str, Enum):
+class DrawdownLevel(StrEnum):
     """Severity levels for intraday drawdown alerts."""
 
     WARNING = "warning"    # 3 % — log and notify, continue trading
@@ -258,7 +256,7 @@ class SnapshotStore:
             alerts/YYYY-MM-DDTHH-MM-SS_<level>.json
     """
 
-    def __init__(self, root_dir: Optional[Path] = None) -> None:
+    def __init__(self, root_dir: Path | None = None) -> None:
         self._root = Path(root_dir) if root_dir else Path("data") / "paper_trading"
         self._snapshots_dir = self._root / "snapshots"
         self._alerts_dir = self._root / "alerts"
@@ -285,7 +283,7 @@ class SnapshotStore:
         logger.info("Saved daily snapshot → %s", path)
         return path
 
-    def load_snapshot(self, session_date: date) -> Optional[DailySnapshot]:
+    def load_snapshot(self, session_date: date) -> DailySnapshot | None:
         """
         Load the snapshot for *session_date*, or ``None`` if absent.
 
@@ -306,9 +304,9 @@ class SnapshotStore:
 
     def list_snapshots(
         self,
-        start: Optional[date] = None,
-        end: Optional[date] = None,
-    ) -> List[DailySnapshot]:
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[DailySnapshot]:
         """
         Return all snapshots in ``[start, end]`` (inclusive), sorted by date.
 
@@ -319,7 +317,7 @@ class SnapshotStore:
         Returns:
             Sorted list of :class:`DailySnapshot` objects.
         """
-        snapshots: List[DailySnapshot] = []
+        snapshots: list[DailySnapshot] = []
         for p in sorted(self._snapshots_dir.glob("*.json")):
             try:
                 snap_date = date.fromisoformat(p.stem)
@@ -361,7 +359,7 @@ class SnapshotStore:
         )
         return path
 
-    def list_alert_files(self, session_date: Optional[date] = None) -> List[Path]:
+    def list_alert_files(self, session_date: date | None = None) -> list[Path]:
         """Return alert JSON paths, optionally filtered by date prefix."""
         if session_date is None:
             return sorted(self._alerts_dir.glob("*.json"))
@@ -384,7 +382,7 @@ class MetricsCalculator:
     @classmethod
     def rolling_sharpe(
         cls,
-        daily_returns: List[float],
+        daily_returns: list[float],
         window: int = 20,
         risk_free_daily: float = 0.0,
     ) -> float:
@@ -413,7 +411,7 @@ class MetricsCalculator:
         return (mean / std) * math.sqrt(_TRADING_DAYS_PER_YEAR)
 
     @classmethod
-    def max_drawdown(cls, equity_series: List[float]) -> float:
+    def max_drawdown(cls, equity_series: list[float]) -> float:
         """
         Maximum drawdown over an equity curve (peak-to-trough, as a positive
         decimal).
@@ -455,7 +453,7 @@ class MetricsCalculator:
     @classmethod
     def build_summary(
         cls,
-        snapshots: List[DailySnapshot],
+        snapshots: list[DailySnapshot],
         sessions_required: int = PAPER_TRADING_DAYS_REQUIRED,
     ) -> HarnessSummary:
         """
@@ -586,7 +584,7 @@ class PaperTradingHarness:
     def __init__(
         self,
         broker_client=None,
-        snapshot_store: Optional[SnapshotStore] = None,
+        snapshot_store: SnapshotStore | None = None,
         starting_equity_override: float = 100_000.0,
         sessions_required: int = PAPER_TRADING_DAYS_REQUIRED,
         warn_threshold: float = _WARN_THRESHOLD,
@@ -603,8 +601,8 @@ class PaperTradingHarness:
 
         # --- Session state (reset each day) ---
         self._session_active: bool = False
-        self._session_date: Optional[date] = None
-        self._session_start_time: Optional[datetime] = None
+        self._session_date: date | None = None
+        self._session_start_time: datetime | None = None
         self._starting_equity: float = 0.0
         self._peak_equity: float = 0.0
         self._current_equity: float = 0.0
@@ -637,7 +635,7 @@ class PaperTradingHarness:
             ``True`` if the session was started successfully.
         """
         self._session_date = date.today()
-        self._session_start_time = datetime.now(tz=timezone.utc)
+        self._session_start_time = datetime.now(tz=UTC)
 
         equity = self._fetch_equity()
         self._starting_equity = equity
@@ -706,7 +704,7 @@ class PaperTradingHarness:
         session_day = len(all_snaps) + 1  # 1-based (before saving today's)
         days_rem = max(0, self._sessions_required - session_day)
 
-        now_utc = datetime.now(tz=timezone.utc)
+        now_utc = datetime.now(tz=UTC)
         duration_minutes = (
             (now_utc - self._session_start_time).total_seconds() / 60.0
             if self._session_start_time
@@ -778,7 +776,7 @@ class PaperTradingHarness:
         pnl: float,
         placed: bool = True,
         filled: bool = True,
-        won: Optional[bool] = None,
+        won: bool | None = None,
     ) -> None:
         """
         Register a trade outcome in the current session.
@@ -799,7 +797,7 @@ class PaperTradingHarness:
         elif won is False:
             self._session_losses += 1
 
-    def check_drawdown(self) -> Optional[DrawdownAlert]:
+    def check_drawdown(self) -> DrawdownAlert | None:
         """
         Test the current equity against drawdown thresholds.
 
@@ -814,7 +812,7 @@ class PaperTradingHarness:
 
         dd = (self._peak_equity - self._current_equity) / self._peak_equity if self._peak_equity > 0 else 0.0
 
-        level: Optional[DrawdownLevel] = None
+        level: DrawdownLevel | None = None
         threshold: float = 0.0
 
         if dd >= self._halt_threshold and DrawdownLevel.HALT not in self._fired_levels:
@@ -834,7 +832,7 @@ class PaperTradingHarness:
         if level == DrawdownLevel.HALT:
             self._halt_fired = True
 
-        now_utc = datetime.now(tz=timezone.utc)
+        now_utc = datetime.now(tz=UTC)
         alert = DrawdownAlert(
             triggered_at=now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
             session_date=self._session_date.isoformat() if self._session_date else "",
@@ -862,7 +860,7 @@ class PaperTradingHarness:
         """``True`` if the HALT threshold was crossed this session."""
         return self._halt_fired
 
-    def get_current_metrics(self) -> Dict:
+    def get_current_metrics(self) -> dict:
         """
         Return a snapshot of the current intraday state as a plain dict.
 
@@ -949,7 +947,7 @@ class PaperTradingHarness:
 
 
 def create_paper_trading_harness_from_env(
-    snapshot_dir: Optional[Path] = None,
+    snapshot_dir: Path | None = None,
 ) -> "PaperTradingHarness":
     """
     Build a :class:`PaperTradingHarness` from environment variables.

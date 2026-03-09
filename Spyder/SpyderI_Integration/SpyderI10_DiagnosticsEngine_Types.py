@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,7 +25,7 @@ Change Log:
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 class HealthStatus(Enum):
     """System health status levels"""
@@ -92,7 +91,7 @@ class SystemMetrics:
     process_count: int
     thread_count: int
     file_descriptors: int
-    load_average: Optional[Tuple[float, float, float]] = None
+    load_average: tuple[float, float, float] | None = None
 
 
 @dataclass
@@ -162,10 +161,10 @@ class DiagnosticIssue:
     severity: ProblemSeverity
     title: str
     description: str
-    affected_components: List[str]
-    symptoms: List[str]
-    root_cause: Optional[str] = None
-    recommendations: List[str] = field(default_factory=list)
+    affected_components: list[str]
+    symptoms: list[str]
+    root_cause: str | None = None
+    recommendations: list[str] = field(default_factory=list)
     auto_fixable: bool = False
     detected_at: datetime = field(default_factory=datetime.now)
     resolution_status: str = "open"  # open, investigating, resolved
@@ -179,7 +178,7 @@ class IssuePattern:
     pattern_id: str
     pattern_type: str
     frequency: int
-    components: List[str]
+    components: list[str]
     description: str
     severity: float  # 0-1 scale
     first_seen: datetime
@@ -200,7 +199,7 @@ class PerformanceBaseline:
     baseline_value: float
     standard_deviation: float
     sample_count: int
-    confidence_interval: Tuple[float, float]
+    confidence_interval: tuple[float, float]
     established_at: datetime
     last_updated: datetime
 
@@ -226,8 +225,8 @@ class BottleneckInfo:
     bottleneck_type: str  # "cpu", "memory", "disk", "network", "queue"
     severity: float  # 0-1 scale
     description: str
-    symptoms: List[str]
-    recommendations: List[str]
+    symptoms: list[str]
+    recommendations: list[str]
     estimated_impact: float  # 0-1 scale
 
 
@@ -264,19 +263,19 @@ class HealthSnapshot:
     timestamp: datetime
     overall_score: float
     system_metrics: SystemMetrics
-    module_health: List[ModuleHealth]
-    integration_health: List[IntegrationHealth]
-    active_issues: List[DiagnosticIssue]
+    module_health: list[ModuleHealth]
+    integration_health: list[IntegrationHealth]
+    active_issues: list[DiagnosticIssue]
 
 
 @dataclass
 class PerformanceSummary:
     """Performance analysis summary"""
 
-    trends: List[PerformanceTrend]
-    bottlenecks: List[BottleneckInfo]
-    anomalies: List[AnomalyInfo]
-    baselines: Dict[str, PerformanceBaseline]
+    trends: list[PerformanceTrend]
+    bottlenecks: list[BottleneckInfo]
+    anomalies: list[AnomalyInfo]
+    baselines: dict[str, PerformanceBaseline]
     overall_performance_score: float
 
 
@@ -288,11 +287,11 @@ class DiagnosticReport:
     generated_at: datetime
     overall_health_score: float
     system_metrics: SystemMetrics
-    module_health: List[ModuleHealth]
-    integration_health: List[IntegrationHealth]
-    identified_issues: List[DiagnosticIssue]
-    performance_summary: Dict[str, Any]
-    recommendations: List[str]
+    module_health: list[ModuleHealth]
+    integration_health: list[IntegrationHealth]
+    identified_issues: list[DiagnosticIssue]
+    performance_summary: dict[str, Any]
+    recommendations: list[str]
     executive_summary: str
 
 

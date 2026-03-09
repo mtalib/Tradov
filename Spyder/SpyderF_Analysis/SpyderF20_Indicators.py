@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -41,7 +40,6 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -142,7 +140,7 @@ def MACD(
     fastperiod: int = 12,
     slowperiod: int = 26,
     signalperiod: int = 9,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Moving Average Convergence/Divergence.
 
@@ -171,7 +169,7 @@ def BBANDS(
     nbdevup: float = 2.0,
     nbdevdn: float = 2.0,
     matype: int = 0,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Bollinger Bands (upper, middle, lower).
 
@@ -239,7 +237,7 @@ def STOCH(
     slowk_matype: int = 0,
     slowd_period: int = 3,
     slowd_matype: int = 0,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Stochastic Oscillator (slow %K and %D).
 
@@ -271,7 +269,7 @@ def _directional_indicators(
     low: np.ndarray,
     close: np.ndarray,
     timeperiod: int,
-) -> Tuple[pd.Series, pd.Series, pd.Series]:
+) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
     Shared helper: compute Wilder-smoothed DM+, DM-, and TR components.
 
@@ -279,23 +277,23 @@ def _directional_indicators(
         Tuple of (smoothed_dm_plus, smoothed_dm_minus, smoothed_tr) as Series.
     """
     h = pd.Series(high)
-    l = pd.Series(low)
+    lo = pd.Series(low)
     c = pd.Series(close)
     prev_h = h.shift(1)
-    prev_l = l.shift(1)
+    prev_l = lo.shift(1)
     prev_c = c.shift(1)
 
     up_move = h - prev_h
-    down_move = prev_l - l
+    down_move = prev_l - lo
 
     dm_plus = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     dm_minus = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
 
     tr = pd.concat(
         [
-            h - l,
+            h - lo,
             (h - prev_c).abs(),
-            (l - prev_c).abs(),
+            (lo - prev_c).abs(),
         ],
         axis=1,
     ).max(axis=1)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,10 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
 import time
-import threading
-import asyncio
 import logging
 from pathlib import Path
 
@@ -48,14 +44,14 @@ try:
         QProgressBar,
         QGroupBox,
         QGridLayout,
-        QFrame,
-        QMessageBox,
+        QFrame,  # noqa: F401
+        QMessageBox,  # noqa: F401
         QSplitter,
         QStatusBar,
-        QTabWidget,
+        QTabWidget,  # noqa: F401
     )
-    from PySide6.QtCore import Qt, QTimer, QThread, Signal
-    from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap
+    from PySide6.QtCore import Qt, QTimer, QThread, Signal  # noqa: F401
+    from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap  # noqa: F401
 
     GUI_AVAILABLE = True
 except ImportError as e:
@@ -65,7 +61,7 @@ except ImportError as e:
 
 # IB API imports
 try:
-    from ib_async import IB, util, Contract, Stock, Option
+    from ib_async import IB, util, Contract, Stock, Option  # noqa: F401
 
     IB_AVAILABLE = True
 except ImportError as e:
@@ -398,7 +394,7 @@ class MarketDataWidget(QWidget):
 
     def update_market_data(self, symbol, price, change=None):
         """Update market data display"""
-        current_text = self.data_display.toPlainText()
+        self.data_display.toPlainText()
 
         # Add market data update
         timestamp = time.strftime("%H:%M:%S")
@@ -460,7 +456,7 @@ class SPYDERDirectDashboard(QMainWindow):
         config_group.setStyleSheet("QGroupBox { font-weight: bold; color: #4fd1c7; }")
         config_layout = QVBoxLayout(config_group)
 
-        self.config_label = QLabel(f"""
+        self.config_label = QLabel("""
         Host: 127.0.0.1
         Port: 4002 (IB Gateway Paper)
         Clients: 100-107 (Universal 8-Client)

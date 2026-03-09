@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,14 +27,13 @@ import json
 import logging
 import os
 import re
-import sys
 import threading
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -46,19 +44,18 @@ import toml
 import yaml
 
 try:
-    import base64
+    import base64  # noqa: F401
 
     from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes  # noqa: F401
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC  # noqa: F401
 
     HAS_CRYPTO = True
 except ImportError:
     HAS_CRYPTO = False
     logging.info("Warning: cryptography not installed - sensitive data will not be encrypted")
 
-import watchdog
-from jsonschema import Draft7Validator, ValidationError, validate
+from jsonschema import Draft7Validator
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -138,8 +135,8 @@ class ConfigValue:
     timestamp: datetime = field(default_factory=datetime.now)
     encrypted: bool = False
     schema_validated: bool = False
-    description: Optional[str] = None
-    constraints: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    constraints: dict[str, Any] | None = None
 
 
 @dataclass
@@ -151,8 +148,8 @@ class ConfigChange:
     old_value: Any
     new_value: Any
     source: str
-    user: Optional[str] = None
-    reason: Optional[str] = None
+    user: str | None = None
+    reason: str | None = None
 
 
 @dataclass
@@ -160,10 +157,10 @@ class ConfigSchema:
     """Configuration schema definition"""
 
     version: str
-    properties: Dict[str, Any]
-    required: List[str]
+    properties: dict[str, Any]
+    required: list[str]
     additional_properties: bool = False
-    definitions: Optional[Dict[str, Any]] = None
+    definitions: dict[str, Any] | None = None
 
 
 # ==============================================================================
@@ -217,7 +214,7 @@ class ConfigManager:
 
     def __init__(
         self,
-        config_path: Optional[Path] = None,
+        config_path: Path | None = None,
         environment: str = "production",
         auto_reload: bool = True,
     ):
@@ -244,11 +241,11 @@ class ConfigManager:
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
         # Configuration data structures
-        self.config_data: Dict[str, Any] = {}
-        self.config_sources: Dict[str, ConfigValue] = {}
-        self.change_history: List[ConfigChange] = []
-        self.schemas: Dict[str, ConfigSchema] = {}
-        self.callbacks: Dict[str, List[Callable]] = defaultdict(list)
+        self.config_data: dict[str, Any] = {}
+        self.config_sources: dict[str, ConfigValue] = {}
+        self.change_history: list[ConfigChange] = []
+        self.schemas: dict[str, ConfigSchema] = {}
+        self.callbacks: dict[str, list[Callable]] = defaultdict(list)
 
         # Thread safety
         self._lock = threading.RLock()
@@ -260,7 +257,7 @@ class ConfigManager:
         # File watching
         self.auto_reload = auto_reload
         self.file_observer = None
-        self.watched_files: Set[Path] = set()
+        self.watched_files: set[Path] = set()
 
         # Load initial configuration
         self._load_all_configurations()
@@ -472,22 +469,22 @@ class ConfigManager:
             self.logger.error(f"Failed to load config file {file_path}: {e}")
             self.error_handler.handle_error(e, f"load_config_file:{file_path}")
 
-    def _load_yaml_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load YAML configuration file"""
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             return yaml.safe_load(f) or {}
 
-    def _load_json_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_json_file(self, file_path: Path) -> dict[str, Any]:
         """Load JSON configuration file"""
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             return json.load(f)
 
-    def _load_toml_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_toml_file(self, file_path: Path) -> dict[str, Any]:
         """Load TOML configuration file"""
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             return toml.load(f)
 
-    def _load_ini_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_ini_file(self, file_path: Path) -> dict[str, Any]:
         """Load INI configuration file"""
         config = configparser.ConfigParser()
         config.read(file_path)
@@ -499,11 +496,11 @@ class ConfigManager:
 
         return result
 
-    def _load_env_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_env_file(self, file_path: Path) -> dict[str, Any]:
         """Load .env configuration file"""
         result = {}
 
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -564,7 +561,7 @@ class ConfigManager:
         # Default to string
         return value
 
-    def _set_nested_value(self, d: Dict[str, Any], key: str, value: Any):
+    def _set_nested_value(self, d: dict[str, Any], key: str, value: Any):
         """Set value in nested dictionary using dot notation"""
         keys = key.split(".")
         current = d
@@ -576,7 +573,7 @@ class ConfigManager:
 
         current[keys[-1]] = value
 
-    def _merge_config(self, new_config: Dict[str, Any], source: ConfigSource):
+    def _merge_config(self, new_config: dict[str, Any], source: ConfigSource):
         """Merge new configuration with existing"""
         with self._lock:
             # Deep merge configurations
@@ -585,7 +582,7 @@ class ConfigManager:
             # Track sources
             self._track_config_sources(new_config, source)
 
-    def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]):
+    def _deep_merge(self, base: dict[str, Any], update: dict[str, Any]):
         """Deep merge two dictionaries"""
         for key, value in update.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
@@ -593,7 +590,7 @@ class ConfigManager:
             else:
                 base[key] = value
 
-    def _track_config_sources(self, config: Dict[str, Any], source: ConfigSource, prefix: str = ""):
+    def _track_config_sources(self, config: dict[str, Any], source: ConfigSource, prefix: str = ""):
         """Track the source of each configuration value"""
         for key, value in config.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -696,7 +693,7 @@ class ConfigManager:
                 self.logger.error(f"Error getting config value {key}: {e}")
                 return default
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get all configuration values (with sensitive data masked)"""
         with self._lock:
             # Deep copy configuration
@@ -707,7 +704,7 @@ class ConfigManager:
 
             return config_copy
 
-    def _mask_sensitive_values(self, config: Dict[str, Any], prefix: str = ""):
+    def _mask_sensitive_values(self, config: dict[str, Any], prefix: str = ""):
         """Mask sensitive values in configuration"""
         for key, value in list(config.items()):
             full_key = f"{prefix}.{key}" if prefix else key
@@ -770,7 +767,7 @@ class ConfigManager:
                 self.logger.error(f"Error setting config value {key}: {e}")
                 return False
 
-    def update(self, updates: Dict[str, Any], source: str = "runtime") -> bool:
+    def update(self, updates: dict[str, Any], source: str = "runtime") -> bool:
         """
         Update multiple configuration values.
 
@@ -843,7 +840,7 @@ class ConfigManager:
     def load_schema(self, schema_path: Path):
         """Load configuration schema from file"""
         try:
-            with open(schema_path, "r") as f:
+            with open(schema_path) as f:
                 schema_data = json.load(f)
 
             schema = ConfigSchema(
@@ -860,7 +857,7 @@ class ConfigManager:
         except Exception as e:
             self.logger.error(f"Failed to load schema {schema_path}: {e}")
 
-    def validate(self, schema_name: Optional[str] = None) -> List[str]:
+    def validate(self, schema_name: str | None = None) -> list[str]:
         """
         Validate configuration against schema.
 
@@ -881,7 +878,7 @@ class ConfigManager:
 
         return errors
 
-    def _validate_basic(self) -> List[str]:
+    def _validate_basic(self) -> list[str]:
         """Perform basic configuration validation"""
         errors = []
 
@@ -910,7 +907,7 @@ class ConfigManager:
 
         return errors
 
-    def _validate_against_schema(self, schema_name: str) -> List[str]:
+    def _validate_against_schema(self, schema_name: str) -> list[str]:
         """Validate configuration against JSON schema"""
         errors = []
         schema = self.schemas[schema_name]
@@ -1077,7 +1074,7 @@ class ConfigManager:
 
     def _notify_all_callbacks(self):
         """Notify all callbacks (used for reload)"""
-        for pattern, callbacks in self.callbacks.items():
+        for _pattern, callbacks in self.callbacks.items():
             for callback in callbacks:
                 try:
                     callback("*", None, None)  # Special reload notification
@@ -1148,7 +1145,7 @@ class ConfigManager:
         try:
             self.logger.info(f"Restoring configuration from: {backup_file}")
 
-            with open(backup_file, "r") as f:
+            with open(backup_file) as f:
                 backup_data = json.load(f)
 
             # Clear current configuration
@@ -1188,7 +1185,7 @@ class ConfigManager:
             self.logger.error(f"Checksum calculation failed: {e}")
             return ""
 
-    def get_change_history(self, limit: Optional[int] = None) -> List[ConfigChange]:
+    def get_change_history(self, limit: int | None = None) -> list[ConfigChange]:
         """
         Get configuration change history.
 
@@ -1253,7 +1250,7 @@ class ConfigManager:
             self.logger.error(f"Export failed: {e}")
             return False
 
-    def print_config(self, section: Optional[str] = None):
+    def print_config(self, section: str | None = None):
         """Print configuration to console (for debugging)"""
         config = self.get(section) if section else self.get_all()
 
@@ -1271,11 +1268,11 @@ class ConfigManager:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_config_manager_instance: Optional[ConfigManager] = None
+_config_manager_instance: ConfigManager | None = None
 _config_lock = threading.Lock()
 
 
-def get_config_manager(config_path: Optional[Path] = None) -> ConfigManager:
+def get_config_manager(config_path: Path | None = None) -> ConfigManager:
     """
     Get singleton ConfigManager instance.
 
@@ -1308,43 +1305,32 @@ def reset_config_manager():
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing
-    print("Testing ConfigManager...")
 
     # Create config manager
     config = ConfigManager(environment="development")
 
     # Test basic operations
-    print("\n1. Testing basic get/set:")
-    print(f"Broker host: {config.get('broker.host')}")
     config.set("broker.host", "localhost")
-    print(f"Updated broker host: {config.get('broker.host')}")
 
     # Test validation
-    print("\n2. Testing validation:")
     errors = config.validate()
     if errors:
-        print(f"Validation errors: {errors}")
+        pass
     else:
-        print("Validation passed")
+        pass
 
     # Test sensitive data
-    print("\n3. Testing sensitive data:")
     config.set("broker.api_key", "secret123")
-    print(f"API key (should be encrypted): {config.config_sources.get('broker.api_key', {})}")
 
     # Test export
-    print("\n4. Testing export:")
     export_path = Path("test_config_export.yaml")
     if config.export_config(export_path):
-        print(f"Configuration exported to: {export_path}")
+        pass
 
     # Print configuration
-    print("\n5. Current configuration:")
     config.print_config()
 
     # Test change history
-    print("\n6. Change history:")
-    for change in config.get_change_history(limit=5):
-        print(f"  - {change.timestamp}: {change.key} = {change.new_value}")
+    for _change in config.get_change_history(limit=5):
+        pass
 
-    print("\n✅ ConfigManager test completed")

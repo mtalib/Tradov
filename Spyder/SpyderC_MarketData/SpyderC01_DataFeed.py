@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -46,16 +45,14 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
 import sys
 import time
 import threading
-import json
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple, Any, Callable, Set, Union
+from datetime import datetime, timedelta
+from typing import Optional, Any, Callable, Union
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -63,15 +60,12 @@ from concurrent.futures import ThreadPoolExecutor
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
-from Spyder.SpyderU_Utilities.SpyderU09_DataTypes import MarketDataType
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
@@ -81,7 +75,7 @@ try:
     from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
         DatabentoClient,
         MarketDataUpdate as DatabentoMarketUpdate,
-        ConnectionStatus as DatabentoConnectionStatus,
+        ConnectionStatus as DatabentoConnectionStatus,  # noqa: F401
         create_databento_client_from_env,
     )
     HAS_DATABENTO = True
@@ -149,20 +143,20 @@ class MarketTick:
     timestamp: datetime
     price: float
     size: int
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    bid_size: Optional[int] = None
-    ask_size: Optional[int] = None
-    volume: Optional[int] = None
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    close: Optional[float] = None
-    vwap: Optional[float] = None
+    bid: float | None = None
+    ask: float | None = None
+    bid_size: int | None = None
+    ask_size: int | None = None
+    volume: int | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    vwap: float | None = None
     source: DataSource = DataSource.DATABENTO
     quality: str = "realtime"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             'symbol': self.symbol,
@@ -194,13 +188,13 @@ class DataFeedConfig:
     update_interval: float = 0.1
     heartbeat_interval: int = 30
     error_threshold: int = 10
-    custom_metrics_config: Dict[str, Any] = field(default_factory=dict)
+    custom_metrics_config: dict[str, Any] = field(default_factory=dict)
     # Databento-specific
     databento_schema: str = "mbp-1"
     databento_dataset: str = "OPRA.PILLAR"
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'DataFeedConfig':
+    def from_dict(cls, config_dict: dict[str, Any]) -> 'DataFeedConfig':
         """Create from dictionary, ignoring unknown keys."""
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in config_dict.items() if k in valid_keys}
@@ -221,8 +215,8 @@ class MarketDataProvider(ABC):
     """
 
     def __init__(self) -> None:
-        self.on_data: Optional[Callable[[MarketTick], None]] = None
-        self.on_status_change: Optional[Callable[[DataFeedStatus], None]] = None
+        self.on_data: Callable[[MarketTick], None] | None = None
+        self.on_status_change: Callable[[DataFeedStatus], None] | None = None
 
     @property
     @abstractmethod
@@ -281,7 +275,7 @@ class DatabentoProvider(MarketDataProvider):
     """
 
     # Symbols that should be streamed as equities (not options underlyings)
-    EQUITY_SYMBOLS: Set[str] = {
+    EQUITY_SYMBOLS: set[str] = {
         'SPY', 'QQQ', 'IWM', 'DIA', 'TLT', 'LQD', 'GLD',
         'UVXY', 'VIX', 'VIX9D', 'VXV', 'VXMT', 'VVIX',
     }
@@ -301,8 +295,8 @@ class DatabentoProvider(MarketDataProvider):
         self._logger = SpyderLogger.get_logger(f"{__name__}.DatabentoProvider")
         self._schema = schema
         self._dataset = dataset
-        self._client: Optional[DatabentoClient] = None
-        self._subscribed_symbols: Set[str] = set()
+        self._client: DatabentoClient | None = None
+        self._subscribed_symbols: set[str] = set()
         self._started = False
 
     # ------------------------------------------------------------------
@@ -326,8 +320,8 @@ class DatabentoProvider(MarketDataProvider):
             self._client.on_status_change = self._on_connection_status
 
             # Separate equity vs option underlying symbols
-            underlyings: List[str] = []
-            equity_symbols: List[str] = []
+            underlyings: list[str] = []
+            equity_symbols: list[str] = []
             for sym in self._subscribed_symbols:
                 if sym in self.EQUITY_SYMBOLS:
                     equity_symbols.append(sym)
@@ -549,9 +543,9 @@ class DataFeedManager:
 
     def __init__(
         self,
-        provider: Optional[Union[str, MarketDataProvider]] = None,
-        event_manager: Optional[EventManager] = None,
-        config: Optional[Union[DataFeedConfig, Dict]] = None,
+        provider: Union[str, MarketDataProvider] | None = None,
+        event_manager: EventManager | None = None,
+        config: Union[DataFeedConfig, dict] | None = None,
     ):
         """
         Initialize enhanced data feed manager.
@@ -587,37 +581,37 @@ class DataFeedManager:
         self._provider.on_status_change = self._on_provider_status
 
         # Cache
-        self.market_cache: Optional[MarketDataCache] = None
+        self.market_cache: MarketDataCache | None = None
         self.data_validator = DataValidator()
 
         # State management
         self.status = DataFeedStatus.DISCONNECTED
         self.is_running = False
-        self.last_update: Optional[datetime] = None
+        self.last_update: datetime | None = None
 
         # Data storage
-        self.data_buffers: Dict[str, deque] = defaultdict(
+        self.data_buffers: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=self.config.buffer_size)
         )
-        self.current_data: Dict[str, MarketTick] = {}
-        self.symbol_status: Dict[str, Dict[str, Any]] = {}
+        self.current_data: dict[str, MarketTick] = {}
+        self.symbol_status: dict[str, dict[str, Any]] = {}
 
         # Subscribers
-        self.subscribers: Dict[str, List[Callable]] = defaultdict(list)
-        self.group_subscribers: Dict[str, List[Callable]] = defaultdict(list)
+        self.subscribers: dict[str, list[Callable]] = defaultdict(list)
+        self.group_subscribers: dict[str, list[Callable]] = defaultdict(list)
 
         # Custom metric handlers
-        self.custom_handlers: Dict[str, Any] = {}
+        self.custom_handlers: dict[str, Any] = {}
 
         # Threading
         self._lock = threading.RLock()
-        self._update_thread: Optional[threading.Thread] = None
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._update_thread: threading.Thread | None = None
+        self._monitor_thread: threading.Thread | None = None
         self.executor = ThreadPoolExecutor(max_workers=5)
 
         # Error tracking
-        self.error_counts: Dict[str, int] = defaultdict(int)
-        self.last_errors: Dict[str, str] = {}
+        self.error_counts: dict[str, int] = defaultdict(int)
+        self.last_errors: dict[str, str] = {}
 
         # Initialize non-provider components
         self._initialize_components()
@@ -670,7 +664,7 @@ class DataFeedManager:
         for metric_name, cfg in self.config.custom_metrics_config.items():
             if cfg.get('enabled'):
                 try:
-                    module_name = cfg['module']
+                    cfg['module']
                     self.logger.info(f"Loaded custom handler for {metric_name}")
                 except Exception as e:
                     self.logger.error(f"Failed to load {metric_name} handler: {e}")
@@ -760,7 +754,7 @@ class DataFeedManager:
         self,
         symbol: str,
         callback: Callable[[MarketTick], None],
-        priority: Optional[str] = None,
+        priority: str | None = None,
     ) -> bool:
         """
         Subscribe to market data updates for a symbol.
@@ -791,7 +785,7 @@ class DataFeedManager:
     def unsubscribe(
         self,
         symbol: str,
-        callback: Optional[Callable] = None,
+        callback: Callable | None = None,
     ) -> bool:
         """
         Unsubscribe from market data updates.
@@ -820,7 +814,7 @@ class DataFeedManager:
     def subscribe_group(
         self,
         group_name: str,
-        callback: Callable[[Dict[str, MarketTick]], None],
+        callback: Callable[[dict[str, MarketTick]], None],
     ) -> bool:
         """
         Subscribe to a group of symbols.
@@ -846,7 +840,7 @@ class DataFeedManager:
 
     def get_market_data(
         self, symbol: str, use_cache: bool = True
-    ) -> Optional[MarketTick]:
+    ) -> MarketTick | None:
         """
         Get latest market data for a symbol.
 
@@ -918,8 +912,8 @@ class DataFeedManager:
         return pd.DataFrame()
 
     def get_snapshot(
-        self, symbols: Optional[List[str]] = None
-    ) -> Dict[str, MarketTick]:
+        self, symbols: list[str] | None = None
+    ) -> dict[str, MarketTick]:
         """
         Get snapshot of current market data.
 
@@ -938,7 +932,7 @@ class DataFeedManager:
                 }
             return self.current_data.copy()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get comprehensive status of the data feed system."""
         with self._lock:
             return {
@@ -1023,7 +1017,7 @@ class DataFeedManager:
     # ==========================================================================
     # CUSTOM / SYSTEM EVENT HANDLERS
     # ==========================================================================
-    def _handle_custom_metric_update(self, data: Dict[str, Any]) -> None:
+    def _handle_custom_metric_update(self, data: dict[str, Any]) -> None:
         """Handle custom metric update (GEX, DIX, SWAN, etc.)."""
         try:
             symbol = data['symbol']
@@ -1045,7 +1039,7 @@ class DataFeedManager:
         except Exception as e:
             self.logger.error(f"Error handling custom metric: {e}")
 
-    def _handle_system_error(self, data: Dict[str, Any]) -> None:
+    def _handle_system_error(self, data: dict[str, Any]) -> None:
         """Handle system error event."""
         component = data.get('component', 'Unknown')
         error = data.get('error', 'Unknown error')
@@ -1133,7 +1127,7 @@ class DataFeedManager:
             pass
         return _noop
 
-    def _get_group_snapshot(self, group_name: str) -> Dict[str, MarketTick]:
+    def _get_group_snapshot(self, group_name: str) -> dict[str, MarketTick]:
         """Get snapshot of all symbols in a group."""
         symbols = SYMBOL_GROUPS.get(group_name, [])
         with self._lock:
@@ -1144,7 +1138,7 @@ class DataFeedManager:
             }
 
     def _convert_cached_to_tick(
-        self, symbol: str, data: Dict[str, Any]
+        self, symbol: str, data: dict[str, Any]
     ) -> MarketTick:
         """Convert cached data dict to MarketTick."""
         return MarketTick(
@@ -1222,7 +1216,7 @@ class DataFeedManager:
         """Clean up old data from buffers."""
         cutoff = datetime.now() - timedelta(minutes=30)
         with self._lock:
-            for symbol, buffer in self.data_buffers.items():
+            for _symbol, buffer in self.data_buffers.items():
                 while buffer and buffer[0].timestamp < cutoff:
                     buffer.popleft()
 
@@ -1250,13 +1244,13 @@ class DataFeedManager:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_data_feed_instance: Optional[DataFeedManager] = None
+_data_feed_instance: DataFeedManager | None = None
 
 
 def get_data_feed_manager(
-    provider: Optional[Union[str, MarketDataProvider]] = None,
-    event_manager: Optional[EventManager] = None,
-    config: Optional[Dict] = None,
+    provider: Union[str, MarketDataProvider] | None = None,
+    event_manager: EventManager | None = None,
+    config: dict | None = None,
 ) -> DataFeedManager:
     """
     Get singleton ``DataFeedManager`` instance.
@@ -1307,11 +1301,7 @@ if __name__ == "__main__":
 
     # Define test callback
     def on_update(tick: MarketTick):
-        print(
-            f"  {tick.source.value} | {tick.symbol}: ${tick.price:.2f} "
-            f"[{tick.bid or 0:.2f} x {tick.ask or 0:.2f}] "
-            f"Vol: {tick.volume}"
-        )
+        pass
 
     # Subscribe
     feed_manager.subscribe('SPY', on_update, 'CRITICAL')
@@ -1319,16 +1309,14 @@ if __name__ == "__main__":
     feed_manager.subscribe('QQQ', on_update, 'HIGH')
 
     # Group subscription
-    def on_group(group_data: Dict[str, MarketTick]):
-        print(f"\n  CORE Group Update:")
-        for sym, t in group_data.items():
-            print(f"    {sym}: ${t.price:.2f}")
+    def on_group(group_data: dict[str, MarketTick]):
+        for _sym, _t in group_data.items():
+            pass
 
     feed_manager.subscribe_group('CORE', on_group)
 
     # Start
     if feed_manager.start():
-        print(f"Data feed started ({provider_name})")
 
         try:
             time.sleep(30)
@@ -1336,16 +1324,14 @@ if __name__ == "__main__":
             pass
 
         status = feed_manager.get_status()
-        print(f"\nFeed Status:\n{json.dumps(status, indent=2, default=str)}")
 
         # Historical test
         end_time = datetime.now()
         start_time = end_time - timedelta(minutes=5)
         hist = feed_manager.get_historical_data('SPY', start_time, end_time)
         if not hist.empty:
-            print(f"\nHistorical SPY:\n{hist.tail()}")
+            pass
 
         feed_manager.stop()
-        print("Data feed stopped")
     else:
-        print("Failed to start data feed", file=sys.stderr)
+        pass

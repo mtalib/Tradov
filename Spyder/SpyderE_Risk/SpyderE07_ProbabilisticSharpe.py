@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -38,14 +37,12 @@ Change Log:
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 # ==============================================================================
@@ -177,7 +174,7 @@ class ProbabilisticSharpeCalculator:
     # ==========================================================================
     def calculate_probabilistic_sharpe(
         self,
-        returns: List[float],
+        returns: list[float],
         benchmark_sharpe: float = BENCHMARK_SHARPE,
         confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
         periods_per_year: int = TRADING_DAYS_PER_YEAR
@@ -262,7 +259,7 @@ class ProbabilisticSharpeCalculator:
 
     def calculate_sharpe_confidence_interval(
         self,
-        returns: List[float],
+        returns: list[float],
         confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
         periods_per_year: int = TRADING_DAYS_PER_YEAR
     ) -> SharpeConfidenceInterval:
@@ -328,7 +325,7 @@ class ProbabilisticSharpeCalculator:
     # ==========================================================================
     def calculate_options_adjusted_sharpe(
         self,
-        returns: List[float],
+        returns: list[float],
         periods_per_year: int = TRADING_DAYS_PER_YEAR
     ) -> OptionsAdjustedSharpe:
         """
@@ -392,9 +389,9 @@ class ProbabilisticSharpeCalculator:
     # ==========================================================================
     def calculate_deflated_sharpe(
         self,
-        returns: List[float],
+        returns: list[float],
         num_trials: int = DEFAULT_NUM_TRIALS,
-        variance_sharpe_estimates: Optional[float] = None,
+        variance_sharpe_estimates: float | None = None,
         periods_per_year: int = TRADING_DAYS_PER_YEAR,
         confidence_level: float = DEFAULT_CONFIDENCE_LEVEL
     ) -> DeflatedSharpeResult:
@@ -474,7 +471,7 @@ class ProbabilisticSharpeCalculator:
     # ==========================================================================
     def _calculate_sharpe(
         self,
-        returns: List[float],
+        returns: list[float],
         periods_per_year: int = TRADING_DAYS_PER_YEAR
     ) -> float:
         """Calculate standard Sharpe ratio."""
@@ -493,14 +490,14 @@ class ProbabilisticSharpeCalculator:
 
         return sharpe
 
-    def _calculate_skewness(self, returns: List[float]) -> float:
+    def _calculate_skewness(self, returns: list[float]) -> float:
         """Calculate skewness of returns."""
         if len(returns) < 3:
             return 0.0
 
         return float(stats.skew(returns, bias=False))
 
-    def _calculate_kurtosis(self, returns: List[float]) -> float:
+    def _calculate_kurtosis(self, returns: list[float]) -> float:
         """Calculate kurtosis of returns (Fisher=False means total kurtosis)."""
         if len(returns) < 4:
             return 3.0  # Normal distribution kurtosis
@@ -598,7 +595,7 @@ class ProbabilisticSharpeCalculator:
 # CONVENIENCE FUNCTIONS
 # ==============================================================================
 def calculate_probabilistic_sharpe(
-    returns: List[float],
+    returns: list[float],
     benchmark_sharpe: float = BENCHMARK_SHARPE,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
 ) -> ProbabilisticSharpeResult:
@@ -617,7 +614,7 @@ def calculate_probabilistic_sharpe(
     return calculator.calculate_probabilistic_sharpe(returns, benchmark_sharpe)
 
 def calculate_options_adjusted_sharpe(
-    returns: List[float],
+    returns: list[float],
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
 ) -> OptionsAdjustedSharpe:
     """
@@ -650,9 +647,6 @@ __all__ = [
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 80)
-    print("SPYDER E07 - Probabilistic Sharpe Ratio Test")
-    print("=" * 80)
 
     # Create calculator
     calculator = ProbabilisticSharpeCalculator()
@@ -670,43 +664,16 @@ if __name__ == "__main__":
     returns = base_returns.tolist()
 
     # Test 1: Probabilistic Sharpe Ratio
-    print("\n" + "=" * 80)
-    print("TEST 1: Probabilistic Sharpe Ratio")
-    print("=" * 80)
 
     psr_result = calculator.calculate_probabilistic_sharpe(returns)
 
-    print(f"\nStandard Sharpe Ratio: {psr_result.sharpe_ratio:.3f}")
-    print(f"Probabilistic Sharpe Ratio: {psr_result.probabilistic_sharpe_ratio:.2%}")
-    print(f"  (Probability that true Sharpe > {psr_result.benchmark_sharpe})")
-    print(f"\nConfidence Interval (95%):")
-    print(f"  Lower Bound: {psr_result.confidence_interval.lower_bound:.3f}")
-    print(f"  Upper Bound: {psr_result.confidence_interval.upper_bound:.3f}")
-    print(f"  Is Significant: {psr_result.confidence_interval.is_significant}")
-    print(f"\nMinimum Track Record Length: {psr_result.min_track_record_length} periods")
-    print(f"Current Observations: {psr_result.num_observations}")
-    print(f"\nHigher Moments:")
-    print(f"  Skewness: {psr_result.skewness:.3f}")
-    print(f"  Kurtosis: {psr_result.kurtosis:.3f}")
 
     # Test 2: Options-Adjusted Sharpe
-    print("\n" + "=" * 80)
-    print("TEST 2: Options-Adjusted Sharpe Ratio")
-    print("=" * 80)
 
     options_sharpe = calculator.calculate_options_adjusted_sharpe(returns)
 
-    print(f"\nStandard Sharpe: {options_sharpe.standard_sharpe:.3f}")
-    print(f"Options-Adjusted Sharpe: {options_sharpe.adjusted_sharpe:.3f}")
-    print(f"Adjustment Factor: {options_sharpe.adjustment_factor:.3f}")
-    print(f"\nSkewness: {options_sharpe.skewness:.3f}")
-    print(f"Excess Kurtosis: {options_sharpe.excess_kurtosis:.3f}")
-    print(f"\nNotes: {options_sharpe.notes}")
 
     # Test 3: Deflated Sharpe Ratio
-    print("\n" + "=" * 80)
-    print("TEST 3: Deflated Sharpe Ratio (Multiple Testing Adjustment)")
-    print("=" * 80)
 
     # Simulate testing 50 strategies
     deflated = calculator.calculate_deflated_sharpe(
@@ -715,33 +682,21 @@ if __name__ == "__main__":
         variance_sharpe_estimates=0.05
     )
 
-    print(f"\nObserved Sharpe: {deflated.observed_sharpe:.3f}")
-    print(f"Deflated Sharpe: {deflated.deflated_sharpe:.3f}")
-    print(f"Number of Trials: {deflated.num_trials}")
-    print(f"P-value: {deflated.p_value:.4f}")
-    print(f"Is Significant: {deflated.is_significant}")
 
     # Interpretation
-    print("\n" + "=" * 80)
-    print("INTERPRETATION")
-    print("=" * 80)
 
-    if psr_result.probabilistic_sharpe_ratio > 0.95:
-        print("✓ High confidence (>95%) that strategy has positive Sharpe")
-    elif psr_result.probabilistic_sharpe_ratio > 0.80:
-        print("~ Moderate confidence (80-95%) that strategy has positive Sharpe")
+    if psr_result.probabilistic_sharpe_ratio > 0.95 or psr_result.probabilistic_sharpe_ratio > 0.80:
+        pass
     else:
-        print("✗ Low confidence (<80%) that strategy has positive Sharpe")
+        pass
 
     if psr_result.num_observations < psr_result.min_track_record_length:
-        print(f"⚠ Need {psr_result.min_track_record_length - psr_result.num_observations} more periods for statistical significance")
+        pass
     else:
-        print("✓ Sufficient track record for statistical significance")
+        pass
 
     if options_sharpe.adjusted_sharpe < options_sharpe.standard_sharpe:
-        print("⚠ Options adjustment reduces Sharpe (negative skew and/or high kurtosis)")
+        pass
     else:
-        print("✓ Options adjustment improves Sharpe (positive skew dominates)")
+        pass
 
-    print("\n" + "=" * 80)
-    print("✅ Probabilistic Sharpe Ratio test completed!")

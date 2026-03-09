@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,27 +22,18 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
-import os
-import sys
 import threading
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import heapq
-import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
-import pandas as pd
-from scipy import stats
-from scipy.interpolate import interp1d
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -59,7 +49,6 @@ from Spyder.SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalcu
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import OptionType, TimeFrame
 
 # ==============================================================================
 # CONSTANTS
@@ -141,7 +130,7 @@ class GammaFlow:
 
     timestamp: datetime
     net_gamma: float
-    gamma_by_strike: Dict[float, float]
+    gamma_by_strike: dict[float, float]
     flip_point: float
     dealer_position: DealerPositioning
     expected_hedging: float  # Expected dealer hedging flow
@@ -154,7 +143,7 @@ class VannaFlow:
 
     timestamp: datetime
     net_vanna: float
-    vanna_by_strike: Dict[float, float]
+    vanna_by_strike: dict[float, float]
     iv_change: float
     expected_flow: float
     expiry_enhanced: bool  # True if near expiry
@@ -166,8 +155,8 @@ class CharmFlow:
 
     timestamp: datetime
     net_charm: float
-    charm_by_strike: Dict[float, float]
-    decay_schedule: Dict[int, float]  # Hours -> expected decay
+    charm_by_strike: dict[float, float]
+    decay_schedule: dict[int, float]  # Hours -> expected decay
     overnight_flow: float
 
 
@@ -181,8 +170,8 @@ class GreeksFlowProfile:
     charm_flow: CharmFlow
     total_expected_flow: float
     flow_direction: FlowDirection
-    key_levels: List[float]  # Important price levels
-    risk_assessment: Dict[str, Any]
+    key_levels: list[float]  # Important price levels
+    risk_assessment: dict[str, Any]
 
 
 # ==============================================================================
@@ -209,7 +198,7 @@ class OptionsGreeksFlowAnalyzer:
         >>>     print(f"Dealers short gamma - expect volatility expansion")
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: dict | None = None):
         """Initialize Greeks flow analyzer."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
@@ -230,18 +219,18 @@ class OptionsGreeksFlowAnalyzer:
         self.charm_history: deque = deque(maxlen=1000)
 
         # Real-time tracking
-        self.current_greeks: Dict[str, Dict[str, float]] = {}
-        self.previous_greeks: Dict[str, Dict[str, float]] = {}
-        self.strike_gamma_map: Dict[float, float] = defaultdict(float)
-        self.strike_vanna_map: Dict[float, float] = defaultdict(float)
+        self.current_greeks: dict[str, dict[str, float]] = {}
+        self.previous_greeks: dict[str, dict[str, float]] = {}
+        self.strike_gamma_map: dict[float, float] = defaultdict(float)
+        self.strike_vanna_map: dict[float, float] = defaultdict(float)
 
         # Dealer positioning
-        self.gamma_flip_history: List[Tuple[datetime, float]] = []
+        self.gamma_flip_history: list[tuple[datetime, float]] = []
         self.current_dealer_position = DealerPositioning.NEUTRAL_GAMMA
 
         # Threading
         self._lock = threading.Lock()
-        self._monitoring_thread: Optional[threading.Thread] = None
+        self._monitoring_thread: threading.Thread | None = None
         self._running = False
 
         self.logger.info(f"{self.__class__.__name__} initialized")
@@ -400,7 +389,7 @@ class OptionsGreeksFlowAnalyzer:
     # ==========================================================================
     # PUBLIC METHODS - GREEK CHANGE DETECTION
     # ==========================================================================
-    def detect_greek_regime_change(self) -> Dict[str, Any]:
+    def detect_greek_regime_change(self) -> dict[str, Any]:
         """
         Detect significant changes in Greek regimes.
 
@@ -432,7 +421,7 @@ class OptionsGreeksFlowAnalyzer:
             ),
         }
 
-    def get_greek_strike_profile(self, strike: float) -> Dict[str, Any]:
+    def get_greek_strike_profile(self, strike: float) -> dict[str, Any]:
         """
         Get detailed Greek profile for a specific strike.
 
@@ -479,7 +468,7 @@ class OptionsGreeksFlowAnalyzer:
     # ==========================================================================
     # PUBLIC METHODS - FLOW PREDICTIONS
     # ==========================================================================
-    def predict_hedging_flows(self, spot_move: float) -> Dict[str, Any]:
+    def predict_hedging_flows(self, spot_move: float) -> dict[str, Any]:
         """
         Predict dealer hedging flows for a given spot move.
 
@@ -522,7 +511,7 @@ class OptionsGreeksFlowAnalyzer:
             "market_impact": self._estimate_market_impact(total_hedging),
         }
 
-    def get_expiry_greek_analysis(self, expiry: date) -> Dict[str, Any]:
+    def get_expiry_greek_analysis(self, expiry: date) -> dict[str, Any]:
         """
         Analyze Greek dynamics for a specific expiry.
 
@@ -564,7 +553,7 @@ class OptionsGreeksFlowAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - GAMMA ANALYSIS
     # ==========================================================================
-    def _calculate_gamma_by_strike(self) -> Dict[float, float]:
+    def _calculate_gamma_by_strike(self) -> dict[float, float]:
         """Calculate gamma exposure by strike."""
         gamma_by_strike = defaultdict(float)
 
@@ -644,7 +633,7 @@ class OptionsGreeksFlowAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - VANNA ANALYSIS
     # ==========================================================================
-    def _calculate_vanna_exposure(self) -> Tuple[float, Dict[float, float]]:
+    def _calculate_vanna_exposure(self) -> tuple[float, dict[float, float]]:
         """Calculate vanna exposure."""
         net_vanna = 0.0
         vanna_by_strike = defaultdict(float)
@@ -703,7 +692,7 @@ class OptionsGreeksFlowAnalyzer:
     # ==========================================================================
     # PRIVATE METHODS - CHARM ANALYSIS
     # ==========================================================================
-    def _calculate_charm_exposure(self) -> Tuple[float, Dict[float, float]]:
+    def _calculate_charm_exposure(self) -> tuple[float, dict[float, float]]:
         """Calculate charm exposure."""
         net_charm = 0.0
         charm_by_strike = defaultdict(float)
@@ -750,7 +739,7 @@ class OptionsGreeksFlowAnalyzer:
         return net_charm * decay_rate * self._get_spot_price()
 
     def _calculate_overnight_charm_flow(
-        self, net_charm: float, charm_by_strike: Dict[float, float]
+        self, net_charm: float, charm_by_strike: dict[float, float]
     ) -> float:
         """Calculate expected overnight charm flow."""
         # Overnight represents ~16 hours of decay
@@ -801,7 +790,7 @@ class OptionsGreeksFlowAnalyzer:
 
     def _identify_key_greek_levels(
         self, gamma_flow: GammaFlow, vanna_flow: VannaFlow
-    ) -> List[float]:
+    ) -> list[float]:
         """Identify key price levels based on Greeks."""
         key_levels = []
 
@@ -830,7 +819,7 @@ class OptionsGreeksFlowAnalyzer:
 
     def _assess_greek_risks(
         self, gamma_flow: GammaFlow, vanna_flow: VannaFlow, charm_flow: CharmFlow
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Assess risks based on Greek profiles."""
         risks = {
             "gamma_risk": "LOW",
@@ -876,7 +865,7 @@ class OptionsGreeksFlowAnalyzer:
 
         return risks
 
-    def _detect_gamma_regime_change(self) -> Optional[Dict[str, Any]]:
+    def _detect_gamma_regime_change(self) -> dict[str, Any] | None:
         """Detect gamma regime changes."""
         if len(self.gamma_history) < 2:
             return None
@@ -895,7 +884,7 @@ class OptionsGreeksFlowAnalyzer:
 
         return None
 
-    def _detect_vanna_regime_change(self) -> Optional[Dict[str, Any]]:
+    def _detect_vanna_regime_change(self) -> dict[str, Any] | None:
         """Detect vanna regime changes."""
         if len(self.vanna_history) < 5:
             return None
@@ -913,7 +902,7 @@ class OptionsGreeksFlowAnalyzer:
 
         return None
 
-    def _check_gamma_flip_proximity(self) -> Dict[str, Any]:
+    def _check_gamma_flip_proximity(self) -> dict[str, Any]:
         """Check proximity to gamma flip point."""
         if not self.gamma_history:
             return {"near_flip": False}
@@ -932,8 +921,8 @@ class OptionsGreeksFlowAnalyzer:
         }
 
     def _generate_regime_recommendations(
-        self, changes: List[Dict], flip_proximity: Dict
-    ) -> List[str]:
+        self, changes: list[dict], flip_proximity: dict
+    ) -> list[str]:
         """Generate recommendations based on regime changes."""
         recommendations = []
 
@@ -998,7 +987,7 @@ class OptionsGreeksFlowAnalyzer:
         else:
             return "MINIMAL"
 
-    def _analyze_pin_risk(self, options: List, days_to_expiry: int) -> Dict[str, Any]:
+    def _analyze_pin_risk(self, options: list, days_to_expiry: int) -> dict[str, Any]:
         """Analyze pinning risk for expiry."""
         if days_to_expiry > 2:
             return {"risk": "LOW", "pin_strikes": []}
@@ -1021,7 +1010,7 @@ class OptionsGreeksFlowAnalyzer:
         else:
             return {"risk": "LOW", "pin_strikes": []}
 
-    def _identify_expiry_key_strikes(self, options: List) -> List[float]:
+    def _identify_expiry_key_strikes(self, options: list) -> list[float]:
         """Identify key strikes for an expiry."""
         strike_importance = defaultdict(float)
 
@@ -1050,7 +1039,7 @@ class OptionsGreeksFlowAnalyzer:
         else:
             return "NORMAL"
 
-    def _is_key_greek_level(self, strike: float, profile: Dict[str, Any]) -> bool:
+    def _is_key_greek_level(self, strike: float, profile: dict[str, Any]) -> bool:
         """Check if strike is a key Greek level."""
         # High gamma strikes are key levels
         if abs(profile["gamma"]) > LARGE_GAMMA_FLOW / 10:
@@ -1078,7 +1067,7 @@ class OptionsGreeksFlowAnalyzer:
 
         self._running = True
         self._monitoring_thread = threading.Thread(
-            target=self._monitoring_loop, name="GreekFlowMonitor"
+            target=self._monitoring_loop, name="GreekFlowMonitor", daemon=True
         )
         self._monitoring_thread.start()
         self.logger.info("Greek flow monitoring started")
@@ -1138,7 +1127,7 @@ class OptionsGreeksFlowAnalyzer:
 # ==============================================================================
 
 
-def create_greeks_flow_analyzer(config: Optional[Dict] = None) -> OptionsGreeksFlowAnalyzer:
+def create_greeks_flow_analyzer(config: dict | None = None) -> OptionsGreeksFlowAnalyzer:
     """
     Create and return an OptionsGreeksFlowAnalyzer instance.
 
@@ -1163,51 +1152,26 @@ if __name__ == "__main__":
 
         # Get Greeks flow profile
         profile = analyzer.get_greeks_flow_profile()
-        print("\n📊 Greeks Flow Profile:")
-        print(f"  Total Expected Flow: ${profile.total_expected_flow:,.0f}")
-        print(f"  Flow Direction: {profile.flow_direction.value}")
-        print(f"  Dealer Position: {profile.gamma_flow.dealer_position.value}")
 
         # Gamma analysis
-        print(f"\n🎯 Gamma Analysis:")
-        print(f"  Net Gamma: ${profile.gamma_flow.net_gamma:,.0f}")
-        print(f"  Gamma Flip: ${profile.gamma_flow.flip_point:.2f}")
-        print(f"  Expected Hedging: ${profile.gamma_flow.expected_hedging:,.0f}")
-        print(f"  Confidence: {profile.gamma_flow.confidence:.1%}")
 
         # Vanna analysis
-        print(f"\n🌊 Vanna Analysis:")
-        print(f"  Net Vanna: ${profile.vanna_flow.net_vanna:,.0f}")
-        print(f"  Expected Flow: ${profile.vanna_flow.expected_flow:,.0f}")
-        print(f"  Expiry Enhanced: {profile.vanna_flow.expiry_enhanced}")
 
         # Charm analysis
-        print(f"\n⏰ Charm Analysis:")
-        print(f"  Net Charm: ${profile.charm_flow.net_charm:,.0f}")
-        print(f"  Overnight Flow: ${profile.charm_flow.overnight_flow:,.0f}")
 
         # Key levels
-        print(f"\n🎯 Key Greek Levels:")
-        for level in profile.key_levels:
-            print(f"  ${level:.2f}")
+        for _level in profile.key_levels:
+            pass
 
         # Risk assessment
-        print(f"\n⚠️ Risk Assessment:")
-        print(f"  Overall Risk: {profile.risk_assessment['overall_risk']}")
-        for factor in profile.risk_assessment["risk_factors"]:
-            print(f"  - {factor}")
+        for _factor in profile.risk_assessment["risk_factors"]:
+            pass
 
         # Test hedging flow prediction
-        print(f"\n📈 Hedging Flow Predictions:")
         for move in [-5, -2, 0, 2, 5]:
             prediction = analyzer.predict_hedging_flows(move)
-            print(
-                f"  ${move:+.0f} move: ${prediction['total_hedging_flow']:+,.0f} "
-                f"({prediction['market_impact']} impact)"
-            )
 
         time.sleep(5)
 
     finally:
         analyzer.cleanup()
-        print("\n✅ Greeks flow analyzer test completed")

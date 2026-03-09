@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,10 +23,9 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, time
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from collections import defaultdict
 import asyncio
 import logging
 
@@ -35,7 +33,6 @@ import logging
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,10 +49,10 @@ class CircuitBreakerStatus:
     level: CircuitBreakerLevel
     market_decline: float
     halt_active: bool
-    halt_end_time: Optional[datetime]
+    halt_end_time: datetime | None
     positions_at_risk: int
-    required_actions: List[str]
-    order_restrictions: List[str]
+    required_actions: list[str]
+    order_restrictions: list[str]
 @dataclass
 class PositionAction:
     """Required action for a position during circuit breaker."""
@@ -137,7 +134,7 @@ class SpyderCircuitBreakerProtocol:
         self.market_open_price = None
         self.monitoring_active = True
         self.action_history = []
-    async def monitor_market_conditions(self, current_price: float, 
+    async def monitor_market_conditions(self, current_price: float,
                                       market_open: float) -> CircuitBreakerStatus:
         """
         Monitor market conditions for circuit breaker triggers.
@@ -162,38 +159,48 @@ class SpyderCircuitBreakerProtocol:
         if self.halt_active:
             await self._check_halt_status()
         return self._get_current_status()
-    def _determine_level(self, market_decline: float, 
+    def _determine_level(self, market_decline: float,
                         current_time: time) -> CircuitBreakerLevel:
         """Determine appropriate circuit breaker level."""
         # Level 3 check (always active)
         if market_decline <= self.THRESHOLDS['level_3']:
             return CircuitBreakerLevel.LEVEL_3
         # Level 2 check (time restricted)
-        if (market_decline <= self.THRESHOLDS['level_2'] and 
+        if (market_decline <= self.THRESHOLDS['level_2'] and
             current_time < self.TIME_RESTRICTIONS['level_2_cutoff']):
             return CircuitBreakerLevel.LEVEL_2
         # Level 1 check (time restricted)
-        if (market_decline <= self.THRESHOLDS['level_1'] and 
+        if (market_decline <= self.THRESHOLDS['level_1'] and
             current_time < self.TIME_RESTRICTIONS['level_1_cutoff']):
             return CircuitBreakerLevel.LEVEL_1
         # Pre-halt warning
         if market_decline <= self.THRESHOLDS['pre_halt']:
             return CircuitBreakerLevel.PRE_HALT
         return CircuitBreakerLevel.NORMAL
-    async def _handle_level_change(self, new_level: CircuitBreakerLevel, 
+    async def _handle_level_change(self, new_level: CircuitBreakerLevel,
                                   market_decline: float):
         """Handle circuit breaker level changes."""
         old_level = self.current_level
-        self.current_level = new_level
+        # NOTE: state is committed AFTER execution so that a failed
+        # _execute_level_protocols() does not leave self.current_level
+        # pointing at a level whose position actions never ran.
         logger.warning(f"Circuit breaker level change: {old_level.value} -> "
                       f"{new_level.value} (decline: {market_decline:.2%})")
         # Trigger halt if applicable
-        if new_level in [CircuitBreakerLevel.LEVEL_1, 
+        if new_level in [CircuitBreakerLevel.LEVEL_1,
                         CircuitBreakerLevel.LEVEL_2,
                         CircuitBreakerLevel.LEVEL_3]:
             await self._trigger_halt(new_level)
-        # Execute position management
-        await self._execute_level_protocols(new_level)
+        # Execute position management BEFORE committing state change so that
+        # any execution failure keeps current_level consistent with actual
+        # position state.
+        try:
+            await self._execute_level_protocols(new_level)
+        except Exception as exc:
+            logger.error(f"Level protocol execution failed for {new_level.value}: {exc}")
+            raise
+        # Commit new level only after protocols executed successfully
+        self.current_level = new_level
         # Record action
         self.action_history.append({
             'timestamp': datetime.now(),
@@ -234,8 +241,8 @@ class SpyderCircuitBreakerProtocol:
             action = self._determine_position_action(position, rules)
             if action.action != 'HOLD':
                 await self._execute_position_action(action)
-    def _determine_position_action(self, position: Dict, 
-                                  rules: Dict) -> PositionAction:
+    def _determine_position_action(self, position: dict,
+                                  rules: dict) -> PositionAction:
         """Determine required action for a specific position."""
         # Priority 1: Close losing positions
         if rules.get('close_losing_positions') and position['pnl'] < 0:
@@ -249,7 +256,7 @@ class SpyderCircuitBreakerProtocol:
                 estimated_loss=position['pnl']
             )
         # Priority 2: Close speculative positions
-        if (rules.get('close_all_speculative') and 
+        if (rules.get('close_all_speculative') and
             position.get('strategy_type') == 'speculative'):
             return PositionAction(
                 symbol=position['symbol'],
@@ -324,7 +331,7 @@ class SpyderCircuitBreakerProtocol:
                 )
         except Exception as e:
             logger.error(f"Failed to execute action {action.action}: {str(e)}")
-    async def check_order_restrictions(self, order_type: str) -> Tuple[bool, str]:
+    async def check_order_restrictions(self, order_type: str) -> tuple[bool, str]:
         """
         Check if an order type is allowed under current conditions.
         Args:
@@ -343,7 +350,7 @@ class SpyderCircuitBreakerProtocol:
         if self.halt_active:
             return False, "Market currently halted"
         return True, "Order type allowed"
-    def get_position_limits(self) -> Dict[str, float]:
+    def get_position_limits(self) -> dict[str, float]:
         """Get current position limits based on circuit breaker level."""
         rules = self.POSITION_RULES.get(self.current_level, {})
         return {
@@ -375,7 +382,7 @@ class SpyderCircuitBreakerProtocol:
                 if risk_score > 0.8:  # High risk threshold
                     logger.warning(f"High risk position post-halt: "
                                  f"{position['symbol']} (score: {risk_score:.2f})")
-    async def _flatten_all_positions(self, positions: List[Dict]):
+    async def _flatten_all_positions(self, positions: list[dict]):
         """Emergency flatten all positions (Level 3)."""
         logger.critical("EMERGENCY: Flattening all positions due to Level 3 circuit breaker")
         if not self.order_manager:
@@ -391,7 +398,7 @@ class SpyderCircuitBreakerProtocol:
                 )
             except Exception as e:
                 logger.error(f"Failed to flatten position {position['id']}: {str(e)}")
-    async def _get_current_positions(self) -> List[Dict]:
+    async def _get_current_positions(self) -> list[dict]:
         """Get current positions from risk manager."""
         if self.risk_manager:
             return await self.risk_manager.get_all_positions()
@@ -428,7 +435,7 @@ class SpyderCircuitBreakerProtocol:
         cutoff_date = datetime.now() - pd.Timedelta(days=days)
         df = df[df['timestamp'] >= cutoff_date]
         return df
-    def get_recovery_analysis(self) -> Dict[str, Any]:
+    def get_recovery_analysis(self) -> dict[str, Any]:
         """Analyze recovery patterns after circuit breaker events."""
         halts = self.get_historical_halts(days=365)
         if halts.empty:

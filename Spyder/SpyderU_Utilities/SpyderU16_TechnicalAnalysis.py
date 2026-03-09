@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -19,14 +18,13 @@ Description:
     non-existent VolumeSMAIndicator.
 """
 
-import warnings
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -38,27 +36,27 @@ import logging
 try:
     # Trend Indicators
     # Momentum Indicators
-    from ta.momentum import (AwesomeOscillatorIndicator, KAMAIndicator,
-                            PercentagePriceOscillator,
-                            PercentageVolumeOscillator, ROCIndicator,
+    from ta.momentum import (AwesomeOscillatorIndicator, KAMAIndicator,  # noqa: F401
+                            PercentagePriceOscillator,  # noqa: F401
+                            PercentageVolumeOscillator, ROCIndicator,  # noqa: F401
                             RSIIndicator, StochasticOscillator,
-                            StochRSIIndicator, TSIIndicator,
-                            UltimateOscillator, WilliamsRIndicator)
-    from ta.trend import (MACD, ADXIndicator, AroonIndicator, CCIIndicator,
-                        DPOIndicator, EMAIndicator, IchimokuIndicator,
-                        KSTIndicator, PSARIndicator, SMAIndicator,
-                        STCIndicator, TRIXIndicator, VortexIndicator,
-                        WMAIndicator)
+                            StochRSIIndicator, TSIIndicator,  # noqa: F401
+                            UltimateOscillator, WilliamsRIndicator)  # noqa: F401
+    from ta.trend import (MACD, ADXIndicator, AroonIndicator, CCIIndicator,  # noqa: F401
+                        DPOIndicator, EMAIndicator, IchimokuIndicator,  # noqa: F401
+                        KSTIndicator, PSARIndicator, SMAIndicator,  # noqa: F401
+                        STCIndicator, TRIXIndicator, VortexIndicator,  # noqa: F401
+                        WMAIndicator)  # noqa: F401
     # Volatility Indicators
     from ta.volatility import (AverageTrueRange, BollingerBands,
-                            DonchianChannel, KeltnerChannel, UlcerIndex)
+                            DonchianChannel, KeltnerChannel, UlcerIndex)  # noqa: F401
     # Volume Indicators - FIXED IMPORT
     from ta.volume import \
         VolumeWeightedAveragePrice  # Using VWAP instead of VolumeSMAIndicator
-    from ta.volume import (AccDistIndexIndicator, ChaikinMoneyFlowIndicator,
-                        EaseOfMovementIndicator, ForceIndexIndicator,
-                        NegativeVolumeIndexIndicator,
-                        OnBalanceVolumeIndicator, VolumePriceTrendIndicator)
+    from ta.volume import (AccDistIndexIndicator, ChaikinMoneyFlowIndicator,  # noqa: F401
+                        EaseOfMovementIndicator, ForceIndexIndicator,  # noqa: F401
+                        NegativeVolumeIndexIndicator,  # noqa: F401
+                        OnBalanceVolumeIndicator, VolumePriceTrendIndicator)  # noqa: F401
 
     TA_AVAILABLE = True
 except ImportError as e:
@@ -142,7 +140,7 @@ class TechnicalSignal:
     signal: str  # buy, sell, neutral
     strength: SignalStrength
     timestamp: datetime
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
 
 @dataclass
@@ -150,10 +148,10 @@ class TechnicalAnalysisResult:
     """Complete technical analysis result"""
 
     trend: TrendDirection
-    momentum: Dict[str, float]
-    volatility: Dict[str, float]
-    volume: Dict[str, float]
-    signals: List[TechnicalSignal]
+    momentum: dict[str, float]
+    volatility: dict[str, float]
+    volume: dict[str, float]
+    signals: list[TechnicalSignal]
     composite_score: float  # -100 to +100
     timestamp: datetime
 
@@ -172,7 +170,7 @@ class TechnicalAnalysis:
     and volume analysis.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize technical analysis engine."""
         self.logger = SpyderLogger.get_logger(__name__) if SpyderLogger else None
         self.error_handler = SpyderErrorHandler() if SpyderErrorHandler else None
@@ -193,7 +191,7 @@ class TechnicalAnalysis:
     # TREND INDICATORS
     # ==========================================================================
 
-    def calculate_sma(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def calculate_sma(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """Calculate Simple Moving Average."""
         period = period or self.periods["sma_short"]
         if TA_AVAILABLE:
@@ -202,7 +200,7 @@ class TechnicalAnalysis:
         else:
             return data.rolling(window=period).mean()
 
-    def calculate_ema(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def calculate_ema(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """Calculate Exponential Moving Average."""
         period = period or self.periods["ema"]
         if TA_AVAILABLE:
@@ -211,7 +209,7 @@ class TechnicalAnalysis:
         else:
             return data.ewm(span=period, adjust=False).mean()
 
-    def calculate_macd(self, data: pd.Series) -> Dict[str, pd.Series]:
+    def calculate_macd(self, data: pd.Series) -> dict[str, pd.Series]:
         """Calculate MACD indicator."""
         if TA_AVAILABLE:
             macd = MACD(
@@ -248,7 +246,7 @@ class TechnicalAnalysis:
     # MOMENTUM INDICATORS
     # ==========================================================================
 
-    def calculate_rsi(self, data: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def calculate_rsi(self, data: pd.Series, period: int | None = None) -> pd.Series:
         """Calculate Relative Strength Index."""
         period = period or self.periods["rsi"]
         if TA_AVAILABLE:
@@ -265,7 +263,7 @@ class TechnicalAnalysis:
 
     def calculate_stochastic(
         self, high: pd.Series, low: pd.Series, close: pd.Series
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """Calculate Stochastic Oscillator."""
         if TA_AVAILABLE:
             stoch = StochasticOscillator(
@@ -289,7 +287,7 @@ class TechnicalAnalysis:
     # VOLATILITY INDICATORS
     # ==========================================================================
 
-    def calculate_bollinger_bands(self, data: pd.Series) -> Dict[str, pd.Series]:
+    def calculate_bollinger_bands(self, data: pd.Series) -> dict[str, pd.Series]:
         """Calculate Bollinger Bands."""
         if TA_AVAILABLE:
             bb = BollingerBands(
@@ -356,7 +354,7 @@ class TechnicalAnalysis:
             vwap = (typical_price * volume).cumsum() / volume.cumsum()
             return vwap
 
-    def calculate_volume_sma(self, volume: pd.Series, period: Optional[int] = None) -> pd.Series:
+    def calculate_volume_sma(self, volume: pd.Series, period: int | None = None) -> pd.Series:
         """
         Calculate Simple Moving Average of Volume.
 
@@ -426,7 +424,7 @@ class TechnicalAnalysis:
         else:
             return TrendDirection.NEUTRAL
 
-    def generate_signals(self, df: pd.DataFrame) -> List[TechnicalSignal]:
+    def generate_signals(self, df: pd.DataFrame) -> list[TechnicalSignal]:
         """
         Generate trading signals from technical indicators.
 
@@ -626,7 +624,7 @@ class TechnicalAnalysis:
 # ==============================================================================
 
 
-def quick_analysis(df: pd.DataFrame) -> Dict[str, Any]:
+def quick_analysis(df: pd.DataFrame) -> dict[str, Any]:
     """
     Quick technical analysis for immediate decision making.
 
@@ -653,7 +651,7 @@ def quick_analysis(df: pd.DataFrame) -> Dict[str, Any]:
 
 
 # Module-level instance for convenience
-_ta_instance: Optional[TechnicalAnalysis] = None
+_ta_instance: TechnicalAnalysis | None = None
 
 
 def get_technical_analysis() -> TechnicalAnalysis:
@@ -687,4 +685,4 @@ __all__ = [
 ]
 
 # Log module initialization
-logging.info(f"✅ Technical Analysis Module Loaded - VWAP Integration Complete")
+logging.info("✅ Technical Analysis Module Loaded - VWAP Integration Complete")

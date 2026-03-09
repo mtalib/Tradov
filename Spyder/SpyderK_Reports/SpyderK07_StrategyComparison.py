@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,8 +23,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union
+from datetime import datetime, date
+from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
@@ -51,7 +50,7 @@ try:
     from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
     })
 
 # ==============================================================================
@@ -123,7 +122,7 @@ class StrategyMetrics:
     sharpe_ratio: float
     sortino_ratio: float
     calmar_ratio: float
-    information_ratio: Optional[float] = None
+    information_ratio: float | None = None
 
     # Trade statistics
     total_trades: int = 0
@@ -147,40 +146,40 @@ class StrategyMetrics:
 class StrategyComparison:
     """Comparison results between two or more strategies."""
     comparison_date: datetime
-    strategies: List[str]
+    strategies: list[str]
     period_start: date
     period_end: date
 
     # Individual metrics
-    strategy_metrics: Dict[str, StrategyMetrics] = field(default_factory=dict)
+    strategy_metrics: dict[str, StrategyMetrics] = field(default_factory=dict)
 
     # Correlation matrix
-    correlation_matrix: Optional[pd.DataFrame] = None
+    correlation_matrix: pd.DataFrame | None = None
 
     # Rankings
-    rankings_by_sharpe: List[str] = field(default_factory=list)
-    rankings_by_return: List[str] = field(default_factory=list)
-    rankings_by_consistency: List[str] = field(default_factory=list)
-    composite_ranking: List[str] = field(default_factory=list)
+    rankings_by_sharpe: list[str] = field(default_factory=list)
+    rankings_by_return: list[str] = field(default_factory=list)
+    rankings_by_consistency: list[str] = field(default_factory=list)
+    composite_ranking: list[str] = field(default_factory=list)
 
     # Statistical tests
-    statistical_significance: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    statistical_significance: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # Summary
     best_strategy: str = ""
     best_strategy_reason: str = ""
-    recommendations: List[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ComparisonConfig:
     """Configuration for strategy comparison."""
-    benchmark: Optional[str] = None
+    benchmark: str | None = None
     risk_free_rate: float = RISK_FREE_RATE
     include_correlation: bool = True
     include_statistical_tests: bool = True
     min_periods: int = MIN_PERIODS_FOR_COMPARISON
-    ranking_weights: Dict[str, float] = field(default_factory=lambda: {
+    ranking_weights: dict[str, float] = field(default_factory=lambda: {
         'sharpe_ratio': 0.3,
         'total_return': 0.2,
         'max_drawdown': 0.2,
@@ -201,7 +200,7 @@ class StrategyComparisonAnalyzer:
     significance testing.
     """
 
-    def __init__(self, config: Optional[ComparisonConfig] = None):
+    def __init__(self, config: ComparisonConfig | None = None):
         """
         Initialize strategy comparison analyzer.
 
@@ -222,8 +221,8 @@ class StrategyComparisonAnalyzer:
 
     def compare_strategies(
         self,
-        strategy_returns: Dict[str, pd.Series],
-        strategy_trades: Optional[Dict[str, pd.DataFrame]] = None
+        strategy_returns: dict[str, pd.Series],
+        strategy_trades: dict[str, pd.DataFrame] | None = None
     ) -> StrategyComparison:
         """
         Compare multiple strategies.
@@ -308,8 +307,8 @@ class StrategyComparisonAnalyzer:
 
     def _align_returns(
         self,
-        strategy_returns: Dict[str, pd.Series]
-    ) -> Dict[str, pd.Series]:
+        strategy_returns: dict[str, pd.Series]
+    ) -> dict[str, pd.Series]:
         """Align all return series to common date range."""
         # Find common date range
         all_indices = [set(returns.index) for returns in strategy_returns.values()]
@@ -332,7 +331,7 @@ class StrategyComparisonAnalyzer:
         self,
         name: str,
         returns: pd.Series,
-        trades: Optional[pd.DataFrame] = None
+        trades: pd.DataFrame | None = None
     ) -> StrategyMetrics:
         """Calculate comprehensive metrics for a strategy."""
         trading_days = len(returns)
@@ -461,7 +460,7 @@ class StrategyComparisonAnalyzer:
 
     def _calculate_correlations(
         self,
-        aligned_returns: Dict[str, pd.Series]
+        aligned_returns: dict[str, pd.Series]
     ) -> pd.DataFrame:
         """Calculate correlation matrix between strategies."""
         returns_df = pd.DataFrame(aligned_returns)
@@ -469,8 +468,8 @@ class StrategyComparisonAnalyzer:
 
     def _run_statistical_tests(
         self,
-        aligned_returns: Dict[str, pd.Series]
-    ) -> Dict[str, Dict[str, float]]:
+        aligned_returns: dict[str, pd.Series]
+    ) -> dict[str, dict[str, float]]:
         """Run statistical significance tests between strategies."""
         results = {}
         strategies = list(aligned_returns.keys())
@@ -501,10 +500,10 @@ class StrategyComparisonAnalyzer:
 
     def _rank_by_metric(
         self,
-        metrics: Dict[str, StrategyMetrics],
+        metrics: dict[str, StrategyMetrics],
         metric_name: str,
         reverse: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """Rank strategies by a specific metric."""
         ranked = sorted(
             metrics.items(),
@@ -515,8 +514,8 @@ class StrategyComparisonAnalyzer:
 
     def _calculate_composite_ranking(
         self,
-        metrics: Dict[str, StrategyMetrics]
-    ) -> List[str]:
+        metrics: dict[str, StrategyMetrics]
+    ) -> list[str]:
         """Calculate composite ranking based on weighted metrics."""
         weights = self.config.ranking_weights
         scores = {}
@@ -566,7 +565,7 @@ class StrategyComparisonAnalyzer:
     def _generate_recommendations(
         self,
         comparison: StrategyComparison
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate actionable recommendations from comparison."""
         recommendations = []
         best = comparison.strategy_metrics[comparison.best_strategy]
@@ -726,7 +725,7 @@ class StrategyComparisonAnalyzer:
         }
 
         # Convert dates in metrics
-        for name, metrics in data['strategy_metrics'].items():
+        for _name, metrics in data['strategy_metrics'].items():
             metrics['start_date'] = metrics['start_date'].isoformat()
             metrics['end_date'] = metrics['end_date'].isoformat()
 
@@ -795,7 +794,7 @@ class StrategyComparisonAnalyzer:
     def export_comparison(
         self,
         comparison: StrategyComparison,
-        filename: Optional[str] = None,
+        filename: str | None = None,
         format: str = 'text'
     ) -> Path:
         """
@@ -827,9 +826,9 @@ class StrategyComparisonAnalyzer:
     # PYFOLIO / EMPYRICAL INTEGRATION
     # --------------------------------------------------------------------------
 
-    def generate_round_trip_analysis(self, strategy_returns: Dict[str, pd.Series],
-                                     benchmark_returns: Optional[pd.Series] = None,
-                                     ) -> Dict[str, Dict[str, Any]]:
+    def generate_round_trip_analysis(self, strategy_returns: dict[str, pd.Series],
+                                     benchmark_returns: pd.Series | None = None,
+                                     ) -> dict[str, dict[str, Any]]:
         """
         Generate round-trip tear sheet analysis per strategy using empyrical.
 
@@ -847,7 +846,7 @@ class StrategyComparisonAnalyzer:
             return {}
 
         rf_daily = 0.05 / 252
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
 
         for name, returns in strategy_returns.items():
             if len(returns) < 20:

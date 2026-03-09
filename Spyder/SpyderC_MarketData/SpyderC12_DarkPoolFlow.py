@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,25 +22,18 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import time
 import threading
-import json
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple, Any, Set
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum, auto
-import asyncio
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-import aiohttp
-import requests
 from scipy import stats
 
 # ==============================================================================
@@ -50,7 +42,6 @@ from scipy import stats
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame
-from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 MIN_BLOCK_SIZE = 10000  # Minimum shares for block trade
@@ -110,8 +101,8 @@ class BlockTrade:
     value: float
     trade_type: BlockTradeType
     is_dark_pool: bool
-    direction: Optional[str] = None  # BUY/SELL if known
-    
+    direction: str | None = None  # BUY/SELL if known
+
 @dataclass
 class DarkPoolMetrics:
     """Dark pool activity metrics"""
@@ -123,7 +114,7 @@ class DarkPoolMetrics:
     avg_block_size: float
     net_flow: float  # Dollar value
     dix_value: float  # Dark Index value
-    
+
 @dataclass
 class InstitutionalFlow:
     """Institutional flow analysis"""
@@ -142,62 +133,62 @@ class InstitutionalFlow:
 class DarkPoolFlowAnalyzer:
     """
     Dark pool and block trade analyzer for institutional flow detection.
-    
+
     This class provides real-time analysis of dark pool activity, block trades,
     and institutional positioning using DIX data and multi-venue flow analysis.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
-        
+
     Example:
         >>> analyzer = DarkPoolFlowAnalyzer()
         >>> metrics = analyzer.get_current_metrics()
         >>> if metrics.dix_value > 0.45:
         >>>     print("High dark pool accumulation detected")
     """
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """Initialize dark pool analyzer."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_manager = get_event_manager()
-        
+
         # Configuration
         self.config = config or {}
         self.min_block_size = self.config.get('min_block_size', MIN_BLOCK_SIZE)
         self.min_block_value = self.config.get('min_block_value', MIN_BLOCK_VALUE)
-        
+
         # Data storage
         self.block_trades: deque = deque(maxlen=10000)
         self.dark_pool_metrics: deque = deque(maxlen=1000)
-        self.dix_history: Dict[date, float] = {}
-        self.gex_history: Dict[date, float] = {}
-        
+        self.dix_history: dict[date, float] = {}
+        self.gex_history: dict[date, float] = {}
+
         # Real-time tracking
-        self.current_session_blocks: List[BlockTrade] = []
-        self.venue_volumes: Dict[str, int] = defaultdict(int)
-        self.accumulation_tracker: Dict[str, float] = defaultdict(float)
-        
+        self.current_session_blocks: list[BlockTrade] = []
+        self.venue_volumes: dict[str, int] = defaultdict(int)
+        self.accumulation_tracker: dict[str, float] = defaultdict(float)
+
         # Threading
         self._lock = threading.Lock()
-        self._monitoring_thread: Optional[threading.Thread] = None
+        self._monitoring_thread: threading.Thread | None = None
         self._running = False
-        
+
         # Initialize
         self._load_historical_dix()
         self.logger.info(f"{self.__class__.__name__} initialized")
-        
+
     # ==========================================================================
     # PUBLIC METHODS - REAL-TIME ANALYSIS
     # ==========================================================================
-    def analyze_trade(self, trade: Dict[str, Any]) -> Optional[BlockTrade]:
+    def analyze_trade(self, trade: dict[str, Any]) -> BlockTrade | None:
         """
         Analyze a trade for dark pool/block characteristics.
-        
+
         Args:
             trade: Trade data dictionary
-            
+
         Returns:
             BlockTrade if detected, None otherwise
         """
@@ -205,14 +196,14 @@ class DarkPoolFlowAnalyzer:
         size = trade.get('size', 0)
         price = trade.get('price', 0)
         value = size * price
-        
+
         if size < self.min_block_size and value < self.min_block_value:
             return None
-            
+
         # Determine if dark pool
         venue = trade.get('exchange', '').upper()
         is_dark_pool = venue in DARK_POOL_VENUES
-        
+
         # Create block trade record
         block = BlockTrade(
             timestamp=datetime.fromisoformat(trade['timestamp']),
@@ -225,47 +216,47 @@ class DarkPoolFlowAnalyzer:
             is_dark_pool=is_dark_pool,
             direction=self._infer_direction(trade)
         )
-        
+
         # Store and analyze
         with self._lock:
             self.block_trades.append(block)
             self.current_session_blocks.append(block)
             self.venue_volumes[venue] += size
-            
+
         # Update accumulation tracking
         self._update_accumulation(block)
-        
+
         # Emit event if significant
         if is_dark_pool or value > 1_000_000:
             self._emit_block_event(block)
-            
+
         return block
-        
+
     def get_current_metrics(self) -> DarkPoolMetrics:
         """
         Get current dark pool metrics.
-        
+
         Returns:
             Current DarkPoolMetrics
         """
         with self._lock:
-            recent_blocks = [b for b in self.block_trades 
+            recent_blocks = [b for b in self.block_trades
                            if b.timestamp > datetime.now() - timedelta(hours=1)]
-            
+
             total_volume = sum(b.size for b in recent_blocks)
             dark_volume = sum(b.size for b in recent_blocks if b.is_dark_pool)
             dark_percentage = dark_volume / total_volume if total_volume > 0 else 0
-            
+
             # Calculate net flow
-            buy_flow = sum(b.value for b in recent_blocks 
+            buy_flow = sum(b.value for b in recent_blocks
                          if b.direction == "BUY")
-            sell_flow = sum(b.value for b in recent_blocks 
+            sell_flow = sum(b.value for b in recent_blocks
                           if b.direction == "SELL")
             net_flow = buy_flow - sell_flow
-            
+
             # Get latest DIX
             dix_value = self._get_current_dix()
-            
+
             return DarkPoolMetrics(
                 timestamp=datetime.now(),
                 total_volume=total_volume,
@@ -276,24 +267,24 @@ class DarkPoolFlowAnalyzer:
                 net_flow=net_flow,
                 dix_value=dix_value
             )
-            
+
     def get_institutional_flow(self) -> InstitutionalFlow:
         """
         Analyze institutional flow direction and strength.
-        
+
         Returns:
             InstitutionalFlow analysis
         """
         metrics = self.get_current_metrics()
-        
+
         # Count accumulation vs distribution blocks
         with self._lock:
             recent_blocks = [b for b in self.current_session_blocks
                            if b.timestamp > datetime.now() - ACCUMULATION_WINDOW]
-            
+
             acc_blocks = sum(1 for b in recent_blocks if b.direction == "BUY")
             dist_blocks = sum(1 for b in recent_blocks if b.direction == "SELL")
-            
+
         # Determine flow direction
         if metrics.net_flow > 1_000_000 and metrics.dix_value > DIX_HIGH_THRESHOLD:
             direction = FlowDirection.ACCUMULATION
@@ -304,13 +295,13 @@ class DarkPoolFlowAnalyzer:
         else:
             direction = FlowDirection.NEUTRAL
             strength = 0.5
-            
+
         # Calculate confidence
         confidence = self._calculate_flow_confidence(metrics, recent_blocks)
-        
+
         # Determine signal
         signal = self._classify_institutional_signal(direction, strength, confidence)
-        
+
         return InstitutionalFlow(
             timestamp=datetime.now(),
             direction=direction,
@@ -321,29 +312,29 @@ class DarkPoolFlowAnalyzer:
             confidence=confidence,
             signal=signal
         )
-        
+
     # ==========================================================================
     # PUBLIC METHODS - DARK INDEX (DIX)
     # ==========================================================================
-    def get_dix_analysis(self) -> Dict[str, Any]:
+    def get_dix_analysis(self) -> dict[str, Any]:
         """
         Get comprehensive DIX analysis.
-        
+
         Returns:
             DIX analysis including trends and signals
         """
         current_dix = self._get_current_dix()
         dix_ma = self._calculate_dix_ma(20)
-        
+
         # Analyze DIX trend
         dix_trend = "BULLISH" if current_dix > dix_ma else "BEARISH"
-        
+
         # Check for divergences with price
         divergence = self._check_dix_divergence()
-        
+
         # GEX correlation
         gex_correlation = self._calculate_dix_gex_correlation()
-        
+
         return {
             'current_dix': current_dix,
             'dix_ma_20': dix_ma,
@@ -354,40 +345,40 @@ class DarkPoolFlowAnalyzer:
             'historical_percentile': self._calculate_dix_percentile(current_dix),
             'recommendation': self._generate_dix_recommendation(current_dix, dix_ma, divergence)
         }
-        
+
     # ==========================================================================
     # PUBLIC METHODS - BLOCK ANALYSIS
     # ==========================================================================
-    def get_block_summary(self, timeframe: TimeFrame = TimeFrame.HOUR_1) -> Dict[str, Any]:
+    def get_block_summary(self, timeframe: TimeFrame = TimeFrame.HOUR_1) -> dict[str, Any]:
         """
         Get summary of block trades for specified timeframe.
-        
+
         Args:
             timeframe: Analysis timeframe
-            
+
         Returns:
             Block trade summary statistics
         """
         cutoff = datetime.now() - timedelta(seconds=timeframe.value)
-        
+
         with self._lock:
             period_blocks = [b for b in self.block_trades if b.timestamp > cutoff]
-            
+
         if not period_blocks:
             return self._empty_block_summary()
-            
+
         # Aggregate by venue
         venue_stats = defaultdict(lambda: {'count': 0, 'volume': 0, 'value': 0})
         for block in period_blocks:
             venue_stats[block.venue]['count'] += 1
             venue_stats[block.venue]['volume'] += block.size
             venue_stats[block.venue]['value'] += block.value
-            
+
         # Calculate statistics
         total_blocks = len(period_blocks)
         total_volume = sum(b.size for b in period_blocks)
         total_value = sum(b.value for b in period_blocks)
-        
+
         return {
             'timeframe': timeframe.name,
             'total_blocks': total_blocks,
@@ -400,33 +391,33 @@ class DarkPoolFlowAnalyzer:
             'largest_block': max(period_blocks, key=lambda x: x.value) if period_blocks else None,
             'net_direction': self._calculate_net_direction(period_blocks)
         }
-        
-    def detect_sweep_components(self, window_seconds: int = 5) -> List[List[BlockTrade]]:
+
+    def detect_sweep_components(self, window_seconds: int = 5) -> list[list[BlockTrade]]:
         """
         Detect potential sweep orders split across venues.
-        
+
         Args:
             window_seconds: Time window for sweep detection
-            
+
         Returns:
             List of potential sweep components
         """
         sweeps = []
-        
+
         with self._lock:
             # Group blocks by time window
             recent_blocks = sorted(
-                [b for b in self.block_trades 
+                [b for b in self.block_trades
                  if b.timestamp > datetime.now() - timedelta(seconds=60)],
                 key=lambda x: x.timestamp
             )
-            
+
         if not recent_blocks:
             return sweeps
-            
+
         # Detect clusters of blocks
         current_sweep = [recent_blocks[0]]
-        
+
         for i in range(1, len(recent_blocks)):
             if (recent_blocks[i].timestamp - current_sweep[-1].timestamp).total_seconds() <= window_seconds:
                 # Check if similar price (potential sweep)
@@ -436,21 +427,21 @@ class DarkPoolFlowAnalyzer:
                 if len(current_sweep) >= 3:  # Minimum 3 venues for sweep
                     sweeps.append(current_sweep)
                 current_sweep = [recent_blocks[i]]
-                
+
         # Check last sweep
         if len(current_sweep) >= 3:
             sweeps.append(current_sweep)
-            
+
         return sweeps
-        
+
     # ==========================================================================
     # PRIVATE METHODS - CLASSIFICATION
     # ==========================================================================
-    def _classify_block_type(self, trade: Dict[str, Any]) -> BlockTradeType:
+    def _classify_block_type(self, trade: dict[str, Any]) -> BlockTradeType:
         """Classify the type of block trade."""
         venue = trade.get('exchange', '').upper()
         conditions = trade.get('conditions', [])
-        
+
         if venue in DARK_POOL_VENUES:
             return BlockTradeType.DARK_POOL
         elif 'SWEEP' in conditions:
@@ -461,18 +452,18 @@ class DarkPoolFlowAnalyzer:
             return BlockTradeType.CROSSING
         else:
             return BlockTradeType.EXCHANGE_BLOCK
-            
-    def _infer_direction(self, trade: Dict[str, Any]) -> Optional[str]:
+
+    def _infer_direction(self, trade: dict[str, Any]) -> str | None:
         """Infer trade direction from available data."""
         # Check explicit direction
         if 'direction' in trade:
             return trade['direction']
-            
+
         # Infer from price vs bid/ask
         if 'bid' in trade and 'ask' in trade:
             price = trade['price']
             mid = (trade['bid'] + trade['ask']) / 2
-            
+
             if price >= trade['ask']:
                 return "BUY"
             elif price <= trade['bid']:
@@ -481,14 +472,14 @@ class DarkPoolFlowAnalyzer:
                 return "BUY"
             else:
                 return "SELL"
-                
+
         return None
-        
-    def _calculate_flow_confidence(self, metrics: DarkPoolMetrics, 
-                                 blocks: List[BlockTrade]) -> float:
+
+    def _calculate_flow_confidence(self, metrics: DarkPoolMetrics,
+                                 blocks: list[BlockTrade]) -> float:
         """Calculate confidence in flow direction."""
         confidence_factors = []
-        
+
         # DIX alignment
         if metrics.dix_value > DIX_HIGH_THRESHOLD:
             confidence_factors.append(0.9)
@@ -496,28 +487,28 @@ class DarkPoolFlowAnalyzer:
             confidence_factors.append(0.1)
         else:
             confidence_factors.append(0.5)
-            
+
         # Block consistency
         if blocks:
             directions = [b.direction for b in blocks if b.direction]
             if directions:
                 buy_ratio = directions.count("BUY") / len(directions)
                 confidence_factors.append(abs(buy_ratio - 0.5) * 2)
-                
+
         # Dark pool percentage
         if metrics.dark_percentage > 0.3:
             confidence_factors.append(0.8)
         else:
             confidence_factors.append(0.5)
-            
+
         return np.mean(confidence_factors) if confidence_factors else 0.5
-        
+
     def _classify_institutional_signal(self, direction: FlowDirection,
                                      strength: float, confidence: float) -> InstitutionalSignal:
         """Classify institutional positioning signal."""
         if confidence < 0.3:
             return InstitutionalSignal.NEUTRAL
-            
+
         if direction == FlowDirection.ACCUMULATION:
             if strength > 0.7 and confidence > 0.7:
                 return InstitutionalSignal.STRONG_ACCUMULATION
@@ -530,7 +521,7 @@ class DarkPoolFlowAnalyzer:
                 return InstitutionalSignal.DISTRIBUTION
         else:
             return InstitutionalSignal.NEUTRAL
-            
+
     # ==========================================================================
     # PRIVATE METHODS - DIX ANALYSIS
     # ==========================================================================
@@ -539,79 +530,79 @@ class DarkPoolFlowAnalyzer:
         # In production, this would load from a data provider
         # For now, using synthetic data for demonstration
         self.logger.info("Loading historical DIX data...")
-        
+
         # Generate synthetic DIX data for backtesting
         end_date = date.today()
         start_date = end_date - timedelta(days=252)  # 1 year
-        
+
         current_date = start_date
         while current_date <= end_date:
             # Synthetic DIX oscillating around 0.43
             base_dix = 0.43
             noise = np.random.normal(0, 0.02)
             trend = 0.02 * np.sin(2 * np.pi * (current_date - start_date).days / 252)
-            
+
             self.dix_history[current_date] = max(0.35, min(0.55, base_dix + noise + trend))
             current_date += timedelta(days=1)
-            
+
     def _get_current_dix(self) -> float:
         """Get current DIX value."""
         today = date.today()
-        
+
         # Check if we have today's DIX
         if today in self.dix_history:
             return self.dix_history[today]
-            
+
         # Otherwise use most recent
         if self.dix_history:
             most_recent = max(self.dix_history.keys())
             return self.dix_history[most_recent]
-            
+
         return 0.43  # Default neutral value
-        
+
     def _calculate_dix_ma(self, period: int) -> float:
         """Calculate DIX moving average."""
         if not self.dix_history:
             return 0.43
-            
+
         recent_dates = sorted(self.dix_history.keys())[-period:]
         recent_values = [self.dix_history[d] for d in recent_dates]
-        
+
         return np.mean(recent_values) if recent_values else 0.43
-        
-    def _check_dix_divergence(self) -> Optional[str]:
+
+    def _check_dix_divergence(self) -> str | None:
         """Check for DIX/price divergences."""
         # This would compare DIX trend with SPY price trend
         # Placeholder for demonstration
         return None
-        
+
     def _calculate_dix_gex_correlation(self) -> float:
         """Calculate correlation between DIX and GEX."""
         if not self.dix_history or not self.gex_history:
             return 0.0
-            
+
         # Get common dates
         common_dates = sorted(set(self.dix_history.keys()) & set(self.gex_history.keys()))
-        
+
         if len(common_dates) < GEX_CORRELATION_WINDOW:
             return 0.0
-            
+
         recent_dates = common_dates[-GEX_CORRELATION_WINDOW:]
         dix_values = [self.dix_history[d] for d in recent_dates]
         gex_values = [self.gex_history[d] for d in recent_dates]
-        
+
         return np.corrcoef(dix_values, gex_values)[0, 1]
-        
+
     def _calculate_dix_percentile(self, current_dix: float) -> float:
         """Calculate historical percentile of current DIX."""
         if not self.dix_history:
             return 50.0
-            
+
         all_values = list(self.dix_history.values())
         return stats.percentileofscore(all_values, current_dix)
-        
+
     def _generate_dix_recommendation(self, current_dix: float, dix_ma: float,
-                                   divergence: Optional[str]) -> str:
+                                   divergence: str | None) -> str:
         """Generate trading recommendation based on DIX."""
         if current_dix > DIX_HIGH_THRESHOLD and current_dix > dix_ma:
             return "BULLISH - High dark pool accumulation"
@@ -621,7 +612,7 @@ class DarkPoolFlowAnalyzer:
             return f"CAUTION - {divergence} divergence detected"
         else:
             return "NEUTRAL - No clear dark pool bias"
-            
+
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
@@ -631,20 +622,20 @@ class DarkPoolFlowAnalyzer:
             self.accumulation_tracker[block.symbol] += block.value
         elif block.direction == "SELL":
             self.accumulation_tracker[block.symbol] -= block.value
-            
-    def _calculate_net_direction(self, blocks: List[BlockTrade]) -> str:
+
+    def _calculate_net_direction(self, blocks: list[BlockTrade]) -> str:
         """Calculate net direction from blocks."""
         buy_value = sum(b.value for b in blocks if b.direction == "BUY")
         sell_value = sum(b.value for b in blocks if b.direction == "SELL")
-        
+
         if buy_value > sell_value * 1.1:
             return "NET_BUYING"
         elif sell_value > buy_value * 1.1:
             return "NET_SELLING"
         else:
             return "NEUTRAL"
-            
-    def _empty_block_summary(self) -> Dict[str, Any]:
+
+    def _empty_block_summary(self) -> dict[str, Any]:
         """Return empty block summary structure."""
         return {
             'timeframe': '',
@@ -658,7 +649,7 @@ class DarkPoolFlowAnalyzer:
             'largest_block': None,
             'net_direction': 'NEUTRAL'
         }
-        
+
     def _emit_block_event(self, block: BlockTrade) -> None:
         """Emit event for significant block trade."""
         event_data = {
@@ -671,9 +662,9 @@ class DarkPoolFlowAnalyzer:
             'is_dark_pool': block.is_dark_pool,
             'direction': block.direction
         }
-        
+
         self.event_manager.emit(Event(EventType.MARKET_DATA, event_data))
-        
+
     # ==========================================================================
     # PUBLIC METHODS - LIFECYCLE
     # ==========================================================================
@@ -682,24 +673,25 @@ class DarkPoolFlowAnalyzer:
         if self._running:
             self.logger.warning("Dark pool monitoring already running")
             return
-            
+
         self._running = True
         self._monitoring_thread = threading.Thread(
             target=self._monitoring_loop,
-            name="DarkPoolMonitor"
+            name="DarkPoolMonitor",
+            daemon=True
         )
         self._monitoring_thread.start()
         self.logger.info("Dark pool monitoring started")
-        
+
     def stop_monitoring(self) -> None:
         """Stop dark pool monitoring."""
         self._running = False
-        
+
         if self._monitoring_thread:
             self._monitoring_thread.join(timeout=5)
-            
+
         self.logger.info("Dark pool monitoring stopped")
-        
+
     def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
         while self._running:
@@ -707,18 +699,18 @@ class DarkPoolFlowAnalyzer:
                 # Update metrics periodically
                 metrics = self.get_current_metrics()
                 self.dark_pool_metrics.append(metrics)
-                
+
                 # Check for sweep patterns
                 sweeps = self.detect_sweep_components()
                 if sweeps:
                     self.logger.info(f"Detected {len(sweeps)} potential sweep patterns")
-                    
+
                 # Sleep interval
                 time.sleep(1)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                
+
     def cleanup(self) -> None:
         """Clean up resources."""
         self.stop_monitoring()
@@ -727,13 +719,13 @@ class DarkPoolFlowAnalyzer:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_dark_pool_analyzer(config: Optional[Dict] = None) -> DarkPoolFlowAnalyzer:
+def create_dark_pool_analyzer(config: dict | None = None) -> DarkPoolFlowAnalyzer:
     """
     Create and return a DarkPoolFlowAnalyzer instance.
-    
+
     Args:
         config: Optional configuration dictionary
-        
+
     Returns:
         Configured DarkPoolFlowAnalyzer instance
     """
@@ -745,10 +737,10 @@ def create_dark_pool_analyzer(config: Optional[Dict] = None) -> DarkPoolFlowAnal
 if __name__ == "__main__":
     # Module testing
     analyzer = create_dark_pool_analyzer()
-    
+
     try:
         analyzer.start_monitoring()
-        
+
         # Test with synthetic block trade
         test_trade = {
             'timestamp': datetime.now().isoformat(),
@@ -760,27 +752,18 @@ if __name__ == "__main__":
             'ask': 450.55,
             'conditions': []
         }
-        
+
         block = analyzer.analyze_trade(test_trade)
         if block:
-            print(f"✅ Block trade detected: {block.size} shares @ ${block.price}")
-            
+            pass
+
         # Get metrics
         metrics = analyzer.get_current_metrics()
-        print(f"\n📊 Dark Pool Metrics:")
-        print(f"  DIX: {metrics.dix_value:.3f}")
-        print(f"  Dark %: {metrics.dark_percentage:.1%}")
-        print(f"  Net Flow: ${metrics.net_flow:,.0f}")
-        
+
         # Get institutional flow
         flow = analyzer.get_institutional_flow()
-        print(f"\n🏛️ Institutional Flow:")
-        print(f"  Direction: {flow.direction.value}")
-        print(f"  Signal: {flow.signal.name}")
-        print(f"  Confidence: {flow.confidence:.1%}")
-        
+
         time.sleep(5)
-        
+
     finally:
         analyzer.cleanup()
-        print("\n✅ Dark pool analyzer test completed")

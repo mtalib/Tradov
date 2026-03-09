@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,17 +22,15 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import json
 import threading
 import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
-from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -48,10 +45,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (MAX_DAILY_TRADES,
 
-                                                MAX_PORTFOLIO_RISK,
-                                                MAX_POSITION_SIZE,
-                                                STOP_LOSS_PERCENTAGE,
-                                                TAKE_PROFIT_PERCENTAGE)
+                                                MAX_PORTFOLIO_RISK)
 import logging
 
 # ==============================================================================
@@ -148,13 +142,13 @@ class TradingSignal:
     position_size: int
     timestamp: datetime
     expires_at: datetime
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_valid(self) -> bool:
         """Check if signal is still valid"""
         return datetime.now() < self.expires_at
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
             "signal_id": self.signal_id,
@@ -189,10 +183,10 @@ class StrategyPosition:
     current_price: float = 0.0
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
-    exit_time: Optional[datetime] = None
-    exit_price: Optional[float] = None
-    exit_reason: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    exit_time: datetime | None = None
+    exit_price: float | None = None
+    exit_reason: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def update_pnl(self, current_price: float) -> None:
         """Update P&L calculations"""
@@ -260,7 +254,7 @@ class PerformanceMetrics:
     current_streak: int = 0
     max_win_streak: int = 0
     max_loss_streak: int = 0
-    daily_pnl: Dict[str, float] = field(default_factory=dict)
+    daily_pnl: dict[str, float] = field(default_factory=dict)
 
     def update(self, position: StrategyPosition) -> None:
         """Update metrics with closed position"""
@@ -330,10 +324,10 @@ class Event:
     event_type: EventType
     source: str
     timestamp: datetime
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     @staticmethod
-    def create(event_type: EventType, source: str, data: Dict[str, Any]) -> "Event":
+    def create(event_type: EventType, source: str, data: dict[str, Any]) -> "Event":
         """Factory method to create events"""
         return Event(
             event_id=str(uuid.uuid4()),
@@ -348,8 +342,8 @@ class EventManager:
     """Event management system"""
 
     def __init__(self):
-        self.subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
-        self.event_history: List[Event] = []
+        self.subscribers: dict[EventType, list[Callable]] = defaultdict(list)
+        self.event_history: list[Event] = []
         self.max_history_size = 1000
         self._lock = threading.Lock()
 
@@ -380,8 +374,8 @@ class EventManager:
                     logging.info(f"Error in event callback: {e}")
 
     def get_recent_events(
-        self, event_type: Optional[EventType] = None, limit: int = 100
-    ) -> List[Event]:
+        self, event_type: EventType | None = None, limit: int = 100
+    ) -> list[Event]:
         """Get recent events"""
         with self._lock:
             events = self.event_history
@@ -409,7 +403,7 @@ class BaseStrategy(ABC):
         name: str,
         event_manager: EventManager,
         risk_profile: RiskProfile,
-        config: Dict[str, Any],
+        config: dict[str, Any],
     ):
         """
         Initialize base strategy.
@@ -433,22 +427,22 @@ class BaseStrategy(ABC):
 
         # State management
         self.state = STRATEGY_INACTIVE
-        self.start_time: Optional[datetime] = None
-        self.last_update: Optional[datetime] = None
+        self.start_time: datetime | None = None
+        self.last_update: datetime | None = None
 
         # Position tracking
-        self.positions: Dict[str, StrategyPosition] = {}
-        self.position_history: List[StrategyPosition] = []
+        self.positions: dict[str, StrategyPosition] = {}
+        self.position_history: list[StrategyPosition] = []
         self.max_positions = config.get("max_positions", DEFAULT_MAX_POSITIONS)
 
         # Signal management
-        self.active_signals: Dict[str, TradingSignal] = {}
-        self.signal_history: List[TradingSignal] = []
+        self.active_signals: dict[str, TradingSignal] = {}
+        self.signal_history: list[TradingSignal] = []
 
         # Performance tracking
         self.performance = PerformanceMetrics()
         self.daily_trades = 0
-        self.last_trade_date: Optional[datetime] = None
+        self.last_trade_date: datetime | None = None
 
         # Threading for async operations
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -464,7 +458,7 @@ class BaseStrategy(ABC):
     # ==========================================================================
 
     @abstractmethod
-    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+    def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         """
         Generate trading signals based on market data.
 
@@ -505,7 +499,7 @@ class BaseStrategy(ABC):
     @abstractmethod
     def should_exit_position(
         self, position: StrategyPosition, market_data: pd.DataFrame
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Determine if position should be exited.
 
@@ -631,7 +625,7 @@ class BaseStrategy(ABC):
                 e, {"method": "process_market_data", "strategy": self.name}
             )
 
-    def add_position(self, signal: TradingSignal) -> Optional[StrategyPosition]:
+    def add_position(self, signal: TradingSignal) -> StrategyPosition | None:
         """
         Add new position from signal.
 
@@ -734,7 +728,7 @@ class BaseStrategy(ABC):
     # UTILITY METHODS
     # ==========================================================================
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """Get current strategy state"""
         return {
             "strategy_id": self.strategy_id,
@@ -752,7 +746,7 @@ class BaseStrategy(ABC):
             },
         }
 
-    def get_positions(self) -> List[StrategyPosition]:
+    def get_positions(self) -> list[StrategyPosition]:
         """Get all open positions"""
         return list(self.positions.values())
 
@@ -760,7 +754,7 @@ class BaseStrategy(ABC):
         """Get performance metrics"""
         return self.performance
 
-    def get_signals(self) -> List[TradingSignal]:
+    def get_signals(self) -> list[TradingSignal]:
         """Get active signals"""
         self._cleanup_expired_signals()
         return list(self.active_signals.values())
@@ -769,7 +763,7 @@ class BaseStrategy(ABC):
     # PRIVATE METHODS
     # ==========================================================================
 
-    def _initialize_strategy(self) -> None:
+    def _initialize_strategy(self) -> None:  # noqa: B027
         """Initialize strategy components"""
         # Override in subclasses for custom initialization
         pass
@@ -792,10 +786,7 @@ class BaseStrategy(ABC):
 
         # Check account risk
         total_exposure = sum(p.position_size * p.entry_price for p in self.positions.values())
-        if total_exposure >= self.risk_profile.account_size * self.risk_profile.max_portfolio_risk:
-            return False
-
-        return True
+        return not total_exposure >= self.risk_profile.account_size * self.risk_profile.max_portfolio_risk
 
     def _process_signal(self, signal: TradingSignal) -> None:
         """Process a trading signal"""
@@ -911,7 +902,7 @@ class BaseStrategy(ABC):
 class StrategyFactory:
     """Factory for creating strategy instances"""
 
-    _strategies: Dict[str, type] = {}
+    _strategies: dict[str, type] = {}
 
     @classmethod
     def register(cls, name: str, strategy_class: type) -> None:
@@ -926,7 +917,7 @@ class StrategyFactory:
         name: str,
         event_manager: EventManager,
         risk_profile: RiskProfile,
-        config: Dict[str, Any],
+        config: dict[str, Any],
     ) -> BaseStrategy:
         """Create a strategy instance"""
         strategy_class = cls._strategies.get(name)
@@ -936,7 +927,7 @@ class StrategyFactory:
         return strategy_class(name, event_manager, risk_profile, config)
 
     @classmethod
-    def list_strategies(cls) -> List[str]:
+    def list_strategies(cls) -> list[str]:
         """List registered strategies"""
         return list(cls._strategies.keys())
 
@@ -954,13 +945,13 @@ if __name__ == "__main__":
             name: str,
             event_manager: EventManager,
             risk_profile: RiskProfile,
-            config: Dict[str, Any],
+            config: dict[str, Any],
         ):
             super().__init__(name, event_manager, risk_profile, config)
             self.fast_period = config.get("fast_period", 10)
             self.slow_period = config.get("slow_period", 20)
 
-        def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
             signals = []
 
             if len(market_data) < self.slow_period:
@@ -998,7 +989,7 @@ if __name__ == "__main__":
 
         def should_exit_position(
             self, position: StrategyPosition, market_data: pd.DataFrame
-        ) -> Tuple[bool, str]:
+        ) -> tuple[bool, str]:
             current_price = position.current_price
 
             # Check stop loss
@@ -1016,7 +1007,6 @@ if __name__ == "__main__":
             return False, ""
 
     # Test the base strategy
-    print("Testing BaseStrategy implementation...")
 
     # Create components
     event_manager = EventManager()
@@ -1033,12 +1023,10 @@ if __name__ == "__main__":
     strategy = SimpleMovingAverageStrategy("SMA_Test", event_manager, risk_profile, config)
 
     # Test lifecycle
-    print(f"Strategy created: {strategy.name}")
-    print(f"Initial state: {strategy.state}")
 
     # Start strategy
     if strategy.start():
-        print("Strategy started successfully")
+        pass
 
     # Create sample market data
     dates = pd.date_range(end=datetime.now(), periods=50, freq="5min")
@@ -1059,20 +1047,17 @@ if __name__ == "__main__":
 
     # Check for signals
     signals = strategy.get_signals()
-    print(f"\nGenerated {len(signals)} signals")
 
     # Create a test position
     if signals:
         position = strategy.add_position(signals[0])
         if position:
-            print(f"Position created: {position.position_id}")
+            pass
 
     # Get strategy state
     state = strategy.get_state()
-    print(f"\nStrategy state: {json.dumps(state, indent=2)}")
 
     # Stop strategy
     if strategy.stop():
-        print("\nStrategy stopped successfully")
+        pass
 
-    print("\nBaseStrategy test completed!")

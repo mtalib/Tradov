@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -47,18 +46,11 @@ CONNECTION MONITORING:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import os
-import socket
-import time
-import traceback
 import json
-from datetime import datetime, timedelta, time as dt_time
-from typing import Dict, List, Optional, Any, Tuple
+from datetime import datetime, time as dt_time
 from dataclasses import dataclass
 import random
 import numpy as np
-from threading import Lock
-import queue
 import pytz
 from pathlib import Path
 
@@ -81,15 +73,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
     QTextEdit,
-    QComboBox,
-    QSpinBox,
-    QDoubleSpinBox,
-    QCheckBox,
     QGroupBox,
-    QTabWidget,
-    QProgressBar,
-    QSlider,
-    QStyle,
     QMessageBox,
     QMenu,
     QTreeWidget,
@@ -101,26 +85,18 @@ from PySide6.QtCore import (
     Signal,
     QThread,
     Slot,
-    QSize,
     QRect,
-    QPoint,
     QObject,
     QMutex,
     QMutexLocker,
 )
 from PySide6.QtGui import (
     QFont,
-    QPalette,
     QColor,
-    QIcon,
-    QPixmap,
     QPainter,
     QBrush,
-    QShortcut,
-    QKeySequence,
     QPen,
     QTextCursor,
-    QAction,
 )
 
 # Matplotlib for charting
@@ -129,7 +105,6 @@ import matplotlib
 matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import pandas as pd
 
@@ -404,8 +379,8 @@ class ConnectionInfo:
     connection_mode: str = "DISCONNECTED"
     market_data_status: str = "NONE"
     trading_active: bool = False
-    last_update: Optional[datetime] = None
-    last_successful_data: Optional[datetime] = None
+    last_update: datetime | None = None
+    last_successful_data: datetime | None = None
     data_was_live: bool = False
     simulation_mode: bool = False
 
@@ -445,7 +420,7 @@ class ThreadSafeMarketDataWorker(QObject):
         self.last_data_update = {}
         self._init_simulation_data()
 
-        logging.info(f"🔧 Market Data Worker initialized with heartbeat monitoring")
+        logging.info("🔧 Market Data Worker initialized with heartbeat monitoring")
         logging.info(f"📊 Market: {'OPEN' if self.market_hours else 'CLOSED'}")
 
     def start(self):
@@ -490,7 +465,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 # Emit log message instead of error
                 self.log_message.emit(f"✅ Tradier API detected at startup: {mode}")
             else:
-                logging.info(f"❌ No Tradier API connection detected")
+                logging.info("❌ No Tradier API connection detected")
                 # Emit log message instead of error
                 self.log_message.emit("❌ No Tradier API connection detected at startup")
 
@@ -606,7 +581,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     self.market_data_status_changed.emit("NONE")
 
     @Slot()
-    def start(self):
+    def start(self):  # noqa: F811
         """Start the worker - FIXED TO EMIT PROPER INITIAL STATUS"""
         logging.info("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
 
@@ -1425,7 +1400,7 @@ class SpyderTradingDashboard(QMainWindow):
             else:
                 self.api_connected = False
 
-        except Exception as e:
+        except Exception:
             self.api_connected = False
 
     # ==========================================================================
@@ -1439,12 +1414,12 @@ class SpyderTradingDashboard(QMainWindow):
 
             if self.data_file.exists():
                 try:
-                    with open(self.data_file, "r") as f:
+                    with open(self.data_file) as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
                     self.add_system_log(f"🔥 Real data detected - SPY: ${spy_price}")
                     real_data_available = True
-                except (json.JSONDecodeError, KeyError, IOError) as e:
+                except (OSError, json.JSONDecodeError, KeyError) as e:
                     self.add_system_log(f"⚠️ Real data file exists but couldn't read it: {e}")
             else:
                 self.add_system_log(
@@ -1510,7 +1485,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             if self.data_file.exists():
                 try:
-                    with open(self.data_file, "r") as f:
+                    with open(self.data_file) as f:
                         data = json.load(f)
 
                     if data:
@@ -1519,7 +1494,7 @@ class SpyderTradingDashboard(QMainWindow):
                         )
                         self._check_timer.stop()
                         self.apply_real_data_patch()
-                except:
+                except Exception:
                     pass
 
         # Check every 5 seconds for real data
@@ -1533,7 +1508,7 @@ class SpyderTradingDashboard(QMainWindow):
             if not self.data_file.exists():
                 return
 
-            with open(self.data_file, "r") as f:
+            with open(self.data_file) as f:
                 live_data = json.load(f)
 
             if not live_data:
@@ -1624,7 +1599,7 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#ff1744"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
-        except Exception as e:
+        except Exception:
             pass  # Suppress toolbar update errors
 
     def update_status_for_real_data(self):
@@ -1634,7 +1609,7 @@ class SpyderTradingDashboard(QMainWindow):
             # The API connection status should always show actual Tradier API connection
             pass  # Real data integration doesn't change API connection display
 
-        except Exception as e:
+        except Exception:
             pass  # Not critical
 
     def refresh_market_data(self):
@@ -1771,7 +1746,7 @@ class SpyderTradingDashboard(QMainWindow):
         logo_label = QLabel("S P Y D E R")
         try:
             logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
-        except:
+        except Exception:
             logo_font = QFont("Arial", 16, QFont.Weight.Normal)
         logo_label.setFont(logo_font)
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
@@ -1867,13 +1842,13 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.api_connection_dot = QLabel("●")
         self.api_connection_dot.setStyleSheet(
-            "color: " + COLORS["negative"] + f"; font-size: 14px;"
+            "color: " + COLORS["negative"] + "; font-size: 14px;"
         )
         api_status_layout.addWidget(self.api_connection_dot)
 
         self.api_connection_label = QLabel("API DISCONNECTED")
         self.api_connection_label.setStyleSheet(
-            "color: " + COLORS["negative"] + f"; font-size: 14px;"
+            "color: " + COLORS["negative"] + "; font-size: 14px;"
         )
         api_status_layout.addWidget(self.api_connection_label)
 
@@ -1893,7 +1868,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.heartbeat_icon = QLabel("💔")  # Start with red broken heart (disconnected)
         self.heartbeat_icon.setStyleSheet(
-            "color: " + COLORS["negative"] + f"; font-size: 16px;"
+            "color: " + COLORS["negative"] + "; font-size: 16px;"
         )
         self.heartbeat_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heartbeat_layout.addWidget(self.heartbeat_icon)
@@ -1913,7 +1888,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.data_status_dot = QLabel("●")
         self.data_status_dot.setStyleSheet(
-            "color: " + COLORS["warning"] + f"; font-size: 14px;"
+            "color: " + COLORS["warning"] + "; font-size: 14px;"
         )
         self.data_status_dot.setAlignment(
             Qt.AlignmentFlag.AlignVCenter
@@ -1922,7 +1897,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.data_status_label = QLabel("END-OF-DAY DATA")
         self.data_status_label.setStyleSheet(
-            "color: " + COLORS["warning"] + f"; font-size: 14px;"
+            "color: " + COLORS["warning"] + "; font-size: 14px;"
         )
         self.data_status_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1939,7 +1914,7 @@ class SpyderTradingDashboard(QMainWindow):
             "CLICK TO DISPLAY SIMULATED DATA WHEN API IS DISCONNECTED"
         )
         self.simulation_toggle.setStyleSheet(
-            f"font-size: 14px;"
+            "font-size: 14px;"
         )  # REMOVED padding-left
         self.simulation_toggle.setAlignment(
             Qt.AlignmentFlag.AlignVCenter
@@ -2231,7 +2206,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Account info — compact flat grid, no QGroupBox overhead
         self.risk_params_btn = QPushButton("RISK LEVELS")
-        self.risk_params_btn.setStyleSheet(f"background-color: #0066CC; color: white; font-size: 15px;")
+        self.risk_params_btn.setStyleSheet("background-color: #0066CC; color: white; font-size: 15px;")
         self.risk_params_btn.setToolTip("Configure global and strategy-specific risk parameters")
         self.risk_params_btn.clicked.connect(self.show_risk_parameters)
         # Button placed in RISK MONITOR section header
@@ -2771,7 +2746,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Determine if this is a strategy header or a leg
         is_strategy = item.parent() is None
         strategy_item = item if is_strategy else item.parent()
-        strategy_name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or ""
+        strategy_item.data(0, Qt.ItemDataRole.UserRole) or ""
         status = strategy_item.data(1, Qt.ItemDataRole.UserRole) or ""
 
         menu = QMenu(self)
@@ -2882,7 +2857,7 @@ class SpyderTradingDashboard(QMainWindow):
             ("+$47,500.00", "70%", "$500/$200", "1.85", "2.35", "2.58", "3.15"),
         ]
 
-        for row, (period, values) in enumerate(zip(periods, data)):
+        for row, (period, values) in enumerate(zip(periods, data, strict=False)):
             period_item = QTableWidgetItem(period)
             period_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, 0, period_item)
@@ -3036,7 +3011,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             indicator = QLabel(status)
             indicator.setStyleSheet(
-                "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                "color: " + COLORS["positive"] + "; font-size: 14px;"
             )
             component_layout.addWidget(indicator)
 
@@ -3065,7 +3040,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             indicator = QLabel("●")
             indicator.setStyleSheet(
-                "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+                "color: " + COLORS["neutral"] + "; font-size: 14px;"
             )
             indicator.setToolTip(f"Tradier {svc_name} endpoint")
             svc_layout.addWidget(indicator)
@@ -3095,7 +3070,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             indicator = QLabel("●")
             indicator.setStyleSheet(
-                "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+                "color: " + COLORS["neutral"] + "; font-size: 14px;"
             )
             indicator.setToolTip(f"Databento {feed_name} feed")
             feed_layout.addWidget(indicator)
@@ -3127,11 +3102,11 @@ class SpyderTradingDashboard(QMainWindow):
             indicator = QLabel("●")
             if module_key == "custom_metrics":
                 indicator.setStyleSheet(
-                    "color: " + COLORS["warning"] + f"; font-size: 14px;"
+                    "color: " + COLORS["warning"] + "; font-size: 14px;"
                 )
             else:
                 indicator.setStyleSheet(
-                    "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                    "color: " + COLORS["positive"] + "; font-size: 14px;"
                 )
             module_layout.addWidget(indicator)
 
@@ -3459,29 +3434,29 @@ class SpyderTradingDashboard(QMainWindow):
         if status_type == "LIVE":
             # Live data during market hours
             self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                "color: " + COLORS["positive"] + "; font-size: 14px;"
             )
             self.data_status_label.setText("LIVE DATA")
             self.data_status_label.setStyleSheet(
-                "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                "color: " + COLORS["positive"] + "; font-size: 14px;"
             )
         elif status_type == "EOD":
             # End of day data (after hours or file data)
             self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["warning"] + f"; font-size: 14px;"
+                "color: " + COLORS["warning"] + "; font-size: 14px;"
             )
             self.data_status_label.setText("END-OF-DAY DATA")
             self.data_status_label.setStyleSheet(
-                "color: " + COLORS["warning"] + f"; font-size: 14px;"
+                "color: " + COLORS["warning"] + "; font-size: 14px;"
             )
         elif status_type == "FROZEN":
             # Frozen data (disconnected during market hours)
             self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["negative"] + f"; font-size: 14px;"
+                "color: " + COLORS["negative"] + "; font-size: 14px;"
             )
             self.data_status_label.setText("FROZEN DATA")
             self.data_status_label.setStyleSheet(
-                "color: " + COLORS["negative"] + f"; font-size: 14px;"
+                "color: " + COLORS["negative"] + "; font-size: 14px;"
             )
         elif status_type == "SIMULATION":
             # Simulation mode
@@ -3727,11 +3702,11 @@ class SpyderTradingDashboard(QMainWindow):
         import random
 
         # Update system components
-        for name, indicator in self.system_components.items():
+        for _, indicator in self.system_components.items():
             status = random.choice(["●", "●", "●", "●", "○"])  # 80% green, 20% gray
             if status == "●":
                 indicator.setStyleSheet(
-                    "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                    "color: " + COLORS["positive"] + "; font-size: 14px;"
                 )
             else:
                 indicator.setStyleSheet(
@@ -3739,11 +3714,11 @@ class SpyderTradingDashboard(QMainWindow):
                 )
 
         # Update broker & data feed indicators
-        for name, indicator in self.client_indicators.items():
+        for _, indicator in self.client_indicators.items():
             status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
             if status == "●":
                 indicator.setStyleSheet(
-                    "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                    "color: " + COLORS["positive"] + "; font-size: 14px;"
                 )
             else:
                 indicator.setStyleSheet(
@@ -3756,13 +3731,13 @@ class SpyderTradingDashboard(QMainWindow):
                 if name == "custom_metrics":
                     # Custom metrics stays yellow/warning
                     indicator.setStyleSheet(
-                        "color: " + COLORS["warning"] + f"; font-size: 14px;"
+                        "color: " + COLORS["warning"] + "; font-size: 14px;"
                     )
                 else:
                     status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
                     if status == "●":
                         indicator.setStyleSheet(
-                            "color: " + COLORS["positive"] + f"; font-size: 14px;"
+                            "color: " + COLORS["positive"] + "; font-size: 14px;"
                         )
                     else:
                         indicator.setStyleSheet(
@@ -3845,13 +3820,13 @@ class SpyderTradingDashboard(QMainWindow):
             # DTE color in header
             dte_val = strat["dte"]
             if dte_val == 0:
-                dte_color = QColor(COLORS["text_dim"])
+                QColor(COLORS["text_dim"])
             elif dte_val <= 2:
-                dte_color = QColor(COLORS["negative"])
+                QColor(COLORS["negative"])
             elif dte_val <= 7:
-                dte_color = QColor(COLORS["warning"])
+                QColor(COLORS["warning"])
             else:
-                dte_color = QColor(COLORS["positive"])
+                QColor(COLORS["positive"])
 
             # Set background for strategy header row
             header_bg = QColor("#1a1a2e")
@@ -4109,7 +4084,7 @@ def apply_real_data_patch_to_dashboard(dashboard, data_file):
             if not data_file.exists():
                 return
 
-            with open(data_file, "r") as f:
+            with open(data_file) as f:
                 live_data = json.load(f)
 
             if not live_data:
@@ -4185,7 +4160,7 @@ def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
 
         if data_file.exists():
             try:
-                with open(data_file, "r") as f:
+                with open(data_file) as f:
                     data = json.load(f)
 
                 if data:
@@ -4196,7 +4171,7 @@ def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
                     dashboard._check_timer.stop()
                     apply_real_data_patch_to_dashboard(dashboard, data_file)
                     dashboard.real_data_active = True
-            except:
+            except Exception:
                 pass
 
     # Check every 5 seconds for real data
@@ -4253,7 +4228,7 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
                 color = "#00ff41" if change >= 0 else "#ff1744"
                 dashboard.dji_change.setStyleSheet(f"color: {color};")
 
-    except Exception as e:
+    except Exception:
         pass  # Suppress toolbar update errors
 
 
@@ -4264,7 +4239,7 @@ def update_status_for_real_data_helper(dashboard):
         # API status should always reflect actual Tradier API connection
         pass  # Don't override API connection status
 
-    except Exception as e:
+    except Exception:
         pass  # Not critical
 
 
@@ -4291,7 +4266,7 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
 
     if data_file.exists():
         try:
-            with open(data_file, "r") as f:
+            with open(data_file) as f:
                 data = json.load(f)
 
             if data:
@@ -4362,11 +4337,11 @@ def main():
             data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
             if data_file.exists():
                 try:
-                    with open(data_file, "r") as f:
+                    with open(data_file) as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
                     logging.info(f"✅ Real data detected - SPY: ${spy_price}")
-                except:
+                except Exception:
                     logging.info("⚠️ Real data file exists but couldn't read it")
             else:
                 logging.info("📊 No real data detected - using simulation")
@@ -4410,7 +4385,7 @@ def main():
                     f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
                     "Please check the console for detailed error information.",
                 )
-            except:
+            except Exception:
                 pass
 
             return 1
@@ -4432,11 +4407,11 @@ def main():
             data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
             if data_file.exists():
                 try:
-                    with open(data_file, "r") as f:
+                    with open(data_file) as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
                     logging.info(f"✅ Real data detected - SPY: ${spy_price}")
-                except:
+                except Exception:
                     logging.info("⚠️ Real data file exists but couldn't read it")
             else:
                 logging.info("📊 No real data detected - using simulation")
@@ -4476,7 +4451,7 @@ def main():
                     f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
                     "Please check the console for detailed error information.",
                 )
-            except:
+            except Exception:
                 pass
 
             return 1

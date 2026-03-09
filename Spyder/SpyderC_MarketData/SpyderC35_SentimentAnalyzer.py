@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -32,24 +31,19 @@ References:
 # ==============================================================================
 import os
 import re
-import json
 import time
-import asyncio
-import threading
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Any, Callable
 from enum import Enum
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
-import hashlib
 import xml.etree.ElementTree as ET
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 import requests
 
 # NLP Libraries (optional - graceful degradation)
@@ -76,7 +70,6 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -142,9 +135,9 @@ class SentimentScore:
     sentiment: SentimentType
     confidence: float
     model_used: SentimentModel
-    ticker: Optional[str] = None
-    url: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    ticker: str | None = None
+    url: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_significant(self) -> bool:
@@ -154,7 +147,7 @@ class SentimentScore:
             self.confidence >= 0.6
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "text": self.text[:200],  # Truncate for storage
@@ -177,10 +170,10 @@ class NewsItem:
     url: str
     source: str
     published: datetime
-    tickers: List[str]
-    sentiment: Optional[SentimentScore] = None
+    tickers: list[str]
+    sentiment: SentimentScore | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "title": self.title,
@@ -202,15 +195,15 @@ class SocialPost:
     timestamp: datetime
     upvotes: int = 0
     comments: int = 0
-    subreddit: Optional[str] = None
-    sentiment: Optional[SentimentScore] = None
+    subreddit: str | None = None
+    sentiment: SentimentScore | None = None
 
     @property
     def engagement_score(self) -> float:
         """Calculate engagement score."""
         return (self.upvotes * 1.0 + self.comments * 2.0) / 100
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "platform": self.platform,
@@ -232,14 +225,14 @@ class CompositeSentiment:
     overall_score: float  # -1 to 1
     overall_sentiment: SentimentType
     confidence: float
-    source_scores: Dict[str, float]
-    source_counts: Dict[str, int]
+    source_scores: dict[str, float]
+    source_counts: dict[str, int]
     bullish_count: int
     bearish_count: int
     neutral_count: int
     trend: str  # improving, stable, deteriorating
-    news_items: List[NewsItem] = field(default_factory=list)
-    social_posts: List[SocialPost] = field(default_factory=list)
+    news_items: list[NewsItem] = field(default_factory=list)
+    social_posts: list[SocialPost] = field(default_factory=list)
 
     @property
     def sentiment_ratio(self) -> float:
@@ -257,7 +250,7 @@ class CompositeSentiment:
             (self.bullish_count + self.bearish_count) >= 5
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -284,7 +277,7 @@ class BaseSentimentModel(ABC):
     """Base class for sentiment models."""
 
     @abstractmethod
-    def analyze(self, text: str) -> Tuple[float, float]:
+    def analyze(self, text: str) -> tuple[float, float]:
         """
         Analyze text sentiment.
 
@@ -312,7 +305,7 @@ class FinBERTModel(BaseSentimentModel):
 
         logger.info(f"FinBERT loaded on {self.device}")
 
-    def analyze(self, text: str) -> Tuple[float, float]:
+    def analyze(self, text: str) -> tuple[float, float]:
         """Analyze text using FinBERT."""
         try:
             # Tokenize
@@ -355,7 +348,7 @@ class VADERModel(BaseSentimentModel):
         self.analyzer = SentimentIntensityAnalyzer()
         logger.info("VADER model initialized")
 
-    def analyze(self, text: str) -> Tuple[float, float]:
+    def analyze(self, text: str) -> tuple[float, float]:
         """Analyze text using VADER."""
         try:
             scores = self.analyzer.polarity_scores(text)
@@ -381,7 +374,7 @@ class TextBlobModel(BaseSentimentModel):
             raise ImportError("textblob library required")
         logger.info("TextBlob model initialized")
 
-    def analyze(self, text: str) -> Tuple[float, float]:
+    def analyze(self, text: str) -> tuple[float, float]:
         """Analyze text using TextBlob."""
         try:
             blob = TextBlob(text)
@@ -404,7 +397,7 @@ class EnsembleSentimentModel(BaseSentimentModel):
     """Ensemble of multiple sentiment models."""
 
     def __init__(self, use_finbert: bool = True):
-        self.models: List[Tuple[BaseSentimentModel, float]] = []
+        self.models: list[tuple[BaseSentimentModel, float]] = []
 
         # Add available models with weights
         if HAS_VADER:
@@ -428,7 +421,7 @@ class EnsembleSentimentModel(BaseSentimentModel):
 
         logger.info(f"Ensemble model initialized with {len(self.models)} models")
 
-    def analyze(self, text: str) -> Tuple[float, float]:
+    def analyze(self, text: str) -> tuple[float, float]:
         """Analyze using weighted ensemble."""
         weighted_score = 0.0
         weighted_confidence = 0.0
@@ -469,7 +462,7 @@ class BaseNewsSource(ABC):
         """Human-readable source identifier used in logs."""
 
     @abstractmethod
-    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+    def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """
         Fetch recent news items for *ticker*.
 
@@ -502,7 +495,7 @@ class AlphaVantageNewsSource(BaseNewsSource):
     def source_name(self) -> str:
         return "alpha_vantage"
 
-    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+    def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """Fetch from Alpha Vantage NEWS_SENTIMENT endpoint."""
         try:
             params = {
@@ -521,7 +514,7 @@ class AlphaVantageNewsSource(BaseNewsSource):
                 return []
 
             feed = response.json().get("feed", [])
-            items: List[NewsItem] = []
+            items: list[NewsItem] = []
             for entry in feed:
                 try:
                     published = datetime.strptime(
@@ -573,7 +566,7 @@ class FinnhubNewsSource(BaseNewsSource):
     def source_name(self) -> str:
         return "finnhub"
 
-    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+    def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """Fetch from Finnhub /company-news endpoint."""
         try:
             today = datetime.utcnow()
@@ -597,7 +590,7 @@ class FinnhubNewsSource(BaseNewsSource):
             if not isinstance(entries, list):
                 return []
 
-            items: List[NewsItem] = []
+            items: list[NewsItem] = []
             for entry in entries[:limit]:
                 try:
                     published = datetime.utcfromtimestamp(entry.get("datetime", 0))
@@ -641,7 +634,7 @@ class YahooFinanceRSSNewsSource(BaseNewsSource):
     def source_name(self) -> str:
         return "yahoo_rss"
 
-    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+    def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """Fetch headlines from the Yahoo Finance RSS feed for *ticker*."""
         try:
             params = {"s": ticker, "region": "US", "lang": "en-US"}
@@ -662,7 +655,7 @@ class YahooFinanceRSSNewsSource(BaseNewsSource):
             if channel is None:
                 return []
 
-            items: List[NewsItem] = []
+            items: list[NewsItem] = []
             for item_el in list(channel.findall("item"))[:limit]:
                 title = (item_el.findtext("title") or "").strip()
                 description = (item_el.findtext("description") or "").strip()
@@ -714,12 +707,12 @@ class SentimentAnalyzer:
 
     def __init__(
         self,
-        alpha_vantage_key: Optional[str] = None,
-        finnhub_key: Optional[str] = None,
-        reddit_credentials: Optional[Dict[str, str]] = None,
+        alpha_vantage_key: str | None = None,
+        finnhub_key: str | None = None,
+        reddit_credentials: dict[str, str] | None = None,
         model_type: SentimentModel = SentimentModel.ENSEMBLE,
         use_finbert: bool = True,
-        news_sources: Optional[List[BaseNewsSource]] = None,
+        news_sources: list[BaseNewsSource] | None = None,
     ):
         """
         Initialize Sentiment Analyzer.
@@ -742,7 +735,7 @@ class SentimentAnalyzer:
 
         # Build news source pipeline ------------------------------------------
         if news_sources is not None:
-            self._news_sources: List[BaseNewsSource] = news_sources
+            self._news_sources: list[BaseNewsSource] = news_sources
         else:
             self._news_sources = []
             if alpha_vantage_key:
@@ -760,14 +753,14 @@ class SentimentAnalyzer:
         self._init_sentiment_model(model_type, use_finbert)
 
         # Caches
-        self._news_cache: Dict[str, Tuple[List[NewsItem], datetime]] = {}
-        self._social_cache: Dict[str, Tuple[List[SocialPost], datetime]] = {}
-        self._sentiment_history: Dict[str, deque] = defaultdict(
+        self._news_cache: dict[str, tuple[list[NewsItem], datetime]] = {}
+        self._social_cache: dict[str, tuple[list[SocialPost], datetime]] = {}
+        self._sentiment_history: dict[str, deque] = defaultdict(
             lambda: deque(maxlen=1000)
         )
 
         # Callbacks
-        self._sentiment_callbacks: List[Callable[[SentimentScore], None]] = []
+        self._sentiment_callbacks: list[Callable[[SentimentScore], None]] = []
 
         logger.info(f"SentimentAnalyzer initialized with {model_type.value} model")
 
@@ -810,7 +803,7 @@ class SentimentAnalyzer:
         ticker: str,
         limit: int = 50,
         use_cache: bool = True
-    ) -> List[NewsItem]:
+    ) -> list[NewsItem]:
         """
         Fetch and analyze news for a ticker.
 
@@ -835,7 +828,7 @@ class SentimentAnalyzer:
                 return cached_news
 
         # Fetch news from the configured source pipeline
-        news_items: List[NewsItem] = []
+        news_items: list[NewsItem] = []
 
         for source in self._news_sources:
             if len(news_items) >= limit:
@@ -864,7 +857,7 @@ class SentimentAnalyzer:
         logger.info(f"Analyzed {len(news_items)} news items for {ticker}")
         return news_items[:limit]
 
-    def _fetch_alpha_vantage_news(self, ticker: str, limit: int) -> List[NewsItem]:
+    def _fetch_alpha_vantage_news(self, ticker: str, limit: int) -> list[NewsItem]:
         """
         Fetch news from Alpha Vantage (legacy helper kept for backward compat).
 
@@ -882,11 +875,11 @@ class SentimentAnalyzer:
 
     def monitor_social_media(
         self,
-        tickers: List[str],
-        subreddits: Optional[List[str]] = None,
+        tickers: list[str],
+        subreddits: list[str] | None = None,
         limit: int = 50,
         use_cache: bool = True
-    ) -> Dict[str, List[SocialPost]]:
+    ) -> dict[str, list[SocialPost]]:
         """
         Monitor social media for ticker mentions.
 
@@ -906,7 +899,7 @@ class SentimentAnalyzer:
         """
         subreddits = subreddits or ["wallstreetbets", "options", "stocks", "investing"]
 
-        results: Dict[str, List[SocialPost]] = {}
+        results: dict[str, list[SocialPost]] = {}
 
         for ticker in tickers:
             # Check cache
@@ -933,9 +926,9 @@ class SentimentAnalyzer:
     def _fetch_reddit_posts(
         self,
         ticker: str,
-        subreddits: List[str],
+        subreddits: list[str],
         limit: int
-    ) -> List[SocialPost]:
+    ) -> list[SocialPost]:
         """Fetch Reddit posts mentioning ticker."""
         posts = []
 
@@ -951,9 +944,9 @@ class SentimentAnalyzer:
     def _fetch_reddit_public(
         self,
         ticker: str,
-        subreddits: List[str],
+        subreddits: list[str],
         limit: int
-    ) -> List[SocialPost]:
+    ) -> list[SocialPost]:
         """Fetch Reddit posts via public JSON endpoints."""
         posts = []
 
@@ -990,7 +983,7 @@ class SentimentAnalyzer:
 
                     try:
                         created = datetime.fromtimestamp(post_data.get("created_utc", 0))
-                    except:
+                    except Exception:
                         created = datetime.now()
 
                     posts.append(SocialPost(
@@ -1014,9 +1007,9 @@ class SentimentAnalyzer:
     def _fetch_reddit_api(
         self,
         ticker: str,
-        subreddits: List[str],
+        subreddits: list[str],
         limit: int
-    ) -> List[SocialPost]:
+    ) -> list[SocialPost]:
         """Fetch Reddit posts via OAuth API."""
         # This would use proper Reddit OAuth authentication
         # For now, fallback to public endpoint
@@ -1030,7 +1023,7 @@ class SentimentAnalyzer:
         self,
         text: str,
         source: SourceType,
-        ticker: Optional[str] = None
+        ticker: str | None = None
     ) -> SentimentScore:
         """
         Analyze text sentiment.
@@ -1152,9 +1145,9 @@ class SentimentAnalyzer:
             >>> print(f"News score: {sentiment.source_scores.get('news', 0):.2f}")
             >>> print(f"Trend: {sentiment.trend}")
         """
-        all_sentiments: List[SentimentScore] = []
-        news_items: List[NewsItem] = []
-        social_posts: List[SocialPost] = []
+        all_sentiments: list[SentimentScore] = []
+        news_items: list[NewsItem] = []
+        social_posts: list[SocialPost] = []
 
         # Collect news sentiment
         if include_news:
@@ -1193,8 +1186,8 @@ class SentimentAnalyzer:
             )
 
         # Calculate source-specific scores
-        source_scores: Dict[str, float] = {}
-        source_counts: Dict[str, int] = defaultdict(int)
+        source_scores: dict[str, float] = {}
+        source_counts: dict[str, int] = defaultdict(int)
 
         for sentiment in recent_sentiments:
             source = sentiment.source.value
@@ -1289,8 +1282,8 @@ class SentimentAnalyzer:
     def analyze_sec_filings(
         self,
         ticker: str,
-        filing_types: Optional[List[str]] = None
-    ) -> List[SentimentScore]:
+        filing_types: list[str] | None = None
+    ) -> list[SentimentScore]:
         """
         Analyze SEC filings for sentiment.
 
@@ -1351,7 +1344,7 @@ class SentimentAnalyzer:
 
         return df
 
-    def get_sentiment_summary(self, ticker: str) -> Dict[str, Any]:
+    def get_sentiment_summary(self, ticker: str) -> dict[str, Any]:
         """Get quick sentiment summary for a ticker."""
         composite = self.get_composite_sentiment(ticker)
 
@@ -1425,14 +1418,8 @@ def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    print("Sentiment Analyzer Test")
-    print("=" * 60)
 
     # Test available models
-    print("\n=== Available Models ===")
-    print(f"Transformers (FinBERT): {HAS_TRANSFORMERS}")
-    print(f"VADER: {HAS_VADER}")
-    print(f"TextBlob: {HAS_TEXTBLOB}")
 
     # Initialize analyzer
     try:
@@ -1442,7 +1429,6 @@ if __name__ == "__main__":
         )
 
         # Test individual analysis
-        print("\n=== Text Analysis ===")
         test_texts = [
             "SPY is showing strong bullish momentum, expecting new all-time highs!",
             "Market crash incoming, sell everything before it's too late.",
@@ -1452,21 +1438,9 @@ if __name__ == "__main__":
 
         for text in test_texts:
             sentiment = analyzer._analyze_text(text, SourceType.NEWS, "SPY")
-            print(f"\nText: {text[:50]}...")
-            print(f"  Score: {sentiment.score:.3f}")
-            print(f"  Sentiment: {sentiment.sentiment.value}")
-            print(f"  Confidence: {sentiment.confidence:.2%}")
 
         # Test composite sentiment
-        print("\n=== Composite Sentiment ===")
         composite = analyzer.get_composite_sentiment("SPY")
-        print(f"Overall: {composite.overall_sentiment.value}")
-        print(f"Score: {composite.overall_score:.3f}")
-        print(f"Confidence: {composite.confidence:.2%}")
-        print(f"Trend: {composite.trend}")
-        print(f"Bullish/Bearish: {composite.bullish_count}/{composite.bearish_count}")
-        print(f"Actionable: {composite.is_actionable}")
 
-    except ImportError as e:
-        print(f"\nNote: Some features unavailable: {e}")
-        print("Install required libraries: pip install textblob vaderSentiment transformers torch")
+    except ImportError:
+        pass

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -26,21 +25,18 @@ Change Log:
 import json
 import sys
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
 
                             QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                            QFormLayout, QFrame, QGridLayout, QGroupBox,
-                            QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-                            QPushButton, QRadioButton, QScrollArea, QSlider,
-                             QSpinBox, QTableWidget, QTableWidgetItem,
-                             QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+                            QGridLayout, QGroupBox,
+                            QHBoxLayout, QLabel, QMessageBox,
+                            QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem,
+                             QTabWidget, QVBoxLayout, QWidget)
 import logging
 
 # ==============================================================================
@@ -123,7 +119,7 @@ class RiskParametersDialog(QDialog):
     parameters_updated = Signal(dict)
     profile_changed = Signal(str)
 
-    def __init__(self, parent=None, current_params: Optional[Dict] = None):
+    def __init__(self, parent=None, current_params: dict | None = None):
         super().__init__(parent)
 
         self.current_params = current_params or {}
@@ -364,7 +360,7 @@ class RiskParametersDialog(QDialog):
             # Enabled radio button
             radio_button = QRadioButton()
             radio_button.setAutoExclusive(False)  # Allow independent toggle
-            radio_button.setChecked(True if i < 3 else False)  # First 3 enabled
+            radio_button.setChecked(i < 3)  # First 3 enabled
             self.strategy_table.setCellWidget(i, 1, radio_button)
 
             # Max risk
@@ -931,7 +927,7 @@ class RiskParametersDialog(QDialog):
             if not self.is_loading:
                 self.check_for_changes()
 
-    def get_parameters(self) -> Dict:
+    def get_parameters(self) -> dict:
         """Get current parameter values"""
         # Get strategy settings
         strategy_settings = {}
@@ -989,7 +985,7 @@ class RiskParametersDialog(QDialog):
             },
         }
 
-    def validate_parameters(self) -> Tuple[bool, List[str]]:
+    def validate_parameters(self) -> tuple[bool, list[str]]:
         """Validate parameter values"""
         warnings = []
         errors = []
@@ -1020,7 +1016,7 @@ class RiskParametersDialog(QDialog):
 
         if filename:
             try:
-                with open(filename, "r") as f:
+                with open(filename) as f:
                     params = json.load(f)
 
                 self.current_params = params
@@ -1158,8 +1154,8 @@ class RiskParametersDialog(QDialog):
 
 
 def show_risk_parameters_dialog(
-    parent=None, current_params: Optional[Dict] = None
-) -> Optional[Dict]:
+    parent=None, current_params: dict | None = None
+) -> dict | None:
     """
     Show the risk levels dialog and return the configured parameters
 
@@ -1195,11 +1191,8 @@ if __name__ == "__main__":
     params = show_risk_parameters_dialog()
 
     if params:
-        print("=" * 80)
-        print("CONFIGURED RISK LEVELS")
-        print("=" * 80)
-        print(json.dumps(params, indent=2))
+        pass
     else:
-        print("Dialog cancelled - no levels configured")
+        pass
 
     sys.exit(0)

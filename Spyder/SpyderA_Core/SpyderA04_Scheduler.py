@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,18 +22,14 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-import asyncio
 import threading
 from datetime import datetime, time, timedelta, date
-from typing import Dict, List, Optional, Callable, Any, Set, Tuple, Union
+from typing import Callable, Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import logging
 from pathlib import Path
 import json
-from collections import defaultdict, deque
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -53,7 +48,6 @@ from apscheduler.events import (
     EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED,
     JobExecutionEvent, JobEvent
 )
-import pandas as pd
 import pandas_market_calendars as mcal
 import holidays
 
@@ -62,7 +56,7 @@ import holidays
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 
 # ==============================================================================
 # CONSTANTS
@@ -141,17 +135,17 @@ class ScheduledTask:
     name: str
     func: Callable
     schedule_type: ScheduleType
-    schedule_params: Dict[str, Any]
+    schedule_params: dict[str, Any]
     enabled: bool = True
     max_instances: int = 1
     misfire_grace_time: int = 30  # seconds
     coalesce: bool = True
     created_at: datetime = field(default_factory=datetime.now)
-    last_run: Optional[datetime] = None
-    next_run: Optional[datetime] = None
+    last_run: datetime | None = None
+    next_run: datetime | None = None
     run_count: int = 0
     error_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class TaskExecution:
@@ -159,22 +153,22 @@ class TaskExecution:
     task_id: str
     execution_time: datetime
     status: TaskStatus
-    duration_ms: Optional[int] = None
-    error_message: Optional[str] = None
-    result: Optional[Any] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    duration_ms: int | None = None
+    error_message: str | None = None
+    result: Any | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class MarketHours:
     """Market hours for a specific date"""
     date: date
-    market_open: Optional[datetime] = None
-    market_close: Optional[datetime] = None
-    premarket_open: Optional[datetime] = None
-    afterhours_close: Optional[datetime] = None
+    market_open: datetime | None = None
+    market_close: datetime | None = None
+    premarket_open: datetime | None = None
+    afterhours_close: datetime | None = None
     is_trading_day: bool = True
     day_type: TradingDayType = TradingDayType.REGULAR
-    notes: Optional[str] = None
+    notes: str | None = None
 
 @dataclass
 class TradingWindow:
@@ -182,27 +176,27 @@ class TradingWindow:
     name: str
     start_time: time
     end_time: time
-    days_of_week: List[int] = field(default_factory=lambda: list(range(5)))  # Mon-Fri
+    days_of_week: list[int] = field(default_factory=lambda: list(range(5)))  # Mon-Fri
     enabled: bool = True
-    strategies: List[str] = field(default_factory=list)
+    strategies: list[str] = field(default_factory=list)
 
 # ==============================================================================
 # MARKET CALENDAR
 # ==============================================================================
 class MarketCalendar:
     """Enhanced market calendar with holiday support"""
-    
+
     def __init__(self):
         self.logger = SpyderLogger.get_logger(__name__)
-        
+
         # Initialize market calendars
         self.nyse_calendar = mcal.get_calendar('NYSE')
         self.us_holidays = holidays.US(years=range(2020, 2030))
-        
+
         # Cache for market hours
-        self._hours_cache: Dict[date, MarketHours] = {}
+        self._hours_cache: dict[date, MarketHours] = {}
         self._cache_lock = threading.Lock()
-        
+
         # Special trading days (early closes)
         self.early_close_days = {
             "day_before_independence": time(13, 0),
@@ -210,7 +204,7 @@ class MarketCalendar:
             "christmas_eve": time(13, 0),
             "new_years_eve": time(13, 0) if datetime.now().year >= 2025 else time(16, 0)
         }
-        
+
         self.logger.info("MarketCalendar initialized")
 
     def get_market_hours(self, date: date) -> MarketHours:
@@ -219,13 +213,13 @@ class MarketCalendar:
             # Check cache
             if date in self._hours_cache:
                 return self._hours_cache[date]
-            
+
             # Calculate market hours
             hours = self._calculate_market_hours(date)
-            
+
             # Cache result
             self._hours_cache[date] = hours
-            
+
             return hours
 
     def _calculate_market_hours(self, date: date) -> MarketHours:
@@ -237,7 +231,7 @@ class MarketCalendar:
                 is_trading_day=False,
                 day_type=TradingDayType.WEEKEND
             )
-        
+
         # Check if holiday
         if date in self.us_holidays:
             return MarketHours(
@@ -246,33 +240,33 @@ class MarketCalendar:
                 day_type=TradingDayType.HOLIDAY,
                 notes=self.us_holidays.get(date)
             )
-        
+
         # Get NYSE schedule
         schedule = self.nyse_calendar.schedule(
             start_date=date,
             end_date=date
         )
-        
+
         if schedule.empty:
             return MarketHours(
                 date=date,
                 is_trading_day=False,
                 day_type=TradingDayType.HOLIDAY
             )
-        
+
         # Regular trading day
         market_open = schedule.iloc[0]['market_open'].tz_convert(EASTERN_TZ)
         market_close = schedule.iloc[0]['market_close'].tz_convert(EASTERN_TZ)
-        
+
         # Check for early close
         day_type = TradingDayType.REGULAR
         if market_close.time() < DEFAULT_MARKET_CLOSE:
             day_type = TradingDayType.EARLY_CLOSE
-        
+
         # Calculate extended hours
         premarket_open = market_open.replace(hour=4, minute=0)
         afterhours_close = market_close.replace(hour=20, minute=0)
-        
+
         return MarketHours(
             date=date,
             market_open=market_open,
@@ -283,47 +277,47 @@ class MarketCalendar:
             day_type=day_type
         )
 
-    def is_market_open(self, dt: Optional[datetime] = None) -> bool:
+    def is_market_open(self, dt: datetime | None = None) -> bool:
         """Check if market is currently open"""
         if dt is None:
             dt = datetime.now(EASTERN_TZ)
         else:
             dt = dt.astimezone(EASTERN_TZ)
-        
+
         hours = self.get_market_hours(dt.date())
-        
+
         if not hours.is_trading_day:
             return False
-        
+
         return hours.market_open <= dt <= hours.market_close
 
-    def get_next_trading_day(self, after_date: Optional[date] = None) -> date:
+    def get_next_trading_day(self, after_date: date | None = None) -> date:
         """Get next trading day"""
         if after_date is None:
             after_date = date.today()
-        
+
         current = after_date
         while True:
             current = current + timedelta(days=1)
             hours = self.get_market_hours(current)
             if hours.is_trading_day:
                 return current
-            
+
             # Safety check
             if current > after_date + timedelta(days=30):
                 raise ValueError("No trading day found within 30 days")
 
-    def get_trading_days(self, start_date: date, end_date: date) -> List[date]:
+    def get_trading_days(self, start_date: date, end_date: date) -> list[date]:
         """Get list of trading days in date range"""
         trading_days = []
         current = start_date
-        
+
         while current <= end_date:
             hours = self.get_market_hours(current)
             if hours.is_trading_day:
                 trading_days.append(current)
             current = current + timedelta(days=1)
-        
+
         return trading_days
 
 # ==============================================================================
@@ -332,12 +326,12 @@ class MarketCalendar:
 class Scheduler:
     """
     Advanced scheduler for trading operations.
-    
+
     This class manages all scheduled tasks including market-based events,
     strategy executions, data updates, and system maintenance. It provides
     flexible scheduling options, task persistence, error recovery, and
     integration with market calendars.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling system
@@ -352,7 +346,7 @@ class Scheduler:
     def __init__(self, event_manager: EventManager, use_async: bool = False):
         """
         Initialize the scheduler.
-        
+
         Args:
             event_manager: Event management system
             use_async: Use async scheduler (for asyncio environments)
@@ -360,29 +354,29 @@ class Scheduler:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_manager = event_manager
-        
+
         # Initialize scheduler
         if use_async:
             self.scheduler = AsyncIOScheduler(timezone=EASTERN_TZ)
         else:
             self.scheduler = BackgroundScheduler(timezone=EASTERN_TZ)
-        
+
         # Task management
-        self.tasks: Dict[str, ScheduledTask] = {}
+        self.tasks: dict[str, ScheduledTask] = {}
         self._task_lock = threading.RLock()
-        
+
         # Trading windows
-        self.trading_windows: Dict[str, TradingWindow] = {}
+        self.trading_windows: dict[str, TradingWindow] = {}
         self._init_default_windows()
-        
+
         # Market calendar
         self.market_calendar = MarketCalendar()
-        
+
         # Task history database
         self.db_path = Path.home() / ".spyder" / "scheduler.db"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_database()
-        
+
         # Performance metrics
         self.metrics = {
             'tasks_executed': 0,
@@ -391,13 +385,13 @@ class Scheduler:
             'tasks_missed': 0,
             'total_execution_time_ms': 0
         }
-        
+
         # Register scheduler event handlers
         self._register_scheduler_handlers()
-        
+
         # Schedule default tasks
         self._schedule_default_tasks()
-        
+
         self.logger.info("Scheduler initialized")
 
     def _init_database(self):
@@ -418,7 +412,7 @@ class Scheduler:
             end_time=time(16, 0),
             enabled=True
         )
-        
+
         # Opening range window
         self.trading_windows["opening_range"] = TradingWindow(
             name="Opening Range",
@@ -426,7 +420,7 @@ class Scheduler:
             end_time=time(10, 0),
             enabled=True
         )
-        
+
         # Closing range window
         self.trading_windows["closing_range"] = TradingWindow(
             name="Closing Range",
@@ -434,7 +428,7 @@ class Scheduler:
             end_time=time(16, 0),
             enabled=True
         )
-        
+
         # Pre-market window
         self.trading_windows["premarket"] = TradingWindow(
             name="Pre-Market",
@@ -470,7 +464,7 @@ class Scheduler:
             day_of_week="mon-fri",
             description="Market open event"
         )
-        
+
         self.add_task(
             task_id="market_close",
             func=self._on_market_close,
@@ -480,7 +474,7 @@ class Scheduler:
             day_of_week="mon-fri",
             description="Market close event"
         )
-        
+
         # Position check before close
         self.add_task(
             task_id="position_check_before_close",
@@ -491,7 +485,7 @@ class Scheduler:
             day_of_week="mon-fri",
             description="Check positions before market close"
         )
-        
+
         # Daily cleanup
         self.add_task(
             task_id="daily_cleanup",
@@ -507,13 +501,13 @@ class Scheduler:
     # ==========================================================================
     def add_task(self, task_id: str, func: Callable,
                  schedule_type: ScheduleType,
-                 name: Optional[str] = None,
-                 description: Optional[str] = None,
+                 name: str | None = None,
+                 description: str | None = None,
                  enabled: bool = True,
                  **schedule_params) -> bool:
         """
         Add a scheduled task.
-        
+
         Args:
             task_id: Unique task identifier
             func: Function to execute
@@ -522,7 +516,7 @@ class Scheduler:
             description: Task description
             enabled: Whether task is enabled
             **schedule_params: Schedule-specific parameters
-            
+
         Returns:
             bool: True if task added successfully
         """
@@ -532,7 +526,7 @@ class Scheduler:
                 if task_id in self.tasks:
                     self.logger.warning(f"Task {task_id} already exists")
                     return False
-                
+
                 # Create task
                 task = ScheduledTask(
                     task_id=task_id,
@@ -543,18 +537,18 @@ class Scheduler:
                     enabled=enabled,
                     metadata={'description': description}
                 )
-                
+
                 # Add to scheduler if enabled
                 if enabled:
                     job = self._create_job(task)
                     if job:
                         task.next_run = job.next_run_time
-                
+
                 # Store task
                 self.tasks[task_id] = task
-                
+
                 self.logger.info(f"Task added: {task_id}")
-                
+
                 # Emit event
                 self.event_manager.emit(
                     EventType.SYSTEM,
@@ -564,9 +558,9 @@ class Scheduler:
                         'schedule_type': schedule_type.name
                     }
                 )
-                
+
                 return True
-                
+
         except Exception as e:
             self.logger.error(f"Failed to add task {task_id}: {e}")
             self.error_handler.handle_error(e, f"add_task.{task_id}")
@@ -575,10 +569,10 @@ class Scheduler:
     def remove_task(self, task_id: str) -> bool:
         """
         Remove a scheduled task.
-        
+
         Args:
             task_id: Task identifier
-            
+
         Returns:
             bool: True if removed successfully
         """
@@ -587,19 +581,19 @@ class Scheduler:
                 if task_id not in self.tasks:
                     self.logger.warning(f"Task {task_id} not found")
                     return False
-                
+
                 # Remove from scheduler
                 try:
                     self.scheduler.remove_job(task_id)
                 except Exception:
                     pass  # Job might not exist
-                
+
                 # Remove task
                 del self.tasks[task_id]
-                
+
                 self.logger.info(f"Task removed: {task_id}")
                 return True
-                
+
         except Exception as e:
             self.logger.error(f"Failed to remove task {task_id}: {e}")
             return False
@@ -618,14 +612,14 @@ class Scheduler:
             with self._task_lock:
                 if task_id not in self.tasks:
                     return False
-                
+
                 task = self.tasks[task_id]
-                
+
                 if task.enabled == enabled:
                     return True  # Already in desired state
-                
+
                 task.enabled = enabled
-                
+
                 if enabled:
                     # Add to scheduler
                     job = self._create_job(task)
@@ -637,23 +631,23 @@ class Scheduler:
                         self.scheduler.remove_job(task_id)
                     except Exception:
                         pass
-                
+
                 self.logger.info(f"Task {task_id} {'enabled' if enabled else 'disabled'}")
                 return True
-                
+
         except Exception as e:
             self.logger.error(f"Failed to set task enabled state: {e}")
             return False
 
-    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         """Get task status information"""
         with self._task_lock:
             task = self.tasks.get(task_id)
             if not task:
                 return None
-            
+
             job = self.scheduler.get_job(task_id)
-            
+
             return {
                 'task_id': task_id,
                 'name': task.name,
@@ -666,7 +660,7 @@ class Scheduler:
                 'is_running': job and job.pending
             }
 
-    def list_tasks(self) -> List[Dict[str, Any]]:
+    def list_tasks(self) -> list[dict[str, Any]]:
         """List all scheduled tasks"""
         with self._task_lock:
             return [
@@ -677,12 +671,12 @@ class Scheduler:
     # ==========================================================================
     # JOB CREATION
     # ==========================================================================
-    def _create_job(self, task: ScheduledTask) -> Optional[Job]:
+    def _create_job(self, task: ScheduledTask) -> Job | None:
         """Create APScheduler job from task"""
         try:
             # Wrap function for error handling
             wrapped_func = self._wrap_task_function(task)
-            
+
             # Create trigger based on schedule type
             if task.schedule_type == ScheduleType.CRON:
                 trigger = self._create_cron_trigger(task.schedule_params)
@@ -695,7 +689,7 @@ class Scheduler:
             else:
                 self.logger.error(f"Unknown schedule type: {task.schedule_type}")
                 return None
-            
+
             # Add job to scheduler
             job = self.scheduler.add_job(
                 wrapped_func,
@@ -706,9 +700,9 @@ class Scheduler:
                 misfire_grace_time=task.misfire_grace_time,
                 coalesce=task.coalesce
             )
-            
+
             return job
-            
+
         except Exception as e:
             self.logger.error(f"Failed to create job: {e}")
             return None
@@ -722,69 +716,69 @@ class Scheduler:
                 execution_time=start_time,
                 status=TaskStatus.RUNNING
             )
-            
+
             try:
                 # Update task
                 task.last_run = start_time
                 task.run_count += 1
-                
+
                 # Execute function
                 result = task.func()
-                
+
                 # Success
                 execution.status = TaskStatus.SUCCESS
                 execution.result = result
-                
+
                 # Update metrics
                 self.metrics['tasks_executed'] += 1
                 self.metrics['tasks_succeeded'] += 1
-                
+
             except Exception as e:
                 # Error
                 execution.status = TaskStatus.ERROR
                 execution.error_message = str(e)
                 task.error_count += 1
-                
+
                 # Update metrics
                 self.metrics['tasks_executed'] += 1
                 self.metrics['tasks_failed'] += 1
-                
+
                 # Log error
                 self.logger.error(f"Task {task.task_id} failed: {e}")
                 self.logger.debug(traceback.format_exc())
-                
+
             finally:
                 # Calculate duration
                 end_time = datetime.now()
                 execution.duration_ms = int((end_time - start_time).total_seconds() * 1000)
                 self.metrics['total_execution_time_ms'] += execution.duration_ms
-                
+
                 # Record execution
-                self._record_task_execution(task.task_id, execution.status, 
+                self._record_task_execution(task.task_id, execution.status,
                                           execution.error_message, execution.duration_ms)
-        
+
         return wrapped
 
-    def _create_cron_trigger(self, params: Dict[str, Any]) -> CronTrigger:
+    def _create_cron_trigger(self, params: dict[str, Any]) -> CronTrigger:
         """Create cron trigger from parameters"""
         return CronTrigger(**params, timezone=EASTERN_TZ)
 
-    def _create_interval_trigger(self, params: Dict[str, Any]) -> IntervalTrigger:
+    def _create_interval_trigger(self, params: dict[str, Any]) -> IntervalTrigger:
         """Create interval trigger from parameters"""
         return IntervalTrigger(**params, timezone=EASTERN_TZ)
 
-    def _create_date_trigger(self, params: Dict[str, Any]) -> DateTrigger:
+    def _create_date_trigger(self, params: dict[str, Any]) -> DateTrigger:
         """Create date trigger from parameters"""
         run_date = params.get('run_date')
         if isinstance(run_date, str):
             run_date = datetime.fromisoformat(run_date)
         return DateTrigger(run_date=run_date, timezone=EASTERN_TZ)
 
-    def _create_market_trigger(self, params: Dict[str, Any]) -> Optional[CronTrigger]:
+    def _create_market_trigger(self, params: dict[str, Any]) -> CronTrigger | None:
         """Create market-based trigger"""
         # This is a simplified version - could be enhanced
         market_event = params.get('event', 'open')
-        
+
         if market_event == 'open':
             return CronTrigger(hour=9, minute=30, day_of_week='mon-fri', timezone=EASTERN_TZ)
         elif market_event == 'close':
@@ -799,15 +793,15 @@ class Scheduler:
         """Handle successful job execution"""
         try:
             task_id = event.job_id
-            
+
             if task_id in self.tasks:
                 # Update next run time
                 job = self.scheduler.get_job(task_id)
                 if job:
                     self.tasks[task_id].next_run = job.next_run_time
-            
+
             self.logger.debug(f"Job executed successfully: {task_id}")
-            
+
         except Exception as e:
             self.logger.error(f"Error handling job execution event: {e}")
 
@@ -816,9 +810,9 @@ class Scheduler:
         try:
             task_id = event.job_id
             exception = getattr(event, 'exception', 'Unknown error')
-            
+
             self.logger.error(f"Job failed: {task_id} - {exception}")
-            
+
             # Emit error event
             self.event_manager.emit(
                 EventType.SYSTEM_ERROR,
@@ -828,7 +822,7 @@ class Scheduler:
                     'error': str(exception)
                 }
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error handling job error event: {e}")
 
@@ -836,15 +830,15 @@ class Scheduler:
         """Handle missed job execution"""
         try:
             task_id = event.job_id
-            
+
             self.logger.warning(f"Job missed: {task_id}")
-            
+
             # Update metrics
             self.metrics['tasks_missed'] += 1
-            
+
             # Record missed execution
             self._record_task_execution(task_id, TaskStatus.MISSED)
-            
+
         except Exception as e:
             self.logger.error(f"Error handling job missed event: {e}")
 
@@ -854,12 +848,12 @@ class Scheduler:
     def _on_market_open(self):
         """Handle market open event"""
         self.logger.info("Market opened - executing market open tasks")
-        
+
         # Check if actually a trading day
         if not self.market_calendar.is_market_open():
             self.logger.warning("Market open event fired but market is closed")
             return
-        
+
         # Emit market open event
         self.event_manager.emit(
             EventType.SYSTEM,
@@ -872,7 +866,7 @@ class Scheduler:
     def _on_market_close(self):
         """Handle market close event"""
         self.logger.info("Market closed - executing market close tasks")
-        
+
         # Emit market close event
         self.event_manager.emit(
             EventType.SYSTEM,
@@ -885,7 +879,7 @@ class Scheduler:
     def _position_check_before_close(self):
         """Check positions before market close"""
         self.logger.info("Checking positions before market close")
-        
+
         # Emit position check event
         self.event_manager.emit(
             EventType.RISK,
@@ -899,14 +893,14 @@ class Scheduler:
     def _daily_cleanup(self):
         """Perform daily cleanup tasks"""
         self.logger.info("Running daily cleanup")
-        
+
         try:
             # Clean old task history
             self._clean_old_task_history()
-            
+
             # Reset daily metrics
             self._reset_daily_metrics()
-            
+
             # Emit cleanup event
             self.event_manager.emit(
                 EventType.SYSTEM,
@@ -915,14 +909,14 @@ class Scheduler:
                     'timestamp': datetime.now()
                 }
             )
-            
+
         except Exception as e:
             self.logger.error(f"Daily cleanup failed: {e}")
 
     # ==========================================================================
     # TRADING WINDOW MANAGEMENT
     # ==========================================================================
-    def add_trading_window(self, name: str, start_time: time, 
+    def add_trading_window(self, name: str, start_time: time,
                           end_time: time, **kwargs) -> bool:
         """Add a trading window"""
         try:
@@ -932,15 +926,15 @@ class Scheduler:
                 end_time=end_time,
                 **kwargs
             )
-            
+
             self.trading_windows[name] = window
-            
+
             # Schedule window events
             self._schedule_window_events(name)
-            
+
             self.logger.info(f"Trading window added: {name}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to add trading window: {e}")
             return False
@@ -950,7 +944,7 @@ class Scheduler:
         window = self.trading_windows.get(window_name)
         if not window or not window.enabled:
             return
-        
+
         # Schedule window open
         self.add_task(
             task_id=f"window_open_{window_name}",
@@ -961,7 +955,7 @@ class Scheduler:
             day_of_week='mon-fri',
             description=f"Trading window open: {window_name}"
         )
-        
+
         # Schedule window close
         self.add_task(
             task_id=f"window_close_{window_name}",
@@ -976,11 +970,11 @@ class Scheduler:
     def _on_window_event(self, window_name: str, event_type: str):
         """Handle trading window event"""
         self.logger.info(f"Trading window {event_type}: {window_name}")
-        
+
         window = self.trading_windows.get(window_name)
         if not window:
             return
-        
+
         # Emit window event
         self.event_manager.emit(
             EventType.TRADING,
@@ -992,22 +986,22 @@ class Scheduler:
             }
         )
 
-    def is_in_trading_window(self, window_name: str, 
-                           dt: Optional[datetime] = None) -> bool:
+    def is_in_trading_window(self, window_name: str,
+                           dt: datetime | None = None) -> bool:
         """Check if currently in trading window"""
         window = self.trading_windows.get(window_name)
         if not window or not window.enabled:
             return False
-        
+
         if dt is None:
             dt = datetime.now(EASTERN_TZ)
         else:
             dt = dt.astimezone(EASTERN_TZ)
-        
+
         # Check day of week
         if dt.weekday() not in window.days_of_week:
             return False
-        
+
         # Check time
         current_time = dt.time()
         return window.start_time <= current_time <= window.end_time
@@ -1015,12 +1009,12 @@ class Scheduler:
     # ==========================================================================
     # CONVENIENCE METHODS
     # ==========================================================================
-    def schedule_strategy_execution(self, strategy_name: str, 
+    def schedule_strategy_execution(self, strategy_name: str,
                                   execution_time: time,
                                   days_of_week: str = "mon-fri") -> bool:
         """Schedule a strategy to run at specific time"""
         task_id = f"strategy_{strategy_name}"
-        
+
         def execute_strategy():
             self.event_manager.emit(
                 EventType.TRADING,
@@ -1030,7 +1024,7 @@ class Scheduler:
                     'timestamp': datetime.now(EASTERN_TZ)
                 }
             )
-        
+
         return self.add_task(
             task_id=task_id,
             func=execute_strategy,
@@ -1051,7 +1045,7 @@ class Scheduler:
                     'timestamp': datetime.now()
                 }
             )
-        
+
         return self.add_task(
             task_id="data_update",
             func=update_data,
@@ -1070,7 +1064,7 @@ class Scheduler:
                     'timestamp': datetime.now()
                 }
             )
-        
+
         return self.add_task(
             task_id="risk_check",
             func=check_risk,
@@ -1083,13 +1077,13 @@ class Scheduler:
     # TASK HISTORY
     # ==========================================================================
     def _record_task_execution(self, task_id: str, status: TaskStatus,
-                             error_message: Optional[str] = None,
-                             duration_ms: Optional[int] = None):
+                             error_message: str | None = None,
+                             duration_ms: int | None = None):
         """Record task execution in database"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
-                    INSERT INTO task_history 
+                    INSERT INTO task_history
                     (task_id, execution_time, status, duration_ms, error_message)
                     VALUES (?, ?, ?, ?, ?)
                 """, (
@@ -1099,12 +1093,12 @@ class Scheduler:
                     duration_ms,
                     error_message
                 ))
-                
+
         except Exception as e:
             self.logger.error(f"Failed to record task execution: {e}")
 
-    def get_task_history(self, task_id: Optional[str] = None,
-                        limit: int = 100) -> List[TaskExecution]:
+    def get_task_history(self, task_id: str | None = None,
+                        limit: int = 100) -> list[TaskExecution]:
         """Get task execution history"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -1125,9 +1119,9 @@ class Scheduler:
                         LIMIT ?
                     """
                     params = (limit,)
-                
+
                 cursor = conn.execute(query, params)
-                
+
                 history = []
                 for row in cursor:
                     history.append(TaskExecution(
@@ -1137,9 +1131,9 @@ class Scheduler:
                         duration_ms=row[3],
                         error_message=row[4]
                     ))
-                
+
                 return history
-                
+
         except Exception as e:
             self.logger.error(f"Failed to get task history: {e}")
             return []
@@ -1148,30 +1142,30 @@ class Scheduler:
         """Clean old task history records"""
         try:
             cutoff_date = datetime.now() - timedelta(days=days_to_keep)
-            
+
             with sqlite3.connect(self.db_path) as conn:
                 result = conn.execute("""
                     DELETE FROM task_history
                     WHERE execution_time < ?
                 """, (cutoff_date,))
-                
+
                 deleted = result.rowcount
                 if deleted > 0:
                     self.logger.info(f"Cleaned {deleted} old task history records")
-                    
+
         except Exception as e:
             self.logger.error(f"Failed to clean task history: {e}")
 
-    def get_task_statistics(self, task_id: Optional[str] = None,
-                          days: int = 7) -> Dict[str, Any]:
+    def get_task_statistics(self, task_id: str | None = None,
+                          days: int = 7) -> dict[str, Any]:
         """Get task execution statistics"""
         try:
             since_date = datetime.now() - timedelta(days=days)
-            
+
             with sqlite3.connect(self.db_path) as conn:
                 if task_id:
                     query = """
-                        SELECT 
+                        SELECT
                             COUNT(*) as total,
                             SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
                             SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
@@ -1185,7 +1179,7 @@ class Scheduler:
                     params = (task_id, since_date)
                 else:
                     query = """
-                        SELECT 
+                        SELECT
                             COUNT(*) as total,
                             SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
                             SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
@@ -1197,10 +1191,10 @@ class Scheduler:
                         WHERE execution_time >= ?
                     """
                     params = (since_date,)
-                
+
                 cursor = conn.execute(query, params)
                 row = cursor.fetchone()
-                
+
                 return {
                     'total_executions': row[0] or 0,
                     'successful': row[1] or 0,
@@ -1212,7 +1206,7 @@ class Scheduler:
                     'min_duration_ms': row[6] or 0,
                     'period_days': days
                 }
-                
+
         except Exception as e:
             self.logger.error(f"Failed to get task statistics: {e}")
             return {}
@@ -1226,10 +1220,10 @@ class Scheduler:
             if self.scheduler.running:
                 self.logger.warning("Scheduler already running")
                 return True
-            
+
             self.scheduler.start()
             self.logger.info("Scheduler started")
-            
+
             # Emit start event
             self.event_manager.emit(
                 EventType.SYSTEM,
@@ -1239,9 +1233,9 @@ class Scheduler:
                     'task_count': len(self.tasks)
                 }
             )
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to start scheduler: {e}")
             self.error_handler.handle_error(e, "scheduler_start")
@@ -1250,10 +1244,10 @@ class Scheduler:
     def stop(self, wait: bool = True) -> bool:
         """
         Stop the scheduler.
-        
+
         Args:
             wait: Wait for running jobs to complete
-            
+
         Returns:
             bool: True if stopped successfully
         """
@@ -1261,10 +1255,10 @@ class Scheduler:
             if not self.scheduler.running:
                 self.logger.warning("Scheduler not running")
                 return True
-            
+
             self.scheduler.shutdown(wait=wait)
             self.logger.info("Scheduler stopped")
-            
+
             # Emit stop event
             self.event_manager.emit(
                 EventType.SYSTEM,
@@ -1273,9 +1267,9 @@ class Scheduler:
                     'timestamp': datetime.now()
                 }
             )
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to stop scheduler: {e}")
             return False
@@ -1321,10 +1315,10 @@ class Scheduler:
                 if self.metrics['tasks_executed'] > 0 else 0
             )
         }
-        
+
         # Log daily summary
         self.logger.info(f"Daily task summary: {daily_metrics}")
-        
+
         # Reset counters
         self.metrics = {
             'tasks_executed': 0,
@@ -1334,7 +1328,7 @@ class Scheduler:
             'total_execution_time_ms': 0
         }
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get current scheduler metrics"""
         return {
             'is_running': self.scheduler.running,
@@ -1345,12 +1339,12 @@ class Scheduler:
             'next_scheduled': self._get_next_scheduled_time()
         }
 
-    def _get_next_scheduled_time(self) -> Optional[datetime]:
+    def _get_next_scheduled_time(self) -> datetime | None:
         """Get time of next scheduled job"""
         jobs = self.scheduler.get_jobs()
         if not jobs:
             return None
-        
+
         next_times = [job.next_run_time for job in jobs if job.next_run_time]
         return min(next_times) if next_times else None
 
@@ -1359,9 +1353,9 @@ class Scheduler:
         logging.info("\n" + "="*80)
         logging.info("SCHEDULED TASKS")
         logging.info("="*80)
-        
+
         jobs = sorted(self.scheduler.get_jobs(), key=lambda x: x.next_run_time or datetime.max)
-        
+
         for job in jobs:
             task = self.tasks.get(job.id)
             if task:
@@ -1372,10 +1366,10 @@ class Scheduler:
                 logging.info(f"  Enabled: {task.enabled}")
                 logging.info(f"  Run Count: {task.run_count}")
                 logging.info(f"  Error Count: {task.error_count}")
-                
+
                 if task.last_run:
                     logging.info(f"  Last Run: {task.last_run}")
-        
+
         logging.info("\n" + "="*80)
 
     def export_schedule(self, output_path: Path) -> bool:
@@ -1386,10 +1380,10 @@ class Scheduler:
                 'scheduler_running': self.scheduler.running,
                 'tasks': []
             }
-            
+
             for task_id, task in self.tasks.items():
                 job = self.scheduler.get_job(task_id)
-                
+
                 task_data = {
                     'task_id': task_id,
                     'name': task.name,
@@ -1402,15 +1396,15 @@ class Scheduler:
                     'error_count': task.error_count,
                     'metadata': task.metadata
                 }
-                
+
                 schedule_data['tasks'].append(task_data)
-            
+
             with open(output_path, 'w') as f:
                 json.dump(schedule_data, f, indent=2)
-            
+
             self.logger.info(f"Schedule exported to: {output_path}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to export schedule: {e}")
             return False
@@ -1418,27 +1412,27 @@ class Scheduler:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-_scheduler_instance: Optional[Scheduler] = None
+_scheduler_instance: Scheduler | None = None
 _scheduler_lock = threading.Lock()
 
 def get_scheduler(event_manager: EventManager = None) -> Scheduler:
     """
     Get singleton Scheduler instance.
-    
+
     Args:
         event_manager: Event manager (required for first call)
-        
+
     Returns:
         Scheduler instance
     """
     global _scheduler_instance
-    
+
     with _scheduler_lock:
         if _scheduler_instance is None:
             if not event_manager:
                 raise ValueError("Event manager required for first scheduler creation")
             _scheduler_instance = Scheduler(event_manager)
-        
+
         return _scheduler_instance
 
 def reset_scheduler():
@@ -1454,23 +1448,21 @@ def reset_scheduler():
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing
-    print("Testing Scheduler...")
-    
+
     # Create event manager
     from SpyderA_Core.SpyderA05_EventManager import EventManager
     event_manager = EventManager()
     event_manager.start()
-    
+
     # Create scheduler
     scheduler = Scheduler(event_manager)
-    
+
     # Test task addition
-    print("\n1. Adding test tasks...")
-    
+
     # Add interval task
     def test_interval_task():
-        print(f"Interval task executed at {datetime.now()}")
-    
+        pass
+
     scheduler.add_task(
         task_id="test_interval",
         func=test_interval_task,
@@ -1478,11 +1470,11 @@ if __name__ == "__main__":
         seconds=10,
         description="Test interval task"
     )
-    
+
     # Add cron task
     def test_cron_task():
-        print(f"Cron task executed at {datetime.now()}")
-    
+        pass
+
     scheduler.add_task(
         task_id="test_cron",
         func=test_cron_task,
@@ -1490,57 +1482,42 @@ if __name__ == "__main__":
         second="*/30",  # Every 30 seconds
         description="Test cron task"
     )
-    
+
     # Start scheduler
-    print("\n2. Starting scheduler...")
     if scheduler.start():
-        print("✅ Scheduler started successfully")
-        
+
         # Print schedule
-        print("\n3. Current schedule:")
         scheduler.print_schedule()
-        
+
         # Get metrics
-        print("\n4. Scheduler metrics:")
         metrics = scheduler.get_metrics()
-        print(json.dumps(metrics, indent=2, default=str))
-        
+
         # Test market calendar
-        print("\n5. Market calendar test:")
         calendar = scheduler.market_calendar
-        
+
         today = date.today()
-        print(f"Is today a trading day? {calendar.get_market_hours(today).is_trading_day}")
-        print(f"Is market open now? {calendar.is_market_open()}")
-        
+
         next_trading = calendar.get_next_trading_day()
-        print(f"Next trading day: {next_trading}")
-        
+
         # Test trading windows
-        print("\n6. Trading windows:")
-        for name, window in scheduler.trading_windows.items():
+        for name, _window in scheduler.trading_windows.items():
             in_window = scheduler.is_in_trading_window(name)
-            print(f"  {name}: {'Active' if in_window else 'Inactive'}")
-        
+
         # Run for a bit
-        print("\n7. Running for 30 seconds...")
         import time
         time.sleep(30)
-        
+
         # Get task history
-        print("\n8. Task execution history:")
         history = scheduler.get_task_history(limit=10)
-        for execution in history:
-            print(f"  {execution.task_id}: {execution.status.value} at {execution.execution_time}")
-        
+        for _execution in history:
+            pass
+
         # Stop scheduler
-        print("\n9. Stopping scheduler...")
         if scheduler.stop():
-            print("✅ Scheduler stopped successfully")
+            pass
     else:
-        print("❌ Failed to start scheduler")
-    
+        pass
+
     # Stop event manager
     event_manager.stop()
-    
-    print("\n✅ Scheduler test completed")
+

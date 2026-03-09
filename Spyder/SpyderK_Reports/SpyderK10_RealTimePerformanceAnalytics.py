@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,12 +23,12 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple, Union
-from dataclasses import dataclass, field, asdict
+from typing import Any, Union
+from dataclasses import dataclass, asdict
 from enum import Enum
 import json
 import logging
-from collections import defaultdict, deque
+from collections import deque
 import asyncio
 import warnings
 
@@ -72,7 +71,7 @@ class MetricType(Enum):
     GREEKS = "greeks"
     EXECUTION = "execution"
     ALLOCATION = "allocation"
-    
+
 class TimeFrame(Enum):
     """Time frames for analysis"""
     INTRADAY = "intraday"
@@ -81,7 +80,7 @@ class TimeFrame(Enum):
     MONTHLY = "monthly"
     QUARTERLY = "quarterly"
     ANNUAL = "annual"
-    
+
 class ReportFormat(Enum):
     """Report output formats"""
     JSON = "json"
@@ -115,7 +114,7 @@ class PerformanceMetrics:
     total_trades: int
     winning_trades: int
     losing_trades: int
-    
+
 @dataclass
 class StrategyPerformance:
     """Individual strategy performance"""
@@ -131,7 +130,7 @@ class StrategyPerformance:
     current_positions: int
     capital_allocated: float
     var_contribution: float
-    
+
 @dataclass
 class RiskMetrics:
     """Risk-specific metrics"""
@@ -139,14 +138,14 @@ class RiskMetrics:
     portfolio_var_95: float
     portfolio_var_99: float
     portfolio_cvar_99: float
-    component_var: Dict[str, float]
+    component_var: dict[str, float]
     tail_risk_score: float
     correlation_risk: float
     concentration_risk: float
     regime_risk: str
     max_loss_limit: float
     current_exposure: float
-    
+
 @dataclass
 class ExecutionMetrics:
     """Trade execution metrics"""
@@ -169,54 +168,54 @@ class PerformanceAnalyticsEngine:
     """
     Real-time performance analytics engine
     """
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, config: dict[str, Any]):
         """Initialize analytics engine"""
         self.config = config
         self.portfolio_value = config.get('portfolio_value', 1000000)
         self.risk_free_rate = config.get('risk_free_rate', 0.05)
-        
+
         # Performance tracking
         self.metrics_history = deque(maxlen=10000)
         self.strategy_performance = {}
         self.risk_metrics_history = deque(maxlen=1000)
         self.execution_metrics_history = deque(maxlen=1000)
-        
+
         # Real-time data
         self.current_positions = {}
         self.daily_returns = []
         self.cumulative_pnl = 0
         self.high_water_mark = self.portfolio_value
-        
+
         # Analytics cache
         self.cache = {}
         self.last_calculation = datetime.now()
-        
+
         logger.info("Performance Analytics Engine initialized")
-        
+
     # ==================================================================================
     # CORE ANALYTICS
     # ==================================================================================
-    
-    def calculate_performance_metrics(self, positions: Dict[str, Any], 
-                                     market_data: Dict[str, Any]) -> PerformanceMetrics:
+
+    def calculate_performance_metrics(self, positions: dict[str, Any],
+                                     market_data: dict[str, Any]) -> PerformanceMetrics:
         """Calculate comprehensive performance metrics"""
-        
+
         # Calculate returns
         daily_return = self._calculate_daily_return(positions)
         total_return = self.cumulative_pnl / self.portfolio_value
-        
+
         # Risk-adjusted metrics
         sharpe = self._calculate_sharpe_ratio()
         sortino = self._calculate_sortino_ratio()
         calmar = self._calculate_calmar_ratio()
-        
+
         # Drawdown analysis
         max_dd, current_dd = self._calculate_drawdowns()
-        
+
         # Win/loss statistics
         win_stats = self._calculate_win_loss_stats()
-        
+
         metrics = PerformanceMetrics(
             timestamp=datetime.now(),
             total_return=total_return,
@@ -237,37 +236,37 @@ class PerformanceAnalyticsEngine:
             winning_trades=win_stats['winning_trades'],
             losing_trades=win_stats['losing_trades']
         )
-        
+
         self.metrics_history.append(metrics)
         return metrics
-        
-    def analyze_strategy_performance(self, strategy_id: str, 
-                                    trades: List[Dict]) -> StrategyPerformance:
+
+    def analyze_strategy_performance(self, strategy_id: str,
+                                    trades: list[dict]) -> StrategyPerformance:
         """Analyze individual strategy performance"""
-        
+
         if not trades:
             return None
-            
+
         # Calculate strategy-specific metrics
         strategy_pnl = sum(t['pnl'] for t in trades)
         daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now().date())
-        
+
         # Calculate win rate
         winning = [t for t in trades if t['pnl'] > 0]
         win_rate = len(winning) / len(trades) if trades else 0
-        
+
         # Calculate ROI
         capital_used = sum(t['capital'] for t in trades) / len(trades)
         roi = strategy_pnl / capital_used if capital_used > 0 else 0
-        
+
         # Calculate Sharpe
         returns = [t['pnl'] / t['capital'] for t in trades if t['capital'] > 0]
         sharpe = self._calculate_sharpe_from_returns(returns)
-        
+
         # Average trade duration
         durations = [(t['exit_time'] - t['entry_time']) for t in trades if 'exit_time' in t]
         avg_duration = sum(durations, timedelta()) / len(durations) if durations else timedelta()
-        
+
         performance = StrategyPerformance(
             strategy_id=strategy_id,
             strategy_name=self._get_strategy_name(strategy_id),
@@ -282,14 +281,14 @@ class PerformanceAnalyticsEngine:
             capital_allocated=capital_used,
             var_contribution=self._calculate_var_contribution(strategy_id)
         )
-        
+
         self.strategy_performance[strategy_id] = performance
         return performance
-        
-    def calculate_risk_metrics(self, var_data: Dict[str, Any], 
-                              tail_data: Dict[str, Any]) -> RiskMetrics:
+
+    def calculate_risk_metrics(self, var_data: dict[str, Any],
+                              tail_data: dict[str, Any]) -> RiskMetrics:
         """Calculate comprehensive risk metrics"""
-        
+
         metrics = RiskMetrics(
             timestamp=datetime.now(),
             portfolio_var_95=var_data.get('var_95', 0),
@@ -303,27 +302,27 @@ class PerformanceAnalyticsEngine:
             max_loss_limit=self.config.get('max_daily_loss', 50000),
             current_exposure=self._calculate_current_exposure()
         )
-        
+
         self.risk_metrics_history.append(metrics)
         return metrics
-        
-    def track_execution_metrics(self, orders: List[Dict]) -> ExecutionMetrics:
+
+    def track_execution_metrics(self, orders: list[dict]) -> ExecutionMetrics:
         """Track execution quality metrics"""
-        
+
         if not orders:
             return None
-            
+
         filled = [o for o in orders if o['status'] == 'FILLED']
         partial = [o for o in orders if o['status'] == 'PARTIAL']
         rejected = [o for o in orders if o['status'] == 'REJECTED']
-        
+
         # Calculate averages
         fill_times = [o['fill_time'] for o in filled if 'fill_time' in o]
         avg_fill_time = statistics.mean(fill_times) if fill_times else 0
-        
+
         slippages = [o['slippage'] for o in filled if 'slippage' in o]
         avg_slippage = statistics.mean(slippages) if slippages else 0
-        
+
         metrics = ExecutionMetrics(
             timestamp=datetime.now(),
             total_orders=len(orders),
@@ -336,18 +335,18 @@ class PerformanceAnalyticsEngine:
             market_impact=self._calculate_market_impact(filled),
             execution_shortfall=self._calculate_execution_shortfall(orders)
         )
-        
+
         self.execution_metrics_history.append(metrics)
         return metrics
-        
+
     # ==================================================================================
     # REPORTING FUNCTIONS
     # ==================================================================================
-    
+
     def generate_performance_report(self, timeframe: TimeFrame = TimeFrame.DAILY,
-                                   format: ReportFormat = ReportFormat.JSON) -> Union[Dict, str]:
+                                   format: ReportFormat = ReportFormat.JSON) -> Union[dict, str]:
         """Generate comprehensive performance report"""
-        
+
         report_data = {
             'metadata': {
                 'generated_at': datetime.now().isoformat(),
@@ -362,7 +361,7 @@ class PerformanceAnalyticsEngine:
             'attribution': self._perform_attribution_analysis(),
             'recommendations': self._generate_recommendations()
         }
-        
+
         # Format report based on requested format
         if format == ReportFormat.JSON:
             return report_data
@@ -374,12 +373,12 @@ class PerformanceAnalyticsEngine:
             return self._prepare_dashboard_data(report_data)
         else:
             return report_data
-            
-    def generate_risk_report(self) -> Dict[str, Any]:
+
+    def generate_risk_report(self) -> dict[str, Any]:
         """Generate detailed risk analysis report"""
-        
+
         latest_risk = self.risk_metrics_history[-1] if self.risk_metrics_history else None
-        
+
         report = {
             'timestamp': datetime.now().isoformat(),
             'current_risk': {
@@ -397,18 +396,18 @@ class PerformanceAnalyticsEngine:
             },
             'violations': self._check_risk_violations()
         }
-        
+
         return report
-        
+
     def generate_strategy_comparison(self) -> pd.DataFrame:
         """Generate strategy comparison matrix"""
-        
+
         if not self.strategy_performance:
             return pd.DataFrame()
-            
+
         # Create comparison dataframe
         data = []
-        for strategy_id, perf in self.strategy_performance.items():
+        for _strategy_id, perf in self.strategy_performance.items():
             data.append({
                 'Strategy': perf.strategy_name,
                 'Total PnL': perf.total_pnl,
@@ -418,80 +417,80 @@ class PerformanceAnalyticsEngine:
                 'Capital': perf.capital_allocated,
                 'VaR Contribution': perf.var_contribution
             })
-            
+
         df = pd.DataFrame(data)
         df = df.sort_values('Sharpe', ascending=False)
-        
+
         # Add rankings
         df['Rank'] = range(1, len(df) + 1)
-        
+
         return df
-        
+
     # ==================================================================================
     # ANALYTICS CALCULATIONS
     # ==================================================================================
-    
-    def _calculate_daily_return(self, positions: Dict) -> float:
+
+    def _calculate_daily_return(self, positions: dict) -> float:
         """Calculate daily return"""
         daily_pnl = sum(p.get('daily_pnl', 0) for p in positions.values())
         return daily_pnl / self.portfolio_value
-        
+
     def _calculate_sharpe_ratio(self) -> float:
         """Calculate Sharpe ratio"""
         if len(self.daily_returns) < 2:
             return 0
-            
+
         returns = np.array(self.daily_returns)
         excess_returns = returns - self.risk_free_rate / 252
-        
+
         if returns.std() == 0:
             return 0
-            
+
         return np.sqrt(252) * excess_returns.mean() / returns.std()
-        
+
     def _calculate_sortino_ratio(self) -> float:
         """Calculate Sortino ratio"""
         if len(self.daily_returns) < 2:
             return 0
-            
+
         returns = np.array(self.daily_returns)
         excess_returns = returns - self.risk_free_rate / 252
         downside_returns = returns[returns < 0]
-        
+
         if len(downside_returns) == 0:
             return float('inf')
-            
+
         downside_std = np.std(downside_returns)
         if downside_std == 0:
             return 0
-            
+
         return np.sqrt(252) * excess_returns.mean() / downside_std
-        
+
     def _calculate_calmar_ratio(self) -> float:
         """Calculate Calmar ratio"""
         max_dd, _ = self._calculate_drawdowns()
-        
+
         if max_dd == 0:
             return 0
-            
+
         annual_return = (1 + self.cumulative_pnl / self.portfolio_value) ** (252 / max(len(self.daily_returns), 1)) - 1
         return annual_return / abs(max_dd)
-        
-    def _calculate_drawdowns(self) -> Tuple[float, float]:
+
+    def _calculate_drawdowns(self) -> tuple[float, float]:
         """Calculate maximum and current drawdown"""
         if not self.metrics_history:
             return 0, 0
-            
+
         cumulative_returns = [1 + m.total_return for m in self.metrics_history]
         running_max = np.maximum.accumulate(cumulative_returns)
         drawdowns = (cumulative_returns - running_max) / running_max
-        
+
         max_drawdown = min(drawdowns) if len(drawdowns) > 0 else 0
         current_drawdown = drawdowns[-1] if len(drawdowns) > 0 else 0
-        
+
         return max_drawdown, current_drawdown
-        
-    def _calculate_win_loss_stats(self) -> Dict[str, Any]:
+
+    def _calculate_win_loss_stats(self) -> dict[str, Any]:
         """Calculate win/loss statistics"""
         if not self.current_positions:
             return {
@@ -499,23 +498,23 @@ class PerformanceAnalyticsEngine:
                 'avg_loss': 0, 'best_trade': 0, 'worst_trade': 0,
                 'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0
             }
-            
+
         trades = [p for p in self.current_positions.values() if p.get('closed', False)]
-        
+
         if not trades:
             return {
                 'win_rate': 0, 'profit_factor': 0, 'avg_win': 0,
                 'avg_loss': 0, 'best_trade': 0, 'worst_trade': 0,
                 'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0
             }
-            
+
         pnls = [t['pnl'] for t in trades]
         winning_trades = [p for p in pnls if p > 0]
         losing_trades = [p for p in pnls if p < 0]
-        
+
         gross_profit = sum(winning_trades)
         gross_loss = abs(sum(losing_trades))
-        
+
         return {
             'win_rate': len(winning_trades) / len(trades) if trades else 0,
             'profit_factor': gross_profit / gross_loss if gross_loss > 0 else float('inf'),
@@ -527,20 +526,20 @@ class PerformanceAnalyticsEngine:
             'winning_trades': len(winning_trades),
             'losing_trades': len(losing_trades)
         }
-        
-    def _calculate_sharpe_from_returns(self, returns: List[float]) -> float:
+
+    def _calculate_sharpe_from_returns(self, returns: list[float]) -> float:
         """Calculate Sharpe ratio from returns list"""
         if len(returns) < 2:
             return 0
-            
+
         returns_array = np.array(returns)
         excess_returns = returns_array - self.risk_free_rate / 252
-        
+
         if returns_array.std() == 0:
             return 0
-            
+
         return np.sqrt(252) * excess_returns.mean() / returns_array.std()
-        
+
     def _get_strategy_name(self, strategy_id: str) -> str:
         """Get strategy name from ID"""
         strategy_names = {
@@ -552,14 +551,14 @@ class PerformanceAnalyticsEngine:
             # Add more mappings as needed
         }
         return strategy_names.get(strategy_id, strategy_id)
-        
+
     def _calculate_var_contribution(self, strategy_id: str) -> float:
         """Calculate VaR contribution for strategy using empyrical or fallback."""
         if strategy_id not in self.strategy_performance:
             return 0.0
-        
+
         perf = self.strategy_performance[strategy_id]
-        
+
         # Try empyrical first for validated VaR
         if HAS_EMPYRICAL and hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:
             try:
@@ -568,102 +567,102 @@ class PerformanceAnalyticsEngine:
                 return abs(float(var_5))
             except Exception:
                 pass
-        
+
         # Fallback: estimate from available data
         if hasattr(perf, 'total_pnl') and hasattr(perf, 'capital_allocated'):
             capital = perf.capital_allocated
             if capital > 0:
                 return abs(perf.total_pnl / capital) * 0.1  # Rough VaR estimate
-        
+
         return 0.05
-    
+
     def _calculate_correlation_risk(self) -> float:
         """Calculate correlation risk score using strategy return correlations."""
         if len(self.strategy_performance) < 2:
             return 0.0
-        
+
         # Collect return histories from strategies
         returns_data = {}
         for sid, perf in self.strategy_performance.items():
             if hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:
                 returns_data[sid] = perf.returns_history
-        
+
         if len(returns_data) < 2:
             # Not enough data for correlation analysis
             return 0.3  # Moderate default
-        
+
         # Build correlation matrix
         try:
             min_len = min(len(r) for r in returns_data.values())
             returns_array = np.array([list(r)[-min_len:] for r in returns_data.values()])
             corr_matrix = np.corrcoef(returns_array)
-            
+
             # Average absolute pairwise correlation (excluding diagonal)
             n = corr_matrix.shape[0]
             if n < 2:
                 return 0.0
-            
+
             mask = ~np.eye(n, dtype=bool)
             avg_abs_corr = np.mean(np.abs(corr_matrix[mask]))
             return float(avg_abs_corr)
-            
+
         except Exception:
             return 0.3
-        
+
     def _calculate_concentration_risk(self) -> float:
         """Calculate concentration risk"""
         if not self.strategy_performance:
             return 0
-            
+
         allocations = [p.capital_allocated for p in self.strategy_performance.values()]
         total = sum(allocations)
-        
+
         if total == 0:
             return 0
-            
+
         # Calculate Herfindahl index
         hhi = sum((a/total)**2 for a in allocations)
         return hhi
-        
+
     def _calculate_current_exposure(self) -> float:
         """Calculate current market exposure"""
         return sum(p.get('value', 0) for p in self.current_positions.values())
-        
-    def _calculate_market_impact(self, orders: List[Dict]) -> float:
+
+    def _calculate_market_impact(self, orders: list[dict]) -> float:
         """Calculate market impact of orders"""
         if not orders:
             return 0
-            
+
         impacts = []
         for order in orders:
             if 'expected_price' in order and 'fill_price' in order:
                 impact = abs(order['fill_price'] - order['expected_price']) / order['expected_price']
                 impacts.append(impact)
-                
+
         return statistics.mean(impacts) * 10000 if impacts else 0  # in bps
-        
-    def _calculate_execution_shortfall(self, orders: List[Dict]) -> float:
+
+    def _calculate_execution_shortfall(self, orders: list[dict]) -> float:
         """Calculate execution shortfall"""
         if not orders:
             return 0
-            
+
         shortfalls = []
         for order in orders:
             if order['status'] != 'FILLED':
                 # Opportunity cost of unfilled orders
                 if 'expected_profit' in order:
                     shortfalls.append(order['expected_profit'])
-                    
+
         return sum(shortfalls)
-        
+
     # ==================================================================================
     # REPORT COMPILATION
     # ==================================================================================
-    
-    def _get_reporting_period(self, timeframe: TimeFrame) -> Dict[str, str]:
+
+    def _get_reporting_period(self, timeframe: TimeFrame) -> dict[str, str]:
         """Get reporting period based on timeframe"""
         end_date = datetime.now()
-        
+
         if timeframe == TimeFrame.DAILY:
             start_date = end_date - timedelta(days=1)
         elif timeframe == TimeFrame.WEEKLY:
@@ -676,19 +675,19 @@ class PerformanceAnalyticsEngine:
             start_date = end_date - timedelta(days=365)
         else:
             start_date = end_date.replace(hour=0, minute=0, second=0)
-            
+
         return {
             'start': start_date.isoformat(),
             'end': end_date.isoformat()
         }
-        
-    def _compile_performance_data(self, timeframe: TimeFrame) -> Dict[str, Any]:
+
+    def _compile_performance_data(self, timeframe: TimeFrame) -> dict[str, Any]:
         """Compile performance data for reporting period"""
         if not self.metrics_history:
             return {}
-            
+
         latest = self.metrics_history[-1]
-        
+
         return {
             'returns': {
                 'total': latest.total_return,
@@ -711,18 +710,18 @@ class PerformanceAnalyticsEngine:
                 'avg_loss': latest.avg_loss
             }
         }
-        
-    def _compile_strategy_data(self) -> List[Dict]:
+
+    def _compile_strategy_data(self) -> list[dict]:
         """Compile strategy performance data"""
         return [asdict(perf) for perf in self.strategy_performance.values()]
-        
-    def _compile_risk_data(self) -> Dict[str, Any]:
+
+    def _compile_risk_data(self) -> dict[str, Any]:
         """Compile risk metrics data"""
         if not self.risk_metrics_history:
             return {}
-            
+
         latest = self.risk_metrics_history[-1]
-        
+
         return {
             'var': {
                 '95': latest.portfolio_var_95,
@@ -734,14 +733,14 @@ class PerformanceAnalyticsEngine:
             'concentration': latest.concentration_risk,
             'regime': latest.regime_risk
         }
-        
-    def _compile_execution_data(self) -> Dict[str, Any]:
+
+    def _compile_execution_data(self) -> dict[str, Any]:
         """Compile execution metrics data"""
         if not self.execution_metrics_history:
             return {}
-            
+
         latest = self.execution_metrics_history[-1]
-        
+
         return {
             'fill_rate': latest.filled_orders / latest.total_orders if latest.total_orders > 0 else 0,
             'avg_fill_time': latest.avg_fill_time,
@@ -749,54 +748,54 @@ class PerformanceAnalyticsEngine:
             'total_commissions': latest.total_commissions,
             'market_impact_bps': latest.market_impact
         }
-        
-    def _perform_attribution_analysis(self) -> Dict[str, Any]:
+
+    def _perform_attribution_analysis(self) -> dict[str, Any]:
         """Perform return attribution analysis"""
         attribution = {
             'by_strategy': {},
             'by_factor': {},
             'by_timeframe': {}
         }
-        
+
         # Attribution by strategy
         total_pnl = sum(p.total_pnl for p in self.strategy_performance.values())
-        
+
         for strategy_id, perf in self.strategy_performance.items():
             if total_pnl != 0:
                 attribution['by_strategy'][strategy_id] = perf.total_pnl / total_pnl
-                
+
         return attribution
-        
-    def _generate_recommendations(self) -> List[str]:
+
+    def _generate_recommendations(self) -> list[str]:
         """Generate actionable recommendations"""
         recommendations = []
-        
+
         # Check performance metrics
         if self.metrics_history:
             latest = self.metrics_history[-1]
-            
+
             if latest.sharpe_ratio < 0.5:
                 recommendations.append("Consider reviewing strategy selection - Sharpe ratio below 0.5")
-                
+
             if latest.max_drawdown < -0.15:
                 recommendations.append("High drawdown detected - Consider reducing position sizes")
-                
+
             if latest.win_rate < 0.4:
                 recommendations.append("Low win rate - Review entry criteria")
-                
+
         # Check risk metrics
         if self.risk_metrics_history:
             latest_risk = self.risk_metrics_history[-1]
-            
+
             if latest_risk.tail_risk_score > 60:
                 recommendations.append("Elevated tail risk - Consider adding hedges")
-                
+
             if latest_risk.concentration_risk > 0.5:
                 recommendations.append("High concentration risk - Diversify strategy allocation")
-                
+
         return recommendations
-        
-    def _decompose_risk(self) -> Dict[str, float]:
+
+    def _decompose_risk(self) -> dict[str, float]:
         """Decompose portfolio risk by source using empyrical metrics."""
         if not self.daily_returns or len(self.daily_returns) < 20:
             return {
@@ -805,9 +804,9 @@ class PerformanceAnalyticsEngine:
                 'execution_risk': 0.10,
                 'model_risk': 0.05
             }
-        
-        returns = pd.Series(self.daily_returns) if HAS_EMPYRICAL else None
-        
+
+        pd.Series(self.daily_returns) if HAS_EMPYRICAL else None
+
         # Strategy risk: contribution from strategy dispersion
         strategy_vol_contrib = 0.0
         if self.strategy_performance:
@@ -817,7 +816,7 @@ class PerformanceAnalyticsEngine:
                     strategy_returns.append(np.mean(list(perf.returns_history)[-20:]))
             if strategy_returns:
                 strategy_vol_contrib = np.std(strategy_returns) if len(strategy_returns) > 1 else 0
-        
+
         # Execution risk: from slippage in trade history
         exec_risk = 0.0
         if self.metrics_history:
@@ -826,27 +825,27 @@ class PerformanceAnalyticsEngine:
                 avg_win = abs(latest.avg_win) if latest.avg_win else 1
                 avg_loss = abs(latest.avg_loss) if latest.avg_loss else 0
                 exec_risk = min(0.20, avg_loss / (avg_win + avg_loss) * 0.3)
-        
+
         # Total portfolio volatility
         total_vol = np.std(self.daily_returns) * np.sqrt(252) if len(self.daily_returns) > 1 else 0.15
-        
+
         # Normalize into risk decomposition
         strategy_pct = min(0.40, strategy_vol_contrib / total_vol) if total_vol > 0 else 0.25
         exec_pct = min(0.20, exec_risk)
         model_pct = 0.05  # Fixed estimate for model risk
         market_pct = max(0.10, 1.0 - strategy_pct - exec_pct - model_pct)
-        
+
         # Ensure they sum to 1
         total = market_pct + strategy_pct + exec_pct + model_pct
-        
+
         return {
             'market_risk': round(market_pct / total, 4),
             'strategy_risk': round(strategy_pct / total, 4),
             'execution_risk': round(exec_pct / total, 4),
             'model_risk': round(model_pct / total, 4)
         }
-    
-    def _run_stress_tests(self) -> List[Dict]:
+
+    def _run_stress_tests(self) -> list[dict]:
         """Run stress test scenarios using empyrical tail risk analysis."""
         if not self.daily_returns or len(self.daily_returns) < 30:
             return [
@@ -854,27 +853,26 @@ class PerformanceAnalyticsEngine:
                 {'scenario': 'VIX Spike 3x', 'impact': -0.08},
                 {'scenario': 'Correlation to 1', 'impact': -0.12}
             ]
-        
+
         returns = self.daily_returns
         ret_series = pd.Series(returns)
-        
+
         # Calculate empirical tail statistics
         if HAS_EMPYRICAL:
             var_5 = float(empyrical.value_at_risk(ret_series, cutoff=0.05))
             cvar_5 = float(empyrical.conditional_value_at_risk(ret_series, cutoff=0.05))
             max_dd = float(empyrical.max_drawdown(ret_series))
-            tail_ratio = float(empyrical.tail_ratio(ret_series))
+            float(empyrical.tail_ratio(ret_series))
         else:
             sorted_returns = sorted(returns)
             var_5 = sorted_returns[int(len(sorted_returns) * 0.05)] if sorted_returns else -0.02
             cvar_5 = np.mean(sorted_returns[:max(1, int(len(sorted_returns) * 0.05))]) if sorted_returns else -0.03
             max_dd = min(returns) if returns else -0.05
-            tail_ratio = 1.0
-        
+
         # Portfolio beta estimate (sensitivity to market moves)
         beta_estimate = 1.0
         annual_vol = np.std(returns) * np.sqrt(252)
-        
+
         scenarios = [
             {
                 'scenario': 'Market Crash -20%',
@@ -902,25 +900,25 @@ class PerformanceAnalyticsEngine:
                 'confidence': 'Vol-adjusted'
             }
         ]
-        
+
         return scenarios
-        
-    def _check_risk_violations(self) -> List[str]:
+
+    def _check_risk_violations(self) -> list[str]:
         """Check for risk limit violations"""
         violations = []
-        
+
         if self.risk_metrics_history:
             latest = self.risk_metrics_history[-1]
-            
+
             if latest.portfolio_var_99 > self.config.get('var_limit', 0.10):
                 violations.append(f"VaR limit breach: {latest.portfolio_var_99:.2%}")
-                
+
             if latest.current_exposure > latest.max_loss_limit:
                 violations.append(f"Exposure limit breach: ${latest.current_exposure:,.0f}")
-                
+
         return violations
-        
-    def _format_html_report(self, data: Dict) -> str:
+
+    def _format_html_report(self, data: dict) -> str:
         """Format report as HTML"""
         # Simplified HTML generation
         html = f"""
@@ -934,15 +932,15 @@ class PerformanceAnalyticsEngine:
         </html>
         """
         return html
-        
-    def _export_to_excel(self, data: Dict) -> str:
+
+    def _export_to_excel(self, data: dict) -> str:
         """Export report to Excel format"""
         # Would use pandas.ExcelWriter in production
         filename = f"performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         # Save logic here
         return filename
-        
-    def _prepare_dashboard_data(self, data: Dict) -> Dict:
+
+    def _prepare_dashboard_data(self, data: dict) -> dict:
         """Prepare data for dashboard visualization"""
         return {
             'charts': {
@@ -957,12 +955,12 @@ class PerformanceAnalyticsEngine:
             },
             'metrics': data['performance']
         }
-        
-    def _prepare_equity_curve(self) -> List[Dict]:
+
+    def _prepare_equity_curve(self) -> list[dict]:
         """Prepare equity curve data"""
         if not self.metrics_history:
             return []
-            
+
         return [
             {
                 'timestamp': m.timestamp.isoformat(),
@@ -970,12 +968,12 @@ class PerformanceAnalyticsEngine:
             }
             for m in self.metrics_history
         ]
-        
-    def _prepare_drawdown_chart(self) -> List[Dict]:
+
+    def _prepare_drawdown_chart(self) -> list[dict]:
         """Prepare drawdown chart data"""
         if not self.metrics_history:
             return []
-            
+
         return [
             {
                 'timestamp': m.timestamp.isoformat(),
@@ -983,34 +981,34 @@ class PerformanceAnalyticsEngine:
             }
             for m in self.metrics_history
         ]
-        
-    def _prepare_strategy_chart(self) -> Dict:
+
+    def _prepare_strategy_chart(self) -> dict:
         """Prepare strategy performance chart"""
         if not self.strategy_performance:
             return {}
-            
+
         return {
             'labels': [p.strategy_name for p in self.strategy_performance.values()],
             'pnl': [p.total_pnl for p in self.strategy_performance.values()],
             'sharpe': [p.sharpe for p in self.strategy_performance.values()]
         }
-        
-    def _prepare_risk_chart(self) -> Dict:
+
+    def _prepare_risk_chart(self) -> dict:
         """Prepare risk metrics chart"""
         if not self.risk_metrics_history:
             return {}
-            
+
         return {
             'timestamps': [r.timestamp.isoformat() for r in self.risk_metrics_history[-100:]],
             'var_99': [r.portfolio_var_99 for r in self.risk_metrics_history[-100:]],
             'tail_risk': [r.tail_risk_score for r in self.risk_metrics_history[-100:]]
         }
-        
-    def _get_recent_trades(self, limit: int = 10) -> List[Dict]:
+
+    def _get_recent_trades(self, limit: int = 10) -> list[dict]:
         """Get recent trades for display from trade history."""
         if not hasattr(self, 'trade_history') or not self.trade_history:
             return []
-        
+
         # Return last N trades from history
         recent = list(self.trade_history)[-limit:]
         return [t if isinstance(t, dict) else asdict(t) for t in recent]
@@ -1019,7 +1017,7 @@ class PerformanceAnalyticsEngine:
 # FACTORY FUNCTION
 # ==================================================================================
 
-def create_performance_analytics(config: Dict[str, Any]) -> PerformanceAnalyticsEngine:
+def create_performance_analytics(config: dict[str, Any]) -> PerformanceAnalyticsEngine:
     """Factory function to create performance analytics engine"""
     return PerformanceAnalyticsEngine(config)
 
@@ -1029,48 +1027,48 @@ def create_performance_analytics(config: Dict[str, Any]) -> PerformanceAnalytics
 
 class RealTimePerformanceMonitor:
     """Real-time performance monitoring"""
-    
+
     def __init__(self, analytics_engine: PerformanceAnalyticsEngine):
         self.engine = analytics_engine
         self.update_interval = 1  # seconds
         self.is_running = False
-        
+
     async def start_monitoring(self):
         """Start real-time monitoring"""
         self.is_running = True
         logger.info("Real-time performance monitoring started")
-        
+
         while self.is_running:
             try:
                 # Update metrics
                 await self._update_metrics()
-                
+
                 # Check alerts
                 await self._check_performance_alerts()
-                
+
                 # Sleep
                 await asyncio.sleep(self.update_interval)
-                
+
             except Exception as e:
                 logger.error(f"Error in performance monitoring: {e}")
-                
+
     async def _update_metrics(self):
         """Update performance metrics"""
         # Would fetch real-time data from broker/market data
         pass
-        
+
     async def _check_performance_alerts(self):
         """Check for performance-based alerts"""
         if self.engine.metrics_history:
             latest = self.engine.metrics_history[-1]
-            
+
             # Check for significant changes
             if latest.daily_return < -0.05:
                 logger.warning(f"Large daily loss: {latest.daily_return:.2%}")
-                
+
             if latest.current_drawdown < -0.10:
                 logger.warning(f"Significant drawdown: {latest.current_drawdown:.2%}")
-                
+
     async def stop_monitoring(self):
         """Stop monitoring"""
         self.is_running = False
@@ -1090,20 +1088,19 @@ if __name__ == "__main__":
         'max_concentration': 0.25,
         'max_daily_loss': 50000
     }
-    
+
     # Create analytics engine
     analytics = create_performance_analytics(config)
-    
+
     # Generate sample report
     report = analytics.generate_performance_report(
         timeframe=TimeFrame.DAILY,
         format=ReportFormat.JSON
     )
-    
-    print(json.dumps(report, indent=2))
-    
+
+
     # Start real-time monitoring
     monitor = RealTimePerformanceMonitor(analytics)
-    
+
     # Run async monitoring
     # asyncio.run(monitor.start_monitoring())

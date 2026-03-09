@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -22,7 +21,6 @@ Components:
 
 from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time
-from typing import Dict, List, Optional, Any
 from enum import Enum
 import pytz
 
@@ -170,13 +168,13 @@ class MarketData:
     change: float = 0.0
     change_pct: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    volume: Optional[int] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    open: Optional[float] = None
-    close: Optional[float] = None
+    bid: float | None = None
+    ask: float | None = None
+    volume: int | None = None
+    high: float | None = None
+    low: float | None = None
+    open: float | None = None
+    close: float | None = None
 
 
 @dataclass
@@ -188,7 +186,7 @@ class GreekRisk:
     vega: float
     rho: float = 0.0
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary"""
         return {
             'delta': self.delta,
@@ -209,9 +207,9 @@ class Position:
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
     position_type: str = "STOCK"  # STOCK, OPTION, FUTURE
-    expiry: Optional[str] = None
-    strike: Optional[float] = None
-    right: Optional[str] = None  # CALL, PUT
+    expiry: str | None = None
+    strike: float | None = None
+    right: str | None = None  # CALL, PUT
 
     @property
     def market_value(self) -> float:
@@ -240,12 +238,12 @@ class Order:
     order_type: OrderType
     quantity: int
     status: OrderStatus
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
+    limit_price: float | None = None
+    stop_price: float | None = None
     filled_quantity: int = 0
     avg_fill_price: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    filled_timestamp: Optional[datetime] = None
+    filled_timestamp: datetime | None = None
 
     @property
     def is_filled(self) -> bool:
@@ -271,8 +269,8 @@ class ConnectionInfo:
     connection_mode: str = "DISCONNECTED"
     market_data_status: str = "NONE"
     trading_active: bool = False
-    last_update: Optional[datetime] = None
-    last_successful_data: Optional[datetime] = None
+    last_update: datetime | None = None
+    last_successful_data: datetime | None = None
     data_was_live: bool = False
     simulation_mode: bool = False
 
@@ -312,7 +310,7 @@ class SignalData:
     value: float
     status: str  # BULLISH, BEARISH, NEUTRAL, WARNING
     timestamp: datetime = field(default_factory=datetime.now)
-    description: Optional[str] = None
+    description: str | None = None
 
     def get_status_color(self) -> str:
         """Get color based on status"""
@@ -516,25 +514,14 @@ def generate_simulation_position(symbol: str, quantity: int = 100) -> Position:
 
 if __name__ == '__main__':
     # Test the data structures
-    print("Testing Dashboard Data Models...")
 
     # Test MarketData
     spy_data = generate_simulation_market_data('SPY')
-    print(f"\nMarket Data: {spy_data}")
 
     # Test Position
     position = generate_simulation_position('SPY', 100)
-    print(f"\nPosition: {position}")
-    print(f"Market Value: {format_currency(position.market_value)}")
-    print(f"P&L: {format_currency(position.unrealized_pnl)} ({format_percentage(position.pnl_pct)})")
 
     # Test GreekRisk
     greeks = GreekRisk(delta=45.5, gamma=-2.3, theta=-156.8, vega=-245.2)
-    print(f"\nGreeks: {greeks.to_dict()}")
 
     # Test helper functions
-    print(f"\nMarket Hours: {is_market_hours()}")
-    print(f"Timestamp: {get_timestamp()}")
-    print(f"Currency: {format_currency(12345.67)}")
-    print(f"Percentage: {format_percentage(12.345)}")
-    print(f"Number: {format_number(1234567.89, abbreviate=True)}")

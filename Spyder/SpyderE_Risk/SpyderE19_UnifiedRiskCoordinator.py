@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -7,8 +6,8 @@ Series: SpyderE_Risk
 Module: SpyderE19_UnifiedRiskCoordinator.py
 Purpose: Unified risk management coordination engine - eliminates 3-layer overlap
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-09-02 Time: 16:45:00  
+Year Created: 2025
+Last Updated: 2025-09-02 Time: 16:45:00
 
 Module Description:
     Unified risk management coordinator that eliminates overlap between E-Series (18 modules),
@@ -19,7 +18,7 @@ Module Description:
 
 Consolidation Architecture:
     • E-Series (E01-E18): Core Risk Engine - Portfolio risk, position sizing, drawdown control
-    • V04 RiskManager: Quantitative Specialist - VaR, Greeks, correlation models  
+    • V04 RiskManager: Quantitative Specialist - VaR, Greeks, correlation models
     • X04 RiskGuardian: AI Enhancement - Pattern recognition, anomaly detection, learning
     • E19 Coordinator: Unified Interface - Smart delegation, conflict resolution, caching
 
@@ -41,20 +40,15 @@ Risk Delegation Strategy:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import os
 import time
 import asyncio
 import threading
 import logging
-import traceback
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from typing import Any
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import defaultdict, deque
-import json
+from enum import Enum
+from collections import deque
 import uuid
 import warnings
 import hashlib
@@ -63,9 +57,6 @@ import hashlib
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pandas as pd
-from scipy import stats
-import warnings
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
@@ -73,7 +64,6 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import *
 
 # Core E-Series Risk Management (18 modules)
 try:
@@ -81,8 +71,8 @@ try:
     from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer
     from SpyderE_Risk.SpyderE03_PortfolioAnalyzer import PortfolioAnalyzer
     from SpyderE_Risk.SpyderE04_DrawdownControl import DrawdownController
-    from SpyderE_Risk.SpyderE05_VolatilityRiskModel import VolatilityRiskModel
-    from SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetrics
+    from SpyderE_Risk.SpyderE05_VolatilityRiskModel import VolatilityRiskModel  # noqa: F401
+    from SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetrics  # noqa: F401
     CORE_RISK_AVAILABLE = True
 except ImportError as e:
     CORE_RISK_AVAILABLE = False
@@ -120,7 +110,7 @@ CACHE_EXPIRY_SECONDS = 30
 MAX_CACHE_SIZE = 1000
 CALCULATION_TIMEOUT = 5.0
 
-# Risk thresholds  
+# Risk thresholds
 MAX_PORTFOLIO_RISK = 0.06  # 6% of portfolio value
 MAX_POSITION_RISK = 0.02   # 2% per position
 MAX_CORRELATION_EXPOSURE = 0.15  # 15% correlated risk
@@ -152,7 +142,7 @@ class RiskCalculationType(Enum):
 class RiskPriority(Enum):
     """Risk calculation priorities"""
     EMERGENCY = "emergency"
-    HIGH = "high"  
+    HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
     BACKGROUND = "background"
@@ -167,7 +157,7 @@ class RiskSource(Enum):
 class RiskLevel(Enum):
     """Risk levels for portfolio and positions"""
     LOW = "low"
-    MEDIUM = "medium"  
+    MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
     EMERGENCY = "emergency"
@@ -180,7 +170,7 @@ class RiskCalculationRequest:
     """Request for risk calculation"""
     calculation_type: RiskCalculationType
     priority: RiskPriority
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timeout_seconds: float = CALCULATION_TIMEOUT
@@ -193,14 +183,14 @@ class RiskCalculationResult:
     request_id: str
     calculation_type: RiskCalculationType
     source: RiskSource
-    result: Dict[str, Any]
+    result: dict[str, Any]
     confidence: float
     timestamp: datetime
     calculation_time: float
     cached: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'request_id': self.request_id,
@@ -222,34 +212,34 @@ class UnifiedRiskProfile:
     total_risk_amount: float
     risk_percentage: float
     risk_level: RiskLevel
-    
+
     # Core risk metrics
-    position_risks: Dict[str, Dict[str, Any]]
+    position_risks: dict[str, dict[str, Any]]
     portfolio_var_95: float
     portfolio_cvar_95: float
     max_drawdown: float
     current_drawdown: float
-    
+
     # Quantitative metrics
-    correlation_matrix: Optional[np.ndarray]
+    correlation_matrix: np.ndarray | None
     beta_exposure: float
     gamma_risk: float
     vega_risk: float
     theta_decay: float
-    
+
     # AI insights
     ai_risk_score: float
-    risk_patterns: List[Dict[str, Any]]
-    anomaly_alerts: List[Dict[str, Any]]
-    predictions: Dict[str, float]
-    
+    risk_patterns: list[dict[str, Any]]
+    anomaly_alerts: list[dict[str, Any]]
+    predictions: dict[str, float]
+
     # Meta information
-    calculation_sources: List[RiskSource]
+    calculation_sources: list[RiskSource]
     confidence_score: float
     last_updated: datetime
-    regime_context: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    regime_context: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             'timestamp': self.timestamp.isoformat(),
@@ -284,10 +274,10 @@ class RiskAlert:
     alert_type: str
     priority: RiskPriority
     message: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime
     source: RiskSource
-    suggested_actions: List[str]
+    suggested_actions: list[str]
     requires_immediate_action: bool = False
 
 # ==============================================================================
@@ -295,17 +285,17 @@ class RiskAlert:
 # ==============================================================================
 class RiskCalculationCache:
     """High-performance caching for risk calculations"""
-    
-    def __init__(self, max_size: int = MAX_CACHE_SIZE, 
+
+    def __init__(self, max_size: int = MAX_CACHE_SIZE,
                  expiry_seconds: int = CACHE_EXPIRY_SECONDS):
         """Initialize cache"""
         self.max_size = max_size
         self.expiry_seconds = expiry_seconds
-        self.cache: Dict[str, Tuple[Any, datetime]] = {}
+        self.cache: dict[str, tuple[Any, datetime]] = {}
         self._lock = threading.RLock()
-        
-    def _generate_key(self, calculation_type: RiskCalculationType, 
-                     data: Dict[str, Any]) -> str:
+
+    def _generate_key(self, calculation_type: RiskCalculationType,
+                     data: dict[str, Any]) -> str:
         """Generate cache key"""
         # Create hash of calculation type and relevant data
         key_data = {
@@ -313,61 +303,61 @@ class RiskCalculationCache:
             'data_hash': hashlib.md5(str(sorted(data.items())).encode()).hexdigest()
         }
         return f"{calculation_type.value}_{key_data['data_hash']}"
-    
-    def get(self, calculation_type: RiskCalculationType, 
-            data: Dict[str, Any]) -> Optional[Any]:
+
+    def get(self, calculation_type: RiskCalculationType,
+            data: dict[str, Any]) -> Any | None:
         """Get cached result"""
         with self._lock:
             key = self._generate_key(calculation_type, data)
-            
+
             if key in self.cache:
                 result, timestamp = self.cache[key]
-                
+
                 # Check expiry
                 if (datetime.now() - timestamp).total_seconds() < self.expiry_seconds:
                     return result
                 else:
                     # Remove expired entry
                     del self.cache[key]
-            
+
             return None
-    
-    def put(self, calculation_type: RiskCalculationType, 
-            data: Dict[str, Any], result: Any) -> None:
+
+    def put(self, calculation_type: RiskCalculationType,
+            data: dict[str, Any], result: Any) -> None:
         """Put result in cache"""
         with self._lock:
             # Clean up old entries if cache is full
             if len(self.cache) >= self.max_size:
                 self._cleanup_expired()
-                
+
                 # If still full, remove oldest entries
                 if len(self.cache) >= self.max_size:
-                    oldest_keys = sorted(self.cache.keys(), 
+                    oldest_keys = sorted(self.cache.keys(),
                                        key=lambda k: self.cache[k][1])[:10]
                     for key in oldest_keys:
                         del self.cache[key]
-            
+
             key = self._generate_key(calculation_type, data)
             self.cache[key] = (result, datetime.now())
-    
+
     def _cleanup_expired(self) -> None:
         """Clean up expired entries"""
         now = datetime.now()
         expired_keys = []
-        
+
         for key, (_, timestamp) in self.cache.items():
             if (now - timestamp).total_seconds() >= self.expiry_seconds:
                 expired_keys.append(key)
-        
+
         for key in expired_keys:
             del self.cache[key]
-    
+
     def clear(self) -> None:
         """Clear all cache entries"""
         with self._lock:
             self.cache.clear()
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics"""
         with self._lock:
             return {
@@ -383,27 +373,27 @@ class RiskCalculationCache:
 class UnifiedRiskCoordinator:
     """
     Unified Risk Management Coordinator.
-    
+
     Eliminates overlap between:
     - E-Series (18 modules): Core risk engine
-    - V04 RiskManager: Quantitative specialist  
+    - V04 RiskManager: Quantitative specialist
     - X04 RiskGuardianAgent: AI enhancement
-    
+
     Provides intelligent delegation, caching, and unified risk interface.
     """
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         """Initialize unified risk coordinator"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Initialize caching layer
         self.cache = RiskCalculationCache(
             max_size=self.config.get('cache_max_size', MAX_CACHE_SIZE),
             expiry_seconds=self.config.get('cache_expiry', CACHE_EXPIRY_SECONDS)
         )
-        
+
         # Initialize component systems
         self.core_risk_manager = None
         self.position_sizer = None
@@ -412,41 +402,41 @@ class UnifiedRiskCoordinator:
         self.quant_risk_manager = None
         self.ai_risk_guardian = None
         self.regime_engine = None
-        
+
         # Initialize available components
         self._initialize_components()
-        
+
         # State management
-        self.current_risk_profile: Optional[UnifiedRiskProfile] = None
-        self.active_alerts: List[RiskAlert] = []
+        self.current_risk_profile: UnifiedRiskProfile | None = None
+        self.active_alerts: list[RiskAlert] = []
         self.calculation_history: deque = deque(maxlen=1000)
-        self.performance_metrics: Dict[RiskSource, Dict[str, float]] = {}
-        
+        self.performance_metrics: dict[RiskSource, dict[str, float]] = {}
+
         # Threading for async operations
         self.calculation_executor = asyncio.create_task
-        self.update_thread: Optional[threading.Thread] = None
+        self.update_thread: threading.Thread | None = None
         self.is_running = False
         self._lock = threading.RLock()
-        
+
         # Performance tracking
         self.total_calculations = 0
         self.cache_hits = 0
         self.calculation_times: deque = deque(maxlen=100)
-        
+
         # Alert management
         self.alert_thresholds = {
             RiskLevel.HIGH: 0.04,      # 4% portfolio risk
-            RiskLevel.CRITICAL: 0.05,   # 5% portfolio risk  
+            RiskLevel.CRITICAL: 0.05,   # 5% portfolio risk
             RiskLevel.EMERGENCY: 0.06   # 6% portfolio risk
         }
-        
+
         self.logger.info("UnifiedRiskCoordinator initialized successfully")
         self.logger.info(f"Available components: Core={CORE_RISK_AVAILABLE}, "
                         f"Quant={QUANT_RISK_AVAILABLE}, AI={AI_RISK_AVAILABLE}")
-    
+
     def _initialize_components(self):
         """Initialize available risk management components"""
-        
+
         # E-Series Core Risk Components
         if CORE_RISK_AVAILABLE:
             try:
@@ -457,7 +447,7 @@ class UnifiedRiskCoordinator:
                 self.logger.info("✅ E-Series core risk components initialized")
             except Exception as e:
                 self.logger.error(f"Failed to initialize E-Series components: {e}")
-        
+
         # V04 Quantitative Risk Specialist
         if QUANT_RISK_AVAILABLE:
             try:
@@ -465,7 +455,7 @@ class UnifiedRiskCoordinator:
                 self.logger.info("✅ V04 quantitative risk manager initialized")
             except Exception as e:
                 self.logger.error(f"Failed to initialize V04 quant manager: {e}")
-        
+
         # X04 AI Risk Guardian
         if AI_RISK_AVAILABLE:
             try:
@@ -473,7 +463,7 @@ class UnifiedRiskCoordinator:
                 self.logger.info("✅ X04 AI risk guardian initialized")
             except Exception as e:
                 self.logger.error(f"Failed to initialize X04 AI guardian: {e}")
-        
+
         # L09 Regime Engine Integration
         if REGIME_ENGINE_AVAILABLE:
             try:
@@ -481,54 +471,54 @@ class UnifiedRiskCoordinator:
                 self.logger.info("✅ L09 unified regime engine connected")
             except Exception as e:
                 self.logger.error(f"Failed to connect regime engine: {e}")
-    
+
     # ==========================================================================
     # PUBLIC METHODS - MAIN RISK INTERFACE
     # ==========================================================================
-    async def calculate_unified_risk_profile(self, 
-                                           positions: List[Dict[str, Any]], 
+    async def calculate_unified_risk_profile(self,
+                                           positions: list[dict[str, Any]],
                                            portfolio_value: float,
-                                           market_data: Optional[Dict[str, Any]] = None) -> UnifiedRiskProfile:
+                                           market_data: dict[str, Any] | None = None) -> UnifiedRiskProfile:
         """
         Calculate comprehensive risk profile using all available sources.
-        
+
         Args:
             positions: List of current positions
             portfolio_value: Current portfolio value
             market_data: Optional current market data
-            
+
         Returns:
             UnifiedRiskProfile with comprehensive risk analysis
         """
         try:
             start_time = time.time()
             timestamp = datetime.now()
-            
+
             self.logger.info(f"Calculating unified risk profile for {len(positions)} positions")
-            
+
             # Initialize results containers
             calculation_sources = []
             position_risks = {}
-            
+
             # Core risk calculations (E-Series)
             core_results = await self._get_core_risk_analysis(positions, portfolio_value)
             if core_results:
                 calculation_sources.append(RiskSource.CORE_ENGINE)
                 position_risks.update(core_results.get('position_risks', {}))
-            
+
             # Quantitative risk analysis (V04)
             quant_results = await self._get_quantitative_risk_analysis(positions, portfolio_value, market_data)
             if quant_results:
                 calculation_sources.append(RiskSource.QUANT_SPECIALIST)
-            
+
             # AI-enhanced risk analysis (X04)
             ai_results = await self._get_ai_risk_analysis(positions, portfolio_value, market_data)
             if ai_results:
                 calculation_sources.append(RiskSource.AI_ENHANCEMENT)
-            
+
             # Get market regime context
             regime_context = await self._get_regime_context(market_data)
-            
+
             # Combine all results into unified profile
             unified_profile = self._create_unified_profile(
                 timestamp=timestamp,
@@ -540,54 +530,54 @@ class UnifiedRiskCoordinator:
                 regime_context=regime_context,
                 position_risks=position_risks
             )
-            
+
             # Update internal state
             with self._lock:
                 self.current_risk_profile = unified_profile
                 self.calculation_history.append(unified_profile)
-                
+
                 # Update performance metrics
                 calculation_time = time.time() - start_time
                 self.calculation_times.append(calculation_time)
                 self.total_calculations += 1
-            
+
             # Check for risk alerts
             await self._check_risk_alerts(unified_profile)
-            
+
             self.logger.info(f"Risk profile calculated in {calculation_time:.3f}s - "
                            f"Risk Level: {unified_profile.risk_level.value}, "
                            f"Risk %: {unified_profile.risk_percentage:.2%}")
-            
+
             return unified_profile
-            
+
         except Exception as e:
             self.logger.error(f"Unified risk calculation failed: {e}")
             self.error_handler.handle_error(e, {"method": "calculate_unified_risk_profile"})
-            
+
             # Return safe emergency profile
             return self._create_emergency_profile(portfolio_value, timestamp)
-    
-    async def _get_core_risk_analysis(self, positions: List[Dict[str, Any]], 
-                                    portfolio_value: float) -> Optional[Dict[str, Any]]:
+
+    async def _get_core_risk_analysis(self, positions: list[dict[str, Any]],
+                                    portfolio_value: float) -> dict[str, Any] | None:
         """Get risk analysis from E-Series core components"""
         if not self.core_risk_manager:
             return None
-        
+
         try:
             # Check cache first
             cache_key_data = {
                 'positions_hash': hashlib.md5(str(positions).encode()).hexdigest(),
                 'portfolio_value': portfolio_value
             }
-            
+
             cached_result = self.cache.get(RiskCalculationType.PORTFOLIO_RISK, cache_key_data)
             if cached_result:
                 self.cache_hits += 1
                 return cached_result
-            
+
             # Calculate using core risk manager
             portfolio_risk = self.core_risk_manager.calculate_portfolio_risk(positions, portfolio_value)
-            
+
             # Get position sizing recommendations
             position_risks = {}
             if self.position_sizer:
@@ -608,7 +598,7 @@ class UnifiedRiskCoordinator:
                         'risk_amount': sizing.risk_amount,
                         'current_size': position.get('quantity', 0)
                     }
-            
+
             # Get drawdown analysis
             drawdown_info = {}
             if self.drawdown_controller:
@@ -618,42 +608,42 @@ class UnifiedRiskCoordinator:
                     'max_drawdown': self.drawdown_controller.max_drawdown,
                     'peak_equity': self.drawdown_controller.peak_equity
                 }
-            
+
             result = {
                 'portfolio_risk': portfolio_risk.__dict__ if portfolio_risk else {},
                 'position_risks': position_risks,
                 'drawdown_info': drawdown_info,
                 'source': RiskSource.CORE_ENGINE.value
             }
-            
+
             # Cache the result
             self.cache.put(RiskCalculationType.PORTFOLIO_RISK, cache_key_data, result)
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Core risk analysis failed: {e}")
             return None
-    
-    async def _get_quantitative_risk_analysis(self, positions: List[Dict[str, Any]], 
+
+    async def _get_quantitative_risk_analysis(self, positions: list[dict[str, Any]],
                                             portfolio_value: float,
-                                            market_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                                            market_data: dict[str, Any] | None) -> dict[str, Any] | None:
         """Get quantitative risk analysis from V04 specialist"""
         if not self.quant_risk_manager:
             return None
-        
+
         try:
             # Check cache
             cache_key_data = {
                 'positions_hash': hashlib.md5(str(positions).encode()).hexdigest(),
                 'market_data_hash': hashlib.md5(str(market_data).encode()).hexdigest() if market_data else 'none'
             }
-            
+
             cached_result = self.cache.get(RiskCalculationType.VAR_ANALYSIS, cache_key_data)
             if cached_result:
                 self.cache_hits += 1
                 return cached_result
-            
+
             # Perform quantitative analysis
             # This would integrate with actual V04 methods
             result = {
@@ -669,23 +659,23 @@ class UnifiedRiskCoordinator:
                 },
                 'source': RiskSource.QUANT_SPECIALIST.value
             }
-            
+
             # Cache the result
             self.cache.put(RiskCalculationType.VAR_ANALYSIS, cache_key_data, result)
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Quantitative risk analysis failed: {e}")
             return None
-    
-    async def _get_ai_risk_analysis(self, positions: List[Dict[str, Any]], 
+
+    async def _get_ai_risk_analysis(self, positions: list[dict[str, Any]],
                                   portfolio_value: float,
-                                  market_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                                  market_data: dict[str, Any] | None) -> dict[str, Any] | None:
         """Get AI-enhanced risk analysis from X04 guardian"""
         if not self.ai_risk_guardian:
             return None
-        
+
         try:
             # Check cache
             cache_key_data = {
@@ -693,12 +683,12 @@ class UnifiedRiskCoordinator:
                 'portfolio_value': portfolio_value,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M')  # Cache for 1 minute
             }
-            
+
             cached_result = self.cache.get(RiskCalculationType.AI_PATTERN_ANALYSIS, cache_key_data)
             if cached_result:
                 self.cache_hits += 1
                 return cached_result
-            
+
             # AI pattern analysis (placeholder implementation)
             result = {
                 'ai_risk_score': np.random.uniform(0.2, 0.8),  # Placeholder AI score
@@ -719,7 +709,7 @@ class UnifiedRiskCoordinator:
                 'learning_confidence': 0.6,
                 'source': RiskSource.AI_ENHANCEMENT.value
             }
-            
+
             # Add anomalies if detected
             if np.random.random() < 0.1:  # 10% chance of anomaly
                 result['anomaly_alerts'].append({
@@ -728,21 +718,21 @@ class UnifiedRiskCoordinator:
                     'description': 'Unusual correlation pattern detected',
                     'confidence': 0.8
                 })
-            
+
             # Cache the result
             self.cache.put(RiskCalculationType.AI_PATTERN_ANALYSIS, cache_key_data, result)
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"AI risk analysis failed: {e}")
             return None
-    
-    async def _get_regime_context(self, market_data: Optional[Dict[str, Any]]) -> Optional[str]:
+
+    async def _get_regime_context(self, market_data: dict[str, Any] | None) -> str | None:
         """Get current market regime context"""
         if not self.regime_engine or not market_data:
             return None
-        
+
         try:
             # This would integrate with the unified regime engine
             # For now, return placeholder
@@ -751,7 +741,7 @@ class UnifiedRiskCoordinator:
         except Exception as e:
             self.logger.error(f"Regime context failed: {e}")
             return None
-    
+
     def _create_unified_profile(self, **kwargs) -> UnifiedRiskProfile:
         """Create unified risk profile from all component results"""
         timestamp = kwargs['timestamp']
@@ -762,12 +752,12 @@ class UnifiedRiskCoordinator:
         calculation_sources = kwargs['calculation_sources']
         regime_context = kwargs.get('regime_context')
         position_risks = kwargs.get('position_risks', {})
-        
+
         # Extract core metrics with safe defaults
         portfolio_risk = core_results.get('portfolio_risk', {})
         total_var_95 = quant_results.get('var_95', portfolio_value * 0.05)
         total_cvar_95 = quant_results.get('cvar_95', portfolio_value * 0.08)
-        
+
         # Calculate overall risk
         total_risk_amount = max(
             portfolio_risk.get('total_var_95', 0),
@@ -775,25 +765,25 @@ class UnifiedRiskCoordinator:
             portfolio_value * 0.02  # Minimum 2% assumption
         )
         risk_percentage = total_risk_amount / portfolio_value if portfolio_value > 0 else 0
-        
+
         # Determine risk level
         risk_level = self._determine_risk_level(risk_percentage)
-        
+
         # Extract drawdown info
         drawdown_info = core_results.get('drawdown_info', {})
-        
+
         # Extract Greeks
         greeks = quant_results.get('greeks', {})
-        
+
         # Extract AI insights
         ai_risk_score = ai_results.get('ai_risk_score', 0.5)
         risk_patterns = ai_results.get('risk_patterns', [])
         anomaly_alerts = ai_results.get('anomaly_alerts', [])
         predictions = ai_results.get('predictions', {})
-        
+
         # Calculate confidence score based on available sources
         confidence_score = len(calculation_sources) / 3.0  # Max 3 sources
-        
+
         return UnifiedRiskProfile(
             timestamp=timestamp,
             portfolio_value=portfolio_value,
@@ -819,7 +809,7 @@ class UnifiedRiskCoordinator:
             last_updated=timestamp,
             regime_context=regime_context
         )
-    
+
     def _determine_risk_level(self, risk_percentage: float) -> RiskLevel:
         """Determine risk level based on percentage"""
         if risk_percentage >= 0.06:
@@ -832,11 +822,11 @@ class UnifiedRiskCoordinator:
             return RiskLevel.MEDIUM
         else:
             return RiskLevel.LOW
-    
+
     async def _check_risk_alerts(self, risk_profile: UnifiedRiskProfile):
         """Check for risk alerts and create notifications"""
         new_alerts = []
-        
+
         # Portfolio risk level alerts
         if risk_profile.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL, RiskLevel.EMERGENCY]:
             alert = RiskAlert(
@@ -852,7 +842,7 @@ class UnifiedRiskCoordinator:
                 requires_immediate_action=risk_profile.risk_level == RiskLevel.EMERGENCY
             )
             new_alerts.append(alert)
-        
+
         # Drawdown alerts
         if risk_profile.current_drawdown > 0.05:  # 5% drawdown
             alert = RiskAlert(
@@ -867,7 +857,7 @@ class UnifiedRiskCoordinator:
                 requires_immediate_action=risk_profile.current_drawdown > 0.10
             )
             new_alerts.append(alert)
-        
+
         # AI anomaly alerts
         for anomaly in risk_profile.anomaly_alerts:
             alert = RiskAlert(
@@ -881,17 +871,17 @@ class UnifiedRiskCoordinator:
                 suggested_actions=['Investigate pattern', 'Review correlations', 'Monitor closely']
             )
             new_alerts.append(alert)
-        
+
         # Update active alerts
         with self._lock:
             self.active_alerts.extend(new_alerts)
             # Keep only recent alerts (last 24 hours)
             cutoff_time = datetime.now() - timedelta(hours=24)
             self.active_alerts = [a for a in self.active_alerts if a.timestamp > cutoff_time]
-        
+
         if new_alerts:
             self.logger.warning(f"Generated {len(new_alerts)} risk alerts")
-    
+
     def _create_emergency_profile(self, portfolio_value: float, timestamp: datetime) -> UnifiedRiskProfile:
         """Create emergency risk profile when calculations fail"""
         return UnifiedRiskProfile(
@@ -924,17 +914,17 @@ class UnifiedRiskCoordinator:
             last_updated=timestamp,
             regime_context=None
         )
-    
+
     # ==========================================================================
-    # PUBLIC METHODS - ANALYSIS AND REPORTING  
+    # PUBLIC METHODS - ANALYSIS AND REPORTING
     # ==========================================================================
-    def get_current_risk_summary(self) -> Dict[str, Any]:
+    def get_current_risk_summary(self) -> dict[str, Any]:
         """Get current risk summary"""
         if not self.current_risk_profile:
             return {'error': 'No current risk profile available'}
-        
+
         profile = self.current_risk_profile
-        
+
         return {
             'timestamp': profile.timestamp.isoformat(),
             'portfolio_value': profile.portfolio_value,
@@ -949,12 +939,12 @@ class UnifiedRiskCoordinator:
             'confidence_score': profile.confidence_score,
             'regime_context': profile.regime_context
         }
-    
-    def get_performance_metrics(self) -> Dict[str, Any]:
+
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get coordinator performance metrics"""
         avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0
         cache_hit_rate = self.cache_hits / max(self.total_calculations, 1)
-        
+
         return {
             'total_calculations': self.total_calculations,
             'cache_hits': self.cache_hits,
@@ -969,14 +959,14 @@ class UnifiedRiskCoordinator:
             },
             'cache_stats': self.cache.get_stats()
         }
-    
-    def get_active_alerts(self, priority_filter: Optional[RiskPriority] = None) -> List[Dict[str, Any]]:
+
+    def get_active_alerts(self, priority_filter: RiskPriority | None = None) -> list[dict[str, Any]]:
         """Get active risk alerts"""
         alerts = self.active_alerts
-        
+
         if priority_filter:
             alerts = [a for a in alerts if a.priority == priority_filter]
-        
+
         return [
             {
                 'alert_id': a.alert_id,
@@ -991,14 +981,16 @@ class UnifiedRiskCoordinator:
             }
             for a in sorted(alerts, key=lambda x: x.timestamp, reverse=True)
         ]
-    
+
     def clear_cache(self) -> None:
         """Clear risk calculation cache"""
         self.cache.clear()
         self.logger.info("Risk calculation cache cleared")
-    
-    def get_consolidation_report(self) -> Dict[str, Any]:
+
+    def get_consolidation_report(self) -> dict[str, Any]:
         """Get consolidation effectiveness report"""
+        cache_hit_rate = self.cache_hits / max(self.total_calculations, 1)
+        avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0
         return {
             'consolidation_status': 'active',
             'eliminated_overlaps': [
@@ -1013,7 +1005,7 @@ class UnifiedRiskCoordinator:
             },
             'component_utilization': {
                 'core_engine': 'Primary risk calculations',
-                'quant_specialist': 'VaR, CVaR, Greeks analysis', 
+                'quant_specialist': 'VaR, CVaR, Greeks analysis',
                 'ai_enhancement': 'Pattern recognition, anomaly detection',
                 'coordinator': 'Unified interface, smart caching'
             },
@@ -1029,13 +1021,13 @@ class UnifiedRiskCoordinator:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_unified_risk_coordinator(config: Dict[str, Any] = None) -> UnifiedRiskCoordinator:
+def create_unified_risk_coordinator(config: dict[str, Any] = None) -> UnifiedRiskCoordinator:
     """
     Create unified risk coordinator instance.
-    
+
     Args:
         config: Optional configuration dictionary
-        
+
     Returns:
         UnifiedRiskCoordinator instance
     """
@@ -1044,9 +1036,9 @@ def create_unified_risk_coordinator(config: Dict[str, Any] = None) -> UnifiedRis
 # ==============================================================================
 # SINGLETON ACCESS
 # ==============================================================================
-_unified_risk_coordinator_instance: Optional[UnifiedRiskCoordinator] = None
+_unified_risk_coordinator_instance: UnifiedRiskCoordinator | None = None
 
-def get_unified_risk_coordinator(config: Dict[str, Any] = None) -> UnifiedRiskCoordinator:
+def get_unified_risk_coordinator(config: dict[str, Any] = None) -> UnifiedRiskCoordinator:
     """Get singleton instance of unified risk coordinator"""
     global _unified_risk_coordinator_instance
     if _unified_risk_coordinator_instance is None:
@@ -1058,25 +1050,19 @@ def get_unified_risk_coordinator(config: Dict[str, Any] = None) -> UnifiedRiskCo
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing and demonstration
-    print("=" * 80)
-    print("SPYDER E19 - UNIFIED RISK COORDINATOR DEMONSTRATION")
-    print("=" * 80)
-    
+
     # Create unified risk coordinator
     config = {
         'cache_max_size': 500,
         'cache_expiry': 60
     }
-    
+
     coordinator = create_unified_risk_coordinator(config)
-    
-    print(f"\n✅ Unified Risk Coordinator initialized")
+
     performance = coordinator.get_performance_metrics()
-    print(f"   Available Components:")
-    for component, available in performance['available_components'].items():
+    for _component, available in performance['available_components'].items():
         status = '✅' if available else '❌'
-        print(f"     • {component}: {status}")
-    
+
     # Create test portfolio
     test_positions = [
         {
@@ -1110,7 +1096,7 @@ if __name__ == "__main__":
             'market_value': -2240
         }
     ]
-    
+
     test_portfolio_value = 100000
     test_market_data = {
         'spy_price': 450.25,
@@ -1118,106 +1104,62 @@ if __name__ == "__main__":
         'market_regime': 'bull_trending',
         'volume_ratio': 1.2
     }
-    
-    print(f"\n📊 Test Portfolio:")
-    print(f"   Portfolio Value: ${test_portfolio_value:,}")
-    print(f"   Positions: {len(test_positions)}")
-    for pos in test_positions:
-        print(f"     • {pos['symbol']}: {pos['quantity']} contracts @ ${pos['price']:.2f}")
-    
+
+    for _pos in test_positions:
+        pass
+
     # Calculate unified risk profile
-    print(f"\n🎯 Calculating unified risk profile...")
-    
+
     import asyncio
-    
+
     async def run_risk_analysis():
         risk_profile = await coordinator.calculate_unified_risk_profile(
-            test_positions, 
+            test_positions,
             test_portfolio_value,
             test_market_data
         )
         return risk_profile
-    
+
     # Run the async function
     risk_profile = asyncio.run(run_risk_analysis())
-    
-    print(f"\n📈 UNIFIED RISK PROFILE:")
-    print("-" * 60)
-    print(f"   Risk Level: {risk_profile.risk_level.value.upper()}")
-    print(f"   Total Risk: ${risk_profile.total_risk_amount:,.0f} ({risk_profile.risk_percentage:.2%})")
-    print(f"   VaR (95%): ${risk_profile.portfolio_var_95:,.0f}")
-    print(f"   CVaR (95%): ${risk_profile.portfolio_cvar_95:,.0f}")
-    print(f"   Current Drawdown: {risk_profile.current_drawdown:.2%}")
-    print(f"   AI Risk Score: {risk_profile.ai_risk_score:.2f}/1.0")
-    print(f"   Beta Exposure: {risk_profile.beta_exposure:.2f}")
-    
-    print(f"\n🎲 GREEKS SUMMARY:")
-    print(f"   Total Delta: {risk_profile.gamma_risk:.2f}")
-    print(f"   Total Gamma: {risk_profile.gamma_risk:.4f}")
-    print(f"   Total Vega: {risk_profile.vega_risk:.2f}")
-    print(f"   Total Theta: {risk_profile.theta_decay:.2f}")
-    
+
+
+
     # Show calculation sources
-    print(f"\n📡 CALCULATION SOURCES:")
-    for source in risk_profile.calculation_sources:
-        print(f"   ✅ {source.value}")
-    print(f"   Confidence Score: {risk_profile.confidence_score:.1%}")
-    print(f"   Regime Context: {risk_profile.regime_context or 'Unknown'}")
-    
+    for _source in risk_profile.calculation_sources:
+        pass
+
     # Show risk patterns
     if risk_profile.risk_patterns:
-        print(f"\n🔍 RISK PATTERNS DETECTED:")
-        for pattern in risk_profile.risk_patterns:
-            print(f"   • {pattern['pattern']}: {pattern['description']} "
-                  f"(confidence: {pattern['confidence']:.1%})")
-    
+        for _pattern in risk_profile.risk_patterns:
+            pass
+
     # Show anomaly alerts
     if risk_profile.anomaly_alerts:
-        print(f"\n⚠️  ANOMALY ALERTS:")
-        for alert in risk_profile.anomaly_alerts:
-            print(f"   • {alert['type']}: {alert['description']} "
-                  f"(severity: {alert['severity']})")
-    
+        for _ in risk_profile.anomaly_alerts:
+            pass
+
     # Show active alerts from coordinator
     active_alerts = coordinator.get_active_alerts()
     if active_alerts:
-        print(f"\n🚨 ACTIVE RISK ALERTS ({len(active_alerts)}):")
         for alert in active_alerts[:3]:  # Show top 3
-            print(f"   • {alert['type']}: {alert['message']}")
-            print(f"     Priority: {alert['priority'].upper()}, Source: {alert['source']}")
             if alert['suggested_actions']:
-                print(f"     Actions: {', '.join(alert['suggested_actions'][:2])}")
+                pass
     else:
-        print(f"\n✅ No active risk alerts")
-    
+        pass
+
     # Show performance metrics
-    print(f"\n⚡ PERFORMANCE METRICS:")
     performance = coordinator.get_performance_metrics()
-    print(f"   Total Calculations: {performance['total_calculations']}")
-    print(f"   Cache Hit Rate: {performance['cache_hit_rate']:.1%}")
-    print(f"   Avg Calculation Time: {performance['avg_calculation_time']:.3f}s")
-    print(f"   Cache Size: {performance['cache_stats']['size']}/{performance['cache_stats']['max_size']}")
-    
+
     # Show consolidation benefits
-    print(f"\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
     consolidation = coordinator.get_consolidation_report()
-    for benefit in consolidation['consolidation_benefits']:
-        print(f"   ✅ {benefit}")
-    
-    print(f"\n📊 COMPONENT UTILIZATION:")
-    for component, role in consolidation['component_utilization'].items():
-        print(f"   • {component}: {role}")
-    
+    for _benefit in consolidation['consolidation_benefits']:
+        pass
+
+    for _component, _role in consolidation['component_utilization'].items():
+        pass
+
     # Performance comparison
-    print(f"\n🚀 PERFORMANCE GAINS:")
-    for metric, value in consolidation['performance_gains'].items():
-        print(f"   • {metric}: {value}")
-    
-    print(f"\n{('='*80)}")
-    print("CONSOLIDATION SUCCESS!")
-    print("✅ 3-layer risk management overlap eliminated")
-    print("✅ Clear delegation hierarchy established")  
-    print("✅ Single entry point for all risk calculations")
-    print("✅ Intelligent caching reduces redundant computation")
-    print("✅ Unified risk profile for consistent decision-making")
-    print(f"{'='*80}")
+    for _metric, _value in consolidation['performance_gains'].items():
+        pass
+

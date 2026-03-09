@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -35,10 +34,9 @@ Change Log:
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -88,7 +86,7 @@ DEFAULT_TRAIN_RATIO = 0.7
 class BacktestResult:
     """Result from a single backtest configuration."""
     config_id: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
     sharpe_ratio: float
     sortino_ratio: float
     max_drawdown: float
@@ -101,7 +99,7 @@ class BacktestResult:
     computation_time: float
     status: str = 'completed'
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             'config_id': self.config_id,
@@ -126,10 +124,10 @@ class SweepReport:
     total_configs: int
     completed: int
     failed: int
-    best_config: Dict[str, Any]
+    best_config: dict[str, Any]
     best_sharpe: float
     total_time: float
-    results: List[BacktestResult]
+    results: list[BacktestResult]
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -158,14 +156,14 @@ class DistributedBacktester:
         num_cpus: Number of CPUs for Ray cluster (None = auto).
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None,
-                 num_cpus: Optional[int] = None):
+    def __init__(self, config: dict[str, Any] | None = None,
+                 num_cpus: int | None = None):
         self.config = config or {}
         self.num_cpus = num_cpus or DEFAULT_NUM_WORKERS
         self.logger = SpyderLogger("R10_DistributedBacktester")
         self.error_handler = SpyderErrorHandler()
         self._ray_initialized = False
-        self._results_history: List[SweepReport] = []
+        self._results_history: list[SweepReport] = []
 
     # ==========================================================================
     # RAY LIFECYCLE
@@ -196,9 +194,9 @@ class DistributedBacktester:
     def run_parameter_sweep(
         self,
         market_data: pd.DataFrame,
-        param_grid: Dict[str, List],
+        param_grid: dict[str, list],
         objective: OptimizationObjective = OptimizationObjective.SHARPE,
-        max_configs: Optional[int] = None,
+        max_configs: int | None = None,
     ) -> SweepReport:
         """
         Run a distributed parameter sweep across all grid combinations.
@@ -228,7 +226,7 @@ class DistributedBacktester:
         data_ref = ray.put(market_data)
 
         @ray.remote
-        def _backtest_config(data_ref, params: dict, config_id: str) -> Dict:
+        def _backtest_config(data_ref, params: dict, config_id: str) -> dict:
             """Run a single backtest configuration on a Ray worker."""
             import numpy as _np
             import time as _time
@@ -279,7 +277,7 @@ class DistributedBacktester:
         futures = [
             _backtest_config.remote(
                 data_ref,
-                dict(zip(param_names, combo)),
+                dict(zip(param_names, combo, strict=False)),
                 f"config_{i:04d}"
             )
             for i, combo in enumerate(combos)
@@ -330,7 +328,7 @@ class DistributedBacktester:
             returns = pd.Series(np.random.randn(252) * 0.01)
 
         for i, combo in enumerate(combos):
-            params = dict(zip(param_names, combo))
+            params = dict(zip(param_names, combo, strict=False))
             sharpe = float(returns.mean() / (returns.std() + 1e-8) * np.sqrt(252))
             results.append(BacktestResult(
                 config_id=f"seq_{i:04d}",
@@ -365,10 +363,10 @@ class DistributedBacktester:
     def run_tune_optimization(
         self,
         market_data: pd.DataFrame,
-        param_space: Optional[Dict[str, Any]] = None,
+        param_space: dict[str, Any] | None = None,
         num_samples: int = 50,
         objective: OptimizationObjective = OptimizationObjective.SHARPE,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run intelligent hyperparameter optimization using Ray Tune.
 
@@ -452,7 +450,7 @@ class DistributedBacktester:
         returns: pd.Series,
         n_simulations: int = DEFAULT_MONTE_CARLO_ITERATIONS,
         block_size: int = 21,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Distributed bootstrap Monte Carlo analysis.
 
@@ -475,7 +473,7 @@ class DistributedBacktester:
 
         @ray.remote
         def _monte_carlo_chunk(returns_ref, n_sims: int,
-                               block_size: int, seed: int) -> List[float]:
+                               block_size: int, seed: int) -> list[float]:
             """Run a chunk of bootstrap simulations."""
             import numpy as _np
             _np.random.seed(seed)
@@ -529,7 +527,7 @@ class DistributedBacktester:
         }
 
     def _sequential_monte_carlo(self, returns: pd.Series,
-                                n_simulations: int, block_size: int) -> Dict[str, Any]:
+                                n_simulations: int, block_size: int) -> dict[str, Any]:
         """Fallback sequential Monte Carlo."""
         self.logger.info(f"Sequential Monte Carlo: {n_simulations} simulations")
         ret = returns.values
@@ -567,11 +565,11 @@ class DistributedBacktester:
     def run_distributed_walk_forward(
         self,
         market_data: pd.DataFrame,
-        param_grid: Dict[str, List],
+        param_grid: dict[str, list],
         n_windows: int = DEFAULT_WALK_FORWARD_WINDOWS,
         train_ratio: float = DEFAULT_TRAIN_RATIO,
         objective: OptimizationObjective = OptimizationObjective.SHARPE,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Distributed walk-forward optimization.
 
@@ -608,7 +606,7 @@ class DistributedBacktester:
 
         @ray.remote
         def _walk_forward_window(data_ref, grid_ref,
-                                 train_ratio: float, window_id: int) -> Dict:
+                                 train_ratio: float, window_id: int) -> dict:
             """Optimize and validate a single walk-forward window."""
             import numpy as _np
 
@@ -631,7 +629,7 @@ class DistributedBacktester:
             best_sharpe = -999
             best_params = {}
             for combo in grid['combos']:
-                params = dict(zip(grid['names'], combo))
+                params = dict(zip(grid['names'], combo, strict=False))
                 scale = params.get('scale', 1.0)
                 adj = train_ret * scale
                 if len(adj) > 0 and adj.std() > 0:
@@ -687,7 +685,7 @@ class DistributedBacktester:
     # REPORTING
     # ==========================================================================
 
-    def get_results_history(self) -> List[Dict[str, Any]]:
+    def get_results_history(self) -> list[dict[str, Any]]:
         """Get history of all sweep reports."""
         return [
             {
@@ -701,7 +699,7 @@ class DistributedBacktester:
             for r in self._results_history
         ]
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary of distributed backtester state."""
         return {
             'ray_available': HAS_RAY,
@@ -716,8 +714,8 @@ class DistributedBacktester:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_distributed_backtester(
-    config: Optional[Dict[str, Any]] = None,
-    num_cpus: Optional[int] = None,
+    config: dict[str, Any] | None = None,
+    num_cpus: int | None = None,
 ) -> DistributedBacktester:
     """Create a DistributedBacktester instance."""
     return DistributedBacktester(config, num_cpus)
@@ -726,7 +724,7 @@ def create_distributed_backtester(
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_instance: Optional[DistributedBacktester] = None
+_instance: DistributedBacktester | None = None
 
 
 def get_distributed_backtester() -> DistributedBacktester:
@@ -741,15 +739,9 @@ def get_distributed_backtester() -> DistributedBacktester:
 # MAIN EXECUTION (FOR TESTING)
 # ==============================================================================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("SPYDER R10 — Distributed Backtester")
-    print("=" * 60)
 
     bt = create_distributed_backtester()
     summary = bt.get_summary()
-    print(f"\nRay available: {summary['ray_available']}")
-    print(f"CPUs: {summary['num_cpus']}")
-    print(f"Empyrical: {summary['empyrical_available']}")
 
     # Test with synthetic data
     np.random.seed(42)
@@ -760,22 +752,12 @@ if __name__ == "__main__":
         'volume': np.random.randint(1_000_000, 5_000_000, 504),
     })
 
-    print("\n--- Parameter Sweep ---")
     report = bt.run_parameter_sweep(
         data,
         param_grid={'scale': [0.8, 1.0, 1.2], 'noise': [0.001, 0.005]},
     )
-    print(f"Completed: {report.completed}/{report.total_configs}")
-    print(f"Best Sharpe: {report.best_sharpe:.4f}")
-    print(f"Best Config: {report.best_config}")
-    print(f"Time: {report.total_time:.2f}s")
 
-    print("\n--- Monte Carlo ---")
     returns = data['close'].pct_change().dropna()
     mc = bt.run_distributed_monte_carlo(returns, n_simulations=1000)
-    print(f"Simulations: {mc['n_simulations']}")
-    print(f"Mean Sharpe: {mc['sharpe_statistics']['mean']:.4f}")
-    print(f"P(Sharpe > 0): {mc['sharpe_statistics']['prob_positive']:.1%}")
 
     bt.shutdown()
-    print("\nDone.")

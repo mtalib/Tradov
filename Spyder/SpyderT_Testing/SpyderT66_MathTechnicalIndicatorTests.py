@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -162,10 +161,10 @@ class TestCalculateSortinoRatio:
         assert isinstance(result, float)
 
     def test_custom_risk_free_rate(self):
-        r1 = calculate_sortino_ratio(MIXED_RETURNS, risk_free_rate=0.0)
-        r2 = calculate_sortino_ratio(MIXED_RETURNS, risk_free_rate=0.05)
+        calculate_sortino_ratio(MIXED_RETURNS, risk_free_rate=0.0)
+        calculate_sortino_ratio(MIXED_RETURNS, risk_free_rate=0.05)
         # Higher risk-free rate → lower (or shifted) ratio
-        assert r1 != r2 or True  # Just ensure both complete without error
+        assert True  # Just ensure both complete without error
 
 
 class TestCalculateCvar:
@@ -180,9 +179,9 @@ class TestCalculateCvar:
         assert result == 0.0
 
     def test_cvar_geq_var(self):
-        var = calculate_var(MIXED_RETURNS, 0.95, "historical")
-        cvar = calculate_cvar(MIXED_RETURNS, 0.95)
-        assert cvar >= var or True  # CVaR should be >= VaR
+        calculate_var(MIXED_RETURNS, 0.95, "historical")
+        calculate_cvar(MIXED_RETURNS, 0.95)
+        assert True  # CVaR should be >= VaR
 
     def test_returns_nonnegative_for_mixed_returns(self):
         result = calculate_cvar(MIXED_RETURNS)
@@ -890,7 +889,7 @@ class TestCalculateVWAP:
         # VWAP should be near the average of (H+L+C)/3
         ind = _make_indicators()
         result = ind.calculate_vwap(HIGH, LOW, CLOSE, VOLUME)
-        typical = (HIGH + LOW + CLOSE) / 3
+        (HIGH + LOW + CLOSE) / 3
         # VWAP is cumulative, so compare at end roughly
         assert isinstance(result, pd.Series)
 
@@ -988,7 +987,7 @@ class TestGenerateMacdSignal:
 
     def test_empty_macd_data_handled(self):
         ind = _make_indicators()
-        empty_data: Dict[str, pd.Series] = {
+        empty_data: dict[str, pd.Series] = {
             "MACD": pd.Series(dtype=float),
             "Signal": pd.Series(dtype=float),
             "Histogram": pd.Series(dtype=float),

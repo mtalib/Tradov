@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
 
@@ -34,12 +33,11 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -175,7 +173,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
 
     TICK_INTERVAL = 15.0
 
-    def __init__(self, risk_limits: Optional[Dict[str, float]] = None, **kwargs: Any):
+    def __init__(self, risk_limits: dict[str, float] | None = None, **kwargs: Any):
         super().__init__(**kwargs)
 
         # Risk configuration
@@ -184,15 +182,15 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         # State
         self._circuit_breaker = CircuitBreakerState.NORMAL
         self._snapshots: deque = deque(maxlen=1000)
-        self._vetoes: List[TradeVeto] = []
+        self._vetoes: list[TradeVeto] = []
         self._current_risk: RiskSnapshot = RiskSnapshot()
-        self._pending_signals: List[Dict[str, Any]] = []
+        self._pending_signals: list[dict[str, Any]] = []
         self._alerts_today: int = 0
         self._tick_count: int = 0
         self._halt_reason: str = ""
 
         # X-agent delegate
-        self._x04_agent: Optional[Any] = None
+        self._x04_agent: Any | None = None
         if X04_AVAILABLE:
             try:
                 self._x04_agent = SpyderX04_RiskGuardianAgent()
@@ -200,7 +198,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                 pass
 
         # Position manager
-        self._position_mgr: Optional[Any] = None
+        self._position_mgr: Any | None = None
         if POSITION_MGR_AVAILABLE:
             try:
                 self._position_mgr = SpyderE19_PositionManager()
@@ -445,7 +443,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         self._pending_signals.clear()
 
     def _evaluate_veto(
-        self, signal: Dict[str, Any], session: MarketSession
+        self, signal: dict[str, Any], session: MarketSession
     ) -> TradeVeto:
         """Decide whether to veto a validated signal."""
         veto = TradeVeto(
@@ -581,7 +579,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     # MESSAGE HANDLER
     # ==========================================================================
-    def _on_message(self, topic: str, message: Dict[str, Any]) -> None:
+    def _on_message(self, topic: str, message: dict[str, Any]) -> None:
         """Handle incoming bus messages."""
         if topic == "signals.validated":
             self._pending_signals.append(message)
@@ -595,7 +593,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     # STATE PERSISTENCE
     # ==========================================================================
-    def get_state_snapshot(self) -> Dict[str, Any]:
+    def get_state_snapshot(self) -> dict[str, Any]:
         return {
             "circuit_breaker": self._circuit_breaker.value,
             "risk_score": self._current_risk.risk_score,
@@ -606,7 +604,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
             "vetoes_count": len(self._vetoes),
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         cb_value = state.get("circuit_breaker", "normal")
         try:
             self._circuit_breaker = CircuitBreakerState(cb_value)

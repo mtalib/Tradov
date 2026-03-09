@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -48,9 +47,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
-import json
 import datetime
-from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -71,16 +68,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QCheckBox,
-    QGroupBox,
     QApplication,
     QComboBox,
-    QGridLayout,
     QFrame,
     QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QUrl
-from PySide6.QtGui import QPalette, QColor, QFont
+from PySide6.QtCore import Qt, QTimer, Signal
 import logging
 
 # Import WebEngine for Plotly embedding
@@ -119,8 +112,8 @@ except ImportError as e:
 # Import Plotly for chart generation
 try:
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    import plotly.io as pio
+    from plotly.subplots import make_subplots  # noqa: F401
+    import plotly.io as pio  # noqa: F401
 
     PLOTLY_AVAILABLE = True
     logging.info("✅ Plotly available for financial charting")
@@ -856,7 +849,7 @@ if __name__ == "__main__":
 
     # Test data updates
     def test_updates():
-        print("Testing real-time updates...")
+        pass
 
     QTimer.singleShot(5000, test_updates)
 

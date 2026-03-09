@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -567,7 +566,7 @@ class TestCreateFromEnv(unittest.TestCase):
             ),
         ):
             # We just want to inspect the kwargs passed to __init__
-            result = MagicMock(spec=SentimentAnalyzer)
+            MagicMock(spec=SentimentAnalyzer)
             SentimentAnalyzer.__init__ = MagicMock(return_value=None)
             a = create_sentiment_analyzer_from_env()
         return a

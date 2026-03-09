@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -39,12 +38,13 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import pickle
 import time
 from datetime import datetime
 import queue
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -52,7 +52,6 @@ from enum import Enum
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 
 # B10_IBDataTypes removed (IB Gateway) — use Databento for historical data
 IBContract = None  # type: ignore
@@ -215,10 +214,10 @@ class HistoricalDataRequest:
     use_rth: bool = True
     format_date: int = 1
     keep_up_to_date: bool = False
-    chart_options: List[str] = field(default_factory=list)
+    chart_options: list[str] = field(default_factory=list)
 
     # Request metadata
-    request_id: Optional[int] = None
+    request_id: int | None = None
     timestamp: datetime = field(default_factory=datetime.now)
     status: RequestStatus = RequestStatus.PENDING
     priority: int = 5  # 1=highest, 10=lowest
@@ -237,7 +236,7 @@ class HistoricalBarData:
     wap: float  # Weighted average price
     count: int  # Number of trades
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             "timestamp": self.timestamp,
@@ -257,9 +256,9 @@ class HistoricalDataResponse:
 
     request_id: int
     symbol: str
-    bars: List[HistoricalBarData]
+    bars: list[HistoricalBarData]
     status: RequestStatus
-    error_message: Optional[str] = None
+    error_message: str | None = None
     total_bars: int = 0
     cache_hit: bool = False
     execution_time_ms: float = 0.0
@@ -292,7 +291,7 @@ class HistoricalDataManager:
         self.error_handler = SpyderErrorHandler()
 
         # Request management
-        self.active_requests: Dict[int, HistoricalDataRequest] = {}
+        self.active_requests: dict[int, HistoricalDataRequest] = {}
         self.request_queue: queue.PriorityQueue = queue.PriorityQueue()
         self.next_request_id = 1000
         self.request_lock = threading.RLock()
@@ -310,13 +309,13 @@ class HistoricalDataManager:
 
         # Worker thread
         self.running = False
-        self.worker_thread: Optional[threading.Thread] = None
+        self.worker_thread: threading.Thread | None = None
 
         # Trading calendar for business day calculations
         self.trading_calendar = TradingCalendar()
 
         # Response storage
-        self.responses: Dict[int, HistoricalDataResponse] = {}
+        self.responses: dict[int, HistoricalDataResponse] = {}
 
         # Setup callbacks
         self._setup_callbacks()
@@ -382,7 +381,7 @@ class HistoricalDataManager:
     def request_historical_data(
         self,
         contract: Contract,
-        end_date: Optional[datetime] = None,
+        end_date: datetime | None = None,
         duration: str = "1 D",
         bar_size: str = "1 min",
         data_type: str = "TRADES",
@@ -466,7 +465,7 @@ class HistoricalDataManager:
             self.logger.error(f"Error requesting historical data: {e}")
             return -1
 
-    def get_response(self, request_id: int) -> Optional[HistoricalDataResponse]:
+    def get_response(self, request_id: int) -> HistoricalDataResponse | None:
         """
         Get response for a request ID.
 
@@ -529,7 +528,7 @@ class HistoricalDataManager:
         start_date: datetime,
         end_date: datetime,
         bar_size: str = "1 min",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         Get cached historical data as DataFrame.
 
@@ -726,7 +725,7 @@ class HistoricalDataManager:
         date_str = end_date.strftime("%Y%m%d")
         return f"{contract.symbol}_{bar_size}_{data_type}_{duration}_{date_str}"
 
-    def _get_cached_data(self, cache_key: str) -> Optional[List[HistoricalBarData]]:
+    def _get_cached_data(self, cache_key: str) -> list[HistoricalBarData] | None:
         """Get cached data for a key"""
         try:
             cache_file = self.cache_dir / f"{cache_key}.pkl"
@@ -750,7 +749,7 @@ class HistoricalDataManager:
             self.logger.warning(f"Error loading cached data for {cache_key}: {e}")
             return None
 
-    def _cache_data(self, cache_key: str, data: List[HistoricalBarData]):
+    def _cache_data(self, cache_key: str, data: list[HistoricalBarData]):
         """Cache historical data"""
         try:
             if not self.cache_enabled:
@@ -767,7 +766,7 @@ class HistoricalDataManager:
             self.logger.warning(f"Error caching data for {cache_key}: {e}")
 
     def _create_cached_response(
-        self, data: List[HistoricalBarData], cache_key: str
+        self, data: list[HistoricalBarData], cache_key: str
     ) -> int:
         """Create response from cached data"""
         # Generate fake request ID
@@ -945,7 +944,7 @@ def create_spy_option_contract(
     return Option("SPY", expiry, strike, option_type, "SMART")
 
 
-def bars_to_dataframe(bars: List[HistoricalBarData]) -> pd.DataFrame:
+def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
     """Convert historical bars to pandas DataFrame"""
     data = [bar.to_dict() for bar in bars]
     df = pd.DataFrame(data)
@@ -982,7 +981,6 @@ if __name__ == "__main__":
                 data_type="TRADES",
             )
 
-            print(f"Submitted request {request_id} for SPY historical data")
 
             # Wait for completion
             time.sleep(10)
@@ -990,14 +988,12 @@ if __name__ == "__main__":
             # Get response
             response = hist_manager.get_response(request_id)
             if response:
-                print(f"Received {response.total_bars} bars for SPY")
                 if response.bars:
                     df = bars_to_dataframe(response.bars)
-                    print(df.head())
 
             # Stop manager
             hist_manager.stop()
 
         ib_client.disconnect()
     else:
-        print("Failed to connect to IBKR")
+        pass

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -37,10 +36,8 @@ def main():
         # Try to import PySide6 first
         try:
             from PySide6.QtWidgets import QApplication
-            PYSIDE6_AVAILABLE = True
         except ImportError as e:
             logging.info(f"PySide6 import error: {e}")
-            PYSIDE6_AVAILABLE = False
             # Fall back to basic window
             raise ImportError("PySide6 not available")
 

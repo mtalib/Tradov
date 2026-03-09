@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,23 +22,13 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import time
 import threading
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Tuple, Callable
-from dataclasses import dataclass, field, asdict
-from collections import defaultdict, deque
-from enum import Enum, auto
-import json
-import uuid
-from threading import Lock, RLock, Event as ThreadEvent
+from typing import Callable
+from threading import RLock, Event as ThreadEvent
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import weakref
-import pandas as pd
-import numpy as np
 
 class PositionTracker:
     """
@@ -134,33 +123,69 @@ class PositionTracker:
 
     def add_position_callback(self, callback: Callable):
         """Add position update callback."""
-        if callback not in self._position_callbacks:
-            self._position_callbacks.append(callback)
+        with self._position_lock:
+            if callback not in self._position_callbacks:
+                self._position_callbacks.append(callback)
 
     def add_pnl_callback(self, callback: Callable):
         """Add P&L update callback."""
-        if callback not in self._pnl_callbacks:
-            self._pnl_callbacks.append(callback)
+        with self._position_lock:
+            if callback not in self._pnl_callbacks:
+                self._pnl_callbacks.append(callback)
 
     def add_risk_callback(self, callback: Callable):
         """Add risk alert callback."""
-        if callback not in self._risk_callbacks:
-            self._risk_callbacks.append(callback)
+        with self._position_lock:
+            if callback not in self._risk_callbacks:
+                self._risk_callbacks.append(callback)
 
     def remove_position_callback(self, callback: Callable):
         """Remove position callback."""
-        if callback in self._position_callbacks:
-            self._position_callbacks.remove(callback)
+        with self._position_lock:
+            if callback in self._position_callbacks:
+                self._position_callbacks.remove(callback)
 
     def remove_pnl_callback(self, callback: Callable):
         """Remove P&L callback."""
-        if callback in self._pnl_callbacks:
-            self._pnl_callbacks.remove(callback)
+        with self._position_lock:
+            if callback in self._pnl_callbacks:
+                self._pnl_callbacks.remove(callback)
 
     def remove_risk_callback(self, callback: Callable):
         """Remove risk callback."""
-        if callback in self._risk_callbacks:
-            self._risk_callbacks.remove(callback)
+        with self._position_lock:
+            if callback in self._risk_callbacks:
+                self._risk_callbacks.remove(callback)
+
+    def _fire_position_callbacks(self, *args, **kwargs):
+        """Fire position callbacks using a snapshot to allow concurrent mutation."""
+        with self._position_lock:
+            callbacks = list(self._position_callbacks)
+        for cb in callbacks:
+            try:
+                cb(*args, **kwargs)
+            except Exception as exc:
+                self.logger.error(f"Position callback error: {exc}")
+
+    def _fire_pnl_callbacks(self, *args, **kwargs):
+        """Fire P&L callbacks using a snapshot to allow concurrent mutation."""
+        with self._position_lock:
+            callbacks = list(self._pnl_callbacks)
+        for cb in callbacks:
+            try:
+                cb(*args, **kwargs)
+            except Exception as exc:
+                self.logger.error(f"PnL callback error: {exc}")
+
+    def _fire_risk_callbacks(self, *args, **kwargs):
+        """Fire risk callbacks using a snapshot to allow concurrent mutation."""
+        with self._position_lock:
+            callbacks = list(self._risk_callbacks)
+        for cb in callbacks:
+            try:
+                cb(*args, **kwargs)
+            except Exception as exc:
+                self.logger.error(f"Risk callback error: {exc}")
 
     # ==========================================================================
     # BACKGROUND LOOP METHODS
@@ -246,14 +271,3 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    print("PositionTracker - Production Ready")
-    print("=" * 50)
-    print("Features:")
-    print("- Real-time position synchronization with IB")
-    print("- Live P&L calculation including all fees")
-    print("- Greeks monitoring for options")
-    print("- Multi-leg strategy tracking")
-    print("- Position reconciliation and validation")
-    print("- Risk metrics and alerts")
-    print("- Historical performance tracking")
-    print("\nReady for production use!")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -27,7 +26,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import deque
@@ -36,8 +35,6 @@ from collections import deque
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import statistics
-import math
 import pandas as pd
 from scipy import stats
 
@@ -120,20 +117,20 @@ class OptionContract:
     volatility: float
     risk_free_rate: float
     dividend_yield: float
-    market_price: Optional[float] = None
-    volume: Optional[int] = None
-    open_interest: Optional[int] = None
+    market_price: float | None = None
+    volume: int | None = None
+    open_interest: int | None = None
 
 @dataclass
 class ModelOutput:
     """Quantitative model output."""
     model_type: ModelType
     theoretical_price: float
-    greeks: Dict[str, float]
-    implied_volatility: Optional[float]
-    confidence_interval: Tuple[float, float]
-    model_metrics: Dict[str, float]
-    ai_insights: Dict[str, Any]
+    greeks: dict[str, float]
+    implied_volatility: float | None
+    confidence_interval: tuple[float, float]
+    model_metrics: dict[str, float]
+    ai_insights: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
 
 @dataclass
@@ -144,21 +141,21 @@ class VolatilityForecast:
     forecast_5d: float
     forecast_30d: float
     volatility_regime: str  # 'low', 'normal', 'high', 'extreme'
-    term_structure: Dict[int, float]  # days -> volatility
-    confidence_bands: Dict[str, Tuple[float, float]]
+    term_structure: dict[int, float]  # days -> volatility
+    confidence_bands: dict[str, tuple[float, float]]
     model_used: str
-    ai_assessment: Dict[str, Any]
+    ai_assessment: dict[str, Any]
 
 @dataclass
 class ModelValidation:
     """Model validation results."""
     model_type: ModelType
-    validation_metrics: Dict[str, float]
-    backtesting_results: Dict[str, Any]
-    stress_test_results: Dict[str, Any]
-    recommendations: List[str]
+    validation_metrics: dict[str, float]
+    backtesting_results: dict[str, Any]
+    stress_test_results: dict[str, Any]
+    recommendations: list[str]
     overall_score: float  # 0-1
-    ai_evaluation: Dict[str, Any]
+    ai_evaluation: dict[str, Any]
 
 # ==============================================================================
 # QUANTITATIVE MODELS AGENT CLASS
@@ -167,16 +164,16 @@ class ModelValidation:
 class SpyderX10_QuantModelsAgent:
     """
     AI-Enhanced Quantitative Models Agent.
-    
+
     This agent develops and manages quantitative models for options pricing,
     risk analysis, and trading decisions with AI-driven optimization.
     """
-    
+
     def __init__(self, model_name: str = DEFAULT_MODEL,
                  temperature: float = DEFAULT_TEMPERATURE):
         """
         Initialize the Quantitative Models Agent.
-        
+
         Args:
             model_name: Ollama model to use
             temperature: Temperature for AI responses
@@ -185,7 +182,7 @@ class SpyderX10_QuantModelsAgent:
         self.temperature = temperature
         self.logger = self._setup_logger()
         self.config = DEFAULT_CONFIG.copy()
-        
+
         # Initialize Ollama if available
         self.ollama_client = None
         if OLLAMA_AVAILABLE:
@@ -195,19 +192,19 @@ class SpyderX10_QuantModelsAgent:
                 self.logger.info("Ollama connection established")
             except Exception as e:
                 self.logger.error(f"Failed to connect to Ollama: {e}")
-        
+
         # Model cache
         self.model_cache = {}
         self.volatility_cache = {}
-        
+
         # Historical data storage
         self.price_history = deque(maxlen=252)  # 1 year of daily data
         self.volatility_history = deque(maxlen=252)
-        
+
         # Model performance tracking
         self.model_performance = {model: {'predictions': 0, 'total_error': 0}
                                  for model in ModelType}
-    
+
     def _setup_logger(self) -> logging.Logger:
         """Set up module logger."""
         logger = logging.getLogger(__name__)
@@ -220,31 +217,31 @@ class SpyderX10_QuantModelsAgent:
             handler.setFormatter(formatter)
             logger.addHandler(handler)
         return logger
-    
+
     # ==========================================================================
     # MAIN MODELING METHODS
     # ==========================================================================
-    
+
     async def price_option(self, contract: OptionContract,
-                         model_type: Optional[ModelType] = None) -> ModelOutput:
+                         model_type: ModelType | None = None) -> ModelOutput:
         """
         Price an option using specified or AI-selected model.
-        
+
         Args:
             contract: Option contract details
             model_type: Model to use (None for AI selection)
-            
+
         Returns:
             ModelOutput with pricing and Greeks
         """
         self.logger.info(f"Pricing {contract.option_type} option: "
                         f"S={contract.spot_price}, K={contract.strike}")
-        
+
         try:
             # Select model if not specified
             if model_type is None:
                 model_type = await self._select_best_model(contract)
-            
+
             # Calculate theoretical price and Greeks
             if model_type == ModelType.BLACK_SCHOLES:
                 result = self._black_scholes_model(contract)
@@ -255,22 +252,22 @@ class SpyderX10_QuantModelsAgent:
             else:
                 # Default to Black-Scholes
                 result = self._black_scholes_model(contract)
-            
+
             # Get AI insights
             ai_insights = await self._get_ai_pricing_insights(contract, result)
-            
+
             # Calculate confidence interval
             confidence_interval = self._calculate_confidence_interval(
                 result['price'], contract.volatility
             )
-            
+
             # Calculate implied volatility if market price available
             impl_vol = None
             if contract.market_price:
                 impl_vol = self._calculate_implied_volatility(
                     contract, contract.market_price
                 )
-            
+
             # Create output
             output = ModelOutput(
                 model_type=model_type,
@@ -285,15 +282,15 @@ class SpyderX10_QuantModelsAgent:
                 },
                 ai_insights=ai_insights
             )
-            
+
             # Update performance tracking
             if contract.market_price:
                 error = abs(result['price'] - contract.market_price)
                 self.model_performance[model_type]['predictions'] += 1
                 self.model_performance[model_type]['total_error'] += error
-            
+
             return output
-            
+
         except Exception as e:
             self.logger.error(f"Option pricing failed: {e}")
             # Return basic output
@@ -306,54 +303,54 @@ class SpyderX10_QuantModelsAgent:
                 model_metrics={},
                 ai_insights={'error': str(e)}
             )
-    
+
     async def forecast_volatility(self, symbol: str,
-                                historical_prices: List[float],
+                                historical_prices: list[float],
                                 forecast_horizon: int = 30) -> VolatilityForecast:
         """
         Forecast volatility using multiple models with AI insights.
-        
+
         Args:
             symbol: Asset symbol
             historical_prices: Historical price data
             forecast_horizon: Days to forecast
-            
+
         Returns:
             VolatilityForecast object
         """
         self.logger.info(f"Forecasting volatility for {symbol}")
-        
+
         try:
             # Calculate current volatility using multiple methods
             current_vol = self._calculate_historical_volatility(historical_prices)
             ewma_vol = self._calculate_ewma_volatility(historical_prices)
-            
+
             # GARCH forecast
             garch_forecast = self._garch_forecast(historical_prices, forecast_horizon)
-            
+
             # Get AI volatility insights
             ai_forecast = await self._get_ai_volatility_forecast(
                 historical_prices, current_vol, forecast_horizon
             )
-            
+
             # Combine forecasts
             combined_forecast = self._combine_volatility_forecasts(
                 current_vol, ewma_vol, garch_forecast, ai_forecast
             )
-            
+
             # Determine volatility regime
             regime = self._classify_volatility_regime(current_vol)
-            
+
             # Build term structure
             term_structure = self._build_volatility_term_structure(
                 combined_forecast, forecast_horizon
             )
-            
+
             # Calculate confidence bands
             confidence_bands = self._calculate_volatility_confidence_bands(
                 combined_forecast, forecast_horizon
             )
-            
+
             return VolatilityForecast(
                 current_volatility=current_vol,
                 forecast_1d=combined_forecast.get('1d', current_vol),
@@ -365,7 +362,7 @@ class SpyderX10_QuantModelsAgent:
                 model_used='ensemble',
                 ai_assessment=ai_forecast
             )
-            
+
         except Exception as e:
             self.logger.error(f"Volatility forecast failed: {e}")
             return VolatilityForecast(
@@ -379,44 +376,44 @@ class SpyderX10_QuantModelsAgent:
                 model_used='default',
                 ai_assessment={'error': str(e)}
             )
-    
+
     async def validate_model(self, model_type: ModelType,
                            historical_data: pd.DataFrame) -> ModelValidation:
         """
         Validate a quantitative model with backtesting and stress testing.
-        
+
         Args:
             model_type: Model to validate
             historical_data: Historical market data
-            
+
         Returns:
             ModelValidation results
         """
         self.logger.info(f"Validating {model_type.value} model")
-        
+
         try:
             # Perform backtesting
             backtest_results = self._backtest_model(model_type, historical_data)
-            
+
             # Calculate validation metrics
             metrics = self._calculate_validation_metrics(backtest_results)
-            
+
             # Perform stress testing
             stress_results = self._stress_test_model(model_type, historical_data)
-            
+
             # Get AI evaluation
             ai_evaluation = await self._get_ai_model_evaluation(
                 model_type, metrics, backtest_results, stress_results
             )
-            
+
             # Generate recommendations
             recommendations = self._generate_model_recommendations(
                 metrics, stress_results, ai_evaluation
             )
-            
+
             # Calculate overall score
             overall_score = self._calculate_model_score(metrics, stress_results)
-            
+
             return ModelValidation(
                 model_type=model_type,
                 validation_metrics=metrics,
@@ -426,7 +423,7 @@ class SpyderX10_QuantModelsAgent:
                 overall_score=overall_score,
                 ai_evaluation=ai_evaluation
             )
-            
+
         except Exception as e:
             self.logger.error(f"Model validation failed: {e}")
             return ModelValidation(
@@ -438,12 +435,12 @@ class SpyderX10_QuantModelsAgent:
                 overall_score=0.0,
                 ai_evaluation={'error': str(e)}
             )
-    
+
     # ==========================================================================
     # PRICING MODELS
     # ==========================================================================
-    
-    def _black_scholes_model(self, contract: OptionContract) -> Dict[str, Any]:
+
+    def _black_scholes_model(self, contract: OptionContract) -> dict[str, Any]:
         """Calculate Black-Scholes price and Greeks."""
         S = contract.spot_price
         K = contract.strike
@@ -451,7 +448,7 @@ class SpyderX10_QuantModelsAgent:
         r = contract.risk_free_rate
         q = contract.dividend_yield
         sigma = contract.volatility
-        
+
         if T <= 0:
             # Expired option
             if contract.option_type == 'call':
@@ -462,33 +459,33 @@ class SpyderX10_QuantModelsAgent:
                 'price': price,
                 'greeks': {g: 0.0 for g in GREEKS}
             }
-        
+
         # Calculate d1 and d2
         d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
-        
+
         # Standard normal CDF and PDF
         N = stats.norm.cdf
         n = stats.norm.pdf
-        
+
         # Calculate price
         if contract.option_type == 'call':
             price = S * np.exp(-q * T) * N(d1) - K * np.exp(-r * T) * N(d2)
         else:
             price = K * np.exp(-r * T) * N(-d2) - S * np.exp(-q * T) * N(-d1)
-        
+
         # Calculate Greeks
         greeks = {}
-        
+
         # Delta
         if contract.option_type == 'call':
             greeks['delta'] = np.exp(-q * T) * N(d1)
         else:
             greeks['delta'] = -np.exp(-q * T) * N(-d1)
-        
+
         # Gamma
         greeks['gamma'] = np.exp(-q * T) * n(d1) / (S * sigma * np.sqrt(T))
-        
+
         # Theta
         if contract.option_type == 'call':
             greeks['theta'] = (-S * n(d1) * sigma * np.exp(-q * T) / (2 * np.sqrt(T))
@@ -498,22 +495,22 @@ class SpyderX10_QuantModelsAgent:
             greeks['theta'] = (-S * n(d1) * sigma * np.exp(-q * T) / (2 * np.sqrt(T))
                               + r * K * np.exp(-r * T) * N(-d2)
                               - q * S * np.exp(-q * T) * N(-d1)) / 365
-        
+
         # Vega
         greeks['vega'] = S * np.exp(-q * T) * n(d1) * np.sqrt(T) / 100
-        
+
         # Rho
         if contract.option_type == 'call':
             greeks['rho'] = K * T * np.exp(-r * T) * N(d2) / 100
         else:
             greeks['rho'] = -K * T * np.exp(-r * T) * N(-d2) / 100
-        
+
         return {
             'price': price,
             'greeks': greeks
         }
-    
-    def _binomial_model(self, contract: OptionContract) -> Dict[str, Any]:
+
+    def _binomial_model(self, contract: OptionContract) -> dict[str, Any]:
         """Calculate option price using binomial tree."""
         S = contract.spot_price
         K = contract.strike
@@ -522,7 +519,7 @@ class SpyderX10_QuantModelsAgent:
         q = contract.dividend_yield
         sigma = contract.volatility
         n = self.config['binomial_steps']
-        
+
         if T <= 0:
             # Expired option
             if contract.option_type == 'call':
@@ -533,61 +530,61 @@ class SpyderX10_QuantModelsAgent:
                 'price': price,
                 'greeks': {g: 0.0 for g in GREEKS}
             }
-        
+
         # Time step
         dt = T / n
-        
+
         # Up and down factors
         u = np.exp(sigma * np.sqrt(dt))
         d = 1 / u
-        
+
         # Risk-neutral probability
         p = (np.exp((r - q) * dt) - d) / (u - d)
-        
+
         # Build the tree
         # Stock prices at maturity
         stock_tree = np.zeros((n + 1, n + 1))
         stock_tree[0, 0] = S
-        
+
         for i in range(1, n + 1):
             stock_tree[i, 0] = stock_tree[i-1, 0] * u
             for j in range(1, i + 1):
                 stock_tree[i, j] = stock_tree[i-1, j-1] * d
-        
+
         # Option values at maturity
         option_tree = np.zeros((n + 1, n + 1))
-        
+
         if contract.option_type == 'call':
             for j in range(n + 1):
                 option_tree[n, j] = max(0, stock_tree[n, j] - K)
         else:
             for j in range(n + 1):
                 option_tree[n, j] = max(0, K - stock_tree[n, j])
-        
+
         # Backward induction
         for i in range(n - 1, -1, -1):
             for j in range(i + 1):
                 option_tree[i, j] = np.exp(-r * dt) * (
                     p * option_tree[i + 1, j] + (1 - p) * option_tree[i + 1, j + 1]
                 )
-                
+
                 # American option early exercise
                 if contract.option_type == 'call':
                     option_tree[i, j] = max(option_tree[i, j], stock_tree[i, j] - K)
                 else:
                     option_tree[i, j] = max(option_tree[i, j], K - stock_tree[i, j])
-        
+
         price = option_tree[0, 0]
-        
+
         # Calculate Greeks using finite differences
         greeks = self._calculate_binomial_greeks(contract, price)
-        
+
         return {
             'price': price,
             'greeks': greeks
         }
-    
-    async def _monte_carlo_model(self, contract: OptionContract) -> Dict[str, Any]:
+
+    async def _monte_carlo_model(self, contract: OptionContract) -> dict[str, Any]:
         """Calculate option price using Monte Carlo simulation."""
         S = contract.spot_price
         K = contract.strike
@@ -596,7 +593,7 @@ class SpyderX10_QuantModelsAgent:
         q = contract.dividend_yield
         sigma = contract.volatility
         n_sims = self.config['monte_carlo_simulations']
-        
+
         if T <= 0:
             # Expired option
             if contract.option_type == 'call':
@@ -607,39 +604,39 @@ class SpyderX10_QuantModelsAgent:
                 'price': price,
                 'greeks': {g: 0.0 for g in GREEKS}
             }
-        
+
         # Generate random paths
         np.random.seed(42)  # For reproducibility
         Z = np.random.standard_normal(n_sims)
-        
+
         # Terminal stock prices
         ST = S * np.exp((r - q - 0.5 * sigma ** 2) * T + sigma * np.sqrt(T) * Z)
-        
+
         # Payoffs
         if contract.option_type == 'call':
             payoffs = np.maximum(0, ST - K)
         else:
             payoffs = np.maximum(0, K - ST)
-        
+
         # Discounted expected payoff
         price = np.exp(-r * T) * np.mean(payoffs)
-        
+
         # Standard error
         std_error = np.std(payoffs) / np.sqrt(n_sims)
-        
+
         # Calculate Greeks using finite differences
         greeks = self._calculate_monte_carlo_greeks(contract, price)
-        
+
         return {
             'price': price,
             'greeks': greeks,
             'std_error': std_error
         }
-    
+
     # ==========================================================================
     # AI INTEGRATION METHODS
     # ==========================================================================
-    
+
     async def _select_best_model(self, contract: OptionContract) -> ModelType:
         """Select best pricing model using AI."""
         if not self.ollama_client:
@@ -650,7 +647,7 @@ class SpyderX10_QuantModelsAgent:
                 return ModelType.MONTE_CARLO
             else:
                 return ModelType.BLACK_SCHOLES
-        
+
         prompt = f"""Select the best option pricing model for this contract:
 
 Contract Details:
@@ -676,7 +673,7 @@ Provide a JSON response:
     "confidence": 0.0-1.0,
     "alternative_models": ["model1", "model2"]
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -684,34 +681,34 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 recommendation = json.loads(text[start:end])
                 model_name = recommendation.get('recommended_model', 'BLACK_SCHOLES')
-                
+
                 # Validate model name
                 try:
                     return ModelType(model_name)
-                except:
+                except Exception:
                     return ModelType.BLACK_SCHOLES
             else:
                 return ModelType.BLACK_SCHOLES
-                
+
         except Exception as e:
             self.logger.error(f"AI model selection failed: {e}")
             return ModelType.BLACK_SCHOLES
-    
+
     async def _get_ai_pricing_insights(self, contract: OptionContract,
-                                     pricing_result: Dict[str, Any]) -> Dict[str, Any]:
+                                     pricing_result: dict[str, Any]) -> dict[str, Any]:
         """Get AI insights on option pricing."""
         if not self.ollama_client:
             return {'source': 'rule-based'}
-        
+
         prompt = f"""Analyze this option pricing result:
 
 Contract:
@@ -738,7 +735,7 @@ Provide a JSON response:
     "recommendations": ["action1", "action2"],
     "confidence": 0.0-1.0
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -746,24 +743,24 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 return json.loads(text[start:end])
             else:
                 return {'source': 'failed_parsing'}
-                
+
         except Exception as e:
             self.logger.error(f"AI pricing insights failed: {e}")
             return {'error': str(e)}
-    
-    async def _get_ai_volatility_forecast(self, prices: List[float],
+
+    async def _get_ai_volatility_forecast(self, prices: list[float],
                                         current_vol: float,
-                                        horizon: int) -> Dict[str, Any]:
+                                        horizon: int) -> dict[str, Any]:
         """Get AI volatility forecast."""
         if not self.ollama_client:
             return {
@@ -772,11 +769,11 @@ Provide a JSON response:
                 '30d': current_vol,
                 'reasoning': 'No AI available'
             }
-        
+
         # Calculate price statistics
         returns = [np.log(prices[i]/prices[i-1]) for i in range(1, len(prices))]
         price_trend = (prices[-1] - prices[-20]) / prices[-20] if len(prices) > 20 else 0
-        
+
         prompt = f"""Forecast volatility based on this data:
 
 Current Volatility: {current_vol:.1%}
@@ -802,7 +799,7 @@ Provide a JSON response:
     "risk_events": ["event1", "event2"],
     "confidence": 0.0-1.0
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -810,12 +807,12 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 forecast = json.loads(text[start:end])
                 # Ensure reasonable values
@@ -829,7 +826,7 @@ Provide a JSON response:
                     '5d': current_vol,
                     '30d': current_vol
                 }
-                
+
         except Exception as e:
             self.logger.error(f"AI volatility forecast failed: {e}")
             return {
@@ -838,15 +835,15 @@ Provide a JSON response:
                 '30d': current_vol,
                 'error': str(e)
             }
-    
+
     async def _get_ai_model_evaluation(self, model_type: ModelType,
-                                     metrics: Dict[str, float],
-                                     backtest: Dict[str, Any],
-                                     stress: Dict[str, Any]) -> Dict[str, Any]:
+                                     metrics: dict[str, float],
+                                     backtest: dict[str, Any],
+                                     stress: dict[str, Any]) -> dict[str, Any]:
         """Get AI evaluation of model performance."""
         if not self.ollama_client:
             return {'evaluation': 'No AI available'}
-        
+
         prompt = f"""Evaluate this quantitative model's performance:
 
 Model: {model_type.value}
@@ -873,7 +870,7 @@ Provide a JSON response:
     "improvement_suggestions": ["suggestion1", "suggestion2"],
     "confidence": 0.0-1.0
 }}"""
-        
+
         try:
             response = await asyncio.to_thread(
                 self.ollama_client.generate,
@@ -881,62 +878,62 @@ Provide a JSON response:
                 prompt=prompt,
                 options={'temperature': self.temperature}
             )
-            
+
             # Extract JSON from response
             text = response['response']
             start = text.find('{')
             end = text.rfind('}') + 1
-            
+
             if start >= 0 and end > start:
                 return json.loads(text[start:end])
             else:
                 return {'evaluation': 'Failed to parse'}
-                
+
         except Exception as e:
             self.logger.error(f"AI model evaluation failed: {e}")
             return {'error': str(e)}
-    
+
     # ==========================================================================
     # VOLATILITY METHODS
     # ==========================================================================
-    
-    def _calculate_historical_volatility(self, prices: List[float],
-                                       window: Optional[int] = None) -> float:
+
+    def _calculate_historical_volatility(self, prices: list[float],
+                                       window: int | None = None) -> float:
         """Calculate historical volatility."""
         if len(prices) < 2:
             return 0.2  # Default 20%
-        
+
         window = window or self.config['volatility_window']
         prices_window = prices[-min(window, len(prices)):]
-        
-        returns = [np.log(prices_window[i]/prices_window[i-1]) 
+
+        returns = [np.log(prices_window[i]/prices_window[i-1])
                   for i in range(1, len(prices_window))]
-        
+
         if not returns:
             return 0.2
-        
+
         # Annualized volatility
         return np.std(returns) * np.sqrt(252)
-    
-    def _calculate_ewma_volatility(self, prices: List[float],
+
+    def _calculate_ewma_volatility(self, prices: list[float],
                                  lambda_param: float = 0.94) -> float:
         """Calculate EWMA volatility."""
         if len(prices) < 2:
             return 0.2
-        
+
         returns = [np.log(prices[i]/prices[i-1]) for i in range(1, len(prices))]
         squared_returns = [r**2 for r in returns]
-        
+
         # EWMA calculation
         ewma_var = squared_returns[0]
         for i in range(1, len(squared_returns)):
             ewma_var = lambda_param * ewma_var + (1 - lambda_param) * squared_returns[i]
-        
+
         # Annualized volatility
         return np.sqrt(ewma_var * 252)
-    
-    def _garch_forecast(self, prices: List[float],
-                       horizon: int) -> Dict[str, float]:
+
+    def _garch_forecast(self, prices: list[float],
+                       horizon: int) -> dict[str, float]:
         """Simple GARCH(1,1) forecast."""
         if len(prices) < 30:
             current_vol = self._calculate_historical_volatility(prices)
@@ -945,23 +942,23 @@ Provide a JSON response:
                 '5d': current_vol,
                 '30d': current_vol
             }
-        
+
         # Calculate returns
         returns = [np.log(prices[i]/prices[i-1]) for i in range(1, len(prices))]
-        
+
         # GARCH(1,1) parameters (simplified estimation)
         omega = 0.000001
         alpha = 0.1
         beta = 0.85
-        
+
         # Current conditional variance
         long_run_var = np.var(returns)
         current_var = long_run_var
-        
+
         # Forecast
         forecast_var = {}
         var_t = current_var
-        
+
         for h in [1, 5, 30]:
             if h == 1:
                 var_t = omega + alpha * returns[-1]**2 + beta * current_var
@@ -969,11 +966,11 @@ Provide a JSON response:
                 # Multi-step forecast
                 for _ in range(h):
                     var_t = omega + (alpha + beta) * var_t
-            
+
             forecast_var[f'{h}d'] = np.sqrt(var_t * 252)
-        
+
         return forecast_var
-    
+
     def _classify_volatility_regime(self, volatility: float) -> str:
         """Classify volatility regime."""
         if volatility < 0.10:
@@ -984,10 +981,10 @@ Provide a JSON response:
             return 'high'
         else:
             return 'extreme'
-    
+
     def _combine_volatility_forecasts(self, current: float, ewma: float,
-                                    garch: Dict[str, float],
-                                    ai: Dict[str, Any]) -> Dict[str, float]:
+                                    garch: dict[str, float],
+                                    ai: dict[str, Any]) -> dict[str, float]:
         """Combine multiple volatility forecasts."""
         # Weight different forecasts
         weights = {
@@ -996,7 +993,7 @@ Provide a JSON response:
             'garch': 0.3,
             'ai': 0.3
         }
-        
+
         combined = {}
         for horizon in ['1d', '5d', '30d']:
             components = [
@@ -1006,38 +1003,38 @@ Provide a JSON response:
                 ai.get(horizon, current) * weights['ai']
             ]
             combined[horizon] = sum(components)
-        
+
         return combined
-    
-    def _build_volatility_term_structure(self, forecast: Dict[str, float],
-                                       max_days: int) -> Dict[int, float]:
+
+    def _build_volatility_term_structure(self, forecast: dict[str, float],
+                                       max_days: int) -> dict[int, float]:
         """Build volatility term structure."""
         structure = {}
-        
+
         # Key points
         structure[1] = forecast.get('1d', 0.2)
         structure[5] = forecast.get('5d', 0.2)
         structure[30] = forecast.get('30d', 0.2)
-        
+
         # Interpolate
         for day in range(2, 5):
             weight = (day - 1) / 4
             structure[day] = structure[1] * (1 - weight) + structure[5] * weight
-        
+
         for day in range(6, 30):
             weight = (day - 5) / 25
             structure[day] = structure[5] * (1 - weight) + structure[30] * weight
-        
+
         return structure
-    
-    def _calculate_volatility_confidence_bands(self, forecast: Dict[str, float],
-                                              horizon: int) -> Dict[str, Tuple[float, float]]:
+
+    def _calculate_volatility_confidence_bands(self, forecast: dict[str, float],
+                                              horizon: int) -> dict[str, tuple[float, float]]:
         """Calculate confidence bands for volatility forecast."""
         bands = {}
-        
+
         # Standard errors increase with forecast horizon
         base_std_error = 0.02  # 2% base standard error
-        
+
         for period, vol in forecast.items():
             if period == '1d':
                 std_error = base_std_error
@@ -1047,20 +1044,20 @@ Provide a JSON response:
                 std_error = base_std_error * np.sqrt(30)
             else:
                 std_error = base_std_error
-            
+
             # 95% confidence interval
             lower = max(0.01, vol - 1.96 * std_error)
             upper = vol + 1.96 * std_error
             bands[period] = (lower, upper)
-        
+
         return bands
-    
+
     # ==========================================================================
     # MODEL VALIDATION METHODS
     # ==========================================================================
-    
+
     def _backtest_model(self, model_type: ModelType,
-                       historical_data: pd.DataFrame) -> Dict[str, Any]:
+                       historical_data: pd.DataFrame) -> dict[str, Any]:
         """Backtest a pricing model."""
         results = {
             'total_trades': 0,
@@ -1069,10 +1066,10 @@ Provide a JSON response:
             'errors': [],
             'predictions': []
         }
-        
+
         # Simulate backtesting (simplified)
         n_tests = min(100, len(historical_data))
-        
+
         for i in range(n_tests):
             # Create synthetic option contract
             row = historical_data.iloc[i]
@@ -1086,7 +1083,7 @@ Provide a JSON response:
                 risk_free_rate=self.config['risk_free_rate'],
                 dividend_yield=self.config['dividend_yield']
             )
-            
+
             # Price option
             if model_type == ModelType.BLACK_SCHOLES:
                 model_result = self._black_scholes_model(contract)
@@ -1094,10 +1091,10 @@ Provide a JSON response:
                 model_result = self._binomial_model(contract)
             else:
                 model_result = self._black_scholes_model(contract)
-            
+
             # Simulate market price with noise
             market_price = model_result['price'] * (1 + np.random.normal(0, 0.05))
-            
+
             # Track results
             error = abs(model_result['price'] - market_price)
             results['errors'].append(error)
@@ -1106,54 +1103,54 @@ Provide a JSON response:
                 'market_price': market_price,
                 'error': error
             })
-            
+
             results['total_trades'] += 1
             if error < market_price * 0.05:  # Within 5%
                 results['profitable_trades'] += 1
-        
+
         results['profitable_pct'] = results['profitable_trades'] / results['total_trades']
         results['avg_error'] = np.mean(results['errors'])
         results['max_error'] = np.max(results['errors'])
-        
+
         return results
-    
-    def _calculate_validation_metrics(self, backtest_results: Dict[str, Any]) -> Dict[str, float]:
+
+    def _calculate_validation_metrics(self, backtest_results: dict[str, Any]) -> dict[str, float]:
         """Calculate model validation metrics."""
         predictions = backtest_results.get('predictions', [])
         if not predictions:
             return {metric: 0.0 for metric in VALIDATION_METRICS}
-        
+
         model_prices = [p['model_price'] for p in predictions]
         market_prices = [p['market_price'] for p in predictions]
         errors = [p['error'] for p in predictions]
-        
+
         metrics = {}
-        
+
         # MSE
         metrics['mse'] = np.mean([e**2 for e in errors])
-        
+
         # MAE
         metrics['mae'] = np.mean(errors)
-        
+
         # RMSE
         metrics['rmse'] = np.sqrt(metrics['mse'])
-        
+
         # MAPE
-        mape_errors = [abs((m - p) / p) for m, p in zip(model_prices, market_prices) if p != 0]
+        mape_errors = [abs((m - p) / p) for m, p in zip(model_prices, market_prices, strict=False) if p != 0]
         metrics['mape'] = np.mean(mape_errors) if mape_errors else 0
-        
+
         # R-squared
         if len(set(market_prices)) > 1:  # Avoid division by zero
-            ss_res = sum((m - p)**2 for m, p in zip(model_prices, market_prices))
+            ss_res = sum((m - p)**2 for m, p in zip(model_prices, market_prices, strict=False))
             ss_tot = sum((p - np.mean(market_prices))**2 for p in market_prices)
             metrics['r_squared'] = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         else:
             metrics['r_squared'] = 0
-        
+
         # Model Sharpe ratio (simplified)
         if len(predictions) > 1:
-            returns = [(predictions[i]['model_price'] - predictions[i-1]['model_price']) / 
-                      predictions[i-1]['model_price'] 
+            returns = [(predictions[i]['model_price'] - predictions[i-1]['model_price']) /
+                      predictions[i-1]['model_price']
                       for i in range(1, len(predictions))]
             if returns and np.std(returns) > 0:
                 metrics['sharpe_ratio'] = np.mean(returns) / np.std(returns) * np.sqrt(252)
@@ -1161,20 +1158,20 @@ Provide a JSON response:
                 metrics['sharpe_ratio'] = 0
         else:
             metrics['sharpe_ratio'] = 0
-        
+
         # Max error
         metrics['max_error'] = backtest_results.get('max_error', 0)
-        
+
         # Bias
-        metrics['bias'] = np.mean([m - p for m, p in zip(model_prices, market_prices)])
-        
+        metrics['bias'] = np.mean([m - p for m, p in zip(model_prices, market_prices, strict=False)])
+
         return metrics
-    
+
     def _stress_test_model(self, model_type: ModelType,
-                          historical_data: pd.DataFrame) -> Dict[str, Any]:
+                          historical_data: pd.DataFrame) -> dict[str, Any]:
         """Stress test the model under extreme conditions."""
         stress_results = {}
-        
+
         # Test 1: Market crash scenario
         crash_contract = OptionContract(
             symbol='SPY',
@@ -1186,14 +1183,14 @@ Provide a JSON response:
             risk_free_rate=self.config['risk_free_rate'],
             dividend_yield=self.config['dividend_yield']
         )
-        
+
         if model_type == ModelType.BLACK_SCHOLES:
             crash_result = self._black_scholes_model(crash_contract)
         else:
             crash_result = self._black_scholes_model(crash_contract)
-        
+
         stress_results['crash_performance'] = 'PASS' if crash_result['price'] > 0 else 'FAIL'
-        
+
         # Test 2: Volatility spike
         vol_spike_contract = OptionContract(
             symbol='SPY',
@@ -1205,14 +1202,14 @@ Provide a JSON response:
             risk_free_rate=self.config['risk_free_rate'],
             dividend_yield=self.config['dividend_yield']
         )
-        
+
         if model_type == ModelType.BLACK_SCHOLES:
             vol_result = self._black_scholes_model(vol_spike_contract)
         else:
             vol_result = self._black_scholes_model(vol_spike_contract)
-        
+
         stress_results['vol_spike_performance'] = 'PASS' if vol_result['price'] > 0 else 'FAIL'
-        
+
         # Test 3: Near expiry
         near_expiry_contract = OptionContract(
             symbol='SPY',
@@ -1224,92 +1221,92 @@ Provide a JSON response:
             risk_free_rate=self.config['risk_free_rate'],
             dividend_yield=self.config['dividend_yield']
         )
-        
+
         if model_type == ModelType.BLACK_SCHOLES:
             expiry_result = self._black_scholes_model(near_expiry_contract)
         else:
             expiry_result = self._black_scholes_model(near_expiry_contract)
-        
+
         stress_results['near_expiry_performance'] = 'PASS' if expiry_result['price'] >= 1 else 'FAIL'
-        
+
         # Test 4: Liquidity crisis (wide bid-ask)
         stress_results['liquidity_performance'] = 'PASS'  # Simplified
-        
+
         return stress_results
-    
-    def _generate_model_recommendations(self, metrics: Dict[str, float],
-                                      stress_results: Dict[str, Any],
-                                      ai_evaluation: Dict[str, Any]) -> List[str]:
+
+    def _generate_model_recommendations(self, metrics: dict[str, float],
+                                      stress_results: dict[str, Any],
+                                      ai_evaluation: dict[str, Any]) -> list[str]:
         """Generate model improvement recommendations."""
         recommendations = []
-        
+
         # Metric-based recommendations
         if metrics.get('mape', 0) > 0.1:
             recommendations.append("High MAPE - consider recalibrating model parameters")
-        
+
         if metrics.get('r_squared', 0) < 0.8:
             recommendations.append("Low R-squared - model may need additional factors")
-        
+
         if abs(metrics.get('bias', 0)) > 0.05:
             recommendations.append("Significant bias detected - adjust for systematic errors")
-        
+
         # Stress test recommendations
         failed_tests = [k for k, v in stress_results.items() if v == 'FAIL']
         if failed_tests:
             recommendations.append(f"Failed stress tests: {', '.join(failed_tests)}")
-        
+
         # AI recommendations
         ai_suggestions = ai_evaluation.get('improvement_suggestions', [])
         recommendations.extend(ai_suggestions[:2])
-        
+
         return recommendations[:5]  # Top 5 recommendations
-    
-    def _calculate_model_score(self, metrics: Dict[str, float],
-                             stress_results: Dict[str, Any]) -> float:
+
+    def _calculate_model_score(self, metrics: dict[str, float],
+                             stress_results: dict[str, Any]) -> float:
         """Calculate overall model score (0-1)."""
         score_components = []
-        
+
         # Accuracy component (40%)
         mape = metrics.get('mape', 1.0)
         accuracy_score = max(0, 1 - mape) * 0.4
         score_components.append(accuracy_score)
-        
+
         # R-squared component (20%)
         r2_score = metrics.get('r_squared', 0) * 0.2
         score_components.append(r2_score)
-        
+
         # Bias component (20%)
         bias = abs(metrics.get('bias', 1.0))
         bias_score = max(0, 1 - bias) * 0.2
         score_components.append(bias_score)
-        
+
         # Stress test component (20%)
         passed_tests = sum(1 for v in stress_results.values() if v == 'PASS')
         total_tests = len(stress_results)
         stress_score = (passed_tests / total_tests) * 0.2 if total_tests > 0 else 0
         score_components.append(stress_score)
-        
+
         return sum(score_components)
-    
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    
+
     def _time_to_expiry(self, expiry: datetime) -> float:
         """Calculate time to expiry in years."""
         time_diff = expiry - datetime.now()
         return max(0, time_diff.total_seconds() / (365.25 * 24 * 60 * 60))
-    
+
     def _calculate_implied_volatility(self, contract: OptionContract,
                                     market_price: float) -> float:
         """Calculate implied volatility using Newton-Raphson method."""
         # Initial guess
         iv = contract.volatility
-        
+
         # Newton-Raphson parameters
         max_iterations = 100
         tolerance = 1e-5
-        
+
         for _ in range(max_iterations):
             # Create contract with current IV guess
             iv_contract = OptionContract(
@@ -1322,80 +1319,80 @@ Provide a JSON response:
                 risk_free_rate=contract.risk_free_rate,
                 dividend_yield=contract.dividend_yield
             )
-            
+
             # Calculate price and vega
             result = self._black_scholes_model(iv_contract)
             price = result['price']
             vega = result['greeks']['vega']
-            
+
             # Check convergence
             price_diff = price - market_price
             if abs(price_diff) < tolerance:
                 return iv
-            
+
             # Update IV estimate
             if vega > 0:
                 iv = iv - price_diff / vega
                 iv = max(0.01, min(3.0, iv))  # Bound IV between 1% and 300%
             else:
                 break
-        
+
         return iv
-    
+
     def _calculate_confidence_interval(self, price: float,
-                                     volatility: float) -> Tuple[float, float]:
+                                     volatility: float) -> tuple[float, float]:
         """Calculate confidence interval for option price."""
         # Simplified confidence interval based on volatility
         std_error = price * volatility * np.sqrt(1/252)  # Daily std error
         z_score = 1.96  # 95% confidence
-        
+
         lower = max(0, price - z_score * std_error)
         upper = price + z_score * std_error
-        
+
         return (lower, upper)
-    
+
     def _calculate_binomial_greeks(self, contract: OptionContract,
-                                 base_price: float) -> Dict[str, float]:
+                                 base_price: float) -> dict[str, float]:
         """Calculate Greeks using finite differences for binomial model."""
         greeks = {}
-        
+
         # Delta: dV/dS
         bump = 0.01 * contract.spot_price
         contract_up = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price + bump})
         contract_down = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price - bump})
-        
+
         price_up = self._binomial_model(contract_up)['price']
         price_down = self._binomial_model(contract_down)['price']
         greeks['delta'] = (price_up - price_down) / (2 * bump)
-        
+
         # Gamma: d²V/dS²
         greeks['gamma'] = (price_up - 2 * base_price + price_down) / (bump ** 2)
-        
+
         # Vega: dV/dσ
         vol_bump = 0.01
-        contract_vol_up = OptionContract(**{**contract.__dict__, 
+        contract_vol_up = OptionContract(**{**contract.__dict__,
                                           'volatility': contract.volatility + vol_bump})
         price_vol_up = self._binomial_model(contract_vol_up)['price']
         greeks['vega'] = (price_vol_up - base_price) / vol_bump / 100
-        
+
         # Theta: dV/dt
         one_day = timedelta(days=1)
-        contract_tomorrow = OptionContract(**{**contract.__dict__, 
+        contract_tomorrow = OptionContract(**{**contract.__dict__,
                                             'expiry': contract.expiry - one_day})
         price_tomorrow = self._binomial_model(contract_tomorrow)['price']
         greeks['theta'] = (price_tomorrow - base_price) / 365
-        
+
         # Rho: dV/dr
         rate_bump = 0.01
-        contract_rate_up = OptionContract(**{**contract.__dict__, 
+        contract_rate_up = OptionContract(**{**contract.__dict__,
                                            'risk_free_rate': contract.risk_free_rate + rate_bump})
         price_rate_up = self._binomial_model(contract_rate_up)['price']
         greeks['rho'] = (price_rate_up - base_price) / rate_bump / 100
-        
+
         return greeks
-    
+
     def _calculate_monte_carlo_greeks(self, contract: OptionContract,
-                                    base_price: float) -> Dict[str, float]:
+                                    base_price: float) -> dict[str, float]:
         """Calculate Greeks using finite differences for Monte Carlo."""
         # Similar to binomial Greeks calculation
         # In practice, would use pathwise derivatives or likelihood ratio method
@@ -1409,11 +1406,11 @@ def create_quant_models_agent(model_name: str = DEFAULT_MODEL,
                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX10_QuantModelsAgent:
     """
     Factory function to create Quantitative Models Agent instance.
-    
+
     Args:
         model_name: Ollama model to use
         temperature: Temperature for AI responses
-        
+
     Returns:
         SpyderX10_QuantModelsAgent instance
     """
@@ -1438,13 +1435,13 @@ async def test_quant_models():
     logging.info("="*80)
     logging.info("Testing SpyderX10_QuantModelsAgent")
     logging.info("="*80)
-    
+
     agent = create_quant_models_agent()
-    
+
     # Test 1: Option Pricing
     logging.info("\nTest 1: Option Pricing")
     logging.info("-"*40)
-    
+
     contract = OptionContract(
         symbol="SPY",
         strike=455.0,
@@ -1456,63 +1453,63 @@ async def test_quant_models():
         dividend_yield=0.02,
         market_price=7.50
     )
-    
+
     pricing_result = await agent.price_option(contract)
-    
+
     logging.info(f"Model Type: {pricing_result.model_type.value}")
     logging.info(f"Theoretical Price: ${pricing_result.theoretical_price:.2f}")
     logging.info(f"Market Price: ${contract.market_price:.2f}")
     logging.info(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")
-    logging.info(f"\nGreeks:")
+    logging.info("\nGreeks:")
     for greek, value in pricing_result.greeks.items():
         logging.info(f"  {greek}: {value:.4f}")
-    logging.info(f"\nImplied Volatility: {pricing_result.implied_volatility:.1%}" 
+    logging.info(f"\nImplied Volatility: {pricing_result.implied_volatility:.1%}"
           if pricing_result.implied_volatility else "N/A")
     logging.info(f"Confidence Interval: ${pricing_result.confidence_interval[0]:.2f} - "
           f"${pricing_result.confidence_interval[1]:.2f}")
-    
+
     # Test 2: Volatility Forecast
     logging.info("\n\nTest 2: Volatility Forecast")
     logging.info("-"*40)
-    
+
     # Generate sample price data
     np.random.seed(42)
     prices = [450]
     for _ in range(60):
         ret = np.random.normal(0.0005, 0.015)
         prices.append(prices[-1] * (1 + ret))
-    
+
     vol_forecast = await agent.forecast_volatility("SPY", prices, 30)
-    
+
     logging.info(f"Current Volatility: {vol_forecast.current_volatility:.1%}")
     logging.info(f"Volatility Regime: {vol_forecast.volatility_regime}")
-    logging.info(f"\nForecasts:")
+    logging.info("\nForecasts:")
     logging.info(f"  1-day: {vol_forecast.forecast_1d:.1%}")
     logging.info(f"  5-day: {vol_forecast.forecast_5d:.1%}")
     logging.info(f"  30-day: {vol_forecast.forecast_30d:.1%}")
-    logging.info(f"\nConfidence Bands (5-day):")
+    logging.info("\nConfidence Bands (5-day):")
     if '5d' in vol_forecast.confidence_bands:
         lower, upper = vol_forecast.confidence_bands['5d']
         logging.info(f"  95% CI: {lower:.1%} - {upper:.1%}")
-    
+
     # Test 3: Model Validation
     logging.info("\n\nTest 3: Model Validation")
     logging.info("-"*40)
-    
+
     # Create sample historical data
     historical_data = pd.DataFrame({
         'close': prices,
         'volatility': [0.20 + np.random.normal(0, 0.02) for _ in prices]
     })
-    
+
     validation = await agent.validate_model(ModelType.BLACK_SCHOLES, historical_data)
-    
+
     logging.info(f"Model: {validation.model_type.value}")
     logging.info(f"Overall Score: {validation.overall_score:.2f}/1.00")
-    logging.info(f"\nValidation Metrics:")
+    logging.info("\nValidation Metrics:")
     for metric, value in list(validation.validation_metrics.items())[:5]:
         logging.info(f"  {metric}: {value:.4f}")
-    logging.info(f"\nRecommendations:")
+    logging.info("\nRecommendations:")
     for i, rec in enumerate(validation.recommendations[:3], 1):
         logging.info(f"  {i}. {rec}")
 
@@ -1521,12 +1518,7 @@ async def test_quant_models():
 # ==============================================================================
 
 if __name__ == "__main__":
-    print(f"Initializing {__name__}")
-    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
-    
+
     # Run async tests
     asyncio.run(test_quant_models())
-    
-    print("\n" + "="*80)
-    print("SpyderX10_QuantModelsAgent module loaded successfully!")
-    print("="*80)
+

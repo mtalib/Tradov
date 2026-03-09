@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -23,7 +22,7 @@ Module Description:
 # ==============================================================================
 import sys
 import os
-from typing import Optional, Dict, Any
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -91,7 +90,7 @@ class AppConfig:
     organization: str = APP_ORGANIZATION
     display_mode: DisplayMode = DisplayMode.GUI
     enable_high_dpi: bool = True
-    style_sheet: Optional[str] = None
+    style_sheet: str | None = None
 
 # ==============================================================================
 # MAIN CLASS
@@ -99,12 +98,12 @@ class AppConfig:
 class ApplicationManager(QObject):
     """
     Qt Application lifecycle manager.
-    
+
     This class manages the Qt application lifecycle for Spyder GUI components.
     It handles proper QApplication initialization, display mode management,
     and provides centralized control over GUI resources. Prevents common
     Qt initialization errors and enables headless operation when needed.
-    
+
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
@@ -112,52 +111,52 @@ class ApplicationManager(QObject):
         state: Current application state
         config: Application configuration
     """
-    
+
     # Signals
     app_initialized = Signal()
     app_shutdown = Signal()
-    
-    def __init__(self, config: Optional[AppConfig] = None):
+
+    def __init__(self, config: AppConfig | None = None):
         """Initialize the application manager."""
         # Initialize QObject only if Qt is available
         if QObject is not None:
             super().__init__()
-        
+
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or AppConfig()
-        self.app: Optional[QApplication] = None
+        self.app: QApplication | None = None
         self.state = AppState.NOT_INITIALIZED
         self._widgets = []
-        
+
         self.logger.info(f"ApplicationManager initialized for {self.config.display_mode.value} mode")
-        
+
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
     def initialize_application(self) -> bool:
         """
         Initialize Qt application.
-        
+
         Returns:
             bool: True if initialization successful
         """
         if self.state != AppState.NOT_INITIALIZED:
             self.logger.warning(f"Application already in state: {self.state}")
             return self.app is not None
-        
+
         self.state = AppState.INITIALIZING
-        
+
         try:
             # Check if Qt is available
             if QApplication is None:
                 self.logger.error("Qt libraries not available")
                 self.state = AppState.NOT_INITIALIZED
                 return False
-            
+
             # Configure display mode
             self._configure_display_mode()
-            
+
             # Check if QApplication already exists
             existing_app = QApplication.instance()
             if existing_app is not None:
@@ -168,31 +167,31 @@ class ApplicationManager(QObject):
                 self.app = QApplication(sys.argv)
                 self._configure_application()
                 self.logger.info("Created new QApplication instance")
-            
+
             self.state = AppState.RUNNING
-            
+
             # Emit signal if QObject is available
             if hasattr(self, 'app_initialized'):
                 self.app_initialized.emit()
-            
+
             self.logger.info("Qt application initialized successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize Qt application: {e}")
             self.error_handler.handle_error(e, {"method": "initialize_application"})
             self.state = AppState.NOT_INITIALIZED
             return False
-    
+
     def create_widget(self, widget_class, *args, **kwargs):
         """
         Create a widget with proper application initialization.
-        
+
         Args:
             widget_class: Widget class to instantiate
             *args: Positional arguments for widget
             **kwargs: Keyword arguments for widget
-            
+
         Returns:
             Widget instance or None if creation fails
         """
@@ -200,65 +199,65 @@ class ApplicationManager(QObject):
             # Ensure application is initialized
             if not self.ensure_application():
                 return None
-            
+
             # Create widget
             widget = widget_class(*args, **kwargs)
             self._widgets.append(widget)
-            
+
             self.logger.debug(f"Created widget: {widget_class.__name__}")
             return widget
-            
+
         except Exception as e:
             self.logger.error(f"Failed to create widget {widget_class.__name__}: {e}")
             self.error_handler.handle_error(e, {"widget_class": widget_class.__name__})
             return None
-    
+
     def ensure_application(self) -> bool:
         """
         Ensure Qt application is initialized.
-        
+
         Returns:
             bool: True if application is ready
         """
         if self.state == AppState.RUNNING and self.app is not None:
             return True
-        
+
         if self.state == AppState.NOT_INITIALIZED:
             return self.initialize_application()
-        
+
         return False
-    
+
     def run_application(self) -> int:
         """
         Run the Qt application event loop.
-        
+
         Returns:
             int: Application exit code
         """
         if not self.ensure_application():
             self.logger.error("Cannot run application - initialization failed")
             return 1
-        
+
         try:
             self.logger.info("Starting Qt application event loop")
             exit_code = self.app.exec()
             self.logger.info(f"Qt application exited with code: {exit_code}")
             return exit_code
-            
+
         except Exception as e:
             self.logger.error(f"Application event loop error: {e}")
             self.error_handler.handle_error(e, {"method": "run_application"})
             return 1
         finally:
             self.shutdown_application()
-    
+
     def shutdown_application(self) -> None:
         """Shutdown the Qt application."""
         if self.state == AppState.SHUTDOWN:
             return
-        
+
         self.state = AppState.SHUTTING_DOWN
-        
+
         try:
             # Close all widgets
             for widget in self._widgets:
@@ -270,34 +269,34 @@ class ApplicationManager(QObject):
                     self.logger.warning(f"Failed to close widget {widget.__class__.__name__}: {e}")
 
             self._widgets.clear()
-            
+
             # Emit shutdown signal
             if hasattr(self, 'app_shutdown'):
                 self.app_shutdown.emit()
-            
+
             # Process pending events
             if self.app is not None:
                 self.app.processEvents()
-            
+
             self.state = AppState.SHUTDOWN
             self.logger.info("Application shutdown completed")
-            
+
         except Exception as e:
             self.logger.error(f"Error during application shutdown: {e}")
-    
+
     def is_headless(self) -> bool:
         """
         Check if running in headless mode.
-        
+
         Returns:
             bool: True if headless
         """
         return self.config.display_mode in [DisplayMode.HEADLESS, DisplayMode.OFFSCREEN]
-    
-    def get_application_info(self) -> Dict[str, Any]:
+
+    def get_application_info(self) -> dict[str, Any]:
         """
         Get application information.
-        
+
         Returns:
             Dict with application details
         """
@@ -312,7 +311,7 @@ class ApplicationManager(QObject):
             "widget_count": len(self._widgets),
             "headless": self.is_headless()
         }
-    
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
@@ -322,26 +321,26 @@ class ApplicationManager(QObject):
             os.environ['QT_QPA_PLATFORM'] = 'minimal'
         elif self.config.display_mode == DisplayMode.OFFSCREEN:
             os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-        
+
         # Enable high DPI support
         if self.config.enable_high_dpi:
             os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
             os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
-    
+
     def _configure_application(self) -> None:
         """Configure the QApplication instance."""
         if self.app is None:
             return
-        
+
         # Set application properties
         self.app.setApplicationName(self.config.app_name)
         self.app.setApplicationVersion(self.config.app_version)
         self.app.setOrganizationName(self.config.organization)
-        
+
         # Apply style sheet if provided
         if self.config.style_sheet:
             self.app.setStyleSheet(self.config.style_sheet)
-        
+
         # Set application attributes
         if hasattr(self.app, 'setAttribute'):
             # Enable high DPI scaling
@@ -357,32 +356,32 @@ class ApplicationManager(QObject):
 # ==============================================================================
 # SINGLETON PATTERN
 # ==============================================================================
-_global_app_manager: Optional[ApplicationManager] = None
+_global_app_manager: ApplicationManager | None = None
 
-def get_application_manager(config: Optional[AppConfig] = None) -> ApplicationManager:
+def get_application_manager(config: AppConfig | None = None) -> ApplicationManager:
     """
     Get global application manager instance.
-    
+
     Args:
         config: Application configuration (only used on first call)
-        
+
     Returns:
         ApplicationManager instance
     """
     global _global_app_manager
-    
+
     if _global_app_manager is None:
         _global_app_manager = ApplicationManager(config)
-    
+
     return _global_app_manager
 
 def ensure_qt_application(display_mode: DisplayMode = DisplayMode.GUI) -> bool:
     """
     Ensure Qt application is initialized with specified display mode.
-    
+
     Args:
         display_mode: Display mode to use
-        
+
     Returns:
         bool: True if application is ready
     """
@@ -393,12 +392,12 @@ def ensure_qt_application(display_mode: DisplayMode = DisplayMode.GUI) -> bool:
 def create_safe_widget(widget_class, *args, **kwargs):
     """
     Create a widget safely with proper Qt application initialization.
-    
+
     Args:
         widget_class: Widget class to create
         *args: Positional arguments
         **kwargs: Keyword arguments
-        
+
     Returns:
         Widget instance or None
     """
@@ -424,7 +423,7 @@ def is_qt_available() -> bool:
     """Check if Qt libraries are available."""
     return QApplication is not None
 
-def get_app_info() -> Dict[str, Any]:
+def get_app_info() -> dict[str, Any]:
     """Get application information."""
     if _global_app_manager is not None:
         return _global_app_manager.get_application_info()
@@ -435,40 +434,23 @@ def get_app_info() -> Dict[str, Any]:
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("=" * 80)
-    print("SPYDER G00 - Application Manager Test")
-    print("=" * 80)
-    
+
     # Test application manager
-    print("\n1. Testing application manager creation...")
     app_manager = get_application_manager()
-    print(f"   Application manager created: {app_manager is not None}")
-    
-    print("\n2. Testing Qt availability...")
+
     qt_available = is_qt_available()
-    print(f"   Qt available: {qt_available}")
-    
+
     if qt_available:
-        print("\n3. Testing application initialization...")
         success = app_manager.initialize_application()
-        print(f"   Initialization successful: {success}")
-        
-        print("\n4. Testing application info...")
+
         info = app_manager.get_application_info()
-        for key, value in info.items():
-            print(f"   {key}: {value}")
-        
-        print("\n5. Testing widget creation...")
+        for _key, _value in info.items():
+            pass
+
         if QWidget is not None:
             widget = app_manager.create_widget(QWidget)
-            print(f"   Widget created: {widget is not None}")
             if widget:
                 widget.setWindowTitle("Test Widget")
-                print("   Widget configured successfully")
-        
-        print("\n6. Testing shutdown...")
+
         app_manager.shutdown_application()
-        print("   Shutdown completed")
-    
-    print("\n" + "=" * 80)
-    print("Application Manager test completed!")
+

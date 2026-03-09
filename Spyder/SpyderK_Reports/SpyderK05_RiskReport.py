@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -24,8 +23,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union
+from datetime import datetime, date
+from typing import Any, Union
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
@@ -51,7 +50,7 @@ try:
     from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
     })
 
 # ==============================================================================
@@ -128,7 +127,7 @@ class DrawdownAnalysis:
     """Drawdown analysis results."""
     current_drawdown: float
     max_drawdown: float
-    max_drawdown_date: Optional[date]
+    max_drawdown_date: date | None
     drawdown_duration_days: int
     recovery_needed_percent: float
     avg_drawdown: float
@@ -156,29 +155,29 @@ class RiskReportData:
     portfolio_value: float
 
     # VaR metrics
-    var_results: List[VaRResult] = field(default_factory=list)
+    var_results: list[VaRResult] = field(default_factory=list)
 
     # Greeks exposure
-    greeks_exposure: Optional[GreeksExposure] = None
+    greeks_exposure: GreeksExposure | None = None
 
     # Drawdown analysis
-    drawdown_analysis: Optional[DrawdownAnalysis] = None
+    drawdown_analysis: DrawdownAnalysis | None = None
 
     # Risk limit status
-    limit_checks: List[RiskLimitStatus] = field(default_factory=list)
+    limit_checks: list[RiskLimitStatus] = field(default_factory=list)
 
     # Stress test results
-    stress_test_results: Dict[str, float] = field(default_factory=dict)
+    stress_test_results: dict[str, float] = field(default_factory=dict)
 
     # Concentration risk
-    concentration_by_symbol: Dict[str, float] = field(default_factory=dict)
-    concentration_by_strategy: Dict[str, float] = field(default_factory=dict)
+    concentration_by_symbol: dict[str, float] = field(default_factory=dict)
+    concentration_by_strategy: dict[str, float] = field(default_factory=dict)
 
     # Overall risk assessment
     overall_risk_level: RiskLevel = RiskLevel.LOW
     risk_score: float = 0.0
-    alerts: List[str] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
+    alerts: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
 
 # ==============================================================================
@@ -192,7 +191,7 @@ class RiskReportGenerator:
     drawdown analysis, stress testing results, and risk limit compliance checks.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize risk report generator.
 
@@ -220,9 +219,9 @@ class RiskReportGenerator:
 
     def generate_risk_report(
         self,
-        portfolio_data: Dict[str, Any],
-        returns_history: Optional[pd.Series] = None,
-        positions: Optional[List[Dict[str, Any]]] = None
+        portfolio_data: dict[str, Any],
+        returns_history: pd.Series | None = None,
+        positions: list[dict[str, Any]] | None = None
     ) -> RiskReportData:
         """
         Generate comprehensive risk report.
@@ -296,7 +295,7 @@ class RiskReportGenerator:
 
     def calculate_var(
         self,
-        returns: Union[List[float], np.ndarray, pd.Series],
+        returns: Union[list[float], np.ndarray, pd.Series],
         confidence: float = 0.95,
         method: str = 'historical'
     ) -> float:
@@ -335,7 +334,7 @@ class RiskReportGenerator:
 
     def calculate_cvar(
         self,
-        returns: Union[List[float], np.ndarray, pd.Series],
+        returns: Union[list[float], np.ndarray, pd.Series],
         confidence: float = 0.95
     ) -> float:
         """
@@ -363,7 +362,7 @@ class RiskReportGenerator:
         self,
         returns: pd.Series,
         portfolio_value: float
-    ) -> List[VaRResult]:
+    ) -> list[VaRResult]:
         """Calculate VaR at multiple confidence levels."""
         results = []
 
@@ -384,7 +383,7 @@ class RiskReportGenerator:
 
     def _calculate_greeks_exposure(
         self,
-        positions: List[Dict[str, Any]]
+        positions: list[dict[str, Any]]
     ) -> GreeksExposure:
         """Calculate aggregate Greeks exposure from positions."""
         exposure = GreeksExposure()
@@ -392,7 +391,7 @@ class RiskReportGenerator:
         for pos in positions:
             quantity = pos.get('quantity', 0)
             multiplier = pos.get('multiplier', 100)
-            price = pos.get('price', 0)
+            pos.get('price', 0)
 
             greeks = pos.get('greeks', {})
             exposure.total_delta += greeks.get('delta', 0) * quantity * multiplier
@@ -412,10 +411,10 @@ class RiskReportGenerator:
 
     def _calculate_concentration(
         self,
-        positions: List[Dict[str, Any]],
+        positions: list[dict[str, Any]],
         portfolio_value: float,
         group_by: str
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate position concentration by symbol or strategy."""
         concentration = {}
 
@@ -473,7 +472,7 @@ class RiskReportGenerator:
         self,
         portfolio_value: float,
         returns: pd.Series
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Run stress test scenarios."""
         results = {}
 
@@ -494,7 +493,7 @@ class RiskReportGenerator:
 
         return results
 
-    def _check_risk_limits(self, report: RiskReportData) -> List[RiskLimitStatus]:
+    def _check_risk_limits(self, report: RiskReportData) -> list[RiskLimitStatus]:
         """Check all risk limits and return status."""
         checks = []
 
@@ -579,7 +578,7 @@ class RiskReportGenerator:
     def _assess_overall_risk(
         self,
         report: RiskReportData
-    ) -> Tuple[RiskLevel, float]:
+    ) -> tuple[RiskLevel, float]:
         """Calculate overall risk level and score."""
         # Start with base score
         score = 0.0
@@ -617,7 +616,7 @@ class RiskReportGenerator:
 
         return level, min(score, 100)
 
-    def _generate_alerts(self, report: RiskReportData) -> List[str]:
+    def _generate_alerts(self, report: RiskReportData) -> list[str]:
         """Generate alert messages based on risk analysis."""
         alerts = []
 
@@ -643,7 +642,7 @@ class RiskReportGenerator:
 
         return alerts
 
-    def _generate_recommendations(self, report: RiskReportData) -> List[str]:
+    def _generate_recommendations(self, report: RiskReportData) -> list[str]:
         """Generate recommendations based on risk analysis."""
         recommendations = []
 
@@ -675,7 +674,7 @@ class RiskReportGenerator:
         self,
         report: RiskReportData,
         format: ReportFormat = ReportFormat.JSON,
-        filename: Optional[str] = None
+        filename: str | None = None
     ) -> Path:
         """
         Export risk report to file.

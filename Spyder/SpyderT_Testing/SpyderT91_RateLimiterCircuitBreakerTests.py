@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -416,7 +415,7 @@ class TestCircuitBreakerInit:
 
     def test_expected_exception_defaults_to_exception(self):
         cb = CircuitBreaker()
-        assert cb.expected_exception == Exception
+        assert cb.expected_exception is Exception
 
 
 class TestCircuitBreakerProperties:

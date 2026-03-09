@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities     
+Series: SpyderU_Utilities
 Module: SpyderU24_StyleManager.py
 Purpose: Professional theme and styling management with QDarkStyleSheet integration
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-09-13 Time: 16:15:00  
+Year Created: 2025
+Last Updated: 2025-09-13 Time: 16:15:00
 
 Module Description:
     This module provides comprehensive styling and theme management for the Spyder
@@ -20,9 +19,9 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import sys
-import os
-from typing import Dict, List, Optional, Any
+from typing import Any
 from pathlib import Path
 
 # ==============================================================================
@@ -37,13 +36,11 @@ if str(project_root) not in sys.path:
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import QApplication, QWidget
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPalette, QColor
 
 # QDarkStyleSheet integration
 try:
     import qdarkstyle
-    from qdarkstyle import DarkPalette, LightPalette
+    from qdarkstyle import DarkPalette, LightPalette  # noqa: F401
     QDARKSTYLE_AVAILABLE = True
 except ImportError:
     QDARKSTYLE_AVAILABLE = False
@@ -68,34 +65,34 @@ import logging
 # ==============================================================================
 class SpyderColors:
     """Spyder trading system color constants."""
-    
+
     # Base colors - matching existing dashboard exactly
     BACKGROUND = "#0a0a0a"
     PANEL = "#1a1a1a"
     BORDER = "#333333"
     TEXT = "#ffffff"
-    
+
     # Trading colors
     POSITIVE = "#00ff41"      # Green for profits/buy
     NEGATIVE = "#ff1744"      # Red for losses/sell
     NEUTRAL = "#ffd700"       # Gold for neutral/warning
     WARNING = "#ff9800"       # Orange for caution
     INFO = "#00ffff"          # Cyan for information
-    
+
     # Status colors
     SUCCESS = "#4caf50"
     ERROR = "#f44336"
     DISABLED = "#666666"
-    
+
     # Chart colors
     VOLUME_COLOR = "#4d4d4d"
     GRID_COLOR = "#2a2a2a"
-    
+
     # Special trading colors
     BID_COLOR = "#00ff41"
     ASK_COLOR = "#ff1744"
     SPREAD_COLOR = "#ffd700"
-    
+
     # Option chain colors
     ITM_COLOR = "#ffe0b3"     # In-the-money options
     OTM_COLOR = "#e0e0e0"     # Out-of-the-money options
@@ -106,38 +103,38 @@ class SpyderColors:
 # ==============================================================================
 class SpyderIcons:
     """Professional icon mappings using QtAwesome."""
-    
+
     # Trading icons
     BUY = "fa5s.arrow-up"
     SELL = "fa5s.arrow-down"
     PROFIT = "fa5s.chart-line"
     LOSS = "fa5s.chart-line-down"
-    
+
     # Dashboard icons
     SETTINGS = "fa5s.cog"
     REFRESH = "fa5s.sync-alt"
     PLAY = "fa5s.play"
     PAUSE = "fa5s.pause"
     STOP = "fa5s.stop"
-    
+
     # Chart icons
     ZOOM_IN = "fa5s.search-plus"
     ZOOM_OUT = "fa5s.search-minus"
     ZOOM_RESET = "fa5s.expand-arrows-alt"
-    
+
     # Navigation icons
     HOME = "fa5s.home"
     CHART = "fa5s.chart-area"
     TABLE = "fa5s.table"
     ORDERS = "fa5s.list-ul"
-    
+
     # Status icons
     CONNECTED = "fa5s.wifi"
     DISCONNECTED = "fa5s.exclamation-triangle"
     WARNING = "fa5s.exclamation-circle"
     ERROR = "fa5s.times-circle"
     SUCCESS = "fa5s.check-circle"
-    
+
     # Memory/Performance
     MEMORY = "fa5s.memory"
     CPU = "fa5s.microchip"
@@ -149,7 +146,7 @@ class SpyderIcons:
 class SpyderStyleManager:
     """
     Professional style and theme manager for Spyder trading system.
-    
+
     Features:
     - QDarkStyleSheet integration with custom overrides
     - QtAwesome icon management
@@ -157,24 +154,24 @@ class SpyderStyleManager:
     - Theme switching capabilities
     - Custom trading-specific styling
     """
-    
+
     def __init__(self):
         """Initialize the style manager."""
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
-        
+
         # Current theme state
         self.current_theme = "dark"
         self.qdarkstyle_enabled = QDARKSTYLE_AVAILABLE
         self.qtawesome_enabled = QTAWESOME_AVAILABLE
-        
+
         # Style caches
         self._base_stylesheet = ""
         self._custom_overrides = ""
         self._final_stylesheet = ""
-        
+
         # Initialize
         self._initialize_style_system()
-        
+
         self.logger.info(f"Style manager initialized - QDarkStyle: {self.qdarkstyle_enabled}, QtAwesome: {self.qtawesome_enabled}")
 
     def _initialize_style_system(self):
@@ -184,10 +181,10 @@ class SpyderStyleManager:
             self._base_stylesheet = qdarkstyle.load_stylesheet(qt_api='pyside6')
         else:
             self._base_stylesheet = self._generate_fallback_stylesheet()
-        
+
         # Generate custom overrides
         self._custom_overrides = self._generate_spyder_overrides()
-        
+
         # Combine styles
         self._final_stylesheet = self._base_stylesheet + "\n" + self._custom_overrides
 
@@ -201,11 +198,11 @@ class SpyderStyleManager:
             font-family: 'Segoe UI', Arial, sans-serif;
             font-size: 9pt;
         }}
-        
+
         QMainWindow {{
             background-color: {SpyderColors.BACKGROUND};
         }}
-        
+
         QPushButton {{
             background-color: #2a2a2a;
             border: 1px solid {SpyderColors.BORDER};
@@ -213,15 +210,15 @@ class SpyderStyleManager:
             padding: 5px 10px;
             border-radius: 3px;
         }}
-        
+
         QPushButton:hover {{
             background-color: #3a3a3a;
         }}
-        
+
         QPushButton:pressed {{
             background-color: #1a1a1a;
         }}
-        
+
         QLineEdit, QComboBox {{
             background-color: {SpyderColors.BACKGROUND};
             border: 1px solid {SpyderColors.BORDER};
@@ -229,13 +226,13 @@ class SpyderStyleManager:
             padding: 3px;
             border-radius: 2px;
         }}
-        
+
         QTableWidget {{
             background-color: {SpyderColors.PANEL};
             alternate-background-color: #252525;
             gridline-color: {SpyderColors.BORDER};
         }}
-        
+
         QHeaderView::section {{
             background-color: #2a2a2a;
             color: {SpyderColors.TEXT};
@@ -247,22 +244,22 @@ class SpyderStyleManager:
     def _generate_spyder_overrides(self) -> str:
         """Generate Spyder-specific style overrides."""
         return f"""
-        
+
         /* ===================================================================== */
         /* SPYDER TRADING SYSTEM CUSTOM OVERRIDES */
         /* ===================================================================== */
-        
+
         /* Trading Dashboard Specific Styles */
         QWidget#TradingDashboard {{
             background-color: {SpyderColors.BACKGROUND};
         }}
-        
+
         /* Chart Widget Styling */
         QWidget#ChartWidget {{
             background-color: {SpyderColors.PANEL};
             border: 1px solid {SpyderColors.BORDER};
         }}
-        
+
         /* Control Panel Buttons */
         QPushButton#TradingButton {{
             background-color: #2a2a2a;
@@ -272,18 +269,18 @@ class SpyderStyleManager:
             border-radius: 3px;
             font-weight: bold;
         }}
-        
+
         QPushButton#TradingButton:hover {{
             background-color: #3a3a3a;
             border-color: {SpyderColors.INFO};
         }}
-        
+
         QPushButton#TradingButton:checked {{
             background-color: {SpyderColors.POSITIVE};
             color: #000000;
             border-color: {SpyderColors.POSITIVE};
         }}
-        
+
         /* Buy/Sell Buttons */
         QPushButton#BuyButton {{
             background-color: {SpyderColors.POSITIVE};
@@ -292,11 +289,11 @@ class SpyderStyleManager:
             font-weight: bold;
             padding: 8px 15px;
         }}
-        
+
         QPushButton#BuyButton:hover {{
             background-color: #00e03a;
         }}
-        
+
         QPushButton#SellButton {{
             background-color: {SpyderColors.NEGATIVE};
             color: #ffffff;
@@ -304,46 +301,46 @@ class SpyderStyleManager:
             font-weight: bold;
             padding: 8px 15px;
         }}
-        
+
         QPushButton#SellButton:hover {{
             background-color: #e01530;
         }}
-        
+
         /* Status Indicators */
         QLabel#StatusConnected {{
             color: {SpyderColors.POSITIVE};
             font-weight: bold;
         }}
-        
+
         QLabel#StatusDisconnected {{
             color: {SpyderColors.NEGATIVE};
             font-weight: bold;
         }}
-        
+
         QLabel#StatusWarning {{
             color: {SpyderColors.WARNING};
             font-weight: bold;
         }}
-        
+
         /* Price Display Labels */
         QLabel#PricePositive {{
             color: {SpyderColors.POSITIVE};
             font-weight: bold;
             font-size: 12pt;
         }}
-        
+
         QLabel#PriceNegative {{
             color: {SpyderColors.NEGATIVE};
             font-weight: bold;
             font-size: 12pt;
         }}
-        
+
         QLabel#PriceNeutral {{
             color: {SpyderColors.NEUTRAL};
             font-weight: bold;
             font-size: 12pt;
         }}
-        
+
         /* Option Chain Table */
         QTableWidget#OptionChain {{
             background-color: {SpyderColors.PANEL};
@@ -351,38 +348,38 @@ class SpyderStyleManager:
             gridline-color: {SpyderColors.BORDER};
             selection-background-color: {SpyderColors.INFO};
         }}
-        
+
         QTableWidget#OptionChain::item:selected {{
             background-color: {SpyderColors.INFO};
             color: #000000;
         }}
-        
+
         /* Call Options */
         QTableWidget#OptionChain QTableWidgetItem[data-option-type="call"] {{
             background-color: rgba(0, 255, 65, 0.1);
         }}
-        
+
         /* Put Options */
         QTableWidget#OptionChain QTableWidgetItem[data-option-type="put"] {{
             background-color: rgba(255, 23, 68, 0.1);
         }}
-        
+
         /* Memory Monitor */
         QLabel#MemoryLow {{
             color: {SpyderColors.SUCCESS};
             font-size: 8pt;
         }}
-        
+
         QLabel#MemoryMedium {{
             color: {SpyderColors.WARNING};
             font-size: 8pt;
         }}
-        
+
         QLabel#MemoryHigh {{
             color: {SpyderColors.NEGATIVE};
             font-size: 8pt;
         }}
-        
+
         /* Progress Bars */
         QProgressBar {{
             border: 1px solid {SpyderColors.BORDER};
@@ -390,12 +387,12 @@ class SpyderStyleManager:
             text-align: center;
             background-color: {SpyderColors.BACKGROUND};
         }}
-        
+
         QProgressBar::chunk {{
             background-color: {SpyderColors.POSITIVE};
             border-radius: 2px;
         }}
-        
+
         /* Group Boxes */
         QGroupBox {{
             font-weight: bold;
@@ -404,44 +401,44 @@ class SpyderStyleManager:
             margin-top: 1ex;
             color: {SpyderColors.TEXT};
         }}
-        
+
         QGroupBox::title {{
             subcontrol-origin: margin;
             left: 10px;
             padding: 0 5px 0 5px;
             color: {SpyderColors.INFO};
         }}
-        
+
         /* Splitters */
         QSplitter::handle {{
             background-color: {SpyderColors.BORDER};
         }}
-        
+
         QSplitter::handle:horizontal {{
             width: 3px;
         }}
-        
+
         QSplitter::handle:vertical {{
             height: 3px;
         }}
-        
+
         /* Scroll Bars */
         QScrollBar:vertical {{
             background-color: {SpyderColors.PANEL};
             width: 12px;
             border: none;
         }}
-        
+
         QScrollBar::handle:vertical {{
             background-color: {SpyderColors.BORDER};
             border-radius: 6px;
             min-height: 20px;
         }}
-        
+
         QScrollBar::handle:vertical:hover {{
             background-color: {SpyderColors.INFO};
         }}
-        
+
         /* Tooltips */
         QToolTip {{
             background-color: {SpyderColors.BACKGROUND};
@@ -450,40 +447,40 @@ class SpyderStyleManager:
             padding: 5px;
             border-radius: 3px;
         }}
-        
+
         /* Menu Bars */
         QMenuBar {{
             background-color: {SpyderColors.PANEL};
             color: {SpyderColors.TEXT};
         }}
-        
+
         QMenuBar::item {{
             background-color: transparent;
             padding: 4px 8px;
         }}
-        
+
         QMenuBar::item:selected {{
             background-color: {SpyderColors.INFO};
             color: #000000;
         }}
-        
+
         QMenu {{
             background-color: {SpyderColors.PANEL};
             color: {SpyderColors.TEXT};
             border: 1px solid {SpyderColors.BORDER};
         }}
-        
+
         QMenu::item:selected {{
             background-color: {SpyderColors.INFO};
             color: #000000;
         }}
-        
+
         /* Tab Widgets */
         QTabWidget::pane {{
             border: 1px solid {SpyderColors.BORDER};
             background-color: {SpyderColors.PANEL};
         }}
-        
+
         QTabBar::tab {{
             background-color: #2a2a2a;
             color: {SpyderColors.TEXT};
@@ -491,23 +488,23 @@ class SpyderStyleManager:
             border: 1px solid {SpyderColors.BORDER};
             border-bottom: none;
         }}
-        
+
         QTabBar::tab:selected {{
             background-color: {SpyderColors.INFO};
             color: #000000;
         }}
-        
+
         /* Custom Animation Classes */
         .profit-flash {{
             background-color: {SpyderColors.POSITIVE};
             animation: flash 0.5s;
         }}
-        
+
         .loss-flash {{
             background-color: {SpyderColors.NEGATIVE};
             animation: flash 0.5s;
         }}
-        
+
         @keyframes flash {{
             0%, 100% {{ opacity: 1; }}
             50% {{ opacity: 0.5; }}
@@ -534,20 +531,20 @@ class SpyderStyleManager:
         """Get a professional icon using QtAwesome."""
         if not self.qtawesome_enabled:
             return None
-        
+
         try:
             # Get icon from SpyderIcons mapping
             icon_code = getattr(SpyderIcons, icon_name.upper(), icon_name)
-            
+
             # Create icon with specified color and size
             options = {'scale_factor': size / 16}
             if color:
                 options['color'] = color
             else:
                 options['color'] = SpyderColors.TEXT
-            
+
             return qta.icon(icon_code, **options)
-            
+
         except Exception as e:
             self.logger.error(f"Failed to create icon {icon_name}: {e}")
             return None
@@ -645,7 +642,7 @@ class SpyderStyleManager:
         """Check if QtAwesome is available."""
         return self.qtawesome_enabled
 
-    def get_theme_info(self) -> Dict[str, Any]:
+    def get_theme_info(self) -> dict[str, Any]:
         """Get current theme information."""
         return {
             'current_theme': self.current_theme,
@@ -689,28 +686,28 @@ def main():
     """Demonstrate style manager capabilities."""
     logging.info("Spyder Style Manager Demo")
     logging.info("=" * 50)
-    
+
     # Create style manager
     manager = SpyderStyleManager()
-    
+
     # Show theme info
     info = manager.get_theme_info()
     logging.info("Theme Information:")
     for key, value in info.items():
         logging.info(f"  {key}: {value}")
-    
+
     # Test color access
-    logging.info(f"\nColor Examples:")
+    logging.info("\nColor Examples:")
     logging.info(f"  Positive: {manager.get_color('positive')}")
     logging.info(f"  Negative: {manager.get_color('negative')}")
     logging.info(f"  Neutral: {manager.get_color('neutral')}")
-    
+
     # Test icon availability
     if manager.is_qtawesome_available():
-        logging.info(f"\nIcon system available")
+        logging.info("\nIcon system available")
     else:
-        logging.info(f"\nIcon system not available (install qtawesome)")
-    
+        logging.info("\nIcon system not available (install qtawesome)")
+
     # Show stylesheet length
     stylesheet = manager.get_stylesheet()
     logging.info(f"\nStylesheet generated: {len(stylesheet)} characters")

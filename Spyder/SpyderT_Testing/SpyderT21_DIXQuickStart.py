@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -133,10 +132,10 @@ class QuickStartResult:
     """Result of quick start execution"""
 
     success: bool
-    dix_value: Optional[float]
-    sentiment: Optional[str]
-    charts_generated: List[str]
-    report_path: Optional[str]
+    dix_value: float | None
+    sentiment: str | None
+    charts_generated: list[str]
+    report_path: str | None
     execution_time: float
 
 
@@ -164,7 +163,7 @@ class SpyderDIXQuickStart:
         >>> quick_start.run()
     """
 
-    def __init__(self, config: Optional[QuickStartConfig] = None):
+    def __init__(self, config: QuickStartConfig | None = None):
         """
         Initialize Quick Start module.
 
@@ -453,7 +452,7 @@ class SpyderDIXQuickStart:
         print(f"Market Sentiment: {emoji} {sentiment}")
         print(f"Interpretation: {interpretation}")
 
-    def _display_top_contributors(self, results: Dict) -> None:
+    def _display_top_contributors(self, results: dict) -> None:
         """Display top contributing stocks."""
         print(f"\n{INFO_SYMBOL} Top 10 Contributors to DIX")
         print("-" * SECTION_WIDTH)
@@ -489,7 +488,7 @@ class SpyderDIXQuickStart:
         print("   • DIX is most effective for 1-5 day time horizons")
         print("   • Always combine with other analysis and risk management")
 
-    def _print_summary(self, charts: List[str], report: Optional[str]) -> None:
+    def _print_summary(self, charts: list[str], report: str | None) -> None:
         """Print execution summary."""
         print("\n" + "=" * BANNER_WIDTH)
         print("QUICK START DEMO COMPLETE")

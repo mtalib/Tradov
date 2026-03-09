@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -64,7 +63,7 @@ References:
 import os
 import time
 import threading
-from typing import Dict, List, Optional, Any, Callable, Tuple
+from typing import Any, Callable
 from enum import Enum
 from datetime import datetime, date
 from dataclasses import dataclass, field
@@ -194,7 +193,7 @@ class MarketDataUpdate:
     symbol: str
     timestamp_ns: int
     schema: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     underlying: str = ""
     is_option: bool = False
 
@@ -208,7 +207,7 @@ class MarketDataUpdate:
         """Convert nanosecond timestamp to datetime."""
         return datetime.fromtimestamp(self.timestamp_ns / NANOSECONDS_PER_SECOND)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "symbol": self.symbol,
@@ -331,7 +330,7 @@ def convert_symbol(
 def _parse_option_symbol(
     symbol: str,
     fmt: SymbolFormat
-) -> Tuple[str, str, str, float]:
+) -> tuple[str, str, str, float]:
     """
     Parse option symbol into (underlying, expiry_YYMMDD, C/P, strike_float).
 
@@ -417,7 +416,7 @@ def is_option_symbol(symbol: str) -> bool:
 # ==============================================================================
 # DATABENTO RECORD → DICT NORMALIZER
 # ==============================================================================
-def _normalize_record(record: Any) -> Dict[str, Any]:
+def _normalize_record(record: Any) -> dict[str, Any]:
     """
     Convert a Databento record object into a plain dictionary.
 
@@ -538,7 +537,7 @@ class DatabentoClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         dataset: str = DEFAULT_DATASET,
         max_daily_gb: float = 5.0,
     ):
@@ -563,9 +562,9 @@ class DatabentoClient:
         self.max_daily_gb = max_daily_gb
 
         # Clients (initialized lazily)
-        self._historical: Optional[Any] = None
-        self._live: Optional[Any] = None
-        self._live_thread: Optional[threading.Thread] = None
+        self._historical: Any | None = None
+        self._live: Any | None = None
+        self._live_thread: threading.Thread | None = None
 
         # State
         self.status = ConnectionStatus.DISCONNECTED
@@ -578,20 +577,20 @@ class DatabentoClient:
         self.message_buffer: deque = deque(maxlen=MESSAGE_BUFFER_SIZE)
 
         # Instrument definition cache: instrument_id → InstrumentDefinition
-        self._definitions: Dict[int, InstrumentDefinition] = {}
+        self._definitions: dict[int, InstrumentDefinition] = {}
         # Symbol → instrument_id mapping
-        self._symbol_to_id: Dict[str, int] = {}
+        self._symbol_to_id: dict[str, int] = {}
 
         # Callbacks (set these before calling start_live)
-        self.on_quote: Optional[Callable[[MarketDataUpdate], None]] = None
-        self.on_trade: Optional[Callable[[MarketDataUpdate], None]] = None
-        self.on_ohlcv: Optional[Callable[[MarketDataUpdate], None]] = None
-        self.on_definition: Optional[Callable[[InstrumentDefinition], None]] = None
-        self.on_status_change: Optional[Callable[[ConnectionStatus], None]] = None
-        self.on_error: Optional[Callable[[str], None]] = None
+        self.on_quote: Callable[[MarketDataUpdate], None] | None = None
+        self.on_trade: Callable[[MarketDataUpdate], None] | None = None
+        self.on_ohlcv: Callable[[MarketDataUpdate], None] | None = None
+        self.on_definition: Callable[[InstrumentDefinition], None] | None = None
+        self.on_status_change: Callable[[ConnectionStatus], None] | None = None
+        self.on_error: Callable[[str], None] | None = None
 
         # Qt Signals (populated if Qt is available and wrapper is created)
-        self._qt_wrapper: Optional[Any] = None
+        self._qt_wrapper: Any | None = None
 
         logger.info(
             f"DatabentoClient initialized (dataset={dataset}, "
@@ -635,10 +634,10 @@ class DatabentoClient:
     # ==========================================================================
     def start_live(
         self,
-        underlyings: Optional[List[str]] = None,
-        symbols: Optional[List[str]] = None,
+        underlyings: list[str] | None = None,
+        symbols: list[str] | None = None,
         schema: str = DEFAULT_LIVE_SCHEMA,
-        dataset: Optional[str] = None,
+        dataset: str | None = None,
     ) -> None:
         """
         Start live data streaming in a background thread.
@@ -720,7 +719,7 @@ class DatabentoClient:
         self,
         dataset: str,
         schema: str,
-        symbols: List[str],
+        symbols: list[str],
         stype_in: str,
     ) -> None:
         """
@@ -897,7 +896,7 @@ class DatabentoClient:
         except Exception as e:
             logger.error(f"Error processing Databento record: {e}", exc_info=True)
 
-    def _cache_definition(self, _record: Any, data: Dict[str, Any]) -> None:
+    def _cache_definition(self, _record: Any, data: dict[str, Any]) -> None:
         """Cache an instrument definition from a definition record."""
         try:
             instrument_id = data.get("instrument_id", 0)
@@ -957,9 +956,9 @@ class DatabentoClient:
         start: str,
         end: str,
         schema: str = DEFAULT_HIST_SCHEMA,
-        dataset: Optional[str] = None,
+        dataset: str | None = None,
         stype_in: str = "parent",
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Fetch historical OHLCV bars as a DataFrame.
 
@@ -1017,9 +1016,9 @@ class DatabentoClient:
         symbol: str,
         start: str,
         end: str,
-        dataset: Optional[str] = None,
+        dataset: str | None = None,
         stype_in: str = "parent",
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Fetch historical trade data as a DataFrame.
 
@@ -1043,9 +1042,9 @@ class DatabentoClient:
         symbol: str,
         start: str,
         end: str,
-        dataset: Optional[str] = None,
+        dataset: str | None = None,
         stype_in: str = "parent",
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Fetch historical quote (MBP-1) data as a DataFrame.
 
@@ -1068,8 +1067,8 @@ class DatabentoClient:
         self,
         symbol: str,
         date_str: str,
-        dataset: Optional[str] = None,
-    ) -> Optional[Any]:
+        dataset: str | None = None,
+    ) -> Any | None:
         """
         Fetch instrument definitions (option chain structure) for a date.
 
@@ -1112,11 +1111,11 @@ class DatabentoClient:
     # ==========================================================================
     # DEFINITION CACHE ACCESS
     # ==========================================================================
-    def get_cached_definitions(self) -> Dict[int, InstrumentDefinition]:
+    def get_cached_definitions(self) -> dict[int, InstrumentDefinition]:
         """Get all cached instrument definitions."""
         return dict(self._definitions)
 
-    def lookup_definition(self, symbol: str) -> Optional[InstrumentDefinition]:
+    def lookup_definition(self, symbol: str) -> InstrumentDefinition | None:
         """
         Look up a cached instrument definition by symbol.
 
@@ -1145,7 +1144,7 @@ class DatabentoClient:
     # ==========================================================================
     # BANDWIDTH / COST METRICS
     # ==========================================================================
-    def get_bandwidth_report(self) -> Dict[str, Any]:
+    def get_bandwidth_report(self) -> dict[str, Any]:
         """
         Get bandwidth usage report for cost monitoring.
 
@@ -1167,7 +1166,7 @@ class DatabentoClient:
     # CIRCUIT BREAKER
     # ==========================================================================
     @staticmethod
-    def get_circuit_breaker_status() -> Dict[str, Any]:
+    def get_circuit_breaker_status() -> dict[str, Any]:
         """Get circuit breaker state for Databento connections."""
         if databento_breaker:
             return {
@@ -1187,7 +1186,7 @@ class DatabentoClient:
     # ==========================================================================
     # CONNECTION TEST
     # ==========================================================================
-    def test_connection(self) -> Dict[str, Any]:
+    def test_connection(self) -> dict[str, Any]:
         """
         Test Databento API connectivity.
 
@@ -1266,7 +1265,7 @@ if HAS_QT:
         connection_status_changed = Signal(object)  # ConnectionStatus
         error_occurred = Signal(str)
 
-        def __init__(self, client: DatabentoClient, parent: Optional[QObject] = None):
+        def __init__(self, client: DatabentoClient, parent: QObject | None = None):
             super().__init__(parent)
             self.client = client
 
@@ -1301,7 +1300,7 @@ if HAS_QT:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_databento_client_from_env(
-    dataset: Optional[str] = None,
+    dataset: str | None = None,
 ) -> DatabentoClient:
     """
     Create a DatabentoClient using environment variables.
@@ -1332,9 +1331,9 @@ def create_databento_client_from_env(
 
 
 def create_databento_qt_bridge(
-    client: Optional[DatabentoClient] = None,
-    parent: Optional[Any] = None,
-) -> Optional[Any]:
+    client: DatabentoClient | None = None,
+    parent: Any | None = None,
+) -> Any | None:
     """
     Create a Qt Signal bridge for a DatabentoClient.
 

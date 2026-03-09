@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -20,7 +19,6 @@ import logging
 import signal
 import time
 import asyncio
-import inspect
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -73,8 +71,8 @@ else:
             QPushButton,
             QTextEdit,
         )
-        from PySide6.QtCore import QTimer, Signal, QObject, QThread
-        from PySide6.QtGui import QIcon, QFont
+        from PySide6.QtCore import QTimer, Signal, QObject, QThread  # noqa: F401
+        from PySide6.QtGui import QIcon, QFont  # noqa: F401
 
         has_qt = True
     except ImportError:
@@ -114,7 +112,7 @@ EventManager: type | None = None
 Event: type | None = None
 
 try:
-    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event  # noqa: F401
 
     has_event_manager = True
 except ImportError:
