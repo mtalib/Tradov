@@ -197,14 +197,6 @@ except ImportError as e:
     _log_import_status("SpyderB15_PrometheusMetrics", False, str(e))
     PrometheusMetrics = None
 
-# PySide Async Bridge (B26) - Qt/async integration
-try:
-    from .SpyderB26_PySideAsyncBridge import PySideAsyncBridge
-    _log_import_status("SpyderB26_PySideAsyncBridge", True)
-except ImportError as e:
-    _log_import_status("SpyderB26_PySideAsyncBridge", False, str(e))
-    PySideAsyncBridge = None
-
 # SPY Options Chain Manager (B30) - Options chain utilities
 try:
     from .SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager

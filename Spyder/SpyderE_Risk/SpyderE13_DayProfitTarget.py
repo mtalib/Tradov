@@ -62,10 +62,15 @@ import numpy as np
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 
-# ⚠️ DEPRECATED: ib_async integration should be replaced with Tradier API
-# TODO: Migrate to SpyderB40_TradierClient for order execution
-# Current implementation uses legacy IBKR integration
-from ib_async import IB, Contract, Order, Fill
+# ⚠️ DEPRECATED: ib_async integration — module migrated to Tradier (SpyderB40)
+# These symbols are kept as None stubs so the module remains importable.
+try:
+    from ib_async import IB, Contract, Order, Fill  # noqa: F401
+except ImportError:
+    IB = None  # type: ignore[assignment,misc]
+    Contract = None  # type: ignore[assignment,misc]
+    Order = None  # type: ignore[assignment,misc]
+    Fill = None  # type: ignore[assignment,misc]
 
 from PySide6.QtWidgets import (
     QWidget,

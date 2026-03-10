@@ -17,13 +17,11 @@ Package Description:
 Scripts Overview:
     • SpyderQ01_Setup.sh: Initial system setup and configuration
     • SpyderQ02_Dependencies.sh: Dependency installation and management
-    • SpyderQ03_InstallGateway.sh: IB Gateway installation automation
     • SpyderQ10_StartAll.sh: Start all Spyder services
     • SpyderQ11_StopAll.sh: Stop all Spyder services
     • SpyderQ14_MainLauncher.py: Main system launcher with GUI
     • SpyderQ20_Status.sh: System status monitoring
     • SpyderQ21_Monitor.sh: Continuous system monitoring
-    • SpyderQ22_CheckIBStatus.py: IB Gateway status verification
     • SpyderQ24_ProductionWatchdog.py: Production environment watchdog
     • SpyderQ25_SystemMonitor.py: Advanced system monitoring
     • SpyderQ30_Diagnostics.sh: System diagnostics and troubleshooting
@@ -63,18 +61,6 @@ try:
 except ImportError as e:
     print(f"⚠️ SpyderQ14_MainLauncher not available: {e}")
     MAIN_LAUNCHER_AVAILABLE = False
-
-# IB Status Checker
-try:
-    from .SpyderQ22_CheckIBStatus import (
-        IBStatusChecker,
-        # Add main classes from CheckIBStatus when inspected
-    )
-
-    IB_STATUS_CHECKER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderQ22_CheckIBStatus not available: {e}")
-    IB_STATUS_CHECKER_AVAILABLE = False
 
 # Production Watchdog
 try:
@@ -152,7 +138,6 @@ def get_available_scripts():
     shell_scripts = [
         "SpyderQ01_Setup.sh",
         "SpyderQ02_Dependencies.sh",
-        "SpyderQ03_InstallGateway.sh",
         "SpyderQ10_StartAll.sh",
         "SpyderQ11_StopAll.sh",
         "SpyderQ16_SpyderControl.sh",
@@ -171,7 +156,6 @@ def get_available_scripts():
     # Python modules
     python_modules = {
         "SpyderQ14_MainLauncher.py": MAIN_LAUNCHER_AVAILABLE,
-        "SpyderQ22_CheckIBStatus.py": IB_STATUS_CHECKER_AVAILABLE,
         "SpyderQ24_ProductionWatchdog.py": PRODUCTION_WATCHDOG_AVAILABLE,
         "SpyderQ25_SystemMonitor.py": SYSTEM_MONITOR_AVAILABLE,
         "SpyderQ45_Diagnostics.py": DIAGNOSTICS_AVAILABLE,
@@ -229,7 +213,6 @@ def get_package_info():
         "script_status": available_scripts,
         "capabilities": {
             "main_launcher": MAIN_LAUNCHER_AVAILABLE,
-            "ib_status_checking": IB_STATUS_CHECKER_AVAILABLE,
             "production_watchdog": PRODUCTION_WATCHDOG_AVAILABLE,
             "system_monitoring": SYSTEM_MONITOR_AVAILABLE,
             "diagnostics": DIAGNOSTICS_AVAILABLE,
@@ -286,9 +269,6 @@ __all__ = [
 # Conditionally add available classes to __all__
 if MAIN_LAUNCHER_AVAILABLE:
     __all__.extend(["MainLauncher"])
-
-if IB_STATUS_CHECKER_AVAILABLE:
-    __all__.extend(["IBStatusChecker"])
 
 if PRODUCTION_WATCHDOG_AVAILABLE:
     __all__.extend(["ProductionWatchdog"])

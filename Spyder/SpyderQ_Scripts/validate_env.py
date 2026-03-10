@@ -4,16 +4,23 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderQ_Scripts
 Module: validate_env.py
-Purpose: SPYDER - Environment Configuration Validator
+Purpose: SPYDER - Environment Configuration Validator (Tradier + Databento)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
-    SPYDER - Environment Configuration Validator
+    Validates .env configuration for the Tradier broker and Databento market
+    data provider.  Run this script before starting Spyder to confirm all
+    required variables are present and correctly formatted.
 
 Change Log:
+    2026-03-03:
+        - Removed IBKR / IB Gateway OAuth validation (broker migrated to Tradier)
+        - Removed Polygon.io validation (market data migrated to Databento)
+        - Added Tradier API key and account validation
+        - Added Databento API key and dataset validation
     2026-01-16:
         - Applied standard Python formatting
         - Updated module header and structure
@@ -87,120 +94,102 @@ def validate_trading_mode():
     errors = []
     warnings = []
 
-    # Check TRADING_MODE
     trading_mode = os.environ.get("TRADING_MODE", "").lower()
     if not trading_mode:
         errors.append("TRADING_MODE not set")
-    elif trading_mode not in ["paper", "live"]:
-        errors.append(f"Invalid TRADING_MODE: '{trading_mode}' (must be 'paper' or 'live')")
-    elif trading_mode == "paper":
-        print_success(f"Trading Mode: {trading_mode} (SAFE)")
+    elif trading_mode not in ["sandbox", "paper", "live"]:
+        errors.append(f"Invalid TRADING_MODE: '{trading_mode}' (must be 'sandbox', 'paper', or 'live')")
+    elif trading_mode in ("sandbox", "paper"):
+        print_success(f"Trading Mode: {trading_mode} (SAFE — no real money)")
     else:
-        print_warning(f"Trading Mode: {trading_mode} (LIVE - REAL MONEY)")
+        print_warning(f"Trading Mode: {trading_mode} (LIVE — REAL MONEY)")
 
-    # Check live trading confirmation
     if trading_mode == "live":
         live_confirmed = os.environ.get("LIVE_TRADING_CONFIRMED", "false").lower() == "true"
         require_confirmation = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
         if require_confirmation and not live_confirmed:
             errors.append("LIVE mode requires LIVE_TRADING_CONFIRMED=true")
-            print_error("Live trading blocked: LIVE_TRADING_CONFIRMED not set")
+            print_error("Live trading blocked: LIVE_TRADING_CONFIRMED not set to 'true'")
         elif not require_confirmation:
-            warnings.append("REQUIRE_LIVE_CONFIRMATION=false (unsafe)")
+            warnings.append("REQUIRE_LIVE_CONFIRMATION=false (unsafe — strongly discouraged)")
         else:
-            print_warning("Live trading CONFIRMED - will trade with real money")
+            print_warning("Live trading CONFIRMED — will trade with real money")
 
     return errors, warnings
 
-def validate_oauth_config():
-    """Validate OAuth 2.0 configuration"""
-    print_header("OAUTH 2.0 CONFIGURATION")
+def validate_tradier_config():
+    """Validate Tradier broker credentials"""
+    print_header("TRADIER BROKER CONFIGURATION")
 
     errors = []
     warnings = []
 
-    # Check API base URL
-    api_url = os.environ.get("IBKR_API_BASE_URL", "")
-    if not api_url:
-        errors.append("IBKR_API_BASE_URL not set")
-    elif api_url == "https://api.ibkr.com/v1/api":
-        print_success(f"API URL: {api_url} (Production)")
+    # API Key
+    api_key = os.environ.get("TRADIER_API_KEY", "")
+    if not api_key:
+        errors.append("TRADIER_API_KEY not set")
+        print_error("TRADIER_API_KEY missing")
+    elif api_key == "your_tradier_api_key_here":
+        errors.append("TRADIER_API_KEY is still the placeholder value")
+        print_error("TRADIER_API_KEY not configured (still using placeholder)")
     else:
-        print_warning(f"API URL: {api_url} (Custom)")
+        print_success(f"TRADIER_API_KEY: {api_key[:8]}... (configured)")
 
-    # Check OAuth token URL
-    token_url = os.environ.get("IBKR_OAUTH_TOKEN_URL", "")
-    if not token_url:
-        errors.append("IBKR_OAUTH_TOKEN_URL not set")
-    else:
-        print_success(f"Token URL: {token_url}")
-
-    # Check consumer key
-    consumer_key = os.environ.get("IBKR_OAUTH_CONSUMER_KEY", "")
-    if not consumer_key:
-        errors.append("IBKR_OAUTH_CONSUMER_KEY not set")
-    elif consumer_key == "your_consumer_key_here":
-        errors.append("IBKR_OAUTH_CONSUMER_KEY is placeholder value")
-        print_error("Consumer key not configured (still using placeholder)")
-    else:
-        print_success(f"Consumer Key: {consumer_key[:10]}... (configured)")
-
-    # Check private key path
-    key_path = os.environ.get("IBKR_OAUTH_PRIVATE_KEY_PATH", "")
-    if not key_path:
-        errors.append("IBKR_OAUTH_PRIVATE_KEY_PATH not set")
-    else:
-        key_file = Path(key_path)
-        if not key_file.is_absolute():
-            # Resolve relative to project root
-            key_file = Path(__file__).parent.parent / key_path
-
-        if not key_file.exists():
-            errors.append(f"Private key file not found: {key_path}")
-            print_error(f"Private key missing: {key_path}")
-        else:
-            print_success(f"Private Key: {key_path} (found)")
-
-            # Check file permissions
-            if key_file.stat().st_mode & 0o077:
-                warnings.append(f"Private key has insecure permissions: {oct(key_file.stat().st_mode)}")
-                print_warning("Private key permissions too open (should be 600)")
-                print_info(f"  Fix with: chmod 600 {key_path}")
-
-    # Check auth method
-    auth_method = os.environ.get("IBKR_AUTH_METHOD", "oauth2")
-    if auth_method != "oauth2":
-        warnings.append(f"Unexpected auth method: {auth_method}")
-    else:
-        print_success(f"Auth Method: {auth_method}")
-
-    return errors, warnings
-
-def validate_account_config():
-    """Validate account configuration"""
-    print_header("ACCOUNT CONFIGURATION")
-
-    errors = []
-    warnings = []
-
-    # Check account ID
-    account_id = os.environ.get("IBKR_ACCOUNT_ID", "")
+    # Account ID
+    account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
     if not account_id:
-        warnings.append("IBKR_ACCOUNT_ID not set")
-        print_warning("Account ID not configured")
-    elif account_id == "DU1234567":
-        errors.append("IBKR_ACCOUNT_ID is placeholder value")
-        print_error("Account ID not configured (still using placeholder)")
-    elif account_id.startswith("DU"):
-        print_success(f"Account ID: {account_id} (PAPER account)")
+        errors.append("TRADIER_ACCOUNT_ID not set")
+        print_error("TRADIER_ACCOUNT_ID missing")
     else:
+        print_success(f"TRADIER_ACCOUNT_ID: {account_id} (configured)")
+
+    # Environment
+    tradier_env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+    if tradier_env not in ("sandbox", "production"):
+        errors.append(f"TRADIER_ENVIRONMENT='{tradier_env}' is invalid; must be 'sandbox' or 'production'")
+    elif tradier_env == "sandbox":
+        print_success("TRADIER_ENVIRONMENT: sandbox (safe — connects to https://sandbox.tradier.com)")
+    else:
+        print_warning("TRADIER_ENVIRONMENT: production (LIVE — real money, real orders)")
         trading_mode = os.environ.get("TRADING_MODE", "").lower()
-        if trading_mode == "paper":
-            warnings.append(f"Paper mode but account {account_id} looks like live account")
-            print_warning(f"Account {account_id} may be live account (expected DU...)")
-        else:
-            print_success(f"Account ID: {account_id} (LIVE account)")
+        if trading_mode != "live":
+            warnings.append(
+                f"TRADIER_ENVIRONMENT=production but TRADING_MODE='{trading_mode}' — "
+                "set TRADING_MODE=live or switch to sandbox"
+            )
+
+    return errors, warnings
+
+def validate_databento_config():
+    """Validate Databento market data credentials"""
+    print_header("DATABENTO MARKET DATA CONFIGURATION")
+
+    errors = []
+    warnings = []
+
+    api_key = os.environ.get("DATABENTO_API_KEY", "")
+    if not api_key:
+        errors.append("DATABENTO_API_KEY not set")
+        print_error("DATABENTO_API_KEY missing — required for live market data (Databento)")
+    elif api_key == "your_databento_api_key_here":
+        errors.append("DATABENTO_API_KEY is still the placeholder value")
+        print_error("DATABENTO_API_KEY not configured (still using placeholder)")
+    else:
+        print_success(f"DATABENTO_API_KEY: {api_key[:8]}... (configured)")
+
+    dataset = os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR")
+    print_info(f"DATABENTO_DATASET: {dataset}")
+
+    data_provider = os.environ.get("DATA_PROVIDER", "databento").lower()
+    if data_provider != "databento":
+        warnings.append(
+            f"DATA_PROVIDER='{data_provider}' — only 'databento' is supported; "
+            "Polygon.io has been removed"
+        )
+        print_warning(f"DATA_PROVIDER='{data_provider}' — expected 'databento'")
+    else:
+        print_success("DATA_PROVIDER: databento")
 
     return errors, warnings
 
@@ -210,11 +199,9 @@ def validate_system_config():
 
     warnings = []
 
-    # Check log level
     log_level = os.environ.get("LOG_LEVEL", "INFO")
     print_info(f"Log Level: {log_level}")
 
-    # Check debug mode
     debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
     if debug_mode:
         print_warning("Debug Mode: ENABLED (verbose logging)")
@@ -227,7 +214,6 @@ def validate_notifications():
     """Validate notification configuration"""
     print_header("NOTIFICATIONS (Optional)")
 
-    # Telegram
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
     if telegram_token and telegram_chat:
@@ -235,7 +221,6 @@ def validate_notifications():
     else:
         print_info("Telegram: Not configured (optional)")
 
-    # Email
     email = os.environ.get("EMAIL_ADDRESS", "")
     email_pass = os.environ.get("EMAIL_PASSWORD", "")
     if email and email_pass:
@@ -254,7 +239,7 @@ def print_summary(all_errors, all_warnings):
 
     if total_errors == 0 and total_warnings == 0:
         print(f"{Colors.GREEN}{Colors.BOLD}✓ CONFIGURATION VALID{Colors.END}")
-        print(f"{Colors.GREEN}  All checks passed! Ready for paper trading.{Colors.END}\n")
+        print(f"{Colors.GREEN}  All checks passed! Ready to run Spyder.{Colors.END}\n")
         return True
 
     if total_errors > 0:
@@ -278,24 +263,20 @@ def print_summary(all_errors, all_warnings):
     if total_errors > 0:
         print(f"{Colors.RED}Fix errors before running Spyder.{Colors.END}\n")
         return False
-    elif total_warnings > 0:
+    else:
         print(f"{Colors.YELLOW}Warnings should be addressed but system may run.{Colors.END}\n")
         return True
-
-    return True
 
 def main():
     """Main validation function"""
     print_header("SPYDER .ENV CONFIGURATION VALIDATOR")
-    print_info("Validating IBKR Web API OAuth 2.0 configuration...\n")
+    print_info("Broker: Tradier  |  Market Data: Databento\n")
 
-    # Check .env file exists
     if not validate_env_file():
         sys.exit(1)
 
     print()
 
-    # Run all validations
     all_errors = []
     all_warnings = []
 
@@ -303,11 +284,11 @@ def main():
     all_errors.append(errors)
     all_warnings.append(warnings)
 
-    errors, warnings = validate_oauth_config()
+    errors, warnings = validate_tradier_config()
     all_errors.append(errors)
     all_warnings.append(warnings)
 
-    errors, warnings = validate_account_config()
+    errors, warnings = validate_databento_config()
     all_errors.append(errors)
     all_warnings.append(warnings)
 
@@ -319,21 +300,17 @@ def main():
     all_errors.append(errors)
     all_warnings.append(warnings)
 
-    # Print summary
     is_valid = print_summary(all_errors, all_warnings)
 
     if is_valid:
         print(f"{Colors.BOLD}Next Steps:{Colors.END}")
-        print("  1. Ensure OAuth app is registered with IBKR")
-        print("  2. Generate RSA key pair if not done:")
-        print("     $ mkdir -p config/keys")
-        print("     $ openssl genrsa -out config/keys/private_key.pem 2048")
-        print("     $ openssl rsa -in config/keys/private_key.pem -pubout -out config/keys/public_key.pem")
-        print("  3. Upload public key to IBKR OAuth app settings")
+        print("  1. Obtain Tradier API key: https://developer.tradier.com")
+        print("  2. Obtain Databento API key: https://databento.com/signup")
+        print("  3. Set TRADING_MODE=sandbox and TRADIER_ENVIRONMENT=sandbox for initial testing")
         print("  4. Test configuration:")
         print("     $ python config/config.py")
         print("  5. Run tests:")
-        print("     $ python SpyderT_Testing/SpyderT23_ClientPortal_Auth_Test.py")
+        print("     $ pytest SpyderT_Testing/")
         print("  6. Start paper trading:")
         print("     $ python SpyderA_Core/SpyderA01_Main.py")
         print()

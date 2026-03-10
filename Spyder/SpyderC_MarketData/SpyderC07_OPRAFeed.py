@@ -53,10 +53,13 @@ import math
 # ==============================================================================
 import pandas as pd
 
-# ⚠️ DEPRECATED: ib_async wildcard import is legacy code
-# This module should be replaced with SpyderC26_DatabentoClient
-# Databento provides direct OPRA feed (OPRA.PILLAR dataset)
-from ib_async import IB, Option  # noqa: F401
+# ⚠️ DEPRECATED: ib_async integration — replace with SpyderC26_DatabentoClient
+# (Databento OPRA.PILLAR dataset provides this feed natively)
+try:
+    from ib_async import IB, Option  # noqa: F401
+except ImportError:
+    IB = None  # type: ignore[assignment,misc]
+    Option = None  # type: ignore[assignment,misc]
 from py_vollib.black_scholes.greeks import delta, gamma, theta, vega, rho
 
 # ==============================================================================

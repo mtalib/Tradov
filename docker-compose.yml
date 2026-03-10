@@ -1,33 +1,10 @@
-services:
-  ib-gateway:
-    container_name: spyder-ib-gateway
-    cpus: '2.0'
-    environment:
-      JAVA_OPTS: -Xmx4096m -Xms4096m -XX:+UseG1GC
-      READ_ONLY_API: 'no'
-      TRADING_MODE: paper
-      TWOFA_TIMEOUT_TIME: '180'
-      TWS_PASSWORD: ${TWS_PASSWORD}
-      TWS_USERID: ${TWS_USERID}
-    healthcheck:
-      interval: 30s
-      retries: 3
-      start_period: 60s
-      test:
-      - CMD
-      - nc
-      - -z
-      - localhost
-      - '4002'
-      timeout: 10s
-    image: ghcr.io/gnzsnz/ib-gateway:latest
-    mem_limit: 6g
-    ports:
-    - 4001:4001
-    - 4002:4002
-    - 5900:5900
-    restart: unless-stopped
-    volumes:
-    - ./ib-gateway-data:/home/ibgateway
-    - /etc/localtime:/etc/localtime:ro
+# SPYDER - Docker Compose
+# Broker: Tradier (REST API — no local gateway required)
+# Market Data: Databento (cloud streaming) / Tradier (testing)
+#
+# IB Gateway service was removed — Spyder no longer uses IBKR/IB Gateway.
+# Add services here as needed (e.g. Prometheus, Grafana, Redis).
+
+services: {}
+
 version: '3.8'

@@ -4,63 +4,244 @@ SPYDER - Autonomous Options Trading System
 
 Module: SpyderS05_GEXDEXCalculator.py
 Group: S (Signals)
-Purpose: GEX, DEX, and OGL calculations (Simplified)
+Purpose: GEX (Gamma Exposure) and DEX (Delta Exposure) calculations from real options chain data
+
+Last Updated: 2026-03-03 Time: 00:00:00
+
+Description:
+    Computes Net Gamma Exposure (GEX) and Net Delta Exposure (DEX) for SPY from
+    the live options chain sourced through SpyderN09_GammaExposure or directly
+    from the SpyderB30_SPYOptionsChainManager snapshot.
+
+    GEX formula (per strike):
+        GEX = open_interest × gamma × contract_multiplier² × spot_price
+    Net GEX = sum(call GEX) - sum(put GEX)
+
+    A negative net GEX indicates dealers are short gamma — expect amplified moves.
+    A positive net GEX indicates dealers are long gamma — expect mean-reversion.
+
+    OGL (Options Gravity Level) is the strike with maximum absolute GEX, i.e. the
+    level at which dealer hedging flow is largest (effectively max-pain by gamma).
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import logging
-import random
 from datetime import datetime
+from typing import Optional
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    logger = SpyderLogger
+except ImportError:
+    logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+CONTRACT_MULTIPLIER = 100  # Standard US equity option multiplier
+
+
+# ==============================================================================
+# EXCEPTIONS
+# ==============================================================================
+class DataUnavailableError(RuntimeError):
+    """Raised when required options chain data is not available."""
+    pass
+
 
 # ==============================================================================
 # MAIN CALCULATOR CLASS
 # ==============================================================================
-
-
 class GEXDEXCalculator:
     """
-    Simplified GEX/DEX/OGL Calculator with simulated data
+    Computes Net Gamma Exposure (GEX), Net Delta Exposure (DEX), and the
+    Options Gravity Level (OGL) from a live SPY options chain snapshot.
+
+    Usage::
+
+        calc = GEXDEXCalculator()
+        result = calc.calculate_all(chain_df, spot_price=580.0)
+
+    Args:
+        chain_df (pd.DataFrame): Options chain with columns:
+            strike, option_type ('call'/'put'), open_interest,
+            gamma, delta, implied_volatility.
+        spot_price (float): Current underlying price.
     """
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.info("GEXDEXCalculator initialized (simplified)")
+        self.logger.info("GEXDEXCalculator initialized (real options chain mode)")
+        self._last_result: Optional[dict] = None
 
-    def calculate_all(self) -> dict:
-        """Calculate GEX, DEX, and OGL with simulated data"""
-        return self.calculate_simulated()
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    def calculate_simulated(self) -> dict:
-        """Generate simulated GEX/DEX/OGL for testing"""
+    def calculate_all(self, chain_df=None, spot_price: Optional[float] = None) -> dict:
+        """
+        Compute GEX, DEX and OGL from an options chain snapshot.
+
+        Args:
+            chain_df: DataFrame with options chain data (strikes, OI, greeks).
+            spot_price: Current SPY spot price.
+
+        Returns:
+            dict with keys: gex, dex, ogl, timestamp, num_strikes, data_source.
+
+        Raises:
+            DataUnavailableError: If chain_df is None or empty and no cached
+                result is available.
+        """
+        if chain_df is not None and len(chain_df) > 0:
+            result = self._compute_from_chain(chain_df, spot_price)
+            self._last_result = result
+            return result
+
+        # Attempt to pull chain from SpyderN09 / SpyderB30 if no data passed
+        try:
+            result = self._compute_from_internal_sources(spot_price)
+            self._last_result = result
+            return result
+        except Exception as exc:
+            raise DataUnavailableError(
+                "GEX/DEX calculation requires a live options chain snapshot. "
+                "Ensure SpyderN09_GammaExposure or SpyderB30_SPYOptionsChainManager "
+                f"is running and providing data. Root cause: {exc}"
+            ) from exc
+
+    def get_gex(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+        """
+        Return net GEX in billions of dollars.
+
+        Raises:
+            DataUnavailableError: If no options chain data is available.
+        """
+        return self.calculate_all(chain_df, spot_price)["gex"]
+
+    def get_dex(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+        """
+        Return net DEX in millions of dollars.
+
+        Raises:
+            DataUnavailableError: If no options chain data is available.
+        """
+        return self.calculate_all(chain_df, spot_price)["dex"]
+
+    def get_ogl(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+        """
+        Return the Options Gravity Level (max-gamma strike) in dollars.
+
+        Raises:
+            DataUnavailableError: If no options chain data is available.
+        """
+        return self.calculate_all(chain_df, spot_price)["ogl"]
+
+    # ------------------------------------------------------------------
+    # Internal computation
+    # ------------------------------------------------------------------
+
+    def _compute_from_chain(self, chain_df, spot_price: Optional[float]) -> dict:
+        """Compute GEX/DEX from a DataFrame with options chain data."""
+        import pandas as pd
+
+        df = chain_df.copy()
+
+        required = {"strike", "option_type", "open_interest", "gamma", "delta"}
+        missing = required - set(df.columns)
+        if missing:
+            raise DataUnavailableError(
+                f"Options chain DataFrame is missing required columns: {missing}"
+            )
+
+        # Normalise option_type
+        df["option_type"] = df["option_type"].str.lower()
+
+        calls = df[df["option_type"] == "call"]
+        puts = df[df["option_type"] == "put"]
+
+        # GEX per contract = OI × gamma × multiplier²× spot
+        spot = spot_price if spot_price else 1.0
+
+        call_gex = (calls["open_interest"] * calls["gamma"]
+                    * CONTRACT_MULTIPLIER ** 2 * spot).sum()
+        put_gex = (puts["open_interest"] * puts["gamma"]
+                   * CONTRACT_MULTIPLIER ** 2 * spot).sum()
+
+        net_gex = call_gex - put_gex  # dollars
+        net_gex_billions = net_gex / 1e9
+
+        # DEX = sum(OI × delta × multiplier × spot)
+        call_dex = (calls["open_interest"] * calls["delta"]
+                    * CONTRACT_MULTIPLIER * spot).sum()
+        put_dex = (puts["open_interest"] * puts["delta"]
+                   * CONTRACT_MULTIPLIER * spot).sum()
+        net_dex_millions = (call_dex + put_dex) / 1e6
+
+        # OGL — strike where |GEX| is largest (dealer hedging gravity)
+        df["gex_contrib"] = np.where(
+            df["option_type"] == "call",
+            df["open_interest"] * df["gamma"] * CONTRACT_MULTIPLIER ** 2 * spot,
+            -df["open_interest"] * df["gamma"] * CONTRACT_MULTIPLIER ** 2 * spot,
+        )
+        by_strike = df.groupby("strike")["gex_contrib"].sum()
+        ogl = float(by_strike.abs().idxmax()) if not by_strike.empty else (spot_price or 0.0)
+
         return {
-            "gex": -2.5e9 + random.gauss(0, 0.5e9),  # Billions
-            "dex": 850e6 + random.gauss(0, 100e6),  # Millions
-            "ogl": 585.5 + random.gauss(0, 1),  # Price level
+            "gex": net_gex_billions,
+            "dex": net_dex_millions,
+            "ogl": ogl,
             "timestamp": datetime.now(),
+            "num_strikes": int(df["strike"].nunique()),
+            "data_source": "live_chain",
         }
 
-    def get_gex(self) -> float:
-        """Get current GEX value"""
-        data = self.calculate_all()
-        return data.get("gex", 0) / 1e9  # Return in billions
+    def _compute_from_internal_sources(self, spot_price: Optional[float]) -> dict:
+        """Try to obtain chain data from SpyderN09 or SpyderB30 singletons."""
+        # Try SpyderN09_GammaExposure first
+        try:
+            from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
+            gex_calc = GammaExposureCalculator()
+            result = gex_calc.get_spy_gex_summary()
+            return {
+                "gex": result.get("net_gex_billions", 0.0),
+                "dex": result.get("net_dex_millions", 0.0),
+                "ogl": result.get("max_gamma_strike", spot_price or 0.0),
+                "timestamp": datetime.now(),
+                "num_strikes": result.get("num_strikes", 0),
+                "data_source": "SpyderN09_GammaExposure",
+            }
+        except Exception:
+            pass
 
-    def get_dex(self) -> float:
-        """Get current DEX value"""
-        data = self.calculate_all()
-        return data.get("dex", 0) / 1e6  # Return in millions
-
-    def get_ogl(self) -> float:
-        """Get current OGL value"""
-        data = self.calculate_all()
-        return data.get("ogl", 585.5)
+        # Fallback: SpyderB30 chain snapshot
+        from SpyderB_Broker.SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
+        chain_mgr = SPYOptionsChainManager()
+        chain_df = chain_mgr.get_chain_snapshot()
+        sp = spot_price or chain_mgr.get_spot_price()
+        return self._compute_from_chain(chain_df, sp)
 
 
-# Module-level instance
-_gex_calculator = None
+# ==============================================================================
+# MODULE-LEVEL SINGLETON
+# ==============================================================================
+_gex_calculator: Optional[GEXDEXCalculator] = None
 
 
 def get_gex_calculator() -> GEXDEXCalculator:
-    """Get singleton GEX calculator instance"""
+    """Return the module-level GEXDEXCalculator singleton."""
     global _gex_calculator
     if _gex_calculator is None:
         _gex_calculator = GEXDEXCalculator()
     return _gex_calculator
+

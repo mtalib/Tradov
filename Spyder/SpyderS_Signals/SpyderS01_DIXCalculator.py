@@ -70,6 +70,11 @@ BATCH_DELAY = 1.0  # seconds between batches
 MIN_VOLUME_THRESHOLD = 0  # minimum volume to include in calculation
 MAX_RETRY_ATTEMPTS = 3
 
+class DataUnavailableError(RuntimeError):
+    """Raised when required market data cannot be obtained from real sources."""
+    pass
+
+
 # ==============================================================================
 # ENUMS
 # ==============================================================================
@@ -202,21 +207,12 @@ class SpyderDIXCalculator:
             return self._calculate_dix_simulated()
 
     def _calculate_dix_simulated(self):
-        """Generate simulated DIX result."""
-        import random
-        from datetime import datetime
-
-        dix_value = 42.5 + random.gauss(0, 2)
-        dix_value = max(20, min(70, dix_value))
-
-        # Create result object with dix_percentage attribute
-        class DIXSimulatedResult:
-            def __init__(self, value):
-                self.dix_percentage = value
-                self.timestamp = datetime.now()
-                self.status = "simulated"
-
-        return DIXSimulatedResult(dix_value)
+        """Simulation removed — raise DataUnavailableError when real data is unavailable."""
+        raise DataUnavailableError(
+            "DIX data is unavailable: FINRA short volume data could not be fetched. "
+            "Check network connectivity and FINRA data source availability. "
+            "Simulated DIX values have been disabled to prevent fake signals."
+        )
 
     def run_calculation(self, date: str | None = None) -> dict | None:
         """
@@ -570,114 +566,25 @@ class DIXCalculator:
 
 
     def calculate_dix_internal(self) -> DIXResult:
-        """Internal DIX calculation with fallback"""
-        try:
-            # Try to use SpyderDIXCalculator if available
-            calc = SpyderDIXCalculator()
-            return calc.calculate_dix()
-        except Exception:
-            # Fallback to simulated data
-            import random
-            from datetime import datetime
-
-            dix_value = 42.5 + random.gauss(0, 2)
-            return DIXResult(
-                dix_percentage=dix_value,
-                dark_volume=1000000 + int(random.gauss(0, 100000)),
-                total_volume=2500000 + int(random.gauss(0, 200000)),
-                sp500_count=500,
-                calculated_stocks=450,
-                data_source=DataSource.SIMULATED,
-                status=CalculationStatus.SUCCESS,
-                timestamp=datetime.now(),
-                errors=[]
-            )
+        """Internal DIX calculation — delegates to SpyderDIXCalculator."""
+        calc = SpyderDIXCalculator()
+        return calc.calculate_dix()
 
     def calculate_dix(self):
-        """Calculate DIX using available data"""
-        try:
-            result = self.calculate_dix_internal()
-            if result is None:
-                raise ValueError("No result from internal calculation")
-            return result
-        except Exception:
-            # Return simulated data as a simple object
-            import random
-            from datetime import datetime
-
-            dix_value = 42.5 + random.gauss(0, 2)
-            dix_value = max(20, min(70, dix_value))
-
-            # Create a simple object with the dix_percentage attribute
-            class SimpleResult:
-                def __init__(self):
-                    self.dix_percentage = dix_value
-                    self.timestamp = datetime.now()
-
-            return SimpleResult()
+        """Calculate DIX using available data — raises DataUnavailableError on failure."""
+        result = self.calculate_dix_internal()
+        if result is None:
+            raise DataUnavailableError(
+                "DIX calculation returned no result. "
+                "Ensure FINRA short volume data is accessible."
+            )
+        return result
 
     def calculate_dix_simulated(self) -> dict:
-        """Generate simulated DIX data for testing"""
-        import random
-        from datetime import datetime
-
-        dix_value = 42.5 + random.gauss(0, 2)
-        dix_value = max(20, min(70, dix_value))  # Keep within realistic range
-
-        # Create DIXResult with the correct parameters
-        # Based on what we found, DIXResult likely uses these parameters:
-        # Use minimal parameters that should work
-        return DIXResult(
-            dix_percentage=dix_value,
-            sp500_count=500,
-            calculated_stocks=450,
-            data_source=DataSource.SIMULATED if hasattr(DataSource, 'SIMULATED') else "simulated",
-            status=CalculationStatus.SUCCESS if hasattr(CalculationStatus, 'SUCCESS') else "success",
-            timestamp=datetime.now(),
-            errors=[]
-        )
-        """Generate simulated DIX data for testing"""
-        import random
-        from datetime import datetime
-
-        dix_value = 42.5 + random.gauss(0, 2)
-        dix_value = max(20, min(70, dix_value))  # Keep within realistic range
-
-        # Use the enum values properly
-        try:
-            data_source = DataSource.SIMULATED
-        except Exception:
-            data_source = "simulated"  # Fallback to string
-
-        try:
-            status = CalculationStatus.SUCCESS
-        except Exception:
-            status = "success"  # Fallback to string
-
-        return DIXResult(
-            dix_percentage=dix_value,
-            dark_volume=int(1000000 + random.gauss(0, 100000)),
-            total_volume=int(2500000 + random.gauss(0, 200000)),
-            sp500_count=500,
-            calculated_stocks=450,
-            data_source=data_source,
-            status=status,
-            timestamp=datetime.now(),
-            errors=[]
-        )
-        """Calculate DIX with simulated data for testing"""
-        import random
-        dix_value = 42.5 + random.gauss(0, 2)
-        return DIXResult(
-            dix_percentage=dix_value,
-            dark_volume=int(1000000 + random.gauss(0, 100000)),
-            total_volume=int(2500000 + random.gauss(0, 200000)),
-            sp500_count=500,
-            calculated_stocks=450,
-            data_source=DataSource.SIMULATED,
-            status=CalculationStatus.SUCCESS,
-            timestamp=datetime.now(),
-            errors=[]
+        """Simulation removed — raises DataUnavailableError."""
+        raise DataUnavailableError(
+            "DIX simulation is disabled. Spyder requires real FINRA short volume "
+            "data. Ensure network access to FINRA data sources is available."
         )
 
 # Singleton instance

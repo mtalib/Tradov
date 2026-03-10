@@ -78,6 +78,12 @@ UPDATE_INTERVAL = 300     # Update interval in seconds (5 minutes)
 
 # SKEW Index Parameters (CBOE methodology)
 SKEW_BASE = 100          # Base SKEW value
+
+
+class DataUnavailableError(RuntimeError):
+    """Raised when required options chain data cannot be obtained from real sources."""
+    pass
+
 SKEW_MULTIPLIER = 10     # Multiplier for third moment
 REFERENCE_STRIKE = 1.0   # ATM reference
 
@@ -1142,25 +1148,13 @@ class SpyderS06_SKEWCalculator:
 
 
     def _calculate_skew_simulated(self):
-        """Generate simulated SKEW value."""
-        import random
-        from datetime import datetime
-
-        # SKEW typically ranges from 100 to 150
-        skew_value = 120 + random.gauss(0, 10)
-        skew_value = max(100, min(150, skew_value))
-
-        # Create result object
-        class SKEWSimulatedResult:
-            def __init__(self, value):
-                self.skew_index = value
-                self.timestamp = datetime.now()
-                self.spot_price = 550.0  # Simulated SPY price
-                self.strikes_used = 20   # Simulated strikes
-                self.confidence = 0.75   # Simulated confidence
-                self.calculation_time = 100  # ms
-
-        return SKEWSimulatedResult(skew_value)
+        """Simulation removed — raise DataUnavailableError when real data is unavailable."""
+        raise DataUnavailableError(
+            "SKEW data is unavailable: options chain data could not be fetched. "
+            "Ensure the options chain provider (SpyderC03_OptionChain or SpyderB30) "
+            "is running and returning valid data. "
+            "Simulated SKEW values have been disabled to prevent fake signals."
+        )
 
     def cleanup(self) -> None:
         """Cleanup resources"""

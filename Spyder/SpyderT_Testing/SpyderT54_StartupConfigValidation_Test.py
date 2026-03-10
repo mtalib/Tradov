@@ -91,7 +91,6 @@ def _patched_module(env_overrides: dict) -> Iterator[None]:
     # Save original values
     orig_tradier = dict(_cfg_mod.TRADIER_CONFIG)
     orig_databento = dict(_cfg_mod.DATABENTO_CONFIG)
-    orig_polygon = dict(_cfg_mod.POLYGON_CONFIG)
     orig_provider = _cfg_mod.DATA_PROVIDER
 
     # Apply env-driven state to module-level dicts
@@ -100,7 +99,6 @@ def _patched_module(env_overrides: dict) -> Iterator[None]:
     provider = env_overrides.get("DATA_PROVIDER", "databento")
     _cfg_mod.DATA_PROVIDER = provider
     _cfg_mod.DATABENTO_CONFIG["api_key"] = env_overrides.get("DATABENTO_API_KEY", "")
-    _cfg_mod.POLYGON_CONFIG["api_key"] = env_overrides.get("POLYGON_API_KEY", "")
 
     with patch.dict(os.environ, env_overrides, clear=False):
         try:
@@ -108,7 +106,6 @@ def _patched_module(env_overrides: dict) -> Iterator[None]:
         finally:
             _cfg_mod.TRADIER_CONFIG.update(orig_tradier)
             _cfg_mod.DATABENTO_CONFIG.update(orig_databento)
-            _cfg_mod.POLYGON_CONFIG.update(orig_polygon)
             _cfg_mod.DATA_PROVIDER = orig_provider
 
 
@@ -158,12 +155,11 @@ class TestValidateStartupConfigSuccess(unittest.TestCase):
         with _patched_module(env):
             validate_startup_config()
 
-    def test_polygon_provider_with_key(self):
+    def test_databento_provider_with_key(self):
         env = {
             **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "polygon",
-            "POLYGON_API_KEY": "poly-key-123",
-            "DATABENTO_API_KEY": "",  # not needed when polygon
+            "DATA_PROVIDER": "databento",
+            "DATABENTO_API_KEY": "db-key-123",
         }
         with _patched_module(env):
             validate_startup_config()
@@ -234,39 +230,23 @@ class TestValidateStartupConfigDataProvider(unittest.TestCase):
             validate_startup_config()
         self.assertIn("DATABENTO_API_KEY", str(ctx.exception))
 
-    def test_missing_polygon_key_raises(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "polygon",
-            "POLYGON_API_KEY": "",
-            "DATABENTO_API_KEY": "irrelevant",
-        }
+    def test_invalid_provider_name_raises(self):
+        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "polygon"}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
-        self.assertIn("POLYGON_API_KEY", str(ctx.exception))
+        self.assertIn("DATA_PROVIDER", str(ctx.exception))
 
-    def test_invalid_provider_name_raises(self):
+    def test_unknown_provider_raises(self):
         env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "quandl"}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
         self.assertIn("DATA_PROVIDER", str(ctx.exception))
 
-    def test_databento_key_not_required_for_polygon_mode(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "polygon",
-            "POLYGON_API_KEY": "poly-key",
-            "DATABENTO_API_KEY": "",
-        }
-        with _patched_module(env):
-            validate_startup_config()  # must not raise
-
-    def test_polygon_key_not_required_for_databento_mode(self):
+    def test_databento_key_required_when_databento_mode(self):
         env = {
             **_VALID_SANDBOX_ENV,
             "DATA_PROVIDER": "databento",
             "DATABENTO_API_KEY": "db-key",
-            "POLYGON_API_KEY": "",
         }
         with _patched_module(env):
             validate_startup_config()  # must not raise

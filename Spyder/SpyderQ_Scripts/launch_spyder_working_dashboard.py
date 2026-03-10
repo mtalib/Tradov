@@ -44,13 +44,6 @@ except ImportError as e:
     print(f"ERROR: PySide6 not available: {e}")
     HAS_QT = False
 
-try:
-    from ib_async import IB, Stock  # noqa: F401
-    HAS_IB_ASYNC = True
-except ImportError as e:
-    print(f"WARNING: ib_async not available: {e}")
-    HAS_IB_ASYNC = False
-
 
 class WorkingSpyderDashboard(QMainWindow):
     """Working SPYDER Dashboard with basic trading functionality"""
@@ -157,10 +150,8 @@ class WorkingSpyderDashboard(QMainWindow):
         """)
 
         self.init_ui()
-        self.setup_ib_connection()
+        self.setup_tradier_connection()
         self.setup_timers()
-
-        # IB Gateway fixes removed - no longer needed
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -200,11 +191,11 @@ class WorkingSpyderDashboard(QMainWindow):
 
         # Connection status
         status_layout = QHBoxLayout()
-        self.connection_status = QLabel("❌ Not connected to IB Gateway")
-        self.connection_status.setStyleSheet("color: #fc8181; font-size: 14px;")
+        self.connection_status = QLabel("🟡 Tradier API (sandbox mode)")
+        self.connection_status.setStyleSheet("color: #fbd38d; font-size: 14px;")
 
-        self.connect_btn = QPushButton("🔌 Connect to IB Gateway")
-        self.connect_btn.clicked.connect(self.connect_to_gateway)
+        self.connect_btn = QPushButton("🔌 Test Tradier Connection")
+        self.connect_btn.clicked.connect(self.test_tradier_connection)
 
         self.disconnect_btn = QPushButton("🔌 Disconnect")
         self.disconnect_btn.clicked.connect(self.disconnect_from_gateway)
@@ -357,9 +348,8 @@ class WorkingSpyderDashboard(QMainWindow):
 
         return tab
 
-    def setup_ib_connection(self):
-        """Set up IB connection"""
-        self.ib = None
+    def setup_tradier_connection(self):
+        """Set up broker connection state (Tradier REST API)"""
         self.is_connected = False
 
     def setup_timers(self):
@@ -374,150 +364,138 @@ class WorkingSpyderDashboard(QMainWindow):
         self.market_data_timer.timeout.connect(self.update_market_data)
         self.market_data_timer.start(1000)  # Update every second
 
-    def apply_1039_fixes(self):
-        """IB Gateway 10.39 fixes removed - no longer needed"""
-        self.log_area.append("ℹ️ IB Gateway 10.39 fixes have been removed")
-
-    def connect_to_gateway(self):
-        """Connect to IB Gateway"""
-        if not HAS_IB_ASYNC:
-            self.connection_status.setText("❌ ib_async not available")
-            self.log_area.append("❌ ib_async not available")
-            return
-
+    def test_tradier_connection(self):
+        """Test connectivity to the Tradier API."""
+        import os
+        import requests
         self.status_bar.setVisible(True)
         self.connect_btn.setEnabled(False)
-        self.connection_status.setText("🔄 Connecting to IB Gateway...")
+        self.connection_status.setText("🔄 Testing Tradier connection...")
         self.connection_status.setStyleSheet("color: #fbd38d; font-size: 14px;")
-        self.log_area.append("🔄 Connecting to IB Gateway...")
+        self.log_area.append("🔄 Testing Tradier API connectivity...")
 
         try:
-            # Create IB instance
-            self.ib = IB()
+            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            base_url = (
+                "https://api.tradier.com/v1"
+                if env == "production"
+                else "https://sandbox.tradier.com/v1"
+            )
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+            resp = requests.get(f"{base_url}/user/profile", headers=headers, timeout=10)
 
-            # Connect to Gateway
-            self.ib.connect('127.0.0.1', 4002, clientId=999, timeout=30)
-
-            if self.ib.isConnected():
+            if resp.status_code == 200:
                 self.is_connected = True
-                self.connection_status.setText("✅ Connected to IB Gateway")
+                self.connection_status.setText("✅ Tradier API connected")
                 self.connection_status.setStyleSheet("color: #68d391; font-size: 14px;")
-                self.connect_btn.setEnabled(False)
+                self.log_area.append("✅ Tradier API reachable")
                 self.disconnect_btn.setEnabled(True)
-                self.log_area.append("✅ Connected to IB Gateway")
-
-                # Get account info
-                try:
-                    accounts = self.ib.managedAccounts()
-                    account_info = f"Accounts: {', '.join(accounts)}"
-                    self.log_area.append(f"📋 {account_info}")
-
-                    # Update portfolio
-                    self.update_portfolio()
-                except Exception as e:
-                    self.log_area.append(f"❌ Error getting account info: {e}")
+                self.connect_btn.setEnabled(False)
             else:
-                self.is_connected = False
-                self.connection_status.setText("❌ Failed to connect to IB Gateway")
+                self.connection_status.setText(f"❌ Tradier error {resp.status_code}")
                 self.connection_status.setStyleSheet("color: #fc8181; font-size: 14px;")
+                self.log_area.append(f"❌ Tradier API returned HTTP {resp.status_code}")
                 self.connect_btn.setEnabled(True)
-                self.log_area.append("❌ Failed to connect to IB Gateway")
-
-        except Exception as e:
-            self.is_connected = False
-            self.connection_status.setText(f"❌ Connection error: {e}")
+        except Exception as exc:
+            self.connection_status.setText(f"❌ Connection error: {exc}")
             self.connection_status.setStyleSheet("color: #fc8181; font-size: 14px;")
+            self.log_area.append(f"❌ Tradier connection failed: {exc}")
             self.connect_btn.setEnabled(True)
-            self.log_area.append(f"❌ Connection error: {e}")
 
         self.status_bar.setVisible(False)
 
     def disconnect_from_gateway(self):
-        """Disconnect from IB Gateway"""
-        if self.ib and self.ib.isConnected():
-            try:
-                self.ib.disconnect()
-                self.is_connected = False
-                self.connection_status.setText("🔌 Disconnected from IB Gateway")
-                self.connection_status.setStyleSheet("color: #fbd38d; font-size: 14px;")
-                self.disconnect_btn.setEnabled(False)
-                self.connect_btn.setEnabled(True)
-                self.log_area.append("🔌 Disconnected from IB Gateway")
-            except Exception as e:
-                self.connection_status.setText(f"❌ Disconnect error: {e}")
-                self.log_area.append(f"❌ Disconnect error: {e}")
+        """Reset Tradier connection state."""
+        self.is_connected = False
+        self.connection_status.setText("🔌 Disconnected")
+        self.connection_status.setStyleSheet("color: #fbd38d; font-size: 14px;")
+        self.disconnect_btn.setEnabled(False)
+        self.connect_btn.setEnabled(True)
+        self.log_area.append("🔌 Tradier connection reset")
 
     def update_portfolio(self):
-        """Update portfolio display"""
-        if not self.ib or not self.ib.isConnected():
-            return
-
+        """Update portfolio display (Tradier positions)."""
+        import os, requests
         try:
-            # Get portfolio
-            portfolio = []
-            for account in self.ib.managedAccounts():
-                for item in self.ib.portfolio(account):
-                    portfolio.append(item)
-
-            # Update table
-            self.portfolio_table.setRowCount(len(portfolio))
-
-            for row, item in enumerate(portfolio):
-                self.portfolio_table.setItem(row, 0, QTableWidgetItem(item.contract.symbol))
-                self.portfolio_table.setItem(row, 1, QTableWidgetItem(str(item.position)))
-                self.portfolio_table.setItem(row, 2, QTableWidgetItem(str(item.marketPrice)))
-                self.portfolio_table.setItem(row, 3, QTableWidgetItem(str(item.marketValue)))
-                self.portfolio_table.setItem(row, 4, QTableWidgetItem(str(item.unrealizedPNL)))
-
-        except Exception as e:
+            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            base_url = (
+                "https://api.tradier.com/v1"
+                if env == "production"
+                else "https://sandbox.tradier.com/v1"
+            )
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+            resp = requests.get(
+                f"{base_url}/accounts/{account_id}/positions",
+                headers=headers, timeout=10
+            )
+            if resp.status_code != 200:
+                return
+            positions = resp.json().get("positions", {}).get("position", []) or []
+            if isinstance(positions, dict):
+                positions = [positions]
+            self.portfolio_table.setRowCount(len(positions))
+            for row, pos in enumerate(positions):
+                self.portfolio_table.setItem(row, 0, QTableWidgetItem(pos.get("symbol", "")))
+                self.portfolio_table.setItem(row, 1, QTableWidgetItem(str(pos.get("quantity", ""))))
+                self.portfolio_table.setItem(row, 2, QTableWidgetItem(str(pos.get("cost_basis", ""))))
+                self.portfolio_table.setItem(row, 3, QTableWidgetItem("-"))
+                self.portfolio_table.setItem(row, 4, QTableWidgetItem("-"))
+        except Exception as exc:
+            self.log_area.append(f"❌ Portfolio update error: {exc}")
             self.log_area.append(f"❌ Error updating portfolio: {e}")
 
     def update_market_data(self):
-        """Update market data display"""
+        """Update market data display via Tradier quotes."""
         if not self.is_connected:
             return
-
-        # For now, just display placeholder data
-        # In a real implementation, you would subscribe to market data
-        import random
-
-        last_price = 450 + random.uniform(-5, 5)
-        bid_price = last_price - random.uniform(0.01, 0.05)
-        ask_price = last_price + random.uniform(0.01, 0.05)
-
-        self.last_price.setText(f"Last: {last_price:.2f}")
-        self.bid_price.setText(f"Bid: {bid_price:.2f}")
-        self.ask_price.setText(f"Ask: {ask_price:.2f}")
+        import os, requests
+        try:
+            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            base_url = (
+                "https://api.tradier.com/v1"
+                if env == "production"
+                else "https://sandbox.tradier.com/v1"
+            )
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+            resp = requests.get(
+                f"{base_url}/markets/quotes",
+                params={"symbols": "SPY"},
+                headers=headers, timeout=5
+            )
+            if resp.status_code == 200:
+                quote = resp.json().get("quotes", {}).get("quote", {})
+                self.last_price.setText(f"Last: {quote.get('last', '---')}")
+                self.bid_price.setText(f"Bid: {quote.get('bid', '---')}")
+                self.ask_price.setText(f"Ask: {quote.get('ask', '---')}")
+        except Exception:
+            pass
 
     def place_order(self, action):
-        """Place an order (placeholder implementation)"""
-        symbol = self.symbol_input.text().strip().upper()
-        if not symbol:
-            return
-
+        """Place an order (sends to Tradier — not yet wired to SpyderB40)."""
+        symbol = self.symbol_input.text().strip().upper() if hasattr(self.symbol_input, 'text') else "SPY"
         timestamp = datetime.now().strftime('%H:%M:%S')
-        order_text = f"[{timestamp}] {action} {symbol} (placeholder implementation)"
+        order_text = f"[{timestamp}] {action} {symbol} (route to SpyderB40_TradierClient)"
         self.order_history.append(order_text)
-        self.log_area.append(f"📊 {action} order for {symbol} (placeholder)")
+        self.log_area.append(f"📊 {action} order queued for {symbol} — connect to SpyderB40 to execute")
 
     def update_status(self):
         """Update status displays"""
-        # Update system status
         system_info = f"""System Status:
 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 Modules:
-- PySide6: {'✅ Available' if HAS_QT else '❌ Not Available'}
-- ib_async: {'✅ Available' if HAS_IB_ASYNC else '❌ Not Available'}
+- PySide6: {'\u2705 Available' if HAS_QT else '\u274c Not Available'}
 
-Gateway:
-- Process Running: {'✅ Yes' if os.system('pgrep -f ibgateway > /dev/null 2>&1') == 0 else '❌ No'}
-- Port 4002: {'✅ Accessible' if os.system('timeout 2 bash -c "</dev/tcp/127.0.0.1/4002" > /dev/null 2>&1') == 0 else '❌ Not Accessible'}
+Broker:
+- Tradier API: {'\u2705 Connected' if self.is_connected else '\u274c Not Connected'}
 
-IB Connection:
-- Connected: {'✅ Yes' if self.is_connected else '❌ No'}
+Market Data:
+- Databento: configured via DATABENTO_API_KEY env var
 """
-
         self.system_status.setPlainText(system_info)
 
 

@@ -95,17 +95,6 @@ if "psutil" not in sys.modules:
 else:
     _psutil = sys.modules["psutil"]
 
-# ---- ib_async stub -----------------------------------------------------------
-if "ib_async" not in sys.modules:
-    _ib_async = types.ModuleType("ib_async")
-    _ib_async.IB = MagicMock
-    _ib_async.Contract = MagicMock
-    _ib_async.Order = MagicMock
-    _ib_async.Trade = MagicMock
-    _ib_async.Fill = MagicMock
-    _ib_async.OrderStatus = MagicMock
-    sys.modules["ib_async"] = _ib_async
-
 # ---- sseclient stub (optional) -----------------------------------------------
 if "sseclient" not in sys.modules:
     _sseclient = types.ModuleType("sseclient")

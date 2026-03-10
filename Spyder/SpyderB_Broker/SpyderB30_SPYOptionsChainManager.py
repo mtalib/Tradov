@@ -345,7 +345,7 @@ class SPYOptionsChainManager:
         try:
             if not ib_async_AVAILABLE:
                 self.logger.error(
-                    "ib_async not available - install with: pip install ib_async"
+                    "IBContract / SecurityType not available — check SpyderB10_IBDataTypes import"
                 )
                 return False
 
@@ -360,7 +360,7 @@ class SPYOptionsChainManager:
             self._initialize_options_chains()
 
             self.logger.info(
-                "SPY Options Chain Manager initialized successfully with ib_async"
+                "SPY Options Chain Manager initialized successfully"
             )
             return True
 

@@ -317,8 +317,8 @@ class DashboardIntegrationVerifier:
         data_paths = {
             "Q-Scripts → Dashboard": True,
             "Dashboard → Risk Dialog": True,
-            "IB Gateway → Multi-Client Manager": True,
-            "Multi-Client → Dashboard": True,
+            "Tradier API → Dashboard": True,
+            "Databento Feed → Dashboard": True,
             "Prometheus → Metrics Display": True,
             "System Monitor → Health Panel": True,
         }

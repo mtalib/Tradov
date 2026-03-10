@@ -109,7 +109,7 @@ REQUIRED_PACKAGES = [
     "psutil",
     "requests",
     "PyQt6",
-    "ib_async",
+    "databento",
     "prometheus_client",
     "asyncio",
     "websockets",
@@ -130,7 +130,9 @@ CONFIG_FILES = [
 
 # Network endpoints to test
 NETWORK_ENDPOINTS = {
-    "IB Gateway": ("localhost", 7497),
+    "Tradier API": ("api.tradier.com", 443),
+    "Tradier Sandbox": ("sandbox.tradier.com", 443),
+    "Databento API": ("hist.databento.com", 443),
     "Prometheus": ("localhost", 9090),
     "Grafana": ("localhost", 3000),
     "Web Dashboard": ("localhost", 8080),

@@ -5,14 +5,14 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderX_Unknown
 Module: config.py
-Purpose: SPYDER - Tradier + Polygon Configuration
+Purpose: SPYDER - Tradier + Databento Configuration
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
-    SPYDER - Tradier + Polygon Configuration
+    SPYDER - Tradier + Databento Configuration
 
 Change Log:
     2026-03-03:
@@ -104,32 +104,6 @@ DATABENTO_CONFIG = {
 }
 
 # ==============================================================================
-# POLYGON.IO API CONFIGURATION (LEGACY — migrating to Databento)
-# ==============================================================================
-POLYGON_CONFIG = {
-    "api_key": os.environ.get("POLYGON_API_KEY", ""),
-
-    # URLs
-    "rest_url": os.environ.get("POLYGON_REST_URL", "https://api.polygon.io"),
-    "ws_url": os.environ.get("POLYGON_WS_URL", "wss://socket.polygon.io"),
-
-    # Subscription Settings
-    "subscribe_trades": os.environ.get("POLYGON_SUBSCRIBE_TRADES", "true").lower() == "true",
-    "subscribe_quotes": os.environ.get("POLYGON_SUBSCRIBE_QUOTES", "true").lower() == "true",
-    "subscribe_aggregates": os.environ.get("POLYGON_SUBSCRIBE_AGGREGATES", "true").lower() == "true",
-
-    # Default Symbols
-    "default_symbols": os.environ.get("POLYGON_SYMBOLS", "SPY,QQQ,IWM").split(","),
-
-    # Connection Settings
-    "reconnect_delay": 5,
-    "max_reconnect_attempts": 10,
-
-    # Rate Limiting (Polygon Starter: 5/min REST, Business: 100/min)
-    "rest_requests_per_minute": int(os.environ.get("POLYGON_RATE_LIMIT", "5")),
-}
-
-# ==============================================================================
 # TRADING MODE CONFIGURATION
 # ==============================================================================
 TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
@@ -138,7 +112,7 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento, polygon (legacy)
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento (Tradier quotes for testing)
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
 # ==============================================================================
@@ -310,13 +284,12 @@ def get_active_config():
         "tradier_account_id": TRADIER_CONFIG["account_id"],
         "databento_dataset": DATABENTO_CONFIG["dataset"],
         "databento_live_schema": DATABENTO_CONFIG["live_schema"],
-        "polygon_ws_url": POLYGON_CONFIG["ws_url"],
         "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
     }
 
 
 def validate_config():
-    """Validate Tradier + Polygon configuration"""
+    """Validate Tradier + Databento configuration"""
     errors = []
 
     # Check Tradier configuration
@@ -325,13 +298,10 @@ def validate_config():
     if not TRADIER_CONFIG["account_id"]:
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
-    # Check market data configuration (Databento or Polygon)
+    # Check market data configuration (Databento)
     if DATA_PROVIDER == "databento":
         if not DATABENTO_CONFIG["api_key"]:
             errors.append("DATABENTO_API_KEY not set in .env")
-    elif DATA_PROVIDER == "polygon":
-        if not POLYGON_CONFIG["api_key"]:
-            errors.append("POLYGON_API_KEY not set in .env")
 
     # Check trading mode
     mode = os.environ.get("TRADING_MODE", "")
@@ -356,8 +326,7 @@ def validate_startup_config() -> None:
         - ``TRADIER_API_KEY``  — broker authentication
         - ``TRADIER_ACCOUNT_ID`` — account to trade in
         - ``TRADING_MODE``     — must be ``sandbox``, ``paper``, or ``live``
-        - the active data-provider key (``DATABENTO_API_KEY`` or
-          ``POLYGON_API_KEY`` depending on ``DATA_PROVIDER``)
+        - ``DATABENTO_API_KEY`` — market data (required when DATA_PROVIDER=databento)
 
     Required variables (live mode only):
         - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
@@ -386,12 +355,9 @@ def validate_startup_config() -> None:
     if provider == "databento":
         if not DATABENTO_CONFIG["api_key"]:
             problems.append("DATABENTO_API_KEY is not set (required when DATA_PROVIDER=databento)")
-    elif provider == "polygon":
-        if not POLYGON_CONFIG["api_key"]:
-            problems.append("POLYGON_API_KEY is not set (required when DATA_PROVIDER=polygon)")
     else:
         problems.append(
-            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento' or 'polygon'"
+            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento'"
         )
 
     # --- Live-trading safety gate --------------------------------------------

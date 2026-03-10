@@ -59,15 +59,6 @@ except ImportError as e:
     GUI_AVAILABLE = False
     sys.exit(1)
 
-# IB API imports
-try:
-    from ib_async import IB, util, Contract, Stock, Option  # noqa: F401
-
-    IB_AVAILABLE = True
-except ImportError as e:
-    print(f"❌ IB API imports failed: {e}")
-    IB_AVAILABLE = False
-
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -119,10 +110,6 @@ class DirectConnectionWorker(QThread):
 
     def run(self):
         """Run connection establishment in thread"""
-        if not IB_AVAILABLE:
-            logger.error("IB API not available")
-            return
-
         try:
             self.establish_connections()
         except Exception as e:
@@ -385,9 +372,9 @@ class MarketDataWidget(QWidget):
    3. Market data will start flowing once connected
 
 💡 Troubleshooting:
-   - Ensure IB Gateway is running locally
-   - Check that API is enabled in Gateway settings
-   - Verify socket port is set to 4002
+   - Ensure TRADIER_API_KEY is set in your .env file
+   - Check TRADIER_ENVIRONMENT (sandbox or production)
+   - Verify Databento API key for live market data
         """)
 
         layout.addWidget(self.data_display)
@@ -457,9 +444,9 @@ class SPYDERDirectDashboard(QMainWindow):
         config_layout = QVBoxLayout(config_group)
 
         self.config_label = QLabel("""
-        Host: 127.0.0.1
-        Port: 4002 (IB Gateway Paper)
-        Clients: 100-107 (Universal 8-Client)
+        Broker: Tradier REST API
+        Market Data: Databento streaming
+        Environment: sandbox / production (via .env)
         Mode: Direct Connection
         """)
         self.config_label.setStyleSheet(
@@ -546,7 +533,7 @@ class SPYDERDirectDashboard(QMainWindow):
         # Start worker
         self.connection_worker.start()
 
-        self.status_bar.showMessage("🔄 Establishing connections to IB Gateway...")
+        self.status_bar.showMessage("🔄 Establishing connections to Tradier API...")
 
     def stop_connections(self):
         """Stop all connections"""
@@ -616,9 +603,6 @@ def main():
     if not GUI_AVAILABLE:
         print("❌ GUI libraries not available")
         return 1
-
-    if not IB_AVAILABLE:
-        print("⚠️ IB API not available - connections will be simulated")
 
     # Create application
     app = QApplication(sys.argv)

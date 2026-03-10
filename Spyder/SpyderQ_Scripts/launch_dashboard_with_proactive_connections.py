@@ -448,7 +448,7 @@ class SPYDERTradingDashboard(QMainWindow):
         self.connection_widget.connect_btn.setText("🔄 Connecting...")
 
         self.connection_widget.update_status("Establishing connections...")
-        self.status_bar.showMessage("🔄 Connecting to IB Gateway...")
+        self.status_bar.showMessage("🔄 Connecting to Tradier API...")
 
         # Use the connection manager's dashboard trigger method
         self.connection_manager.trigger_connections_from_dashboard()
@@ -525,7 +525,7 @@ System Status: {"✅ OPERATIONAL" if summary["critical_connected"] == summary["c
         self.connection_widget.connect_btn.setText("🚀 Connect")
         self.connection_widget.connect_btn.setEnabled(True)
 
-        self.connection_widget.update_status("Connection failed - check IB Gateway")
+        self.connection_widget.update_status("Connection failed — check Tradier API key / .env")
 
     def show_error(self, message):
         """Show error message"""
@@ -570,7 +570,7 @@ def main():
     )
 
     print("✅ Dashboard launched successfully")
-    print("💡 Click 'Connect' button to establish IB Gateway connections")
+    print("💡 Click 'Connect' button to test the Tradier API connection")
 
     # Run application
     return app.exec()
