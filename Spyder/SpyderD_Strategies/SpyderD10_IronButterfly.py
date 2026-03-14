@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 SPYDER - Autonomous Options Trading System v1.0
 

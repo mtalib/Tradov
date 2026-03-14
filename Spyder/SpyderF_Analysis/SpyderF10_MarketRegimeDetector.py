@@ -258,6 +258,7 @@ class MarketRegimeDetector:
 
         # Monitoring
         self.monitoring_active = False
+        self._stop_event = threading.Event()
         self.monitor_thread: threading.Thread | None = None
 
         # Callbacks
@@ -285,6 +286,7 @@ class MarketRegimeDetector:
             return
 
         self.monitoring_active = True
+        self._stop_event.clear()
         self.monitor_thread = threading.Thread(
             target=self._monitoring_loop, name="RegimeDetector", daemon=True
         )
@@ -294,6 +296,7 @@ class MarketRegimeDetector:
     def stop_monitoring(self) -> None:
         """Stop regime monitoring."""
         self.monitoring_active = False
+        self._stop_event.set()
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=5.0)
         self.logger.info("Market regime monitoring stopped")
@@ -821,11 +824,11 @@ class MarketRegimeDetector:
                         self._load_configuration()
 
                 # Sleep
-                time.sleep(REGIME_UPDATE_INTERVAL)
+                self._stop_event.wait(REGIME_UPDATE_INTERVAL)
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_monitoring_loop")
-                time.sleep(REGIME_UPDATE_INTERVAL)
+                self._stop_event.wait(REGIME_UPDATE_INTERVAL)
 
     def _update_regime_state(self) -> None:
         """Update current regime state."""

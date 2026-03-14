@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP007
+from __future__ import annotations
 """
 SPYDER - Autonomous Options Trading System v1.0
 

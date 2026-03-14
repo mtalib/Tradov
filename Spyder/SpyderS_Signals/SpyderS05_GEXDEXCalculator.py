@@ -29,7 +29,6 @@ Description:
 # ==============================================================================
 import logging
 from datetime import datetime
-from typing import Optional
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -82,13 +81,13 @@ class GEXDEXCalculator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.logger.info("GEXDEXCalculator initialized (real options chain mode)")
-        self._last_result: Optional[dict] = None
+        self._last_result: dict | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def calculate_all(self, chain_df=None, spot_price: Optional[float] = None) -> dict:
+    def calculate_all(self, chain_df=None, spot_price: float | None = None) -> dict:
         """
         Compute GEX, DEX and OGL from an options chain snapshot.
 
@@ -120,7 +119,7 @@ class GEXDEXCalculator:
                 f"is running and providing data. Root cause: {exc}"
             ) from exc
 
-    def get_gex(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+    def get_gex(self, chain_df=None, spot_price: float | None = None) -> float:
         """
         Return net GEX in billions of dollars.
 
@@ -129,7 +128,7 @@ class GEXDEXCalculator:
         """
         return self.calculate_all(chain_df, spot_price)["gex"]
 
-    def get_dex(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+    def get_dex(self, chain_df=None, spot_price: float | None = None) -> float:
         """
         Return net DEX in millions of dollars.
 
@@ -138,7 +137,7 @@ class GEXDEXCalculator:
         """
         return self.calculate_all(chain_df, spot_price)["dex"]
 
-    def get_ogl(self, chain_df=None, spot_price: Optional[float] = None) -> float:
+    def get_ogl(self, chain_df=None, spot_price: float | None = None) -> float:
         """
         Return the Options Gravity Level (max-gamma strike) in dollars.
 
@@ -151,9 +150,8 @@ class GEXDEXCalculator:
     # Internal computation
     # ------------------------------------------------------------------
 
-    def _compute_from_chain(self, chain_df, spot_price: Optional[float]) -> dict:
+    def _compute_from_chain(self, chain_df, spot_price: float | None) -> dict:
         """Compute GEX/DEX from a DataFrame with options chain data."""
-        import pandas as pd
 
         df = chain_df.copy()
 
@@ -206,7 +204,7 @@ class GEXDEXCalculator:
             "data_source": "live_chain",
         }
 
-    def _compute_from_internal_sources(self, spot_price: Optional[float]) -> dict:
+    def _compute_from_internal_sources(self, spot_price: float | None) -> dict:
         """Try to obtain chain data from SpyderN09 or SpyderB30 singletons."""
         # Try SpyderN09_GammaExposure first
         try:
@@ -235,7 +233,7 @@ class GEXDEXCalculator:
 # ==============================================================================
 # MODULE-LEVEL SINGLETON
 # ==============================================================================
-_gex_calculator: Optional[GEXDEXCalculator] = None
+_gex_calculator: GEXDEXCalculator | None = None
 
 
 def get_gex_calculator() -> GEXDEXCalculator:

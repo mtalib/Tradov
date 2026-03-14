@@ -313,6 +313,7 @@ class PortfolioManager:
 
         # Threading
         self.is_managing = False
+        self._stop_event = threading.Event()
         self.management_thread: threading.Thread | None = None
         self.rebalance_thread: threading.Thread | None = None
 
@@ -520,6 +521,7 @@ class PortfolioManager:
                 return True
 
             self.is_managing = True
+            self._stop_event.clear()
             self.portfolio_state = PortfolioState.ACTIVE
 
             # Start management thread
@@ -554,6 +556,7 @@ class PortfolioManager:
         """
         try:
             self.is_managing = False
+            self._stop_event.set()
             self.portfolio_state = PortfolioState.SHUTDOWN
 
             # Wait for threads to complete
@@ -851,11 +854,11 @@ class PortfolioManager:
                 self._update_hedge_positions()
 
                 # Sleep until next update
-                time.sleep(PORTFOLIO_UPDATE_FREQUENCY)
+                self._stop_event.wait(PORTFOLIO_UPDATE_FREQUENCY)
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_portfolio_management_loop")
-                time.sleep(10)  # Wait longer on error
+                self._stop_event.wait(10)  # Wait longer on error
 
     def _rebalance_monitoring_loop(self) -> None:
         """Rebalancing monitoring loop"""
@@ -870,11 +873,11 @@ class PortfolioManager:
                 if self.pending_rebalances:
                     self._process_pending_rebalances()
 
-                time.sleep(REBALANCE_CHECK_FREQUENCY)
+                self._stop_event.wait(REBALANCE_CHECK_FREQUENCY)
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_rebalance_monitoring_loop")
-                time.sleep(60)
+                self._stop_event.wait(60)
 
     def _update_portfolio_metrics(self) -> None:
         """Update portfolio metrics"""

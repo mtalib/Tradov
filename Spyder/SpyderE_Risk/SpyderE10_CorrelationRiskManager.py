@@ -335,6 +335,7 @@ class CorrelationRiskManager:
 
         # Monitoring state
         self._running = False
+        self._stop_event = threading.Event()
         self._last_update = None
 
         self.logger.info("CorrelationRiskManager initialized")
@@ -384,6 +385,7 @@ class CorrelationRiskManager:
 
         try:
             self._running = True
+            self._stop_event.clear()
             self.status = RiskManagerStatus.RUNNING
 
             # Start monitoring thread
@@ -407,6 +409,7 @@ class CorrelationRiskManager:
         """
         try:
             self._running = False
+            self._stop_event.set()
             self.status = RiskManagerStatus.STOPPED
 
             if hasattr(self, '_monitoring_thread'):
@@ -1102,7 +1105,7 @@ class CorrelationRiskManager:
             try:
                 # This would integrate with data feeds in production
                 # For now, just sleep and perform maintenance
-                time.sleep(CORRELATION_UPDATE_FREQUENCY)
+                self._stop_event.wait(CORRELATION_UPDATE_FREQUENCY)
 
                 # Clean up old alerts
                 self._cleanup_old_alerts()
@@ -1115,7 +1118,7 @@ class CorrelationRiskManager:
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(60)  # Wait longer on error
+                self._stop_event.wait(60)  # Wait longer on error
 
         self.logger.info("Correlation risk monitoring loop stopped")
 

@@ -59,6 +59,14 @@ except ImportError as e:
     GUI_AVAILABLE = False
     sys.exit(1)
 
+# IB (Interactive Brokers) - optional legacy integration
+try:
+    from ib_insync import IB  # type: ignore[import-untyped]
+    IB_AVAILABLE = True
+except ImportError:
+    IB = None  # type: ignore[assignment]
+    IB_AVAILABLE = False
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -121,6 +129,13 @@ class DirectConnectionWorker(QThread):
 
         connected_count = 0
         total_clients = len(self.client_configs)
+
+        if not IB_AVAILABLE:
+            logger.error(
+                "ib_insync is not installed — IB connections unavailable. "
+                "Use SpyderB40_TradierClient for broker connectivity."
+            )
+            return
 
         for client_id, config in self.client_configs.items():
             if self.should_stop:

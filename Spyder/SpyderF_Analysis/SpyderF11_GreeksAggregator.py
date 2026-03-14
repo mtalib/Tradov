@@ -711,6 +711,7 @@ class GreeksAggregator:
         # Real-time updates
         self.update_callbacks: list[Callable] = []
         self.is_running = False
+        self._stop_event = threading.Event()
         self.update_thread = None
 
         # Performance metrics
@@ -728,6 +729,7 @@ class GreeksAggregator:
             return
 
         self.is_running = True
+        self._stop_event.clear()
         self.update_thread = threading.Thread(
             target=self._update_loop,
             args=(update_interval,),
@@ -739,6 +741,7 @@ class GreeksAggregator:
     def stop_real_time_updates(self):
         """Stop real-time updates."""
         self.is_running = False
+        self._stop_event.set()
         if self.update_thread:
             self.update_thread.join(timeout=5)
         self.logger.info("Stopped real-time Greeks updates")
@@ -894,11 +897,11 @@ class GreeksAggregator:
                 if positions and market_data:
                     self.update_portfolio(positions, market_data)
 
-                time.sleep(interval)
+                self._stop_event.wait(interval)
 
             except Exception as e:
                 self.logger.error(f"Error in Greeks update loop: {e}")
-                time.sleep(interval)
+                self._stop_event.wait(interval)
 
     def _update_aggregates(self):
         """Update aggregated Greeks."""

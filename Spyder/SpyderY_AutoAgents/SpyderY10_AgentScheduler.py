@@ -25,7 +25,6 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 import signal
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -380,7 +379,7 @@ class AgentScheduler:
         self.start_all()
         try:
             while self._started:
-                time.sleep(1)
+                self._stop_event.wait(1)
         except KeyboardInterrupt:
             pass
         finally:

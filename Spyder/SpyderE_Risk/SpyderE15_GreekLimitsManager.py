@@ -918,11 +918,11 @@ class GreekLimitsManager:
                     )
 
                 # Sleep for monitoring interval
-                time.sleep(MONITORING_INTERVAL)
+                self._stop_event.wait(MONITORING_INTERVAL)
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(MONITORING_INTERVAL * 2)  # Longer sleep on error
+                self._stop_event.wait(MONITORING_INTERVAL * 2)  # Longer sleep on error
 
     def _regime_monitoring_loop(self) -> None:
         """Regime monitoring and adjustment loop."""
@@ -946,11 +946,11 @@ class GreekLimitsManager:
                 self._check_correlation_breakdown()
 
                 # Sleep for regime check interval
-                time.sleep(REGIME_UPDATE_INTERVAL)
+                self._stop_event.wait(REGIME_UPDATE_INTERVAL)
 
             except Exception as e:
                 self.logger.error(f"Error in regime monitoring: {e}")
-                time.sleep(REGIME_UPDATE_INTERVAL * 2)
+                self._stop_event.wait(REGIME_UPDATE_INTERVAL * 2)
 
     def _detect_regime_change(self) -> MarketRegime:
         """Detect current market regime."""

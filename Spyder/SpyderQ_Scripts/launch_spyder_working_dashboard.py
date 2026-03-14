@@ -366,7 +366,6 @@ class WorkingSpyderDashboard(QMainWindow):
 
     def test_tradier_connection(self):
         """Test connectivity to the Tradier API."""
-        import os
         import requests
         self.status_bar.setVisible(True)
         self.connect_btn.setEnabled(False)
@@ -416,7 +415,7 @@ class WorkingSpyderDashboard(QMainWindow):
 
     def update_portfolio(self):
         """Update portfolio display (Tradier positions)."""
-        import os, requests
+        import requests
         try:
             env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
             base_url = (
@@ -445,13 +444,12 @@ class WorkingSpyderDashboard(QMainWindow):
                 self.portfolio_table.setItem(row, 4, QTableWidgetItem("-"))
         except Exception as exc:
             self.log_area.append(f"❌ Portfolio update error: {exc}")
-            self.log_area.append(f"❌ Error updating portfolio: {e}")
 
     def update_market_data(self):
         """Update market data display via Tradier quotes."""
         if not self.is_connected:
             return
-        import os, requests
+        import requests
         try:
             env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
             base_url = (

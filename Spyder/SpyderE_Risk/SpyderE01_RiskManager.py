@@ -37,7 +37,6 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import time
 import threading
 import asyncio
 from datetime import datetime
@@ -699,12 +698,12 @@ class RiskManager:
                     self._send_risk_notifications(self._risk_metrics)
 
                 # Wait for next check
-                time.sleep(self.config.risk_check_interval)
+                self._shutdown_event.wait(self.config.risk_check_interval)
 
             except Exception as e:
                 self.logger.error(f"Error in risk monitoring loop: {e}")
                 self.error_handler.handle_error(e, "_risk_monitoring_loop")
-                time.sleep(1.0)  # Wait before retry
+                self._shutdown_event.wait(1.0)  # Wait before retry
 
     def _start_position_monitoring(self):
         """Start position monitoring thread"""
@@ -732,12 +731,12 @@ class RiskManager:
                 asyncio.create_task(self._request_positions())
 
                 # Wait for next update
-                time.sleep(self.config.position_update_interval)
+                self._shutdown_event.wait(self.config.position_update_interval)
 
             except Exception as e:
                 self.logger.error(f"Error in position monitoring loop: {e}")
                 self.error_handler.handle_error(e, "_position_monitoring_loop")
-                time.sleep(1.0)  # Wait before retry
+                self._shutdown_event.wait(1.0)  # Wait before retry
 
     def _send_risk_notifications(self, risk_metrics: RiskMetrics):
         """
