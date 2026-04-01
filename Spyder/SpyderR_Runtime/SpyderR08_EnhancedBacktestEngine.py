@@ -114,7 +114,8 @@ class BacktestConfig:
     data_frequency: DataFrequency
     execution_model: ExecutionModel
     commission: float = 1.0  # per contract
-    slippage_model: str = "linear"
+    slippage_per_contract: float = 0.01  # fixed $/contract slippage for options
+    slippage_model: str = "fixed"  # "fixed" (per-contract) or "linear" (percentage)
     use_ml_predictions: bool = True
     use_risk_management: bool = True
     max_positions: int = 10
@@ -219,7 +220,12 @@ class EnhancedBacktestEngine:
 
         # Initialize mock components for testing
         self.data_handler = MockDataHandler(self.config.data_frequency)
-        self.execution_handler = MockExecutionHandler(self.config.execution_model)
+        self.execution_handler = MockExecutionHandler(
+            model=self.config.execution_model,
+            slippage_per_contract=self.config.slippage_per_contract,
+            slippage_model=self.config.slippage_model,
+            commission=self.config.commission,
+        )
         self.risk_manager = MockRiskManager()
         self.ml_engine = MockMLEngine()
         self.portfolio_manager = MockPortfolioManager()
@@ -232,8 +238,15 @@ class EnhancedBacktestEngine:
     # ==================================================================================
 
     def run_backtest(self, strategies: list[Any],
-                     market_data: pd.DataFrame) -> BacktestResult:
-        """Run the backtest"""
+                     market_data: pd.DataFrame,
+                     progress_callback: Any | None = None) -> BacktestResult:
+        """Run the backtest
+
+        Args:
+            strategies: List of strategy instances.
+            market_data: DataFrame with OHLCV data.
+            progress_callback: Optional callable(str) for progress updates.
+        """
 
         logger.info("Starting backtest...")
 
@@ -245,7 +258,11 @@ class EnhancedBacktestEngine:
         self.data_handler.load_data(market_data)
 
         # Main event loop
-        self._run_event_loop()
+        self._run_event_loop(progress_callback=progress_callback,
+                             total_bars=len(market_data))
+
+        # Close all remaining open positions at end of backtest
+        self._close_all_positions()
 
         # Calculate final metrics
         results = self._calculate_results()
@@ -253,25 +270,45 @@ class EnhancedBacktestEngine:
         logger.info("Backtest completed")
         return results
 
-    def _run_event_loop(self):
-        """Main event-driven loop"""
+    def _run_event_loop(self, progress_callback: Any | None = None,
+                        total_bars: int = 0):
+        """Data-driven event loop — iterates over actual bars, not calendar time."""
 
-        current_date = self.config.start_date
+        report_interval = max(total_bars // 20, 100)  # ~5% increments
 
-        while current_date <= self.config.end_date:
-            # Generate market events
-            self._generate_market_events(current_date)
+        for bar_idx in range(total_bars):
+            # Get next bar from data handler
+            market_data = self.data_handler.get_data_by_index(bar_idx)
+            if market_data is None:
+                break
+
+            timestamp = market_data.get('timestamp', self.config.start_date)
+
+            # Create market event
+            event = BacktestEvent(
+                timestamp=timestamp,
+                event_type='market_data',
+                data=market_data
+            )
+            self.event_queue.append(event)
 
             # Process event queue
             while self.event_queue:
-                event = self.event_queue.popleft()
-                self._handle_event(event)
+                ev = self.event_queue.popleft()
+                self._handle_event(ev)
 
             # Update portfolio metrics
-            self._update_portfolio_metrics(current_date)
+            self._update_portfolio_metrics(timestamp)
 
-            # Move to next time period
-            current_date = self._next_timestamp(current_date)
+            # Periodic progress update
+            if progress_callback and (bar_idx + 1) % report_interval == 0:
+                pct = int((bar_idx + 1) / total_bars * 100)
+                trades = len(self.closed_positions)
+                open_pos = len(self.positions)
+                progress_callback(
+                    f"{pct}% ({bar_idx + 1:,}/{total_bars:,} bars, "
+                    f"{trades} closed, {open_pos} open)"
+                )
 
     def _handle_event(self, event: BacktestEvent):
         """Handle a single event"""
@@ -359,15 +396,25 @@ class EnhancedBacktestEngine:
             self.execution_stats['rejected_orders'] += 1
 
     def _handle_fill(self, event: BacktestEvent):
-        """Handle order fill"""
+        """Handle order fill — long-only: buy opens, sell closes."""
 
         fill = event.data['fill']
+        direction = fill.get('direction', 'buy')
+        position_id = f"{fill['symbol']}_{fill['strategy_id']}"
+        has_position = position_id in self.positions
 
-        # Update position
-        self._update_position(fill)
+        if direction == 'buy' and not has_position:
+            # Open new long position
+            self._update_position(fill)
+            self.cash -= (fill['price'] * fill['quantity'] + fill['commission'])
+        elif direction == 'sell' and has_position:
+            # Close existing long position
+            self._close_position(position_id, fill['price'])
+        else:
+            # Duplicate buy or sell-without-position — skip
+            self.execution_stats['rejected_orders'] += 1
+            return
 
-        # Update cash
-        self.cash -= (fill['price'] * fill['quantity'] + fill['commission'])
         self.execution_stats['total_commission'] += fill['commission']
         self.execution_stats['total_slippage'] += fill.get('slippage', 0)
 
@@ -597,8 +644,9 @@ class EnhancedBacktestEngine:
                                  strategy_id: str) -> dict | None:
         """Create order from trading signal"""
 
-        # Check position limits
-        if len(self.positions) >= self.config.max_positions:
+        # Sell signals can always proceed (to close existing positions)
+        # Buy signals are limited by max_positions
+        if signal['direction'] == 'buy' and len(self.positions) >= self.config.max_positions:
             return None
 
         # Calculate position size
@@ -628,7 +676,10 @@ class EnhancedBacktestEngine:
 
         elif self.config.position_sizing == 'kelly':
             # Kelly criterion
-            win_rate = self.strategy_metrics[strategy_id]['wins'] / max(self.strategy_metrics[strategy_id]['trades'], 1)
+            trades = self.strategy_metrics[strategy_id]['trades']
+            if trades < 2:
+                return 1  # Cold-start: use 1 contract until enough history
+            win_rate = self.strategy_metrics[strategy_id]['wins'] / max(trades, 1)
             avg_win = signal.get('expected_profit', 100)
             avg_loss = signal.get('expected_loss', 50)
 
@@ -887,9 +938,10 @@ class EnhancedBacktestEngine:
             return {}
 
         # Calculate prediction accuracy from ML prediction history
+        predictions = list(self.ml_predictions.values())
         correct = 0
         total = 0
-        for pred in self.ml_predictions:
+        for pred in predictions:
             if 'predicted_direction' in pred and 'actual_direction' in pred:
                 total += 1
                 if pred['predicted_direction'] == pred['actual_direction']:
@@ -898,8 +950,8 @@ class EnhancedBacktestEngine:
         prediction_accuracy = correct / total if total > 0 else 0.0
 
         # Calculate feature importance stability across prediction windows
-        if len(self.ml_predictions) >= 2:
-            importances = [p.get('feature_importance', {}) for p in self.ml_predictions if 'feature_importance' in p]
+        if len(predictions) >= 2:
+            importances = [p.get('feature_importance', {}) for p in predictions if 'feature_importance' in p]
             if len(importances) >= 2:
                 # Measure rank correlation of feature importances across windows
                 all_features = set()
@@ -925,7 +977,7 @@ class EnhancedBacktestEngine:
         # Regime detection accuracy from predictions vs actuals
         regime_correct = 0
         regime_total = 0
-        for pred in self.ml_predictions:
+        for pred in predictions:
             if 'predicted_regime' in pred and 'actual_regime' in pred:
                 regime_total += 1
                 if pred['predicted_regime'] == pred['actual_regime']:
@@ -1059,6 +1111,65 @@ class EnhancedBacktestEngine:
         strategy_id = strategy.get_id()
         self.strategies[strategy_id] = strategy
         logger.info(f"Registered strategy: {strategy_id}")
+
+    # ==================================================================================
+    # DATA LOADING — MASSIVE (POLYGON) INTEGRATION
+    # ==================================================================================
+
+    @staticmethod
+    def load_data_from_massive(
+        start_date: str,
+        end_date: str,
+        symbol: str = "SPY",
+        timespan: str = "minute",
+        multiplier: int = 1,
+    ) -> pd.DataFrame:
+        """
+        Fetch historical SPY OHLCV bars from Massive (Polygon.io) for backtesting.
+
+        Creates a one-shot MassiveClient from environment variables, pulls bars,
+        and returns a DataFrame ready for ``run_backtest()``.
+
+        Args:
+            start_date: Start date ISO string (e.g., "2025-09-01").
+            end_date:   End date ISO string (e.g., "2026-03-17").
+            symbol:     Ticker to fetch (default "SPY").
+            timespan:   Bar size: "minute", "hour", "day" (default "minute").
+            multiplier: Timespan multiplier (default 1).
+
+        Returns:
+            DataFrame with columns: open, high, low, close, volume, vwap, transactions.
+            Indexed by timestamp.
+
+        Raises:
+            ImportError: If SpyderC27_MassiveClient is not available.
+            RuntimeError: If no data is returned from the API.
+        """
+        from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
+            create_massive_client_from_env,
+        )
+
+        client = create_massive_client_from_env()
+        df = client.get_historical_bars(
+            symbol=symbol,
+            start=start_date,
+            end=end_date,
+            timespan=timespan,
+            multiplier=multiplier,
+            adjusted=True,
+        )
+
+        if df.empty:
+            raise RuntimeError(
+                f"No data returned from Massive for {symbol} "
+                f"({start_date} → {end_date}, {timespan}/{multiplier})"
+            )
+
+        logger.info(
+            f"Loaded {len(df)} bars from Massive: {symbol} "
+            f"{start_date}→{end_date} ({timespan}/{multiplier})"
+        )
+        return df
 
     # ==================================================================================
     # RAY DISTRIBUTED COMPUTING (Phase 3)
@@ -1261,8 +1372,8 @@ class EnhancedBacktestEngine:
                 metrics = {'sharpe': float(np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)),
                            'params': params}
                 results.append(metrics)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).debug(f"Grid search combo {params} failed: {e}")
         return sorted(results, key=lambda x: x.get('sharpe', -999), reverse=True)
 
 # ==================================================================================
@@ -1297,6 +1408,26 @@ class MockDataHandler:
             'volume': row.get('volume', 1000000)
         }
 
+    def get_data_by_index(self, idx: int) -> dict | None:
+        """Get data by bar index (data-driven loop)."""
+        if self.data is None or idx >= len(self.data):
+            return None
+
+        row = self.data.iloc[idx]
+        self.current_index = idx + 1  # keep current_index in sync
+
+        # Use the DataFrame index as timestamp if available
+        ts = self.data.index[idx] if hasattr(self.data.index, 'to_pydatetime') else None
+
+        return {
+            'timestamp': ts,
+            'open': row.get('open', 100),
+            'high': row.get('high', 101),
+            'low': row.get('low', 99),
+            'close': row.get('close', 100),
+            'volume': row.get('volume', 1000000)
+        }
+
     def get_current_price(self, symbol: str) -> float:
         if self.data is None or self.current_index == 0:
             return 100.0
@@ -1304,21 +1435,45 @@ class MockDataHandler:
         return self.data.iloc[self.current_index - 1].get('close', 100)
 
 class MockExecutionHandler:
-    """Mock execution handler"""
+    """Mock execution handler with fixed per-contract slippage for options.
 
-    def __init__(self, model: ExecutionModel):
+    Supports two slippage models:
+        - "fixed":  Constant $/contract slippage (default $0.01).  Preferred
+                     for options backtesting as documented in Backtesting.pdf.
+        - "linear": Legacy percentage-of-price slippage.
+    """
+
+    def __init__(self, model: ExecutionModel,
+                 slippage_per_contract: float = 0.01,
+                 slippage_model: str = "fixed",
+                 commission: float = 1.0):
         self.model = model
+        self.slippage_per_contract = slippage_per_contract
+        self.slippage_model = slippage_model
+        self.commission = commission
 
     def execute_order(self, order: dict, current_price: float) -> dict | None:
         # Simulate execution
-        slippage = 0
+        slippage = 0.0
 
-        if self.model == ExecutionModel.MARKET_IMPACT:
-            slippage = np.random.uniform(0, 0.001) * current_price
-        elif self.model == ExecutionModel.REALISTIC:
-            slippage = np.random.uniform(0, 0.002) * current_price
-        elif self.model == ExecutionModel.ADVERSE:
-            slippage = np.random.uniform(0.001, 0.005) * current_price
+        if self.slippage_model == "fixed":
+            # Fixed per-contract slippage — realistic for SPY options
+            if self.model == ExecutionModel.INSTANT:
+                slippage = 0.0
+            elif self.model == ExecutionModel.MARKET_IMPACT:
+                slippage = self.slippage_per_contract * 0.5
+            elif self.model == ExecutionModel.REALISTIC:
+                slippage = self.slippage_per_contract
+            elif self.model == ExecutionModel.ADVERSE:
+                slippage = self.slippage_per_contract * 3.0
+        else:
+            # Legacy linear (percentage) model
+            if self.model == ExecutionModel.MARKET_IMPACT:
+                slippage = np.random.uniform(0, 0.001) * current_price
+            elif self.model == ExecutionModel.REALISTIC:
+                slippage = np.random.uniform(0, 0.002) * current_price
+            elif self.model == ExecutionModel.ADVERSE:
+                slippage = np.random.uniform(0.001, 0.005) * current_price
 
         fill_price = current_price + slippage if order['direction'] == 'buy' else current_price - slippage
 
@@ -1326,9 +1481,10 @@ class MockExecutionHandler:
             'symbol': order['symbol'],
             'strategy_id': order['strategy_id'],
             'quantity': order['quantity'],
+            'direction': order['direction'],
             'price': fill_price,
             'timestamp': datetime.now(),
-            'commission': 1.0,
+            'commission': self.commission,
             'slippage': slippage
         }
 
@@ -1401,10 +1557,11 @@ def create_backtest_engine(config: dict[str, Any]) -> EnhancedBacktestEngine:
         start_date=pd.to_datetime(config['start_date']),
         end_date=pd.to_datetime(config['end_date']),
         initial_capital=config.get('initial_capital', 1000000),
-        data_frequency=DataFrequency(config.get('data_frequency', 'daily')),
+        data_frequency=DataFrequency(config.get('data_frequency', '1d')),
         execution_model=ExecutionModel(config.get('execution_model', 'realistic')),
         commission=config.get('commission', 1.0),
-        slippage_model=config.get('slippage_model', 'linear'),
+        slippage_per_contract=config.get('slippage_per_contract', 0.01),
+        slippage_model=config.get('slippage_model', 'fixed'),
         use_ml_predictions=config.get('use_ml_predictions', True),
         use_risk_management=config.get('use_risk_management', True),
         max_positions=config.get('max_positions', 10),

@@ -108,7 +108,6 @@ from Spyder.SpyderU_Utilities.SpyderU23_MemoryMonitor import (
     MEMORY_CHECK_INTERVAL,
     GC_INTERVAL,
     MAX_MEMORY_HISTORY,
-    IB_GATEWAY_PATTERNS,
     PSUTIL_AVAILABLE,
     # Dataclasses
     MemorySnapshot,
@@ -318,10 +317,6 @@ class TestU23Constants:
     def test_max_history_positive(self):
         assert MAX_MEMORY_HISTORY > 0
 
-    def test_ib_gateway_patterns_is_list(self):
-        assert isinstance(IB_GATEWAY_PATTERNS, list)
-        assert len(IB_GATEWAY_PATTERNS) > 0
-
     def test_psutil_available_is_bool(self):
         assert isinstance(PSUTIL_AVAILABLE, bool)
 
@@ -469,10 +464,6 @@ class TestSpyderMemoryMonitorInit:
     def test_alerts_initially_empty(self):
         monitor = SpyderMemoryMonitor()
         assert len(monitor.alerts) == 0
-
-    def test_ib_gateway_processes_initially_empty(self):
-        monitor = SpyderMemoryMonitor()
-        assert len(monitor.ib_gateway_processes) == 0
 
     def test_alert_callbacks_initially_empty(self):
         monitor = SpyderMemoryMonitor()
@@ -882,38 +873,6 @@ class TestSpyderMemoryMonitorHistory:
         result = monitor.get_memory_history_csv()
         lines = result.strip().split("\n")
         assert len(lines) == 2  # header + 1 data row
-
-
-class TestSpyderMemoryMonitorIBGateway:
-    """Tests for IB Gateway process monitoring."""
-
-    def test_get_ib_gateway_stats_empty(self):
-        monitor = SpyderMemoryMonitor()
-        result = monitor.get_ib_gateway_stats()
-        assert isinstance(result, list)
-
-    def test_get_ib_gateway_stats_with_process(self):
-        monitor = SpyderMemoryMonitor()
-        proc = ProcessInfo(
-            pid=99999,
-            name="ibgateway",
-            memory_rss=200_000_000,
-            memory_percent=2.0,
-            cpu_percent=1.5,
-            status="running",
-            create_time=datetime.now(),
-        )
-        monitor.ib_gateway_processes.append(proc)
-        result = monitor.get_ib_gateway_stats()
-        assert len(result) == 1
-        assert result[0]["pid"] == 99999
-        assert result[0]["name"] == "ibgateway"
-
-    def test_ib_gateway_patterns_include_ibgateway(self):
-        assert any("ibgateway" in p.lower() for p in IB_GATEWAY_PATTERNS)
-
-    def test_ib_gateway_patterns_include_tws(self):
-        assert any("tws" in p.lower() for p in IB_GATEWAY_PATTERNS)
 
 
 class TestSpyderMemoryMonitorLeakDetection:

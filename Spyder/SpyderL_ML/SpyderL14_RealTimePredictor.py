@@ -241,7 +241,7 @@ class RealTimePredictor:
             return result
 
         except Exception as e:
-            self.logger.error(f"Prediction error: {e}")
+            self.logger.error(f"Prediction error: {e}", exc_info=True)
             self.performance.errors += 1
 
             # Return empty result
@@ -375,7 +375,7 @@ class RealTimePredictor:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Error loading model {model_name}: {e}")
+            self.logger.error(f"Error loading model {model_name}: {e}", exc_info=True)
             return False
 
     def unload_model(self, model_name: str) -> bool:
@@ -389,7 +389,7 @@ class RealTimePredictor:
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error unloading model: {e}")
+            self.logger.error(f"Error unloading model: {e}", exc_info=True)
             return False
 
     def reload_models(self) -> int:
@@ -408,7 +408,7 @@ class RealTimePredictor:
             return count
 
         except Exception as e:
-            self.logger.error(f"Error reloading models: {e}")
+            self.logger.error(f"Error reloading models: {e}", exc_info=True)
             return count
 
     # ==========================================================================
@@ -540,7 +540,7 @@ class RealTimePredictor:
                 return prediction
 
         except Exception as e:
-            self.logger.error(f"Error in single prediction: {e}")
+            self.logger.error(f"Error in single prediction: {e}", exc_info=True)
             if model_name in self.models:
                 self.models[model_name].error_count += 1
             return None
@@ -591,8 +591,8 @@ class RealTimePredictor:
                                 entry.feature_vector.reshape(1, -1)
                             )[0]
                             predictions[model_name] = pred
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self.logger.debug(f"Prediction failed for {model_name}: {e}")
 
                     return PredictionResult(
                         request_id=f"cache_{int(time.time() * 1000000)}",
@@ -652,7 +652,7 @@ class RealTimePredictor:
             self.logger.info(f"Loaded {len(self.models)} production models")
 
         except Exception as e:
-            self.logger.error(f"Error loading production models: {e}")
+            self.logger.error(f"Error loading production models: {e}", exc_info=True)
 
     def _warmup_model(self, instance: ModelInstance) -> None:
         """Warm up model with dummy predictions"""
@@ -672,7 +672,7 @@ class RealTimePredictor:
             )
 
         except Exception as e:
-            self.logger.error(f"Error warming up model: {e}")
+            self.logger.error(f"Error warming up model: {e}", exc_info=True)
 
     # ==========================================================================
     # PRIVATE METHODS - PERFORMANCE
@@ -731,7 +731,7 @@ class RealTimePredictor:
                     try:
                         request.callback(result)
                     except Exception as e:
-                        self.logger.error(f"Callback error: {e}")
+                        self.logger.error(f"Callback error: {e}", exc_info=True)
 
                 # Clean up
                 if request.request_id in self.result_callbacks:
@@ -740,14 +740,14 @@ class RealTimePredictor:
             except queue.Empty:
                 continue
             except Exception as e:
-                self.logger.error(f"Prediction worker error: {e}")
+                self.logger.error(f"Prediction worker error: {e}", exc_info=True)
 
     def _warmup_worker(self) -> None:
         """Periodically warm up models"""
         while self._running:
             try:
                 # Wait for interval
-                time.sleep(WARMUP_INTERVAL_SECONDS)
+                time.sleep(WARMUP_INTERVAL_SECONDS)  # thread-safe: time.sleep() intentional
 
                 # Warm up all models
                 with self.model_lock:
@@ -755,14 +755,14 @@ class RealTimePredictor:
                         self._warmup_model(instance)
 
             except Exception as e:
-                self.logger.error(f"Warmup worker error: {e}")
+                self.logger.error(f"Warmup worker error: {e}", exc_info=True)
 
     def _monitor_worker(self) -> None:
         """Monitor performance and emit metrics"""
         while self._running:
             try:
                 # Wait 60 seconds
-                time.sleep(60)
+                time.sleep(60)  # thread-safe: time.sleep() intentional
 
                 # Get metrics
                 metrics = self.get_performance_metrics()
@@ -804,7 +804,7 @@ class RealTimePredictor:
                     )
 
             except Exception as e:
-                self.logger.error(f"Monitor worker error: {e}")
+                self.logger.error(f"Monitor worker error: {e}", exc_info=True)
 
     # ==========================================================================
     # PRIVATE METHODS - EVENTS

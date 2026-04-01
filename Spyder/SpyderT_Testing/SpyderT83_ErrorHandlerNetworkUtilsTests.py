@@ -506,20 +506,6 @@ class TestU05NetworkUtils:
             result = self.net.check_internet_connection()
             assert result is False
 
-    def test_check_ib_connection_unknown_type(self):
-        result = self.net.check_ib_connection("UNKNOWN_TYPE")
-        assert result is False
-
-    def test_check_ib_connection_mocked_success(self):
-        with patch.object(self.net, "_test_host_connection", return_value=True):
-            result = self.net.check_ib_connection("GATEWAY")
-            assert result is True
-
-    def test_check_ib_connection_mocked_fail(self):
-        with patch.object(self.net, "_test_host_connection", return_value=False):
-            result = self.net.check_ib_connection("GATEWAY")
-            assert result is False
-
     def test_test_host_connection_success(self):
         import socket
         with patch("socket.create_connection") as mock_conn:
@@ -578,19 +564,16 @@ class TestU05NetworkUtils:
 
     def test_get_network_status_structure(self):
         with patch.object(self.net, "check_internet_connection", return_value=True), \
-             patch.object(self.net, "check_ib_connection", return_value=False), \
              patch.object(self.net, "measure_latency", return_value=15.0), \
              patch.object(self.net, "_test_dns_resolution", return_value=True), \
              patch.object(self.net, "_test_http_connection", return_value=True):
             status = self.net.get_network_status()
             assert "internet_connected" in status
-            assert "ib_gateway_connected" in status
             assert "latency_ms" in status
             assert status["internet_connected"] is True
 
     def test_get_network_status_updates_stats(self):
         with patch.object(self.net, "check_internet_connection", return_value=True), \
-             patch.object(self.net, "check_ib_connection", return_value=False), \
              patch.object(self.net, "measure_latency", return_value=25.0), \
              patch.object(self.net, "_test_dns_resolution", return_value=True), \
              patch.object(self.net, "_test_http_connection", return_value=True):
@@ -600,7 +583,6 @@ class TestU05NetworkUtils:
 
     def test_get_network_status_disconnected_updates_stats(self):
         with patch.object(self.net, "check_internet_connection", return_value=False), \
-             patch.object(self.net, "check_ib_connection", return_value=False), \
              patch.object(self.net, "measure_latency", return_value=-1.0), \
              patch.object(self.net, "_test_dns_resolution", return_value=False), \
              patch.object(self.net, "_test_http_connection", return_value=False):

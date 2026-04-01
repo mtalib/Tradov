@@ -455,7 +455,7 @@ class FSeriesOrchestrator:
                 task.result = await interface[task.function_name](**task.parameters)
             else:
                 # Run synchronous function in executor
-                task.result = await asyncio.get_event_loop().run_in_executor(
+                task.result = await asyncio.get_running_loop().run_in_executor(
                     self.executor,
                     interface[task.function_name],
                     **task.parameters

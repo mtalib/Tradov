@@ -295,7 +295,7 @@ class VolatilitySurfaceAnalyzer:
             return surface
 
         except Exception as e:
-            self.logger.error(f"Error building surface: {e}")
+            self.logger.error(f"Error building surface: {e}", exc_info=True)
             self.error_handler.handle_error(e, {"method": "build_surface"})
             raise
 
@@ -770,8 +770,8 @@ class VolatilitySurfaceAnalyzer:
         if self._interpolator is not None:
             try:
                 return float(self._interpolator(moneyness, time_to_expiry))
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Interpolator failed, falling back to bilinear: {e}")
 
         # Fall back to bilinear interpolation
         return self._bilinear_interpolation(surface, moneyness, time_to_expiry)

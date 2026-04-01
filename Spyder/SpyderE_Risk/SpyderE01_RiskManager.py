@@ -13,7 +13,7 @@ Last Updated: 2025-10-20 Time: 22:10:00
 Module Description:
     This module provides risk management functionality using the Connect API.
     It monitors positions, exposure, and risk metrics, and enforces risk limits
-    for all trading activities. This module replaces the IB Gateway/TWS API
+    for all trading activities. This module replaces the legacy broker
     risk management components.
 
 Module Constants:
@@ -55,10 +55,19 @@ from threading import Event as ThreadEvent, RLock
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ConnectAPI / MessageType: removed with IB Gateway (SpyderB01_ConnectAPI deleted).
+# ConnectAPI: removed with legacy broker (SpyderB01_ConnectAPI deleted).
 # Tradier integration uses SpyderB40_TradierClient directly.
 ConnectAPI = None
-MessageType = None
+
+# MessageType enum — defined locally since B01_ConnectAPI was removed.
+# Any connect_api passed to RiskManager must use these same enum values as
+# handler registration keys, or supply a compatible enum via duck-typing.
+from enum import Enum as _Enum, auto as _auto
+
+class MessageType(_Enum):
+    POSITION_UPDATE = _auto()
+    ACCOUNT_SUMMARY_UPDATE = _auto()
+    ORDER_STATUS = _auto()
 
 try:
     from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order, OrderState
@@ -171,7 +180,7 @@ class RiskManager:
 
     This class provides risk management functionality using the Connect API.
     It monitors positions, exposure, and risk metrics, and enforces risk limits
-    for all trading activities. This module replaces the IB Gateway/TWS API
+    for all trading activities. This module replaces the legacy broker
     risk management components.
 
     Attributes:
@@ -280,7 +289,7 @@ class RiskManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start risk manager: {e}")
+            self.logger.error(f"Failed to start risk manager: {e}", exc_info=True)
             self.error_handler.handle_error(e, "start")
             return False
 
@@ -305,7 +314,7 @@ class RiskManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to stop risk manager: {e}")
+            self.logger.error(f"Failed to stop risk manager: {e}", exc_info=True)
             self.error_handler.handle_error(e, "stop")
             return False
 
@@ -423,7 +432,7 @@ class RiskManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error checking order risk: {e}")
+            self.logger.error(f"Error checking order risk: {e}", exc_info=True)
             self.error_handler.handle_error(e, "check_order_risk")
             return RiskCheckResponse(
                 result=RiskCheckResult.BLOCKED,
@@ -545,7 +554,7 @@ class RiskManager:
                 self.logger.debug(f"Position updated: {symbol} - {position.quantity} @ {position.market_price}")
 
         except Exception as e:
-            self.logger.error(f"Error handling position update: {e}")
+            self.logger.error(f"Error handling position update: {e}", exc_info=True)
             self.error_handler.handle_error(e, "_handle_position_update")
 
     async def _handle_account_summary_update(self, data: dict[str, Any]):
@@ -565,7 +574,7 @@ class RiskManager:
                 self.logger.debug("Account summary updated")
 
         except Exception as e:
-            self.logger.error(f"Error handling account summary update: {e}")
+            self.logger.error(f"Error handling account summary update: {e}", exc_info=True)
             self.error_handler.handle_error(e, "_handle_account_summary_update")
 
     def _calculate_risk_metrics(self) -> RiskMetrics:
@@ -626,14 +635,33 @@ class RiskManager:
                     risk_level = RiskLevel.MEDIUM
                 warnings.append(f"Options exposure {options_exposure} exceeds maximum {self.config.risk_limits['max_options_exposure']}")
 
+            # Get account data from AccountManager if available
+            net_liq = 0.0
+            margin_used_val = 0.0
+            margin_avail = 0.0
+
+            try:
+                # Import AccountManager and get account data
+                from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
+                account_mgr = AccountManager.get_instance()
+                if account_mgr:
+                    net_liq = account_mgr.get_net_liquidation()
+                    # Get margin from account info
+                    account_info = account_mgr.get_account_info()
+                    if account_info:
+                        margin_used_val = getattr(account_info, 'margin_used', 0.0)
+                        margin_avail = getattr(account_info, 'margin_available', 0.0)
+            except (ImportError, AttributeError) as e:
+                self.logger.debug(f"Could not retrieve account data: {e}")
+
             # Create risk metrics
             risk_metrics = RiskMetrics(
                 timestamp=datetime.now(),
                 total_exposure=total_exposure,
                 daily_pnl=daily_pnl,
-                net_liquidation=0.0,  # TODO: Get from account summary
-                margin_used=0.0,  # TODO: Get from account summary
-                margin_available=0.0,  # TODO: Get from account summary
+                net_liquidation=net_liq,
+                margin_used=margin_used_val,
+                margin_available=margin_avail,
                 max_concentration=max_concentration,
                 concentration_symbol=concentration_symbol,
                 options_exposure=options_exposure,
@@ -645,7 +673,7 @@ class RiskManager:
             return risk_metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating risk metrics: {e}")
+            self.logger.error(f"Error calculating risk metrics: {e}", exc_info=True)
             self.error_handler.handle_error(e, "_calculate_risk_metrics")
 
             # Return default risk metrics
@@ -701,7 +729,7 @@ class RiskManager:
                 self._shutdown_event.wait(self.config.risk_check_interval)
 
             except Exception as e:
-                self.logger.error(f"Error in risk monitoring loop: {e}")
+                self.logger.error(f"Error in risk monitoring loop: {e}", exc_info=True)
                 self.error_handler.handle_error(e, "_risk_monitoring_loop")
                 self._shutdown_event.wait(1.0)  # Wait before retry
 
@@ -734,7 +762,7 @@ class RiskManager:
                 self._shutdown_event.wait(self.config.position_update_interval)
 
             except Exception as e:
-                self.logger.error(f"Error in position monitoring loop: {e}")
+                self.logger.error(f"Error in position monitoring loop: {e}", exc_info=True)
                 self.error_handler.handle_error(e, "_position_monitoring_loop")
                 self._shutdown_event.wait(1.0)  # Wait before retry
 
@@ -750,10 +778,58 @@ class RiskManager:
             for warning in risk_metrics.warnings:
                 self.logger.warning(f"Risk warning: {warning}")
 
-            # TODO: Send email/SMS notifications
+            # Send structured notifications when breach threshold is met
+            if risk_metrics.risk_level.value >= self.config.notification_threshold.value:
+                breach_details = {
+                    'severity': risk_metrics.risk_level.name,
+                    'timestamp': risk_metrics.timestamp.isoformat(),
+                    'total_exposure': risk_metrics.total_exposure,
+                    'daily_pnl': risk_metrics.daily_pnl,
+                    'options_exposure': risk_metrics.options_exposure,
+                    'margin_used': risk_metrics.margin_used,
+                    'warnings': risk_metrics.warnings,
+                    'blocked_orders': risk_metrics.blocked_orders,
+                }
+
+                # Attempt AlertManager notification (email/SMS/Telegram channels)
+                try:
+                    from Spyder.SpyderJ_Alerts.SpyderJ01_AlertManager import AlertManager
+                    alert_manager = AlertManager()
+                    alert_message = (
+                        f"RISK BREACH [{risk_metrics.risk_level.name}] "
+                        f"at {risk_metrics.timestamp.strftime('%Y-%m-%d %H:%M:%S')} | "
+                        f"Exposure: {risk_metrics.total_exposure:,.2f} | "
+                        f"Daily PnL: {risk_metrics.daily_pnl:,.2f} | "
+                        f"Warnings: {'; '.join(risk_metrics.warnings)}"
+                    )
+                    alert_manager.generate_predictive_alerts({
+                        'alert_type': 'risk_breach',
+                        'message': alert_message,
+                        'severity': risk_metrics.risk_level.name,
+                        'breach_details': breach_details,
+                    })
+                    self.logger.info(
+                        f"Risk breach notification dispatched via AlertManager: "
+                        f"level={risk_metrics.risk_level.name}"
+                    )
+                except Exception as alert_exc:
+                    # AlertManager unavailable — emit structured WARNING with full breach context
+                    self.logger.warning(
+                        "RISK_BREACH | severity=%(severity)s | "
+                        "timestamp=%(timestamp)s | "
+                        "total_exposure=%(total_exposure).2f | "
+                        "daily_pnl=%(daily_pnl).2f | "
+                        "options_exposure=%(options_exposure).2f | "
+                        "margin_used=%(margin_used).2f | "
+                        "warnings=%(warnings)s",
+                        breach_details,
+                    )
+                    self.logger.debug(
+                        f"AlertManager unavailable for risk breach notification: {alert_exc}"
+                    )
 
         except Exception as e:
-            self.logger.error(f"Error sending risk notifications: {e}")
+            self.logger.error(f"Error sending risk notifications: {e}", exc_info=True)
             self.error_handler.handle_error(e, "_send_risk_notifications")
 
     # ==========================================================================

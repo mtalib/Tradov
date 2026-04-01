@@ -168,7 +168,7 @@ CIRCUIT_BREAKER_CONFIG = {
 # COMMISSION AND SLIPPAGE
 # ==============================================================================
 
-COMMISSION_PER_CONTRACT = 0.65  # IB commission per contract
+COMMISSION_PER_CONTRACT = 0.65  # Tradier commission per contract
 SLIPPAGE_FACTOR = 0.001  # 0.1% slippage assumption
 MIN_PROFIT_AFTER_COSTS = 25  # Minimum profit after costs
 

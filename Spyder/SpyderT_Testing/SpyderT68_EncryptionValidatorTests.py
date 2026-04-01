@@ -70,6 +70,7 @@ from Spyder.SpyderU_Utilities.SpyderU04_Encryption import (
     decrypt,
     generate_secure_password,
     hash_password,
+    verify_password,
 )
 
 # ==============================================================================
@@ -119,7 +120,8 @@ class TestEncryptionManagerInit:
 
     def test_is_initialized_false(self):
         em = EncryptionManager()
-        assert em.is_initialized is False
+        # Fernet implementation always initializes (ephemeral key if no env var)
+        assert em.is_initialized is True
 
     def test_is_encryption_alias(self):
         assert Encryption is EncryptionManager
@@ -133,11 +135,11 @@ class TestEncryptionManagerEncrypt:
         result = em.encrypt("hello")
         assert isinstance(result, str)
 
-    def test_encrypt_is_base64(self):
+    def test_encrypt_is_fernet_token(self):
         em = EncryptionManager()
         result = em.encrypt("hello")
-        decoded = base64.b64decode(result.encode()).decode()
-        assert decoded == "hello"
+        # Fernet tokens are url-safe base64; verify round-trip instead
+        assert em.decrypt(result) == "hello"
 
     def test_encrypt_empty_string(self):
         em = EncryptionManager()
@@ -178,10 +180,10 @@ class TestEncryptionManagerGenerateKey:
         key = em.generate_key()
         assert isinstance(key, bytes)
 
-    def test_key_is_32_bytes(self):
+    def test_key_is_44_bytes(self):
         em = EncryptionManager()
         key = em.generate_key()
-        assert len(key) == 32
+        assert len(key) == 44  # Fernet key = url-safe base64 of 32 bytes
 
     def test_keys_are_random(self):
         em = EncryptionManager()
@@ -268,9 +270,9 @@ class TestEncryptionModuleFunctions:
     def test_encrypt_data_returns_string(self):
         assert isinstance(encrypt_data("test"), str)
 
-    def test_encrypt_data_is_base64(self):
+    def test_encrypt_data_round_trip(self):
         result = encrypt_data("test")
-        assert base64.b64decode(result.encode()).decode() == "test"
+        assert decrypt_data(result) == "test"
 
     def test_decrypt_data_reverses_encrypt(self):
         assert decrypt_data(encrypt_data("hello")) == "hello"
@@ -280,7 +282,9 @@ class TestEncryptionModuleFunctions:
         assert decrypt_data(bad) == bad
 
     def test_encrypt_alias_works(self):
-        assert encrypt("hello") == encrypt_data("hello")
+        # Fernet uses random IV, so outputs differ; verify both decrypt correctly
+        assert decrypt(encrypt("hello")) == "hello"
+        assert decrypt_data(encrypt_data("hello")) == "hello"
 
     def test_decrypt_alias_works(self):
         assert decrypt(encrypt_data("hello")) == "hello"
@@ -294,20 +298,22 @@ class TestEncryptionModuleFunctions:
     def test_generate_passwords_are_unique(self):
         assert generate_secure_password() != generate_secure_password()
 
-    def test_hash_password_returns_hex_string(self):
+    def test_hash_password_returns_argon2_string(self):
         h = hash_password("password123")
         assert isinstance(h, str)
-        assert len(h) == 64  # SHA-256 = 64 hex chars
+        assert h.startswith("$argon2")  # Argon2id hash
 
-    def test_hash_password_consistent(self):
-        assert hash_password("same") == hash_password("same")
+    def test_hash_password_verifiable(self):
+        # Argon2 uses random salt so hashes differ; use verify_password
+        h = hash_password("same")
+        assert verify_password("same", h)
 
     def test_hash_password_different_inputs(self):
         assert hash_password("abc") != hash_password("xyz")
 
-    def test_hash_uses_sha256(self):
-        expected = hashlib.sha256(b"test").hexdigest()
-        assert hash_password("test") == expected
+    def test_hash_uses_argon2(self):
+        h = hash_password("test")
+        assert "$argon2" in h
 
 
 # ==============================================================================

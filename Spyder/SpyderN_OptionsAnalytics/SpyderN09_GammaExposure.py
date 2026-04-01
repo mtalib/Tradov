@@ -1094,11 +1094,11 @@ class GammaExposureCalculator:
                     last_flip_check = current_time
 
                 # Sleep briefly
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(5)
+                time.sleep(5)  # thread-safe: time.sleep() intentional
 
     def _check_flip_proximity(self) -> None:
         """Check if approaching gamma flip point."""

@@ -1245,11 +1245,11 @@ class MarketMicrostructureEngine:
                         self._last_processing_time[symbol] = current_time
 
                 # Sleep briefly before next iteration
-                time.sleep(0.001)  # 1ms sleep for high-frequency processing
+                time.sleep(0.001)  # thread-safe: time.sleep() intentional (1ms for high-frequency processing)
 
             except Exception as e:
                 self.logger.error(f"Error in processing loop: {e}")
-                time.sleep(1.0)  # Wait longer on error
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Microstructure processing loop stopped")
 

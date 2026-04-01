@@ -1168,26 +1168,6 @@ class TestTestHttpConnection:
                 pytest.skip("U05 _test_http_connection has module-level logger bug")
 
 
-class TestCheckIbConnection:
-    def test_unknown_type_returns_false(self):
-        net = _fresh_net()
-        result = net.check_ib_connection("UNKNOWN_TYPE")
-        assert result is False
-
-    def test_valid_type_calls_test_host(self):
-        net = _fresh_net()
-        with patch.object(net, "_test_host_connection", return_value=True) as mock_test:
-            result = net.check_ib_connection("GATEWAY")
-            mock_test.assert_called_once()
-            assert result is True
-
-    def test_failing_host_returns_false(self):
-        net = _fresh_net()
-        with patch.object(net, "_test_host_connection", return_value=False):
-            result = net.check_ib_connection("TWS")
-            assert result is False
-
-
 class TestTestMultipleConnections:
     def test_returns_list(self):
         net = _fresh_net()
@@ -1252,7 +1232,6 @@ class TestGetNetworkStatus:
     def test_returns_dict(self):
         net = _fresh_net()
         with patch.object(net, "check_internet_connection", return_value=False), \
-             patch.object(net, "check_ib_connection", return_value=False), \
              patch.object(net, "measure_latency", return_value=20.0), \
              patch.object(net, "_test_dns_resolution", return_value=True), \
              patch.object(net, "_test_http_connection", return_value=False):
@@ -1262,7 +1241,6 @@ class TestGetNetworkStatus:
     def test_status_has_required_keys(self):
         net = _fresh_net()
         with patch.object(net, "check_internet_connection", return_value=True), \
-             patch.object(net, "check_ib_connection", return_value=False), \
              patch.object(net, "measure_latency", return_value=10.0), \
              patch.object(net, "_test_dns_resolution", return_value=True), \
              patch.object(net, "_test_http_connection", return_value=True):
@@ -1273,7 +1251,6 @@ class TestGetNetworkStatus:
     def test_stats_updated_after_check(self):
         net = _fresh_net()
         with patch.object(net, "check_internet_connection", return_value=True), \
-             patch.object(net, "check_ib_connection", return_value=False), \
              patch.object(net, "measure_latency", return_value=15.0), \
              patch.object(net, "_test_dns_resolution", return_value=True), \
              patch.object(net, "_test_http_connection", return_value=True):
@@ -1284,7 +1261,6 @@ class TestGetNetworkStatus:
     def test_disconnected_updates_status(self):
         net = _fresh_net()
         with patch.object(net, "check_internet_connection", return_value=False), \
-             patch.object(net, "check_ib_connection", return_value=False), \
              patch.object(net, "measure_latency", return_value=-1.0), \
              patch.object(net, "_test_dns_resolution", return_value=False), \
              patch.object(net, "_test_http_connection", return_value=False):

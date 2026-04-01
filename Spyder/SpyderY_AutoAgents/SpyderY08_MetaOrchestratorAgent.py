@@ -26,6 +26,23 @@ Description:
     Replaces/unifies the on-demand SpyderX14_OrchestratorAgent and
     SpyderX16_MetaCoordinator with continuous autonomous operation.
 
+Boundary with Y10 (AgentScheduler)
+-----------------------------------
+    Y08 owns **what the agents decide and whether they agree**:
+      - Conflict resolution when two agents emit contradictory signals
+      - Cross-agent decision synthesis and confidence weighting
+      - Health-based confidence-threshold adjustment at runtime
+      - Escalation of irreconcilable conflicts to human operators
+
+    Y10 owns **when agents run and whether they are alive**:
+      - Starting, stopping, and pausing individual agents
+      - Enforcing market-hours gating (no daemons outside session)
+      - Restarting crashed agents and reporting lifecycle events
+      - Providing the health dashboard data consumed by G32
+
+    Rule of thumb: if the question is "are the agents running?", that is
+    Y10.  If the question is "do their outputs agree?", that is Y08.
+
 License: All dependencies are MIT/BSD/Apache — AGPL-free.
 """
 

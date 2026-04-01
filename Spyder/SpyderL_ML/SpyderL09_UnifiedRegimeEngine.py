@@ -84,6 +84,22 @@ try:
 except ImportError:
     ATTRIBUTION_AVAILABLE = False
 
+try:
+    from SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
+        HMMRegimeDetector as E21HMMDetector,
+        MarketRegime as E21MarketRegime,
+    )
+    HMM_AVAILABLE = True
+except ImportError:
+    try:
+        from Spyder.SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
+            HMMRegimeDetector as E21HMMDetector,
+            MarketRegime as E21MarketRegime,
+        )
+        HMM_AVAILABLE = True
+    except ImportError:
+        HMM_AVAILABLE = False
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -141,6 +157,7 @@ class RegimeSource(Enum):
     SIGNAL_ANALYSIS = "signal_analysis"
     QUANTITATIVE = "quantitative"
     ATTRIBUTION = "attribution"
+    HMM_MODEL = "hmm_model"
     CONSENSUS = "consensus"
 
 class RegimeConfidence(Enum):
@@ -370,7 +387,7 @@ class MLRegimeClassifier:
             return performance
 
         except Exception as e:
-            self.logger.error(f"ML model training failed: {e}")
+            self.logger.error(f"ML model training failed: {e}", exc_info=True)
             return {'error': str(e)}
 
     def predict(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
@@ -409,7 +426,7 @@ class MLRegimeClassifier:
             return result
 
         except Exception as e:
-            self.logger.error(f"ML regime prediction failed: {e}")
+            self.logger.error(f"ML regime prediction failed: {e}", exc_info=True)
             return RegimeDetectionResult(
                 regime=MarketRegime.UNKNOWN,
                 confidence=0.0,
@@ -522,7 +539,7 @@ class SignalRegimeDetector:
                 self.metrics_orchestrator = get_metrics_orchestrator()
                 self.logger.info("Connected to CustomMetricsOrchestrator")
             except Exception as e:
-                self.logger.warning(f"Could not connect to MetricsOrchestrator: {e}")
+                self.logger.warning(f"Could not connect to MetricsOrchestrator: {e}", exc_info=True)
 
         # Regime thresholds (calibrated for SPY options trading)
         self.thresholds = {
@@ -557,7 +574,7 @@ class SignalRegimeDetector:
             )
 
         except Exception as e:
-            self.logger.error(f"Signal regime detection failed: {e}")
+            self.logger.error(f"Signal regime detection failed: {e}", exc_info=True)
             return RegimeDetectionResult(
                 regime=MarketRegime.UNKNOWN,
                 confidence=0.0,
@@ -588,7 +605,7 @@ class SignalRegimeDetector:
                     'skew': current_metrics.get('SKEW', {}).get('value', conditions.skew_level)
                 })
             except Exception as e:
-                self.logger.warning(f"Could not get real-time signals: {e}")
+                self.logger.warning(f"Could not get real-time signals: {e}", exc_info=True)
 
         return signals
 
@@ -709,7 +726,7 @@ class CompositeStateDetector:
             return CompositeMarketState.UNKNOWN
 
         except Exception as e:
-            self.logger.error(f"Composite state detection failed: {e}")
+            self.logger.error(f"Composite state detection failed: {e}", exc_info=True)
             return CompositeMarketState.UNKNOWN
 
 
@@ -788,7 +805,7 @@ class SimpleMarkovTrader:
             return self
 
         except Exception as e:
-            self.logger.error(f"Markov model training failed: {e}")
+            self.logger.error(f"Markov model training failed: {e}", exc_info=True)
             return self
 
     def fit_rolling(self, prices: pd.Series) -> 'SimpleMarkovTrader':
@@ -955,7 +972,7 @@ class GreeksAwareSignalGenerator:
             return signal
 
         except Exception as e:
-            self.logger.error(f"Signal generation failed: {e}")
+            self.logger.error(f"Signal generation failed: {e}", exc_info=True)
             return OptionsSignal(
                 action=OptionsAction.HOLD,
                 regime=regime,
@@ -1129,14 +1146,23 @@ class UnifiedRegimeEngine:
                 self.quant_engine = create_advanced_models_engine()
                 self.logger.info("Integrated with V07 Advanced Models")
             except Exception as e:
-                self.logger.warning(f"Could not integrate V07: {e}")
+                self.logger.warning(f"Could not integrate V07: {e}", exc_info=True)
 
         if ATTRIBUTION_AVAILABLE:
             try:
                 self.attribution_engine = create_attribution_engine()
                 self.logger.info("Integrated with F15 Attribution")
             except Exception as e:
-                self.logger.warning(f"Could not integrate F15: {e}")
+                self.logger.warning(f"Could not integrate F15: {e}", exc_info=True)
+
+        # HMM regime detector (optional integration with E21)
+        self.hmm_detector: Any = None
+        if HMM_AVAILABLE:
+            try:
+                self.hmm_detector = E21HMMDetector()
+                self.logger.info("Integrated with E21 HMM Regime Detector")
+            except Exception as e:
+                self.logger.warning(f"Could not integrate E21 HMM: {e}", exc_info=True)
 
         # State management
         self.current_regime: MarketRegime | None = None
@@ -1147,9 +1173,10 @@ class UnifiedRegimeEngine:
 
         # Source weights (can be dynamically adjusted)
         self.source_weights = {
-            RegimeSource.ML_CLASSIFIER: 0.35,
-            RegimeSource.SIGNAL_ANALYSIS: 0.35,
-            RegimeSource.QUANTITATIVE: 0.20,
+            RegimeSource.ML_CLASSIFIER: 0.30,
+            RegimeSource.SIGNAL_ANALYSIS: 0.30,
+            RegimeSource.HMM_MODEL: 0.20,
+            RegimeSource.QUANTITATIVE: 0.10,
             RegimeSource.ATTRIBUTION: 0.10
         }
 
@@ -1217,7 +1244,7 @@ class UnifiedRegimeEngine:
                         quant_result = self._get_quantitative_regime(market_conditions)
                         individual_results.append(quant_result)
                     except Exception as e:
-                        self.logger.warning(f"Quantitative regime detection failed: {e}")
+                        self.logger.warning(f"Quantitative regime detection failed: {e}", exc_info=True)
 
                 # Attribution Analysis (if available)
                 if self.attribution_engine:
@@ -1225,7 +1252,15 @@ class UnifiedRegimeEngine:
                         attr_result = self._get_attribution_regime(market_conditions)
                         individual_results.append(attr_result)
                     except Exception as e:
-                        self.logger.warning(f"Attribution regime detection failed: {e}")
+                        self.logger.warning(f"Attribution regime detection failed: {e}", exc_info=True)
+
+                # HMM Model (if available and initialized)
+                if self.hmm_detector and self.hmm_detector.is_trained:
+                    try:
+                        hmm_result = self._get_hmm_regime(market_conditions)
+                        individual_results.append(hmm_result)
+                    except Exception as e:
+                        self.logger.warning(f"HMM regime detection failed: {e}", exc_info=True)
 
                 # Calculate weighted consensus
                 consensus = self._calculate_consensus(individual_results, market_conditions.timestamp)
@@ -1239,7 +1274,7 @@ class UnifiedRegimeEngine:
                 return consensus
 
         except Exception as e:
-            self.logger.error(f"Regime consensus calculation failed: {e}")
+            self.logger.error(f"Regime consensus calculation failed: {e}", exc_info=True)
             self.error_handler.handle_error(e, {"method": "get_current_regime"})
 
             # Return safe default
@@ -1415,6 +1450,73 @@ class UnifiedRegimeEngine:
             features={'attribution_score': 0.5}
         )
 
+    def _get_hmm_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
+        """Get regime from E21 HMM detector.
+
+        Maps the E21 3-state HMM regime (BULL/CHOP/CRISIS) into the
+        L09 8-state MarketRegime taxonomy and returns a weighted result
+        for the consensus algorithm.
+
+        Args:
+            market_conditions: Current market snapshot.
+
+        Returns:
+            RegimeDetectionResult sourced from HMM_MODEL.
+        """
+        # E21 → L09 regime mapping
+        hmm_regime_map = {
+            E21MarketRegime.BULL: MarketRegime.BULL_TRENDING,
+            E21MarketRegime.CHOP: MarketRegime.SIDEWAYS_RANGE,
+            E21MarketRegime.CRISIS: MarketRegime.CRISIS_MODE,
+        }
+
+        try:
+            # Build inputs from MarketConditions
+            returns_df = pd.DataFrame(
+                {'spy': [market_conditions.spy_change_pct / 100.0]},
+                index=[market_conditions.timestamp]
+            )
+            vol_df = pd.DataFrame(
+                {'volatility': [market_conditions.volatility_regime]},
+                index=[market_conditions.timestamp]
+            )
+            vix_df = pd.DataFrame(
+                {'vix': [market_conditions.vix_level]},
+                index=[market_conditions.timestamp]
+            )
+
+            prediction = self.hmm_detector.predict(
+                current_returns=returns_df,
+                volatility_data=vol_df,
+                vix_data=vix_df
+            )
+
+            mapped_regime = hmm_regime_map.get(
+                prediction.current_regime, MarketRegime.UNKNOWN
+            )
+
+            return RegimeDetectionResult(
+                regime=mapped_regime,
+                confidence=prediction.confidence,
+                source=RegimeSource.HMM_MODEL,
+                timestamp=market_conditions.timestamp,
+                features={
+                    'hmm_regime': prediction.current_regime.value,
+                    'regime_probabilities': prediction.regime_probabilities,
+                    'transition_probability': prediction.transition_probability,
+                }
+            )
+
+        except Exception as e:
+            self.logger.warning(f"HMM regime detection failed: {e}", exc_info=True)
+            return RegimeDetectionResult(
+                regime=MarketRegime.UNKNOWN,
+                confidence=0.0,
+                source=RegimeSource.HMM_MODEL,
+                timestamp=market_conditions.timestamp,
+                features={'error': str(e)}
+            )
+
     def _create_unknown_consensus(self, timestamp: datetime) -> RegimeConsensus:
         """Create unknown regime consensus"""
         return RegimeConsensus(
@@ -1465,7 +1567,7 @@ class UnifiedRegimeEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Model training failed: {e}")
+            self.logger.error(f"Model training failed: {e}", exc_info=True)
             return {'error': str(e)}
 
     def _generate_training_labels(self, historical_data: pd.DataFrame) -> pd.Series:
@@ -1558,7 +1660,7 @@ class UnifiedRegimeEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Stability analysis failed: {e}")
+            self.logger.error(f"Stability analysis failed: {e}", exc_info=True)
             return {'error': str(e)}
 
     def get_performance_summary(self) -> dict[str, Any]:
@@ -1623,7 +1725,7 @@ class UnifiedRegimeEngine:
                 return signal
 
         except Exception as e:
-            self.logger.error(f"Options signal generation failed: {e}")
+            self.logger.error(f"Options signal generation failed: {e}", exc_info=True)
             return OptionsSignal(
                 action=OptionsAction.HOLD,
                 regime=MarketRegime.UNKNOWN,
@@ -1687,7 +1789,7 @@ class UnifiedRegimeEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Simple Markov training failed: {e}")
+            self.logger.error(f"Simple Markov training failed: {e}", exc_info=True)
             return False
 
     def get_transition_matrix(self) -> np.ndarray | None:
@@ -1777,7 +1879,7 @@ class UnifiedRegimeEngine:
             import ray
             from ray import serve
         except ImportError:
-            self.logger.warning("Ray Serve not available for regime prediction service")
+            self.logger.warning("Ray Serve not available for regime prediction service", exc_info=True)
             return {'status': 'failed', 'reason': 'Ray Serve not installed'}
 
         if not ray.is_initialized():
@@ -1814,7 +1916,7 @@ class UnifiedRegimeEngine:
             self.logger.info(f"Ray Serve regime prediction: {info['endpoint']}")
             return info
         except Exception as e:
-            self.logger.error(f"Ray Serve deployment failed: {e}")
+            self.logger.error(f"Ray Serve deployment failed: {e}", exc_info=True)
             return {'status': 'failed', 'reason': str(e)}
 
     def predict_regime_distributed(
@@ -1835,7 +1937,7 @@ class UnifiedRegimeEngine:
         try:
             import ray
         except ImportError:
-            self.logger.warning("Ray not available for distributed regime prediction")
+            self.logger.warning("Ray not available for distributed regime prediction", exc_info=True)
             return [{'status': 'failed'}] * len(market_snapshots)
 
         import multiprocessing as mproc

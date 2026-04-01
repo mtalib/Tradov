@@ -565,8 +565,8 @@ class PerformanceAnalyticsEngine:
                 returns = pd.Series(perf.returns_history)
                 var_5 = empyrical.value_at_risk(returns, cutoff=0.05)
                 return abs(float(var_5))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).debug(f"VaR calculation failed for {strategy_id}, using fallback: {e}")
 
         # Fallback: estimate from available data
         if hasattr(perf, 'total_pnl') and hasattr(perf, 'capital_allocated'):
@@ -1050,7 +1050,7 @@ class RealTimePerformanceMonitor:
                 await asyncio.sleep(self.update_interval)
 
             except Exception as e:
-                logger.error(f"Error in performance monitoring: {e}")
+                logger.error(f"Error in performance monitoring: {e}", exc_info=True)
 
     async def _update_metrics(self):
         """Update performance metrics"""

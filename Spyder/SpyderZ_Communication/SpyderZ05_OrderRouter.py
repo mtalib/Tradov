@@ -433,7 +433,7 @@ class OrderRouter:
                             continue
 
                 # Brief sleep to prevent CPU spinning
-                time.sleep(0.001)
+                time.sleep(0.001)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Router error: {e}")
@@ -875,7 +875,7 @@ class OrderRouter:
 
         # Simulate latency
         latency_ms = decision.expected_latency_ms
-        time.sleep(latency_ms / 1000)
+        time.sleep(latency_ms / 1000)  # thread-safe: time.sleep() intentional
 
         # Simulate success/failure (95% success rate)
         success = random.random() < 0.95
@@ -980,7 +980,7 @@ class OrderRouter:
                         self.circuit_breaker.rejection_rate < MAX_REJECTION_RATE * 0.8):
                         self.circuit_breaker.state = CircuitBreakerState.NORMAL
 
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Circuit breaker monitor error: {e}")

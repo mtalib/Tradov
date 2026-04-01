@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -259,11 +260,21 @@ class VIXAnalyzer:
         >>> signal = analyzer.get_trading_signal()
     """
 
-    def __init__(self, config: dict | None = None):
-        """Initialize VIX analyzer."""
+    def __init__(self, config: dict | None = None, tradier_client: Any = None):
+        """Initialize VIX analyzer.
+
+        Args:
+            config: Optional configuration overrides.
+            tradier_client: Optional SpyderB40_TradierClient instance. When
+                provided, the primary VIX quote is fetched via Tradier
+                (authenticated, real-time) instead of yfinance scraping.
+                Extended term-structure symbols (VIX9D, VVIX, VXV, etc.) are
+                still sourced via yfinance as Tradier does not carry them.
+        """
         self.logger = SpyderLogger.get_logger("VIXAnalyzer")
         self.error_handler = SpyderErrorHandler()
         self.data_validator = DataValidator()
+        self.tradier_client = tradier_client
 
         # Configuration
         self.config = config or {}
@@ -481,16 +492,22 @@ class VIXAnalyzer:
                 self._update_realtime_data()
 
                 # Sleep
-                time.sleep(self.update_interval)
+                time.sleep(self.update_interval)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, {
                     'method': '_data_collection_loop'
                 })
-                time.sleep(60)  # Longer sleep on error
+                time.sleep(60)  # thread-safe: time.sleep() intentional
 
     def _update_realtime_data(self) -> None:
-        """Update real-time VIX data."""
+        """Update real-time VIX data.
+
+        Primary VIX quote is fetched via Tradier when a client is available
+        (authenticated real-time data). Extended term-structure symbols
+        (VIX9D, VVIX, VXV, VXMT, VXST) are fetched via yfinance as Tradier
+        does not carry them.
+        """
         try:
             current_time = datetime.now()
 
@@ -498,34 +515,33 @@ class VIXAnalyzer:
             if not self._is_update_time(current_time):
                 return
 
+            # --- Primary VIX: prefer Tradier (real-time, authenticated) ---
+            vix_from_tradier = self._fetch_vix_from_tradier(current_time)
+
+            # --- Extended term structure: yfinance fallback ---
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
+                # Skip VIX itself if Tradier already delivered it
+                if symbol_key == 'VIX' and vix_from_tradier is not None:
+                    continue
                 try:
-                    # Get current data from Yahoo Finance
                     ticker = yf.Ticker(yahoo_symbol)
                     info = ticker.info
-
-                    # Get current price
                     current_price = info.get('regularMarketPrice', 0.0)
                     if current_price <= 0:
                         current_price = info.get('previousClose', 0.0)
-
                     if current_price > 0:
                         vix_data = VIXData(
                             symbol=symbol_key,
                             value=current_price,
                             timestamp=current_time
                         )
-
                         self.vix_data[symbol_key] = vix_data
                         self.historical_data[symbol_key].append(vix_data)
-
-                        # Update technical indicators for VIX
                         if symbol_key == 'VIX':
                             self.rsi_calculator.update(current_price)
                             self.bb_calculator.update(current_price)
-
                 except Exception as e:
-                    self.logger.debug(f"Failed to update {symbol_key}: {e}")
+                    self.logger.debug(f"yfinance update failed for {symbol_key}: {e}")
                     continue
 
             self.stats['last_data_update'] = current_time
@@ -534,6 +550,40 @@ class VIXAnalyzer:
             self.error_handler.handle_error(e, {
                 'method': '_update_realtime_data'
             })
+
+    def _fetch_vix_from_tradier(self, current_time: datetime) -> float | None:
+        """Fetch the live VIX index quote from Tradier.
+
+        Returns:
+            VIX value as float if successful, None otherwise.
+        """
+        if self.tradier_client is None:
+            return None
+        try:
+            response = self.tradier_client.get_quotes(["VIX"])
+            quotes_wrapper = (response or {}).get("quotes", {})
+            raw = quotes_wrapper.get("quote", {})
+            if isinstance(raw, list):
+                raw = raw[0] if raw else {}
+            price = raw.get("last") or raw.get("prevclose")
+            if price is None:
+                return None
+            value = float(price)
+            if value <= 0:
+                return None
+            vix_data = VIXData(
+                symbol="VIX",
+                value=value,
+                timestamp=current_time
+            )
+            self.vix_data["VIX"] = vix_data
+            self.historical_data["VIX"].append(vix_data)
+            self.rsi_calculator.update(value)
+            self.bb_calculator.update(value)
+            return value
+        except Exception as e:
+            self.logger.debug(f"Tradier VIX fetch failed, will use yfinance: {e}")
+            return None
 
     def _is_update_time(self, current_time: datetime) -> bool:
         """Check if it's appropriate time to update data."""
@@ -630,13 +680,13 @@ class VIXAnalyzer:
                 self._check_regime_change()
 
                 # Sleep
-                time.sleep(5.0)
+                time.sleep(5.0)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, {
                     'method': '_analysis_loop'
                 })
-                time.sleep(10.0)
+                time.sleep(10.0)  # thread-safe: time.sleep() intentional
 
     def _update_volatility_metrics(self) -> None:
         """Update comprehensive volatility metrics."""
@@ -1404,7 +1454,7 @@ if __name__ == "__main__":
         analyzer._process_vix_update(test_vix_data)
 
         # Wait for analysis
-        time.sleep(3)
+        time.sleep(3)  # thread-safe: time.sleep() intentional
 
         # Get results
         metrics = analyzer.get_current_metrics()
@@ -1440,7 +1490,7 @@ if __name__ == "__main__":
         # Test risk premium calculation
         risk_prem = calculate_volatility_risk_premium(0.25, 0.20)
 
-        time.sleep(2)
+        time.sleep(2)  # thread-safe: time.sleep() intentional
 
         # Cleanup
         analyzer.cleanup()

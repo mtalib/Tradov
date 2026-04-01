@@ -127,7 +127,7 @@ class CorrelationAnalyzer:
 
     def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
-        self.logger = SpyderLogger("CorrelationAnalyzer")
+        self.logger = SpyderLogger.get_logger("CorrelationAnalyzer")
         self.error_handler = SpyderErrorHandler()
         self.correlation_history: list[CorrelationMetrics] = []
         self.strategy_returns: dict[str, pd.Series] = {}
@@ -503,7 +503,7 @@ class CorrelationAnalyzer:
         try:
             import riskfolio as rp
         except ImportError:
-            self.logger.warning("riskfolio not installed — using sample covariance")
+            self.logger.warning("riskfolio not installed — using sample covariance", exc_info=True)
             cov = returns_data.cov()
             return {'covariance': cov.to_dict(), 'method': 'sample', '_backend': 'fallback'}
 
@@ -611,6 +611,11 @@ def set_global_correlation_analyzer(analyzer: CorrelationAnalyzer) -> None:
     """Set global correlation analyzer instance"""
     global _global_correlation_analyzer
     _global_correlation_analyzer = analyzer
+
+def reset_global_correlation_analyzer() -> None:
+    """Clear global correlation analyzer instance (for shutdown/testing)."""
+    global _global_correlation_analyzer
+    _global_correlation_analyzer = None
 
 # ==============================================================================
 # MAIN EXECUTION

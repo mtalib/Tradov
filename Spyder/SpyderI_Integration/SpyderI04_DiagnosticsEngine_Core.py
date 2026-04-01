@@ -119,6 +119,7 @@ class DiagnosticsEngine:
 
         # Monitoring control
         self.is_monitoring = False
+        self._stop_event = threading.Event()
         self.monitoring_threads: dict[str, threading.Thread] = {}
         self.thread_pool = ThreadPoolExecutor(max_workers=5)
 
@@ -150,6 +151,7 @@ class DiagnosticsEngine:
                 return True
 
             self.is_monitoring = True
+            self._stop_event.clear()
 
             # Start monitoring threads
             monitoring_tasks = {
@@ -181,6 +183,7 @@ class DiagnosticsEngine:
         """
         try:
             self.is_monitoring = False
+            self._stop_event.set()
 
             # Wait for threads to complete
             for thread_name, thread in self.monitoring_threads.items():
@@ -416,11 +419,13 @@ class DiagnosticsEngine:
                 if issues:
                     self._update_active_issues(issues)
 
-                time.sleep(HEALTH_CHECK_INTERVAL)
+                if self._stop_event.wait(timeout=HEALTH_CHECK_INTERVAL):
+                    break
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_health_monitoring_loop")
-                time.sleep(10)
+                if self._stop_event.wait(timeout=10):
+                    break
 
     def _performance_monitoring_loop(self) -> None:
         """Performance monitoring loop"""
@@ -436,11 +441,13 @@ class DiagnosticsEngine:
                 if performance_issues:
                     self._update_active_issues(performance_issues)
 
-                time.sleep(PERFORMANCE_ANALYSIS_INTERVAL)
+                if self._stop_event.wait(timeout=PERFORMANCE_ANALYSIS_INTERVAL):
+                    break
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_performance_monitoring_loop")
-                time.sleep(30)
+                if self._stop_event.wait(timeout=30):
+                    break
 
     def _analysis_monitoring_loop(self) -> None:
         """Advanced analysis monitoring loop"""
@@ -455,11 +462,13 @@ class DiagnosticsEngine:
                 # Clean up resolved issues
                 self._cleanup_resolved_issues()
 
-                time.sleep(DEEP_ANALYSIS_INTERVAL)
+                if self._stop_event.wait(timeout=DEEP_ANALYSIS_INTERVAL):
+                    break
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_analysis_monitoring_loop")
-                time.sleep(60)
+                if self._stop_event.wait(timeout=60):
+                    break
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITY
@@ -572,7 +581,7 @@ if __name__ == "__main__":
     success = diagnostics.start_monitoring()
 
     # Wait a bit
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Get health summary
     summary = diagnostics.get_health_summary()

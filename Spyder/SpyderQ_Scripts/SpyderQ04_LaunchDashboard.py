@@ -469,8 +469,8 @@ class WorkingSpyderDashboard(QMainWindow):
                 self.last_price.setText(f"Last: {quote.get('last', '---')}")
                 self.bid_price.setText(f"Bid: {quote.get('bid', '---')}")
                 self.ask_price.setText(f"Ask: {quote.get('ask', '---')}")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Failed to fetch quote: {e}")
 
     def place_order(self, action):
         """Place an order (sends to Tradier — not yet wired to SpyderB40)."""

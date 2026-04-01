@@ -616,12 +616,12 @@ class OrderManager:
         Returns:
             OrderResult.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.submit_order, order)
 
     async def cancel_order_async(self, order_id: str) -> OrderResult:
         """Cancel an order asynchronously."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.cancel_order, order_id)
 
     async def modify_order_async(
@@ -633,7 +633,7 @@ class OrderManager:
         duration: str | None = None,
     ) -> OrderResult:
         """Modify an order asynchronously."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, self.modify_order, order_id, price, stop_price, order_type, duration
         )
@@ -1068,7 +1068,7 @@ class OrderManager:
                     return result  # type: ignore[return-value]
 
             # Wait, then check fill status
-            time.sleep(tick_interval_secs)
+            time.sleep(tick_interval_secs)  # thread-safe: time.sleep() intentional
             refreshed = self.refresh_order(current_order_id)
             if refreshed and refreshed.state == OrderState.FILLED:
                 self.logger.info(

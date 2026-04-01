@@ -78,10 +78,7 @@ except ImportError:
     PricingRequest = None  # type: ignore
     TradingSignal = None  # type: ignore
 
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # ==============================================================================
 # MODULE CONFIGURATION
@@ -298,7 +295,7 @@ class SpyderModelManager:
             return initialization_results
 
         except Exception as e:
-            self.logger.error(f"Error initializing engines: {e}")
+            self.logger.error(f"Error initializing engines: {e}", exc_info=True)
             return {engine_type: False for engine_type in EngineType}
 
     async def _initialize_risk_manager(self) -> bool:
@@ -321,7 +318,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V04 RiskManager: {e}")
+            self.logger.error(f"Failed to initialize V04 RiskManager: {e}", exc_info=True)
             self.engine_status[EngineType.RISK_MANAGER] = EngineStatus.ERROR
             return False
 
@@ -345,7 +342,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V05 PricingEngine: {e}")
+            self.logger.error(f"Failed to initialize V05 PricingEngine: {e}", exc_info=True)
             self.engine_status[EngineType.PRICING_ENGINE] = EngineStatus.ERROR
             return False
 
@@ -369,7 +366,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V06 VolatilityEngine: {e}")
+            self.logger.error(f"Failed to initialize V06 VolatilityEngine: {e}", exc_info=True)
             self.engine_status[EngineType.VOLATILITY_ENGINE] = EngineStatus.ERROR
             return False
 
@@ -393,7 +390,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V07 AdvancedModels: {e}")
+            self.logger.error(f"Failed to initialize V07 AdvancedModels: {e}", exc_info=True)
             self.engine_status[EngineType.ADVANCED_MODELS] = EngineStatus.ERROR
             return False
 
@@ -415,7 +412,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V08 AIModels: {e}")
+            self.logger.error(f"Failed to initialize V08 AIModels: {e}", exc_info=True)
             self.engine_status[EngineType.AI_MODELS] = EngineStatus.ERROR
             return False
 
@@ -449,7 +446,7 @@ class SpyderModelManager:
             return response
 
         except Exception as e:
-            self.logger.error(f"Error executing operation {request.operation}: {e}")
+            self.logger.error(f"Error executing operation {request.operation}: {e}", exc_info=True)
             return ConsolidatedResponse(
                 request_id=request.request_id,
                 engine_type=request.engine_type,
@@ -723,7 +720,7 @@ class SpyderModelManager:
                 # Process queued requests (if implemented)
                 await asyncio.sleep(0.1)
             except Exception as e:
-                self.logger.error(f"Error in request processor: {e}")
+                self.logger.error(f"Error in request processor: {e}", exc_info=True)
 
     def _update_performance_metrics(self, engine_type: EngineType, response: ConsolidatedResponse):
         """Update performance metrics for engine."""
@@ -854,7 +851,7 @@ class EngineHealthChecker:
                 await self._check_all_engines()
                 await asyncio.sleep(60)  # Check every minute
             except Exception as e:
-                self.logger.error(f"Error in health checker: {e}")
+                self.logger.error(f"Error in health checker: {e}", exc_info=True)
 
     async def _check_all_engines(self):
         """Check health of all engines."""
@@ -872,7 +869,7 @@ class EngineHealthChecker:
                         self.model_manager.engine_status[engine_type] = EngineStatus.DEGRADED
 
             except Exception as e:
-                self.logger.error(f"Health check failed for {engine_type.value}: {e}")
+                self.logger.error(f"Health check failed for {engine_type.value}: {e}", exc_info=True)
                 self.model_manager.engine_status[engine_type] = EngineStatus.ERROR
 
 class PerformanceMonitor:
@@ -889,7 +886,7 @@ class PerformanceMonitor:
                 await self._analyze_performance()
                 await asyncio.sleep(300)  # Analyze every 5 minutes
             except Exception as e:
-                self.logger.error(f"Error in performance monitor: {e}")
+                self.logger.error(f"Error in performance monitor: {e}", exc_info=True)
 
     async def _analyze_performance(self):
         """Analyze and optimize performance."""

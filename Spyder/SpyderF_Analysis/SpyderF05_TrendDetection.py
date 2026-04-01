@@ -152,8 +152,9 @@ class TrendDetector:
         # Load configuration
         self._load_config()
 
-        # Trend cache
-        self._trend_cache = {}
+        # Trend cache (bounded — evicts oldest when full)
+        self._trend_cache: dict = {}
+        self._trend_cache_maxsize: int = 500
 
         self.logger.info("TrendDetector initialized with ML integration hooks")
 
@@ -233,7 +234,7 @@ class TrendDetector:
                     return combined_trend
 
                 except Exception as e:
-                    self.logger.warning(f"ML trend prediction failed: {e}")
+                    self.logger.warning(f"ML trend prediction failed: {e}", exc_info=True)
                     # Fall back to traditional
 
             # Record performance
@@ -550,7 +551,7 @@ class TrendDetector:
             return prediction
 
         except Exception as e:
-            self.logger.error(f"ML prediction error: {e}")
+            self.logger.error(f"ML prediction error: {e}", exc_info=True)
             return None
 
     def _prepare_ml_features(self, data: pd.DataFrame) -> pd.DataFrame:

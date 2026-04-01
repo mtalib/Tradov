@@ -583,7 +583,7 @@ class RealTimeDataOptimizer:
 
                 if packet is None:
                     # No data available - minimal sleep
-                    time.sleep(MICROSECOND)  # 1 microsecond
+                    time.sleep(MICROSECOND)  # thread-safe: time.sleep() intentional
                     continue
 
                 # Process packet with maximum speed
@@ -609,7 +609,7 @@ class RealTimeDataOptimizer:
 
             except Exception as e:
                 self.error_handler.handle_error(e, context="_critical_processing_loop")
-                time.sleep(MICROSECOND * 10)  # 10 microseconds on error
+                time.sleep(MICROSECOND * 10)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Critical processing loop stopped")
 
@@ -624,7 +624,7 @@ class RealTimeDataOptimizer:
                 packet = high_queue.dequeue()
 
                 if packet is None:
-                    time.sleep(MICROSECOND * 10)  # 10 microseconds
+                    time.sleep(MICROSECOND * 10)  # thread-safe: time.sleep() intentional
                     continue
 
                 processing_start_ns = time.time_ns()
@@ -643,7 +643,7 @@ class RealTimeDataOptimizer:
 
             except Exception as e:
                 self.error_handler.handle_error(e, context="_high_priority_processing_loop")
-                time.sleep(MICROSECOND * 100)  # 100 microseconds on error
+                time.sleep(MICROSECOND * 100)  # thread-safe: time.sleep() intentional
 
         self.logger.info("High priority processing loop stopped")
 
@@ -666,7 +666,7 @@ class RealTimeDataOptimizer:
                         break
 
                 if packet is None:
-                    time.sleep(MICROSECOND * 100)  # 100 microseconds
+                    time.sleep(MICROSECOND * 100)  # thread-safe: time.sleep() intentional
                     continue
 
                 # Batch processing for efficiency
@@ -695,7 +695,7 @@ class RealTimeDataOptimizer:
 
             except Exception as e:
                 self.error_handler.handle_error(e, context="_bulk_processing_loop")
-                time.sleep(MICROSECOND * 1000)  # 1 millisecond on error
+                time.sleep(MICROSECOND * 1000)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Bulk processing loop stopped")
 
@@ -878,11 +878,11 @@ class RealTimeDataOptimizer:
                     self._check_performance_thresholds()
                     last_stats_update = current_time
 
-                time.sleep(0.1)  # Check every 100ms
+                time.sleep(0.1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, context="_performance_monitoring_loop")
-                time.sleep(1.0)
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Performance monitoring loop stopped")
 

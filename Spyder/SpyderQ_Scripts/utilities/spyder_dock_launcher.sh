@@ -10,19 +10,15 @@ else
     # Fallback menu using zenity if available
     if command -v zenity >/dev/null 2>&1; then
         choice=$(zenity --list --title="SPYDER Trading System" \
-            --text="Choose connection method:" \
+            --text="Choose launch option:" \
             --column="Option" \
-            "IB Gateway (Local)" \
-            "Remote TWS API" \
+            "Tradier API (Default)" \
             "Test Connections" \
             --height=300 --width=400 2>/dev/null)
 
         case "$choice" in
-            "IB Gateway (Local)")
-                "$SCRIPT_DIR/launch_spyder_gateway.sh"
-                ;;
-            "Remote TWS API")
-                "$SCRIPT_DIR/launch_spyder_tws.sh"
+            "Tradier API (Default)")
+                "$SCRIPT_DIR/launch_dashboard_production.py"
                 ;;
             "Test Connections")
                 gnome-terminal -- "$SCRIPT_DIR/test_all_connections.sh" --full

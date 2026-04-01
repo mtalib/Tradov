@@ -8,31 +8,18 @@ Purpose: Historical data retrieval and storage (Databento/Tradier compatible)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-22 Time: 14:35:00
+Last Updated: 2026-03-08 Time: 02:00:00
 
-⚠️ MIGRATION NOTE ⚠️
-    This module has been partially migrated from IBKR APIs.
-    Historical data is now available via Databento (SpyderC26_DatabentoClient).
-
-    Current Status:
-    - ✅ Migrated from ib_async to IBKR Client Portal Web API
-    - ⚠️ Still uses IBKR-specific data types and structures
-    - 🎯 Recommended: Use SpyderC26_DatabentoClient for historical bars
-
-    For New Development:
-    - Use SpyderC26_DatabentoClient.get_historical_ohlcv()
-    - Databento provides nanosecond-resolution institutional data
-    - No broker dependency for historical data retrieval
+BROKER NOTE:
+    Historical data now available via Databento (SpyderC26_DatabentoClient).
+    Use SpyderC26_DatabentoClient.get_historical_ohlcv() for new development.
+    Databento provides nanosecond-resolution institutional data with no
+    broker dependency for historical data retrieval.
 
 Module Description:
     This module handles the retrieval, storage, and management of historical market data
-    for the Spyder trading system. Migrated from IB Gateway (ib_async) to IBKR Web API.
-
-    MIGRATION STATUS: Migrated from ib_async to IBKR Client Portal Web API (OAuth 2.0).
-    Now uses SpyderB09_ClientPortal_MarketData for historical data retrieval.
-
-    The module includes caching mechanisms to minimize API calls and provides data
-    preprocessing utilities.
+    for the Spyder trading system. Includes caching mechanisms to minimize API calls
+    and data preprocessing utilities.
 """
 
 # ==============================================================================
@@ -53,7 +40,7 @@ from enum import Enum
 # ==============================================================================
 import pandas as pd
 
-# B10_IBDataTypes removed (IB Gateway) — use Databento for historical data
+# B10_IBDataTypes removed (legacy broker) — use Databento for historical data
 IBContract = None  # type: ignore
 SecurityType = None  # type: ignore
 Contract = None  # type: ignore
@@ -67,7 +54,7 @@ from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from Spyder.SpyderH_Storage.SpyderH03_MarketDataCache import MarketDataCache
 
-# B01_SpyderClient removed (IB Gateway) — Tradier via SpyderB40_TradierClient
+# B01_SpyderClient removed (legacy broker) — Tradier via SpyderB40_TradierClient
 SpyderClient = None  # type: ignore
 
 # ==============================================================================
@@ -79,18 +66,18 @@ SpyderClient = None  # type: ignore
 # To re-enable: Set ENABLE_HISTORICAL_DATA = True (only when needed for backtesting/analysis)
 ENABLE_HISTORICAL_DATA = False  # Set to True only when explicitly needed
 
-# Historical data pacing (IBKR limits: 60 requests per 10 minutes)
+# Historical data pacing (rate limits: 60 requests per 10 minutes)
 MAX_HISTORICAL_REQUESTS_PER_SECOND = 0.1  # 1 request per 10 seconds (safe)
-MAX_HISTORICAL_REQUESTS_PER_10_MINUTES = 60  # IBKR hard limit
+MAX_HISTORICAL_REQUESTS_PER_10_MINUTES = 60  # API hard limit
 HISTORICAL_REQUEST_WINDOW = 600.0  # 10 minutes in seconds
 
 CACHE_DIR = Path.home() / ".spyder" / "cache" / "historical"
 CACHE_EXPIRY_HOURS = 24
 
-# Historical data durations available from IB
+# Historical data durations available
 IB_DURATIONS = ["1 D", "2 D", "1 W", "2 W", "1 M", "2 M", "3 M", "6 M", "1 Y", "2 Y"]
 
-# Bar sizes available from IB
+# Available bar sizes
 IB_BAR_SIZES = [
     "1 sec",
     "5 secs",
@@ -274,7 +261,7 @@ class HistoricalDataManager:
     Historical data management with caching and rate limiting.
 
     Handles retrieval, storage, and management of historical market data
-    from Interactive Brokers with intelligent caching and request optimization.
+    with intelligent caching and request optimization.
     """
 
     def __init__(self, ib_client: SpyderClient, event_manager: EventManager):
@@ -282,7 +269,7 @@ class HistoricalDataManager:
         Initialize Historical Data Manager.
 
         Args:
-            ib_client: Connected SpyderClient instance
+            ib_client: Connected SpyderClient instance (legacy parameter name)
             event_manager: Event manager for publishing updates
         """
         self.ib_client = ib_client
@@ -305,7 +292,10 @@ class HistoricalDataManager:
         self.cache_enabled = True
         self.cache_dir = CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache = MarketDataCache(str(self.cache_dir))
+        # Historical cache in this module uses file snapshots in cache_dir.
+        # H03 is imported for compatibility with broader cache architecture
+        # but is not instantiated here.
+        self.cache = None
 
         # Worker thread
         self.running = False
@@ -339,7 +329,7 @@ class HistoricalDataManager:
                 return True
 
             if not self.ib_client.is_connected():
-                self.logger.error("IB client not connected")
+                self.logger.error("Data client not connected")
                 return False
 
             self.running = True
@@ -354,7 +344,7 @@ class HistoricalDataManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start Historical Data Manager: {e}")
+            self.logger.error(f"Failed to start Historical Data Manager: {e}", exc_info=True)
             return False
 
     def stop(self):
@@ -365,6 +355,7 @@ class HistoricalDataManager:
             # Cancel all active requests
             with self.request_lock:
                 for req_id in list(self.active_requests.keys()):
+                    # Cancel with data provider
                     self.ib_client.ib.cancelHistoricalData(req_id)
 
                 self.active_requests.clear()
@@ -376,7 +367,7 @@ class HistoricalDataManager:
             self.logger.info("Historical Data Manager stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping Historical Data Manager: {e}")
+            self.logger.error(f"Error stopping Historical Data Manager: {e}", exc_info=True)
 
     def request_historical_data(
         self,
@@ -392,7 +383,7 @@ class HistoricalDataManager:
         Request historical data for a contract.
 
         Args:
-            contract: IB contract object
+            contract: Contract object
             end_date: End date for data (defaults to now)
             duration: Data duration (e.g., "1 D", "1 W", "1 M")
             bar_size: Bar size (e.g., "1 min", "5 mins", "1 hour")
@@ -462,7 +453,7 @@ class HistoricalDataManager:
             return request_id
 
         except Exception as e:
-            self.logger.error(f"Error requesting historical data: {e}")
+            self.logger.error(f"Error requesting historical data: {e}", exc_info=True)
             return -1
 
     def get_response(self, request_id: int) -> HistoricalDataResponse | None:
@@ -490,7 +481,7 @@ class HistoricalDataManager:
         try:
             with self.request_lock:
                 if request_id in self.active_requests:
-                    # Cancel with IB
+                    # Cancel with data provider
                     self.ib_client.ib.cancelHistoricalData(request_id)
 
                     # Update status
@@ -519,7 +510,7 @@ class HistoricalDataManager:
                     return False
 
         except Exception as e:
-            self.logger.error(f"Error cancelling request {request_id}: {e}")
+            self.logger.error(f"Error cancelling request {request_id}: {e}", exc_info=True)
             return False
 
     def get_cached_data(
@@ -573,7 +564,7 @@ class HistoricalDataManager:
                             all_data.append(filtered_df)
 
                 except Exception as e:
-                    self.logger.warning(f"Error loading cache file {cache_file}: {e}")
+                    self.logger.warning(f"Error loading cache file {cache_file}: {e}", exc_info=True)
                     continue
 
             if all_data:
@@ -586,7 +577,7 @@ class HistoricalDataManager:
             return None
 
         except Exception as e:
-            self.logger.error(f"Error getting cached data: {e}")
+            self.logger.error(f"Error getting cached data: {e}", exc_info=True)
             return None
 
     # ==========================================================================
@@ -601,7 +592,7 @@ class HistoricalDataManager:
             try:
                 # Check rate limiting
                 if not self._check_rate_limit():
-                    time.sleep(0.1)
+                    time.sleep(0.1)  # thread-safe: time.sleep() intentional
                     continue
 
                 # Get next request
@@ -614,8 +605,8 @@ class HistoricalDataManager:
                 self._process_request(request)
 
             except Exception as e:
-                self.logger.error(f"Worker loop error: {e}")
-                time.sleep(1.0)
+                self.logger.error(f"Worker loop error: {e}", exc_info=True)
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Historical data worker stopped")
 
@@ -624,7 +615,7 @@ class HistoricalDataManager:
         try:
             request.status = RequestStatus.IN_PROGRESS
 
-            # Submit to IB
+            # Submit to data provider
             end_date_str = request.end_date.strftime("%Y%m%d %H:%M:%S")
 
             self.ib_client.ib.reqHistoricalData(
@@ -645,7 +636,7 @@ class HistoricalDataManager:
             self.last_request_time = current_time
             self.request_count += 1
 
-            # Track in 10-minute history for IBKR pacing compliance
+            # Track in 10-minute history for pacing compliance
             if not hasattr(self, "request_history"):
                 self.request_history = []
             self.request_history.append(current_time)
@@ -656,7 +647,7 @@ class HistoricalDataManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error processing request {request.request_id}: {e}")
+            self.logger.error(f"Error processing request {request.request_id}: {e}", exc_info=True)
 
             # Create error response
             response = HistoricalDataResponse(
@@ -675,9 +666,9 @@ class HistoricalDataManager:
 
     def _check_rate_limit(self) -> bool:
         """
-        Check if we can make another request based on IBKR rate limiting.
+        Check if we can make another request based on rate limiting.
 
-        IBKR Limits: 60 requests per 10 minutes for historical data
+        Limits: 60 requests per 10 minutes for historical data
         Returns True if we can make a request, False if we need to wait
         """
         current_time = time.time()
@@ -746,7 +737,7 @@ class HistoricalDataManager:
             return data
 
         except Exception as e:
-            self.logger.warning(f"Error loading cached data for {cache_key}: {e}")
+            self.logger.warning(f"Error loading cached data for {cache_key}: {e}", exc_info=True)
             return None
 
     def _cache_data(self, cache_key: str, data: list[HistoricalBarData]):
@@ -763,7 +754,7 @@ class HistoricalDataManager:
             self.logger.debug(f"Cached data for {cache_key}")
 
         except Exception as e:
-            self.logger.warning(f"Error caching data for {cache_key}: {e}")
+            self.logger.warning(f"Error caching data for {cache_key}: {e}", exc_info=True)
 
     def _create_cached_response(
         self, data: list[HistoricalBarData], cache_key: str
@@ -795,7 +786,7 @@ class HistoricalDataManager:
     # ==========================================================================
 
     def _setup_callbacks(self):
-        """Setup IB callbacks for historical data"""
+        """Setup data provider callbacks for historical data"""
         self.ib_client.ib.historicalData = self._on_historical_data
         self.ib_client.ib.historicalDataEnd = self._on_historical_data_end
         self.ib_client.ib.error = self._on_error
@@ -833,7 +824,7 @@ class HistoricalDataManager:
                 self.responses[req_id].bars.append(bar_data)
 
         except Exception as e:
-            self.logger.error(f"Error processing historical data for {req_id}: {e}")
+            self.logger.error(f"Error processing historical data for {req_id}: {e}", exc_info=True)
 
     def _on_historical_data_end(self, req_id: int, start: str, end: str):
         """Handle end of historical data"""
@@ -870,10 +861,10 @@ class HistoricalDataManager:
                 del self.active_requests[req_id]
 
         except Exception as e:
-            self.logger.error(f"Error completing historical data for {req_id}: {e}")
+            self.logger.error(f"Error completing historical data for {req_id}: {e}", exc_info=True)
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
-        """Handle IB errors"""
+        """Handle data provider errors"""
         if req_id in self.active_requests:
             self.logger.error(
                 f"Historical data error [{req_id}]: {error_code} - {error_string}"
@@ -920,7 +911,7 @@ class HistoricalDataManager:
             self.event_manager.publish(event)
 
         except Exception as e:
-            self.logger.error(f"Error publishing completion event: {e}")
+            self.logger.error(f"Error publishing completion event: {e}", exc_info=True)
 
 
 # ==============================================================================
@@ -928,20 +919,8 @@ class HistoricalDataManager:
 # ==============================================================================
 
 
-def create_spy_contract() -> Contract:
-    """Create SPY stock contract"""
-    from ib_async import Stock
-
-    return Stock("SPY", "SMART", "USD")
-
-
-def create_spy_option_contract(
-    expiry: str, strike: float, option_type: str
-) -> Contract:
-    """Create SPY option contract"""
-    from ib_async import Option
-
-    return Option("SPY", expiry, strike, option_type, "SMART")
+# Legacy contract creation functions removed
+# Use Tradier API or Databento for market data
 
 
 def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
@@ -957,43 +936,6 @@ def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the Historical Data Manager
-    from SpyderB_Broker.SpyderB01_SpyderClient import IBConfig, SpyderClient
-
-    # Initialize components
-    event_manager = EventManager()
-    ib_config = IBConfig(host="127.0.0.1", port=7497, client_id=1)
-    ib_client = SpyderClient(ib_config, event_manager)
-
-    # Connect to IBKR
-    if ib_client.connect():
-        # Create manager
-        hist_manager = HistoricalDataManager(ib_client, event_manager)
-
-        # Start manager
-        if hist_manager.start():
-            # Request SPY daily data
-            spy_contract = create_spy_contract()
-            request_id = hist_manager.request_historical_data(
-                contract=spy_contract,
-                duration="5 D",
-                bar_size="1 hour",
-                data_type="TRADES",
-            )
-
-
-            # Wait for completion
-            time.sleep(10)
-
-            # Get response
-            response = hist_manager.get_response(request_id)
-            if response:
-                if response.bars:
-                    df = bars_to_dataframe(response.bars)
-
-            # Stop manager
-            hist_manager.stop()
-
-        ib_client.disconnect()
-    else:
-        pass
+    # Legacy standalone test — use SpyderC26_DatabentoClient for historical data
+    logging.basicConfig(level=logging.INFO)
+    logging.info("HistoricalDataManager: Use SpyderC26_DatabentoClient for historical data retrieval")

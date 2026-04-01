@@ -1420,15 +1420,33 @@ Please find detailed reports attached.
             archive_dir = self.output_dir / "archive" / str(report_date.year) / f"{report_date.month:02d}"
             archive_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save report data
-            # NOTE: pickle retained here because report_data contains complex
-            # nested objects (DataFrames, custom types) that may not round-trip
-            # cleanly through JSON.  This file is write-once archive data (never
-            # loaded from untrusted sources), so pickle is low-risk here.
-            # TODO: migrate to JSON+pandas parquet if structured access is needed.
-            data_file = archive_dir / f"report_data_{report_date}.pkl"
-            with open(data_file, 'wb') as f:
-                pickle.dump(report_data, f)
+            # Save report data.  DailyReportData is a pure dataclass (scalars,
+            # dicts, lists) that round-trips cleanly through JSON.  Persist as
+            # JSON for structured access, with a pickle fallback for any edge
+            # cases (e.g. unexpected nested types introduced in future fields).
+            json_file = archive_dir / f"report_data_{report_date}.json"
+            try:
+                def _json_default(obj: Any) -> Any:
+                    """Serialise non-primitive types for JSON output."""
+                    if isinstance(obj, (date, datetime)):
+                        return obj.isoformat()
+                    if isinstance(obj, float) and (obj != obj):  # NaN
+                        return None
+                    if hasattr(obj, '__float__'):
+                        return float(obj)
+                    return str(obj)
+
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(asdict(report_data), f, default=_json_default, indent=2)
+                self.logger.debug(f"Report data archived as JSON: {json_file}")
+            except (TypeError, ValueError) as json_exc:
+                self.logger.warning(
+                    f"JSON serialisation failed for report {report_date} "
+                    f"({json_exc}); falling back to pickle."
+                )
+                pkl_file = archive_dir / f"report_data_{report_date}.pkl"
+                with open(pkl_file, 'wb') as f:
+                    pickle.dump(report_data, f)
 
             # Copy output files to archive
             for _format_type, filepath in output_files.items():

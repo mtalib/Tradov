@@ -997,7 +997,7 @@ class AutoHedger(SpyderEngineProcess):
 
                     self.last_hedge_analysis = now
 
-                time.sleep(0.5)
+                time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Hedge monitoring error: {e}")
@@ -1028,7 +1028,7 @@ class AutoHedger(SpyderEngineProcess):
                                 self.performance.successful_hedges
                             )
 
-                time.sleep(1.0)
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Order monitoring error: {e}")

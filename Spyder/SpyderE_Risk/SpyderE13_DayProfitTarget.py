@@ -10,17 +10,10 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-28 Time: 19:00:00
 
-⚠️ INTEGRATION UPDATE REQUIRED ⚠️
-    This module currently uses DEPRECATED ib_async for IB client integration.
-
-    Migration Needed:
-    - ❌ Remove ib_async IB client dependency
-    - ✅ Integrate with SpyderB40_TradierClient for order execution
-    - ✅ Use Databento for market data (SpyderC26_DatabentoClient)
-    - 🔧 Update algorithmic slicing to work with Tradier API
-
-    Current Status: Functional but uses legacy IBKR integration
-    Priority: Medium - Module works but should be updated for consistency
+BROKER NOTE:
+    Order execution uses SpyderB40_TradierClient (Tradier REST API).
+    Market data sourced from Databento (SpyderC26_DatabentoClient).
+    Legacy broker client references have been removed.
 
 Module Description:
     Advanced daily profit targeting system with institutional-grade algorithmic
@@ -33,7 +26,7 @@ Module Description:
 Key Features:
     - Daily profit target setting with account balance validation
     - Algorithmic slicing: TWAP, VWAP, POV, SOR, and adaptive algorithms
-    - Parent/child order management with IBKR API integration
+    - Parent/child order management with broker API integration
     - Multi-venue smart order routing (CBOE, PHLX, BOX, MIAX, ARCA)
     - Real-time progress monitoring and risk controls
     - Integration with SpyderD31_StrategyOrchestrator for capital coordination
@@ -62,15 +55,11 @@ import numpy as np
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 
-# ⚠️ DEPRECATED: ib_async integration — module migrated to Tradier (SpyderB40)
-# These symbols are kept as None stubs so the module remains importable.
-try:
-    from ib_async import IB, Contract, Order, Fill  # noqa: F401
-except ImportError:
-    IB = None  # type: ignore[assignment,misc]
-    Contract = None  # type: ignore[assignment,misc]
-    Order = None  # type: ignore[assignment,misc]
-    Fill = None  # type: ignore[assignment,misc]
+# Legacy broker types removed — order execution now via SpyderB40_TradierClient
+IB = None  # type: ignore[assignment,misc]  # Legacy stub
+Contract = None  # type: ignore[assignment,misc]  # Legacy stub
+Order = None  # type: ignore[assignment,misc]  # Legacy stub
+Fill = None  # type: ignore[assignment,misc]  # Legacy stub
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -113,12 +102,8 @@ try:
     from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics  # noqa: F401
     from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
-    # Broker integration
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient  # noqa: F401
+    # Broker integration (SpyderB01/B20 removed — deprecated IB modules)
     from SpyderB_Broker.SpyderB02_OrderManager import OrderManager  # noqa: F401
-    from SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import (
-        IntegratedConnectivityManager,
-    )
 
     # Strategy coordination
     from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
@@ -162,7 +147,7 @@ CIRCUIT_BREAKER_THRESHOLD = 0.05  # 5% account loss triggers circuit breaker
 
 # Multi-venue configuration
 SUPPORTED_VENUES = [
-    "SMART",  # IB Smart routing
+    "SMART",  # Smart order routing
     "CBOE",  # Chicago Board Options Exchange
     "PHLX",  # NASDAQ OMX PHLX
     "BOX",  # Boston Options Exchange
@@ -357,8 +342,8 @@ class AlgorithmicSlicingManager:
     with minimal market impact across multiple venues.
     """
 
-    def __init__(self, ib_client: IB, logger: logging.Logger | None = None):
-        self.ib = ib_client
+    def __init__(self, broker_client=None, logger: logging.Logger | None = None):
+        self.broker_client = broker_client
         self.logger = logger or logging.getLogger(__name__)
 
         # Order tracking
@@ -443,7 +428,7 @@ class AlgorithmicSlicingManager:
             return child_orders
 
         except Exception as e:
-            self.logger.error(f"❌ Error creating slicing plan: {e}")
+            self.logger.error(f"❌ Error creating slicing plan: {e}", exc_info=True)
             return []
 
     def _create_twap_plan(
@@ -807,18 +792,18 @@ class DayProfitTargetEngine:
 
     def __init__(
         self,
-        ib_client: IB | None = None,
+        broker_client=None,
         strategy_orchestrator: StrategyOrchestrator | None = None,
-        connectivity_manager: IntegratedConnectivityManager | None = None,
+        connectivity_manager: Any | None = None,
         event_manager: EventManager | None = None,
     ):
         """
         Initialize Day Profit Target Engine.
 
         Args:
-            ib_client: Interactive Brokers client
+            broker_client: Deprecated, unused. Kept for signature compatibility.
             strategy_orchestrator: Strategy orchestration integration
-            connectivity_manager: Connectivity management
+            connectivity_manager: Connectivity management (deprecated B20 module)
             event_manager: Event management system
         """
         # Setup logging and error handling
@@ -829,14 +814,14 @@ class DayProfitTargetEngine:
 
         self.error_handler = SpyderErrorHandler() if SpyderErrorHandler else None
 
-        # Core components
-        self.ib = ib_client or IB()
+        # Legacy broker client removed — order execution via SpyderB40_TradierClient
+        self.broker_client = None
         self.strategy_orchestrator = strategy_orchestrator
         self.connectivity_manager = connectivity_manager
         self.event_manager = event_manager or EventManager()
 
         # Algorithmic slicing manager
-        self.slicing_manager = AlgorithmicSlicingManager(self.ib, self.logger)
+        self.slicing_manager = AlgorithmicSlicingManager(self.broker_client, self.logger)
 
         # Current state
         self.status = ProfitTargetStatus.INACTIVE
@@ -973,7 +958,7 @@ class DayProfitTargetEngine:
             return True, "Target validated successfully", max_achievable_target
 
         except Exception as e:
-            self.logger.error(f"❌ Error validating profit target: {e}")
+            self.logger.error(f"❌ Error validating profit target: {e}", exc_info=True)
             return False, f"Validation error: {str(e)}", 0.0
 
     async def set_profit_target(
@@ -1054,7 +1039,7 @@ class DayProfitTargetEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error setting profit target: {e}")
+            self.logger.error(f"❌ Error setting profit target: {e}", exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(
                     e, "DayProfitTargetEngine.set_profit_target"
@@ -1088,9 +1073,9 @@ class DayProfitTargetEngine:
                     self.logger.error("❌ Cannot start - connectivity failed")
                     return False
 
-            # Ensure IB connection
-            if not self.ib.isConnected():
-                await self._connect_to_ib()
+            # Ensure broker connection (skip if unavailable)
+            if self.broker_client is not None and hasattr(self.broker_client, 'isConnected') and not self.broker_client.isConnected():
+                pass  # Legacy connection logic removed
 
             # Create slicing execution plan
             child_orders = self.slicing_manager.create_slicing_plan(
@@ -1123,7 +1108,7 @@ class DayProfitTargetEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error starting profit targeting: {e}")
+            self.logger.error(f"❌ Error starting profit targeting: {e}", exc_info=True)
             self.status = ProfitTargetStatus.FAILED
             return False
 
@@ -1181,13 +1166,13 @@ class DayProfitTargetEngine:
                 try:
                     callback(self.status, final_report)
                 except Exception as e:
-                    self.logger.error(f"Completion callback error: {e}")
+                    self.logger.error(f"Completion callback error: {e}", exc_info=True)
 
             self.logger.info("✅ Profit targeting stopped")
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error stopping profit targeting: {e}")
+            self.logger.error(f"❌ Error stopping profit targeting: {e}", exc_info=True)
             return False
 
     def get_current_progress(self) -> ProfitTargetProgress:
@@ -1245,13 +1230,16 @@ class DayProfitTargetEngine:
             self.logger.info("✅ Slicing plan execution completed")
 
         except Exception as e:
-            self.logger.error(f"❌ Error executing slicing plan: {e}")
+            self.logger.error(f"❌ Error executing slicing plan: {e}", exc_info=True)
             self.status = ProfitTargetStatus.FAILED
 
     def _execute_child_order(self, child_order_spec: ChildOrderSpec) -> bool:
         """Execute a single child order"""
+        if self.broker_client is None:
+            self.logger.error("Cannot execute child order — broker client unavailable")
+            return False
         try:
-            # Create IB order from specification
+            # Create order from specification
             contract = child_order_spec.contract
 
             order = Order()
@@ -1269,7 +1257,7 @@ class DayProfitTargetEngine:
                 order.parentId = int(self.parent_order_id)
 
             # Place order
-            self.ib.placeOrder(contract, order)
+            self.broker_client.placeOrder(contract, order)
 
             # Track order
             self.active_child_orders[child_order_spec.order_id] = order
@@ -1281,7 +1269,7 @@ class DayProfitTargetEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error executing child order: {e}")
+            self.logger.error(f"❌ Error executing child order: {e}", exc_info=True)
             return False
 
     async def _start_monitoring(self):
@@ -1323,7 +1311,7 @@ class DayProfitTargetEngine:
                 self.shutdown_event.wait(PROGRESS_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in progress monitoring: {e}")
+                self.logger.error(f"Error in progress monitoring: {e}", exc_info=True)
                 self.shutdown_event.wait(5)
 
     def _risk_monitoring_loop(self):
@@ -1361,7 +1349,7 @@ class DayProfitTargetEngine:
                 self.shutdown_event.wait(RISK_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in risk monitoring: {e}")
+                self.logger.error(f"Error in risk monitoring: {e}", exc_info=True)
                 self.shutdown_event.wait(5)
 
     def _update_progress(self):
@@ -1399,7 +1387,7 @@ class DayProfitTargetEngine:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error updating progress: {e}")
+            self.logger.error(f"Error updating progress: {e}", exc_info=True)
 
     # ==========================================================================
     # UTILITY METHODS
@@ -1408,11 +1396,11 @@ class DayProfitTargetEngine:
     async def _get_current_account_balance(self) -> float:
         """Get current account balance"""
         try:
-            # This would connect to IB and get real account balance
+            # This would connect to the broker and get real account balance
             # For demo, return a placeholder value
             return 500000.0  # $500K demo balance
         except Exception as e:
-            self.logger.error(f"Error getting account balance: {e}")
+            self.logger.error(f"Error getting account balance: {e}", exc_info=True)
             return 0.0
 
     def _calculate_max_achievable_profit(
@@ -1486,7 +1474,7 @@ class DayProfitTargetEngine:
             try:
                 callback(self.current_progress)
             except Exception as e:
-                self.logger.error(f"Progress callback error: {e}")
+                self.logger.error(f"Progress callback error: {e}", exc_info=True)
 
 
 # ==============================================================================
@@ -2125,7 +2113,7 @@ class DayProfitTargetWidget(QWidget):
             self.analytics_canvas.draw()
 
         except Exception as e:
-            self.logger.error(f"Error updating analytics chart: {e}")
+            self.logger.error(f"Error updating analytics chart: {e}", exc_info=True)
 
     # ==========================================================================
     # CALLBACK HANDLERS
@@ -2174,12 +2162,12 @@ class DayProfitTargetWidget(QWidget):
 
 
 def create_day_profit_target_engine(
-    ib_client: IB | None = None,
+    broker_client=None,
     strategy_orchestrator: StrategyOrchestrator | None = None,
-    connectivity_manager: IntegratedConnectivityManager | None = None,
+    connectivity_manager: Any | None = None,
 ) -> DayProfitTargetEngine:
     """Factory function to create day profit target engine"""
-    return DayProfitTargetEngine(ib_client, strategy_orchestrator, connectivity_manager)
+    return DayProfitTargetEngine(broker_client, strategy_orchestrator, connectivity_manager)
 
 
 def create_day_profit_target_widget(

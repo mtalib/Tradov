@@ -31,7 +31,7 @@ Module Description:
 
 Change Log:
     2026-02-25 (Phase 3 — Tradier+Databento migration):
-        - Replaced IBKR (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
+        - Replaced legacy broker (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
           with provider abstraction layer
         - Added DataSource.DATABENTO to enum
         - Added MarketDataProvider ABC with DatabentoProvider
@@ -66,6 +66,7 @@ import pandas as pd
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
@@ -82,6 +83,19 @@ try:
 except ImportError:
     HAS_DATABENTO = False
     DatabentoClient = None
+
+try:
+    from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
+        MassiveClient,
+        MassiveQuoteUpdate,
+        MassiveTradeUpdate,
+        ConnectionStatus as MassiveConnectionStatus,  # noqa: F401
+        create_massive_client_from_env,
+    )
+    HAS_MASSIVE = True
+except ImportError:
+    HAS_MASSIVE = False
+    MassiveClient = None
 
 # ==============================================================================
 # CONFIGURATION DEFAULTS
@@ -126,11 +140,10 @@ class DataFeedStatus(Enum):
 class DataSource(Enum):
     """Available data sources."""
     DATABENTO = "databento"
+    MASSIVE = "massive"
     CACHE = "cache"
     CUSTOM = "custom"
     SYNTHETIC = "synthetic"
-    # Legacy alias — kept so code referencing DataSource.IBKR still parses
-    IBKR = "ibkr"
 
 
 # ==============================================================================
@@ -192,6 +205,9 @@ class DataFeedConfig:
     # Databento-specific
     databento_schema: str = "mbp-1"
     databento_dataset: str = "OPRA.PILLAR"
+    # Massive-specific
+    massive_api_key: str = ""
+    massive_symbols: list[str] = field(default_factory=lambda: ["SPY"])
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> 'DataFeedConfig':
@@ -480,6 +496,183 @@ class DatabentoProvider(MarketDataProvider):
 
 
 # ==============================================================================
+# MASSIVE PROVIDER
+# ==============================================================================
+class MassiveProvider(MarketDataProvider):
+    """
+    Wraps ``SpyderC27_MassiveClient`` as a ``MarketDataProvider``.
+
+    Streams real-time SPY equity quotes and trades from Massive (formerly
+    Polygon.io) WebSocket, delivering normalized ``MarketTick`` objects.
+    Historical OHLCV bars are served by the Massive REST API.
+
+    This is the preferred provider for SPY equity price ticks when pairing
+    Spyder with Tradier for order execution.  Databento (SpyderC26) remains
+    available for OPRA options depth when deeper order book is needed.
+    """
+
+    def __init__(
+        self,
+        symbols: list[str] | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        super().__init__()
+
+        if not HAS_MASSIVE:
+            raise ImportError(
+                "massive package not installed.  Run: pip install massive"
+            )
+
+        self._logger = SpyderLogger.get_logger(f"{__name__}.MassiveProvider")
+        self._symbols: list[str] = symbols or ["SPY"]
+        self._api_key = api_key
+        self._client: MassiveClient | None = None
+        self._started = False
+
+    # ------------------------------------------------------------------
+    @property
+    def is_connected(self) -> bool:
+        return self._client is not None and self._client.is_streaming
+
+    @property
+    def active_source(self) -> DataSource:
+        return DataSource.MASSIVE
+
+    def connect(self) -> bool:
+        """Create the Massive client and start WebSocket streaming."""
+        try:
+            self._client = (
+                MassiveClient(api_key=self._api_key)
+                if self._api_key
+                else create_massive_client_from_env()
+            )
+            self._client.on_status_change = self._on_connection_status
+            self._client.start_stream(
+                symbols=self._symbols,
+                on_quote=self._on_quote,
+                on_trade=self._on_trade,
+                include_quotes=True,
+                include_trades=True,
+            )
+            self._started = True
+            self._logger.info(
+                f"MassiveProvider connected, streaming {self._symbols}"
+            )
+            return True
+
+        except Exception as exc:
+            self._logger.error(f"MassiveProvider connect failed: {exc}")
+            return False
+
+    def disconnect(self) -> None:
+        if self._client:
+            self._client.stop_stream()
+            self._client = None
+        self._started = False
+        self._logger.info("MassiveProvider disconnected")
+
+    def subscribe(self, symbol: str) -> bool:
+        if symbol not in self._symbols:
+            self._symbols.append(symbol)
+            if self._client and self._client.is_streaming:
+                self._client.update_subscriptions(self._symbols)
+        return True
+
+    def unsubscribe(self, symbol: str) -> bool:
+        if symbol in self._symbols:
+            self._symbols.remove(symbol)
+            if self._client and self._client.is_streaming:
+                self._client.update_subscriptions(self._symbols)
+        return True
+
+    def get_historical(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        granularity: str = "1min",
+    ) -> pd.DataFrame:
+        """Fetch historical OHLCV bars from Massive REST API."""
+        if self._client is None:
+            self._client = (
+                MassiveClient(api_key=self._api_key)
+                if self._api_key
+                else create_massive_client_from_env()
+            )
+        timespan_map = {
+            "tick":  ("second", 1),
+            "1s":    ("second", 1),
+            "1min":  ("minute", 1),
+            "5min":  ("minute", 5),
+            "1hour": ("hour",   1),
+            "daily": ("day",    1),
+        }
+        timespan, multiplier = timespan_map.get(granularity, ("minute", 1))
+        try:
+            return self._client.get_historical_bars(
+                symbol=symbol,
+                start=start.strftime("%Y-%m-%d"),
+                end=end.strftime("%Y-%m-%d"),
+                timespan=timespan,
+                multiplier=multiplier,
+            )
+        except Exception as exc:
+            self._logger.error(
+                f"MassiveProvider.get_historical({symbol}) failed: {exc}"
+            )
+            return pd.DataFrame()
+
+    # ------------------------------------------------------------------
+    # Massive callbacks → MarketTick
+    # ------------------------------------------------------------------
+    def _on_quote(self, update: "MassiveQuoteUpdate") -> None:
+        if not self.on_data:
+            return
+        tick = MarketTick(
+            symbol=update.symbol,
+            timestamp=update.timestamp,
+            price=update.mid,
+            size=update.bid_size,
+            bid=update.bid,
+            ask=update.ask,
+            bid_size=update.bid_size,
+            ask_size=update.ask_size,
+            source=DataSource.MASSIVE,
+            quality="realtime",
+        )
+        self.on_data(tick)
+
+    def _on_trade(self, update: "MassiveTradeUpdate") -> None:
+        if not self.on_data:
+            return
+        tick = MarketTick(
+            symbol=update.symbol,
+            timestamp=update.timestamp,
+            price=update.price,
+            size=update.size,
+            source=DataSource.MASSIVE,
+            quality="realtime",
+        )
+        self.on_data(tick)
+
+    def _on_connection_status(self, status) -> None:
+        if not self.on_status_change:
+            return
+        from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import ConnectionStatus
+        status_map = {
+            ConnectionStatus.STREAMING:    DataFeedStatus.CONNECTED,
+            ConnectionStatus.CONNECTED:    DataFeedStatus.CONNECTED,
+            ConnectionStatus.CONNECTING:   DataFeedStatus.CONNECTING,
+            ConnectionStatus.RECONNECTING: DataFeedStatus.CONNECTING,
+            ConnectionStatus.DISCONNECTED: DataFeedStatus.DISCONNECTED,
+            ConnectionStatus.STOPPED:      DataFeedStatus.DISCONNECTED,
+            ConnectionStatus.ERROR:        DataFeedStatus.ERROR,
+        }
+        feed_status = status_map.get(status, DataFeedStatus.ERROR)
+        self.on_status_change(feed_status)
+
+
+# ==============================================================================
 # PROVIDER FACTORY
 # ==============================================================================
 def create_provider(
@@ -513,10 +706,21 @@ def create_provider(
             dataset=cfg.databento_dataset,
         )
 
+    elif name == "massive":
+        if not HAS_MASSIVE:
+            raise ValueError(
+                "Massive provider requested but massive package is not "
+                "installed.  Run: pip install massive"
+            )
+        return MassiveProvider(
+            symbols=cfg.massive_symbols,
+            api_key=cfg.massive_api_key or None,
+        )
+
     else:
         raise ValueError(
             f"Unknown provider '{provider_name}'.  "
-            f"Supported: 'databento'."
+            f"Supported: 'databento', 'massive'."
         )
 
 # ==============================================================================
@@ -587,6 +791,7 @@ class DataFeedManager:
         # State management
         self.status = DataFeedStatus.DISCONNECTED
         self.is_running = False
+        self._stop_event = threading.Event()
         self.last_update: datetime | None = None
 
         # Data storage
@@ -694,19 +899,24 @@ class DataFeedManager:
             if self.market_cache:
                 self.market_cache.start()
 
-            # Background threads
+            # Background threads — registered with ShutdownCoordinator for
+            # clean teardown; _stop_event is already polled in their loops.
+            _coord = get_shutdown_coordinator()
             self._update_thread = threading.Thread(
                 target=self._update_loop, daemon=True
             )
+            _coord.register_thread(self._update_thread, name="DataFeed-update")
             self._update_thread.start()
 
             self._monitor_thread = threading.Thread(
                 target=self._monitor_loop, daemon=True
             )
+            _coord.register_thread(self._monitor_thread, name="DataFeed-monitor")
+            _coord.register_cleanup(self.stop)
             self._monitor_thread.start()
 
             # Allow connection to settle
-            time.sleep(2)
+            time.sleep(2)  # thread-safe: time.sleep() intentional
 
             if provider_ok and self._provider.is_connected:
                 self.status = DataFeedStatus.CONNECTED
@@ -730,6 +940,7 @@ class DataFeedManager:
         """
         try:
             self.is_running = False
+            self._stop_event.set()
 
             self._provider.disconnect()
 
@@ -1063,7 +1274,8 @@ class DataFeedManager:
                 self._check_stale_data()
             except Exception as e:
                 self.logger.error(f"Error in update loop: {e}")
-            time.sleep(self.config.update_interval)
+            if self._stop_event.wait(timeout=self.config.update_interval):
+                break
 
     def _monitor_loop(self) -> None:
         """Monitor loop for system health."""
@@ -1074,7 +1286,8 @@ class DataFeedManager:
                 self._cleanup_old_data()
             except Exception as e:
                 self.logger.error(f"Error in monitor loop: {e}")
-            time.sleep(self.config.heartbeat_interval)
+            if self._stop_event.wait(timeout=self.config.heartbeat_interval):
+                break
 
     def _update_custom_metrics(self) -> None:
         """Update custom calculated metrics."""
@@ -1319,7 +1532,7 @@ if __name__ == "__main__":
     if feed_manager.start():
 
         try:
-            time.sleep(30)
+            time.sleep(30)  # thread-safe: time.sleep() intentional
         except KeyboardInterrupt:
             pass
 

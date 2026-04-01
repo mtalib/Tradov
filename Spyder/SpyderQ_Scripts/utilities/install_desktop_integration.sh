@@ -107,31 +107,21 @@ Exec=$SCRIPT_DIR/spyder_dock_launcher.sh
 Icon=$SCRIPT_DIR/assets/spyder_icon.png
 Terminal=false
 Categories=Office;Finance;Development;Trading;
-Keywords=trading;finance;options;stocks;interactive brokers;spyder;live;paper;
+Keywords=trading;finance;options;stocks;spyder;live;paper;tradier;
 StartupNotify=true
 StartupWMClass=SpyderTradingSystem
 
-Actions=GatewayPaper;GatewayLive;TWSPaper;TWSLive;ConnectionSelector;TestConnections;QuickLaunch;
+Actions=TradierSandbox;TradierLive;ConnectionSelector;TestConnections;QuickLaunch;
 
-[Desktop Action GatewayPaper]
-Name=🏪 IB Gateway - Paper Trading
-Exec=$SCRIPT_DIR/launch_spyder_gateway.sh --mode=paper
-Icon=$SCRIPT_DIR/assets/gateway_icon.png
+[Desktop Action TradierSandbox]
+Name=🏪 Tradier API - Sandbox Mode
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh --mode=sandbox
+Icon=$SCRIPT_DIR/assets/spyder_icon.png
 
-[Desktop Action GatewayLive]
-Name=🏪 IB Gateway - Live Trading
-Exec=$SCRIPT_DIR/launch_spyder_gateway.sh --mode=live
-Icon=$SCRIPT_DIR/assets/gateway_icon.png
-
-[Desktop Action TWSPaper]
-Name=🌐 Remote TWS - Paper Trading
-Exec=$SCRIPT_DIR/launch_spyder_tws.sh --mode=paper
-Icon=$SCRIPT_DIR/assets/tws_icon.png
-
-[Desktop Action TWSLive]
-Name=🌐 Remote TWS - Live Trading
-Exec=$SCRIPT_DIR/launch_spyder_tws.sh --mode=live
-Icon=$SCRIPT_DIR/assets/tws_icon.png
+[Desktop Action TradierLive]
+Name=💰 Tradier API - Live Trading
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh --mode=live
+Icon=$SCRIPT_DIR/assets/spyder_icon.png
 
 [Desktop Action ConnectionSelector]
 Name=🎯 Connection & Mode Selector (GUI)
@@ -150,32 +140,17 @@ Icon=$SCRIPT_DIR/assets/spyder_icon.png
 EOF
 
     # Individual launcher desktop files
-    cat > "$SCRIPT_DIR/desktop/spyder-gateway.desktop" << EOF
+    cat > "$SCRIPT_DIR/desktop/spyder-tradier.desktop" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=SPYDER - IB Gateway
-Comment=Launch SPYDER with IB Gateway (Local Connection)
-Exec=$SCRIPT_DIR/launch_spyder_gateway.sh
-Icon=$SCRIPT_DIR/assets/gateway_icon.png
+Name=SPYDER - Tradier API
+Comment=Launch SPYDER with Tradier REST API
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh
+Icon=$SCRIPT_DIR/assets/spyder_icon.png
 Terminal=false
 Categories=Office;Finance;Development;
-Keywords=trading;finance;gateway;local;spyder;
-StartupNotify=true
-NoDisplay=false
-EOF
-
-    cat > "$SCRIPT_DIR/desktop/spyder-tws.desktop" << EOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=SPYDER - Remote TWS
-Comment=Launch SPYDER with Remote TWS API (Windows Computer)
-Exec=$SCRIPT_DIR/launch_spyder_tws.sh
-Icon=$SCRIPT_DIR/assets/tws_icon.png
-Terminal=false
-Categories=Office;Finance;Development;
-Keywords=trading;finance;tws;remote;spyder;
+Keywords=trading;finance;tradier;api;spyder;
 StartupNotify=true
 NoDisplay=false
 EOF
@@ -239,17 +214,13 @@ else
         choice=$(zenity --list --title="SPYDER Trading System" \
             --text="Choose connection method:" \
             --column="Option" \
-            "IB Gateway (Local)" \
-            "Remote TWS API" \
+            "Tradier API (Default)" \
             "Test Connections" \
             --height=300 --width=400 2>/dev/null)
 
         case "$choice" in
-            "IB Gateway (Local)")
-                "$SCRIPT_DIR/launch_spyder_gateway.sh"
-                ;;
-            "Remote TWS API")
-                "$SCRIPT_DIR/launch_spyder_tws.sh"
+            "Tradier API (Default)")
+                "$SCRIPT_DIR/spyder_dock_launcher.sh"
                 ;;
             "Test Connections")
                 gnome-terminal -- "$SCRIPT_DIR/test_all_connections.sh" --full
@@ -308,7 +279,7 @@ verify_installation() {
     fi
 
     # Check if launcher scripts are executable
-    for script in launch_connection_selector.py launch_spyder_gateway.sh launch_spyder_tws.sh test_all_connections.sh; do
+    for script in launch_connection_selector.py spyder_dock_launcher.sh test_all_connections.sh; do
         if [[ -x "$SCRIPT_DIR/$script" ]]; then
             log "${GREEN}✅ $script is executable${NC}"
         else
@@ -339,8 +310,7 @@ show_usage_instructions() {
     log "${BLUE}   2. Right-click Menu: Right-click SPYDER icon → Choose connection${NC}"
     log "${BLUE}   3. Command Line:${NC}"
     log "${BLUE}      • Connection Selector: ./launch_connection_selector.py${NC}"
-    log "${BLUE}      • IB Gateway: ./launch_spyder_gateway.sh${NC}"
-    log "${BLUE}      • Remote TWS: ./launch_spyder_tws.sh${NC}"
+    log "${BLUE}      • Tradier API: ./spyder_dock_launcher.sh${NC}"
     log "${BLUE}      • Test Connections: ./test_all_connections.sh${NC}"
     echo
     log "${BLUE}🚀 Quick Start:${NC}"

@@ -7,19 +7,27 @@ Module: SpyderG05_TradingDashboard.py
 Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-02-25 Time: 22:00:00
+Last Updated: 2026-03-18 Time: 02:00:00
 
 Data Sources:
     - Tradier API for account data and order execution (SpyderB40_TradierClient)
-    - Databento for real-time market data (SpyderC26_DatabentoClient)
+    - Massive (formerly Polygon.io) for real-time & historical market data (SpyderC27_MassiveClient)
     - SpyderC01_DataFeed for provider-agnostic data abstraction
 
 Module Description:
-    Enhanced trading dashboard with real-time market data integration,
-    comprehensive signal monitoring, and professional dark theme interface.
-    Supports automatic detection and switching between real and simulation data.
+    Enhanced trading dashboard with THREE TRADING MODES:
+    - BACKTEST: Historical data replay via SpyderR08_EnhancedBacktestEngine + Massive historical API
+    - PAPER:    Live data with simulated fills via Tradier sandbox + SpyderR02_PaperEngine
+    - LIVE:     Real order execution via Tradier production API + SpyderR04_LiveEngine
+
+    Includes real-time market data integration, comprehensive signal monitoring,
+    and professional dark theme interface. Supports automatic detection and
+    switching between real and simulation data.
 
 FEATURES:
+    • Three trading modes (BACKTEST / PAPER / LIVE) with toolbar selector
+    • Backtest controls panel with date range and slippage configuration
+    • LIVE mode requires explicit user confirmation before execution
     • Automatic real data detection and seamless switching
     • Simulation fallback with monitoring for real data availability
     • Professional signal monitor with 12 indicators including HMM/SKEW
@@ -31,7 +39,7 @@ FEATURES:
 
 DATA SOURCES:
     • Tradier API for account data, quotes, and order execution
-    • Databento for real-time streaming market data
+    • Massive (Polygon.io) for real-time streaming and historical market data
     • Auto-detection with fallback to simulation mode
     • Status indicators show real vs simulation data source
 
@@ -49,6 +57,7 @@ import sys
 import json
 from datetime import datetime, time as dt_time
 from dataclasses import dataclass
+from enum import Enum
 import random
 import numpy as np
 import pytz
@@ -78,6 +87,10 @@ from PySide6.QtWidgets import (
     QMenu,
     QTreeWidget,
     QTreeWidgetItem,
+    QSizePolicy,
+    QComboBox,
+    QDateEdit,
+    QDoubleSpinBox,
 )
 from PySide6.QtCore import (
     Qt,
@@ -89,6 +102,7 @@ from PySide6.QtCore import (
     QObject,
     QMutex,
     QMutexLocker,
+    QDate,
 )
 from PySide6.QtGui import (
     QFont,
@@ -109,10 +123,10 @@ import matplotlib.patches as patches
 import pandas as pd
 
 # ==============================================================================
-# BROKER/DATA IMPORTS (Tradier + Databento — IBKR removed Feb 2026)
+# BROKER/DATA IMPORTS (Tradier + Massive)
 # ==============================================================================
-# ib_async is no longer used — Tradier API replaces IB Gateway for execution
-# Databento: primary market data source (OPRA.PILLAR dataset)
+# Tradier API for execution, Massive for market data
+# Massive: primary market data source (Polygon.io REST API)
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -127,10 +141,22 @@ import logging
 
 # Tradier client for API connectivity checks
 try:
-    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierClient
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+        TradierClient,
+        TradierAPIError,
+        OptionLeg,
+        OrderSide,
+        OrderDuration,
+        build_option_symbol,
+    )
     TRADIER_AVAILABLE = True
 except ImportError:
     TradierClient = None  # type: ignore
+    TradierAPIError = Exception  # type: ignore
+    OptionLeg = None  # type: ignore
+    OrderSide = None  # type: ignore
+    OrderDuration = None  # type: ignore
+    build_option_symbol = None  # type: ignore
     TRADIER_AVAILABLE = False
 
 # Import Signal Info Dialog for popup system
@@ -160,25 +186,15 @@ except ImportError:
     logging.info("⚠️ Risk Parameters Dialog not available")
 
 # Import HMM and SKEW Dialog modules
-try:
-    from Spyder.SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
+# NOTE: HMMMonitorDialog is imported lazily inside show_hmm_dialog() to avoid
+# loading PyTorch (via SpyderL13_LSTMPricer) at startup, which costs 3-5 seconds.
+HMMMonitorDialog = None  # type: ignore  – populated on first use
+hmm_dialog_available = None  # None = not yet checked; True/False after first check
 
-    hmm_dialog_available = True
-    logging.info("✅ HMM Monitor Dialog available")
-except ImportError:
-    HMMMonitorDialog = None  # type: ignore
-    hmm_dialog_available = False
-    logging.info("⚠️ HMM Monitor Dialog not available")
-
-try:
-    from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
-
-    skew_dialog_available = True
-    logging.info("✅ SKEW Monitor Dialog available")
-except ImportError:
-    SkewMonitorDialog = None  # type: ignore
-    skew_dialog_available = False
-    logging.info("⚠️ SKEW Monitor Dialog not available")
+# SkewMonitorDialog is imported lazily inside show_skew_dialog() to defer the
+# ~0.25 s import cost to when the user first opens the dialog.
+SkewMonitorDialog = None  # type: ignore  – populated on first use
+skew_dialog_available = None  # None = not yet attempted; True/False after first check
 
 # Try to import Prometheus metrics display module if available
 try:
@@ -198,7 +214,7 @@ except ImportError:
 # ==============================================================================
 # DEPRECATED: Gateway Control Panel (removed in Tradier migration)
 # ==============================================================================
-# Gateway Control Panel was for IB Gateway multi-client management
+# Gateway Control Panel was for legacy multi-client management
 # No longer needed with Tradier API (single REST endpoint)
 create_gateway_dock_widget = None
 GatewayControlPanel = None
@@ -217,7 +233,14 @@ except ImportError:
     circuit_breaker_monitor_available = False
     logging.info("⚠️ Circuit Breaker Monitor not available")
 
-# Client Connection Manager — DEPRECATED (IB multi-client no longer used)
+# SpyderR08_EnhancedBacktestEngine is imported lazily inside _run_backtest() to
+# defer its ~0.43 s import cost to when the user actually runs a backtest.
+create_backtest_engine = None   # type: ignore  – populated on first use
+EnhancedBacktestEngine = None   # type: ignore  – populated on first use
+BacktestResult = None           # type: ignore  – populated on first use
+backtest_engine_available = None  # None = not yet attempted; True/False after first check
+
+# Client Connection Manager — DEPRECATED (legacy multi-client no longer used)
 ClientConnectionManager = None
 ClientStatus = None
 client_manager_available = False
@@ -348,8 +371,22 @@ def check_api_connection():
         return False, f"API check failed: {e}"
 
 
-# Legacy alias for backward compatibility
-check_ib_gateway_connection = check_api_connection
+# Legacy gateway alias removed - use check_api_connection directly
+
+
+# ==============================================================================
+# TRADING MODE ENUM
+# ==============================================================================
+class TradingMode(Enum):
+    """Three trading modes available in the Spyder system.
+
+    BACKTEST: Replay historical data via SpyderR08_EnhancedBacktestEngine + SpyderC27 historical API.
+    PAPER:    Simulated fills against live market data via Tradier sandbox + SpyderR02_PaperEngine.
+    LIVE:     Real order execution through Tradier production API + SpyderR04_LiveEngine.
+    """
+    BACKTEST = "BACKTEST"
+    PAPER = "PAPER"
+    LIVE = "LIVE"
 
 
 # ==============================================================================
@@ -991,6 +1028,19 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_hmm_dialog(self):
+        global hmm_dialog_available, HMMMonitorDialog
+        # Lazy-import: only pay the PyTorch startup cost when the dialog is first opened.
+        if hmm_dialog_available is None:
+            try:
+                from Spyder.SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog as _HMM
+                HMMMonitorDialog = _HMM
+                hmm_dialog_available = True
+                logging.info("✅ HMM Monitor Dialog loaded (lazy)")
+            except ImportError:
+                HMMMonitorDialog = None
+                hmm_dialog_available = False
+                logging.info("⚠️ HMM Monitor Dialog not available")
+
         if hmm_dialog_available and HMMMonitorDialog:
             self.close_current_dialog()
             self.current_dialog = HMMMonitorDialog(self)
@@ -1006,6 +1056,19 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_skew_dialog(self):
+        global skew_dialog_available, SkewMonitorDialog
+        # Lazy-import: defer the ~0.25s SkewMonitorDialog cost to first button click.
+        if skew_dialog_available is None:
+            try:
+                from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog as _Skew
+                SkewMonitorDialog = _Skew
+                skew_dialog_available = True
+                logging.info("✅ SKEW Monitor Dialog loaded (lazy)")
+            except ImportError:
+                SkewMonitorDialog = None
+                skew_dialog_available = False
+                logging.info("⚠️ SKEW Monitor Dialog not available")
+
         if skew_dialog_available and SkewMonitorDialog:
             self.close_current_dialog()
             self.current_dialog = SkewMonitorDialog(self)
@@ -1199,6 +1262,442 @@ class GreekBar(QWidget):
 
 
 # ==============================================================================
+# PAPER TRADING WORKER (runs off the GUI thread)
+# ==============================================================================
+
+
+class _PaperTradingWorker(QObject):
+    """Runs paper trading with real Tradier market data in a background QThread.
+
+    Polls SPY quotes from Tradier (sandbox or live) every poll_interval seconds,
+    maintains a price history buffer, runs a simple momentum strategy, and
+    tracks paper positions and P&L.  Emits Qt signals for the dashboard to
+    display status, positions, and metrics in real time.
+    """
+
+    status_update = Signal(str)       # log messages for the system log
+    position_update = Signal(dict)    # current positions + account state
+    metrics_update = Signal(dict)     # P&L metrics for the paper P&L widget
+    error = Signal(str)               # error messages
+    stopped = Signal()                # emitted when the loop exits
+    connection_ready = Signal(bool)   # True when Tradier connection verified
+
+    # Polling interval in seconds
+    POLL_INTERVAL = 30
+    # Price history size for moving average calculations
+    HISTORY_SIZE = 100
+    # Momentum threshold: short MA must exceed long MA by this fraction
+    MOMENTUM_THRESHOLD = 0.001  # 0.1% for 30-sec samples
+    # Moving average windows (in number of poll intervals)
+    SHORT_MA_WINDOW = 5     # 5 × 30s = 2.5 min
+    LONG_MA_WINDOW = 20     # 20 × 30s = 10 min
+
+    def __init__(self, initial_capital: float = 100_000.0):
+        super().__init__()
+        self._running = False
+        self._initial_capital = initial_capital
+
+        # Paper account state
+        self._cash = initial_capital
+        self._position_qty = 0        # shares held (positive = long)
+        self._position_avg_price = 0.0
+        self._total_commissions = 0.0
+        self._trades_executed = 0
+        self._winning_trades = 0
+        self._losing_trades = 0
+        self._total_realized_pnl = 0.0
+        self._peak_equity = initial_capital
+        self._max_drawdown = 0.0
+
+        # Price history buffer
+        self._price_history: list[float] = []
+
+        # Tradier client (created in run())
+        self._client = None
+
+    def run(self):
+        """Main paper trading loop — called when QThread starts."""
+        import os
+        import time
+        from collections import deque
+
+        try:
+            # Load environment
+            from dotenv import load_dotenv
+            load_dotenv()
+
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
+
+            if not api_key or not account_id:
+                self.error.emit(
+                    "TRADIER_API_KEY and TRADIER_ACCOUNT_ID must be set in .env\n"
+                    "Paper trading requires Tradier sandbox credentials."
+                )
+                self.connection_ready.emit(False)
+                self.stopped.emit()
+                return
+
+            self.status_update.emit(f"Connecting to Tradier ({env})…")
+
+            self._client = TradierClient(
+                api_key=api_key,
+                account_id=account_id,
+                environment=env,
+            )
+
+            if not self._client.test_connection():
+                self.error.emit(
+                    f"Failed to connect to Tradier API ({env}).\n"
+                    "Check your API key and account ID."
+                )
+                self.connection_ready.emit(False)
+                self.stopped.emit()
+                return
+
+            self.connection_ready.emit(True)
+            mode_label = "SANDBOX" if env == "sandbox" else "LIVE"
+            self.status_update.emit(f"✅ Connected to Tradier ({mode_label})")
+            self.status_update.emit(
+                f"Paper trading started — ${self._initial_capital:,.0f} capital | "
+                f"Polling every {self.POLL_INTERVAL}s"
+            )
+
+            self._running = True
+            self._price_history = []
+
+            while self._running:
+                try:
+                    self._poll_and_trade()
+                except Exception as e:
+                    self.status_update.emit(f"⚠️ Poll error: {e}")
+
+                # Sleep in small increments so stop() is responsive
+                for _ in range(self.POLL_INTERVAL * 10):
+                    if not self._running:
+                        break
+                    time.sleep(0.1)  # thread-safe: time.sleep() intentional
+
+            # Final summary on stop
+            self._emit_metrics()
+            self.status_update.emit("Paper trading stopped")
+            self.stopped.emit()
+
+        except Exception as e:
+            self.error.emit(f"Paper trading failed: {e}")
+            self.stopped.emit()
+
+    def stop(self):
+        """Signal the trading loop to stop."""
+        self._running = False
+
+    def _poll_and_trade(self):
+        """Fetch current SPY quote, run strategy, execute paper trades."""
+        if not self._client:
+            return
+
+        # Fetch quote
+        try:
+            resp = self._client.get_quotes(["SPY"])
+            quote = resp.get("quotes", {}).get("quote", {})
+            if isinstance(quote, list):
+                quote = quote[0]
+        except Exception as e:
+            self.status_update.emit(f"⚠️ Quote fetch failed: {e}")
+            return
+
+        last_price = float(quote.get("last", 0))
+        bid = float(quote.get("bid", 0))
+        ask = float(quote.get("ask", 0))
+
+        if last_price <= 0:
+            return
+
+        # Add to history
+        self._price_history.append(last_price)
+        if len(self._price_history) > self.HISTORY_SIZE:
+            self._price_history = self._price_history[-self.HISTORY_SIZE:]
+
+        # Update position mark-to-market
+        self._update_position_mtm(last_price)
+
+        # Run momentum strategy if we have enough history
+        if len(self._price_history) >= self.LONG_MA_WINDOW:
+            signal = self._generate_signal()
+            if signal == "BUY" and self._position_qty == 0:
+                self._execute_paper_buy(ask if ask > 0 else last_price)
+            elif signal == "SELL" and self._position_qty > 0:
+                self._execute_paper_sell(bid if bid > 0 else last_price)
+
+        # Emit updates
+        self._emit_position_update(last_price, bid, ask)
+        self._emit_metrics()
+
+    def _generate_signal(self) -> str | None:
+        """Simple dual moving average crossover on poll-interval prices."""
+        prices = self._price_history
+        if len(prices) < self.LONG_MA_WINDOW:
+            return None
+
+        short_ma = sum(prices[-self.SHORT_MA_WINDOW:]) / self.SHORT_MA_WINDOW
+        long_ma = sum(prices[-self.LONG_MA_WINDOW:]) / self.LONG_MA_WINDOW
+
+        if long_ma <= 0:
+            return None
+
+        ratio = (short_ma - long_ma) / long_ma
+
+        if ratio > self.MOMENTUM_THRESHOLD:
+            return "BUY"
+        elif ratio < -self.MOMENTUM_THRESHOLD:
+            return "SELL"
+        return None
+
+    def _execute_paper_buy(self, fill_price: float):
+        """Execute a paper buy — 100 shares of SPY."""
+        shares = 100
+        cost = shares * fill_price
+        commission = 0.0  # Tradier is commission-free for equities
+
+        if cost > self._cash:
+            # Can't afford — buy what we can
+            shares = int(self._cash / fill_price)
+            if shares <= 0:
+                return
+            cost = shares * fill_price
+
+        self._cash -= cost + commission
+        self._position_qty += shares
+        self._position_avg_price = fill_price  # simplified for single-lot
+        self._total_commissions += commission
+        self._trades_executed += 1
+
+        self.status_update.emit(
+            f"📈 BUY {shares} SPY @ ${fill_price:.2f} | "
+            f"Cost: ${cost:,.2f} | Cash: ${self._cash:,.2f}"
+        )
+
+    def _execute_paper_sell(self, fill_price: float):
+        """Execute a paper sell — close entire position."""
+        if self._position_qty <= 0:
+            return
+
+        shares = self._position_qty
+        proceeds = shares * fill_price
+        commission = 0.0
+
+        pnl = (fill_price - self._position_avg_price) * shares - commission
+        self._total_realized_pnl += pnl
+        self._cash += proceeds - commission
+        self._total_commissions += commission
+        self._trades_executed += 1
+
+        if pnl > 0:
+            self._winning_trades += 1
+        else:
+            self._losing_trades += 1
+
+        self.status_update.emit(
+            f"📉 SELL {shares} SPY @ ${fill_price:.2f} | "
+            f"P&L: ${pnl:+,.2f} | Cash: ${self._cash:,.2f}"
+        )
+
+        self._position_qty = 0
+        self._position_avg_price = 0.0
+
+    def _update_position_mtm(self, current_price: float):
+        """Update peak equity and max drawdown."""
+        equity = self._cash + self._position_qty * current_price
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+        drawdown = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else 0
+        if drawdown > self._max_drawdown:
+            self._max_drawdown = drawdown
+
+    def _emit_position_update(self, last: float, bid: float, ask: float):
+        """Emit current position state to the dashboard."""
+        unrealized_pnl = 0.0
+        if self._position_qty > 0:
+            unrealized_pnl = (last - self._position_avg_price) * self._position_qty
+
+        equity = self._cash + self._position_qty * last
+
+        self.position_update.emit({
+            "spy_last": last,
+            "spy_bid": bid,
+            "spy_ask": ask,
+            "position_qty": self._position_qty,
+            "position_avg_price": self._position_avg_price,
+            "unrealized_pnl": unrealized_pnl,
+            "realized_pnl": self._total_realized_pnl,
+            "cash": self._cash,
+            "equity": equity,
+            "initial_capital": self._initial_capital,
+        })
+
+    def _emit_metrics(self):
+        """Emit performance metrics for the paper P&L widget."""
+        equity = self._cash
+        if self._position_qty > 0 and self._price_history:
+            equity += self._position_qty * self._price_history[-1]
+
+        total_return = equity - self._initial_capital
+        return_pct = (total_return / self._initial_capital) * 100 if self._initial_capital > 0 else 0
+        win_rate = (
+            self._winning_trades / self._trades_executed
+            if self._trades_executed > 0 else 0
+        )
+
+        self.metrics_update.emit({
+            "total_return": f"{return_pct:.2f}%",
+            "max_drawdown": f"{self._max_drawdown:.4f}",
+            "win_rate": f"{win_rate:.4f}",
+            "total_trades": str(self._trades_executed),
+            "realized_pnl": f"${self._total_realized_pnl:+,.2f}",
+            "equity": f"${equity:,.2f}",
+        })
+
+
+# ==============================================================================
+# BACKTEST WORKER (runs off the GUI thread)
+# ==============================================================================
+
+
+class _MomentumStrategy:
+    """Simple momentum strategy for dashboard backtesting.
+
+    Buys SPY when the ML price prediction exceeds the current close by
+    more than *threshold* percent, sells when it falls below.
+    """
+
+    def __init__(self, name: str = "momentum", threshold: float = 0.01):
+        self.name = name
+        self.threshold = threshold
+        self.parameters: dict = {}
+
+    def get_id(self) -> str:
+        return self.name
+
+    def generate_signal(self, market_data: dict, ml_predictions: dict) -> dict | None:
+        close = market_data.get("close", 0)
+        pred = ml_predictions.get("price_prediction", close)
+        if close <= 0:
+            return None
+        pct = (pred - close) / close
+        if pct > self.threshold:
+            return {
+                "symbol": "SPY",
+                "direction": "buy",
+                "price": close,
+                "expected_profit": abs(pred - close) * 100,
+                "expected_loss": abs(pred - close) * 50,
+                "volatility": ml_predictions.get("volatility_forecast", 0.15),
+            }
+        if pct < -self.threshold:
+            return {
+                "symbol": "SPY",
+                "direction": "sell",
+                "price": close,
+                "expected_profit": abs(pred - close) * 100,
+                "expected_loss": abs(pred - close) * 50,
+                "volatility": ml_predictions.get("volatility_forecast", 0.15),
+            }
+        return None
+
+    def get_parameter_grid(self) -> list[dict]:
+        return [self.parameters]
+
+    def set_parameters(self, params: dict):
+        self.parameters = params
+
+
+class _BacktestWorker(QObject):
+    """Executes a backtest via SpyderR08 in a background QThread."""
+
+    finished = Signal(str)   # summary text
+    error = Signal(str)      # error message
+    progress = Signal(str)   # status updates
+
+    def __init__(
+        self,
+        start_date: str,
+        end_date: str,
+        slippage_per_contract: float = 0.01,
+        initial_capital: float = 100_000.0,
+    ):
+        super().__init__()
+        self.start_date = start_date
+        self.end_date = end_date
+        self.slippage_per_contract = slippage_per_contract
+        self.initial_capital = initial_capital
+
+    def run(self):
+        """Fetch historical data from Massive and run the backtest engine."""
+        try:
+            # Ensure .env variables (MASSIVE_API_KEY etc.) are in os.environ
+            from dotenv import load_dotenv
+            load_dotenv()
+
+            self.progress.emit("Loading historical minute data from Massive…")
+            data = EnhancedBacktestEngine.load_data_from_massive(
+                start_date=self.start_date,
+                end_date=self.end_date,
+                symbol="SPY",
+                timespan="minute",
+            )
+
+            self.progress.emit(f"Loaded {len(data):,} bars — creating engine…")
+            engine = create_backtest_engine({
+                "start_date": self.start_date,
+                "end_date": self.end_date,
+                "initial_capital": self.initial_capital,
+                "data_frequency": "1m",
+                "execution_model": "realistic",
+                "slippage_per_contract": self.slippage_per_contract,
+                "slippage_model": "fixed",
+                "position_sizing": "fixed",
+                "use_ml_predictions": True,
+                "use_risk_management": True,
+            })
+
+            # 2% threshold — with MockML std=1%, triggers on ~4.6% of bars
+            strategy = _MomentumStrategy("momentum", threshold=0.02)
+
+            self.progress.emit(f"Running backtest on {len(data):,} minute bars…")
+            result = engine.run_backtest(
+                [strategy], data,
+                progress_callback=self.progress.emit,
+            )
+
+            # Build a human-readable summary from BacktestResult
+            lines = ["BACKTEST RESULTS"]
+            lines.append(f"  Period      : {self.start_date} → {self.end_date}")
+            lines.append(f"  Bars        : {len(data)}")
+            m = getattr(result, "performance_metrics", None) or {}
+            for key in (
+                "total_return",
+                "sharpe_ratio",
+                "max_drawdown",
+                "win_rate",
+                "total_trades",
+                "profit_factor",
+            ):
+                if key in m:
+                    val = m[key]
+                    if isinstance(val, float):
+                        lines.append(f"  {key:<14}: {val:.4f}")
+                    else:
+                        lines.append(f"  {key:<14}: {val}")
+            lines.append(f"  Slippage    : ${self.slippage_per_contract:.2f}/contract")
+            summary = "\n".join(lines)
+            self.finished.emit(summary)
+
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+# ==============================================================================
 # MAIN DASHBOARD CLASS
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
@@ -1236,8 +1735,9 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_logs.append(startup_banner)
 
         self.automation_logs = []
-        self.account_mode = "PAPER"
+        self.trading_mode = TradingMode.PAPER
         self.api_connected = False  # FIXED: Start disconnected
+        self.mkt_data_connected = False  # Market data provider connection state
         self.tradier_client = (
             None  # FIXED: Initialize API client attribute before timer starts
         )
@@ -1267,14 +1767,11 @@ class SpyderTradingDashboard(QMainWindow):
         # Initialize UI elements that will be created in setup methods
         self.connection_status_label = None
         self.api_status_container = None
-        self.api_connection_dot = None
         self.api_connection_label = None
-        self.heartbeat_container = None
-        self.heartbeat_icon = None
         self.data_status_container = None
-        self.data_status_dot = None
         self.data_status_label = None
-        self.simulation_toggle = None
+        self.api_connect_icon = None
+        self.mkt_connect_icon = None
         self.datetime_label = None
         self.dji_value = None
         self.dji_change = None
@@ -1288,6 +1785,19 @@ class SpyderTradingDashboard(QMainWindow):
         self.start_btn = None
         self.stop_btn = None
         self.emergency_btn = None
+        self.mode_lbl = None
+        self.mode_selector = None
+        self.backtest_controls = None
+        self.backtest_pnl_widget = None
+        self.paper_pnl_widget = None
+        self._paper_metric_labels = {}
+        self._paper_status_label = None
+        self._paper_thread = None
+        self._paper_worker = None
+        self.backtest_start_date = None
+        self.backtest_end_date = None
+        self.backtest_slippage = None
+        self.run_backtest_btn = None
         self.risk_params_btn = None
         self.settled_value = None
         self.realized_value = None
@@ -1353,7 +1863,7 @@ class SpyderTradingDashboard(QMainWindow):
         Check Tradier API connectivity.
 
         Legacy method name preserved for backward compatibility.
-        Now checks Tradier API instead of IB Gateway.
+        Now checks Tradier API connectivity.
         """
         try:
             self.logger.info("🔄 Checking Tradier API connectivity...")
@@ -1378,7 +1888,7 @@ class SpyderTradingDashboard(QMainWindow):
         Check Tradier API availability and update connection status.
 
         Legacy method name preserved for backward compatibility.
-        Now checks Tradier API instead of polling IB Gateway ports.
+        Now checks Tradier API availability.
         """
         # If already connected, skip
         if self.api_connected:
@@ -1395,7 +1905,7 @@ class SpyderTradingDashboard(QMainWindow):
                 if hasattr(self, "connection_status_label"):
                     self.connection_status_label.setText(f"🟢 {mode}")
                     self.connection_status_label.setStyleSheet(
-                        f"color: {COLORS['green']}; font-weight: bold;"
+                        f"color: {COLORS['green']};"
                     )
             else:
                 self.api_connected = False
@@ -1494,8 +2004,8 @@ class SpyderTradingDashboard(QMainWindow):
                         )
                         self._check_timer.stop()
                         self.apply_real_data_patch()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Error checking for real data: {e}")
 
         # Check every 5 seconds for real data
         self._check_timer = QTimer()
@@ -1599,8 +2109,8 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#ff1744"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
-        except Exception:
-            pass  # Suppress toolbar update errors
+        except Exception as e:
+            self.logger.debug(f"Toolbar update error: {e}")
 
     def update_status_for_real_data(self):
         """Update status indicators for real data - FIXED to not override API status"""
@@ -1636,7 +2146,7 @@ class SpyderTradingDashboard(QMainWindow):
                 self.add_system_log("❌ Market worker not available")
 
         except Exception as e:
-            self.logger.error(f"Error refreshing market data: {e}")
+            self.logger.error(f"Error refreshing market data: {e}", exc_info=True)
             self.add_system_log(f"❌ Refresh error: {e}")
 
     # ==========================================================================
@@ -1752,6 +2262,48 @@ class SpyderTradingDashboard(QMainWindow):
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
         layout.addWidget(logo_label)
 
+        # Trading mode selector
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems([m.value for m in TradingMode])
+        self.mode_selector.setCurrentText(self.trading_mode.value)
+        self.mode_selector.setFixedWidth(130)
+        self.mode_selector.setStyleSheet(
+            f"""
+            QComboBox {{
+                background-color: {COLORS['background']};
+                color: {COLORS['orange']};
+                border: 2px solid {COLORS['orange']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid {COLORS['orange']};
+                margin-right: 8px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['orange']};
+                selection-color: black;
+                border: 1px solid {COLORS['border']};
+            }}
+            """
+        )
+        self.mode_selector.setToolTip(
+            "BACKTEST: Historical data replay\n"
+            "PAPER: Live data, simulated fills (Tradier sandbox)\n"
+            "LIVE: Real order execution (Tradier production)"
+        )
+        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
+        layout.addWidget(self.mode_selector)
+
         layout.addStretch(7)
 
         # Center section with market indices
@@ -1812,21 +2364,13 @@ class SpyderTradingDashboard(QMainWindow):
         center_section.addLayout(ndx_container)
 
         layout.addLayout(center_section)
-        layout.addStretch(3)
-
-        # RIGHT SECTION - FIXED WIDTH CONTAINERS WITH HEARTBEAT
-        right_section = QHBoxLayout()
-        right_section.setSpacing(10)
-
-        right_section.addSpacing(20)
-        right_section.addWidget(QLabel(" | "))
+        layout.addStretch(1)
 
         # API Connection Status (Left Box) - FIXED WIDTH
         self.api_status_container = QWidget()
-        self.api_status_container.setMinimumWidth(190)  # REDUCED from 200
-        self.api_status_container.setMaximumWidth(190)  # REDUCED from 200
-        self.api_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.api_status_container.setToolTip("Click to connect/disconnect Tradier API")
+        self.api_status_container.setMinimumWidth(155)
+        self.api_status_container.setMaximumWidth(155)
+        self.api_status_container.setToolTip("Tradier execution API")
         self.api_status_container.setStyleSheet(
             """
             QWidget:hover {
@@ -1837,118 +2381,110 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
         api_status_layout = QHBoxLayout()
-        api_status_layout.setContentsMargins(10, 3, 8, 3)  # REDUCED margins
-        api_status_layout.setSpacing(6)  # REDUCED spacing
+        api_status_layout.setContentsMargins(6, 3, 4, 3)
+        api_status_layout.setSpacing(4)
 
-        self.api_connection_dot = QLabel("●")
-        self.api_connection_dot.setStyleSheet(
-            "color: " + COLORS["negative"] + "; font-size: 14px;"
-        )
-        api_status_layout.addWidget(self.api_connection_dot)
-
-        self.api_connection_label = QLabel("API DISCONNECTED")
+        self.api_connection_label = QLabel("TRADIER EXEC")
         self.api_connection_label.setStyleSheet(
             "color: " + COLORS["negative"] + "; font-size: 14px;"
         )
         api_status_layout.addWidget(self.api_connection_label)
 
+        self.api_connect_icon = QLabel("\u26a1")
+        self.api_connect_icon.setStyleSheet(
+            "color: " + COLORS["negative"] + "; font-size: 13px;"
+        )
+        self.api_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.api_connect_icon.setToolTip("Click to connect to Tradier API")
+        self.api_connect_icon.mousePressEvent = self.toggle_api_connection
+        api_status_layout.addWidget(self.api_connect_icon)
+
         self.api_status_container.setLayout(api_status_layout)
-        self.api_status_container.mousePressEvent = self.toggle_api_connection
 
-        # HEARTBEAT MONITOR - REDUCED WIDTH
-        self.heartbeat_container = QWidget()
-        self.heartbeat_container.setMinimumWidth(40)  # REDUCED from 50
-        self.heartbeat_container.setMaximumWidth(40)  # REDUCED from 50
-        self.heartbeat_container.setToolTip(
-            "Connection heartbeat monitor\n🟢 Connected  🔵 Checking  🔴 Disconnected"
-        )
-        heartbeat_layout = QHBoxLayout()
-        heartbeat_layout.setContentsMargins(2, 3, 2, 3)  # REDUCED margins
-        heartbeat_layout.setSpacing(0)
-
-        self.heartbeat_icon = QLabel("💔")  # Start with red broken heart (disconnected)
-        self.heartbeat_icon.setStyleSheet(
-            "color: " + COLORS["negative"] + "; font-size: 16px;"
-        )
-        self.heartbeat_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heartbeat_layout.addWidget(self.heartbeat_icon)
-
-        self.heartbeat_container.setLayout(heartbeat_layout)
-
-        # Data Status (Right Box with Simulation Toggle) - INCREASED WIDTH
+        # Data Status — clickable only in EOD/SIMULATED states
         self.data_status_container = QWidget()
-        self.data_status_container.setMinimumWidth(240)  # INCREASED from 220
-        self.data_status_container.setMaximumWidth(240)  # INCREASED from 220
-        self.data_status_container.setToolTip("Current data source and status")
+        self.data_status_container.setMinimumWidth(120)
+        self.data_status_container.setMaximumWidth(120)
+        self.data_status_container.setToolTip("Data is simulated — no live feed connected")
         data_status_layout = QHBoxLayout()
-        data_status_layout.setContentsMargins(
-            10, 6, 8, 6
-        )  # ADJUSTED vertical margins for better alignment
-        data_status_layout.setSpacing(6)  # REDUCED spacing
+        data_status_layout.setContentsMargins(8, 3, 8, 3)
+        data_status_layout.setSpacing(6)
 
-        self.data_status_dot = QLabel("●")
-        self.data_status_dot.setStyleSheet(
-            "color: " + COLORS["warning"] + "; font-size: 14px;"
-        )
-        self.data_status_dot.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter
-        )  # ENSURE vertical center alignment
-        data_status_layout.addWidget(self.data_status_dot)
-
-        self.data_status_label = QLabel("END-OF-DAY DATA")
+        self.data_status_label = QLabel("SIMULATED")
         self.data_status_label.setStyleSheet(
-            "color: " + COLORS["warning"] + "; font-size: 14px;"
+            "color: " + COLORS["automation_active"] + "; font-size: 14px;"
         )
         self.data_status_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )  # LEFT + VERTICAL CENTER
+        )
         data_status_layout.addWidget(self.data_status_label)
 
-        # Add stretch to push simulation button to the right
-        data_status_layout.addStretch()
-
-        # Simulation Toggle Button (Blue) - Only visible when API disconnected
-        self.simulation_toggle = QLabel("🔵")
-        self.simulation_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.simulation_toggle.setToolTip(
-            "CLICK TO DISPLAY SIMULATED DATA WHEN API IS DISCONNECTED"
-        )
-        self.simulation_toggle.setStyleSheet(
-            "font-size: 14px;"
-        )  # REMOVED padding-left
-        self.simulation_toggle.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter
-        )  # VERTICAL CENTER alignment
-        self.simulation_toggle.mousePressEvent = self.toggle_simulation_mode
-        self.simulation_toggle.setVisible(
-            True
-        )  # Start visible since we start disconnected
-        data_status_layout.addWidget(self.simulation_toggle)
-
         self.data_status_container.setLayout(data_status_layout)
+        self.data_status_container.mousePressEvent = self._toggle_data_display
 
-        # RIGHT SECTION - OPTIMIZED SPACING WITH FIXED WIDTH CONTAINERS AND HEARTBEAT
+        # Market Data Provider (label click = switch provider, \u26a1 click = connect/disconnect)
+        self.mkt_provider_container = QWidget()
+        self.mkt_provider_container.setMinimumWidth(165)
+        self.mkt_provider_container.setMaximumWidth(165)
+        self.mkt_provider_container.setToolTip("Market data source")
+        self.mkt_provider_container.setStyleSheet(
+            """
+            QWidget:hover {
+                background-color: #2a2a2a;
+                border-radius: 3px;
+                padding: 2px;
+            }
+        """
+        )
+        mkt_layout = QHBoxLayout()
+        mkt_layout.setContentsMargins(8, 3, 8, 3)
+        mkt_layout.setSpacing(4)
+
+        import os as _os
+        _current_provider = _os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+        if _current_provider not in ("tradier", "massive"):
+            _current_provider = "massive"
+        # Start red (disconnected); turns green once data feed connects
+        _provider_color = COLORS["negative"]
+
+        self.mkt_provider_label = QLabel(_current_provider.upper() + " DATA")
+        self.mkt_provider_label.setStyleSheet(f"color: {_provider_color}; font-size: 14px;")
+        self.mkt_provider_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mkt_provider_label.setToolTip(
+            "Click to switch between Tradier and Massive data source"
+        )
+        self.mkt_provider_label.mousePressEvent = self.toggle_market_data_provider
+        mkt_layout.addWidget(self.mkt_provider_label)
+
+        self.mkt_connect_icon = QLabel("\u26a1")
+        self.mkt_connect_icon.setStyleSheet(
+            f"color: {_provider_color}; font-size: 13px;"
+        )
+        self.mkt_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mkt_connect_icon.setToolTip("Click to connect market data feed")
+        self.mkt_connect_icon.mousePressEvent = self._toggle_mkt_data_connection
+        mkt_layout.addWidget(self.mkt_connect_icon)
+
+        self.mkt_provider_container.setLayout(mkt_layout)
+
+        # RIGHT SECTION - Status labels aligned with right panel buttons below
         right_section = QHBoxLayout()
-        right_section.setSpacing(6)  # REDUCED from 10 to save space
+        right_section.setSpacing(0)
+        right_section.setContentsMargins(0, 0, 0, 0)
 
-        right_section.addSpacing(15)  # REDUCED from 20
-        right_section.addWidget(QLabel(" | "))
-
-        # Add all containers to right section with reduced spacing
-        right_section.addStretch(1)
         right_section.addWidget(self.api_status_container)
-        right_section.addSpacing(3)  # MINIMAL spacing between API and heartbeat
-        right_section.addWidget(self.heartbeat_container)  # HEARTBEAT CONTAINER
-        right_section.addSpacing(3)  # MINIMAL spacing between heartbeat and data
+        right_section.addWidget(self.mkt_provider_container)
         right_section.addWidget(self.data_status_container)
-        right_section.addWidget(QLabel(" | "))
-
-        # DATE/TIME
-        self.datetime_label = QLabel(datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET"))
-        self.datetime_label.setStyleSheet("font-size: 14px;")
-        right_section.addWidget(self.datetime_label)
 
         layout.addLayout(right_section)
+
+        # DATE/TIME - separate from status labels
+        pipe_label = QLabel(" | ")
+        pipe_label.setStyleSheet(f"color: {COLORS['text']};")
+        layout.addWidget(pipe_label)
+        self.datetime_label = QLabel(datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET"))
+        self.datetime_label.setStyleSheet("font-size: 14px;")
+        layout.addWidget(self.datetime_label)
 
         toolbar.setLayout(layout)
         return toolbar
@@ -2085,6 +2621,35 @@ class SpyderTradingDashboard(QMainWindow):
         strategy_value.setStyleSheet(f"color: {COLORS['cyan']};")
         strategy_section.addWidget(strategy_value)
 
+        # Add spacing before the chart button for elegant positioning
+        strategy_section.addSpacing(15)
+
+        # Chart toggle button
+        self.chart_toggle_btn = QPushButton("📊")
+        self.chart_toggle_btn.setFixedSize(30, 30)
+        self.chart_toggle_btn.setToolTip("Toggle SPY Chart (5-min)")
+        self.chart_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['panel']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 3px;
+                color: {COLORS['cyan']};
+                font-size: 16px;
+                padding: 2px;
+                margin-top: -3px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['border']};
+                border: 1px solid {COLORS['cyan']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['cyan']};
+                color: {COLORS['background']};
+            }}
+        """)
+        self.chart_toggle_btn.clicked.connect(self.toggle_chart)
+        strategy_section.addWidget(self.chart_toggle_btn)
+
         center_container.addLayout(strategy_section)
 
         regime_layout.addLayout(center_container)
@@ -2095,6 +2660,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Create the chart widget
         self.create_chart()
+        self.chart_visible = True  # Track chart visibility state
         layout.addWidget(self.chart_widget, 2)
 
         # Positions table
@@ -2103,15 +2669,17 @@ class SpyderTradingDashboard(QMainWindow):
         positions_layout.setContentsMargins(2, 2, 2, 2)
 
         self.positions_table = self.create_positions_table()
-        self.positions_table.setMaximumHeight(220)
+        # Remove fixed height constraints to allow expansion when chart is hidden
         self.positions_table.setMinimumHeight(220)
         positions_layout.addWidget(self.positions_table)
 
         positions_group.setLayout(positions_layout)
+        self.positions_group = positions_group  # Store reference for stretch factor adjustment
         layout.addWidget(positions_group, 1)
 
         # System logs with Signal Monitor Panel
         logs_container = QWidget()
+        logs_container.setFixedHeight(190)  # Fixed height - won't expand when chart is hidden
         logs_container_layout = QHBoxLayout()
         logs_container_layout.setSpacing(5)
         logs_container_layout.setContentsMargins(0, 0, 0, 0)
@@ -2155,10 +2723,192 @@ class SpyderTradingDashboard(QMainWindow):
         logs_container_layout.addWidget(signal_group, 35)
 
         logs_container.setLayout(logs_container_layout)
-        layout.addWidget(logs_container, 1)
+
+        # Backtest P&L Summary (hidden by default, visible in BACKTEST mode)
+        self.backtest_pnl_widget = QWidget()
+        self.backtest_pnl_widget.setStyleSheet(
+            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;"
+        )
+        pnl_layout = QVBoxLayout()
+        pnl_layout.setContentsMargins(8, 6, 8, 6)
+        pnl_layout.setSpacing(4)
+
+        pnl_title = QLabel("BACKTEST P&L SUMMARY")
+        pnl_title.setStyleSheet(f"color: {COLORS['cyan']}; font-size: 12px; border: none;")
+        pnl_layout.addWidget(pnl_title)
+
+        # Metrics grid: 2 rows x 3 columns
+        pnl_grid = QGridLayout()
+        pnl_grid.setHorizontalSpacing(20)
+        pnl_grid.setVerticalSpacing(2)
+
+        metric_label_style = f"color: {COLORS['text']}; font-size: 11px; border: none;"
+        metric_value_style = f"color: {COLORS['text']}; font-size: 13px; border: none;"
+
+        metric_names = [
+            ("Total Return", "total_return_val"),
+            ("Sharpe Ratio", "sharpe_ratio_val"),
+            ("Max Drawdown", "max_drawdown_val"),
+            ("Win Rate", "win_rate_val"),
+            ("Total Trades", "total_trades_val"),
+            ("Profit Factor", "profit_factor_val"),
+        ]
+        self._bt_metric_labels = {}
+        for i, (name, attr) in enumerate(metric_names):
+            row, col = divmod(i, 3)
+            lbl = QLabel(name)
+            lbl.setStyleSheet(metric_label_style)
+            pnl_grid.addWidget(lbl, row * 2, col)
+            val = QLabel("—")
+            val.setStyleSheet(metric_value_style)
+            pnl_grid.addWidget(val, row * 2 + 1, col)
+            self._bt_metric_labels[attr] = val
+
+        pnl_layout.addLayout(pnl_grid)
+
+        self._bt_period_label = QLabel("Run a backtest to see results")
+        self._bt_period_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px; border: none;")
+        pnl_layout.addWidget(self._bt_period_label)
+
+        self.backtest_pnl_widget.setLayout(pnl_layout)
+        self.backtest_pnl_widget.setVisible(False)
+        layout.addWidget(self.backtest_pnl_widget, 0)
+
+        # Paper Trading P&L Summary (hidden by default, visible in PAPER mode when trading)
+        self.paper_pnl_widget = QWidget()
+        self.paper_pnl_widget.setStyleSheet(
+            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['positive']}; border-radius: 5px;"
+        )
+        pp_layout = QVBoxLayout()
+        pp_layout.setContentsMargins(8, 6, 8, 6)
+        pp_layout.setSpacing(4)
+
+        pp_title = QLabel("PAPER TRADING P&L")
+        pp_title.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px; border: none;")
+        pp_layout.addWidget(pp_title)
+
+        pp_grid = QGridLayout()
+        pp_grid.setHorizontalSpacing(20)
+        pp_grid.setVerticalSpacing(2)
+
+        pp_label_style = f"color: {COLORS['text']}; font-size: 11px; border: none;"
+        pp_value_style = f"color: {COLORS['text']}; font-size: 13px; border: none;"
+
+        pp_metric_names = [
+            ("Total Return", "total_return_val"),
+            ("Realized P&L", "realized_pnl_val"),
+            ("Max Drawdown", "max_drawdown_val"),
+            ("Win Rate", "win_rate_val"),
+            ("Total Trades", "total_trades_val"),
+            ("Equity", "equity_val"),
+        ]
+        self._paper_metric_labels = {}
+        for i, (name, attr) in enumerate(pp_metric_names):
+            row, col = divmod(i, 3)
+            lbl = QLabel(name)
+            lbl.setStyleSheet(pp_label_style)
+            pp_grid.addWidget(lbl, row * 2, col)
+            val = QLabel("—")
+            val.setStyleSheet(pp_value_style)
+            pp_grid.addWidget(val, row * 2 + 1, col)
+            self._paper_metric_labels[attr] = val
+
+        pp_layout.addLayout(pp_grid)
+
+        self._paper_status_label = QLabel("Click START TRADING to begin paper trading")
+        self._paper_status_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px; border: none;")
+        pp_layout.addWidget(self._paper_status_label)
+
+        self.paper_pnl_widget.setLayout(pp_layout)
+        self.paper_pnl_widget.setVisible(False)
+        layout.addWidget(self.paper_pnl_widget, 0)
+
+        # Backtest controls (hidden by default, visible in BACKTEST mode)
+        # Placed in the center panel above SYSTEM LOG / SIGNAL MONITOR.
+        self.backtest_controls = QWidget()
+        self.backtest_controls.setStyleSheet(
+            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['orange']}; border-radius: 5px;"
+        )
+        bt_layout = QGridLayout()
+        bt_layout.setContentsMargins(6, 6, 6, 6)
+        bt_layout.setHorizontalSpacing(6)
+        bt_layout.setVerticalSpacing(4)
+
+        bt_title = QLabel("BACKTEST SETTINGS")
+        bt_title.setStyleSheet(f"color: {COLORS['orange']}; font-size: 12px; border: none;")
+        bt_layout.addWidget(bt_title, 0, 0, 1, 4)
+
+        bt_label_style = f"color: {COLORS['text']}; font-size: 11px; border: none;"
+        date_style = f"""
+            QDateEdit {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                padding: 2px 4px;
+                font-size: 11px;
+            }}
+        """
+
+        bt_layout.addWidget(QLabel("From:"), 1, 0)
+        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
+        self.backtest_start_date = QDateEdit()
+        self.backtest_start_date.setCalendarPopup(True)
+        self.backtest_start_date.setDate(QDate.currentDate().addMonths(-6))
+        self.backtest_start_date.setStyleSheet(date_style)
+        bt_layout.addWidget(self.backtest_start_date, 1, 1)
+
+        bt_layout.addWidget(QLabel("To:"), 1, 2)
+        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
+        self.backtest_end_date = QDateEdit()
+        self.backtest_end_date.setCalendarPopup(True)
+        self.backtest_end_date.setDate(QDate.currentDate().addDays(-1))
+        self.backtest_end_date.setStyleSheet(date_style)
+        bt_layout.addWidget(self.backtest_end_date, 1, 3)
+
+        bt_layout.addWidget(QLabel("Slippage $/contract:"), 2, 0, 1, 2)
+        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
+        self.backtest_slippage = QDoubleSpinBox()
+        self.backtest_slippage.setRange(0.00, 0.50)
+        self.backtest_slippage.setSingleStep(0.01)
+        self.backtest_slippage.setValue(0.01)
+        self.backtest_slippage.setPrefix("$")
+        self.backtest_slippage.setStyleSheet(
+            f"background-color: {COLORS['background']}; color: {COLORS['text']}; "
+            f"border: 1px solid {COLORS['border']}; padding: 2px 4px; font-size: 11px;"
+        )
+        bt_layout.addWidget(self.backtest_slippage, 2, 2, 1, 2)
+
+        self.run_backtest_btn = QPushButton("RUN BACKTEST")
+        self.run_backtest_btn.setStyleSheet(
+            f"background-color: {COLORS['orange']}; color: black; font-size: 12px; padding: 4px;"
+        )
+        self.run_backtest_btn.setToolTip("Launch backtest with selected date range and slippage")
+        self.run_backtest_btn.clicked.connect(self._run_backtest)
+        bt_layout.addWidget(self.run_backtest_btn, 3, 0, 1, 4)
+
+        self.backtest_controls.setLayout(bt_layout)
+        self.backtest_controls.setVisible(False)  # Hidden until BACKTEST mode selected
+        layout.addWidget(self.backtest_controls, 0)
+
+        layout.addWidget(logs_container, 0)  # Stretch factor 0 - stays fixed size
 
         panel.setLayout(layout)
         return panel
+
+    def toggle_chart(self):
+        """Toggle the SPY chart visibility to provide more space for positions table"""
+        if self.chart_visible:
+            # Hide chart
+            self.chart_widget.hide()
+            self.chart_visible = False
+            self.chart_toggle_btn.setToolTip("Show SPY Chart (5-min)")
+            self.log_system_message("Chart hidden - Positions table expanded")
+        else:
+            # Show chart
+            self.chart_widget.show()
+            self.chart_visible = True
+            self.chart_toggle_btn.setToolTip("Hide SPY Chart (5-min)")
+            self.log_system_message("Chart visible")
 
     def create_right_panel(self) -> QWidget:
         """Create right panel with controls and metrics (UNCHANGED EXCEPT BUTTON MESSAGES)"""
@@ -2226,11 +2976,14 @@ class SpyderTradingDashboard(QMainWindow):
 
         cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
 
-        # Row 0: ACCOUNT | value | MODE: PAPER
+        # Row 0: ACCOUNT | value | MODE: <current>
         acct_grid.addWidget(self._acct_lbl("ACCOUNT", cell_style), 0, 0)
         acct_grid.addWidget(self._acct_lbl("DU5361048", cell_style), 0, 1)
-        mode_lbl = self._acct_lbl("MODE: PAPER", cell_style + f"color: {COLORS['orange']};")
-        acct_grid.addWidget(mode_lbl, 0, 2, 1, 2)
+        self.mode_lbl = self._acct_lbl(
+            f"MODE: {self.trading_mode.value}",
+            cell_style + f"color: {COLORS['orange']};",
+        )
+        acct_grid.addWidget(self.mode_lbl, 0, 2, 1, 2)
 
         # Row 1: SETTLED CASH | value | BUYING POWER | value
         acct_grid.addWidget(self._acct_lbl("SETTLED CASH", cell_style), 1, 0)
@@ -2664,7 +3417,7 @@ class SpyderTradingDashboard(QMainWindow):
         tree = QTreeWidget()
 
         # Leg-level columns under each strategy header
-        # 7th empty column absorbs stretch so P&L stays next to COST
+        # Last empty column absorbs stretch so other columns don't widen
         columns = ["     LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
         tree.setColumnCount(len(columns))
         tree.setHeaderLabels(columns)
@@ -2732,7 +3485,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Column 6 (spacer) stretches to fill remaining space
         tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
 
-        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         return tree
@@ -3054,7 +3807,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.client_indicators[svc_key] = indicator
             grid.addWidget(svc_widget, row, 1)
 
-        # Data Feed Services (Column 3) — Databento feeds
+        # Data Feed Services (Column 3) — Massive feeds
         data_services = [
             ("Live Stream", "db_live"),
             ("Historical", "db_historical"),
@@ -3072,7 +3825,7 @@ class SpyderTradingDashboard(QMainWindow):
             indicator.setStyleSheet(
                 "color: " + COLORS["neutral"] + "; font-size: 14px;"
             )
-            indicator.setToolTip(f"Databento {feed_name} feed")
+            indicator.setToolTip(f"Massive {feed_name} feed")
             feed_layout.addWidget(indicator)
 
             label = QLabel(feed_name)
@@ -3145,21 +3898,30 @@ class SpyderTradingDashboard(QMainWindow):
         self.api_connected = connected
 
         if connected:
-            self.api_connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
-            self.api_connection_label.setText("API CONNECTED")
+            self.api_connection_label.setText("TRADIER EXEC")
             self.api_connection_label.setStyleSheet(f"color: {COLORS['positive']};")
-
-            # Hide simulation button when connected
-            self.simulation_toggle.setVisible(False)
+            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
+                self.api_connect_icon.setStyleSheet(f"color: {COLORS['positive']}; font-size: 13px;")
+                self.api_connect_icon.setToolTip("Click to disconnect from Tradier API")
 
             self.add_system_log("✅ Connected to Tradier API")
-        else:
-            self.api_connection_dot.setStyleSheet(f"color: {COLORS['negative']};")
-            self.api_connection_label.setText("API DISCONNECTED")
-            self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
 
-            # Show simulation button when disconnected
-            self.simulation_toggle.setVisible(True)
+            # Auto-recover from FROZEN → LIVE when API reconnects during market hours
+            if (
+                hasattr(self, "data_status_label")
+                and self.data_status_label.text() == "FROZEN"
+            ):
+                self.mkt_data_connected = True
+                self.update_data_status("LIVE")
+                import os
+                provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+                self._apply_mkt_provider_display(provider)
+        else:
+            self.api_connection_label.setText("TRADIER EXEC")
+            self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
+            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
+                self.api_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
+                self.api_connect_icon.setToolTip("Click to connect to Tradier API")
 
             # Stop trading if active
             if self.trading_active:
@@ -3183,29 +3945,21 @@ class SpyderTradingDashboard(QMainWindow):
 
     @Slot(str)
     def on_heartbeat_status_changed(self, status: str):
-        """Handle heartbeat status changes - FIXED heart icons with bright green"""
-        if status == "connected":
-            self.heartbeat_icon.setText("💚")  # Bright green heart when connected
-            self.heartbeat_icon.setStyleSheet(
-                "color: #00ff00; font-size: 16px;"
-            )  # BRIGHT GREEN to match dot
-        elif status == "warning":
-            self.heartbeat_icon.setText("💙")  # Blue heart 20 seconds before check
-            self.heartbeat_icon.setStyleSheet(
-                f"color: {COLORS['automation_active']}; font-size: 16px;"
-            )
-        else:  # disconnected or error
-            self.heartbeat_icon.setText("💔")  # Red broken heart when disconnected
-            self.heartbeat_icon.setStyleSheet(
-                f"color: {COLORS['negative']}; font-size: 16px;"
-            )
+        """Handle heartbeat status changes — connection state is shown via label color only."""
+        pass  # Heartbeat icon removed; TRADIER EXEC label color handles state
 
     @Slot(str)
     def on_market_data_status_changed(self, status: str):
-        """Handle market data status change"""
+        """Handle market data status change and update provider connection indicator."""
+        was_connected = self.mkt_data_connected
         if status == "LIVE":
+            self.mkt_data_connected = True
             self.add_system_log("📊 Market data: LIVE")
+            # Auto-recover from FROZEN → LIVE when API reconnects during market hours
+            if self.data_status_label.text() == "FROZEN":
+                self.update_data_status("LIVE")
         else:
+            self.mkt_data_connected = False
             if self.trading_active:
                 self.trading_active = False
                 self.connection_info.trading_active = False
@@ -3222,6 +3976,12 @@ class SpyderTradingDashboard(QMainWindow):
             else:
                 self.add_system_log("📊 Market data: NONE")
 
+        # Refresh provider label color if connection state changed
+        if was_connected != self.mkt_data_connected:
+            import os
+            provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+            self._apply_mkt_provider_display(provider)
+
     @Slot(dict)
     def on_market_data_updated(self, data: dict):
         """Handle market data update - only if not using real data"""
@@ -3236,7 +3996,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.market_data.update(data)
 
         except Exception as e:
-            self.logger.error(f"Error updating market data: {e}")
+            self.logger.error(f"Error updating market data: {e}", exc_info=True)
 
     @Slot(str)
     def on_market_error(self, error: str):
@@ -3315,8 +4075,287 @@ class SpyderTradingDashboard(QMainWindow):
             else:
                 self.add_system_log("Failed to connect to API")
 
+    # ==========================================================================
+    # TRADING MODE MANAGEMENT
+    # ==========================================================================
+
+    def _on_mode_changed(self, mode_text: str):
+        """Handle trading mode selection change from toolbar combo box."""
+        if self.trading_active:
+            QMessageBox.warning(
+                self,
+                "Trading Active",
+                "Cannot change mode while trading is active.\nStop trading first.",
+            )
+            self.mode_selector.blockSignals(True)
+            self.mode_selector.setCurrentText(self.trading_mode.value)
+            self.mode_selector.blockSignals(False)
+            return
+
+        self.trading_mode = TradingMode(mode_text)
+
+        # Update mode label in account info
+        if self.mode_lbl:
+            mode_colors = {
+                TradingMode.BACKTEST: COLORS["orange"],
+                TradingMode.PAPER: COLORS["orange"],
+                TradingMode.LIVE: COLORS["negative"],
+            }
+            color = mode_colors[self.trading_mode]
+            cell_style = (
+                f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color};"
+            )
+            self.mode_lbl.setText(f"MODE: {self.trading_mode.value}")
+            self.mode_lbl.setStyleSheet(cell_style)
+
+        # Update mode selector border color
+        border_color = mode_colors.get(self.trading_mode, COLORS["orange"])
+        self.mode_selector.setStyleSheet(
+            self.mode_selector.styleSheet().replace(
+                COLORS["orange"], border_color
+            ) if self.trading_mode == TradingMode.LIVE else self.mode_selector.styleSheet()
+        )
+
+        # Show/hide backtest controls and auto-toggle chart
+        is_backtest = self.trading_mode == TradingMode.BACKTEST
+        is_paper = self.trading_mode == TradingMode.PAPER
+        if self.backtest_controls:
+            self.backtest_controls.setVisible(is_backtest)
+        if self.backtest_pnl_widget:
+            self.backtest_pnl_widget.setVisible(is_backtest)
+        if self.paper_pnl_widget:
+            self.paper_pnl_widget.setVisible(is_paper)
+        if is_backtest:
+            # Hide chart to make room for backtest settings
+            if self.chart_visible:
+                self.chart_widget.hide()
+                self.chart_visible = False
+                self.chart_toggle_btn.setToolTip("Show SPY Chart (5-min)")
+        else:
+            # Restore chart when leaving BACKTEST mode
+            if not self.chart_visible:
+                self.chart_widget.show()
+                self.chart_visible = True
+                self.chart_toggle_btn.setToolTip("Hide SPY Chart (5-min)")
+
+        # Update button labels based on mode
+        if self.trading_mode == TradingMode.BACKTEST:
+            self.start_btn.setText("START TRADING")
+            self.start_btn.setToolTip("Start trading is disabled in backtest mode — use RUN BACKTEST")
+            self.stop_btn.setToolTip("Not applicable in backtest mode")
+        elif self.trading_mode == TradingMode.PAPER:
+            self.start_btn.setText("START TRADING")
+            self.start_btn.setToolTip("Start paper trading with simulated fills")
+            self.stop_btn.setToolTip("Stop paper trading but keep simulated positions")
+        else:
+            self.start_btn.setText("START TRADING")
+            self.start_btn.setToolTip("Start LIVE trading with real order execution")
+            self.stop_btn.setToolTip("Stop live trading — open orders remain at Tradier")
+
+        self.add_system_log(f"Trading mode changed to {self.trading_mode.value}")
+
+        # Update market data provider indicator for backtest mode
+        if self.trading_mode == TradingMode.BACKTEST:
+            self._apply_mkt_provider_display("backtest")
+        else:
+            import os
+            current_provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+            self._apply_mkt_provider_display(current_provider)
+
+    def _run_backtest(self):
+        """Launch a backtest with the configured date range and slippage."""
+        global backtest_engine_available, create_backtest_engine, EnhancedBacktestEngine, BacktestResult
+        # Lazy-import: defer ~0.43s backtest engine cost to first backtest run.
+        if backtest_engine_available is None:
+            try:
+                from Spyder.SpyderR_Runtime.SpyderR08_EnhancedBacktestEngine import (
+                    create_backtest_engine as _cbe,
+                    EnhancedBacktestEngine as _EBE,
+                    BacktestResult as _BR,
+                )
+                create_backtest_engine = _cbe
+                EnhancedBacktestEngine = _EBE
+                BacktestResult = _BR
+                backtest_engine_available = True
+                logging.info("✅ Backtest engine (SpyderR08) loaded (lazy)")
+            except ImportError:
+                backtest_engine_available = False
+                logging.info("⚠️ Backtest engine (SpyderR08) not available")
+
+        if not backtest_engine_available:
+            QMessageBox.warning(
+                self,
+                "Engine Unavailable",
+                "SpyderR08_EnhancedBacktestEngine could not be imported.\n"
+                "Check logs for import errors.",
+            )
+            return
+
+        start = self.backtest_start_date.date().toPython()
+        end = self.backtest_end_date.date().toPython()
+
+        if start >= end:
+            QMessageBox.warning(
+                self,
+                "Invalid Date Range",
+                "Start date must be before end date.",
+            )
+            return
+
+        slippage = self.backtest_slippage.value()
+
+        self.add_system_log(
+            f"Launching backtest: {start} → {end} | slippage=${slippage:.2f}/contract"
+        )
+        self.add_automation_log(
+            f"BACKTEST STARTED — {start} to {end} | "
+            f"Slippage: ${slippage:.2f}/contract | "
+            f"Engine: SpyderR08_EnhancedBacktestEngine"
+        )
+
+        # Disable button during run
+        self.run_backtest_btn.setText("RUNNING...")
+        self.run_backtest_btn.setEnabled(False)
+
+        # Run backtest in a background thread so the UI stays responsive.
+        # Parent the QThread to *self* so it is not garbage-collected while
+        # running — destroying a running QThread calls abort().
+        self._backtest_thread = QThread(self)  # parent prevents premature GC
+        self._backtest_worker = _BacktestWorker(
+            start_date=str(start),
+            end_date=str(end),
+            slippage_per_contract=slippage,
+        )
+        self._backtest_worker.moveToThread(self._backtest_thread)
+        self._backtest_thread.started.connect(self._backtest_worker.run)
+        self._backtest_worker.finished.connect(self._on_backtest_finished)
+        self._backtest_worker.error.connect(self._on_backtest_error)
+        self._backtest_worker.progress.connect(self._on_backtest_progress)
+        self._backtest_worker.finished.connect(self._cleanup_backtest_thread)
+        self._backtest_worker.error.connect(self._cleanup_backtest_thread)
+        self._backtest_thread.start()
+
+    def _on_backtest_progress(self, msg: str):
+        """Handle backtest progress update in the main/GUI thread.
+
+        Must be a bound method (not a lambda) so PySide6 can resolve
+        the receiver QObject and use QueuedConnection for cross-thread
+        signal delivery.  A lambda has no QObject receiver, causing
+        AutoConnection to fall back to DirectConnection — which would
+        run add_system_log in the worker thread and crash Qt.
+        """
+        self.add_system_log(f"Backtest: {msg}")
+
+    def _cleanup_backtest_thread(self):
+        """Safely shut down the backtest QThread so Qt does not abort()."""
+        thread = getattr(self, "_backtest_thread", None)
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(10_000)  # block up to 10 s for thread to finish
+
+    def _on_backtest_finished(self, summary: str):
+        """Handle successful backtest completion."""
+        self.run_backtest_btn.setText("RUN BACKTEST")
+        self.run_backtest_btn.setEnabled(True)
+        self.add_system_log("Backtest completed successfully")
+        self.add_automation_log(summary)
+        self._update_backtest_pnl(summary)
+
+    def _update_backtest_pnl(self, summary: str):
+        """Parse backtest summary text and update the P&L widget."""
+        if not self._bt_metric_labels:
+            return
+
+        # Parse key=value lines from the summary
+        parsed = {}
+        for line in summary.splitlines():
+            if ":" in line:
+                key, _, val = line.partition(":")
+                parsed[key.strip().lower().replace(" ", "_")] = val.strip()
+
+        # Map parsed keys to widget labels
+        mapping = {
+            "total_return_val": "total_return",
+            "sharpe_ratio_val": "sharpe_ratio",
+            "max_drawdown_val": "max_drawdown",
+            "win_rate_val": "win_rate",
+            "total_trades_val": "total_trades",
+            "profit_factor_val": "profit_factor",
+        }
+
+        for attr, key in mapping.items():
+            lbl = self._bt_metric_labels.get(attr)
+            if lbl and key in parsed:
+                val_text = parsed[key]
+                # Handle nan/inf display
+                try:
+                    num = float(val_text.replace("%", "").replace("$", "").replace(",", ""))
+                    import math
+                    if math.isnan(num) or math.isinf(num):
+                        lbl.setText("N/A")
+                        lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px; border: none;")
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+                lbl.setText(val_text)
+                # Color: green for positive returns, red for negative
+                try:
+                    num = float(val_text.replace("%", "").replace("$", "").replace(",", ""))
+                    if key in ("total_return", "sharpe_ratio", "profit_factor"):
+                        color = COLORS["positive"] if num > 0 else COLORS["negative"]
+                    elif key == "max_drawdown":
+                        color = COLORS["negative"] if abs(num) > 0.10 else COLORS["warning"]
+                    elif key == "win_rate":
+                        color = COLORS["positive"] if num >= 0.50 else COLORS["warning"]
+                    else:
+                        color = COLORS["text"]
+                    lbl.setStyleSheet(f"color: {color}; font-size: 13px; border: none;")
+                except (ValueError, TypeError):
+                    lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px; border: none;")
+
+        # Update period label
+        period = parsed.get("period", "")
+        bars = parsed.get("bars", "")
+        if period:
+            period_text = f"Period: {period}"
+            if bars:
+                period_text += f"  |  Bars: {bars}"
+            self._bt_period_label.setText(period_text)
+            self._bt_period_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px; border: none;")
+
+    def _on_backtest_error(self, error_msg: str):
+        """Handle backtest failure."""
+        self.run_backtest_btn.setText("RUN BACKTEST")
+        self.run_backtest_btn.setEnabled(True)
+        self.add_system_log(f"Backtest FAILED: {error_msg}")
+        # QMessageBox must run in the GUI thread — safe here because
+        # this slot is a bound method of a QObject (auto QueuedConnection).
+        QMessageBox.warning(self, "Backtest Error", error_msg)
+
     def start_trading(self):
-        """Handle start trading button click - FIXED MESSAGES"""
+        """Handle start trading button click — mode-aware."""
+        # BACKTEST mode uses the RUN BACKTEST button, not START TRADING
+        if self.trading_mode == TradingMode.BACKTEST:
+            QMessageBox.information(
+                self,
+                "Backtest Mode",
+                "In BACKTEST mode, use the RUN BACKTEST button\n"
+                "in the backtest settings panel.",
+            )
+            return
+
+        if self.trading_active:
+            self.add_system_log("Trading already active")
+            return
+
+        # PAPER mode — launch paper trading worker (manages its own connection)
+        if self.trading_mode == TradingMode.PAPER:
+            self._start_paper_trading()
+            return
+
+        # LIVE mode gates
         if not self.api_connected:
             QMessageBox.warning(
                 self,
@@ -3326,18 +4365,29 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("Cannot start trading - API disconnected")
             return
 
+        if self.trading_mode == TradingMode.LIVE:
+            reply = QMessageBox.warning(
+                self,
+                "⚠️ LIVE TRADING",
+                "You are about to start LIVE TRADING.\n\n"
+                "This will execute REAL orders with REAL money\n"
+                "through the Tradier production API.\n\n"
+                "Are you sure you want to proceed?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self.add_system_log("Live trading start cancelled by user")
+                return
+
         data_status = self.data_status_label.text()
-        if data_status not in ["LIVE DATA", "LIVE - REAL"]:
+        if data_status not in ["LIVE", "LIVE DATA", "LIVE - REAL"]:
             QMessageBox.warning(
                 self,
                 "No Live Data",
                 "NO LIVE DATA\n\nCannot start trading without live market data.",
             )
             self.add_system_log("Cannot start trading - No live data")
-            return
-
-        if self.trading_active:
-            self.add_system_log("Trading already active")
             return
 
         self.trading_active = True
@@ -3348,16 +4398,163 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self.start_btn.setText("TRADING ACTIVE")
 
-        self.add_system_log("Trading started successfully")
-        self.add_automation_log("TRADING ACTIVE - Autonomous AI Engine engaged")
+        mode_label = self.trading_mode.value
+        self.add_system_log(f"{mode_label} trading started successfully")
+        self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Autonomous AI Engine engaged")
 
         if self.real_data_active:
-            self.add_automation_log("Using REAL market data from Tradier API")
+            self.add_automation_log("Using REAL market data from Massive API")
         else:
             self.add_automation_log("Monitoring SPY options for trading opportunities")
 
+    def _start_paper_trading(self):
+        """Launch the paper trading worker in a background QThread."""
+        if not TRADIER_AVAILABLE:
+            QMessageBox.warning(
+                self,
+                "Tradier Unavailable",
+                "TradierClient module could not be imported.\n"
+                "Paper trading requires SpyderB40_TradierClient.",
+            )
+            return
+
+        self.add_system_log("Launching paper trading engine…")
+
+        self.trading_active = True
+        self.connection_info.trading_active = True
+        self.start_btn.setStyleSheet(
+            f"background-color: {COLORS['automation_active']}; color: white;"
+        )
+        self.start_btn.setText("PAPER ACTIVE")
+        self.start_btn.setEnabled(False)
+
+        # Show the paper P&L widget
+        if self.paper_pnl_widget:
+            self.paper_pnl_widget.setVisible(True)
+        if self._paper_status_label:
+            self._paper_status_label.setText("Connecting to Tradier…")
+
+        # Create worker and thread
+        self._paper_thread = QThread(self)
+        self._paper_worker = _PaperTradingWorker(initial_capital=100_000.0)
+        self._paper_worker.moveToThread(self._paper_thread)
+
+        # Wire signals (all bound methods for proper QueuedConnection)
+        self._paper_thread.started.connect(self._paper_worker.run)
+        self._paper_worker.status_update.connect(self._on_paper_status)
+        self._paper_worker.position_update.connect(self._on_paper_position)
+        self._paper_worker.metrics_update.connect(self._on_paper_metrics)
+        self._paper_worker.error.connect(self._on_paper_error)
+        self._paper_worker.stopped.connect(self._on_paper_stopped)
+        self._paper_worker.connection_ready.connect(self._on_paper_connection)
+
+        self._paper_thread.start()
+        self.add_automation_log("PAPER TRADING — Connecting to Tradier sandbox…")
+
+    def _stop_paper_trading(self):
+        """Stop the paper trading worker gracefully."""
+        if self._paper_worker:
+            self._paper_worker.stop()
+            self.add_system_log("Stopping paper trading…")
+
+    @Slot(str)
+    def _on_paper_status(self, msg: str):
+        """Handle paper trading status update in the GUI thread."""
+        self.add_system_log(f"Paper: {msg}")
+
+    @Slot(dict)
+    def _on_paper_position(self, data: dict):
+        """Handle paper position update — update status label."""
+        if self._paper_status_label:
+            qty = data.get("position_qty", 0)
+            equity = data.get("equity", 0)
+            spy_last = data.get("spy_last", 0)
+            unrealized = data.get("unrealized_pnl", 0)
+            if qty > 0:
+                self._paper_status_label.setText(
+                    f"SPY: ${spy_last:.2f}  |  Position: {qty} shares  |  "
+                    f"Unrealized: ${unrealized:+,.2f}  |  Equity: ${equity:,.2f}"
+                )
+            else:
+                self._paper_status_label.setText(
+                    f"SPY: ${spy_last:.2f}  |  No position  |  Equity: ${equity:,.2f}"
+                )
+
+    @Slot(dict)
+    def _on_paper_metrics(self, metrics: dict):
+        """Handle paper P&L metrics update — refresh the widget."""
+        mapping = {
+            "total_return_val": "total_return",
+            "realized_pnl_val": "realized_pnl",
+            "max_drawdown_val": "max_drawdown",
+            "win_rate_val": "win_rate",
+            "total_trades_val": "total_trades",
+            "equity_val": "equity",
+        }
+        for attr, key in mapping.items():
+            lbl = self._paper_metric_labels.get(attr)
+            if lbl and key in metrics:
+                val_text = metrics[key]
+                lbl.setText(val_text)
+                # Color coding
+                try:
+                    num = float(
+                        val_text.replace("%", "").replace("$", "")
+                        .replace(",", "").replace("+", "")
+                    )
+                    if key in ("total_return", "realized_pnl"):
+                        color = COLORS["positive"] if num >= 0 else COLORS["negative"]
+                    elif key == "max_drawdown":
+                        color = COLORS["negative"] if abs(num) > 0.05 else COLORS["warning"]
+                    elif key == "win_rate":
+                        color = COLORS["positive"] if num >= 0.50 else COLORS["warning"]
+                    else:
+                        color = COLORS["text"]
+                    lbl.setStyleSheet(f"color: {color}; font-size: 13px; border: none;")
+                except (ValueError, TypeError):
+                    lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px; border: none;")
+
+    @Slot(str)
+    def _on_paper_error(self, error_msg: str):
+        """Handle paper trading error."""
+        self.add_system_log(f"❌ Paper trading error: {error_msg}")
+        QMessageBox.warning(self, "Paper Trading Error", error_msg)
+
+    @Slot()
+    def _on_paper_stopped(self):
+        """Handle paper trading worker exit."""
+        # Clean up thread
+        if self._paper_thread and self._paper_thread.isRunning():
+            self._paper_thread.quit()
+            self._paper_thread.wait(10_000)
+
+        self.trading_active = False
+        self.connection_info.trading_active = False
+
+        self.start_btn.setStyleSheet(
+            f"background-color: {COLORS['positive']}; color: black;"
+        )
+        self.start_btn.setText("START TRADING")
+        self.start_btn.setEnabled(True)
+
+        self.add_automation_log("PAPER TRADING STOPPED — Session ended")
+
+    @Slot(bool)
+    def _on_paper_connection(self, connected: bool):
+        """Handle paper trading connection result."""
+        if connected:
+            self.on_connection_status_changed(True, "Tradier (PAPER)")
+            self.update_data_status("LIVE")
+            self.add_automation_log("PAPER TRADING ACTIVE — Polling SPY every 30s")
+        else:
+            self.add_system_log("❌ Paper trading could not connect to Tradier")
+
     def stop_trading(self):
-        """Handle stop trading button click - FIXED MESSAGES"""
+        """Handle stop trading button click — mode-aware."""
+        # PAPER mode — stop the paper worker
+        if self.trading_mode == TradingMode.PAPER and self._paper_worker:
+            self._stop_paper_trading()
+            return
         if not self.api_connected:
             QMessageBox.information(
                 self,
@@ -3427,46 +4624,39 @@ class SpyderTradingDashboard(QMainWindow):
             self.api_connected = False
 
     # ==========================================================================
-    # ENHANCED STATUS MANAGEMENT WITH FROZEN DATA LOGIC
+    # ENHANCED STATUS MANAGEMENT
     # ==========================================================================
     def update_data_status(self, status_type: str):
-        """Update data status display - CLEANED UP to show only 4 statuses"""
+        """Update data status display — 4 states: LIVE, EOD, SIMULATED, FROZEN."""
         if status_type == "LIVE":
-            # Live data during market hours
-            self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["positive"] + "; font-size: 14px;"
-            )
-            self.data_status_label.setText("LIVE DATA")
+            self.data_status_label.setText("LIVE")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["positive"] + "; font-size: 14px;"
             )
+            self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
+            self.data_status_container.setToolTip("Live market data")
         elif status_type == "EOD":
-            # End of day data (after hours or file data)
-            self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["warning"] + "; font-size: 14px;"
-            )
-            self.data_status_label.setText("END-OF-DAY DATA")
+            self.data_status_label.setText("EOD")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["warning"] + "; font-size: 14px;"
             )
+            self.data_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.data_status_container.setToolTip("End-of-day data — click to switch to SIMULATED")
         elif status_type == "FROZEN":
-            # Frozen data (disconnected during market hours)
-            self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["negative"] + "; font-size: 14px;"
-            )
-            self.data_status_label.setText("FROZEN DATA")
+            self.data_status_label.setText("FROZEN")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["negative"] + "; font-size: 14px;"
             )
-        elif status_type == "SIMULATION":
-            # Simulation mode
-            self.data_status_dot.setStyleSheet(
-                "color: " + COLORS["automation_active"] + "; font-size: 14px;"
-            )
-            self.data_status_label.setText("SIMULATED DATA")
+            self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
+            self.data_status_container.setToolTip("Data frozen — waiting for API reconnection")
+        else:
+            # NONE, SIMULATION → SIMULATED
+            self.data_status_label.setText("SIMULATED")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["automation_active"] + "; font-size: 14px;"
             )
+            self.data_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.data_status_container.setToolTip("Simulated data — click to switch to EOD")
 
     def determine_data_status(self) -> str:
         """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""
@@ -3535,38 +4725,110 @@ class SpyderTradingDashboard(QMainWindow):
         data_status = self.determine_data_status()
         self.update_data_status(data_status)
 
-    def toggle_simulation_mode(self, event):
-        """Toggle simulation mode (only when API disconnected) - FIXED STATUS UPDATE"""
-        if self.api_connected:
-            # Don't activate simulation when API is connected
-            self.add_system_log(
-                "⚠️ Simulation mode only available when API is disconnected"
+    def toggle_market_data_provider(self, event):
+        """Switch market data source between Tradier and Massive."""
+        # Disable toggle in backtest mode
+        if self.trading_mode == TradingMode.BACKTEST:
+            self.add_system_log("⚠️ Cannot switch data provider in BACKTEST mode")
+            return
+        import os
+        current = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+        new_provider = "massive" if current == "tradier" else "tradier"
+        try:
+            from Spyder.SpyderC_MarketData.SpyderC00_MarketDataProtocol import (
+                switch_market_data_provider,
             )
+            switch_market_data_provider(new_provider)
+        except ImportError:
+            os.environ["MARKET_DATA_PROVIDER"] = new_provider
+        except Exception as exc:
+            self.add_system_log(f"❌ Market data provider switch error: {exc}")
             return
 
-        # Toggle simulation mode
-        if not hasattr(self.connection_info, "simulation_mode"):
-            self.connection_info.simulation_mode = False
+        self._apply_mkt_provider_display(new_provider)
+        self.add_system_log(
+            f"🔄 Market data provider → {new_provider.upper()} (takes effect on next reconnect)"
+        )
 
-        self.connection_info.simulation_mode = not self.connection_info.simulation_mode
+    def _apply_mkt_provider_display(self, provider: str) -> None:
+        """Update the market data provider indicator label in the toolbar.
 
-        if self.connection_info.simulation_mode:
-            self.add_system_log("🔵 Simulation mode activated")
-            self.add_automation_log(
-                "Switched to simulation data - starting from last real prices"
-            )
-            # Initialize simulation with last real prices
-            self._init_simulation_from_real_data()
+        Color is connection-based: red when disconnected, green when connected.
+        BACKTEST mode is always green.
+        """
+        if not hasattr(self, "mkt_provider_label"):
+            return
+        provider_lower = provider.lower()
+        if provider_lower == "backtest":
+            color = COLORS["positive"]
+        elif getattr(self, "mkt_data_connected", False):
+            color = COLORS["positive"]
         else:
-            self.add_system_log("📊 Simulation mode deactivated")
-            self.add_automation_log("Switched back to available real data")
+            color = COLORS["negative"]
+        self.mkt_provider_label.setText(provider.upper() + " DATA")
+        self.mkt_provider_label.setStyleSheet(f"color: {color}; font-size: 14px;")
+        if hasattr(self, "mkt_connect_icon") and self.mkt_connect_icon:
+            self.mkt_connect_icon.setStyleSheet(f"color: {color}; font-size: 13px;")
+            if getattr(self, "mkt_data_connected", False):
+                self.mkt_connect_icon.setToolTip("Click to disconnect market data feed")
+            else:
+                self.mkt_connect_icon.setToolTip("Click to connect market data feed")
 
-        # FIXED: Force immediate status update to show SIMULATED DATA
+    def _toggle_data_display(self, event):
+        """Toggle data display between EOD and SIMULATED (click handler for data_status_container).
+
+        Only EOD and SIMULATED are clickable. LIVE and FROZEN ignore clicks.
+        """
+        current_text = self.data_status_label.text()
+        if current_text == "EOD":
+            # Switch to SIMULATED
+            if not hasattr(self.connection_info, "simulation_mode"):
+                self.connection_info.simulation_mode = False
+            self.connection_info.simulation_mode = True
+            self.add_system_log("🔵 Switched to SIMULATED data")
+            self._init_simulation_from_real_data()
+            self.update_data_status("SIMULATION")
+        elif current_text == "SIMULATED":
+            # Switch to EOD
+            if hasattr(self.connection_info, "simulation_mode"):
+                self.connection_info.simulation_mode = False
+            self.add_system_log("📊 Switched to EOD data")
+            self.update_data_status("EOD")
+        # LIVE and FROZEN: do nothing on click
+
+    def _toggle_mkt_data_connection(self, event):
+        """Toggle market data feed connection (⚡ icon click handler)."""
+        if self.trading_mode == TradingMode.BACKTEST:
+            self.add_system_log("⚠️ Cannot toggle data connection in BACKTEST mode")
+            return
+
+        if self.mkt_data_connected:
+            # Disconnect data feed
+            self.mkt_data_connected = False
+            if self.market_worker:
+                self.market_worker.force_disconnect()
+            self.add_system_log("🔌 Market data feed manually disconnected")
+        else:
+            # Connect data feed
+            if not is_market_hours():
+                QMessageBox.information(
+                    self,
+                    "Market Closed",
+                    "Market is closed. Data feed available during trading hours:\n"
+                    "4:00 AM - 4:30 PM ET",
+                )
+                return
+            self.add_system_log("🔄 Connecting market data feed...")
+            if self.market_worker and self.market_worker.force_connect():
+                self.mkt_data_connected = True
+                self.add_system_log("✅ Market data feed connected")
+            else:
+                self.add_system_log("❌ Failed to connect market data feed")
+
+        import os
+        provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+        self._apply_mkt_provider_display(provider)
         self.update_status_indicators()
-
-        # ADDED: Force immediate UI update
-        data_status = self.determine_data_status()
-        self.update_data_status(data_status)
 
     def _init_simulation_from_real_data(self):
         """Initialize simulation starting from last real market prices"""
@@ -3614,7 +4876,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
 
         except Exception as e:
-            self.logger.error(f"Error starting market worker: {e}")
+            self.logger.error(f"Error starting market worker: {e}", exc_info=True)
             self.add_system_log(f"❌ Market worker error: {e}")
 
     def setup_timers(self):
@@ -3788,20 +5050,20 @@ class SpyderTradingDashboard(QMainWindow):
             },
         ]
 
-        for strat in test_strategies:
+        for strat_idx, strat in enumerate(test_strategies):
             # Build strategy header text
             status_label = "OPEN" if strat["status"] == "OPEN" else "CLOSED"
             header_text = (
-                f"{strat['timestamp']}  |  "
-                f"STRATEGY TRIGGERED BY AI : {strat['strategy']}  |  "
-                f"DTE: {strat['dte']:02d}  |  "
-                f"STATUS: {status_label}  |  "
+                f"{strat['timestamp']} | "
+                f"STRATEGY TRIGGERED BY AI : {strat['strategy']} | "
+                f"DTE: {strat['dte']:02d} | "
+                f"STATUS: {status_label} | "
                 f"NET P&L  {strat['net_pnl']}  ({strat['pct_return']})"
             )
 
             # Create top-level strategy item (spans all columns via col 0)
             strategy_item = QTreeWidgetItem(self.positions_table)
-            strategy_item.setText(0, header_text)
+            
             # Store metadata for context menu
             strategy_item.setData(0, Qt.ItemDataRole.UserRole, strat["strategy"])
             strategy_item.setData(1, Qt.ItemDataRole.UserRole, strat["status"])
@@ -3833,6 +5095,54 @@ class SpyderTradingDashboard(QMainWindow):
             for col in range(self.positions_table.columnCount()):
                 strategy_item.setBackground(col, QBrush(header_bg))
 
+            # Create container widget for ALL strategies (uniform spacing)
+            header_container = QWidget()
+            header_container.setStyleSheet(f"background-color: {header_bg.name()}; border: none;")
+            header_layout = QHBoxLayout(header_container)
+            header_layout.setContentsMargins(5, 0, 0, 0)
+            header_layout.setSpacing(10)
+            
+            if strat["status"] == "OPEN":
+                # Close button on the left for OPEN strategies
+                close_btn = QPushButton("✕")
+                close_btn.setFixedSize(24, 20)
+                close_btn.setToolTip(f"Close entire {strat['strategy']} strategy")
+                close_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: transparent;
+                        border: 1px solid {COLORS['negative']};
+                        border-radius: 3px;
+                        color: {COLORS['negative']};
+                        font-size: 12px;
+                        padding: 0px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {COLORS['negative']};
+                        color: {COLORS['background']};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: #cc0000;
+                    }}
+                """)
+                close_btn.clicked.connect(lambda checked, s=strat: self.confirm_close_strategy(s))
+                header_layout.addWidget(close_btn)
+            else:
+                # Blank spacer for CLOSED strategies (same width as button)
+                spacer = QWidget()
+                spacer.setFixedSize(24, 20)
+                spacer.setStyleSheet("background-color: transparent; border: none;")
+                header_layout.addWidget(spacer)
+            
+            # Strategy text label (with expansion for all available space)
+            text_label = QLabel(header_text)
+            text_label.setFont(header_font)
+            text_label.setStyleSheet(f"color: {header_color.name()}; background-color: transparent; border: none;")
+            text_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            header_layout.addWidget(text_label, 1)  # stretch factor of 1
+            
+            # Set the custom widget in column 0
+            self.positions_table.setItemWidget(strategy_item, 0, header_container)
+
             # Add leg rows as children
             for leg in strat["legs"]:
                 leg_item = QTreeWidgetItem(strategy_item)
@@ -3845,7 +5155,7 @@ class SpyderTradingDashboard(QMainWindow):
 
                 # Set base text color and center-align all columns
                 text_color = QColor(COLORS["text"])
-                for col in range(6):
+                for col in range(6):  # Only first 6 columns have leg data
                     leg_item.setForeground(col, text_color)
                     leg_item.setTextAlignment(
                         col,
@@ -3875,16 +5185,259 @@ class SpyderTradingDashboard(QMainWindow):
             # Expand OPEN strategies by default, collapse CLOSED
             strategy_item.setExpanded(strat["status"] == "OPEN")
 
-        # Make strategy header span all columns visually
-        self.positions_table.setFirstColumnSpanned(
-            0, self.positions_table.rootIndex(), True
+            # Make strategy header span all columns visually
+            self.positions_table.setFirstColumnSpanned(
+                strat_idx, self.positions_table.rootIndex(), True
+            )
+
+    def confirm_close_strategy(self, strategy_data: dict):
+        """Show confirmation dialog before closing strategy"""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Close Strategy")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        
+        msg_text = (
+            f"⚠️  CLOSE ENTIRE STRATEGY?\n\n"
+            f"Strategy:     {strategy_data['strategy']}\n"
+            f"Entry Time:   {strategy_data['timestamp']}\n"
+            f"DTE:          {strategy_data['dte']} days\n"
+            f"Legs:         {len(strategy_data['legs'])} positions\n"
+            f"Net P&L:      {strategy_data['net_pnl']} ({strategy_data['pct_return']})\n"
+            f"Status:       {strategy_data['status']}\n\n"
+            f"This will close ALL {len(strategy_data['legs'])} legs with MARKET ORDERS."
         )
-        self.positions_table.setFirstColumnSpanned(
-            1, self.positions_table.rootIndex(), True
+        
+        msg_box.setText(msg_text)
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes
         )
-        self.positions_table.setFirstColumnSpanned(
-            2, self.positions_table.rootIndex(), True
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        
+        yes_btn = msg_box.button(QMessageBox.StandardButton.Yes)
+        yes_btn.setText("CLOSE ALL POSITIONS")
+        yes_btn.setStyleSheet(f"background-color: {COLORS['negative']}; color: white; padding: 5px 15px;")
+        
+        cancel_btn = msg_box.button(QMessageBox.StandardButton.Cancel)
+        cancel_btn.setStyleSheet(f"background-color: {COLORS['panel']}; color: white; padding: 5px 15px;")
+        
+        msg_box.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: {COLORS['panel']};
+                color: {COLORS['text']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+                font-family: monospace;
+                font-size: 12px;
+            }}
+        """)
+        
+        reply = msg_box.exec()
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.close_strategy(strategy_data)
+
+    def close_strategy(self, strategy_data: dict):
+        """Close all legs of a strategy with market orders"""
+        strategy_name = strategy_data['strategy']
+        num_legs = len(strategy_data['legs'])
+        
+        self.log_system_message(
+            f"⚠️ MANUAL OVERRIDE: Closing {strategy_name} strategy ({num_legs} legs)..."
         )
+        
+        # --- Validate prerequisites ---
+        if self.tradier_client is None:
+            self.log_system_message("❌ Cannot close strategy: Tradier client not connected")
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Cannot submit close orders: Tradier API is not connected.\n\n"
+                "Please connect to the API first.",
+            )
+            return
+
+        if not TRADIER_AVAILABLE or OptionLeg is None:
+            self.log_system_message("❌ Cannot close strategy: TradierClient module unavailable")
+            QMessageBox.critical(
+                self,
+                "Module Unavailable",
+                "TradierClient module could not be imported.\n"
+                "Order submission is not available.",
+            )
+            return
+
+        legs_data = strategy_data.get("legs", [])
+        if not legs_data:
+            self.log_system_message("❌ Cannot close strategy: no legs found in strategy data")
+            return
+
+        try:
+            # ------------------------------------------------------------------
+            # Parse UI leg dicts into OptionLeg objects for place_multileg_order
+            # ------------------------------------------------------------------
+            # Leg dict keys: leg, strike, cntr, expiry, cost, pnl, status
+            # Examples:
+            #   leg    = "Sell Put"  | "Buy Call"
+            #   strike = "$580P"     | "$600C"
+            #   cntr   = "10"
+            #   expiry = "03/07"  (MM/DD — year inferred from current date)
+
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            option_legs: list = []
+
+            for leg_dict in legs_data:
+                leg_label: str = leg_dict["leg"]          # e.g. "Sell Put"
+                strike_raw: str = leg_dict["strike"]      # e.g. "$580P"
+                cntr_raw: str = leg_dict["cntr"]          # e.g. "10"
+                expiry_raw: str = leg_dict["expiry"]      # e.g. "03/07"
+
+                # --- Validate quantity ---
+                try:
+                    quantity = int(cntr_raw.strip())
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid contract count '{cntr_raw}' for leg '{leg_label}'"
+                    )
+                if quantity <= 0:
+                    raise ValueError(
+                        f"Contract count must be positive, got {quantity} for leg '{leg_label}'"
+                    )
+
+                # --- Parse strike: strip leading "$", trailing C/P ---
+                # e.g. "$580P" → strike=580.0, opt_type="P"
+                clean_strike = strike_raw.lstrip("$")
+                if not clean_strike:
+                    raise ValueError(f"Empty strike value for leg '{leg_label}'")
+                opt_type_char = clean_strike[-1].upper()
+                if opt_type_char not in ("C", "P"):
+                    raise ValueError(
+                        f"Cannot determine option type from strike '{strike_raw}' "
+                        f"for leg '{leg_label}'; expected trailing 'C' or 'P'"
+                    )
+                try:
+                    strike_price = float(clean_strike[:-1])
+                except ValueError:
+                    raise ValueError(
+                        f"Cannot parse strike price from '{strike_raw}' for leg '{leg_label}'"
+                    )
+
+                # --- Parse expiry: MM/DD → YYYY-MM-DD (roll to next year if past) ---
+                exp_parts = expiry_raw.strip().split("/")
+                if len(exp_parts) != 2:
+                    raise ValueError(
+                        f"Unexpected expiry format '{expiry_raw}' for leg '{leg_label}'; "
+                        "expected MM/DD"
+                    )
+                exp_month, exp_day = int(exp_parts[0]), int(exp_parts[1])
+                exp_year = current_year
+                # If the expiry month is earlier than the current month, it's next year
+                if exp_month < current_month:
+                    exp_year += 1
+                expiration_str = f"{exp_year}-{exp_month:02d}-{exp_day:02d}"
+
+                # --- Determine close side from leg label ---
+                # "Sell …" was opened SELL_TO_OPEN → close with BUY_TO_CLOSE
+                # "Buy …"  was opened BUY_TO_OPEN  → close with SELL_TO_CLOSE
+                leg_lower = leg_label.lower()
+                if leg_lower.startswith("sell"):
+                    close_side = OrderSide.BUY_TO_CLOSE
+                elif leg_lower.startswith("buy"):
+                    close_side = OrderSide.SELL_TO_CLOSE
+                else:
+                    raise ValueError(
+                        f"Cannot determine order side from leg label '{leg_label}'; "
+                        "expected label beginning with 'Sell' or 'Buy'"
+                    )
+
+                # --- Build OCC option symbol ---
+                occ_symbol = build_option_symbol(
+                    "SPY", expiration_str, opt_type_char, strike_price
+                )
+
+                option_legs.append(OptionLeg(
+                    option_symbol=occ_symbol,
+                    side=close_side,
+                    quantity=quantity,
+                ))
+
+                self.log_system_message(
+                    f"  Prepared close leg: {close_side.value} {quantity}x {occ_symbol}"
+                )
+
+            # ------------------------------------------------------------------
+            # Submit the multileg market order to Tradier
+            # ------------------------------------------------------------------
+            self.logger.info(
+                f"Submitting market close order for {strategy_name} "
+                f"({len(option_legs)} legs)"
+            )
+
+            response = self.tradier_client.place_multileg_order(
+                symbol="SPY",
+                legs=option_legs,
+                order_type="market",
+                duration=OrderDuration.DAY,
+            )
+
+            # Extract order ID from response (Tradier returns {"order": {"id": …, …}})
+            order_id = (
+                response.get("order", {}).get("id")
+                or response.get("id")
+            )
+
+            self.logger.info(
+                f"Close order submitted successfully for {strategy_name}: "
+                f"order_id={order_id}"
+            )
+            self.log_system_message(
+                f"✅ Close order submitted for {strategy_name} — order ID: {order_id}"
+            )
+
+            QMessageBox.information(
+                self,
+                "Close Order Submitted",
+                f"Strategy '{strategy_name}' close order submitted successfully.\n\n"
+                f"Order ID: {order_id}\n"
+                f"Legs: {len(option_legs)}\n"
+                f"Type: Market / Day\n\n"
+                "Positions will update once fills are confirmed.",
+            )
+
+        except TradierAPIError as e:
+            self.logger.error(
+                f"Tradier API error closing strategy '{strategy_name}': {e}",
+                exc_info=True,
+            )
+            self.log_system_message(f"❌ Tradier API error closing {strategy_name}: {e}")
+            QMessageBox.critical(
+                self,
+                "Close Strategy Failed",
+                f"Tradier API error while closing '{strategy_name}':\n\n{e}",
+            )
+        except ValueError as e:
+            self.logger.error(
+                f"Validation error closing strategy '{strategy_name}': {e}",
+                exc_info=True,
+            )
+            self.log_system_message(f"❌ Validation error closing {strategy_name}: {e}")
+            QMessageBox.critical(
+                self,
+                "Close Strategy Failed",
+                f"Could not build close orders for '{strategy_name}':\n\n{e}",
+            )
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error closing strategy '{strategy_name}': {e}",
+                exc_info=True,
+            )
+            self.log_system_message(f"❌ Unexpected error closing {strategy_name}: {e}")
+            QMessageBox.critical(
+                self,
+                "Close Strategy Failed",
+                f"Unexpected error while closing '{strategy_name}':\n\n{str(e)}",
+            )
 
     def load_default_risk_parameters(self):
         """Load default risk parameters"""
@@ -4007,7 +5560,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.add_system_log("ℹ️ Gateway Control Panel deprecated — using Tradier API")
 
     def auto_connect_to_gateway(self):
-        """[DEPRECATED] Auto-connect now checks Tradier API instead of IB Gateway."""
+        """[DEPRECATED] Auto-connect now checks Tradier API."""
         self.add_system_log("ℹ️ Checking Tradier API connectivity...")
         self.check_and_connect_gateway()
 
@@ -4047,6 +5600,9 @@ class SpyderTradingDashboard(QMainWindow):
             if self.market_thread and self.market_thread.isRunning():
                 self.market_thread.quit()
                 self.market_thread.wait(3000)
+
+            # Stop backtest thread if running
+            self._cleanup_backtest_thread()
 
             # Stop all timers
             if hasattr(self, "datetime_timer"):
@@ -4171,8 +5727,8 @@ def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
                     dashboard._check_timer.stop()
                     apply_real_data_patch_to_dashboard(dashboard, data_file)
                     dashboard.real_data_active = True
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"Error checking for real data: {e}")
 
     # Check every 5 seconds for real data
     dashboard._check_timer = QTimer()
@@ -4228,8 +5784,8 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
                 color = "#00ff41" if change >= 0 else "#ff1744"
                 dashboard.dji_change.setStyleSheet(f"color: {color};")
 
-    except Exception:
-        pass  # Suppress toolbar update errors
+    except Exception as e:
+        logging.debug(f"Toolbar update error: {e}")
 
 
 def update_status_for_real_data_helper(dashboard):
@@ -4289,7 +5845,7 @@ def main():
     logging.info("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
     logging.info("=" * 70)
     logging.info("🔗 Tradier API integration")
-    logging.info("📡 Databento market data feeds")
+    logging.info("📡 Massive market data feeds")
     logging.info("💔💚💙 30-second heartbeat monitoring")
     logging.info("📊 Clean 4-status data display")
     logging.info("=" * 70)
@@ -4347,22 +5903,18 @@ def main():
                 logging.info("📊 No real data detected - using simulation")
                 logging.info("   Start injector: python temp_WorkingDataInjector.py")
 
-            logging.info("\n💔💚💙 FIXED FEATURES:")
-            logging.info("   • API connection starts DISCONNECTED with proper status display")
+            logging.info("\n✅ STATUS BAR FEATURES:")
+            logging.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
+            logging.info("   • 30-second heartbeat background checks drive connection state")
             logging.info(
-                "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+                "   • Clean data status: SIMULATED, EOD, LIVE"
             )
-            logging.info(
-                "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
-            )
-            logging.info("   • Blue simulation button only visible when API disconnected")
+            logging.info("   • Market data source: TRADIER DATA, MASSIVE DATA, or BACKTEST DATA")
+            logging.info("   • Blue simulation button only visible when Tradier disconnected")
             logging.info("   • Fixed-width status containers (no UI jumping)")
-            logging.info("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
-            logging.info("   • Correct Tradier phone number in all trading button messages")
 
             logging.info("\n🔥 Enhanced Trading Dashboard is ready!")
-            logging.info("   Heartbeat will check API connection every 30 seconds")
-            logging.info("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+            logging.info("   Heartbeat checks API connection every 30 seconds\n")
             logging.info("🔄 Running with qasync event loop integration...")
 
             # Run the event loop until the app closes
@@ -4417,22 +5969,18 @@ def main():
                 logging.info("📊 No real data detected - using simulation")
                 logging.info("   Start injector: python temp_WorkingDataInjector.py")
 
-            logging.info("\n💔💚💙 FIXED FEATURES:")
-            logging.info("   • API connection starts DISCONNECTED with proper status display")
+            logging.info("\n✅ STATUS BAR FEATURES:")
+            logging.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
+            logging.info("   • 30-second heartbeat background checks drive connection state")
             logging.info(
-                "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+                "   • Clean data status: SIMULATED, EOD, LIVE"
             )
-            logging.info(
-                "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
-            )
-            logging.info("   • Blue simulation button only visible when API disconnected")
+            logging.info("   • Market data source: TRADIER DATA, MASSIVE DATA, or BACKTEST DATA")
+            logging.info("   • Blue simulation button only visible when Tradier disconnected")
             logging.info("   • Fixed-width status containers (no UI jumping)")
-            logging.info("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
-            logging.info("   • Correct Tradier phone number in all trading button messages")
 
             logging.info("\n🔥 Enhanced Trading Dashboard is ready!")
-            logging.info("   Heartbeat will check API connection every 30 seconds")
-            logging.info("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+            logging.info("   Heartbeat checks API connection every 30 seconds\n")
 
             # Run application with standard event loop
             return app.exec()

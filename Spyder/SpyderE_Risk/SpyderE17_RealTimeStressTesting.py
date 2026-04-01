@@ -845,7 +845,7 @@ class RealTimeStressTesting:
             try:
                 # This would integrate with portfolio management system
                 # For now, we just sleep and could trigger alerts
-                time.sleep(REFRESH_INTERVAL)
+                time.sleep(REFRESH_INTERVAL)  # thread-safe: time.sleep() intentional
 
                 # Clean up old cache entries
                 self._cleanup_cache()
@@ -855,7 +855,7 @@ class RealTimeStressTesting:
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(1.0)  # Brief pause before retrying
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Stress testing monitoring loop stopped")
 

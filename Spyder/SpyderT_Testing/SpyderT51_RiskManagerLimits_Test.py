@@ -22,7 +22,6 @@ Last Updated: 2026-03-03 Time: 00:00:00
 import asyncio
 import unittest
 from datetime import datetime
-from enum import Enum, auto
 from typing import Any, Dict
 
 # ==============================================================================
@@ -43,21 +42,10 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
 # SHARED MOCK INFRASTRUCTURE (mirrors T46 so no cross-file coupling)
 # ==============================================================================
 
-class _MockMessageType(Enum):
-    POSITION_UPDATE = auto()
-    ACCOUNT_SUMMARY_UPDATE = auto()
-    ORDER_STATUS = auto()
-
-
-# Patch MessageType into the E01 module's globals dict directly so
-# RiskManager._register_handlers can reference it (E01 sets it to None
-# because B01_ConnectAPI no longer exists).
-RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
-
-
+# MessageType is now defined in E01 itself — no __globals__ patching needed.
 def _patch_message_type():
-    """Re-apply MessageType mock in case another test module reset it."""
-    RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
+    """No-op: retained for call-site compatibility; E01 owns MessageType."""
+    pass
 
 
 class _MockConnectAPI:

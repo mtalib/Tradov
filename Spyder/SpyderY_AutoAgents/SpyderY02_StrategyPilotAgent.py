@@ -26,6 +26,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -147,8 +148,8 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
         if X03_AVAILABLE:
             try:
                 self._x03_agent = SpyderX03_StrategyDirectorAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize X03 StrategyDirectorAgent: {e}")
 
     # ==========================================================================
     # LIFECYCLE
@@ -284,15 +285,13 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
         if self._x03_agent:
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                result = loop.run_until_complete(
+                result = asyncio.run(
                     self._x03_agent.select_strategy(regime=self._current_regime)
                 )
-                loop.close()
                 if result:
                     base_allocation = getattr(result, "allocation", {})
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"X03 strategy selection failed: {e}")
 
         # LLM enhancement of allocation
         recent_approvals = sum(

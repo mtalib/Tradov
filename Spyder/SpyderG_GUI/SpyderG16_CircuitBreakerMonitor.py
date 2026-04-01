@@ -11,7 +11,7 @@ Last Updated: 2025-11-25 Time: 12:00:00
 
 Module Description:
     Real-time circuit breaker monitoring widget for the Spyder trading dashboard.
-    Displays status, statistics, and manual control for Tradier and Databento
+    Displays status, statistics, and manual control for Tradier and Massive
     circuit breakers with visual indicators and health metrics.
 
 Key Features:
@@ -99,7 +99,7 @@ class CircuitBreakerMonitor(QWidget):
     Layout:
         CIRCUIT BREAKER STATUS  |  NORMAL  |  RECOVERY  |  BLOCKED
         TRADIER API             |    ●     |     ●      |    ●
-        DATABENTO               |    ●     |     ●      |    ●
+        MASSIVE                 |    ●     |     ●      |    ●
 
     Active column dot is lit (green/orange/red); inactive dots are dim gray.
     Maps: CLOSED→NORMAL, HALF_OPEN→RECOVERY, OPEN→BLOCKED.
@@ -189,7 +189,7 @@ class CircuitBreakerMonitor(QWidget):
         # ── Service rows ───────────────────────────────────────────
         services = [
             ("tradier",   "TRADIER API", 2),
-            ("databento", "DATABENTO",   3),
+            ("databento", "MASSIVE",     3),
         ]
 
         for breaker_id, label_text, row in services:

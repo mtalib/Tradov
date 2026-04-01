@@ -295,7 +295,7 @@ class MaxPainCalculator:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}")
+                logger.warning(f"OptionsDataProvider unavailable: {e}", exc_info=True)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -437,7 +437,7 @@ class MaxPainCalculator:
             return result
 
         except Exception as e:
-            logger.error(f"Max pain calculation failed: {e}")
+            logger.error(f"Max pain calculation failed: {e}", exc_info=True)
             return self._empty_result(symbol, expiry)
 
     def _calculate_strike_pain(
@@ -744,7 +744,7 @@ class MaxPainCalculator:
             )
 
         except Exception as e:
-            logger.error(f"Multi-expiry analysis failed: {e}")
+            logger.error(f"Multi-expiry analysis failed: {e}", exc_info=True)
             return MultiExpiryAnalysis(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -921,8 +921,7 @@ class MaxPainCalculator:
             avg_distance_at_expiry=0.8  # ~0.8% average distance
         )
 
-    # DATA FETCHING (Databento — stub implementations)
-    # TODO: Implement using SpyderC26_DatabentoClient or SpyderB40_TradierClient
+    # DATA FETCHING — via OptionsDataProvider (SpyderB40_TradierClient)
     # ==========================================================================
 
     @staticmethod
@@ -966,7 +965,7 @@ class MaxPainCalculator:
                 logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
             return df
         except Exception as e:
-            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}")
+            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}", exc_info=True)
             return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
@@ -981,7 +980,7 @@ class MaxPainCalculator:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_get_current_price({symbol}): Tradier error: {e}")
+            logger.error(f"_get_current_price({symbol}): Tradier error: {e}", exc_info=True)
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
@@ -997,7 +996,7 @@ class MaxPainCalculator:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}")
+                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}", exc_info=True)
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1014,7 +1013,7 @@ class MaxPainCalculator:
                 future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
                 return future[:count]
             except Exception as e:
-                logger.warning(f"_get_upcoming_expiries({symbol}): Tradier error: {e}")
+                logger.warning(f"_get_upcoming_expiries({symbol}): Tradier error: {e}", exc_info=True)
         nearest = self._get_nearest_expiry(symbol)
         return [nearest + timedelta(weeks=i) for i in range(count)]
 
@@ -1049,7 +1048,7 @@ def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}")
+            logger.warning(f"Could not create OptionsDataProvider: {e}", exc_info=True)
     return MaxPainCalculator(data_provider=data_provider)
 
 

@@ -179,7 +179,6 @@ from Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer import (
     DEFAULT_TCP_KEEPALIVE_TIME,
     DEFAULT_TCP_KEEPALIVE_INTVL,
     DEFAULT_TCP_KEEPALIVE_PROBES,
-    IB_GATEWAY_PORTS,
 )
 
 
@@ -938,13 +937,6 @@ class TestU23DeepAnalysisGaps:
         m = _fresh_monitor()
         m._perform_deep_analysis()  # should not raise
 
-    @pytest.mark.skipif(not PSUTIL_AVAILABLE, reason="psutil required")
-    def test_find_ib_gateway_processes_runs(self):
-        m = _fresh_monitor()
-        m._find_ib_gateway_processes()
-        # ib_gateway_processes should be a list (possibly empty)
-        assert isinstance(m.ib_gateway_processes, list)
-
     def test_analyze_memory_trends_insufficient_data(self):
         """Line ~470→exit: fewer than 10 snapshots → returns early."""
         m = _fresh_monitor()
@@ -1119,48 +1111,6 @@ class TestU27ConfigureFirewallGaps:
         assert result.success is False
 
 
-class TestU27OptimizeJVMGaps:
-    """Cover optimize_ib_gateway_jvm file creation."""
-
-    def test_jvm_optimization_creates_file_content(self, tmp_path):
-        opt = _fresh_optimizer()
-        tmp_path / "jvm_args.txt"
-        with patch("pathlib.Path.home", return_value=tmp_path), \
-             patch("builtins.open", MagicMock()):
-            result = opt.optimize_ib_gateway_jvm()
-        assert result.component == SystemComponent.JVM
-        assert result.success is True
-        assert "jvm_args" in result.details
-
-    def test_jvm_optimization_exception(self):
-        opt = _fresh_optimizer()
-        with patch("pathlib.Path.home", side_effect=Exception("home error")):
-            result = opt.optimize_ib_gateway_jvm()
-        assert result.success is False
-
-
-class TestU27GenerateDockerComposeGaps:
-    """Cover generate_docker_compose paths."""
-
-    def test_docker_compose_generation_with_yaml(self, tmp_path):
-        opt = _fresh_optimizer()
-        with patch("pathlib.Path.cwd", return_value=tmp_path), \
-             patch("builtins.open", MagicMock()):
-            try:
-                result = opt.generate_docker_compose()
-                # yaml may or may not be available
-                assert result.component == SystemComponent.DOCKER
-            except Exception:
-                pass  # yaml not installed is OK for coverage
-
-    def test_docker_compose_exception_returns_failure(self):
-        opt = _fresh_optimizer()
-        with patch("pathlib.Path.cwd", side_effect=Exception("cwd error")):
-            result = opt.generate_docker_compose()
-        assert result.success is False
-        assert result.component == SystemComponent.DOCKER
-
-
 class TestU27RunSystemDiagnosticsGaps:
     """Cover run_system_diagnostics and its private helpers."""
 
@@ -1288,38 +1238,28 @@ class TestU27OptimizeAllGaps:
         with patch.object(opt, "optimize_tcp_keepalive",
                            return_value=OptimizationResult(SystemComponent.NETWORK, True, "OK")), \
              patch.object(opt, "configure_firewall",
-                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")), \
-             patch.object(opt, "optimize_ib_gateway_jvm",
-                           return_value=OptimizationResult(SystemComponent.JVM, True, "OK")):
+                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")):
             results = opt.optimize_all()
-        assert len(results) == 3  # tcp + firewall + jvm
+        assert len(results) == 2  # tcp + firewall
 
     def test_optimize_all_aggressive_level_includes_docker(self):
-        """Lines ~408→419: AGGRESSIVE adds docker compose step."""
+        """Lines ~408→419: AGGRESSIVE level."""
         opt = _fresh_optimizer(OptimizationLevel.AGGRESSIVE)
         with patch.object(opt, "optimize_tcp_keepalive",
                            return_value=OptimizationResult(SystemComponent.NETWORK, True, "OK")), \
              patch.object(opt, "configure_firewall",
-                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")), \
-             patch.object(opt, "optimize_ib_gateway_jvm",
-                           return_value=OptimizationResult(SystemComponent.JVM, True, "OK")), \
-             patch.object(opt, "generate_docker_compose",
-                           return_value=OptimizationResult(SystemComponent.DOCKER, True, "OK")):
+                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")):
             results = opt.optimize_all()
-        assert len(results) == 4  # tcp + firewall + jvm + docker
+        assert len(results) == 2  # tcp + firewall
 
     def test_optimize_all_ultra_level(self):
         opt = _fresh_optimizer(OptimizationLevel.ULTRA)
         with patch.object(opt, "optimize_tcp_keepalive",
                            return_value=OptimizationResult(SystemComponent.NETWORK, True, "OK")), \
              patch.object(opt, "configure_firewall",
-                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")), \
-             patch.object(opt, "optimize_ib_gateway_jvm",
-                           return_value=OptimizationResult(SystemComponent.JVM, True, "OK")), \
-             patch.object(opt, "generate_docker_compose",
-                           return_value=OptimizationResult(SystemComponent.DOCKER, True, "OK")):
+                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")):
             results = opt.optimize_all()
-        assert len(results) == 4
+        assert len(results) == 2
 
     def test_optimize_all_basic_level_no_results(self):
         """BASIC level runs no optimizations."""
@@ -1332,9 +1272,7 @@ class TestU27OptimizeAllGaps:
         with patch.object(opt, "optimize_tcp_keepalive",
                            return_value=OptimizationResult(SystemComponent.NETWORK, True, "OK")), \
              patch.object(opt, "configure_firewall",
-                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")), \
-             patch.object(opt, "optimize_ib_gateway_jvm",
-                           return_value=OptimizationResult(SystemComponent.JVM, True, "OK")):
+                           return_value=OptimizationResult(SystemComponent.FIREWALL, True, "OK")):
             opt.optimize_all()
         # applied_optimizations may have been populated during patched calls
         assert isinstance(opt.applied_optimizations, list)
@@ -1415,4 +1353,3 @@ class TestU27DataclassesAndEnums:
         assert DEFAULT_TCP_KEEPALIVE_TIME == 60
         assert DEFAULT_TCP_KEEPALIVE_INTVL == 15
         assert DEFAULT_TCP_KEEPALIVE_PROBES == 5
-        assert IB_GATEWAY_PORTS == [4001, 4002]

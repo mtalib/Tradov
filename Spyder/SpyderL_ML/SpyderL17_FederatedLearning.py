@@ -1633,7 +1633,7 @@ if __name__ == "__main__":
         # Wait for clients
         import time
 
-        time.sleep(10)
+        time.sleep(10)  # thread-safe: time.sleep() intentional
 
         # Run training
         asyncio.run(
@@ -1674,7 +1674,7 @@ if __name__ == "__main__":
         # Keep client running
         try:
             while True:
-                time.sleep(60)
+                time.sleep(60)  # thread-safe: time.sleep() intentional
                 stats = manager.local_client.get_client_stats()
         except KeyboardInterrupt:
             pass

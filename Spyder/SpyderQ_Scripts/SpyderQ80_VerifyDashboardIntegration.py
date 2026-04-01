@@ -32,7 +32,8 @@ from pathlib import Path
 # ==============================================================================
 import importlib
 
-SPYDER_HOME = os.environ.get("SPYDER_HOME", "/home/adam/Projects/Spyder")
+_DEFAULT_SPYDER_HOME = str(Path(__file__).resolve().parents[2])
+SPYDER_HOME = os.environ.get("SPYDER_HOME", _DEFAULT_SPYDER_HOME)
 sys.path.insert(0, SPYDER_HOME)
 
 # ===============================================================================
@@ -53,16 +54,14 @@ Q_SERIES_SCRIPTS = {
     "Startup": "SpyderQ10_StartAll.sh",
     "Status": "SpyderQ20_Status.sh",
     "Monitor": "SpyderQ21_Monitor.sh",
-    "IB Check": "SpyderQ22_CheckIBStatus.py",
+    "Broker Check": "SpyderQ22_CheckBrokerStatus.py",
     "Watchdog": "SpyderQ24_ProductionWatchdog.py",
     "System Monitor": "SpyderQ25_SystemMonitor.py",
 }
 
 # Integration points to verify
 INTEGRATION_POINTS = {
-    "prometheus_metrics": {"port": 9090, "endpoint": "/metrics", "required": True},
-    "ib_gateway": {"ports": [7497, 7496, 4001, 4002], "required": True},
-    "multi_client": {"client_count": 9, "port_range": (7497, 7505), "required": True},
+    "prometheus_metrics": {"port": 9090, "endpoint": "/metrics", "required": False},
     "system_health": {"components": ["watchdog", "monitor", "metrics"], "required": True},
 }
 
@@ -240,8 +239,8 @@ class DashboardIntegrationVerifier:
             if "multi" in content.lower() and "client" in content.lower():
                 self.print_info(f"  → {name} has multi-client support")
 
-        except Exception:
-            pass
+        except Exception as e:
+            self.print_warning(f"Failed to analyze {name}: {e}")
 
     def verify_prometheus_integration(self) -> bool:
         """Verify Prometheus metrics integration"""
@@ -269,24 +268,10 @@ class DashboardIntegrationVerifier:
             return True
 
     def verify_multi_client_setup(self) -> bool:
-        """Verify multi-client configuration"""
+        """Verify multi-client configuration (legacy IB — always passes)."""
         self.print_section("Multi-Client Configuration")
-
-        # Check for multi-client data manager
-        try:
-            from SpyderB_Broker import SpyderB08_MultiClientDataManager  # noqa: F401
-
-            self.print_ok("Multi-client data manager available")
-
-            # Check client port configuration
-            expected_ports = list(range(7497, 7506))
-            self.print_info(f"  → Expected client ports: {expected_ports}")
-
-            return True
-        except ImportError:
-            self.print_warning("Multi-client data manager not found")
-            self.print_info("  → Module may be in unavailable series")
-            return True
+        self.print_info("  → SpyderB08 (IB multi-client) removed; using Tradier (B40)")
+        return True
 
     def verify_risk_parameters_integration(self) -> bool:
         """Verify risk parameters dialog integration"""

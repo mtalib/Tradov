@@ -59,14 +59,12 @@ except ImportError as e:
     sys.exit(1)
 
 # SPYDER imports
+# SpyderB08_ProactiveConnectionManager (IB) has been removed.
+CONNECTION_MANAGER_AVAILABLE = False
 try:
-    from SpyderB08_ProactiveConnectionManager import ProactiveConnectionManager
     from config.config import get_active_config  # noqa: F401
-
-    CONNECTION_MANAGER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Connection manager import failed: {e}")
-    CONNECTION_MANAGER_AVAILABLE = False
+except ImportError:
+    pass
 
 
 class ConnectionStatusWidget(QWidget):
@@ -305,10 +303,8 @@ class SPYDERTradingDashboard(QMainWindow):
         self.setWindowTitle("🕷️ SPYDER Trading Dashboard - Universal 8-Client System")
         self.setGeometry(100, 100, 1200, 800)
 
-        # Initialize connection manager
+        # Initialize connection manager (B08/IB removed — always None)
         self.connection_manager = None
-        if CONNECTION_MANAGER_AVAILABLE:
-            self.connection_manager = ProactiveConnectionManager()
 
         self.setup_ui()
         self.setup_connections()

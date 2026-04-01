@@ -35,7 +35,8 @@ Key Features:
     - Integration with existing Spyder strategies
 
 Dependencies:
-    - SpyderE21_HMMRegimeDetector for regime detection
+    - SpyderL09_UnifiedRegimeEngine for consensus regime detection (preferred)
+    - SpyderE21_HMMRegimeDetector for regime detection (fallback)
     - SpyderD_Strategies for available strategies
     - SpyderE20_FrustrationAnalyzer for market state assessment
 
@@ -90,7 +91,26 @@ except ImportError:
         'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
     })
 
-# Import HMM Regime Detector
+# Import L09 Unified Regime Engine (preferred source)
+try:
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+        UnifiedRegimeEngine,
+        MarketRegime as L09MarketRegime,
+        RegimeConsensus,
+    )
+    L09_AVAILABLE = True
+except ImportError:
+    try:
+        from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+            UnifiedRegimeEngine,
+            MarketRegime as L09MarketRegime,
+            RegimeConsensus,
+        )
+        L09_AVAILABLE = True
+    except ImportError:
+        L09_AVAILABLE = False
+
+# Import HMM Regime Detector (fallback)
 try:
     from Spyder.SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
         HMMRegimeDetector,
@@ -111,6 +131,29 @@ except ImportError:
         CHOP = "chop"
         CRISIS = "crisis"
         UNKNOWN = "unknown"
+
+# L09 8-state → D30 4-state regime mapping (lazily built to avoid circular imports)
+_L09_TO_D30_REGIME_MAP: dict | None = None
+
+
+def _get_l09_to_d30_regime_map() -> dict:
+    """Return the L09 → D30 regime mapping, building it on first access."""
+    global _L09_TO_D30_REGIME_MAP
+    if _L09_TO_D30_REGIME_MAP is None:
+        if L09_AVAILABLE:
+            _L09_TO_D30_REGIME_MAP = {
+                L09MarketRegime.BULL_TRENDING: MarketRegime.BULL,
+                L09MarketRegime.BEAR_TRENDING: MarketRegime.CRISIS,
+                L09MarketRegime.SIDEWAYS_RANGE: MarketRegime.CHOP,
+                L09MarketRegime.HIGH_VOLATILITY: MarketRegime.CHOP,
+                L09MarketRegime.LOW_VOLATILITY: MarketRegime.BULL,
+                L09MarketRegime.CRISIS_MODE: MarketRegime.CRISIS,
+                L09MarketRegime.RECOVERY_MODE: MarketRegime.BULL,
+                L09MarketRegime.UNKNOWN: MarketRegime.UNKNOWN,
+            }
+        else:
+            _L09_TO_D30_REGIME_MAP = {}
+    return _L09_TO_D30_REGIME_MAP
 
 # ==============================================================================
 # CONSTANTS
@@ -531,8 +574,11 @@ class RegimeGatedSelector:
         self.min_regime_duration = min_regime_duration
         self.transition_period = transition_period
 
-        # HMM Regime Detector
+        # HMM Regime Detector (E21 — fallback)
         self.hmm_detector: HMMRegimeDetector | None = None
+
+        # L09 Unified Regime Engine (preferred)
+        self.unified_engine: UnifiedRegimeEngine | None = None if not L09_AVAILABLE else None
 
         # State tracking
         self.current_strategy: StrategyType = StrategyType.NEUTRAL
@@ -558,6 +604,9 @@ class RegimeGatedSelector:
 
         if not HMM_AVAILABLE:
             self.logger.warning("HMM not available - regime detection disabled")
+
+        if L09_AVAILABLE:
+            self.logger.info("L09 UnifiedRegimeEngine available as preferred regime source")
 
         # RL strategy selection agent (optional)
         self._rl_selector_model = None
@@ -649,7 +698,7 @@ class RegimeGatedSelector:
 
     def initialize(self, hmm_detector: HMMRegimeDetector) -> bool:
         """
-        Initialize with HMM Regime Detector.
+        Initialize with HMM Regime Detector (fallback path).
 
         Args:
             hmm_detector: HMM Regime Detector instance
@@ -670,6 +719,76 @@ class RegimeGatedSelector:
         except Exception as e:
             self.error_handler.handle_error(e, "RegimeGatedSelector.initialize")
             return False
+
+    def initialize_with_unified_engine(self, engine: 'UnifiedRegimeEngine') -> bool:
+        """
+        Initialize with L09 Unified Regime Engine (preferred path).
+
+        The unified engine provides consensus-based regime detection from
+        multiple sources (ML, signals, HMM, quantitative, attribution),
+        giving more robust regime classification than E21 alone.
+
+        Args:
+            engine: UnifiedRegimeEngine instance
+
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        try:
+            if not L09_AVAILABLE:
+                self.logger.error("L09 UnifiedRegimeEngine not available")
+                return False
+
+            self.unified_engine = engine
+            self.logger.info(
+                "RegimeGatedSelector initialized with L09 UnifiedRegimeEngine"
+            )
+            return True
+
+        except Exception as e:
+            self.error_handler.handle_error(
+                e, "RegimeGatedSelector.initialize_with_unified_engine"
+            )
+            return False
+
+    def select_strategy_from_consensus(
+        self,
+        consensus: 'RegimeConsensus',
+        force_switch: bool = False,
+    ) -> StrategySelection:
+        """
+        Select optimal strategy from L09 regime consensus.
+
+        Maps the L09 8-state regime taxonomy to D30's 4-state strategy
+        categories (BULL/CHOP/CRISIS/UNKNOWN) and delegates to the
+        existing strategy selection logic.
+
+        Args:
+            consensus: L09 RegimeConsensus result
+            force_switch: Force strategy switch regardless of confidence
+
+        Returns:
+            StrategySelection with selected strategy
+        """
+        # Map L09 regime → D30 regime
+        regime_map = _get_l09_to_d30_regime_map()
+        mapped_regime = regime_map.get(
+            consensus.regime, MarketRegime.UNKNOWN
+        )
+
+        # Build a RegimePrediction-compatible object for internal reuse
+        prediction = RegimePrediction(
+            timestamp=consensus.timestamp,
+            current_regime=mapped_regime,
+            regime_probabilities={mapped_regime: consensus.confidence},
+            confidence=consensus.confidence,
+            transition_probability=0.0,
+            expected_duration=consensus.regime_duration.total_seconds() / 86400,
+            reason=f"L09 consensus: {consensus.regime.value} "
+                   f"(mapped to {mapped_regime.value})",
+        )
+
+        return self.select_strategy(prediction, force_switch=force_switch)
 
     def select_strategy(self,
                        regime_prediction: RegimePrediction,
@@ -1084,7 +1203,9 @@ class RegimeGatedSelector:
             'strategy_distribution': strategy_counts,
             'regime_distribution': regime_counts,
             'transition_frequency': transition_frequency,
-            'hmm_available': HMM_AVAILABLE
+            'hmm_available': HMM_AVAILABLE,
+            'l09_available': L09_AVAILABLE,
+            'unified_engine_initialized': self.unified_engine is not None,
         }
 
 

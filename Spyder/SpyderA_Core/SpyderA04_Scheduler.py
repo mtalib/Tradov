@@ -585,8 +585,8 @@ class Scheduler:
                 # Remove from scheduler
                 try:
                     self.scheduler.remove_job(task_id)
-                except Exception:
-                    pass  # Job might not exist
+                except Exception as e:
+                    self.logger.debug(f"Job {task_id} may not exist in scheduler: {e}")
 
                 # Remove task
                 del self.tasks[task_id]
@@ -629,8 +629,8 @@ class Scheduler:
                     # Remove from scheduler
                     try:
                         self.scheduler.remove_job(task_id)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.logger.debug(f"Failed to remove job {task_id} from scheduler: {e}")
 
                 self.logger.info(f"Task {task_id} {'enabled' if enabled else 'disabled'}")
                 return True

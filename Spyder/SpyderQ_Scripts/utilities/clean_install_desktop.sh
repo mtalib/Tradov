@@ -36,8 +36,7 @@ remove_old_desktop_files() {
         "spyder-trading.desktop"
         "spyder-trading-system-old.desktop"
         "spyder-connection-selector.desktop"
-        "spyder-gateway.desktop"
-        "spyder-tws.desktop"
+        "spyder-tradier.desktop"
         "spyder-test.desktop"
     )
 
@@ -97,30 +96,20 @@ Exec=$SCRIPT_DIR/launch_connection_selector.py
 Icon=$SCRIPT_DIR/assets/spyder_icon.png
 Terminal=false
 Categories=Office;Finance;Development;Trading;
-Keywords=trading;finance;options;stocks;interactive brokers;spyder;live;paper;
+Keywords=trading;finance;options;stocks;spyder;live;paper;tradier;
 StartupNotify=true
 StartupWMClass=SpyderTradingSystem
 
-Actions=GatewayPaper;GatewayLive;TWSPaper;TWSLive;ConnectionSelector;TestConnections;QuickLaunch;
+Actions=TradierSandbox;TradierLive;ConnectionSelector;TestConnections;QuickLaunch;
 
-[Desktop Action GatewayPaper]
-Name=🏪 IB Gateway - Paper Trading
-Exec=$SCRIPT_DIR/launch_spyder_gateway.sh --mode=paper
+[Desktop Action TradierSandbox]
+Name=🏪 Tradier API - Sandbox Mode
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh --mode=sandbox
 Icon=$SCRIPT_DIR/assets/spyder_icon.png
 
-[Desktop Action GatewayLive]
-Name=🏪 IB Gateway - Live Trading
-Exec=$SCRIPT_DIR/launch_spyder_gateway.sh --mode=live
-Icon=$SCRIPT_DIR/assets/spyder_icon.png
-
-[Desktop Action TWSPaper]
-Name=🌐 Remote TWS - Paper Trading
-Exec=$SCRIPT_DIR/launch_spyder_tws.sh --mode=paper
-Icon=$SCRIPT_DIR/assets/spyder_icon.png
-
-[Desktop Action TWSLive]
-Name=🌐 Remote TWS - Live Trading
-Exec=$SCRIPT_DIR/launch_spyder_tws.sh --mode=live
+[Desktop Action TradierLive]
+Name=💰 Tradier API - Live Trading
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh --mode=live
 Icon=$SCRIPT_DIR/assets/spyder_icon.png
 
 [Desktop Action ConnectionSelector]
@@ -167,8 +156,8 @@ verify_installation() {
         log "${GREEN}✅ Main desktop file installed and executable${NC}"
 
         # Check if it has the right actions
-        if grep -q "Actions=GatewayPaper;GatewayLive;TWSPaper;TWSLive" "$main_file"; then
-            log "${GREEN}✅ All 7 menu actions configured${NC}"
+        if grep -q "Actions=TradierSandbox;TradierLive" "$main_file"; then
+            log "${GREEN}✅ All 5 menu actions configured${NC}"
         else
             log "${YELLOW}⚠️  Menu actions may not be complete${NC}"
         fi
@@ -180,8 +169,7 @@ verify_installation() {
     # Check launcher scripts
     local scripts=(
         "launch_connection_selector.py"
-        "launch_spyder_gateway.sh"
-        "launch_spyder_tws.sh"
+        "spyder_dock_launcher.sh"
         "test_all_connections.sh"
         "quick_launch_spyder.sh"
     )
@@ -207,12 +195,10 @@ show_instructions() {
     log "${BLUE}   1. Open Application Menu (Activities or Super key)${NC}"
     log "${BLUE}   2. Search for 'SPYDER Trading System'${NC}"
     log "${BLUE}   3. Right-click the icon${NC}"
-    log "${BLUE}   4. Choose from 7 options:${NC}"
+    log "${BLUE}   4. Choose from 5 options:${NC}"
     echo
-    log "${GREEN}      🏪 IB Gateway - Paper Trading${NC}"
-    log "${GREEN}      🏪 IB Gateway - Live Trading${NC}"
-    log "${GREEN}      🌐 Remote TWS - Paper Trading${NC}"
-    log "${GREEN}      🌐 Remote TWS - Live Trading${NC}"
+    log "${GREEN}      🏪 Tradier API - Sandbox Mode${NC}"
+    log "${GREEN}      💰 Tradier API - Live Trading${NC}"
     log "${GREEN}      🎯 Connection & Mode Selector (GUI)${NC}"
     log "${GREEN}      🔍 Test All Connections${NC}"
     log "${GREEN}      ⚡ Quick Launch (Best Available)${NC}"

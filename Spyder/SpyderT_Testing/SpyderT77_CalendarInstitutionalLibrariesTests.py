@@ -881,7 +881,7 @@ class TestGetMarketSchedule:
         start = date(2025, 1, 4)
         end = date(2025, 1, 5)
         df = get_market_schedule((start, end))
-        weekend_rows = df[not df["trading_day"]]
+        weekend_rows = df[~df["trading_day"]]
         assert len(weekend_rows) == 2  # Both weekend days
 
     def test_weekday_is_trading(self):

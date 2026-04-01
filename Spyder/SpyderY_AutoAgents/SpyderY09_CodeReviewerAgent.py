@@ -413,7 +413,6 @@ class SpyderY09_CodeReviewerAgent(BaseAutoAgent):
         # Try common paths
         for candidate in [
             Path.home() / "Projects" / "Spyder" / "Spyder",
-            Path("/home/adam/Projects/Spyder/Spyder"),
         ]:
             if candidate.is_dir():
                 return str(candidate)

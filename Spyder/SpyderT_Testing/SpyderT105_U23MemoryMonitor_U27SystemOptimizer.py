@@ -71,7 +71,6 @@ from Spyder.SpyderU_Utilities.SpyderU23_MemoryMonitor import (
     DEEP_MONITORING_INTERVAL,
     MAX_MEMORY_HISTORY,
     MAX_PROCESS_HISTORY,
-    IB_GATEWAY_PATTERNS,
     PSUTIL_AVAILABLE,
 )
 
@@ -88,8 +87,6 @@ from Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer import (
     DEFAULT_TCP_KEEPALIVE_TIME,
     DEFAULT_TCP_KEEPALIVE_INTVL,
     DEFAULT_TCP_KEEPALIVE_PROBES,
-    IB_GATEWAY_PORTS,
-    IB_GATEWAY_JVM_HEAP,
 )
 
 # ==============================================================================
@@ -143,10 +140,6 @@ class TestU23Constants:
     def test_history_sizes(self):
         assert MAX_MEMORY_HISTORY == 1000
         assert MAX_PROCESS_HISTORY == 100
-
-    def test_ib_patterns_exist(self):
-        assert isinstance(IB_GATEWAY_PATTERNS, list)
-        assert len(IB_GATEWAY_PATTERNS) > 0
 
     def test_psutil_available(self):
         # In this environment psutil is installed
@@ -334,10 +327,6 @@ class TestSpyderMemoryMonitorInit:
         m = SpyderMemoryMonitor()
         assert m.total_gc_triggered == 0
 
-    def test_ib_gateway_processes_empty(self):
-        m = SpyderMemoryMonitor()
-        assert m.ib_gateway_processes == []
-
 
 # ==============================================================================
 # U23 — start_monitoring / is_monitoring_active
@@ -455,7 +444,7 @@ class TestGetCurrentStats:
             "current_memory_gb", "current_memory_percent", "peak_memory_gb",
             "average_memory_gb", "baseline_memory_gb", "memory_growth_percent",
             "available_memory_gb", "process_count", "gc_collections",
-            "total_gc_triggered", "ib_gateway_processes",
+            "total_gc_triggered",
             "monitoring_duration_hours", "last_updated",
         }
         assert expected_keys.issubset(result.keys())
@@ -593,22 +582,6 @@ class TestGetRecentAlerts:
             m._check_memory_alerts(snap)
         result = m.get_recent_alerts(limit=2)
         assert len(result) <= 2
-
-
-# ==============================================================================
-# U23 — get_ib_gateway_stats
-# ==============================================================================
-
-class TestGetIbGatewayStats:
-    def test_empty_when_no_ib_processes(self):
-        m = SpyderMemoryMonitor()
-        result = m.get_ib_gateway_stats()
-        assert result == []
-
-    def test_returns_list(self):
-        m = SpyderMemoryMonitor()
-        result = m.get_ib_gateway_stats()
-        assert isinstance(result, list)
 
 
 # ==============================================================================
@@ -765,15 +738,6 @@ class TestU27Constants:
     def test_tcp_keepalive_probes(self):
         assert DEFAULT_TCP_KEEPALIVE_PROBES == 5
 
-    def test_ib_gateway_ports(self):
-        assert IB_GATEWAY_PORTS == [4001, 4002]
-
-    def test_jvm_heap(self):
-        assert "4096m" in IB_GATEWAY_JVM_HEAP or "4" in IB_GATEWAY_JVM_HEAP
-
-    def test_ports_are_integers(self):
-        for port in IB_GATEWAY_PORTS:
-            assert isinstance(port, int)
 
 
 # ==============================================================================
@@ -981,103 +945,6 @@ class TestConfigureFirewall:
 
 
 # ==============================================================================
-# U27 — optimize_ib_gateway_jvm
-# ==============================================================================
-
-class TestOptimizeIbGatewayJvm:
-    def test_returns_optimization_result(self):
-        opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir, patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.home",
-                       return_value=type("p", (), {
-                           "__truediv__": lambda self, x: type("pp", (), {
-                               "parent": type("ppp", (), {
-                                   "mkdir": lambda self, **kw: None,
-                                   "__truediv__": lambda self, x: type("f", (), {
-                                       "parent": type("q", (), {"mkdir": lambda self, **kw: None})(),
-                                       "__str__": lambda self: f"{tmpdir}/jvm_args.txt",
-                                       "write_text": lambda self, t: None,
-                                   })()
-                               })(),
-                               "__str__": lambda self: f"{tmpdir}/jvm_args.txt",
-                           })()
-                       })()
-                       ):
-            result = opt.optimize_ib_gateway_jvm()
-        assert isinstance(result, OptimizationResult)
-
-    def test_component_is_jvm(self):
-        opt = SystemOptimizer()
-        result = opt.optimize_ib_gateway_jvm()
-        assert result.component == SystemComponent.JVM
-
-    def test_success_true(self):
-        opt = SystemOptimizer()
-        result = opt.optimize_ib_gateway_jvm()
-        assert result.success is True
-
-    def test_details_has_jvm_args(self):
-        opt = SystemOptimizer()
-        result = opt.optimize_ib_gateway_jvm()
-        assert result.details is not None
-        assert "jvm_args" in result.details
-
-    def test_jvm_args_has_heap_setting(self):
-        opt = SystemOptimizer()
-        result = opt.optimize_ib_gateway_jvm()
-        jvm_args = result.details["jvm_args"]
-        heap_args = [a for a in jvm_args if "-Xmx" in a or "-Xms" in a]
-        assert len(heap_args) >= 2
-
-    def test_appended_to_applied(self):
-        opt = SystemOptimizer()
-        opt.optimize_ib_gateway_jvm()
-        assert len(opt.applied_optimizations) == 1
-
-
-# ==============================================================================
-# U27 — generate_docker_compose
-# ==============================================================================
-
-class TestGenerateDockerCompose:
-    def test_returns_optimization_result(self):
-        opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir, patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
-                       return_value=type("P", (), {
-                           "__truediv__": lambda self, x: type("F", (), {
-                               "__str__": lambda self: f"{tmpdir}/{x}",
-                               "write_text": lambda self, t: None,
-                               "open": lambda self, mode: open(f"{tmpdir}/{x}", mode),
-                           })()
-                       })()):
-            import io
-            with patch("builtins.open", mock_open()):
-                result = opt.generate_docker_compose()
-        assert isinstance(result, OptimizationResult)
-
-    def test_component_is_docker(self):
-        opt = SystemOptimizer()
-        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
-                       return_value=type("P", (), {
-                           "__truediv__": lambda self, x: type("F", (), {
-                               "__str__": lambda self: f"/tmp/{x}",
-                           })()
-                       })()):
-            result = opt.generate_docker_compose()
-        assert result.component == SystemComponent.DOCKER
-
-    def test_appended_to_applied(self):
-        opt = SystemOptimizer()
-        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
-                       return_value=type("P", (), {
-                           "__truediv__": lambda self, x: type("F", (), {
-                               "__str__": lambda self: f"/tmp/{x}",
-                           })()
-                       })()):
-            opt.generate_docker_compose()
-        assert len(opt.applied_optimizations) == 1
-
-
-# ==============================================================================
 # U27 — run_system_diagnostics
 # ==============================================================================
 
@@ -1157,23 +1024,17 @@ class TestOptimizeAll:
             results = opt.optimize_all()
         assert isinstance(results, list)
 
-    def test_standard_level_has_three_results(self):
+    def test_standard_level_has_two_results(self):
         opt = SystemOptimizer(OptimizationLevel.STANDARD)
         results = opt.optimize_all()
-        # STANDARD: tcp + firewall + jvm = 3 results
-        assert len(results) == 3
+        # STANDARD: tcp + firewall = 2 results
+        assert len(results) == 2
 
-    def test_aggressive_level_has_four_results(self):
+    def test_aggressive_level_has_two_results(self):
         opt = SystemOptimizer(OptimizationLevel.AGGRESSIVE)
-        with patch("builtins.open", mock_open()), patch("Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer.Path.cwd",
-                       return_value=type("P", (), {
-                           "__truediv__": lambda self, x: type("F", (), {
-                               "__str__": lambda self: f"/tmp/{x}",
-                           })()
-                       })()):
-            results = opt.optimize_all()
-        # AGGRESSIVE: tcp + firewall + jvm + docker = 4 results
-        assert len(results) == 4
+        results = opt.optimize_all()
+        # AGGRESSIVE: tcp + firewall = 2 results
+        assert len(results) == 2
 
     def test_basic_level_no_results(self):
         opt = SystemOptimizer(OptimizationLevel.BASIC)

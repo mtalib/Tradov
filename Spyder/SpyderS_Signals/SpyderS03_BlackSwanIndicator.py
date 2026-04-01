@@ -5,22 +5,87 @@ SPYDER - Autonomous Options Trading System
 Spyder Version: 1.0
 Module: SpyderS03_BlackSwanIndicator.py
 Group: S (Signals)
-Purpose: Black Swan risk indicator with integrated data collection and calculation
+Purpose: Black Swan tail-risk indicator — data collection and composite score calculation
 Author: Mohamed Talib
 Date Created: 2025-01-31
-Last Updated: 2025-01-31 Time: 12:00:00
+Last Updated: 2026-03-27 Time: 00:00:00
 
 Description:
-    Merged module combining Black Swan data collection and risk calculation.
-    Provides comprehensive tail risk assessment using volatility metrics,
-    credit spreads, liquidity indicators, and market internals.
-    Returns a risk score on a 1-5 scale where 1=minimal risk, 5=extreme risk.
+    Merged module combining market data collection with Black Swan risk score
+    calculation. Produces a composite tail-risk score on a 1–5 scale where
+    1 = minimal / normal conditions and 5 = extreme / crisis-level risk.
+
+Calculation Methodology:
+    The overall Black Swan score is a weighted sum of four independent components:
+
+        Component           Weight   Primary Input
+        -----------------   -------  ------------------------------------------
+        Volatility          35 %     VIX index (^VIX)
+        Credit Stress       25 %     HYG / LQD price-ratio (high-yield spread)
+        Liquidity           20 %     US Dollar Index (DX-Y.NYB)
+        Market Internals    20 %     SPY price momentum (currently simplified)
+
+    Overall Score = Σ(component_raw_score × weight)
+
+    A momentum adjustment of +0.2 is applied automatically when the trailing
+    5-period regression slope exceeds 0.2, indicating rapid risk deterioration.
+    The final score is clamped to the range [1.0, 5.0].
+
+Score Thresholds:
+    GREEN   ≤ 1.95  Normal conditions — no action required
+    YELLOW  ≤ 2.95  Elevated risk — monitor closely, manage exposure
+    RED     ≥ 3.00  High risk — consider defensive positioning or hedges
+
+Component Scoring Detail:
+    Volatility (^VIX):
+        VIX < 12    → 1.0               (very low volatility)
+        VIX 12–20   → 1.5 – 2.0        (normal, linear interpolation)
+        VIX 20–30   → 2.0 – 3.0        (elevated)
+        VIX 30–40   → 3.0 – 4.0        (high)
+        VIX > 40    → 4.0 – 5.0        (extreme)
+
+    Credit Stress (HYG / LQD ratio):
+        ratio > 0.73 → stress rising    (score increases linearly above baseline)
+        ratio < 0.69 → conditions tight (moderate score increase)
+        0.69 – 0.73  → 1.0             (normal credit conditions)
+
+    Liquidity (DXY):
+        DXY > 110   → 3.0+              (dollar squeeze — severe liquidity stress)
+        DXY 105–110 → 2.0 – 3.0        (strong dollar — moderate stress)
+        DXY ≤ 105   → 1.5              (normal liquidity)
+
+    Market Internals:
+        Currently returns a fixed neutral score of 1.5 (simplified placeholder).
+        Planned: NYSE TICK, TRIN, advance/decline ratio, and breadth indicators.
+
+When Calculations Are Triggered:
+    - On demand:   call `calculate_swan_score()` at any time from any module.
+    - Via scheduler: SpyderS04_BlackSwanScheduler invokes this module at the
+      default schedule times: 04:00, 09:15, 12:00, 15:45, 16:30 ET.
+    - Caching: market data is cached for 60 seconds by default (configurable via
+      `cache_ttl`). Repeated calls within the TTL window return the cached result
+      without hitting the data source again.
+
+Data Sources:
+    Primary:  yfinance — ^VIX, ^VIX9D, ^VXN, ^RVX (volatility)
+                         HYG, LQD, TLT (credit)
+                         SPY, QQQ, IWM, DX-Y.NYB (market / liquidity)
+    Fallback: Simulated random values when yfinance is unavailable (test/offline).
+
+Output (BlackSwanResult dataclass):
+    overall_score       float        Composite score 1.0 – 5.0
+    status              RiskStatus   GREEN / YELLOW / RED
+    component_scores    dict         Raw and weighted scores per component
+    data_quality        DataQuality  GOOD (>80 % symbols) / PARTIAL / POOR
+    calculation_time_ms float        Wall-clock time for the full calculation
+    timestamp           datetime     UTC timestamp of the calculation
+    raw_data            dict|None    Full market data snapshot (if requested)
 """
 
-import logging
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -255,7 +320,7 @@ class BlackSwanIndicator:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error calculating SWAN score: {e}")
+            self.logger.error(f"Error calculating SWAN score: {e}", exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(e)
             return self._create_error_result()
@@ -320,7 +385,7 @@ class BlackSwanIndicator:
             return data
 
         except Exception as e:
-            self.logger.error(f"Error collecting market data: {e}")
+            self.logger.error(f"Error collecting market data: {e}", exc_info=True)
             return data
 
     def _fetch_quote(self, symbol: str) -> float | None:
@@ -437,14 +502,81 @@ class BlackSwanIndicator:
         )
 
     def _calculate_internals_score(self, data: dict) -> ComponentScore:
-        """Calculate market internals component score"""
-        # Simplified for now - would use TICK, TRIN, ADD, etc.
-        spy = data.get("market", {}).get("spy", 450)
+        """Calculate market internals component score.
 
-        # Calculate based on SPY momentum (simplified)
-        raw_score = 1.5  # Default neutral
-        description = "Market internals neutral"
+        Uses VIX term-structure (VIX9D / VIX ratio) as a proxy for near-term
+        stress relative to 30-day implied vol, combined with cross-asset breadth
+        (QQQ and IWM relative weakness vs SPY) as a broad market-health indicator.
+        """
+        vol_data = data.get("volatility", {})
+        market_data = data.get("market", {})
 
+        details: dict = {}
+        scores: list[float] = []
+
+        # ── Term structure: VIX9D vs VIX ──────────────────────────────────────
+        # Backwardation (VIX9D > VIX) means near-term fear exceeds medium-term
+        # → stress signal. Contango (VIX9D < VIX) is the normal calm state.
+        vix = vol_data.get("vix", 0.0)
+        vix9d = vol_data.get("vix9d", 0.0)
+        if vix and vix9d:
+            ratio = vix9d / vix  # > 1.0 → backwardation (stress)
+            if ratio > 1.10:
+                ts_score = 4.0 + min((ratio - 1.10) / 0.10, 1.0)
+                ts_desc = "Severe term-structure backwardation"
+            elif ratio > 1.02:
+                ts_score = 2.5 + (ratio - 1.02) / 0.08 * 1.5
+                ts_desc = "Mild backwardation — elevated near-term fear"
+            elif ratio > 0.95:
+                ts_score = 1.5
+                ts_desc = "Flat/normal term structure"
+            else:
+                ts_score = 1.0
+                ts_desc = "Deep contango — complacent conditions"
+            scores.append(ts_score)
+            details["vix9d_vix_ratio"] = round(ratio, 3)
+            details["term_structure"] = ts_desc
+
+        # ── Cross-asset breadth: QQQ and IWM vs SPY ───────────────────────────
+        # If both QQQ and IWM are significantly below SPY (size-cap divergence),
+        # it indicates narrow market leadership — a classic internal weakness signal.
+        spy = market_data.get("spy", 0.0)
+        qqq = market_data.get("qqq", 0.0)
+        iwm = market_data.get("iwm", 0.0)
+        if spy and qqq and iwm:
+            # Normalise to price ratios relative to their typical multiples
+            # (QQQ ~0.98×SPY, IWM ~0.40×SPY at typical market levels)
+            qqq_norm = qqq / (spy * 0.98) if spy else 1.0
+            iwm_norm = iwm / (spy * 0.40) if spy else 1.0
+            breadth = (qqq_norm + iwm_norm) / 2.0  # 1.0 = in-line with SPY
+            if breadth < 0.93:
+                breadth_score = 4.0 + min((0.93 - breadth) / 0.05, 1.0)
+                breadth_desc = "Severe breadth divergence"
+            elif breadth < 0.97:
+                breadth_score = 2.5 + (0.97 - breadth) / 0.04 * 1.5
+                breadth_desc = "Narrowing market — breadth weakening"
+            else:
+                breadth_score = 1.5
+                breadth_desc = "Broad market participation"
+            scores.append(breadth_score)
+            details["breadth_ratio"] = round(breadth, 3)
+            details["breadth"] = breadth_desc
+
+        if scores:
+            raw_score = float(np.mean(scores))
+        else:
+            raw_score = 1.5
+        raw_score = min(5.0, max(1.0, raw_score))
+
+        # Build human-readable description from the dominant signal
+        if scores:
+            ts_part = details.get("term_structure", "")
+            br_part = details.get("breadth", "")
+            description = "; ".join(filter(None, [ts_part, br_part]))
+        else:
+            description = "Market internals: insufficient data"
+
+        details["spy"] = spy
         weight = self.weights["market_internals"]
 
         return ComponentScore(
@@ -453,7 +585,7 @@ class BlackSwanIndicator:
             weight=weight,
             weighted_score=raw_score * weight,
             description=description,
-            details={"spy": spy},
+            details=details,
         )
 
     def _apply_momentum_adjustments(self, score: float) -> float:
@@ -558,7 +690,12 @@ if __name__ == "__main__":
     # Calculate score
     result = indicator.calculate_swan_score()
 
-
-    for _name, _score in result.component_scores.items():
-        pass
+    print(f"SWAN Score : {result.overall_score:.2f}")
+    print(f"Status     : {result.status.value}")
+    print(f"Data Quality: {result.data_quality.value}")
+    print(f"Calc Time  : {result.calculation_time_ms:.1f} ms")
+    print()
+    print("Component Breakdown:")
+    for name, score in result.component_scores.items():
+        print(f"  {name:<20} raw={score.raw_score:.2f}  weighted={score.weighted_score:.3f}  — {score.description}")
 

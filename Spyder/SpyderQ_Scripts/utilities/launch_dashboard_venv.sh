@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Spyder Trading Dashboard - Virtual Environment Launcher
-# Ensures venv is activated and launches dashboard with IB Gateway connection
+# Ensures venv is activated and launches dashboard with Tradier API connection
 #
 
 set -e
@@ -32,25 +32,23 @@ fi
 echo -e "${YELLOW}🔧 Activating virtual environment...${NC}"
 source .venv/bin/activate
 
-# Verify ib_async is installed
-if ! python -c "import ib_async" 2>/dev/null; then
-    echo -e "${RED}❌ ib_async not found in venv${NC}"
-    echo -e "${YELLOW}💡 Install with: pip install ib_async${NC}"
+# Verify key dependencies are installed
+if ! python -c "import requests" 2>/dev/null; then
+    echo -e "${RED}❌ requests not found in venv${NC}"
+    echo -e "${YELLOW}💡 Install with: pip install -r requirements.txt${NC}"
     exit 1
 fi
 
-# Check if IB Gateway is running
-if ! pgrep -f "ibgateway" > /dev/null; then
-    echo -e "${YELLOW}⚠️  IB Gateway not running${NC}"
-    echo -e "${YELLOW}💡 Start it first or use: ./launch_spyder_with_gateway.sh${NC}"
-    # Uncomment the line below to auto-start Gateway
-    # ./launch_balanced_gateway.sh &
-    # sleep 10
+# Check Tradier API configuration
+if [ -f ".env" ]; then
+    if grep -q "TRADIER_API_KEY" .env 2>/dev/null; then
+        echo -e "${GREEN}📡 Tradier API key configured${NC}"
+    else
+        echo -e "${YELLOW}⚠️  TRADIER_API_KEY not found in .env${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  .env file not found${NC}"
 fi
-
-# Check Gateway port
-GATEWAY_PORT=$(grep "LocalServerPort" ~/Jts/jts.ini 2>/dev/null | cut -d= -f2 || echo "4002")
-echo -e "${GREEN}📡 Gateway configured on port: $GATEWAY_PORT${NC}"
 
 # Export environment variables
 export DISPLAY=:0

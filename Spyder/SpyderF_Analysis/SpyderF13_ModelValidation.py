@@ -381,6 +381,7 @@ class ModelValidationEngine:
 
         # Monitoring state
         self._monitoring_active = False
+        self._stop_event = threading.Event()
         self._last_monitoring_time: dict[str, datetime] = {}
 
         self.logger.info("ModelValidationEngine initialized")
@@ -408,7 +409,7 @@ class ModelValidationEngine:
                     self.backtesting_engine = get_backtesting_engine_instance()
                     self.logger.info("F12 backtesting integration enabled")
                 except ImportError:
-                    self.logger.warning("F12 backtesting integration not available")
+                    self.logger.warning("F12 backtesting integration not available", exc_info=True)
 
             # Initialize performance tracking
             self._initialize_performance_tracking()
@@ -498,6 +499,7 @@ class ModelValidationEngine:
         """
         try:
             self._monitoring_active = False
+            self._stop_event.set()
 
             if hasattr(self, '_monitoring_thread'):
                 self._monitoring_thread.join(timeout=5.0)
@@ -1080,11 +1082,9 @@ class ModelValidationEngine:
                     try:
                         probabilities = model.predict_proba(X)[:, 1]
                         result.metrics['auc_roc'] = roc_auc_score(y, probabilities)
-                    except Exception:
-                        pass
-
-            else:  # Regression
-                model.fit(X, y)
+                    except Exception as e:
+                        self.logger.debug(f"AUC-ROC calculation skipped: {e}")
+            else:
                 predictions = model.predict(X)
 
                 result.metrics = {
@@ -1098,7 +1098,7 @@ class ModelValidationEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in cross-validation: {e}")
+            self.logger.error(f"Error in cross-validation: {e}", exc_info=True)
             result.errors.append(f"Cross-validation error: {e}")
             return result
 
@@ -1129,10 +1129,9 @@ class ModelValidationEngine:
                     try:
                         probabilities = model.predict_proba(X_test)[:, 1]
                         result.metrics['auc_roc'] = roc_auc_score(y_test, probabilities)
-                    except Exception:
-                        pass
-
-            else:  # Regression
+                    except Exception as e:
+                        self.logger.debug(f"AUC-ROC calculation skipped for fold: {e}")
+            else:
                 result.metrics = {
                     'mse': mean_squared_error(y_test, predictions),
                     'mae': mean_absolute_error(y_test, predictions),
@@ -1142,7 +1141,7 @@ class ModelValidationEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in holdout validation: {e}")
+            self.logger.error(f"Error in holdout validation: {e}", exc_info=True)
             result.errors.append(f"Holdout validation error: {e}")
             return result
 
@@ -1171,11 +1170,13 @@ class ModelValidationEngine:
                 self._cleanup_old_alerts()
 
                 # Sleep until next check
-                time.sleep(min(DEFAULT_MONITORING_INTERVAL, 300))  # Max 5 min sleep
+                if self._stop_event.wait(timeout=min(DEFAULT_MONITORING_INTERVAL, 300)):
+                    break
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(60)  # Wait longer on error
+                self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
+                if self._stop_event.wait(timeout=60):
+                    break
 
         self.logger.info("Model validation monitoring loop stopped")
 
@@ -1202,7 +1203,7 @@ class ModelValidationEngine:
             self.logger.info("Model validation engine cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 # ==============================================================================
 # MODULE FUNCTIONS

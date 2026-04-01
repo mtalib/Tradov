@@ -889,7 +889,7 @@ class VolatilityEngine(SpyderEngineProcess):
             self._process_calculation_queue()
 
             # Small delay to prevent CPU spinning
-            time.sleep(0.01)
+            time.sleep(0.01)  # thread-safe: time.sleep() intentional
 
         except Exception as e:
             self.logger.error(f"Processing error: {e}")
@@ -1202,8 +1202,8 @@ class VolatilityEngine(SpyderEngineProcess):
         for option in sample_options:
             try:
                 self.greeks_calculator.calculate_all_greeks(option)
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Cache warmup failed for sample option: {e}")
 
     def _send_response(self, response: ProtocolMessage):
         """Send response message."""

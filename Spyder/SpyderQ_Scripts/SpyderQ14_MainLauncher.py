@@ -40,6 +40,7 @@ Examples:
 # STANDARD IMPORTS
 # ==============================================================================
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -136,6 +137,18 @@ class SpyderLauncher:
         self.project_root = project_root
         self.state = SystemState.STARTING
         self.running = False
+
+        # Propagate --mode to TRADING_MODE so all config-based mode switches
+        # (TradierClient URL, risk limits) pick up the correct environment.
+        os.environ["TRADING_MODE"] = args.mode
+
+        # Set TRADIER_ENVIRONMENT default only if not already explicitly
+        # overridden by the user in the process environment.  This allows:
+        #   --mode paper                       → sandbox.tradier.com (default)
+        #   --mode paper TRADIER_ENVIRONMENT=live → api.tradier.com + paper fills
+        #   --mode live                        → api.tradier.com + live fills
+        if "TRADIER_ENVIRONMENT" not in os.environ:
+            os.environ["TRADIER_ENVIRONMENT"] = "live" if args.mode == "live" else "sandbox"
 
         # Setup logging
         self.log_info = logger.info if logger else print
@@ -333,15 +346,54 @@ class SpyderLauncher:
                     controller.start()
                     self.state = SystemState.RUNNING
                     self.log_info("✅ System started successfully")
-                    return True
                 else:
                     self.log_warning("⚠️ Controller has no start method")
             except Exception as e:
                 self.log_error(f"❌ System startup failed: {e}")
 
+        if self.args.mode == "live":
+            self._start_live_engine()
+        elif self.args.mode == "paper":
+            self.log_info("📄 Paper trading mode — using simulated execution")
+
         # Fallback: just show status
-        self.log_warning("⚠️ Full system startup not available, showing status instead")
-        return self.show_status()
+        if self.state != SystemState.RUNNING:
+            self.log_warning("⚠️ Full system startup not available, showing status instead")
+            return self.show_status()
+
+        return True
+
+    def _start_live_engine(self) -> None:
+        """Import and start SpyderR04_LiveEngine for live trading."""
+        self.log_info("🔴 LIVE TRADING MODE — initialising live engine...")
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import create_live_engine
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
+            from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
+        except ImportError as e:
+            self.log_error(f"❌ Live engine prerequisites missing — cannot start live: {e}")
+            return
+
+        try:
+            # create_tradier_client_from_env() reads TRADIER_ENVIRONMENT automatically.
+            # In live mode this will be "live" (api.tradier.com) unless explicitly overridden.
+            broker = create_tradier_client_from_env()
+            risk_manager = get_risk_manager()
+            config = {
+                "account_id": os.environ.get("TRADIER_ACCOUNT_ID"),
+                "max_daily_trades": int(os.environ.get("MAX_DAILY_TRADES", 100)),
+                "max_daily_loss": float(os.environ.get("MAX_DAILY_LOSS_USD", 10000)),
+                "require_confirmation": True,  # Always confirm live orders
+            }
+            live_engine = create_live_engine(broker, risk_manager, config)
+            if live_engine.initialize():
+                self.log_info("✅ Live engine initialised — safety guards active")
+                live_engine.start()
+                self.state = SystemState.RUNNING
+            else:
+                self.log_error("❌ Live engine initialisation failed — aborting live mode")
+        except Exception as e:
+            self.log_error(f"❌ Failed to start live engine: {e}")
 
     def launch(self):
         """Main launch method"""

@@ -199,7 +199,7 @@ class MarketDataCache:
     def _cleanup_loop(self) -> None:
         """Background cleanup loop for expired entries."""
         while self._cleanup_running:
-            time.sleep(CLEANUP_INTERVAL_SECONDS)
+            time.sleep(CLEANUP_INTERVAL_SECONDS)  # thread-safe: time.sleep() intentional
             self._remove_expired()
 
     def _remove_expired(self) -> int:

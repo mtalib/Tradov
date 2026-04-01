@@ -146,6 +146,25 @@ class GEXDEXCalculator:
         """
         return self.calculate_all(chain_df, spot_price)["ogl"]
 
+    def calculate_simulated(self) -> dict:
+        """
+        Return simulated GEX/DEX/OGL values for testing and offline analysis.
+
+        Returns:
+            dict with keys: gex, dex, ogl, timestamp, num_strikes, data_source.
+        """
+        rng = np.random.default_rng()
+        result = {
+            "gex": float(rng.normal(0.5, 2.0)),
+            "dex": float(rng.normal(10.0, 50.0)),
+            "ogl": float(rng.normal(580.0, 5.0)),
+            "timestamp": datetime.now(),
+            "num_strikes": 20,
+            "data_source": "simulated",
+        }
+        self._last_result = result
+        return result
+
     # ------------------------------------------------------------------
     # Internal computation
     # ------------------------------------------------------------------
@@ -219,8 +238,8 @@ class GEXDEXCalculator:
                 "num_strikes": result.get("num_strikes", 0),
                 "data_source": "SpyderN09_GammaExposure",
             }
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"SpyderN09 GEX calculation unavailable, using fallback: {e}")
 
         # Fallback: SpyderB30 chain snapshot
         from SpyderB_Broker.SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager

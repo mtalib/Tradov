@@ -550,7 +550,7 @@ class EntryFilters:
             self.logger.info("Entry filter thresholds adapted from paper trading")
 
         except Exception as e:
-            self.logger.warning(f"Threshold adaptation failed: {e}")
+            self.logger.warning(f"Threshold adaptation failed: {e}", exc_info=True)
 
     # ==========================================================================
     # FILTER IMPLEMENTATIONS
@@ -937,7 +937,7 @@ class EntryFilters:
                 weight=self.filter_weights[FilterType.CORRELATION]
             ))
         except Exception as e:
-            self.logger.warning(f"Correlation filter check failed: {e}")
+            self.logger.warning(f"Correlation filter check failed: {e}", exc_info=True)
             # On failure, pass filter (don't block entry for filter error)
             results.append(FilterCheck(
                 filter_type=FilterType.CORRELATION,

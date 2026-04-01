@@ -14,7 +14,7 @@ Module Description:
     for order execution and Databento for market data.
 
     MIGRATION NOTES:
-    - Removed all IBKR/Interactive Brokers dependencies
+    - Removed all legacy broker dependencies
     - TradierClient is now the primary broker interface
     - Market data provided by Databento (see SpyderC_MarketData)
     - Simplified authentication (Bearer token vs OAuth 2.0)
@@ -83,7 +83,22 @@ def print_package_status():
 
 # Order Types (B00) - Generic order type definitions
 try:
-    from .SpyderB00_OrderTypes import *  # noqa: F401, F403  # re-export order types
+    from .SpyderB00_OrderTypes import (  # noqa: F401
+        # Enums
+        OrderAction, OrderStatus, TimeInForce, TriggerMethod,
+        OCAType, SecType, OptionRight, OrderOrigin,
+        # Core data structures
+        ContractDetails, ComboLeg, OrderRequest,
+        # Specialized orders
+        BracketOrder, SpreadOrder,
+        # Execution data
+        Execution, Commission, Fill,
+        # Factory functions
+        create_market_order, create_limit_order, create_stop_order,
+        create_stop_limit_order, create_spy_option_contract, create_iron_condor_spread,
+        # Validation
+        validate_order_request,
+    )
     _log_import_status("SpyderB00_OrderTypes", True)
 except ImportError as e:
     _log_import_status("SpyderB00_OrderTypes", False, str(e))
@@ -321,7 +336,6 @@ for component_name in [
     "ContractBuilder",
     "MarketDataManager",
     "PrometheusMetrics",
-    "PySideAsyncBridge",
     "SPYOptionsChainManager",
 ]:
     if globals().get(component_name) is not None:

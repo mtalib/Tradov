@@ -547,13 +547,13 @@ class VolumeProfileAnalyzer:
                 self._cleanup_old_data()
 
                 # Sleep before next analysis
-                time.sleep(1.0)
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, {
                     'method': '_analysis_loop'
                 })
-                time.sleep(5.0)  # Longer sleep on error
+                time.sleep(5.0)  # thread-safe: time.sleep() intentional
 
     def _update_volume_nodes(self) -> None:
         """Update volume nodes based on current price levels."""
@@ -866,7 +866,7 @@ if __name__ == "__main__":
             analyzer._process_tick(tick)
 
         # Wait for analysis
-        time.sleep(2)
+        time.sleep(2)  # thread-safe: time.sleep() intentional
 
         # Get results
         profile = analyzer.get_current_profile()

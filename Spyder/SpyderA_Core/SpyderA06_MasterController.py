@@ -42,11 +42,9 @@ import traceback
 import psutil
 import yaml
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
-    handlers=[logging.FileHandler("spyder_master.log"), logging.StreamHandler()],
-)
+# Logging is configured by SpyderA01_Main (the application entry point).
+# Do not call logging.basicConfig() here — it would override the root handler
+# set up by the entry point and interfere with child loggers across the system.
 logger = logging.getLogger(__name__)
 
 # ==================================================================================
@@ -134,7 +132,6 @@ class SystemConfig:
     max_daily_loss: float
     max_positions: int
     risk_limits: dict[str, float]
-    ib_gateway: dict[str, Any]
     database: dict[str, Any]
     ml_models_path: str
     data_path: str
@@ -239,9 +236,6 @@ class MasterController:
             risk_limits=config_data.get(
                 "risk_limits", {"max_var": 0.10, "max_drawdown": 0.20, "max_concentration": 0.25}
             ),
-            ib_gateway=config_data.get(
-                "ib_gateway", {"host": "127.0.0.1", "port": 7497, "client_id": 1}
-            ),
             database=config_data.get("database", {"type": "sqlite", "path": "data/spyder.db"}),
             ml_models_path=config_data.get("ml_models_path", "./models"),
             data_path=config_data.get("data_path", "./data"),
@@ -261,7 +255,6 @@ class MasterController:
             "max_daily_loss": 50000,
             "max_positions": 10,
             "risk_limits": {"max_var": 0.10, "max_drawdown": 0.20, "max_concentration": 0.25},
-            "ib_gateway": {"host": "127.0.0.1", "port": 7497, "client_id": 1},
             "database": {"type": "sqlite", "path": "data/spyder.db"},
             "ml_models_path": "./models",
             "data_path": "./data",
@@ -289,7 +282,7 @@ class MasterController:
             ("I06_AgentMessageBus", "I", "Message Bus", [], 2),
             ("Z01_ZeroMQIntegration", "Z", "ZeroMQ", [], 2),
             # Broker Connection (Priority 3)
-            ("B05_ConnectionManager", "B", "IB Connection", [], 3),
+            ("B05_ConnectionManager", "B", "Broker Connection", [], 3),
             ("B16_GatewayIntegration", "B", "Gateway Integration", ["B05_ConnectionManager"], 3),
             ("B01_SpyderClient", "B", "Spyder Client", ["B05_ConnectionManager"], 3),
             # Market Data (Priority 4)
@@ -426,8 +419,8 @@ class MasterController:
             return True
 
         except Exception as e:
-            logger.error(f"System startup failed: {e}")
-            logger.error(traceback.format_exc())
+            logger.error(f"System startup failed: {e}", exc_info=True)
+            logger.error(traceback.format_exc(), exc_info=True)
             self._emergency_shutdown()
             return False
 
@@ -452,7 +445,7 @@ class MasterController:
             StartupSequence(
                 phase="Broker Connection",
                 modules=["B05_ConnectionManager", "B16_GatewayIntegration", "B01_SpyderClient"],
-                parallel=False,  # Sequential for IB connection
+                parallel=False,  # Sequential for broker connection
                 timeout=60,
                 critical=True,
             ),
@@ -564,7 +557,7 @@ class MasterController:
                             logger.error(f"Critical module {module_id} failed to start")
                             return False
                     except TimeoutError:
-                        logger.error(f"Module {module_id} startup timeout")
+                        logger.error(f"Module {module_id} startup timeout", exc_info=True)
                         if phase.critical:
                             return False
             else:
@@ -579,7 +572,7 @@ class MasterController:
             return True
 
         except Exception as e:
-            logger.error(f"Phase {phase.phase} failed: {e}")
+            logger.error(f"Phase {phase.phase} failed: {e}", exc_info=True)
             return not phase.critical
 
     def _start_module(self, module_id: str) -> bool:
@@ -617,7 +610,7 @@ class MasterController:
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to start module {module_id}: {e}")
+            logger.error(f"Failed to start module {module_id}: {e}", exc_info=True)
             module.status = ModuleStatus.ERROR
             module.last_error = str(e)
             module.error_count += 1
@@ -632,8 +625,8 @@ class MasterController:
         module_initializers = {
             "H02_DatabaseManager": lambda: {"type": "database", "connected": True},
             "I06_AgentMessageBus": lambda: {"type": "message_bus", "running": True},
-            # Would connect to IB
-            "B01_SpyderClient": lambda: {"type": "ib_client", "connected": False},
+            # Would connect to broker
+            "B01_SpyderClient": lambda: {"type": "broker_client", "connected": False},
             "E11_MaxLossProtection": lambda: {"type": "risk_manager", "limits_set": True},
             "L18_EnhancedMLIntegration": lambda: {"type": "ml_engine", "models_loaded": True},
             "X16_MetaCoordinator": lambda: {"type": "coordinator", "agents_ready": True},
@@ -691,7 +684,7 @@ class MasterController:
             return True
 
         except Exception as e:
-            logger.error(f"Shutdown error: {e}")
+            logger.error(f"Shutdown error: {e}", exc_info=True)
             self._emergency_shutdown()
             return False
 
@@ -739,7 +732,7 @@ class MasterController:
                 if module_id in self.modules:
                     self._stop_module(module_id)
             except Exception as e:
-                logger.error(f"Error stopping module {module_id}: {e}")
+                logger.error(f"Error stopping module {module_id}: {e}", exc_info=True)
 
     def _stop_module(self, module_id: str):
         """Stop an individual module"""
@@ -762,7 +755,7 @@ class MasterController:
             logger.info(f"✓ Module stopped: {module_id}")
 
         except Exception as e:
-            logger.error(f"Error stopping module {module_id}: {e}")
+            logger.error(f"Error stopping module {module_id}: {e}", exc_info=True)
 
     def _emergency_shutdown(self):
         """Emergency shutdown procedure"""
@@ -786,7 +779,7 @@ class MasterController:
             self.status = SystemStatus.STOPPED
 
         except Exception as e:
-            logger.critical(f"Emergency shutdown error: {e}")
+            logger.critical(f"Emergency shutdown error: {e}", exc_info=True)
 
     # ==================================================================================
     # HEALTH MONITORING
@@ -820,11 +813,14 @@ class MasterController:
                 # Restart failed modules if needed
                 self._handle_failed_modules()
 
-                # Sleep for monitoring interval
-                time.sleep(10)  # Check every 10 seconds
+                # Sleep for monitoring interval (interruptible)
+                if hasattr(self, '_shutdown_event'):
+                    self._shutdown_event.wait(timeout=10)
+                else:
+                    time.sleep(10)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                logger.error(f"Health monitor error: {e}")
+                logger.error(f"Health monitor error: {e}", exc_info=True)
 
     def _collect_health_metrics(self) -> HealthMetrics:
         """Collect system health metrics"""
@@ -872,7 +868,7 @@ class MasterController:
                         is_healthy = module.health_check()
                         module.status = ModuleStatus.HEALTHY if is_healthy else ModuleStatus.WARNING
                     except Exception as e:
-                        logger.warning(f"Health check failed for {module_id}: {e}")
+                        logger.warning(f"Health check failed for {module_id}: {e}", exc_info=True)
                         module.status = ModuleStatus.WARNING
 
     def _check_system_resources(self, metrics: HealthMetrics):
@@ -929,7 +925,7 @@ class MasterController:
         try:
             # Stop the module first
             self._stop_module(module_id)
-            time.sleep(2)
+            time.sleep(2)  # thread-safe: time.sleep() intentional
 
             # Start it again
             if self._start_module(module_id):
@@ -939,7 +935,7 @@ class MasterController:
                 logger.error(f"Failed to restart module {module_id}")
 
         except Exception as e:
-            logger.error(f"Error restarting module {module_id}: {e}")
+            logger.error(f"Error restarting module {module_id}: {e}", exc_info=True)
 
     # ==================================================================================
     # MARKET STATE MANAGEMENT
@@ -1003,7 +999,7 @@ class MasterController:
             logger.info("Market open transition complete")
 
         except Exception as e:
-            logger.error(f"Market open transition failed: {e}")
+            logger.error(f"Market open transition failed: {e}", exc_info=True)
 
     def handle_market_close(self):
         """Handle market close transition"""
@@ -1032,14 +1028,14 @@ class MasterController:
             logger.info("Market close transition complete")
 
         except Exception as e:
-            logger.error(f"Market close transition failed: {e}")
+            logger.error(f"Market close transition failed: {e}", exc_info=True)
 
     def _perform_premarket_checks(self):
         """Perform pre-market system checks"""
 
         checks = [
             ("Database Connection", self._check_database),
-            ("IB Gateway Connection", self._check_ib_connection),
+            ("Broker API Connection", self._check_broker_connection),
             ("Risk Limits", self._check_risk_limits),
             ("ML Models", self._check_ml_models),
             ("Account Balance", self._check_account_balance),
@@ -1052,15 +1048,15 @@ class MasterController:
                 else:
                     logger.warning(f"✗ Pre-market check failed: {check_name}")
             except Exception as e:
-                logger.error(f"Pre-market check error ({check_name}): {e}")
+                logger.error(f"Pre-market check error ({check_name}): {e}", exc_info=True)
 
     def _check_database(self) -> bool:
         """Check database connection"""
         return "H02_DatabaseManager" in self.components
 
-    def _check_ib_connection(self) -> bool:
-        """Check IB Gateway connection"""
-        return "B01_SpyderClient" in self.components
+    def _check_broker_connection(self) -> bool:
+        """Check broker API connection (Tradier)"""
+        return "B40_TradierClient" in self.components or "B01_SpyderClient" in self.components
 
     def _check_risk_limits(self) -> bool:
         """Check risk limits are set"""

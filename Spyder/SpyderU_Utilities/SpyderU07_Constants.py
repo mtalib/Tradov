@@ -199,12 +199,8 @@ MAX_THETA_DECAY = -50             # Max theta decay per day
 # =============================================================================
 # API CONFIGURATION CONSTANTS
 # =============================================================================
-# Connection settings
-IB_GATEWAY_HOST = "127.0.0.1"
-IB_GATEWAY_PORT = 4002
-PAPER_TRADING_PORT = 7497
-CLIENT_ID_MASTER = 2               # Master coordination client
-CLIENT_ID_ORDER = 1                # Order execution client
+# Connection settings (Tradier API - no local gateway needed)
+# Legacy IB_GATEWAY constants removed - now using Tradier REST API
 CONNECTION_TIMEOUT = 30            # seconds
 
 # Retry settings
@@ -675,8 +671,7 @@ __all__ = [
     "MAX_DAILY_LOSS_PERCENT", "MAX_POSITION_SIZE_PERCENT", "MAX_PORTFOLIO_HEAT",
     "MAX_PORTFOLIO_HEAT_MONDAY", "MAX_PORTFOLIO_HEAT_OTHER", "DEFAULT_STOP_LOSS", "DEFAULT_TAKE_PROFIT",
 
-    # API configuration
-    "IB_GATEWAY_HOST", "IB_GATEWAY_PORT", "PAPER_TRADING_PORT", "CLIENT_ID_MASTER", "CLIENT_ID_ORDER",
+    # API configuration (Legacy broker constants removed)
     "CONNECTION_TIMEOUT", "MAX_CONNECTION_RETRIES",
 
     # Performance constants

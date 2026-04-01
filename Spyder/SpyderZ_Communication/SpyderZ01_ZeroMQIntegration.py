@@ -241,6 +241,7 @@ class SpyderPublisher:
         self._reconnect_thread = None
         self._reconnect_delay = RECONNECT_INITIAL_DELAY
         self._running = False
+        self._stop_event = threading.Event()
 
         # Message queue for reliability
         self._message_queue = queue.PriorityQueue(maxsize=MESSAGE_QUEUE_SIZE)
@@ -359,7 +360,7 @@ class SpyderPublisher:
                 except Exception as e:
                     self.logger.error(f"Heartbeat failed: {e}")
 
-                time.sleep(HEARTBEAT_INTERVAL)
+                self._stop_event.wait(timeout=HEARTBEAT_INTERVAL)
 
         self._heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
         self._heartbeat_thread.start()
@@ -385,7 +386,7 @@ class SpyderPublisher:
                 except Exception as e:
                     self.logger.error(f"Message processor error: {e}")
 
-                time.sleep(0.01)  # Small delay to prevent CPU spinning
+                time.sleep(0.01)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
 
         thread = threading.Thread(target=process_loop, daemon=True)
         thread.start()
@@ -434,7 +435,7 @@ class SpyderPublisher:
 
         def reconnect_loop():
             while self.state != ConnectionState.CONNECTED and self._running:
-                time.sleep(self._reconnect_delay)
+                time.sleep(self._reconnect_delay)  # thread-safe: time.sleep() intentional
 
                 self.logger.info(f"Attempting reconnection (attempt {self.metrics.reconnect_attempts + 1})")
                 with self._lock:
@@ -457,6 +458,7 @@ class SpyderPublisher:
     def disconnect(self):
         """Disconnect publisher gracefully."""
         self._running = False
+        self._stop_event.set()
 
         # Wait for threads to finish
         if self._heartbeat_thread:
@@ -495,6 +497,7 @@ class SpyderSubscriber:
         self.metrics = ConnectionMetrics()
         self._lock = threading.Lock()
         self._running = False
+        self._stop_event = threading.Event()
         self._reconnect_delay = RECONNECT_INITIAL_DELAY
         self._last_heartbeat_check = time.time()
 
@@ -559,7 +562,7 @@ class SpyderSubscriber:
             while self._running:
                 try:
                     if self.state != ConnectionState.CONNECTED:
-                        time.sleep(0.1)
+                        self._stop_event.wait(timeout=0.1)
                         continue
 
                     # Check for heartbeat timeout
@@ -595,7 +598,7 @@ class SpyderSubscriber:
                 except Exception as e:
                     self.logger.error(f"Listen error: {e}")
 
-                time.sleep(0.001)  # Small delay to prevent CPU spinning
+                time.sleep(0.001)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
 
         thread = threading.Thread(target=listen_loop, daemon=True)
         thread.start()
@@ -663,7 +666,7 @@ class SpyderSubscriber:
         """Schedule reconnection attempt."""
         def reconnect_loop():
             while self.state != ConnectionState.CONNECTED and self._running:
-                time.sleep(self._reconnect_delay)
+                self._stop_event.wait(timeout=self._reconnect_delay)
 
                 self.logger.info(f"Attempting reconnection (attempt {self.metrics.reconnect_attempts + 1})")
                 with self._lock:
@@ -695,6 +698,7 @@ class SpyderSubscriber:
     def disconnect(self):
         """Disconnect subscriber gracefully."""
         self._running = False
+        self._stop_event.set()
 
         # Close sockets
         if self.socket:
@@ -781,7 +785,7 @@ class SpyderRequester:
                 if attempt < MESSAGE_RETRY_ATTEMPTS - 1:
                     # Reconnect for next attempt
                     self._reconnect()
-                    time.sleep(MESSAGE_RETRY_DELAY * (attempt + 1))
+                    time.sleep(MESSAGE_RETRY_DELAY * (attempt + 1))  # thread-safe: time.sleep() intentional
                 else:
                     self.metrics.messages_failed += 1
                     return None
@@ -941,7 +945,7 @@ class SpyderCommHub:
                 except Exception as e:
                     self.logger.error(f"Monitoring error: {e}")
 
-                time.sleep(10)  # Monitor every 10 seconds
+                time.sleep(10)  # Monitor every 10 seconds  # thread-safe: time.sleep() intentional
 
         self._monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         self._monitor_thread.start()

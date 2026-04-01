@@ -17,7 +17,7 @@ Module Description:
     other broker modules depend on for order-related operations.
 
 Key Features:
-    - Complete IB Gateway-compatible order types
+    - Complete order types for Tradier API and SPY options trading
     - Advanced order attributes for institutional trading
     - Options-specific order structures for SPY trading
     - Bracket order support for risk management
@@ -48,7 +48,7 @@ class OrderAction(Enum):
         return self.value
 
 class OrderType(Enum):
-    """Comprehensive order types supported by IB Gateway."""
+    """Comprehensive order types supported by the broker API."""
     # Basic order types
     MARKET = "MKT"
     LIMIT = "LMT"
@@ -207,8 +207,8 @@ class ContractDetails:
             return f"{self.symbol}_{self.expiry}_{self.right.value}{self.strike}"
         return self.symbol
 
-    def to_ib_contract(self) -> dict[str, Any]:
-        """Convert to IB Contract format."""
+    def to_broker_contract(self) -> dict[str, Any]:
+        """Convert to broker contract format."""
         contract_dict = {
             'symbol': self.symbol,
             'secType': self.sec_type.value,
@@ -252,7 +252,7 @@ class ComboLeg:
 @dataclass
 class OrderRequest:
     """
-    Comprehensive order request structure with full IB Gateway compatibility.
+    Comprehensive order request structure with full broker API compatibility.
     This is the primary order structure used throughout the SPYDER system.
     """
     # Required fields
@@ -410,8 +410,8 @@ class OrderRequest:
         multiplier = 100 if self.is_option else 1
         return abs(self.total_quantity * price * multiplier)
 
-    def to_ib_order(self) -> dict[str, Any]:
-        """Convert to IB Order format."""
+    def to_broker_order(self) -> dict[str, Any]:
+        """Convert to broker order format."""
         ib_order = {
             'action': self.action.value,
             'totalQuantity': self.total_quantity,

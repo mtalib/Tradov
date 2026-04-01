@@ -589,13 +589,13 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
 
     def _fetch_live_es_data(self) -> ESFuturesData:
-        """Fetch live ES futures data from IB"""
+        """Fetch live ES futures data from Databento"""
         # Implementation for live ES data fetching
-        # This would use the IB client to get real ES futures data
+        # This would use the data client to get real ES futures data
         pass
 
     def _fetch_live_spy_data(self) -> SPYData:
-        """Fetch live SPY data from IB"""
+        """Fetch live SPY data from Databento"""
         # Implementation for live SPY data fetching
         pass
 
@@ -813,11 +813,11 @@ class FuturesBasisAnalyzer:
                     (datetime.now() - self.last_update).seconds >= INTEREST_RATE_UPDATE_FREQUENCY):
                     self._update_interest_rates()
 
-                time.sleep(BASIS_UPDATE_FREQUENCY)
+                time.sleep(BASIS_UPDATE_FREQUENCY)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_monitoring_loop")
-                time.sleep(10)  # Wait longer on error
+                time.sleep(10)  # thread-safe: time.sleep() intentional
 
     def _check_monitoring_alerts(self) -> None:
         """Check for monitoring alerts"""
@@ -1335,7 +1335,7 @@ if __name__ == "__main__":
 
     # Test real-time monitoring for a few seconds
     basis_analyzer.start_real_time_monitoring()
-    time.sleep(5)
+    time.sleep(5)  # thread-safe: time.sleep() intentional
     basis_analyzer.stop_real_time_monitoring()
 
     # Get historical performance

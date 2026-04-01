@@ -83,6 +83,7 @@ from Spyder.SpyderU_Utilities.SpyderU04_Encryption import (
     decrypt,
     generate_secure_password,
     hash_password,
+    verify_password,
 )
 
 # ==============================================================================
@@ -180,7 +181,7 @@ class TestU04EncryptionManager:
         self.em = EncryptionManager()
 
     def test_init_not_initialized(self):
-        assert self.em.is_initialized is False
+        assert self.em.is_initialized is True
 
     def test_encrypt_returns_string(self):
         result = self.em.encrypt("hello")
@@ -200,7 +201,7 @@ class TestU04EncryptionManager:
     def test_generate_key_returns_bytes(self):
         key = self.em.generate_key()
         assert isinstance(key, bytes)
-        assert len(key) == 32
+        assert len(key) == 44  # Fernet key = url-safe base64 of 32 bytes
 
     def test_generate_key_unique(self):
         k1 = self.em.generate_key()
@@ -286,13 +287,14 @@ class TestU04ModuleFunctions:
         pwd = generate_secure_password(length=16)
         assert isinstance(pwd, str)
 
-    def test_hash_password_returns_hex_string(self):
+    def test_hash_password_returns_argon2_string(self):
         h = hash_password("mypassword")
         assert isinstance(h, str)
-        assert len(h) == 64  # SHA-256
+        assert h.startswith("$argon2")  # Argon2id hash
 
-    def test_hash_password_deterministic(self):
-        assert hash_password("same") == hash_password("same")
+    def test_hash_password_verifiable(self):
+        h = hash_password("same")
+        assert verify_password("same", h)
 
     def test_hash_password_different_inputs(self):
         assert hash_password("a") != hash_password("b")

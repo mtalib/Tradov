@@ -443,7 +443,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
             return flows
 
         except Exception as exc:
-            logger.error(f"DatabentoTickDataSource.fetch_options_trades({symbol}): {exc}")
+            logger.error(f"DatabentoTickDataSource.fetch_options_trades({symbol}): {exc}", exc_info=True)
             return []
 
     def _record_to_options_flow(
@@ -472,8 +472,8 @@ class DatabentoTickDataSource(BaseTickDataSource):
                 option_type = "call" if cp_char == "C" else "put"
                 strike = int(strike_raw) / 1000.0
                 expiry = datetime.strptime(date_str, "%y%m%d").date()
-        except Exception:
-            pass  # leave defaults if parsing fails
+        except Exception as e:
+            self.logger.debug(f"OPRA symbol parse failed for '{raw_symbol}': {e}")
 
         # --- Map numeric fields ---
         price: float = getattr(record, "price", 0) / self._PRICE_DIVISOR
@@ -545,7 +545,7 @@ class DatabentoTickDataSource(BaseTickDataSource):
             return prints
 
         except Exception as exc:
-            logger.error(f"DatabentoTickDataSource.fetch_dark_pool_prints({symbol}): {exc}")
+            logger.error(f"DatabentoTickDataSource.fetch_dark_pool_prints({symbol}): {exc}", exc_info=True)
             return []
 
     def _record_to_dark_pool_print(
@@ -729,7 +729,7 @@ class OrderFlowAnalyzer:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}")
+                logger.warning(f"OptionsDataProvider unavailable: {e}", exc_info=True)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -828,7 +828,7 @@ class OrderFlowAnalyzer:
             return gex_result
 
         except Exception as e:
-            logger.error(f"GEX calculation failed for {symbol}: {e}")
+            logger.error(f"GEX calculation failed for {symbol}: {e}", exc_info=True)
             return GammaExposure(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1007,7 +1007,7 @@ class OrderFlowAnalyzer:
                     try:
                         callback(trade)
                     except Exception as e:
-                        logger.error(f"Unusual callback error: {e}")
+                        logger.error(f"Unusual callback error: {e}", exc_info=True)
 
             # Sort by premium (largest first)
             unusual.sort(key=lambda x: x.premium, reverse=True)
@@ -1016,7 +1016,7 @@ class OrderFlowAnalyzer:
             return unusual
 
         except Exception as e:
-            logger.error(f"Unusual activity detection failed for {symbol}: {e}")
+            logger.error(f"Unusual activity detection failed for {symbol}: {e}", exc_info=True)
             return []
 
     def get_flow_summary(
@@ -1088,7 +1088,7 @@ class OrderFlowAnalyzer:
             )
 
         except Exception as e:
-            logger.error(f"Flow summary failed for {symbol}: {e}")
+            logger.error(f"Flow summary failed for {symbol}: {e}", exc_info=True)
             return FlowSummary(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1146,7 +1146,7 @@ class OrderFlowAnalyzer:
             return significant
 
         except Exception as e:
-            logger.error(f"Dark pool analysis failed for {symbol}: {e}")
+            logger.error(f"Dark pool analysis failed for {symbol}: {e}", exc_info=True)
             return []
 
     def get_dark_pool_support_resistance(
@@ -1303,7 +1303,7 @@ class OrderFlowAnalyzer:
             return result
 
         except Exception as e:
-            logger.error(f"Max pain calculation failed for {symbol}: {e}")
+            logger.error(f"Max pain calculation failed for {symbol}: {e}", exc_info=True)
             return MaxPainAnalysis(
                 symbol=symbol,
                 expiry=expiry or date.today(),
@@ -1526,7 +1526,7 @@ class OrderFlowAnalyzer:
                 logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
             return df
         except Exception as e:
-            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}")
+            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}", exc_info=True)
             return pd.DataFrame()
 
     def _fetch_options_trades(
@@ -1587,7 +1587,7 @@ class OrderFlowAnalyzer:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_get_underlying_price({symbol}): Tradier error: {e}")
+            logger.error(f"_get_underlying_price({symbol}): Tradier error: {e}", exc_info=True)
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
@@ -1603,7 +1603,7 @@ class OrderFlowAnalyzer:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}")
+                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}", exc_info=True)
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1693,7 +1693,7 @@ class OrderFlowAnalyzer:
                 })
             return results
         except Exception as exc:
-            logger.warning(f"Order flow matrix-profile anomaly detection failed: {exc}")
+            logger.warning(f"Order flow matrix-profile anomaly detection failed: {exc}", exc_info=True)
             return []
 
     def _run_realtime(self):
@@ -1707,11 +1707,11 @@ class OrderFlowAnalyzer:
                     # Check for unusual activity
                     self.detect_unusual_activity(symbol)
 
-                time.sleep(GEX_CALCULATION_INTERVAL)
+                time.sleep(GEX_CALCULATION_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                logger.error(f"Real-time tracking error: {e}")
-                time.sleep(5)
+                logger.error(f"Real-time tracking error: {e}", exc_info=True)
+                time.sleep(5)  # thread-safe: time.sleep() intentional
 
 
 # ==============================================================================
@@ -1735,7 +1735,7 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}")
+            logger.warning(f"Could not create OptionsDataProvider: {e}", exc_info=True)
 
     # Wire Databento tick data source when key is present
     tick_source: BaseTickDataSource | None = None
@@ -1746,12 +1746,12 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
                 tick_source = DatabentoTickDataSource(api_key=databento_key)
                 logger.info("DatabentoTickDataSource enabled for options trades and dark pool prints")
             except Exception as exc:
-                logger.warning(f"Could not create DatabentoTickDataSource: {exc}")
+                logger.warning(f"Could not create DatabentoTickDataSource: {exc}", exc_info=True)
         else:
             logger.warning(
                 "DATABENTO_API_KEY is set but the 'databento' package is not installed. "
                 "Run: pip install databento"
-            )
+            , exc_info=True)
 
     symbols = os.getenv("FLOW_SYMBOLS", "SPY,QQQ").split(",")
     return OrderFlowAnalyzer(

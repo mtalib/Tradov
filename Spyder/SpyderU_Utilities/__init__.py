@@ -73,9 +73,110 @@ except ImportError as e:
 
 # SpyderU07_Constants - SYSTEM CONSTANTS
 try:
-    from .SpyderU07_Constants import *  # noqa: F401, F403  # re-export all constants
-
-    # Note: Constants are typically imported with * to make them globally available
+    from .SpyderU07_Constants import (  # noqa: F401
+        # System info
+        SYSTEM_NAME, SYSTEM_VERSION, SYSTEM_DESCRIPTION,
+        # Trading constants
+        PRIMARY_SYMBOL, OPTION_MULTIPLIER, SPY_CONTRACT_MULTIPLIER,
+        SPX_CONTRACT_MULTIPLIER, OPTIONS_TICK_SIZE, MAX_POSITIONS, MAX_POSITION_SIZE,
+        # Strategy framework requirements
+        MAX_DAILY_TRADES, MAX_PORTFOLIO_RISK, STOP_LOSS_PERCENTAGE, TAKE_PROFIT_PERCENTAGE,
+        SESSION_TIMEOUT,
+        # Calendar constants
+        TRADING_DAYS_PER_YEAR, TRADING_DAYS_PER_MONTH, TRADING_HOURS_PER_DAY,
+        # Market hours
+        MARKET_OPEN_TIME, MARKET_CLOSE_TIME, PRE_MARKET_OPEN, AFTER_HOURS_CLOSE,
+        # Strategy constants
+        IRON_CONDOR_PROFIT_TARGET, IRON_BUTTERFLY_PROFIT_TARGET, CREDIT_SPREAD_PROFIT_TARGET,
+        CREDIT_SPREAD_STOP_LOSS, IRON_CONDOR_STOP_LOSS, IRON_BUTTERFLY_STOP_LOSS,
+        MIN_IVP_THRESHOLD, OPTIMAL_ENTRY_START, OPTIMAL_ENTRY_END,
+        RSI_MIN, RSI_MAX, VIX_MIN, VIX_MAX,
+        # Iron Condor parameters
+        IRON_CONDOR_MAX_WIDTH, IRON_CONDOR_MIN_PREMIUM,
+        # Zero DTE
+        ZERO_DTE_POSITION_REDUCTION, ZERO_DTE_PROFIT_TARGET, ZERO_DTE_MAX_TRADES,
+        # Daily trading limits
+        MIN_DAILY_TRADES_MONDAY, MAX_DAILY_TRADES_MONDAY,
+        MIN_DAILY_TRADES_OTHER, MAX_DAILY_TRADES_OTHER,
+        # Risk management
+        MAX_DAILY_LOSS_PERCENT, MAX_POSITION_SIZE_PERCENT, MAX_PORTFOLIO_HEAT,
+        MAX_PORTFOLIO_HEAT_MONDAY, MAX_PORTFOLIO_HEAT_OTHER,
+        DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT,
+        # API / connection
+        CONNECTION_TIMEOUT, MAX_CONNECTION_RETRIES,
+        # Performance constants
+        LATENCY_SAMPLE_SIZE, MAX_ORDER_LATENCY, MAX_DATA_LATENCY, MAX_CALCULATION_TIME,
+        MAX_PREDICTION_LATENCY_MS, FEATURE_CACHE_SIZE, PREDICTION_BATCH_SIZE,
+        # Options specific
+        MIN_STRIKE_DISTANCE, MAX_STRIKE_DISTANCE, STRIKE_INTERVAL,
+        MIN_DTE_FOR_ENTRY, MAX_DTE_FOR_ENTRY, OPTIMAL_DTE_RANGE,
+        # Greeks
+        DELTA_THRESHOLD, GAMMA_THRESHOLD, THETA_THRESHOLD, VEGA_THRESHOLD, RHO_THRESHOLD,
+        MAX_DELTA_EXPOSURE, MAX_GAMMA_EXPOSURE, MAX_VEGA_EXPOSURE,
+        # Market regime
+        LOW_VOLATILITY_THRESHOLD, HIGH_VOLATILITY_THRESHOLD,
+        TREND_THRESHOLD, SIDEWAYS_THRESHOLD,
+        IV_RANK_LOW, IV_RANK_HIGH, IV_SKEW_THRESHOLD,
+        # Performance thresholds
+        MIN_WIN_RATE, MIN_PROFIT_FACTOR, MIN_SHARPE_RATIO, MAX_DRAWDOWN,
+        MIN_EVALUATION_TRADES, MIN_EVALUATION_DAYS,
+        # Enums
+        SignalType, OptionType, PositionSide,
+        # Strategy names
+        STRATEGY_IRON_CONDOR, STRATEGY_IRON_BUTTERFLY, STRATEGY_BULL_PUT_SPREAD,
+        STRATEGY_BEAR_CALL_SPREAD, STRATEGY_ZERO_DTE, STRATEGY_CALENDAR_SPREAD,
+        STRATEGY_DIAGONAL_SPREAD,
+        # Feature flags
+        DEFAULT_FEATURE_FLAGS,
+        # System performance
+        MAX_MEMORY_USAGE_MB, MAX_CPU_USAGE_PERCENT, MAX_WORKER_THREADS,
+        # Database
+        DATABASE_URL, DATABASE_BATCH_SIZE, TRADE_RETENTION_DAYS,
+        # Logging
+        DEFAULT_LOG_LEVEL, LOG_FORMAT, MAX_LOG_SIZE_MB,
+        # Validation
+        validate_constants,
+    )
+    __all__.extend([
+        "SYSTEM_NAME", "SYSTEM_VERSION", "SYSTEM_DESCRIPTION",
+        "PRIMARY_SYMBOL", "OPTION_MULTIPLIER", "SPY_CONTRACT_MULTIPLIER",
+        "SPX_CONTRACT_MULTIPLIER", "OPTIONS_TICK_SIZE", "MAX_POSITIONS", "MAX_POSITION_SIZE",
+        "MAX_DAILY_TRADES", "MAX_PORTFOLIO_RISK", "STOP_LOSS_PERCENTAGE", "TAKE_PROFIT_PERCENTAGE",
+        "SESSION_TIMEOUT", "TRADING_DAYS_PER_YEAR", "TRADING_DAYS_PER_MONTH", "TRADING_HOURS_PER_DAY",
+        "MARKET_OPEN_TIME", "MARKET_CLOSE_TIME", "PRE_MARKET_OPEN", "AFTER_HOURS_CLOSE",
+        "IRON_CONDOR_PROFIT_TARGET", "IRON_BUTTERFLY_PROFIT_TARGET", "CREDIT_SPREAD_PROFIT_TARGET",
+        "CREDIT_SPREAD_STOP_LOSS", "IRON_CONDOR_STOP_LOSS", "IRON_BUTTERFLY_STOP_LOSS",
+        "MIN_IVP_THRESHOLD", "OPTIMAL_ENTRY_START", "OPTIMAL_ENTRY_END",
+        "RSI_MIN", "RSI_MAX", "VIX_MIN", "VIX_MAX",
+        "IRON_CONDOR_MAX_WIDTH", "IRON_CONDOR_MIN_PREMIUM",
+        "ZERO_DTE_POSITION_REDUCTION", "ZERO_DTE_PROFIT_TARGET", "ZERO_DTE_MAX_TRADES",
+        "MIN_DAILY_TRADES_MONDAY", "MAX_DAILY_TRADES_MONDAY",
+        "MIN_DAILY_TRADES_OTHER", "MAX_DAILY_TRADES_OTHER",
+        "MAX_DAILY_LOSS_PERCENT", "MAX_POSITION_SIZE_PERCENT", "MAX_PORTFOLIO_HEAT",
+        "MAX_PORTFOLIO_HEAT_MONDAY", "MAX_PORTFOLIO_HEAT_OTHER",
+        "DEFAULT_STOP_LOSS", "DEFAULT_TAKE_PROFIT",
+        "CONNECTION_TIMEOUT", "MAX_CONNECTION_RETRIES",
+        "LATENCY_SAMPLE_SIZE", "MAX_ORDER_LATENCY", "MAX_DATA_LATENCY", "MAX_CALCULATION_TIME",
+        "MAX_PREDICTION_LATENCY_MS", "FEATURE_CACHE_SIZE", "PREDICTION_BATCH_SIZE",
+        "MIN_STRIKE_DISTANCE", "MAX_STRIKE_DISTANCE", "STRIKE_INTERVAL",
+        "MIN_DTE_FOR_ENTRY", "MAX_DTE_FOR_ENTRY", "OPTIMAL_DTE_RANGE",
+        "DELTA_THRESHOLD", "GAMMA_THRESHOLD", "THETA_THRESHOLD", "VEGA_THRESHOLD", "RHO_THRESHOLD",
+        "MAX_DELTA_EXPOSURE", "MAX_GAMMA_EXPOSURE", "MAX_VEGA_EXPOSURE",
+        "LOW_VOLATILITY_THRESHOLD", "HIGH_VOLATILITY_THRESHOLD",
+        "TREND_THRESHOLD", "SIDEWAYS_THRESHOLD",
+        "IV_RANK_LOW", "IV_RANK_HIGH", "IV_SKEW_THRESHOLD",
+        "MIN_WIN_RATE", "MIN_PROFIT_FACTOR", "MIN_SHARPE_RATIO", "MAX_DRAWDOWN",
+        "MIN_EVALUATION_TRADES", "MIN_EVALUATION_DAYS",
+        "SignalType", "OptionType", "PositionSide",
+        "STRATEGY_IRON_CONDOR", "STRATEGY_IRON_BUTTERFLY", "STRATEGY_BULL_PUT_SPREAD",
+        "STRATEGY_BEAR_CALL_SPREAD", "STRATEGY_ZERO_DTE", "STRATEGY_CALENDAR_SPREAD",
+        "STRATEGY_DIAGONAL_SPREAD",
+        "DEFAULT_FEATURE_FLAGS",
+        "MAX_MEMORY_USAGE_MB", "MAX_CPU_USAGE_PERCENT", "MAX_WORKER_THREADS",
+        "DATABASE_URL", "DATABASE_BATCH_SIZE", "TRADE_RETENTION_DAYS",
+        "DEFAULT_LOG_LEVEL", "LOG_FORMAT", "MAX_LOG_SIZE_MB",
+        "validate_constants",
+    ])
 except ImportError as e:
     logging.info(f"Warning: SpyderU07_Constants import failed: {e}")
 
@@ -272,6 +373,28 @@ try:
     __all__.append("PerformanceMetrics")
 except BaseException:
     pass
+
+# SpyderU44_ShutdownCoordinator - GRACEFUL SHUTDOWN
+try:
+    from .SpyderU44_ShutdownCoordinator import ShutdownCoordinator, get_shutdown_coordinator
+
+    __all__.extend(["ShutdownCoordinator", "get_shutdown_coordinator"])
+except ImportError as e:
+    logging.info(f"Warning: SpyderU44_ShutdownCoordinator import failed: {e}")
+
+# SpyderU45_RetryWithBackoff - EXPONENTIAL BACKOFF RETRY
+try:
+    from .SpyderU45_RetryWithBackoff import (
+        retry_async, retry_sync, retry_call_async, retry_call_sync,
+        tradier_retry, datafeed_retry, http_retry,
+    )
+
+    __all__.extend([
+        "retry_async", "retry_sync", "retry_call_async", "retry_call_sync",
+        "tradier_retry", "datafeed_retry", "http_retry",
+    ])
+except ImportError as e:
+    logging.info(f"Warning: SpyderU45_RetryWithBackoff import failed: {e}")
 
 # ==============================================================================
 # PACKAGE INFO

@@ -247,7 +247,9 @@ class ModelDataPipeline:
         # Internal state
         self.running = False
         self.pipeline_metrics = PipelineMetrics()
-        self.feature_cache = {}
+        self.feature_cache: dict = {}
+        self._feature_cache_maxsize: int = 200
+        self._feature_cache_timestamps: dict[str, float] = {}
         self.drift_reports = deque(maxlen=100)
         self.model_inputs_history = deque(maxlen=1000)
 
@@ -368,7 +370,7 @@ class ModelDataPipeline:
                 self.logger.info("Connected to SpyderF13_ModelValidation")
 
         except Exception as e:
-            self.logger.warning(f"Integration initialization failed: {e}")
+            self.logger.warning(f"Integration initialization failed: {e}", exc_info=True)
 
     def _initialize_mlops(self) -> None:
         """Initialize MLOps integrations."""
@@ -378,7 +380,7 @@ class ModelDataPipeline:
                 self.mlflow_client = mlflow.tracking.MlflowClient()
                 self.logger.info("MLflow integration initialized")
         except Exception as e:
-            self.logger.warning(f"MLOps initialization failed: {e}")
+            self.logger.warning(f"MLOps initialization failed: {e}", exc_info=True)
 
     # ==============================================================================
     # CORE FEATURE ENGINEERING METHODS
@@ -506,7 +508,7 @@ class ModelDataPipeline:
             result[cols] = pl_df.to_pandas().values
             return result
         except Exception as exc:
-            self.logger.warning(f"polars batch normalisation failed, using pandas fallback: {exc}")
+            self.logger.warning(f"polars batch normalisation failed, using pandas fallback: {exc}", exc_info=True)
             result = data.copy()
             if method == "zscore":
                 result[cols] = (result[cols] - result[cols].mean()) / (result[cols].std() + 1e-9)
@@ -667,7 +669,7 @@ class ModelDataPipeline:
                             features = pd.concat([features, factor_aligned], axis=1)
 
                     except Exception as e:
-                        self.logger.warning(f"Failed to get factor data: {e}")
+                        self.logger.warning(f"Failed to get factor data: {e}", exc_info=True)
 
                 # Simulated macro features
                 features['dollar_strength'] = 100 + np.random.normal(0, 2, len(data))

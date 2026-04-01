@@ -45,21 +45,36 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 INTERNAL_SYMBOLS = {
-    "TICK": "NYSE:TICK",  # NYSE Tick Index
-    "TICKI": "NASDAQ:TICKI",  # Nasdaq Tick Index
-    "ADD": "NYSE:ADD",  # NYSE Advance/Decline
-    "VOLD": "NYSE:VOLD",  # NYSE Up/Down Volume
-    "TRIN": "NYSE:TRIN",  # Arms Index (Trading Index)
-    "VIX": "INDEX:VIX",  # Volatility Index
-    "VIX9D": "INDEX:VIX9D",  # 9-day VIX
-    "PCALL": "INDEX:PCALL",  # Put/Call Ratio (All)
-    "PCSP": "INDEX:PCSP",  # Put/Call Ratio (SPX)
-    "CPCE": "INDEX:CPCE",  # CBOE Equity Put/Call
-    "SKEW": "INDEX:SKEW",  # CBOE Skew Index
-    "SPXHILO": "NYSE:SPXHILO",  # S&P 500 New Highs/Lows
-    "NYHL": "NYSE:NYHL",  # NYSE New Highs/Lows
-    "NQHL": "NASDAQ:NQHL",  # Nasdaq New Highs/Lows
+    "TICK": "$TICK",      # NYSE Tick Index (Tradier)
+    "TICKI": "$TICKQ",   # Nasdaq Tick Index (Tradier)
+    "ADD": "$ADD",        # NYSE Advance/Decline (Tradier)
+    "VOLD": "NYSE:VOLD",  # NYSE Up/Down Volume (no Tradier symbol — event-bus only)
+    "TRIN": "$TRIN",      # NYSE Arms Index (Tradier)
+    "TRINQ": "$TRINQ",    # Nasdaq Arms Index (Tradier)
+    "VIX": "VIX",         # Volatility Index (Tradier)
+    "VIX9D": "INDEX:VIX9D",  # 9-day VIX (event-bus only)
+    "PCALL": "INDEX:PCALL",  # Put/Call Ratio All (event-bus only)
+    "PCSP": "INDEX:PCSP",    # Put/Call Ratio SPX (event-bus only)
+    "CPCE": "INDEX:CPCE",    # CBOE Equity Put/Call (event-bus only)
+    "SKEW": "INDEX:SKEW",    # CBOE Skew Index (event-bus only)
+    "SPXHILO": "NYSE:SPXHILO",  # S&P 500 New Highs/Lows (event-bus only)
+    "NYHL": "NYSE:NYHL",        # NYSE New Highs/Lows (event-bus only)
+    "NQHL": "NASDAQ:NQHL",      # Nasdaq New Highs/Lows (event-bus only)
 }
+
+# Tradier-native symbols that can be fetched directly via get_quotes().
+# Maps Tradier symbol string -> INTERNAL_SYMBOLS key.
+TRADIER_FETCHABLE_SYMBOLS = {
+    "$TICK":  "TICK",
+    "$TICKQ": "TICKI",
+    "$ADD":   "ADD",
+    "$TRIN":  "TRIN",
+    "$TRINQ": "TRINQ",
+    "VIX":    "VIX",
+}
+
+# How often (seconds) to poll Tradier for market internals
+TRADIER_FETCH_INTERVAL = 5
 
 # Thresholds
 TICK_EXTREME_HIGH = 1000
@@ -197,11 +212,19 @@ class MarketInternalsAnalyzer:
         >>> analysis = analyzer.get_current_analysis()
     """
 
-    def __init__(self):
-        """Initialize the market internals analyzer."""
+    def __init__(self, tradier_client: Any = None):
+        """Initialize the market internals analyzer.
+
+        Args:
+            tradier_client: Optional SpyderB40_TradierClient instance. When
+                provided, market internals (TICK, TRIN, ADD, etc.) are fetched
+                directly from Tradier every TRADIER_FETCH_INTERVAL seconds
+                instead of relying solely on event-bus broadcasts.
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_bus = EventBus()
+        self.tradier_client = tradier_client
 
         # Data storage
         self.internals_data: dict[str, InternalData] = {}
@@ -222,7 +245,11 @@ class MarketInternalsAnalyzer:
         # Callbacks
         self.analysis_callbacks: list[callable] = []
 
-        self.logger.info("MarketInternalsAnalyzer initialized")
+        # Tradier fetch tracking
+        self._last_tradier_fetch: float = 0.0
+
+        source = "Tradier" if tradier_client else "event-bus only"
+        self.logger.info(f"MarketInternalsAnalyzer initialized (data source: {source})")
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -515,17 +542,65 @@ class MarketInternalsAnalyzer:
         """Update loop for fetching internal data."""
         while self.is_running:
             try:
+                # Poll Tradier for live market internals (TICK, TRIN, ADD, VIX, etc.)
+                now = time.monotonic()
+                if (
+                    self.tradier_client is not None
+                    and now - self._last_tradier_fetch >= TRADIER_FETCH_INTERVAL
+                ):
+                    self._fetch_from_tradier()
+                    self._last_tradier_fetch = now
+
                 # Create snapshot
                 snapshot = self._create_snapshot()
                 if snapshot:
                     with self.lock:
                         self.snapshots.append(snapshot)
 
-                time.sleep(UPDATE_INTERVAL)
+                time.sleep(UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Update loop error: {e}")
-                time.sleep(UPDATE_INTERVAL)
+                time.sleep(UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
+
+    def _fetch_from_tradier(self) -> None:
+        """Fetch market internals directly from Tradier API.
+
+        Calls get_quotes() with all Tradier-supported internal symbols
+        ($TICK, $TICKQ, $ADD, $TRIN, $TRINQ, VIX) and pushes the values
+        into the internals_data store via update_internal().
+        """
+        try:
+            symbols = list(TRADIER_FETCHABLE_SYMBOLS.keys())
+            response = self.tradier_client.get_quotes(symbols)
+
+            quotes_wrapper = (response or {}).get("quotes", {})
+            if not quotes_wrapper:
+                return
+
+            raw = quotes_wrapper.get("quote", [])
+            # Tradier returns a dict for one symbol, list for multiple
+            if isinstance(raw, dict):
+                raw = [raw]
+
+            for quote in raw:
+                tradier_symbol = quote.get("symbol", "")
+                internal_key = TRADIER_FETCHABLE_SYMBOLS.get(tradier_symbol)
+                if not internal_key:
+                    continue
+
+                # Prefer last trade price; fall back to previous close
+                value = quote.get("last") or quote.get("prevclose") or 0.0
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+
+                if value != 0.0:
+                    self.update_internal(internal_key, value)
+
+        except Exception as e:
+            self.logger.warning(f"Tradier internals fetch failed: {e}")
 
     def _analysis_loop(self) -> None:
         """Analysis loop for processing internals."""
@@ -550,11 +625,11 @@ class MarketInternalsAnalyzer:
                     )
                     self.event_bus.publish(event)
 
-                time.sleep(ANALYSIS_INTERVAL)
+                time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Analysis loop error: {e}")
-                time.sleep(ANALYSIS_INTERVAL)
+                time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _create_snapshot(self) -> MarketInternalsSnapshot | None:
         """Create snapshot of current internals."""
@@ -805,7 +880,7 @@ if __name__ == "__main__":
             analyzer.update_internal(symbol, value)
 
         # Wait for analysis
-        time.sleep(6)
+        time.sleep(6)  # thread-safe: time.sleep() intentional
 
         # Get analysis
         analysis = analyzer.get_current_analysis()

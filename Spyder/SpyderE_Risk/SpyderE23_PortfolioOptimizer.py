@@ -1814,7 +1814,7 @@ class PortfolioOptimizer:
         while self._running:
             try:
                 # This would integrate with market data and position feeds
-                time.sleep(REBALANCING_FREQUENCY)
+                time.sleep(REBALANCING_FREQUENCY)  # thread-safe: time.sleep() intentional
 
                 # Check for rebalancing triggers
                 self._check_rebalancing_triggers()
@@ -1830,7 +1830,7 @@ class PortfolioOptimizer:
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(60)  # Wait longer on error
+                time.sleep(60)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Portfolio optimization monitoring loop stopped")
 

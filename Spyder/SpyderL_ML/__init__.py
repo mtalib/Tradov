@@ -62,11 +62,10 @@ except Exception as _e:
     _logger.warning(f"SpyderL12_RandomForestEnsemble not available: {_e}")
     SpyderRandomForestEnsemble = None  # type: ignore
 
-try:
-    from .SpyderL13_LSTMPricer import SpyderLSTMPricer
-except Exception as _e:
-    _logger.warning(f"SpyderL13_LSTMPricer not available: {_e}")
-    SpyderLSTMPricer = None  # type: ignore
+# SpyderL13_LSTMPricer imports PyTorch which takes 3-5 seconds on cold start.
+# It is NOT imported eagerly here — import it directly when you need it:
+#   from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import SpyderLSTMPricer
+SpyderLSTMPricer = None  # type: ignore  — lazy; import SpyderL13 directly when needed
 
 try:
     from .SpyderL14_RealTimePredictor import RealTimePredictor

@@ -12,7 +12,7 @@ Last Updated: 2025-09-11 Time: 17:00:00
 Module Description:
     Comprehensive account management including real-time balance tracking,
     margin monitoring, buying power calculation, and risk metrics. Maintains
-    synchronized account data with Interactive Brokers and provides alerts
+    synchronized account data with the broker API and provides alerts
     for margin calls, pattern day trader status, and other account restrictions.
 
     CRITICAL FIXES APPLIED:
@@ -33,14 +33,41 @@ Dependencies Fixed:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import threading
 import logging
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from pathlib import Path
 from threading import Event as ThreadEvent, Lock, RLock
 from typing import Any, Callable
+
+# ==============================================================================
+# ORJSON WITH FALLBACK TO STDLIB JSON
+# ==============================================================================
+try:
+    import orjson as _orjson
+
+    def _json_dumps(obj) -> bytes:
+        return _orjson.dumps(obj, option=_orjson.OPT_INDENT_2)
+
+    def _json_loads(data):
+        return _orjson.loads(data)
+
+    HAS_ORJSON = True
+except ImportError:
+    def _json_dumps(obj) -> bytes:
+        return json.dumps(obj, indent=2, default=str).encode()
+
+    def _json_loads(data):
+        return json.loads(data)
+
+    HAS_ORJSON = False
+
+# Default path for account cache persistence
+_DEFAULT_CACHE_PATH = Path.home() / ".spyder" / "account_cache.json"
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS WITH FALLBACKS
@@ -125,7 +152,7 @@ except ImportError:
             self.logger = logger or logging.getLogger(__name__)
 
         def handle_error(self, error, context="Unknown", operation="Unknown"):
-            self.logger.error(f"Error in {context}.{operation}: {error}")
+            self.logger.error(f"Error in {context}.{operation}: {error}", exc_info=True)
             return False
 
 # Event Manager - SAFE IMPORT (optional dependency)
@@ -167,7 +194,7 @@ except ImportError:
                 except Exception as e:
                     logging.getLogger(__name__).error(f"Event handler error: {e}")
 
-# SpyderClient (B01_SpyderClient removed — IB Gateway) — use Tradier via SpyderB40_TradierClient
+# SpyderClient (B01_SpyderClient removed — legacy broker) — use Tradier via SpyderB40_TradierClient
 HAS_SPYDER_CLIENT = False
 
 class SpyderClient:
@@ -365,7 +392,7 @@ class AccountManager:
 
     This class provides comprehensive account management including real-time
     balance tracking, margin monitoring, buying power calculation, and risk
-    metrics. Maintains synchronized account data with Interactive Brokers.
+    metrics. Maintains synchronized account data with the broker API.
 
     FIXED VERSION includes:
     - Safe import patterns with comprehensive fallbacks
@@ -405,7 +432,7 @@ class AccountManager:
             try:
                 self.spyder_client = SpyderClient()
             except Exception as e:
-                self.logger.warning(f"Could not create SpyderClient: {e}")
+                self.logger.warning(f"Could not create SpyderClient: {e}", exc_info=True)
                 self.spyder_client = SpyderClient()  # Use fallback
         else:
             self.spyder_client = SpyderClient()  # Use fallback
@@ -425,7 +452,7 @@ class AccountManager:
         self.accounts: dict[str, AccountInfo] = {}
         self.primary_account_id: str | None = None
 
-        # IB account values cache
+        # Broker account values cache
         self.ib_account_values: dict[str, dict[str, Any]] = {}
 
         # Historical data
@@ -498,7 +525,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error(f"Initialization failed: {e}", exc_info=True)
             self.error_handler.handle_error(e, "AccountManager", "initialize")
             return False
 
@@ -533,7 +560,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start AccountManager: {e}")
+            self.logger.error(f"Failed to start AccountManager: {e}", exc_info=True)
             self._is_running = False
             return False
 
@@ -560,7 +587,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping AccountManager: {e}")
+            self.logger.error(f"Error stopping AccountManager: {e}", exc_info=True)
             return False
 
     def _start_background_threads(self):
@@ -601,7 +628,7 @@ class AccountManager:
             self.logger.debug("Background threads started")
 
         except Exception as e:
-            self.logger.error(f"Error starting background threads: {e}")
+            self.logger.error(f"Error starting background threads: {e}", exc_info=True)
 
     def _stop_background_threads(self):
         """Stop background threads"""
@@ -638,7 +665,7 @@ class AccountManager:
                     self.logger.info(f"Set primary account: {self.primary_account_id}")
 
         except Exception as e:
-            self.logger.error(f"Error syncing accounts: {e}")
+            self.logger.error(f"Error syncing accounts: {e}", exc_info=True)
 
     def _update_account_data(self, account_id: str):
         """Update data for a specific account"""
@@ -655,7 +682,7 @@ class AccountManager:
                 if not account:
                     return
 
-                # Store raw IB values
+                # Store raw broker values
                 self.ib_account_values[account_id] = account_values
 
                 # Update account info with values
@@ -698,7 +725,7 @@ class AccountManager:
                     })
 
         except Exception as e:
-            self.logger.error(f"Error updating account data for {account_id}: {e}")
+            self.logger.error(f"Error updating account data for {account_id}: {e}", exc_info=True)
 
     # ==========================================================================
     # ACCOUNT QUERIES
@@ -817,7 +844,7 @@ class AccountManager:
                 })
 
         except Exception as e:
-            self.logger.error(f"Error assessing risk for {account_id}: {e}")
+            self.logger.error(f"Error assessing risk for {account_id}: {e}", exc_info=True)
 
     def _emit_risk_alert(self, account_id: str, message: str, risk_level: RiskLevel):
         """Emit a risk alert event"""
@@ -833,7 +860,7 @@ class AccountManager:
                     'timestamp': datetime.now()
                 })
             except Exception as e:
-                self.logger.error(f"Risk callback error: {e}")
+                self.logger.error(f"Risk callback error: {e}", exc_info=True)
 
         # Emit event
         self._emit_event(EventType.RISK_ALERT, {
@@ -856,7 +883,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Account update worker error: {e}")
+                self.logger.error(f"Account update worker error: {e}", exc_info=True)
 
     def _balance_history_worker(self):
         """Background worker for balance history"""
@@ -868,7 +895,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Balance history worker error: {e}")
+                self.logger.error(f"Balance history worker error: {e}", exc_info=True)
 
     def _risk_monitoring_worker(self):
         """Background worker for risk monitoring"""
@@ -880,7 +907,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Risk monitoring worker error: {e}")
+                self.logger.error(f"Risk monitoring worker error: {e}", exc_info=True)
 
     def _performance_worker(self):
         """Background worker for performance calculations"""
@@ -892,7 +919,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Performance worker error: {e}")
+                self.logger.error(f"Performance worker error: {e}", exc_info=True)
 
     # ==========================================================================
     # HISTORICAL DATA MANAGEMENT
@@ -917,23 +944,157 @@ class AccountManager:
                     self.daily_balances.append(snapshot)
 
         except Exception as e:
-            self.logger.error(f"Error saving balance snapshots: {e}")
+            self.logger.error(f"Error saving balance snapshots: {e}", exc_info=True)
 
     def _save_account_snapshot(self):
-        """Save current account state to disk (placeholder)"""
+        """Save current account state to disk as JSON."""
         try:
-            # TODO: Implement persistent storage
-            self.logger.debug("Account snapshot saved")
+            cache_path = Path(
+                self.config.get("account_cache_path", _DEFAULT_CACHE_PATH)
+            )
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with self._account_lock:
+                # Serialize accounts - convert enum values and dates to plain types
+                accounts_data = {}
+                for account_id, account in self.accounts.items():
+                    raw = asdict(account)
+                    raw["account_type"] = account.account_type.value
+                    raw["status"] = account.status.value
+                    raw["current_risk_level"] = account.current_risk_level.value
+                    raw["restrictions"] = [r.value for r in account.restrictions]
+                    raw["last_updated"] = account.last_updated.isoformat()
+                    if account.pdt_reset_date is not None:
+                        raw["pdt_reset_date"] = account.pdt_reset_date.isoformat()
+                    accounts_data[account_id] = raw
+
+                # Serialize daily balance snapshots
+                balances_data = []
+                for snap in self.daily_balances:
+                    balances_data.append({
+                        "date": snap.date.isoformat(),
+                        "account_id": snap.account_id,
+                        "net_liquidation": snap.net_liquidation,
+                        "total_cash": snap.total_cash,
+                        "equity_with_loan": snap.equity_with_loan,
+                        "daily_pnl": snap.daily_pnl,
+                        "timestamp": snap.timestamp.isoformat(),
+                    })
+
+            payload = {
+                "saved_at": datetime.now().isoformat(),
+                "primary_account_id": self.primary_account_id,
+                "accounts": accounts_data,
+                "daily_balances": balances_data,
+            }
+
+            cache_path.write_bytes(_json_dumps(payload))
+            self.logger.debug(
+                f"Account snapshot saved to {cache_path} "
+                f"({len(accounts_data)} accounts, {len(balances_data)} balance records)"
+            )
+
         except Exception as e:
-            self.logger.error(f"Error saving account snapshot: {e}")
+            self.logger.error(f"Error saving account snapshot: {e}", exc_info=True)
 
     def _load_historical_data(self):
-        """Load historical data from storage (placeholder)"""
+        """Load historical account data from the JSON cache on disk."""
         try:
-            # TODO: Implement loading from persistent storage
-            self.logger.debug("Historical data loaded")
+            cache_path = Path(
+                self.config.get("account_cache_path", _DEFAULT_CACHE_PATH)
+            )
+
+            if not cache_path.exists():
+                self.logger.debug(
+                    f"No account cache found at {cache_path} - starting fresh"
+                )
+                return
+
+            raw_bytes = cache_path.read_bytes()
+            try:
+                payload = _json_loads(raw_bytes)
+            except Exception as parse_err:
+                self.logger.warning(
+                    f"Account cache at {cache_path} is corrupt or unreadable "
+                    f"({parse_err}) - starting fresh"
+                )
+                return
+
+            saved_at = payload.get("saved_at", "unknown")
+            self.logger.info(f"Loading account cache saved at {saved_at}")
+
+            # Restore accounts
+            with self._account_lock:
+                for account_id, raw in payload.get("accounts", {}).items():
+                    try:
+                        account = AccountInfo(
+                            account_id=raw["account_id"],
+                            account_type=AccountType(raw.get("account_type", AccountType.MARGIN.value)),
+                            status=AccountStatus(raw.get("status", AccountStatus.ACTIVE.value)),
+                            net_liquidation=raw.get("net_liquidation", 0.0),
+                            total_cash=raw.get("total_cash", 0.0),
+                            buying_power=raw.get("buying_power", 0.0),
+                            day_trading_buying_power=raw.get("day_trading_buying_power", 0.0),
+                            equity_with_loan=raw.get("equity_with_loan", 0.0),
+                            excess_liquidity=raw.get("excess_liquidity", 0.0),
+                            sma=raw.get("sma", 0.0),
+                            initial_margin=raw.get("initial_margin", 0.0),
+                            maintenance_margin=raw.get("maintenance_margin", 0.0),
+                            available_funds=raw.get("available_funds", 0.0),
+                            cushion=raw.get("cushion", 0.0),
+                            is_pdt=raw.get("is_pdt", False),
+                            day_trades_remaining=raw.get("day_trades_remaining", 0),
+                            pdt_reset_date=(
+                                date.fromisoformat(raw["pdt_reset_date"])
+                                if raw.get("pdt_reset_date") else None
+                            ),
+                            current_risk_level=RiskLevel(
+                                raw.get("current_risk_level", RiskLevel.LOW.value)
+                            ),
+                            daily_pnl=raw.get("daily_pnl", 0.0),
+                            daily_pnl_percent=raw.get("daily_pnl_percent", 0.0),
+                            restrictions=[
+                                RestrictionType(r)
+                                for r in raw.get("restrictions", [])
+                            ],
+                            last_updated=datetime.fromisoformat(
+                                raw.get("last_updated", datetime.now().isoformat())
+                            ),
+                        )
+                        self.accounts[account_id] = account
+                    except Exception as acct_err:
+                        self.logger.warning(
+                            f"Skipping cached account {account_id}: {acct_err}"
+                        )
+
+                if payload.get("primary_account_id") and not self.primary_account_id:
+                    self.primary_account_id = payload["primary_account_id"]
+
+                # Restore daily balance snapshots
+                for snap_raw in payload.get("daily_balances", []):
+                    try:
+                        snap = BalanceSnapshot(
+                            date=date.fromisoformat(snap_raw["date"]),
+                            account_id=snap_raw["account_id"],
+                            net_liquidation=snap_raw["net_liquidation"],
+                            total_cash=snap_raw["total_cash"],
+                            equity_with_loan=snap_raw["equity_with_loan"],
+                            daily_pnl=snap_raw["daily_pnl"],
+                            timestamp=datetime.fromisoformat(snap_raw.get(
+                                "timestamp", datetime.now().isoformat()
+                            )),
+                        )
+                        self.daily_balances.append(snap)
+                    except Exception as snap_err:
+                        self.logger.warning(f"Skipping corrupt balance snapshot: {snap_err}")
+
+            self.logger.debug(
+                f"Historical data loaded: {len(self.accounts)} accounts, "
+                f"{len(self.daily_balances)} balance records"
+            )
+
         except Exception as e:
-            self.logger.error(f"Error loading historical data: {e}")
+            self.logger.error(f"Error loading historical data: {e}", exc_info=True)
 
     # ==========================================================================
     # PERFORMANCE CALCULATIONS
@@ -947,7 +1108,7 @@ class AccountManager:
                     self._calculate_account_performance(account_id)
 
         except Exception as e:
-            self.logger.error(f"Error calculating performance metrics: {e}")
+            self.logger.error(f"Error calculating performance metrics: {e}", exc_info=True)
 
     def _calculate_account_performance(self, account_id: str):
         """Calculate performance metrics for a specific account"""
@@ -1024,7 +1185,7 @@ class AccountManager:
                             f"Return: {total_return:.2%}, Sharpe: {sharpe_ratio:.2f}")
 
         except Exception as e:
-            self.logger.error(f"Error calculating performance for {account_id}: {e}")
+            self.logger.error(f"Error calculating performance for {account_id}: {e}", exc_info=True)
 
     # ==========================================================================
     # EVENT HANDLING
@@ -1036,7 +1197,7 @@ class AccountManager:
             # This would subscribe to real broker events if available
             self.logger.debug("Subscribed to broker events")
         except Exception as e:
-            self.logger.error(f"Error subscribing to events: {e}")
+            self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
     def _emit_event(self, event_type: EventType, data: dict[str, Any]):
         """Emit event through event manager"""
@@ -1045,7 +1206,7 @@ class AccountManager:
                 event = Event(event_type, data)
                 self.event_manager.emit(event)
         except Exception as e:
-            self.logger.error(f"Error emitting event: {e}")
+            self.logger.error(f"Error emitting event: {e}", exc_info=True)
 
     # ==========================================================================
     # CALLBACK MANAGEMENT
@@ -1178,5 +1339,5 @@ if __name__ == "__main__":
         else:
             pass
 
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Demo __main__ failed: {e}")

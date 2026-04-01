@@ -33,6 +33,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -167,8 +168,8 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         if X11_AVAILABLE:
             try:
                 self._x11_agent = SpyderX11_SentimentAnalysisAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize X11 SentimentAnalysisAgent: {e}")
 
     # ==========================================================================
     # LIFECYCLE
@@ -221,11 +222,9 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         if self._x11_agent:
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                news = loop.run_until_complete(
+                news = asyncio.run(
                     self._x11_agent.get_latest_news(symbol="SPY")
                 )
-                loop.close()
 
                 if news:
                     for item in news if isinstance(news, list) else [news]:
@@ -234,8 +233,8 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
                             source=getattr(item, "source", "unknown"),
                             category=getattr(item, "category", "general"),
                         ))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"News fetch failed: {e}")
 
     # ==========================================================================
     # NEWS PROCESSING

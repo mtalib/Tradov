@@ -1461,7 +1461,7 @@ if __name__ == "__main__":
 
     # Simulate some data updates
     for _i in range(5):
-        time.sleep(2)
+        time.sleep(2)  # thread-safe: time.sleep() intentional
 
         # Get current regime
         regime = detector.get_current_regime()

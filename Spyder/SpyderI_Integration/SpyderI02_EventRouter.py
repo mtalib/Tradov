@@ -767,11 +767,11 @@ class EventRouter:
                 self._process_regular_events()
 
                 # Small sleep to prevent busy waiting
-                time.sleep(0.01)
+                time.sleep(0.01)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in routing loop: {e}")
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
     def _process_priority_events(self) -> None:
         """Process high-priority events."""
@@ -1100,11 +1100,11 @@ class EventRouter:
             try:
                 self._analyze_correlations()
                 self._cleanup_expired_correlations()
-                time.sleep(CORRELATION_ANALYSIS_INTERVAL)
+                time.sleep(CORRELATION_ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in correlation analysis: {e}")
-                time.sleep(CORRELATION_ANALYSIS_INTERVAL * 2)
+                time.sleep(CORRELATION_ANALYSIS_INTERVAL * 2)  # thread-safe: time.sleep() intentional
 
     def _analyze_correlations(self) -> None:
         """Analyze event patterns for correlations."""

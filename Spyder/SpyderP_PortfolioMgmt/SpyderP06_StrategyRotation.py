@@ -52,7 +52,7 @@ from scipy import stats
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
-import SpyderF_Analysis.SpyderF20_Indicators as talib
+from Spyder.SpyderF_Analysis import SpyderF20_Indicators as talib
 
 # Institutional Analytics
 try:

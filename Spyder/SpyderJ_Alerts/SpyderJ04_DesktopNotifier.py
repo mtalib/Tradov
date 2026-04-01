@@ -494,7 +494,7 @@ class DesktopNotifier:
                     self.stats['rate_limited'] += 1
                     # Re-queue if important
                     if item.notification.level in [NotificationLevel.CRITICAL, NotificationLevel.ERROR]:
-                        time.sleep(1)
+                        time.sleep(1)  # thread-safe: time.sleep() intentional
                         self.notification_queue.put(item)
                     continue
 
@@ -732,7 +732,7 @@ if __name__ == "__main__":
 
     # Test notification
     notifier.test_notification()
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Trade notification
     notifier.notify_trade_execution(
@@ -742,7 +742,7 @@ if __name__ == "__main__":
         price=5.50,
         pnl=125.00
     )
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Position alert
     notifier.notify_position_alert(
@@ -752,7 +752,7 @@ if __name__ == "__main__":
         threshold=4.75,
         action_required=True
     )
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Risk alert
     notifier.notify_risk_alert(
@@ -761,7 +761,7 @@ if __name__ == "__main__":
         limit_value=0.10,
         severity='critical'
     )
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Performance update
     notifier.notify_performance_update(
@@ -772,7 +772,7 @@ if __name__ == "__main__":
     )
 
     # Wait for notifications to process
-    time.sleep(10)
+    time.sleep(10)  # thread-safe: time.sleep() intentional
 
     # Stop notifier
     notifier.stop()

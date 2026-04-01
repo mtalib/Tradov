@@ -12,7 +12,7 @@
 #
 # Description:
 #     Comprehensive startup script that initializes the entire Spyder trading
-#     system including IB Gateway connection, trading engine, monitoring services,
+#     system including broker API connectivity, trading engine, monitoring services,
 #     and PyQt6 GUI dashboard. Designed to be launched from desktop icon or
 #     terminal with proper error handling and status feedback.
 # ===============================================================================
@@ -29,7 +29,6 @@ PID_DIR="$SPYDER_HOME/pids"
 CONFIG_FILE="$SPYDER_HOME/.env"
 
 # Process names
-GATEWAY_PROCESS="ibgateway"
 MAIN_PROCESS="SpyderA01_Main"
 DASHBOARD_PROCESS="SpyderG01_MainWindow"
 
@@ -124,11 +123,10 @@ create_default_config() {
 SPYDER_ENV=production
 SPYDER_HOME=/home/adam/Projects/Spyder
 
-# IB Gateway Configuration
-IB_GATEWAY_HOST=127.0.0.1
-IB_GATEWAY_PORT=7497
-IB_CLIENT_ID=1
-IB_ACCOUNT=
+# Broker API Configuration (Tradier)
+TRADIER_ENVIRONMENT=sandbox
+# TRADIER_API_KEY=  # Set in .env
+# TRADIER_ACCOUNT_ID=  # Set in .env
 
 # Trading Configuration
 ENABLE_LIVE_TRADING=false
@@ -180,32 +178,17 @@ get_pid() {
 }
 
 # ===============================================================================
-# IB GATEWAY STARTUP
+# BROKER API CHECK
 # ===============================================================================
 
-start_ib_gateway() {
-    print_info "Checking IB Gateway..."
+check_broker_api() {
+    print_info "Checking Broker API configuration..."
     
-    if is_process_running "$GATEWAY_PROCESS"; then
-        print_success "IB Gateway already running"
+    if [ -f "$CONFIG_FILE" ] && grep -q "TRADIER_API_KEY" "$CONFIG_FILE"; then
+        print_success "Tradier API key configured"
     else
-        print_warning "IB Gateway not running"
-        print_info "Please start IB Gateway manually"
-        print_info "Gateway path: ~/Jts/ibgateway/1039/ibgateway"
-        
-        if [ "$GUI_MODE" = true ]; then
-            # Show GUI notification
-            notify-send "Spyder Trading System" "Please start IB Gateway before continuing" -i dialog-warning
-        fi
-        
-        read -p "Press Enter when IB Gateway is running..."
-        
-        if is_process_running "$GATEWAY_PROCESS"; then
-            print_success "IB Gateway detected"
-        else
-            print_error "IB Gateway still not running. Cannot continue."
-            exit 1
-        fi
+        print_warning "TRADIER_API_KEY not found in $CONFIG_FILE"
+        print_info "Set TRADIER_API_KEY in .env for live/paper trading"
     fi
 }
 
@@ -327,11 +310,11 @@ check_system_status() {
     
     local all_good=true
     
-    # Check IB Gateway
-    if is_process_running "$GATEWAY_PROCESS"; then
-        print_success "IB Gateway: Running"
+    # Check Broker API
+    if [ -f "$CONFIG_FILE" ] && grep -q "TRADIER_API_KEY" "$CONFIG_FILE"; then
+        print_success "Broker API: Configured"
     else
-        print_error "IB Gateway: Not Running"
+        print_warning "Broker API: Not Configured"
         all_good=false
     fi
     
@@ -406,7 +389,7 @@ main() {
     check_environment
     echo ""
     
-    start_ib_gateway
+    check_broker_api
     echo ""
     
     start_trading_engine

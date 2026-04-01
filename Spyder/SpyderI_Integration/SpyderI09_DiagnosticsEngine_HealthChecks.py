@@ -623,7 +623,7 @@ class DependencyHealthChecker:
                 ))
 
             # Check external service dependencies
-            external_services = ['IB Gateway', 'Database', 'Redis']
+            external_services = ['Database', 'Redis']  # Legacy broker removed
 
             for service in external_services:
                 if not self._check_external_service(service):
@@ -665,7 +665,6 @@ class DependencyHealthChecker:
         """Check if external service is available."""
         try:
             service_ports = {
-                'IB Gateway': 4002,
                 'Database': 5432,
                 'Redis': 6379
             }

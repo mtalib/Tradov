@@ -30,7 +30,7 @@ from datetime import datetime, date
 # Skip test files that reference unimplemented or removed modules.
 # These files crash on import before any skip markers can take effect.
 collect_ignore = [
-    "SpyderT02_BrokerTestSuite.py",       # References removed IB Gateway modules (B01, B05)
+    "SpyderT02_BrokerTestSuite.py",       # References removed legacy broker modules (B01, B05)
     "SpyderT03_BlackSwanValidator.py",     # Imports unimplemented S06-S11 Black Swan modules
     "SpyderT07_AdvancedEvolutionPush.py",  # Standalone script, not a pytest module
     "SpyderT17_ComprehensiveSystemTest.py",  # Crashes pytest (PySide6 QApplication in headless env)

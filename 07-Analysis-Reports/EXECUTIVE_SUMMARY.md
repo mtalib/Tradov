@@ -1,8 +1,11 @@
 # 🎉 SPYDER OAuth Integration - COMPLETE PACKAGE
 
+> ⛔ **DEPRECATED:** This document describes IBKR OAuth integration which is no longer used.  
+> Spyder migrated to **Tradier API** (February 2026). See [IBKR_TO_TRADIER_MIGRATION_GUIDE.md](../09-Implementation-History/IBKR_TO_TRADIER_MIGRATION_GUIDE.md)
+
 **Implementation Date:** October 24, 2025  
 **Version:** 4.0.0 - OAuth Edition  
-**Package Status:** ✅ READY FOR DEPLOYMENT
+**Package Status:** ⚠️ **ARCHIVED - HISTORICAL REFERENCE ONLY**
 
 ---
 

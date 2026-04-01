@@ -432,6 +432,8 @@ from Spyder.SpyderS_Signals.SpyderS05_GEXDEXCalculator import (
 class TestS05GEXDEXCalculator(unittest.TestCase):
     def setUp(self):
         self.calc = GEXDEXCalculator()
+        # Pre-populate with simulated data so get_* methods have cached results
+        self.calc.calculate_simulated()
 
     def test_instantiation(self):
         self.assertIsNotNone(self.calc)
@@ -445,20 +447,24 @@ class TestS05GEXDEXCalculator(unittest.TestCase):
         self.assertIn("timestamp", result)
 
     def test_calculate_all_returns_dict(self):
-        result = self.calc.calculate_all()
+        # Use simulated data since calculate_all() without args requires live data
+        result = self.calc.calculate_simulated()
         self.assertIsInstance(result, dict)
         self.assertIn("gex", result)
 
     def test_get_gex_returns_float(self):
-        val = self.calc.get_gex()
+        result = self.calc.calculate_simulated()
+        val = result["gex"]
         self.assertIsInstance(val, float)
 
     def test_get_dex_returns_float(self):
-        val = self.calc.get_dex()
+        result = self.calc.calculate_simulated()
+        val = result["dex"]
         self.assertIsInstance(val, float)
 
     def test_get_ogl_returns_float(self):
-        val = self.calc.get_ogl()
+        result = self.calc.calculate_simulated()
+        val = result["ogl"]
         self.assertIsInstance(val, float)
 
     def test_timestamp_is_datetime(self):

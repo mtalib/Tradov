@@ -706,7 +706,7 @@ class DarkPoolFlowAnalyzer:
                     self.logger.info(f"Detected {len(sweeps)} potential sweep patterns")
 
                 # Sleep interval
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
@@ -763,7 +763,7 @@ if __name__ == "__main__":
         # Get institutional flow
         flow = analyzer.get_institutional_flow()
 
-        time.sleep(5)
+        time.sleep(5)  # thread-safe: time.sleep() intentional
 
     finally:
         analyzer.cleanup()

@@ -253,13 +253,15 @@ class PortfolioManager:
     """
 
     def __init__(self, initial_capital: float = DEFAULT_PORTFOLIO_SIZE,
-                 config: dict[str, Any] | None = None):
+                 config: dict[str, Any] | None = None,
+                 tradier_client: Any = None):
         """
         Initialize the Portfolio Manager.
 
         Args:
             initial_capital: Initial portfolio capital
             config: Configuration dictionary
+            tradier_client: Optional TradierClient for live market data feeds
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -298,7 +300,7 @@ class PortfolioManager:
         self.drawdown_controller = DrawdownController()
 
         # Market analysis
-        self.vix_analyzer = VIXAnalyzer()
+        self.vix_analyzer = VIXAnalyzer(tradier_client=tradier_client)
         self.greeks_calculator = GreeksCalculator()
         self.gamma_calculator = GammaExposureCalculator()
 
@@ -1809,7 +1811,7 @@ class PortfolioManager:
         try:
             import riskfolio as rp
         except ImportError:
-            self.logger.warning("riskfolio not installed")
+            self.logger.warning("riskfolio not installed", exc_info=True)
             n = returns_data.shape[1]
             return {'weights': {col: 1.0 / n for col in returns_data.columns},
                     '_backend': 'fallback'}
@@ -1981,6 +1983,11 @@ def set_global_portfolio_manager(portfolio_manager: PortfolioManager) -> None:
     global _global_portfolio_manager
     _global_portfolio_manager = portfolio_manager
 
+def reset_global_portfolio_manager() -> None:
+    """Clear global portfolio manager instance (for shutdown/testing)."""
+    global _global_portfolio_manager
+    _global_portfolio_manager = None
+
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
@@ -2011,7 +2018,7 @@ if __name__ == "__main__":
     start_success = portfolio.start_management()
 
     # Wait for initial data collection
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Get portfolio metrics
     metrics = portfolio.get_portfolio_metrics()

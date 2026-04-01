@@ -33,6 +33,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -194,16 +195,16 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         if X04_AVAILABLE:
             try:
                 self._x04_agent = SpyderX04_RiskGuardianAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize X04 RiskGuardianAgent: {e}")
 
         # Position manager
         self._position_mgr: Any | None = None
         if POSITION_MGR_AVAILABLE:
             try:
                 self._position_mgr = SpyderE19_PositionManager()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize PositionManager: {e}")
 
     # ==========================================================================
     # LIFECYCLE
@@ -258,11 +259,9 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         if self._x04_agent:
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                risk = loop.run_until_complete(
+                risk = asyncio.run(
                     self._x04_agent.assess_portfolio_risk()
                 )
-                loop.close()
                 if risk:
                     snapshot.portfolio_delta = getattr(risk, "total_delta", 0.0)
                     snapshot.portfolio_gamma = getattr(risk, "total_gamma", 0.0)
@@ -273,8 +272,8 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                         risk, "current_drawdown_pct", 0.0
                     )
                     snapshot.daily_pnl = getattr(risk, "daily_pnl", 0.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to get risk snapshot: {e}")
 
         # Get position concentration from position manager
         if self._position_mgr:
@@ -291,8 +290,8 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                         snapshot.max_single_position_pct = (
                             (max_single / total_value) * 100
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to compute position concentration: {e}")
 
         # Compute composite risk score (0-100)
         snapshot.risk_score = self._compute_risk_score(snapshot)

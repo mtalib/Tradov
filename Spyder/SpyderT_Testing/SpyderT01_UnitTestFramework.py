@@ -275,6 +275,34 @@ class PerformanceMetrics:
     latency_p95_ms: float
     latency_p99_ms: float
 
+
+# ==============================================================================
+# PYTEST BASE CLASS
+# ==============================================================================
+class SpyderTestBase:
+    """
+    Lightweight base class for Spyder pytest test cases.
+
+    Provides common setup/teardown lifecycle hooks and a logger instance.
+    Test classes should inherit from this and call super() in their
+    setup_method / teardown_method overrides.
+    """
+
+    def setup_method(self):
+        """Set up common test fixtures before each test method."""
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self._patches: list[Any] = []
+
+    def teardown_method(self):
+        """Tear down fixtures after each test method."""
+        for p in getattr(self, "_patches", []):
+            try:
+                p.stop()
+            except RuntimeError:
+                pass
+        self._patches.clear()
+
+
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
@@ -1886,7 +1914,7 @@ if __name__ == "__main__":
     print("   - Performance regression detection")
 
     print("\n🎯 Trading System Specific Features:")
-    print("   - Broker API mocking (Interactive Brokers)")
+    print("   - Broker API mocking (Tradier)")
     print("   - Market data simulation")
     print("   - Risk management testing")
     print("   - Order execution validation")

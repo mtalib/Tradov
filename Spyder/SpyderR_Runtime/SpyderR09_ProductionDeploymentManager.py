@@ -35,7 +35,7 @@ Production Components Management:
     • A08 F-Series Orchestrator - Central coordination management
     • E18 Risk Management - Production risk controls
     • T22 Integration Testing - Continuous system validation
-    • IB Gateway Integration - Live broker connectivity
+    • Broker Integration - Live broker connectivity via Tradier API
     • Database Operations - Production data management
     • GUI Dashboard Operations - User interface management
 
@@ -90,7 +90,7 @@ class ComponentType(Enum):
     DATA_PIPELINE = "data_pipeline"  # C21-C24 modules
     ORCHESTRATION = "orchestration"  # A08 orchestrator
     RISK_MANAGEMENT = "risk_mgmt"    # E18 risk integrator
-    BROKER_INTERFACE = "broker"      # IB Gateway integration
+    BROKER_INTERFACE = "broker"      # Tradier API integration
     DATABASE = "database"            # Data storage systems
     GUI_DASHBOARD = "gui"            # User interfaces
     MONITORING = "monitoring"        # System monitoring
@@ -240,7 +240,7 @@ class ProductionDeploymentManager:
         # Integration interfaces
         self.f_series_orchestrator = None
         self.risk_integrator = None
-        self.ib_gateway_interface = None
+        # Legacy ib_gateway_interface removed - now using Tradier API
 
         # Emergency controls
         self.emergency_stop_triggered = False
@@ -405,14 +405,6 @@ class ProductionDeploymentManager:
                 resource_limits={"memory_mb": 1024, "cpu_cores": 2},
                 dependencies=["A08_FSeriesOrchestrator"]
             ),
-            "R05_IBGatewayBridge": ComponentConfig(
-                component_id="R05_IBGatewayBridge",
-                component_type=ComponentType.BROKER_INTERFACE,
-                module_path="SpyderR_Runtime/SpyderR05_WorkingBridge.py",
-                startup_command="python -m SpyderR_Runtime.SpyderR05_WorkingBridge",
-                priority=1,
-                resource_limits={"memory_mb": 512, "cpu_cores": 1}
-            ),
             "G05_TradingDashboard": ComponentConfig(
                 component_id="G05_TradingDashboard",
                 component_type=ComponentType.GUI_DASHBOARD,
@@ -420,7 +412,7 @@ class ProductionDeploymentManager:
                 startup_command="python -m SpyderG_GUI.SpyderG05_TradingDashboard",
                 priority=3,
                 resource_limits={"memory_mb": 1024, "cpu_cores": 1},
-                dependencies=["R05_IBGatewayBridge", "A08_FSeriesOrchestrator"]
+                dependencies=["A08_FSeriesOrchestrator"]
             )
         }
 
@@ -513,10 +505,6 @@ class ProductionDeploymentManager:
 
             # Database availability checks
             if not self._check_database_availability():
-                return False
-
-            # IB Gateway connectivity check
-            if not self._check_ib_gateway_connectivity():
                 return False
 
             # Configuration validation
@@ -1105,27 +1093,6 @@ class ProductionDeploymentManager:
 
         except Exception as e:
             self.logger.error(f"Database availability check failed: {e}")
-            return False
-
-    def _check_ib_gateway_connectivity(self) -> bool:
-        """Check IB Gateway connectivity"""
-        try:
-            # Test connection to IB Gateway ports
-            ib_ports = [4002, 4001, 7497, 7496]  # Paper and live trading ports
-
-            for port in ib_ports:
-                try:
-                    socket.create_connection(("127.0.0.1", port), timeout=2).close()
-                    self.logger.info(f"IB Gateway connectivity OK on port {port}")
-                    return True
-                except OSError:
-                    continue
-
-            self.logger.warning("IB Gateway not accessible - system will run in simulation mode")
-            return True  # Non-blocking for development
-
-        except Exception as e:
-            self.logger.error(f"IB Gateway connectivity check error: {e}")
             return False
 
     def _validate_production_configuration(self) -> bool:

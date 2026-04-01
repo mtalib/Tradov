@@ -658,25 +658,6 @@ class TestU27SystemOptimizerFirewall:
         assert isinstance(result.message, str)
 
 
-class TestU27SystemOptimizerJVM:
-    """Tests for JVM optimization."""
-
-    def test_optimize_jvm_returns_result(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        assert isinstance(result, OptimizationResult)
-
-    def test_optimize_jvm_component_is_jvm(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        assert result.component == SystemComponent.JVM
-
-    def test_optimize_jvm_appended_to_list(self):
-        so = SystemOptimizer()
-        so.optimize_ib_gateway_jvm()
-        assert len(so.applied_optimizations) == 1
-
-
 class TestU27SystemOptimizerDiagnostics:
     """Tests for system diagnostics."""
 
@@ -727,11 +708,11 @@ class TestU27SystemOptimizerOptimizeAll:
         results = so.optimize_all()
         assert isinstance(results, list)
 
-    def test_optimize_all_standard_level_runs_three(self):
+    def test_optimize_all_standard_level_runs_two(self):
         so = SystemOptimizer(OptimizationLevel.STANDARD)
         results = so.optimize_all()
-        # TCP + firewall + JVM = 3 results for standard
-        assert len(results) == 3
+        # TCP + firewall = 2 results for standard
+        assert len(results) == 2
 
 
 class TestU27ModuleFunctions:

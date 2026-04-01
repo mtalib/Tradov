@@ -30,6 +30,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -119,6 +120,11 @@ class DailyBrief:
 
 
 # ==============================================================================
+# MODULE LOGGER
+# ==============================================================================
+logger = logging.getLogger(__name__)
+
+# ==============================================================================
 # MARKET SENSE AGENT
 # ==============================================================================
 class SpyderY01_MarketSenseAgent(BaseAutoAgent):
@@ -183,8 +189,8 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         if X13_AVAILABLE:
             try:
                 self._x13_agent = SpyderX13_MarketAnalysisAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to initialize X13 MarketAnalysisAgent: {e}", exc_info=True)
 
     # ==========================================================================
     # LIFECYCLE HOOKS
@@ -262,8 +268,8 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                     snapshot.regime_confidence = getattr(
                         prediction, "confidence", 0.0
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"HMM regime detection failed: {e}", exc_info=True)
 
         # Try to get regime from GARCH detector as secondary signal
         if GARCH_AVAILABLE and snapshot.regime == "unknown":
@@ -275,23 +281,21 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                     snapshot.regime_confidence = getattr(
                         result, "confidence", 0.0
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"GARCH regime detection failed: {e}", exc_info=True)
 
         # Try to get full analysis from X13
         if self._x13_agent:
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                analysis = loop.run_until_complete(
+                analysis = asyncio.run(
                     self._x13_agent.analyze_market(symbol="SPY")
                 )
-                loop.close()
                 if analysis:
                     snapshot.spy_price = getattr(analysis, "current_price", 0.0)
                     snapshot.spy_change_pct = getattr(analysis, "change_pct", 0.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"X13 market analysis failed: {e}", exc_info=True)
 
         return snapshot
 

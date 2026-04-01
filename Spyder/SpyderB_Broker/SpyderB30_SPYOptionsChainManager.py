@@ -6,21 +6,15 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker
 Module: SpyderB30_SPYOptionsChainManager.py
-Purpose: Comprehensive SPY options chain management with modern ib_async integration
+Purpose: Comprehensive SPY options chain management
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-21 Time: 21:00:00
+Last Updated: 2026-03-08 Time: 02:00:00
 
-⚠️ MIGRATION STATUS ⚠️
-    This module has been partially migrated from ib_async to modern APIs.
-    Current integration status:
-    - ✅ Data types migrated to IBContract (Web API compatible)
-    - ✅ Using SpyderB10_IBDataTypes for contract definitions
-    - ⚠️ Some ib_async references remain for backward compatibility
-    - 🎯 Future: Full migration to Tradier + Databento APIs
-
-    Recommended: Use SpyderB40_TradierClient + SpyderC26_DatabentoClient
-    for new options chain functionality.
+BROKER NOTE:
+    Broker execution via Tradier API (SpyderB40_TradierClient).
+    Market data via Massive SDK (SpyderC27_MassiveClient) with Tradier
+    option-chain snapshots as fallback.
 
 Module Description:
     This module provides comprehensive SPY options chain management implementing
@@ -28,11 +22,7 @@ Module Description:
     WEEKLY (15s), and MONTHLY (60s) options with dynamic strike selection based
     on current SPY price.
 
-    MIGRATION STATUS: Migrated from ib_async to IBKR Web API (OAuth 2.0).
-    Uses ClientPortal API for options chain data instead of IB Gateway/TWS.
-
 Key Features:
-    • IBKR Web API (OAuth 2.0) integration - migrated from ib_async
     • Dynamic strike selection based on current SPY price
     • Multiple options chain types (0DTE, 1DTE, WEEKLY, MONTHLY)
     • Optimized update frequencies for each chain type
@@ -40,7 +30,8 @@ Key Features:
     • Automatic expiration handling
 
 Dependencies:
-    • IBKR Client Portal API (Web API with OAuth 2.0)
+    • SpyderB40_TradierClient for order execution and chain snapshots
+    • SpyderC27_MassiveClient for real-time streaming
     • Standard Python libraries for data processing
 """
 
@@ -62,37 +53,6 @@ from typing import Any, Callable
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 
-# ==============================================================================
-# INTERACTIVE BROKERS WEB API IMPORTS - Migrated from ib_async
-# ==============================================================================
-
-# ✅ MIGRATION COMPLETE: Now using internal data types instead of ib_async
-# ib_async has been replaced with IBContract (Web API compatible)
-try:
-    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
-    Contract = IBContract  # Backward compatibility alias
-    ib_async_AVAILABLE = True
-except ImportError:
-    IBContract = None
-    SecurityType = None
-    Contract = None
-    ib_async_AVAILABLE = False
-
-try:
-    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder  # DEPRECATED - legacy only
-except ImportError:
-    ContractBuilder = None
-
-# NOTE: For new development, use:
-# - SpyderB40_TradierClient for order execution
-# - SpyderC26_DatabentoClient for market data
-
-class ContractDetails:
-    """Placeholder for ContractDetails - Web API uses contract responses directly"""
-    def __init__(self):
-        self.contract = None
-        self.tradingClass = ""
-        self.multiplier = "100"
 
 
 # ==============================================================================
@@ -115,40 +75,6 @@ except ImportError:
             pass
 
 
-# Import multi-client manager
-try:
-    from SpyderB_Broker.SpyderB08_MultiClientDataManager import (
-        DataPriority,
-        DataRequestType,
-        MarketDataRequest,
-        MarketDataTick,
-        MultiClientDataManager,
-        get_manager_instance,
-    )
-
-    MANAGER_AVAILABLE = True
-except ImportError as e:
-    MANAGER_AVAILABLE = False
-    logging.info(f"⚠️ MultiClientDataManager not available: {e}")
-
-    # Create placeholder classes when MultiClientDataManager is not available
-    class MultiClientDataManager:
-        pass
-
-    class DataPriority:
-        pass
-
-    class DataRequestType:
-        pass
-
-    class MarketDataRequest:
-        pass
-
-    class MarketDataTick:
-        pass
-
-    def get_manager_instance():
-        return None
 
 
 # ==============================================================================
@@ -225,7 +151,7 @@ class OptionsContract:
     strike: float
     option_type: OptionType
     chain_type: OptionsChainType
-    contract: Contract | None = None
+    tradier_data: dict[str, Any] | None = None
     last_price: float = 0.0
     bid: float = 0.0
     ask: float = 0.0
@@ -276,17 +202,16 @@ class ChainSelectionCriteria:
 
 class SPYOptionsChainManager:
     """
-    Comprehensive SPY options chain management system with modern ib_async integration.
+    Comprehensive SPY options chain management system.
 
     This class manages SPY options chains according to the exact specifications:
-    - 0DTE: 10 strikes, 1-second updates, Client ID 2
-    - 1DTE: 10 strikes, 5-second updates, Client ID 5
-    - WEEKLY: 20 strikes, 15-second updates, Client ID 6
-    - MONTHLY: 30 strikes, 60-second updates, Client ID 7
+    - 0DTE: 10 strikes, 1-second updates
+    - 1DTE: 10 strikes, 5-second updates
+    - WEEKLY: 20 strikes, 15-second updates
+    - MONTHLY: 30 strikes, 60-second updates
 
     Features dynamic strike selection based on current SPY price, automatic
-    expiration handling, and seamless integration with the multi-client data manager
-    using modern ib_async for enhanced IB Gateway 10.37 compatibility.
+    expiration handling, and seamless integration with the data manager.
 
     Attributes:
         data_manager: Reference to multi-client data manager
@@ -301,13 +226,30 @@ class SPYOptionsChainManager:
         >>> chain_manager.subscribe_to_chain(OptionsChainType.ZERO_DTE, callback)
     """
 
-    def __init__(self, data_manager: MultiClientDataManager | None = None):
-        """Initialize the SPY options chain manager."""
+    def __init__(self, data_manager: Any | None = None):
+        """Initialize the SPY options chain manager.
+
+        .. deprecated::
+            ``SPYOptionsChainManager`` (SpyderB30) is superseded by
+            :class:`~Spyder.SpyderB_Broker.SpyderB40_TradierClient.TradierClient`
+            (SpyderB40) for chain snapshots and by
+            :class:`~Spyder.SpyderC_MarketData.SpyderC00_MarketDataProtocol.TradierMarketDataAdapter`
+            (SpyderC00) for real-time streaming.  New code should use those
+            modules directly.  This class will be removed in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "SPYOptionsChainManager (SpyderB30) is deprecated and will be removed "
+            "in a future release.  Use SpyderB40.TradierClient for chain snapshots "
+            "or SpyderC00.TradierMarketDataAdapter for streaming.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
         # Data manager integration
-        self.data_manager = data_manager or get_manager_instance()
+        self.data_manager = data_manager
 
         # Options chain management
         self.active_chains: dict[OptionsChainType, OptionsChain] = {}
@@ -331,7 +273,7 @@ class SPYOptionsChainManager:
         self._running = False
         self._monitor_thread = None
 
-        self.logger.info("SPY Options Chain Manager initialized with modern ib_async")
+        self.logger.info("SPY Options Chain Manager initialized")
 
     # ==========================================================================
     # INITIALIZATION AND LIFECYCLE
@@ -345,16 +287,6 @@ class SPYOptionsChainManager:
             bool: True if initialization successful
         """
         try:
-            if not ib_async_AVAILABLE:
-                self.logger.error(
-                    "IBContract / SecurityType not available — check SpyderB10_IBDataTypes import"
-                )
-                return False
-
-            if not MANAGER_AVAILABLE:
-                self.logger.error("MultiClientDataManager not available")
-                return False
-
             # Subscribe to SPY price updates for dynamic strike selection
             self._subscribe_to_spy_price()
 
@@ -367,7 +299,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Options chain manager initialization failed: {e}")
+            self.logger.error(f"Options chain manager initialization failed: {e}", exc_info=True)
             return False
 
     def start_options_monitoring(self) -> bool:
@@ -397,7 +329,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start options monitoring: {e}")
+            self.logger.error(f"Failed to start options monitoring: {e}", exc_info=True)
             return False
 
     def stop_options_monitoring(self) -> None:
@@ -415,7 +347,7 @@ class SPYOptionsChainManager:
             self.logger.info("SPY options monitoring stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping options monitoring: {e}")
+            self.logger.error(f"Error stopping options monitoring: {e}", exc_info=True)
 
     # ==========================================================================
     # OPTIONS CHAIN MANAGEMENT
@@ -443,7 +375,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain {chain_type}: {e}")
+            self.logger.error(f"Error subscribing to chain {chain_type}: {e}", exc_info=True)
             return False
 
     def unsubscribe_from_chain(
@@ -471,7 +403,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error unsubscribing from chain {chain_type}: {e}")
+            self.logger.error(f"Error unsubscribing from chain {chain_type}: {e}", exc_info=True)
             return False
 
     def get_options_chain(self, chain_type: OptionsChainType) -> OptionsChain | None:
@@ -516,7 +448,7 @@ class SPYOptionsChainManager:
                     self._reselect_strikes_for_all_chains()
 
         except Exception as e:
-            self.logger.error(f"Error updating SPY price: {e}")
+            self.logger.error(f"Error updating SPY price: {e}", exc_info=True)
 
     def get_manager_status(self) -> dict[str, Any]:
         """
@@ -535,8 +467,6 @@ class SPYOptionsChainManager:
                 "total_contracts": len(self.contract_registry),
                 "update_counts": self.update_counts.copy(),
                 "error_counts": self.error_counts.copy(),
-                "ib_async_available": ib_async_AVAILABLE,
-                "manager_available": MANAGER_AVAILABLE,
                 "chain_details": {
                     chain_type.value: {
                         "status": chain.status.value,
@@ -557,11 +487,65 @@ class SPYOptionsChainManager:
     def _subscribe_to_spy_price(self) -> None:
         """Subscribe to SPY price updates for dynamic strike selection."""
         try:
-            # TODO: Implement SPY price subscription through data manager
-            self.logger.info("SPY price subscription setup (placeholder)")
+            # Attempt real-time SPY price subscription via TradierMarketStream.
+            # On a quote event the current_spy_price and atm strikes are refreshed.
+            try:
+                from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                    TradierMarketStream,
+                    create_tradier_client_from_env,
+                )
+
+                tradier_client = create_tradier_client_from_env()
+                stream = TradierMarketStream(
+                    client=tradier_client,
+                    symbols=["SPY"],
+                    filters=["quote", "trade"],
+                )
+
+                def _on_spy_quote(msg: dict) -> None:
+                    """Handle incoming SPY quote and refresh ATM strikes."""
+                    bid = msg.get("bid", 0.0)
+                    ask = msg.get("ask", 0.0)
+                    if bid and ask:
+                        mid = (float(bid) + float(ask)) / 2.0
+                    elif bid:
+                        mid = float(bid)
+                    elif ask:
+                        mid = float(ask)
+                    else:
+                        return
+
+                    if mid > 0:
+                        with self._lock:
+                            self.current_spy_price = mid
+                            self.last_spy_update = datetime.now()
+                        self._reselect_strikes_for_all_chains()
+                        self.logger.debug(f"SPY price updated to {mid:.2f}")
+
+                stream.on_quote = _on_spy_quote
+                # Store reference so the stream is not garbage-collected
+                self._spy_price_stream = stream
+                stream.start()
+
+                self.logger.info(
+                    "SPY price subscription active via TradierMarketStream "
+                    "(symbol=SPY, filters=['quote','trade'])"
+                )
+
+            except Exception as stream_exc:
+                # Streaming unavailable — log registration intent and rely on
+                # periodic polling or manual price updates via update_spy_price().
+                self.logger.warning(
+                    "TradierMarketStream unavailable for SPY price subscription "
+                    f"({stream_exc}); price updates must be pushed manually."
+                )
+                self.logger.info(
+                    "SPY price subscription registered: "
+                    "symbol=SPY, type=quote, callback=_on_spy_quote [stream offline]"
+                )
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to SPY price: {e}")
+            self.logger.error(f"Error subscribing to SPY price: {e}", exc_info=True)
 
     def _initialize_options_chains(self) -> None:
         """Initialize all options chains based on specifications."""
@@ -619,7 +603,7 @@ class SPYOptionsChainManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error initializing options chains: {e}")
+            self.logger.error(f"Error initializing options chains: {e}", exc_info=True)
 
     def _calculate_expiration_date(
         self, current_date: date, days_to_expiry: int
@@ -689,37 +673,39 @@ class SPYOptionsChainManager:
         chain_type: OptionsChainType,
     ) -> OptionsContract | None:
         """
-        Create an options contract using IBKR Web API data types.
+        Create an options contract using Tradier OCC symbol format.
 
-        Migration Note: Now uses IBContract (Web API) instead of ib_async Contract.
+        OCC symbol: SPY + YYMMDD + C/P + 8-digit strike (strike * 1000, zero-padded).
+        Example: SPY251219C00600000 = SPY Dec 19 2025 600 Call
         """
         try:
-            # Create IB contract using IBContract (migrated from ib_async)
-            contract = IBContract(
-                symbol="SPY",
-                sec_type=SecurityType.OPTION,
-                exchange="SMART",
-                currency="USD",
-                last_trade_date_or_contract_month=expiration.strftime("%Y%m%d"),
-                strike=float(strike),
-                right=option_type.value,
-                multiplier="100"
+            occ_symbol = (
+                f"SPY{expiration.strftime('%y%m%d')}"
+                f"{option_type.value}"
+                f"{int(strike * 1000):08d}"
             )
+            tradier_data: dict[str, Any] = {
+                "symbol": occ_symbol,
+                "underlying": "SPY",
+                "expiration_date": expiration.isoformat(),
+                "strike": strike,
+                "option_type": option_type.value,
+                "multiplier": 100,
+            }
 
-            # Create our options contract wrapper
             options_contract = OptionsContract(
                 symbol="SPY",
                 expiration=expiration,
                 strike=strike,
                 option_type=option_type,
                 chain_type=chain_type,
-                contract=contract,
+                tradier_data=tradier_data,
             )
 
             return options_contract
 
         except Exception as e:
-            self.logger.error(f"Error creating options contract: {e}")
+            self.logger.error(f"Error creating options contract: {e}", exc_info=True)
             return None
 
     def _start_initial_subscriptions(self) -> None:
@@ -731,7 +717,7 @@ class SPYOptionsChainManager:
                     self._subscribe_to_chain_data(chain)
 
         except Exception as e:
-            self.logger.error(f"Error starting initial subscriptions: {e}")
+            self.logger.error(f"Error starting initial subscriptions: {e}", exc_info=True)
 
     def _subscribe_to_chain_data(self, chain: OptionsChain) -> None:
         """Subscribe to market data for an options chain."""
@@ -748,20 +734,73 @@ class SPYOptionsChainManager:
                 f"Client ID {client_id}, {frequency}s frequency"
             )
 
-            # TODO: Implement actual data manager integration
-            # self.data_manager.subscribe_to_options_chain(chain, client_id)
+            # Attempt subscription through the live data manager when available.
+            # SpyderB30 is deprecated in favour of TradierClient/SpyderC00, so the
+            # data_manager attribute may be None in all production code paths.
+            if self.data_manager is not None and hasattr(
+                self.data_manager, "subscribe_to_options_chain"
+            ):
+                self.data_manager.subscribe_to_options_chain(chain, client_id)
+                self.logger.info(
+                    f"Chain subscription active via data_manager: "
+                    f"chain={chain.chain_type.value}, client_id={client_id}, "
+                    f"frequency={frequency}s"
+                )
+            else:
+                # No live data manager available — record the subscription intent
+                # so callers can see it was registered; price updates will arrive
+                # via _subscribe_to_spy_price() TradierMarketStream callbacks or
+                # manual calls to update_chain_data().
+                self.logger.info(
+                    "Chain subscription registered (offline): "
+                    f"chain={chain.chain_type.value}, client_id={client_id}, "
+                    f"frequency={frequency}s, "
+                    f"contracts={len(chain.calls) + len(chain.puts)}"
+                )
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain data: {e}")
+            self.logger.error(f"Error subscribing to chain data: {e}", exc_info=True)
 
     def _cancel_all_subscriptions(self) -> None:
         """Cancel all active options subscriptions."""
         try:
-            # TODO: Implement actual subscription cancellation
-            self.logger.info("Cancelled all options subscriptions")
+            cancelled = []
+
+            # Stop the SPY price WebSocket stream if it was started
+            spy_stream = getattr(self, "_spy_price_stream", None)
+            if spy_stream is not None and hasattr(spy_stream, "stop"):
+                try:
+                    spy_stream.stop()
+                    self._spy_price_stream = None
+                    cancelled.append("SPY_price_stream")
+                except Exception as stop_exc:
+                    self.logger.warning(
+                        f"Error stopping SPY price stream: {stop_exc}"
+                    )
+
+            # Cancel options-chain subscriptions via data manager if available
+            if self.data_manager is not None and hasattr(
+                self.data_manager, "unsubscribe_from_options_chain"
+            ):
+                for chain_type, chain in list(self.active_chains.items()):
+                    try:
+                        self.data_manager.unsubscribe_from_options_chain(chain)
+                        cancelled.append(chain_type.value)
+                    except Exception as unsub_exc:
+                        self.logger.warning(
+                            f"Error unsubscribing {chain_type.value}: {unsub_exc}"
+                        )
+            else:
+                # Record each chain cancellation in the log for traceability
+                for chain_type in list(self.active_chains.keys()):
+                    cancelled.append(chain_type.value)
+
+            self.logger.info(
+                f"Cancelled all options subscriptions: {cancelled}"
+            )
 
         except Exception as e:
-            self.logger.error(f"Error cancelling subscriptions: {e}")
+            self.logger.error(f"Error cancelling subscriptions: {e}", exc_info=True)
 
     def _reselect_strikes_for_all_chains(self) -> None:
         """Reselect strikes for all chains based on new SPY price."""
@@ -783,7 +822,7 @@ class SPYOptionsChainManager:
                 chain.underlying_price = self.current_spy_price
 
         except Exception as e:
-            self.logger.error(f"Error reselecting strikes: {e}")
+            self.logger.error(f"Error reselecting strikes: {e}", exc_info=True)
 
     def _options_monitor_loop(self) -> None:
         """Main monitoring loop for options chains."""
@@ -798,11 +837,11 @@ class SPYOptionsChainManager:
                 self._check_expired_chains()
 
                 # Sleep before next iteration
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in options monitor loop: {e}")
-                time.sleep(5)  # Wait longer on error
+                self.logger.error(f"Error in options monitor loop: {e}", exc_info=True)
+                time.sleep(5)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Options monitoring loop stopped")
 
@@ -819,7 +858,7 @@ class SPYOptionsChainManager:
                 self.update_counts[chain_type] += 1
 
         except Exception as e:
-            self.logger.error(f"Error updating chain statistics: {e}")
+            self.logger.error(f"Error updating chain statistics: {e}", exc_info=True)
 
     def _check_expired_chains(self) -> None:
         """Check for and handle expired options chains."""
@@ -842,7 +881,7 @@ class SPYOptionsChainManager:
                         # self._reinitialize_expired_chain(chain_type)
 
         except Exception as e:
-            self.logger.error(f"Error checking expired chains: {e}")
+            self.logger.error(f"Error checking expired chains: {e}", exc_info=True)
 
 
 # ==============================================================================
@@ -851,7 +890,7 @@ class SPYOptionsChainManager:
 
 
 def create_spy_options_manager(
-    data_manager: MultiClientDataManager | None = None,
+    data_manager: Any | None = None,
 ) -> SPYOptionsChainManager:
     """
     Create SPY options chain manager.

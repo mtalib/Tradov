@@ -486,8 +486,43 @@ class MultiLegMarketAnalyzer:
             if len(returns) < 100:
                 return 0.5  # Default to middle rank
 
-            # TODO: Replace with live IV history from broker
-            # Calculate rolling realized volatility as proxy for IV
+            # Attempt to fetch live ATM IV history from TradierClient option chain.
+            # Falls back to rolling realized-volatility proxy when the client is
+            # unavailable or returns insufficient data.
+            live_iv_series = None
+            try:
+                from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                    create_tradier_client_from_env,
+                )
+                _tradier = create_tradier_client_from_env()
+                # Retrieve the nearest-expiry ATM option to sample current IV
+                _chain = _tradier.get_option_chain("SPY", expiration_date=None, greeks=True)
+                if _chain and "options" in _chain:
+                    iv_samples = [
+                        opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility", 0)
+                        for opt in _chain.get("options", {}).get("option", [])
+                        if opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility")
+                    ]
+                    if len(iv_samples) >= 5:
+                        # Use the median ATM IV as a single-point estimate;
+                        # a full IV time-series would require historical option snapshots.
+                        live_iv_series = pd.Series([float(v) for v in iv_samples if v])
+                        self.logger.debug(
+                            f"Live IV samples retrieved from Tradier: n={len(live_iv_series)}, "
+                            f"median={live_iv_series.median():.4f}"
+                        )
+            except Exception as _tradier_exc:
+                self.logger.debug(
+                    f"Live IV history unavailable from Tradier ({_tradier_exc}); "
+                    "using realized-volatility proxy."
+                )
+
+            if live_iv_series is not None and len(live_iv_series) >= 5:
+                iv_history = live_iv_series.tail(min(len(live_iv_series), self.iv_lookback_days))
+                rank = (current_iv > iv_history).sum() / len(iv_history)
+                return rank
+
+            # Fallback: calculate rolling realized volatility as proxy for IV
             rolling_vol = returns.rolling(20).std() * np.sqrt(252) * 1.2  # IV premium
 
             if len(rolling_vol.dropna()) < 50:
@@ -517,11 +552,60 @@ class MultiLegMarketAnalyzer:
         Returns:
             float: Estimated skew as decimal (e.g., 0.02 = 2%)
         """
-        # TODO: Replace with live IV skew from option chain
+        # Attempt to compute live put/call IV skew from TradierClient option chain.
         # Skew = (25-delta put IV - 25-delta call IV) / ATM IV
         # Typical range: 0.01 (low stress) to 0.05 (high stress)
-        # Using conservative middle estimate until live data integrated
-        self.logger.debug("Using estimated volatility skew (live integration pending)")
+        if option_chain is not None:
+            try:
+                puts = [
+                    c for c in option_chain
+                    if c.get("option_type", "").upper() == "PUT"
+                    and c.get("greeks", {}).get("delta") is not None
+                ]
+                calls = [
+                    c for c in option_chain
+                    if c.get("option_type", "").upper() == "CALL"
+                    and c.get("greeks", {}).get("delta") is not None
+                ]
+
+                def _nearest_delta(contracts, target_delta: float) -> float | None:
+                    """Return IV of the contract whose |delta| is closest to target."""
+                    best, best_iv = None, None
+                    for c in contracts:
+                        delta = abs(float(c["greeks"]["delta"]))
+                        if best is None or abs(delta - target_delta) < abs(best - target_delta):
+                            best = delta
+                            best_iv = (
+                                c.get("greeks", {}).get("smv_vol")
+                                or c.get("implied_volatility")
+                            )
+                    return float(best_iv) if best_iv else None
+
+                atm_calls = [
+                    c for c in calls
+                    if abs(abs(float(c["greeks"]["delta"])) - 0.50) < 0.10
+                ]
+                atm_iv = (
+                    float(atm_calls[0].get("greeks", {}).get("smv_vol")
+                          or atm_calls[0].get("implied_volatility", 0))
+                    if atm_calls else None
+                )
+
+                put_25d_iv = _nearest_delta(puts, 0.25)
+                call_25d_iv = _nearest_delta(calls, 0.25)
+
+                if put_25d_iv and call_25d_iv and atm_iv and atm_iv > 0:
+                    skew = (put_25d_iv - call_25d_iv) / atm_iv
+                    self.logger.debug(
+                        f"Live IV skew computed: put_25d={put_25d_iv:.4f}, "
+                        f"call_25d={call_25d_iv:.4f}, atm={atm_iv:.4f}, skew={skew:.4f}"
+                    )
+                    return max(0.0, skew)
+            except Exception as _skew_exc:
+                self.logger.debug(f"Live skew calculation failed ({_skew_exc}); using estimate.")
+
+        # Fallback: conservative middle estimate
+        self.logger.debug("Using estimated volatility skew (live option_chain not provided)")
         return 0.025  # Conservative estimate; replace with live calculation
 
     def _calculate_term_structure_slope(self) -> float:
@@ -730,7 +814,7 @@ class MultiLegStrategyConstructor:
                 return None
 
         except Exception as e:
-            self.logger.error(f"Strategy construction failed: {e}")
+            self.logger.error(f"Strategy construction failed: {e}", exc_info=True)
             return None
 
     def _select_optimal_strategy(self, market_analysis: MarketEnvironmentAnalysis) -> MultiLegStrategyType:
@@ -772,7 +856,7 @@ class MultiLegStrategyConstructor:
                     return MultiLegStrategyType.IRON_CONDOR
 
         except Exception as e:
-            self.logger.error(f"Strategy selection failed: {e}")
+            self.logger.error(f"Strategy selection failed: {e}", exc_info=True)
             return MultiLegStrategyType.IRON_CONDOR  # Default fallback
 
     def _construct_iron_condor(self, market_analysis: MarketEnvironmentAnalysis,
@@ -856,7 +940,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Iron Condor construction failed: {e}")
+            self.logger.error(f"Iron Condor construction failed: {e}", exc_info=True)
             raise
 
     def _construct_iron_butterfly(self, market_analysis: MarketEnvironmentAnalysis,
@@ -928,7 +1012,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Iron Butterfly construction failed: {e}")
+            self.logger.error(f"Iron Butterfly construction failed: {e}", exc_info=True)
             raise
 
     def _construct_jade_lizard(self, market_analysis: MarketEnvironmentAnalysis,
@@ -1003,7 +1087,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Jade Lizard construction failed: {e}")
+            self.logger.error(f"Jade Lizard construction failed: {e}", exc_info=True)
             raise
 
     def _calculate_optimal_wing_width(self, market_analysis: MarketEnvironmentAnalysis) -> float:
@@ -1085,7 +1169,7 @@ class MultiLegStrategyConstructor:
                 leg.implied_vol = implied_vol
 
         except Exception as e:
-            self.logger.error(f"Legs pricing estimation failed: {e}")
+            self.logger.error(f"Legs pricing estimation failed: {e}", exc_info=True)
 
     def _calculate_net_credit(self, legs: list[OptionLeg]) -> float:
         """Calculate net credit/debit for the strategy"""
@@ -1293,14 +1377,14 @@ class MultiLegStrategyCoordinator:
                 self.regime_engine = get_unified_regime_engine()
                 self.logger.info("Connected to unified regime engine")
             except Exception as e:
-                self.logger.warning(f"Could not connect to regime engine: {e}")
+                self.logger.warning(f"Could not connect to regime engine: {e}", exc_info=True)
 
         if RISK_COORDINATOR_AVAILABLE:
             try:
                 self.risk_coordinator = get_unified_risk_coordinator()
                 self.logger.info("Connected to unified risk coordinator")
             except Exception as e:
-                self.logger.warning(f"Could not connect to risk coordinator: {e}")
+                self.logger.warning(f"Could not connect to risk coordinator: {e}", exc_info=True)
 
         # Position management
         self.active_positions: dict[str, MultiLegPosition] = {}
@@ -1360,7 +1444,7 @@ class MultiLegStrategyCoordinator:
                     self._rl_morph_enabled = False
         except Exception as e:
             self._rl_morph_enabled = False
-            self.logger.warning(f"Failed to load RL morph model: {e}")
+            self.logger.warning(f"Failed to load RL morph model: {e}", exc_info=True)
 
     def _get_rl_adjustment_recommendation(
         self,
@@ -1439,7 +1523,7 @@ class MultiLegStrategyCoordinator:
             return recommended
 
         except Exception as e:
-            self.logger.warning(f"RL adjustment recommendation failed: {e}")
+            self.logger.warning(f"RL adjustment recommendation failed: {e}", exc_info=True)
             return None
 
     # ==========================================================================
@@ -1499,7 +1583,7 @@ class MultiLegStrategyCoordinator:
             return None
 
         except Exception as e:
-            self.logger.error(f"Multi-leg opportunity analysis failed: {e}")
+            self.logger.error(f"Multi-leg opportunity analysis failed: {e}", exc_info=True)
             return None
 
     def _are_conditions_favorable(self, market_analysis: MarketEnvironmentAnalysis) -> bool:
@@ -1679,7 +1763,7 @@ class MultiLegStrategyCoordinator:
             return position_id
 
         except Exception as e:
-            self.logger.error(f"Multi-leg strategy execution failed: {e}")
+            self.logger.error(f"Multi-leg strategy execution failed: {e}", exc_info=True)
             return None
 
     def _submit_combo_order(

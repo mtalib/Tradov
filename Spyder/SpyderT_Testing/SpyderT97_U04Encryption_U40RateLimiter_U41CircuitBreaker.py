@@ -109,22 +109,21 @@ get_circuit_breaker = u41_mod.get_circuit_breaker
 class TestU04EncryptionManager:
     """Tests for EncryptionManager class."""
 
-    def test_is_initialized_defaults_false(self):
+    def test_is_initialized_defaults_true(self):
         em = EncryptionManager()
-        assert em.is_initialized is False
+        assert em.is_initialized is True
 
     def test_encrypt_returns_string(self):
         em = EncryptionManager()
         result = em.encrypt("hello world")
         assert isinstance(result, str)
 
-    def test_encrypt_is_base64(self):
+    def test_encrypt_is_fernet_token(self):
         import base64
         em = EncryptionManager()
         result = em.encrypt("test data")
-        # Should decode back successfully
-        decoded = base64.b64decode(result).decode()
-        assert decoded == "test data"
+        # Fernet tokens are ciphertext, verify round-trip
+        assert em.decrypt(result) == "test data"
 
     def test_encrypt_empty_string(self):
         em = EncryptionManager()
@@ -152,7 +151,7 @@ class TestU04EncryptionManager:
     def test_generate_key_length(self):
         em = EncryptionManager()
         key = em.generate_key()
-        assert len(key) == 32
+        assert len(key) == 44  # Fernet key = url-safe base64 of 32 bytes
 
     def test_generate_key_unique_each_call(self):
         em = EncryptionManager()
@@ -267,10 +266,9 @@ class TestU04ModuleFunctions:
 
     def test_encrypt_alias_matches_encrypt_data(self):
         data = "same result"
-        r1 = u04_mod.encrypt_data(data)
-        r2 = u04_mod.encrypt(data)
-        # Both use base64; same input → same output
-        assert r1 == r2
+        # Fernet uses random IV, so outputs differ; verify both decrypt correctly
+        assert u04_mod.decrypt(u04_mod.encrypt(data)) == data
+        assert u04_mod.decrypt_data(u04_mod.encrypt_data(data)) == data
 
     def test_generate_secure_password_default_length(self):
         pw = u04_mod.generate_secure_password()
@@ -286,16 +284,14 @@ class TestU04ModuleFunctions:
         p2 = u04_mod.generate_secure_password()
         assert p1 != p2
 
-    def test_hash_password_returns_hex_string(self):
+    def test_hash_password_returns_argon2_string(self):
         result = u04_mod.hash_password("mypassword")
         assert isinstance(result, str)
-        # sha256 hex digest is 64 chars
-        assert len(result) == 64
+        assert result.startswith("$argon2")  # Argon2id hash
 
-    def test_hash_password_deterministic(self):
-        r1 = u04_mod.hash_password("same")
-        r2 = u04_mod.hash_password("same")
-        assert r1 == r2
+    def test_hash_password_verifiable(self):
+        h = u04_mod.hash_password("same")
+        assert u04_mod.verify_password("same", h)
 
     def test_hash_password_different_inputs(self):
         r1 = u04_mod.hash_password("a")

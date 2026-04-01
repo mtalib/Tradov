@@ -325,7 +325,7 @@ class MultiStrategyAllocator:
                     )
                     self.logger.info(f"Loaded {len(self.allocation_history)} historical allocations")
         except Exception as e:
-            self.logger.warning(f"Could not load historical data: {e}")
+            self.logger.warning(f"Could not load historical data: {e}", exc_info=True)
 
     def update_strategy_performance(
         self,
@@ -439,7 +439,7 @@ class MultiStrategyAllocator:
             self._check_correlation_breaches()
 
         except Exception as e:
-            self.logger.error(f"Failed to update correlation matrix: {e}")
+            self.logger.error(f"Failed to update correlation matrix: {e}", exc_info=True)
 
     def _check_correlation_breaches(self):
         """Check for strategies with excessive correlation"""
@@ -520,7 +520,7 @@ class MultiStrategyAllocator:
                 return result
 
             except Exception as e:
-                self.logger.error(f"Allocation optimization failed: {e}")
+                self.logger.error(f"Allocation optimization failed: {e}", exc_info=True)
                 self.error_handler.handle_error(e, {"method": method.value})
                 return self._create_default_allocation()
 
@@ -912,8 +912,8 @@ class MultiStrategyAllocator:
                     return full_cov
 
                 return cov
-            except Exception:
-                pass  # Fall through to sklearn
+            except Exception as e:
+                self.logger.debug(f"Primary covariance estimation failed, trying LedoitWolf: {e}")
 
         # Sklearn Ledoit-Wolf fallback
         try:
@@ -930,8 +930,8 @@ class MultiStrategyAllocator:
                 return full_cov
 
             return cov
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"LedoitWolf covariance estimation failed, using sample covariance: {e}", exc_info=True)
 
         # Final fallback: sample covariance
         cov = np.cov(returns_array, rowvar=False) * 252
@@ -1283,7 +1283,7 @@ class MultiStrategyAllocator:
 
             self.logger.info("Allocation history saved")
         except Exception as e:
-            self.logger.error(f"Failed to save history: {e}")
+            self.logger.error(f"Failed to save history: {e}", exc_info=True)
 
         self.logger.info("MultiStrategyAllocator shutdown complete")
 

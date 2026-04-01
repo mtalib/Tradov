@@ -11,7 +11,7 @@
 #
 # Description:
 #     Comprehensive control script that manages all Spyder components including
-#     IB Gateway, AI agents, risk systems, and monitoring. Provides commands for
+#     broker API, AI agents, risk systems, and monitoring. Provides commands for
 #     starting, stopping, status checking, and system diagnostics.
 # ===============================================================================
 
@@ -38,7 +38,7 @@ NC='\033[0m' # No Color
 
 # Component definitions
 declare -A COMPONENTS=(
-    ["gateway"]="IB Gateway"
+    ["broker"]="Broker API"
     ["master"]="Master Controller"
     ["watchdog"]="Multi-Client Watchdog"
     ["metrics"]="Prometheus Metrics"
@@ -103,19 +103,16 @@ check_environment() {
 # COMPONENT MANAGEMENT
 # ===============================================================================
 
-start_ib_gateway() {
-    print_info "Checking IB Gateway..."
+check_broker_api() {
+    print_info "Checking Broker API configuration..."
     
-    if pgrep -f "ibgateway" > /dev/null; then
-        print_success "IB Gateway is already running"
+    if [ -f "$CONFIG_FILE" ] && grep -q "TRADIER_API_KEY" "$CONFIG_FILE"; then
+        print_success "Tradier API key configured"
         return 0
     fi
     
-    print_warning "IB Gateway not running"
-    echo "Please start IB Gateway manually:"
-    echo "  1. Open IB Gateway application"
-    echo "  2. Login with your credentials"
-    echo "  3. Ensure API is enabled on port 4002 (paper) or 4001 (live)"
+    print_warning "TRADIER_API_KEY not found in $CONFIG_FILE"
+    echo "Set TRADIER_API_KEY in .env for live/paper trading"
     return 1
 }
 
@@ -240,7 +237,7 @@ cmd_start() {
     fi
     
     # Start components in order
-    start_ib_gateway || print_warning "Continue without IB Gateway"
+    check_broker_api || print_warning "Continue without broker API"
     echo ""
     
     start_monitoring
@@ -352,12 +349,12 @@ cmd_check() {
     fi
     echo ""
     
-    # Check IB Gateway
-    print_info "Checking IB Gateway..."
-    if nc -z localhost 4002 2>/dev/null || nc -z localhost 4001 2>/dev/null; then
-        print_success "IB Gateway accessible"
+    # Check Broker API
+    print_info "Checking Broker API..."
+    if [ -f "$CONFIG_FILE" ] && grep -q "TRADIER_API_KEY" "$CONFIG_FILE"; then
+        print_success "Broker API configured"
     else
-        print_error "IB Gateway not accessible"
+        print_error "Broker API not configured"
         ((issues++))
     fi
     echo ""

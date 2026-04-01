@@ -2,7 +2,6 @@
 # Broker: Tradier (REST API — no local gateway required)
 # Market Data: Databento (cloud streaming) / Tradier (testing)
 #
-# IB Gateway service was removed — Spyder no longer uses IBKR/IB Gateway.
 # Add services here as needed (e.g. Prometheus, Grafana, Redis).
 
 services: {}

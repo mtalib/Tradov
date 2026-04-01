@@ -93,6 +93,7 @@ spyder.log
 data/
 market_data/
 historical_data/
+Spyder-Backtest/
 backtest_results/
 paper_trading_results/
 live_trading_results/

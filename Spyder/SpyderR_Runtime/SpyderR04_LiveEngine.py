@@ -37,6 +37,7 @@ from typing import Any
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+import os
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
@@ -45,11 +46,17 @@ MARKET_CLOSE = time(16, 0)
 EXTENDED_HOURS_START = time(4, 0)
 EXTENDED_HOURS_END = time(20, 0)
 
-# Safety limits
-MAX_DAILY_TRADES = 100
-MAX_POSITION_SIZE = 10000  # contracts
-MAX_DAILY_LOSS = 10000  # dollars
-EMERGENCY_STOP_LOSS = 0.05  # 5% portfolio loss
+# Safety limits - Load from environment variables with defaults
+MAX_DAILY_TRADES = int(os.environ.get('MAX_DAILY_TRADES', 100))
+MAX_POSITION_SIZE = int(os.environ.get('MAX_POSITION_SIZE', 10000))  # contracts
+MAX_DAILY_LOSS = float(os.environ.get('MAX_DAILY_LOSS_USD', 10000))  # dollars
+EMERGENCY_STOP_LOSS = float(os.environ.get('EMERGENCY_STOP_LOSS_PCT', 0.05))  # 5% portfolio loss
+
+# Confirmation settings - Opt-in for development mode
+REQUIRE_LIVE_ORDER_CONFIRMATION = os.environ.get('REQUIRE_LIVE_ORDER_CONFIRMATION', 'false').lower() == 'true'
+HIGH_RISK_ORDER_CONFIRMATION = os.environ.get('HIGH_RISK_ORDER_CONFIRMATION', 'true').lower() == 'true'
+HIGH_RISK_ORDER_THRESHOLD_USD = float(os.environ.get('HIGH_RISK_ORDER_THRESHOLD_USD', 50000))  # $50k
+HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_PCT', 0.25))  # 25% of portfolio
 
 # Execution parameters
 ORDER_RETRY_LIMIT = 3
@@ -105,7 +112,10 @@ class LiveTradingConfig:
     max_position_size: int = MAX_POSITION_SIZE
     max_daily_loss: float = MAX_DAILY_LOSS
     enable_extended_hours: bool = False
-    require_confirmation: bool = True
+    require_confirmation: bool = REQUIRE_LIVE_ORDER_CONFIRMATION  # Autonomous by default
+    high_risk_confirmation: bool = HIGH_RISK_ORDER_CONFIRMATION  # Selective confirmation for large orders
+    high_risk_threshold_usd: float = HIGH_RISK_ORDER_THRESHOLD_USD
+    high_risk_portfolio_pct: float = HIGH_RISK_ORDER_PORTFOLIO_PCT
     use_limit_orders_only: bool = False
     slippage_tolerance: float = 0.01  # 1%
     partial_fill_timeout: int = 60  # seconds
@@ -420,6 +430,23 @@ class LiveEngine:
                     "reason": safety_result.message,
                     "safety_check": safety_result,
                 }
+            
+            # Smart confirmation: only for development mode or high-risk orders
+            if self.mode == TradingMode.LIVE:
+                confirmation_result = self._check_order_confirmation_required(order)
+                if confirmation_result['requires_confirmation']:
+                    confirmed = self._request_order_confirmation(order, confirmation_result['reason'])
+                    if not confirmed:
+                        self.logger.warning(f"Order {order.get('symbol')} rejected: {confirmation_result['reason']}")
+                        return {
+                            "status": "rejected",
+                            "reason": f"Order requires confirmation: {confirmation_result['reason']}",
+                            "confirmation_declined": True,
+                            "confirmation_reason": confirmation_result['reason']
+                        }
+                else:
+                    # Autonomous mode - log and proceed
+                    self.logger.info(f"Order {order.get('symbol')} proceeding autonomously (confirmation not required)")
 
             # Add to order queue
             order["timestamp"] = datetime.now()
@@ -738,6 +765,225 @@ class LiveEngine:
     # ==========================================================================
     # PRIVATE METHODS - HELPERS
     # ==========================================================================
+    def _check_order_confirmation_required(self, order: dict[str, Any]) -> dict[str, Any]:
+        """
+        Determine if an order requires user confirmation.
+        
+        Confirmation is required in two scenarios:
+        1. Development mode: REQUIRE_LIVE_ORDER_CONFIRMATION=true (all orders)
+        2. High-risk orders: Exceeds $ threshold or % of portfolio (selective)
+        
+        Args:
+            order: Order details
+            
+        Returns:
+            Dict with:
+                - requires_confirmation: bool
+                - reason: str (why confirmation is needed)
+                - risk_level: str (normal/high/critical)
+        """
+        try:
+            # Development mode: require confirmation for ALL orders
+            if self.config.require_confirmation:
+                return {
+                    'requires_confirmation': True,
+                    'reason': 'Development mode - all orders require confirmation',
+                    'risk_level': 'development'
+                }
+            
+            # Production autonomous mode: selective confirmation for high-risk only
+            if not self.config.high_risk_confirmation:
+                # Fully autonomous - no confirmation ever
+                return {
+                    'requires_confirmation': False,
+                    'reason': 'Fully autonomous mode',
+                    'risk_level': 'normal'
+                }
+            
+            # Check if order meets high-risk criteria
+            order_value = self._calculate_order_value(order)
+            
+            # Get portfolio value for percentage check
+            portfolio_value = self._get_portfolio_value()
+            order_pct = order_value / portfolio_value if portfolio_value > 0 else 0
+            
+            reasons = []
+            risk_level = 'normal'
+            
+            # Check absolute dollar threshold
+            if order_value > self.config.high_risk_threshold_usd:
+                reasons.append(f"Order value ${order_value:,.2f} exceeds threshold ${self.config.high_risk_threshold_usd:,.2f}")
+                risk_level = 'high'
+            
+            # Check portfolio percentage threshold
+            if order_pct > self.config.high_risk_portfolio_pct:
+                reasons.append(f"Order represents {order_pct*100:.1f}% of portfolio (limit: {self.config.high_risk_portfolio_pct*100:.1f}%)")
+                risk_level = 'critical' if order_pct > 0.5 else 'high'
+            
+            if reasons:
+                return {
+                    'requires_confirmation': True,
+                    'reason': '; '.join(reasons),
+                    'risk_level': risk_level,
+                    'order_value': order_value,
+                    'portfolio_pct': order_pct
+                }
+            
+            # Normal order - proceed autonomously
+            return {
+                'requires_confirmation': False,
+                'reason': 'Normal order within autonomous parameters',
+                'risk_level': 'normal',
+                'order_value': order_value,
+                'portfolio_pct': order_pct
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error checking confirmation requirement: {e}", exc_info=True)
+            # Fail safe: require confirmation on error
+            return {
+                'requires_confirmation': True,
+                'reason': f'Error evaluating risk: {str(e)}',
+                'risk_level': 'error'
+            }
+    
+    def _request_order_confirmation(self, order: dict[str, Any], reason: str) -> bool:
+        """
+        Request explicit user confirmation before executing a high-risk order.
+        
+        This method is ONLY called for:
+        - Development mode (all orders)
+        - High-risk orders exceeding thresholds
+        
+        Args:
+            order: Order details to confirm
+            reason: Why confirmation is required
+            
+        Returns:
+            bool: True if confirmed, False if declined
+            
+        Note:
+            In production autonomous mode, this should rarely be called.
+            When called, it integrates with GUI/monitoring systems for approval.
+        """
+        try:
+            # Log the confirmation request
+            self.logger.warning("="*60)
+            self.logger.warning("HIGH-RISK ORDER CONFIRMATION REQUIRED")
+            self.logger.warning("="*60)
+            self.logger.warning(f"Reason: {reason}")
+            self.logger.warning(f"Symbol: {order.get('symbol', 'N/A')}")
+            self.logger.warning(f"Side: {order.get('side', 'N/A')}")
+            self.logger.warning(f"Quantity: {order.get('quantity', 'N/A')}")
+            self.logger.warning(f"Order Type: {order.get('type', 'N/A')}")
+            self.logger.warning(f"Price: {order.get('price', 'MARKET')}")
+            self.logger.warning(f"Estimated Value: ${self._calculate_order_value(order):,.2f}")
+            self.logger.warning("="*60)
+            
+            # Emit event for GUI/monitoring to display confirmation dialog
+            self._emit_event('high_risk_order_confirmation_requested', {
+                'order': order,
+                'reason': reason,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            # Integration points:
+            # 1. SpyderG05_TradingDashboard - GUI confirmation dialog
+            # 2. SpyderJ05_TelegramBot - Mobile push notification with approve/reject
+            # 3. Web interface - Browser notification
+            # 4. Email alert with auto-generated approval link
+            
+            # For now: check environment variable for testing
+            # In production: this would wait for actual user response via queue/event
+            if os.environ.get('AUTO_CONFIRM_HIGH_RISK_ORDERS', 'false').lower() == 'true':
+                self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled - order auto-approved (TESTING ONLY)")
+                return True
+           
+            # TODO: Implement actual confirmation mechanism:
+            # - Wait on confirmation_queue with timeout (e.g., 60 seconds)
+            # - Check SpyderG05 dashboard for user clicks
+            # - Check Telegram bot for approval message
+            # If no response within timeout, default to rejection for safety
+            
+            self.logger.critical(
+                "High-risk order blocked pending confirmation. "
+                "Set AUTO_CONFIRM_HIGH_RISK_ORDERS=true for testing, "
+                "or integrate with GUI/Telegram for production approval workflow."
+            )
+            
+            return False  # Default to rejection for safety
+            
+        except Exception as e:
+            self.logger.error(f"Error requesting order confirmation: {e}", exc_info=True)
+            return False  # Fail safe: reject on error
+    
+    def _calculate_order_value(self, order: dict[str, Any]) -> float:
+        """
+        Calculate the dollar value of an order.
+        
+        Args:
+            order: Order details
+            
+        Returns:
+            Estimated order value in USD
+        """
+        try:
+            quantity = order.get('quantity', 0)
+            price = order.get('price', 0)
+            
+            # For market orders, estimate using current market price
+            if price == 0 or order.get('type', '').lower() == 'market':
+                # Fetch current market price from broker
+                try:
+                    quotes = self.broker.get_quotes([symbol]) if symbol else {}
+                    quote = quotes.get('quote', quotes) if isinstance(quotes, dict) else {}
+                    if isinstance(quote, list) and quote:
+                        quote = quote[0]
+                    price = float(quote.get('last', 0) or quote.get('close', 0) or 0)
+                except Exception:
+                    self.logger.warning(f"Could not fetch live price for {symbol}, using order price")
+                if price == 0:
+                    self.logger.warning(f"No price available for order value calculation on {symbol}")
+                    return 0.0
+            
+            # For options, multiply by contract multiplier (usually 100)
+            symbol = order.get('symbol', '')
+            multiplier = 100 if self._is_option_symbol(symbol) else 1
+            
+            return abs(quantity * price * multiplier)
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating order value: {e}")
+            return 0.0
+    
+    def _get_portfolio_value(self) -> float:
+        """
+        Get current portfolio value.
+        
+        Returns:
+            Portfolio value in USD
+        """
+        try:
+            # Get from broker interface
+            account_info = self.broker.get_account_info()
+            return account_info.get('total_equity', 0.0)
+        except Exception as e:
+            self.logger.error(f"Error getting portfolio value: {e}")
+            return 0.0
+    
+    def _is_option_symbol(self, symbol: str) -> bool:
+        """
+        Check if symbol is an option.
+        
+        Args:
+            symbol: Symbol to check
+            
+        Returns:
+            True if option symbol
+        """
+        # Options typically have format: SPY240315C00450000
+        return len(symbol) > 10 and any(c in symbol for c in ['C', 'P'])
+    
     def _generate_session_id(self) -> str:
         """Generate unique session ID."""
         return f"LIVE_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

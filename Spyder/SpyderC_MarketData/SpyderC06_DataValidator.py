@@ -757,13 +757,13 @@ class DataValidator:
                 self._update_anomaly_model()
 
                 # Sleep
-                time.sleep(30)  # Check every 30 seconds
+                time.sleep(30)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.error_handler.handle_error(e, {
                     'method': '_monitoring_loop'
                 })
-                time.sleep(60)
+                time.sleep(60)  # thread-safe: time.sleep() intentional
 
     def _check_quality_degradation(self) -> None:
         """Check for data quality degradation."""
@@ -1207,7 +1207,7 @@ if __name__ == "__main__":
         # Final statistics
         final_stats = validator.get_validation_stats()
 
-        time.sleep(1)
+        time.sleep(1)  # thread-safe: time.sleep() intentional
 
         # Cleanup
         validator.cleanup()

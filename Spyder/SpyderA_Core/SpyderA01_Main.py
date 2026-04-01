@@ -14,6 +14,7 @@ await asyncio.sleep(1.0) immediately after connection for API handshake stabilit
 This ensures the GUI launches properly after establishing reliable broker connections.
 """
 
+import importlib.util
 import sys
 import logging
 import signal
@@ -85,6 +86,13 @@ setup_logging_func: Any = None
 get_logger_func: Any = None
 
 try:
+    from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator as _get_coordinator
+    _HAS_COORDINATOR = True
+except ImportError:
+    _get_coordinator = None
+    _HAS_COORDINATOR = False
+
+try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import get_logger, SpyderLogger
 
     def setup_logging(**_kwargs: Any) -> None:
@@ -118,7 +126,7 @@ try:
 except ImportError:
     pass
 
-# Broker modules — B01_SpyderClient and B05_ConnectionManager removed (IB Gateway)
+# Broker modules — B01_SpyderClient and B05_ConnectionManager removed (legacy broker)
 # Tradier API integration is handled by SpyderB40_TradierClient
 has_broker_modules = False
 get_spyder_client = None
@@ -356,7 +364,7 @@ GUI Status: VISIBLE (proving connection is stable!)
         except Exception as e:
             # Log the error but don't crash the GUI
             if hasattr(self.spyder_app, "logger"):
-                self.spyder_app.logger.error(f"Status update error: {e}")
+                self.spyder_app.logger.error(f"Status update error: {e}", exc_info=True)
             else:
                 logging.getLogger("SpyderA01_Main").error(f"Status update error: {e}")
 
@@ -428,12 +436,108 @@ class SpyderApplication:
         self.running: bool = False
         self.shutdown_requested: bool = False
 
+        # Register application shutdown with the process-wide coordinator so
+        # that broker streams and data feed threads are stopped cleanly on exit.
+        if _HAS_COORDINATOR:
+            _get_coordinator().register_cleanup(self.shutdown)
+
         self.logger.info("=" * 70)
         self.logger.info(f"SPYDER v{self.config.version} - PROVEN Race Condition Fix")
         self.logger.info("=" * 70)
         self.logger.info(
             "Initializing application with proven broker connection fix..."
         )
+
+    # ------------------------------------------------------------------
+    # Capability report
+    # ------------------------------------------------------------------
+    def _log_capability_report(self) -> None:
+        """Log an ASCII capability table showing which optional modules loaded."""
+
+        # ── package → (display_name, critical, notes_if_missing) ──────────────
+        _CAPABILITIES: list[tuple[str, str, bool, str]] = [
+            # package_name             display_name                       critical  note_if_missing
+            ("PySide6",                "GUI Dashboard (PySide6)",          True,  "run: pip install PySide6"),
+            ("sklearn",                "ML Regime Detection (scikit-learn)",False, "run: pip install scikit-learn"),
+            ("hmmlearn",               "HMM Regime Models (hmmlearn)",     False, "run: pip install hmmlearn"),
+            ("databento",              "Databento Market Data",            True,  "set DATABENTO_API_KEY in .env"),
+            ("zmq",                    "ZeroMQ Messaging (pyzmq)",         False, "run: pip install pyzmq"),
+            ("prometheus_client",      "Prometheus Metrics",               False, "run: pip install prometheus-client"),
+            ("QuantLib",               "QuantLib Pricing Engine",          False, "run: pip install QuantLib"),
+            ("uvloop",                 "uvloop Event Loop (2-4x faster)",  False, "run: pip install uvloop"),
+            ("asyncio",                "asyncio (stdlib)",                 True,  "stdlib — should always be present"),
+        ]
+
+        # Build rows: check each package with importlib.util.find_spec()
+        rows: list[tuple[str, str, str]] = []
+        missing_critical: list[str] = []
+
+        for pkg, display, critical, note in _CAPABILITIES:
+            available = importlib.util.find_spec(pkg) is not None
+            status = "\u2713 ACTIVE " if available else "\u2717 MISSING"
+            notes = "" if available else note
+            rows.append((display, status, notes))
+            if not available and critical:
+                missing_critical.append(f"{display} — {note}")
+
+        # ── column widths ──────────────────────────────────────────────────────
+        col1 = max(len(r[0]) for r in rows)
+        col1 = max(col1, len("Capability"))
+        col2 = max(len(r[1]) for r in rows)
+        col2 = max(col2, len("Status"))
+        col3 = max(len(r[2]) for r in rows) if any(r[2] for r in rows) else len("Notes")
+        col3 = max(col3, len("Notes"))
+
+        pad = 1  # one space padding on each side
+
+        def rule(left: str, mid: str, right: str, fill: str) -> str:
+            return (
+                left
+                + fill * (col1 + 2 * pad)
+                + mid
+                + fill * (col2 + 2 * pad)
+                + mid
+                + fill * (col3 + 2 * pad)
+                + right
+            )
+
+        def row_line(c1: str, c2: str, c3: str) -> str:
+            return (
+                "\u2551"
+                + f" {c1:<{col1}} "
+                + "\u2551"
+                + f" {c2:<{col2}} "
+                + "\u2551"
+                + f" {c3:<{col3}} "
+                + "\u2551"
+            )
+
+        top    = rule("\u2554", "\u2566", "\u2557", "\u2550")
+        header = row_line("Capability", "Status", "Notes")
+        sep    = rule("\u2560", "\u256c", "\u2563", "\u2550")
+        bottom = rule("\u255a", "\u2569", "\u255d", "\u2550")
+
+        # Title banner
+        title_inner = col1 + 2 * pad + 1 + col2 + 2 * pad + 1 + col3 + 2 * pad
+        title_text = "SPYDER CAPABILITY REPORT"
+        title_line = "\u2551" + title_text.center(title_inner) + "\u2551"
+        banner_top    = "\u2554" + "\u2550" * title_inner + "\u2557"
+        banner_bottom = "\u255a" + "\u2550" * title_inner + "\u255d"
+
+        self.logger.info(banner_top)
+        self.logger.info(title_line)
+        self.logger.info(banner_bottom)
+        self.logger.info(top)
+        self.logger.info(header)
+        self.logger.info(sep)
+        for cap, status, notes in rows:
+            self.logger.info(row_line(cap, status, notes))
+        self.logger.info(bottom)
+        self.logger.info("")
+
+        # ── one-line warnings for each missing critical capability ─────────────
+        for warning in missing_critical:
+            self.logger.warning("MISSING CRITICAL CAPABILITY: %s", warning)
 
     def _setup_logging(self) -> None:
         """Setup application logging with reduced verbosity to prevent Gateway flooding."""
@@ -473,7 +577,7 @@ class SpyderApplication:
                     self.event_manager = EventManager()
                     self.logger.info("✅ Event manager initialized")
                 except Exception as e:
-                    self.logger.warning(f"Event manager initialization failed: {e}")
+                    self.logger.warning(f"Event manager initialization failed: {e}", exc_info=True)
                     self.event_manager = None
             else:
                 self.logger.info(
@@ -491,10 +595,14 @@ class SpyderApplication:
             self.client = None  # Tradier client (set by dashboard connection)
 
             self.logger.info("✅ Core systems initialized successfully!")
+
+            # Log which optional capabilities are available before the event loop starts
+            self._log_capability_report()
+
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Core system initialization failed: {e}")
+            self.logger.error(f"❌ Core system initialization failed: {e}", exc_info=True)
             return False
 
     def _initialize_broker_connection(self) -> bool:
@@ -540,7 +648,7 @@ class SpyderApplication:
                 try:
                     self.main_window = SpyderTradingDashboard()
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to create dashboard: {e}")
+                    self.logger.error(f"❌ Failed to create dashboard: {e}", exc_info=True)
                     import traceback
 
                     self.logger.debug(traceback.format_exc())
@@ -565,14 +673,14 @@ class SpyderApplication:
                     )
                     self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}")
+                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}", exc_info=True)
             elif has_working_dashboard and WorkingSpyderDashboard:
                 self.logger.info("🚀 Starting Working Trading Dashboard (fallback)...")
 
                 try:
                     self.main_window = WorkingSpyderDashboard()
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to create working dashboard: {e}")
+                    self.logger.error(f"❌ Failed to create working dashboard: {e}", exc_info=True)
                     import traceback
 
                     self.logger.debug(traceback.format_exc())
@@ -591,7 +699,7 @@ class SpyderApplication:
                     )
                     self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}")
+                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}", exc_info=True)
             else:
                 self.logger.info(
                     "⚠️ Trading Dashboard not available, using test window..."
@@ -605,7 +713,7 @@ class SpyderApplication:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ GUI startup failed: {e}")
+            self.logger.error(f"❌ GUI startup failed: {e}", exc_info=True)
             import traceback
 
             self.logger.debug(traceback.format_exc())
@@ -621,6 +729,19 @@ class SpyderApplication:
         try:
             self.logger.info("🚀 Starting SPYDER with PROVEN race condition fix...")
             self.running = True
+
+            # Fail-fast: validate all required environment variables before doing
+            # anything else.  validate_startup_config() raises ConfigurationError
+            # with a complete list of problems if anything is wrong.
+            try:
+                from config.config import validate_startup_config, ConfigurationError
+                validate_startup_config()
+                self.logger.info("✅ Startup configuration validated successfully")
+            except ImportError:
+                self.logger.warning("⚠️ config.config not importable — skipping startup config validation")
+            except Exception as cfg_err:  # ConfigurationError or anything unexpected
+                self.logger.error("❌ Startup configuration invalid:\n%s", cfg_err)
+                return 1
 
             # Initialize core systems (includes broker connection with race condition fix)
             if not self.initialize_core_systems():
@@ -643,13 +764,13 @@ class SpyderApplication:
                 self.logger.info("🖥️ Running in headless mode...")
                 try:
                     while self.running and not self.shutdown_requested:
-                        time.sleep(1.0)
+                        time.sleep(1.0)  # thread-safe: time.sleep() intentional
                 except KeyboardInterrupt:
                     self.logger.info("Received keyboard interrupt")
                 return 0
 
         except Exception as e:
-            self.logger.error(f"❌ Application runtime error: {e}")
+            self.logger.error(f"❌ Application runtime error: {e}", exc_info=True)
             import traceback
 
             self.logger.debug(traceback.format_exc())
@@ -670,14 +791,14 @@ class SpyderApplication:
                     self.client.disconnect()
                     self.logger.info("🔌 Broker disconnected")
                 except Exception as e:
-                    self.logger.warning(f"Broker disconnect error: {e}")
+                    self.logger.warning(f"Broker disconnect error: {e}", exc_info=True)
 
             # Cleanup GUI
             if self.gui_app:
                 try:
                     self.gui_app.quit()
                 except Exception as e:
-                    self.logger.warning(f"GUI cleanup error: {e}")
+                    self.logger.warning(f"GUI cleanup error: {e}", exc_info=True)
 
             self.logger.info("✅ Shutdown complete")
 
@@ -698,7 +819,7 @@ def main() -> int:
         "OK" if has_qt else "MISSING",
     )
 
-    # Broker: Tradier API (SpyderB40_TradierClient) — IB Gateway removed
+    # Broker: Tradier API (SpyderB40_TradierClient) — legacy broker removed
 
     # Parse command line arguments
     import argparse

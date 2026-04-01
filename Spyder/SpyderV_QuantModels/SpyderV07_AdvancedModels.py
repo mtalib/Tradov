@@ -65,12 +65,7 @@ from numba import jit
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-try:
-    from SpyderB_DataBroker.SpyderB08_MultiClientDataManager import (
-        MultiClientDataManager,
-    )
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 try:
     from SpyderV_QuantModels.SpyderV06_VolatilityEngine import (
@@ -279,7 +274,7 @@ class SpyderAdvancedModelsEngine:
     def __init__(
         self,
         config: dict[str, Any] = None,
-        data_manager: MultiClientDataManager = None,
+        data_manager: Any = None,
         volatility_engine: SpyderVolatilityEngine = None,
     ):
         """Initialize advanced models engine"""
@@ -374,7 +369,7 @@ class SpyderAdvancedModelsEngine:
             return results
 
         except Exception as e:
-            self.logger.error(f"Market analysis failed: {e}")
+            self.logger.error(f"Market analysis failed: {e}", exc_info=True)
             self.error_handler.handle_error(e, {"method": "analyze_market_conditions"})
             return self._create_empty_results(f"Analysis error: {str(e)}")
 
@@ -432,7 +427,7 @@ class SpyderAdvancedModelsEngine:
             )
 
         except Exception as e:
-            self.logger.error(f"Market data update failed: {e}")
+            self.logger.error(f"Market data update failed: {e}", exc_info=True)
             self.error_handler.handle_error(e, {"method": "update_market_data"})
 
     # ==========================================================================
@@ -525,7 +520,7 @@ class SpyderAdvancedModelsEngine:
         except Exception as e:
             self.validation_status = ModelValidationStatus.VALIDATION_FAILED
             self.calibration_errors.append(str(e))
-            self.logger.error(f"Merton calibration error: {e}")
+            self.logger.error(f"Merton calibration error: {e}", exc_info=True)
             return False
 
     async def _calculate_model_performance(self, returns: np.ndarray, dt: float):
@@ -566,7 +561,7 @@ class SpyderAdvancedModelsEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Performance calculation failed: {e}")
+            self.logger.error(f"Performance calculation failed: {e}", exc_info=True)
             self.model_performance = {"calibration_success": False, "error": str(e)}
 
     # ==========================================================================
@@ -624,7 +619,7 @@ class SpyderAdvancedModelsEngine:
                 self.jump_history = self.jump_history[-1000:]
 
         except Exception as e:
-            self.logger.error(f"Jump detection failed: {e}")
+            self.logger.error(f"Jump detection failed: {e}", exc_info=True)
 
     async def _analyze_recent_jumps(self) -> list[JumpEvent]:
         """Analyze recent jump events"""
@@ -641,7 +636,7 @@ class SpyderAdvancedModelsEngine:
             return recent_jumps[:50]  # Return top 50 most significant
 
         except Exception as e:
-            self.logger.error(f"Recent jumps analysis failed: {e}")
+            self.logger.error(f"Recent jumps analysis failed: {e}", exc_info=True)
             return []
 
     # ==========================================================================
@@ -731,7 +726,7 @@ class SpyderAdvancedModelsEngine:
             return assessment
 
         except Exception as e:
-            self.logger.error(f"Crisis assessment failed: {e}")
+            self.logger.error(f"Crisis assessment failed: {e}", exc_info=True)
             return CrisisAssessment(
                 crisis_level=CrisisLevel.NORMAL,
                 crisis_probability=NORMAL_CRISIS_PROB,
@@ -773,7 +768,7 @@ class SpyderAdvancedModelsEngine:
             return min(0.95, max(0.01, crisis_prob))  # Clamp between 1% and 95%
 
         except Exception as e:
-            self.logger.error(f"Crisis probability calculation failed: {e}")
+            self.logger.error(f"Crisis probability calculation failed: {e}", exc_info=True)
             return NORMAL_CRISIS_PROB
 
     def _calculate_max_drawdown(self, returns: np.ndarray) -> float:
@@ -875,7 +870,7 @@ class SpyderAdvancedModelsEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Volatility forecast failed: {e}")
+            self.logger.error(f"Volatility forecast failed: {e}", exc_info=True)
             return {"error": str(e)}
 
     # ==========================================================================
@@ -945,7 +940,7 @@ class SpyderAdvancedModelsEngine:
             return recommendations
 
         except Exception as e:
-            self.logger.error(f"Strategy recommendations failed: {e}")
+            self.logger.error(f"Strategy recommendations failed: {e}", exc_info=True)
             return [f"Error generating recommendations: {str(e)}"]
 
     # ==========================================================================
@@ -1042,7 +1037,7 @@ class SpyderAdvancedModelsEngine:
             self.logger.info(f"Generated {n_points} synthetic data points")
 
         except Exception as e:
-            self.logger.error(f"Synthetic data generation failed: {e}")
+            self.logger.error(f"Synthetic data generation failed: {e}", exc_info=True)
 
     # ==========================================================================
     # PUBLIC STATUS AND REPORTING METHODS
@@ -1127,7 +1122,7 @@ class SpyderAdvancedModelsEngine:
 # ==============================================================================
 def create_advanced_models_engine(
     config: dict[str, Any] = None,
-    data_manager: MultiClientDataManager = None,
+    data_manager: Any = None,
     volatility_engine: SpyderVolatilityEngine = None,
 ) -> SpyderAdvancedModelsEngine:
     """Factory function to create SpyderAdvancedModelsEngine."""

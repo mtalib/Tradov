@@ -40,13 +40,9 @@ from apscheduler.triggers.cron import CronTrigger
 
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
-    from SpyderS_Signals.SpyderS02_DIXDemo import SpyderDIXDemo
-    from SpyderS_Signals.SpyderS03_DIXVisualizer import SpyderDIXVisualizer
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-    from SpyderZ_Communication.SpyderZ01_EmailSender import SpyderEmailSender
 except ImportError:
-    # Fallback for standalone operation
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     SpyderLogger = logging
 
@@ -54,9 +50,59 @@ except ImportError:
         def handle_error(self, error, code):
             logging.error(f"{code}: {error}")
 
+# SpyderS02_DIXDemo and SpyderS03_DIXVisualizer were never implemented.
+# Demo mode falls back to SpyderDIXCalculator; visualizer stubs log instead of rendering.
+
+class _DIXVisualizerStub:
+    """Stub visualizer used when SpyderS03_DIXVisualizer is unavailable."""
+
+    def __init__(self, use_demo: bool = True):
+        self._log = logging.getLogger(__name__)
+
+    def initialize(self) -> bool:
+        self._log.info("DIX visualizer unavailable — using stub")
+        return True
+
+    def create_summary_dashboard(self, results) -> None:
+        self._log.info("DIX summary dashboard skipped (visualizer not available)")
+        return None
+
+    def create_time_series_chart(self, history_data) -> None:
+        self._log.info("DIX time-series chart skipped (visualizer not available)")
+        return None
+
+    def generate_analysis_report(self, results) -> None:
+        self._log.info("DIX analysis report skipped (visualizer not available)")
+        return None
+
+SpyderDIXVisualizer = _DIXVisualizerStub
+
+# Email: wire to J02 EmailNotifier; fall back to logging stub if unavailable.
+try:
+    from Spyder.SpyderJ_Alerts.SpyderJ02_EmailNotifier import EmailNotifier as _EmailNotifier
+
     class SpyderEmailSender:
-        def send_email(self, subject, body, attachments=None):
-            logging.info(f"Email: {subject}\n{body}")
+        """Thin adapter so S02 can call send_email(subject, body, recipients)."""
+
+        def __init__(self):
+            self._notifier = _EmailNotifier()
+
+        def send_email(self, subject: str, body: str, recipients: list | None = None) -> None:
+            try:
+                self._notifier.send_custom_notification(
+                    recipients=recipients or [],
+                    subject=subject,
+                    body=body,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "DIX email send failed: %s", exc, exc_info=True
+                )
+
+except ImportError:
+    class SpyderEmailSender:
+        def send_email(self, subject: str, body: str, recipients: list | None = None) -> None:
+            logging.getLogger(__name__).info("Email [%s]: %s", subject, body[:120])
 
 
 # ==============================================================================
@@ -187,10 +233,8 @@ class SpyderDIXScheduler:
         )
 
         # Initialize components
-        if self.config.use_demo:
-            self.calculator = SpyderDIXDemo()
-        else:
-            self.calculator = SpyderDIXCalculator()
+        # Demo mode reuses the real calculator (SpyderDIXDemo was never implemented)
+        self.calculator = SpyderDIXCalculator()
 
         self.visualizer = SpyderDIXVisualizer(use_demo=self.config.use_demo)
         self.email_sender = SpyderEmailSender()
@@ -665,8 +709,11 @@ Market Outlook:
                 body += f"{calc.dix_percentage:.2f}% ({calc.sentiment})\n"
 
         # Get report path
-        report_path = f"/home/ubuntu/spyder_dix_charts/dix_analysis_report_{
-            result.timestamp.strftime('%Y%m%d')}.md"
+        _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+        _charts_dir = os.path.join(_data_dir, "dix_charts")
+        os.makedirs(_charts_dir, exist_ok=True)
+        report_path = os.path.join(_charts_dir, f"dix_analysis_report_{
+            result.timestamp.strftime('%Y%m%d')}.md")
 
         self.email_sender.send_email(
             subject=subject,
@@ -758,7 +805,9 @@ Today's Trading Bias:
                 "execution_time": result.execution_time,
             }
 
-            filename = f"/home/ubuntu/dix_history_{result.timestamp.strftime('%Y%m%d')}.json"
+            _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+            os.makedirs(_data_dir, exist_ok=True)
+            filename = os.path.join(_data_dir, f"dix_history_{result.timestamp.strftime('%Y%m%d')}.json")
             with open(filename, "w") as f:
                 json.dump(data, f, indent=2)
 

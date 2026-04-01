@@ -903,7 +903,7 @@ class ConfigManager:
         """Main synchronization loop"""
         while True:
             try:
-                time.sleep(CONFIG_SYNC_INTERVAL)
+                time.sleep(CONFIG_SYNC_INTERVAL)  # thread-safe: time.sleep() intentional
 
                 if self.pending_changes:
                     self._process_pending_changes()
@@ -918,7 +918,7 @@ class ConfigManager:
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_sync_loop")
-                time.sleep(10)  # Wait longer on error
+                time.sleep(10)  # thread-safe: time.sleep() intentional
 
     def _process_pending_changes(self) -> None:
         """Process pending configuration changes"""

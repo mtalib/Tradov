@@ -229,6 +229,7 @@ class FactorDataProvider:
         self.running = False
         self.factor_models = {}
         self.factor_cache = {}
+        self._factor_cache_maxsize = 200
         self.quality_reports = deque(maxlen=100)
         self.calculation_history = defaultdict(list)
 
@@ -287,7 +288,7 @@ class FactorDataProvider:
             # Bloomberg, Refinitiv, etc. would go here
 
         except Exception as e:
-            self.logger.warning(f"Provider initialization warning: {e}")
+            self.logger.warning(f"Provider initialization warning: {e}", exc_info=True)
 
     def _initialize_factor_models(self) -> None:
         """Initialize factor model structures."""
@@ -329,7 +330,7 @@ class FactorDataProvider:
                 self.logger.info("Connected to SpyderC21_FSeriesIntegrationHub")
 
         except Exception as e:
-            self.logger.warning(f"External connection initialization failed: {e}")
+            self.logger.warning(f"External connection initialization failed: {e}", exc_info=True)
 
     # ==============================================================================
     # CORE FACTOR DATA METHODS
@@ -453,6 +454,13 @@ class FactorDataProvider:
 
                 # Cache the result
                 if self.enable_caching:
+                    if len(self.factor_cache) >= self._factor_cache_maxsize:
+                        # Evict oldest entry by timestamp
+                        oldest_key = min(
+                            self.factor_cache,
+                            key=lambda k: self.factor_cache[k]['timestamp'],
+                        )
+                        del self.factor_cache[oldest_key]
                     self.factor_cache[cache_key] = {
                         'data': factor_data,
                         'timestamp': datetime.now()
@@ -545,7 +553,7 @@ class FactorDataProvider:
                 return fred_data
 
             except Exception as e:
-                self.logger.warning(f"FRED API error for {series_id}: {e}")
+                self.logger.warning(f"FRED API error for {series_id}: {e}", exc_info=True)
                 # Generate synthetic factor data for demonstration
                 return self._generate_synthetic_factor_data(factor_name, start_date, end_date)
 
@@ -1045,7 +1053,7 @@ class FactorDataProvider:
                         else:
                             self.logger.warning(f"Failed to update {model_name} factor data")
                     except Exception as e:
-                        self.logger.error(f"Error updating {model_name}: {e}")
+                        self.logger.error(f"Error updating {model_name}: {e}", exc_info=True)
 
                 self.logger.info("Factor data update completed")
 

@@ -31,7 +31,10 @@ line-length = 100
 #   UP   = pyupgrade (modern Python idioms)
 #   SIM  = flake8-simplify
 #   ANN  = flake8-annotations (type hint enforcement)
-select = ["E", "W", "F", "T20", "B", "UP", "SIM"]
+#   F403 = wildcard imports (from X import *)
+#   F405 = may be undefined from wildcard import
+#   BLE  = blind exception (except Exception)
+select = ["E", "W", "F", "F403", "F405", "T20", "B", "BLE", "UP", "SIM"]
 
 # --- Rules currently ignored (large pre-existing violations, fix incrementally) ---
 ignore = [
@@ -39,6 +42,7 @@ ignore = [
     "E402",   # module-level import not at top — some modules do deferred imports
     "B008",   # do not perform function calls in default argument values
     "B904",   # raise ... from err — not yet consistently applied
+    "BLE001", # blind exception — being fixed incrementally (64+ instances)
     "SIM102", # use a single if statement — readability preference
     "SIM105", # use contextlib.suppress — style preference
     "SIM108", # ternary operator — readability preference

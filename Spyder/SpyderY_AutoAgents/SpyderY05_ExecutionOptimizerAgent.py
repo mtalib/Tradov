@@ -29,6 +29,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -173,22 +174,22 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         if X07_AVAILABLE:
             try:
                 self._x07_agent = SpyderX07_ExecutionStrategyAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize X07 ExecutionStrategyAgent: {e}")
 
         self._tradier: Any | None = None
         if TRADIER_AVAILABLE:
             try:
                 self._tradier = SpyderB40_TradierClient()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize TradierClient: {e}")
 
         self._order_mgr: Any | None = None
         if ORDER_MGR_AVAILABLE:
             try:
                 self._order_mgr = SpyderB02_OrderManager()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize OrderManager: {e}")
 
     # ==========================================================================
     # LIFECYCLE
@@ -399,7 +400,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
 
         except Exception as e:
             plan.status = "failed"
-            self.logger.error(f"Order submission failed: {e}")
+            self.logger.error(f"Order submission failed: {e}", exc_info=True)
 
     def _monitor_active_orders(self) -> None:
         """Check status of active orders."""
@@ -420,8 +421,8 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                                 / plan.limit_price * 10000
                             )
                         filled_orders.append(order_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.error(f"Failed to poll order status for {order_id}: {e}", exc_info=True)
 
         # Remove filled orders from active tracking
         for order_id in filled_orders:
@@ -495,8 +496,8 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                     self._account_value = getattr(
                         account, "total_equity", 0.0
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch account balance: {e}", exc_info=True)
 
     # ==========================================================================
     # MESSAGE HANDLER

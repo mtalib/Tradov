@@ -247,7 +247,7 @@ class SpyderX05_MLResearchAgent:
                 self.ollama_client = ollama
                 self.logger.info(f"Ollama initialized with model: {self.model_name}")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error(f"Failed to connect to Ollama: {e}", exc_info=True)
                 self.logger.info("Agent will work with reduced AI capabilities")
 
         # Model storage
@@ -418,7 +418,7 @@ class SpyderX05_MLResearchAgent:
                 )
                 results[model_type.value] = performance
             except Exception as e:
-                self.logger.error(f"Error testing {model_type.value}: {e}")
+                self.logger.error(f"Error testing {model_type.value}: {e}", exc_info=True)
 
         # Find best model
         best_model = max(results.items(), key=lambda x: x[1]['score'])[0]
@@ -808,7 +808,7 @@ class SpyderX05_MLResearchAgent:
             return model_id
 
         except Exception as e:
-            self.logger.error(f"Error training model: {e}")
+            self.logger.error(f"Error training model: {e}", exc_info=True)
             return None
 
     def _create_model(self, model_type: ModelType) -> Any:
@@ -869,7 +869,7 @@ class SpyderX05_MLResearchAgent:
             return prediction, probability
 
         except Exception as e:
-            self.logger.error(f"Error making prediction: {e}")
+            self.logger.error(f"Error making prediction: {e}", exc_info=True)
             return 0, None
 
     def _calculate_confidence(
@@ -999,7 +999,7 @@ class SpyderX05_MLResearchAgent:
             return {'accuracy': accuracy}
 
         except Exception as e:
-            self.logger.error(f"Error retraining model {model_id}: {e}")
+            self.logger.error(f"Error retraining model {model_id}: {e}", exc_info=True)
             return {}
 
     def _update_model_performance(self, model_id: str):
@@ -1075,7 +1075,7 @@ class SpyderX05_MLResearchAgent:
             }
 
         except Exception as e:
-            self.logger.error(f"Error testing {model_type.value}: {e}")
+            self.logger.error(f"Error testing {model_type.value}: {e}", exc_info=True)
             return {'score': 0.0, 'std': 0.0, 'scores': []}
 
     def _generate_research_insights(
@@ -1177,7 +1177,7 @@ Provide a brief, clear explanation of what this prediction means for a trader.""
             return response['response'].strip()
 
         except Exception as e:
-            self.logger.error(f"Error getting prediction explanation: {e}")
+            self.logger.error(f"Error getting prediction explanation: {e}", exc_info=True)
             return f"{task.value} prediction: {prediction}"
 
     async def _get_ai_research_plan(
@@ -1210,7 +1210,7 @@ Suggest which ML models and features to test. Format as JSON:
             return self._parse_json_response(response['response'])
 
         except Exception as e:
-            self.logger.error(f"Error getting AI research plan: {e}")
+            self.logger.error(f"Error getting AI research plan: {e}", exc_info=True)
             return {'models': list(ModelType), 'features': []}
 
     async def _get_ai_model_recommendation(
@@ -1252,7 +1252,7 @@ Respond with just the model type name."""
             return ModelType.RANDOM_FOREST  # Default
 
         except Exception as e:
-            self.logger.error(f"Error getting AI model recommendation: {e}")
+            self.logger.error(f"Error getting AI model recommendation: {e}", exc_info=True)
             return ModelType.RANDOM_FOREST
 
     async def _get_ai_research_recommendations(
@@ -1307,7 +1307,7 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
             return recommendations[:5]  # Max 5 recommendations
 
         except Exception as e:
-            self.logger.error(f"Error getting AI research recommendations: {e}")
+            self.logger.error(f"Error getting AI research recommendations: {e}", exc_info=True)
             return self._get_basic_recommendations(results)
 
     def _parse_json_response(self, response: str) -> dict[str, Any]:
@@ -1318,8 +1318,8 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
                 end = response.rfind('}') + 1
                 json_str = response[start:end]
                 return json.loads(json_str)
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"Failed to parse JSON from LLM response: {e}")
 
         return {}
 
@@ -1350,7 +1350,7 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
                 self.active_models[model_id] = model
                 self.logger.info(f"Loaded model {model_id}")
             except Exception as e:
-                self.logger.error(f"Error loading model {model_path}: {e}")
+                self.logger.error(f"Error loading model {model_path}: {e}", exc_info=True)
 
     def clear_history(self):
         """Clear experiment history."""

@@ -104,6 +104,28 @@ DATABENTO_CONFIG = {
 }
 
 # ==============================================================================
+# MASSIVE API CONFIGURATION (formerly Polygon.io, rebranded Oct 2025)
+# ==============================================================================
+MASSIVE_CONFIG = {
+    "api_key": os.environ.get("MASSIVE_API_KEY", ""),
+
+    # REST rate limit — Massive free tier = 5 req/s, paid = unlimited
+    "rest_requests_per_second": float(os.environ.get("MASSIVE_REST_RPS", "3.0")),
+
+    # WebSocket reconnection settings
+    "max_reconnect_attempts": 10,
+    "reconnect_base_delay": 2.0,
+    "max_reconnect_delay": 60.0,
+
+    # Default underlyings to stream and scan
+    "default_underlyings": os.environ.get("MASSIVE_UNDERLYINGS", "SPY").split(","),
+
+    # WebSocket channel subscriptions
+    "stream_quotes": os.environ.get("MASSIVE_STREAM_QUOTES", "true").lower() == "true",
+    "stream_trades": os.environ.get("MASSIVE_STREAM_TRADES", "true").lower() == "true",
+}
+
+# ==============================================================================
 # TRADING MODE CONFIGURATION
 # ==============================================================================
 TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
@@ -112,8 +134,21 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento (Tradier quotes for testing)
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento | tradier | massive
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
+
+# Tradier API environment — controls which Tradier endpoint is used for BOTH
+# market-data quotes and order routing.  Decoupled from TRADING_MODE so that
+# paper mode can consume real production quotes while still simulating fills.
+#
+#   "live"    → api.tradier.com    (real-time quotes, live order execution)
+#   "sandbox" → sandbox.tradier.com (simulated fills, delayed/fake data)
+#
+# Default: "live" when TRADING_MODE=live, otherwise "sandbox".
+# Override example:  TRADING_MODE=paper TRADIER_ENVIRONMENT=live
+#   → paper trading with real Tradier market data.
+_tradier_env_default = "live" if TRADING_MODE == "live" else "sandbox"
+TRADIER_ENVIRONMENT = os.environ.get("TRADIER_ENVIRONMENT", _tradier_env_default)
 
 # ==============================================================================
 # TRADING CONFIGURATION
@@ -270,8 +305,11 @@ def get_active_config():
                 "after verifying you want to trade with real money."
             )
 
-    # Determine Tradier URL based on mode
-    if mode == "live":
+    # Determine Tradier URL from TRADIER_ENVIRONMENT, not from TRADING_MODE.
+    # This lets paper mode use real Tradier data (TRADIER_ENVIRONMENT=live) while
+    # still routing orders through simulated execution.
+    tradier_env = os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)
+    if tradier_env == "live":
         tradier_url = TRADIER_CONFIG["live_url"]
     else:
         tradier_url = TRADIER_CONFIG["sandbox_url"]
@@ -298,10 +336,19 @@ def validate_config():
     if not TRADIER_CONFIG["account_id"]:
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
-    # Check market data configuration (Databento)
+    # Check market data configuration
     if DATA_PROVIDER == "databento":
         if not DATABENTO_CONFIG["api_key"]:
             errors.append("DATABENTO_API_KEY not set in .env")
+    elif DATA_PROVIDER == "massive":
+        if not MASSIVE_CONFIG["api_key"]:
+            errors.append("MASSIVE_API_KEY not set in .env")
+    elif DATA_PROVIDER == "tradier":
+        pass  # Tradier credentials already checked above
+    else:
+        errors.append(
+            f"Invalid DATA_PROVIDER: {DATA_PROVIDER}. Must be 'databento', 'massive', or 'tradier'"
+        )
 
     # Check trading mode
     mode = os.environ.get("TRADING_MODE", "")
@@ -323,10 +370,12 @@ def validate_startup_config() -> None:
     operator can fix them all at once.
 
     Required variables (always):
-        - ``TRADIER_API_KEY``  — broker authentication
-        - ``TRADIER_ACCOUNT_ID`` — account to trade in
-        - ``TRADING_MODE``     — must be ``sandbox``, ``paper``, or ``live``
-        - ``DATABENTO_API_KEY`` — market data (required when DATA_PROVIDER=databento)
+        - ``TRADIER_API_KEY``       — broker authentication
+        - ``TRADIER_ACCOUNT_ID``    — account to trade in
+        - ``TRADING_MODE``          — must be ``sandbox``, ``paper``, or ``live``
+        - ``TRADIER_ENVIRONMENT``   — ``live`` or ``sandbox`` (Tradier API endpoint;
+                                       independent of TRADING_MODE)
+        - ``DATABENTO_API_KEY``     — market data (required when DATA_PROVIDER=databento)
 
     Required variables (live mode only):
         - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
@@ -355,9 +404,14 @@ def validate_startup_config() -> None:
     if provider == "databento":
         if not DATABENTO_CONFIG["api_key"]:
             problems.append("DATABENTO_API_KEY is not set (required when DATA_PROVIDER=databento)")
+    elif provider == "massive":
+        if not MASSIVE_CONFIG["api_key"]:
+            problems.append("MASSIVE_API_KEY is not set (required when DATA_PROVIDER=massive)")
+    elif provider == "tradier":
+        pass  # Tradier credentials already validated above
     else:
         problems.append(
-            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento'"
+            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento', 'massive', or 'tradier'"
         )
 
     # --- Live-trading safety gate --------------------------------------------
@@ -415,16 +469,16 @@ if __name__ != "__main__":
 
 if __name__ == "__main__":
     # Test the configuration when run directly
-    print("Testing Configuration...")
+    _cfg_logger.info("Testing Configuration...")
 
     status = check_api_authentication()
-    print(f"Authentication Status: {status['status']}")
-    print(f"Mode: {status['mode']}")
-    print(f"Execution Provider: {status['execution_provider']}")
-    print(f"Data Provider: {status['data_provider']}")
-    print(f"Message: {status['message']}")
+    _cfg_logger.info(f"Authentication Status: {status['status']}")
+    _cfg_logger.info(f"Mode: {status['mode']}")
+    _cfg_logger.info(f"Execution Provider: {status['execution_provider']}")
+    _cfg_logger.info(f"Data Provider: {status['data_provider']}")
+    _cfg_logger.info(f"Message: {status['message']}")
 
     if status["authenticated"]:
-        print("[OK] Configuration is valid and ready for use")
+        _cfg_logger.info("[OK] Configuration is valid and ready for use")
     else:
-        print("[FAIL] Configuration errors found - check .env file")
+        _cfg_logger.error("[FAIL] Configuration errors found - check .env file")

@@ -62,11 +62,13 @@ INTERNET_TEST_HOSTS = [
     "208.67.222.222"     # OpenDNS
 ]
 
+# Legacy IB_ENDPOINTS — deprecated, retained for backward compatibility.
+# Spyder now uses Tradier REST API; these endpoints are no longer active.
 IB_ENDPOINTS = {
-    "TWS": {"host": "127.0.0.1", "port": 7497},
-    "GATEWAY": {"host": "127.0.0.1", "port": 4001},
-    "PAPER": {"host": "127.0.0.1", "port": 7497}
+    "GATEWAY": {"host": "127.0.0.1", "port": 4001, "deprecated": True},
+    "TWS": {"host": "127.0.0.1", "port": 7496, "deprecated": True},
 }
+
 
 # HTTP test URLs
 HTTP_TEST_URLS = [
@@ -124,7 +126,7 @@ class NetworkUtils:
     Network utilities for connectivity and performance monitoring.
 
     This class provides comprehensive network utilities including internet
-    connectivity checking, IB Gateway validation, latency measurement,
+    connectivity checking, API endpoint validation, latency measurement,
     and network health monitoring for the Spyder trading system.
 
     Attributes:
@@ -184,40 +186,7 @@ class NetworkUtils:
             return self._test_http_connection(timeout)
 
         except Exception as e:
-            self.logger.error(f"Internet connection check failed: {e}")
-            return False
-
-    def check_ib_connection(self, connection_type: str = "GATEWAY") -> bool:
-        """
-        Check Interactive Brokers connection.
-
-        Args:
-            connection_type: Type of IB connection (TWS, GATEWAY, PAPER)
-
-        Returns:
-            bool: True if IB connection is available
-        """
-        try:
-            if connection_type not in IB_ENDPOINTS:
-                self.logger.error(f"Unknown IB connection type: {connection_type}")
-                return False
-
-            endpoint = IB_ENDPOINTS[connection_type]
-            result = self._test_host_connection(
-                endpoint["host"],
-                endpoint["port"],
-                DEFAULT_TIMEOUT
-            )
-
-            if result:
-                self.logger.info(f"IB {connection_type} connection confirmed")
-            else:
-                self.logger.warning(f"IB {connection_type} connection failed")
-
-            return result
-
-        except Exception as e:
-            self.logger.error(f"IB connection check failed: {e}")
+            self.logger.error(f"Internet connection check failed: {e}", exc_info=True)
             return False
 
     # ==========================================================================
@@ -270,7 +239,7 @@ class NetworkUtils:
                 return -1.0
 
         except Exception as e:
-            self.logger.error(f"Latency measurement failed: {e}")
+            self.logger.error(f"Latency measurement failed: {e}", exc_info=True)
             return -1.0
 
     def test_multiple_connections(self, endpoints: list[tuple[str, int]]) -> list[ConnectionTest]:
@@ -309,7 +278,7 @@ class NetworkUtils:
             return results
 
         except Exception as e:
-            self.logger.error(f"Multiple connection test failed: {e}")
+            self.logger.error(f"Multiple connection test failed: {e}", exc_info=True)
             return []
 
     # ==========================================================================
@@ -325,7 +294,6 @@ class NetworkUtils:
         try:
             status = {
                 "internet_connected": self.check_internet_connection(),
-                "ib_gateway_connected": self.check_ib_connection("GATEWAY"),
                 "latency_ms": self.measure_latency(),
                 "timestamp": time.time(),
                 "dns_resolution": self._test_dns_resolution(),
@@ -343,10 +311,9 @@ class NetworkUtils:
             return status
 
         except Exception as e:
-            self.logger.error(f"Network status check failed: {e}")
+            self.logger.error(f"Network status check failed: {e}", exc_info=True)
             return {
                 "internet_connected": False,
-                "ib_gateway_connected": False,
                 "latency_ms": -1.0,
                 "timestamp": time.time(),
                 "error": str(e)
@@ -371,14 +338,12 @@ class NetworkUtils:
                     # Log significant changes
                     if not status.get("internet_connected", False):
                         self.logger.warning("Internet connection lost")
-                    elif not status.get("ib_gateway_connected", False):
-                        self.logger.warning("IB Gateway connection lost")
 
-                    time.sleep(interval)
+                    time.sleep(interval)  # thread-safe: time.sleep() intentional
 
                 except Exception as e:
-                    self.logger.error(f"Network monitoring error: {e}")
-                    time.sleep(interval)
+                    self.logger.error(f"Network monitoring error: {e}", exc_info=True)
+                    time.sleep(interval)  # thread-safe: time.sleep() intentional
 
         monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         monitor_thread.start()
@@ -439,7 +404,7 @@ class NetworkUtils:
                     continue
             return False
         except (requests.RequestException, OSError) as e:
-            self.logger.warning(f"Internet connectivity check failed: {e}")
+            self.logger.warning(f"Internet connectivity check failed: {e}", exc_info=True)
             return False
 
 # ==============================================================================
@@ -514,9 +479,6 @@ if __name__ == "__main__":
 
     # Test internet connection
     internet_ok = net_utils.check_internet_connection()
-
-    # Test IB connections
-    gateway_ok = net_utils.check_ib_connection("GATEWAY")
 
     # Test latency
     latency = net_utils.measure_latency("8.8.8.8")

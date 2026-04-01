@@ -677,7 +677,7 @@ class CoordinatorCluster:
                     self.logger.warning("Primary coordinator unhealthy, initiating failover")
                     self._perform_failover()
 
-                time.sleep(5)
+                time.sleep(5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Health monitoring error: {e}")
@@ -888,6 +888,7 @@ class TradingCoordinator:
 
         # Thread control
         self._running = False
+        self._stop_event = threading.Event()
         self._threads = []
         self._lock = threading.RLock()
 
@@ -995,6 +996,7 @@ class TradingCoordinator:
         with self._lock:
             self.state = CoordinatorState.SHUTTING_DOWN
             self._running = False
+            self._stop_event.set()
 
         # Save final state
         self._save_state()
@@ -1098,7 +1100,8 @@ class TradingCoordinator:
                                 info.status = EngineStatus.UNRESPONSIVE
                                 self._handle_engine_failure(engine_id)
 
-                time.sleep(HEALTH_CHECK_INTERVAL)
+                if self._stop_event.wait(timeout=HEALTH_CHECK_INTERVAL):
+                    break
 
             except Exception as e:
                 self.logger.error(f"Health check error: {e}")
@@ -1107,7 +1110,8 @@ class TradingCoordinator:
         """Periodically save coordinator state."""
         while self._running:
             try:
-                time.sleep(STATE_SAVE_INTERVAL)
+                if self._stop_event.wait(timeout=STATE_SAVE_INTERVAL):
+                    break
 
                 if self.is_primary:
                     self._save_state()
@@ -1132,7 +1136,8 @@ class TradingCoordinator:
                         self.logger.warning(f"Removing old command: {cmd_id}")
                         del self.pending_commands[cmd_id]
 
-                time.sleep(60)  # Run every minute
+                if self._stop_event.wait(timeout=60):
+                    break
 
             except Exception as e:
                 self.logger.error(f"Cleanup error: {e}")
@@ -1158,7 +1163,8 @@ class TradingCoordinator:
                         update = self.backup_socket.recv_json()
                         self._process_backup_update(update)
 
-                time.sleep(BACKUP_SYNC_INTERVAL)
+                if self._stop_event.wait(timeout=BACKUP_SYNC_INTERVAL):
+                    break
 
             except Exception as e:
                 self.logger.error(f"Backup sync error: {e}")

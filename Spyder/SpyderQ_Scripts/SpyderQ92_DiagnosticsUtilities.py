@@ -51,7 +51,8 @@ except ImportError as e:
 # LOCAL IMPORTS
 # ==============================================================================
 # Add Spyder home to path if not already present
-SPYDER_HOME = os.environ.get("SPYDER_HOME", "/home/adam/Projects/Spyder")
+_DEFAULT_SPYDER_HOME = str(Path(__file__).resolve().parents[2])
+SPYDER_HOME = os.environ.get("SPYDER_HOME", _DEFAULT_SPYDER_HOME)
 if SPYDER_HOME not in sys.path:
     sys.path.insert(0, SPYDER_HOME)
 

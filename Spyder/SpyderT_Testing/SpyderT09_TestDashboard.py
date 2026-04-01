@@ -2507,9 +2507,9 @@ class SpyderTestDashboard(QMainWindow):
         """Handle start system button click"""
         self.ib_connected = True
         self.update_connection_status()
-        self.add_system_log("System started - Connected to IB Gateway")
+        self.add_system_log("System started - Connected to Tradier API")
         self.add_automation_log("System started - Autonomous AI Engine initializing")
-        print("Starting IB Gateway connection...")
+        print("Starting broker API connection...")
 
     def stop_system(self):
         """Handle stop system button click"""
@@ -2517,7 +2517,7 @@ class SpyderTestDashboard(QMainWindow):
         self.update_connection_status()
         self.add_system_log("System stopped - Disconnected from IB")
         self.add_automation_log("System stopped - Autonomous AI Engine shutdown")
-        print("Stopping IB Gateway connection...")
+        print("Stopping broker API connection...")
 
     def emergency_close(self):
         """Handle emergency close button click"""
@@ -2799,7 +2799,7 @@ class SpyderTestDashboard(QMainWindow):
 
         # Add initial system logs
         self.add_system_log("System initialized successfully")
-        self.add_system_log("Connected to IB Gateway")
+        self.add_system_log("Connected to Tradier API")
         self.add_system_log("Market data subscription active")
         self.add_system_log("Strategy engine started")
         self.add_system_log("Risk manager active")

@@ -266,11 +266,6 @@ class TestU23MemoryDataclasses:
         # psutil is installed in the test environment
         assert u23_mod.PSUTIL_AVAILABLE is True
 
-    def test_ib_gateway_patterns_list(self):
-        patterns = u23_mod.IB_GATEWAY_PATTERNS
-        assert isinstance(patterns, list)
-        assert len(patterns) >= 3
-
 
 # ==============================================================================
 # === U23: SpyderMemoryMonitor — init and config ===
@@ -411,22 +406,6 @@ class TestU23Stats:
         result = self.monitor.get_current_stats()
         assert isinstance(result, dict)
         assert "current_memory_gb" in result
-
-    def test_get_ib_gateway_stats_empty(self):
-        result = self.monitor.get_ib_gateway_stats()
-        assert isinstance(result, list)
-        assert len(result) == 0
-
-    def test_get_ib_gateway_stats_with_process(self):
-        pi = ProcessInfo(
-            pid=9999, name="ibgateway", memory_rss=5e8,
-            memory_percent=2.0, cpu_percent=1.0, status="running",
-            create_time=dt_class.now()
-        )
-        self.monitor.ib_gateway_processes.append(pi)
-        result = self.monitor.get_ib_gateway_stats()
-        assert len(result) == 1
-        assert result[0]["pid"] == 9999
 
     def test_get_recent_alerts_empty(self):
         result = self.monitor.get_recent_alerts()

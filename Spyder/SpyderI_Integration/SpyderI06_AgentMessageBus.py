@@ -686,13 +686,23 @@ class AgentMessageBus:
         try:
             self.persistence_path.mkdir(parents=True, exist_ok=True)
 
-            filename = self.persistence_path / f"{message.id}.pkl"
-            # NOTE: Message persistence uses pickle because Message is a
-            # dataclass with nested Enum/datetime fields and an arbitrary
-            # payload.  TODO: replace with JSON+dataclasses.asdict() once a
-            # canonical Message schema is established.
-            with open(filename, 'wb') as f:
-                pickle.dump(message, f)
+            # Persist message using JSON via the canonical Message.to_json() schema.
+            # Payload fields that are not JSON-serialisable (e.g. numpy arrays,
+            # custom objects) are coerced to strings by the `default=str` fallback
+            # inside Message.to_json() / asdict().  If the JSON path fails for any
+            # reason we fall back to pickle to guarantee delivery persistence.
+            json_filename = self.persistence_path / f"{message.id}.json"
+            try:
+                with open(json_filename, 'w', encoding='utf-8') as f:
+                    f.write(message.to_json())
+            except (TypeError, ValueError) as json_exc:
+                self.logger.debug(
+                    f"JSON serialisation failed for message {message.id} "
+                    f"({json_exc}); falling back to pickle."
+                )
+                pkl_filename = self.persistence_path / f"{message.id}.pkl"
+                with open(pkl_filename, 'wb') as f:
+                    pickle.dump(message, f)
 
         except Exception as e:
             self.logger.error(f"Failed to persist message: {e}")

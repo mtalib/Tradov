@@ -12,7 +12,7 @@
 #
 # Description:
 #     Comprehensive diagnostic tool that checks system dependencies, network
-#     connectivity, IB Gateway configuration, Python environment, and identifies
+#     connectivity, broker API configuration, Python environment, and identifies
 #     common issues. Generates detailed diagnostic reports for troubleshooting.
 # ===============================================================================
 
@@ -187,9 +187,8 @@ check_python_dependencies() {
         
         # Check critical packages
         local packages=(
-            "ibapi"
-            "ib_async"
-            "PyQt6"
+            "requests"
+            "PySide6"
             "pandas"
             "numpy"
             "matplotlib"
@@ -222,7 +221,7 @@ check_network_connectivity() {
     fi
     
     # Check IB ports
-    local ports=("4001:Live Trading" "4002:Paper Trading" "9090:Prometheus")
+    local ports=("443:HTTPS" "9090:Prometheus")
     
     for port_info in "${ports[@]}"; do
         IFS=':' read -r port description <<< "$port_info"
@@ -242,46 +241,30 @@ check_network_connectivity() {
     fi
 }
 
-check_ib_gateway() {
-    print_section "IB Gateway Configuration"
-    
-    # Check IB Gateway installation
-    local ib_paths=(
-        "$HOME/Jts"
-        "$HOME/IBController"
-        "/opt/ibgateway"
-    )
-    
-    local found_gateway=false
-    for path in "${ib_paths[@]}"; do
-        if [ -d "$path" ]; then
-            test_pass "IB Gateway Directory" "- Found at $path"
-            found_gateway=true
-            break
-        fi
-    done
-    
-    if [ "$found_gateway" = false ]; then
-        test_fail "IB Gateway" "Not found in standard locations"
-    fi
-    
-    # Check if IB Gateway is running
-    if pgrep -f "ibgateway" > /dev/null 2>&1; then
-        local pid=$(pgrep -f "ibgateway" | head -1)
-        test_pass "IB Gateway Process" "- Running (PID: $pid)"
-    else
-        test_warn "IB Gateway Process" "Not running"
-    fi
+check_broker_api() {
+    print_section "Broker API Configuration"
     
     # Check configuration file
     if [ -f "$SPYDER_HOME/.env" ]; then
         test_pass "Configuration File" "- .env found"
         
         # Check for required settings
-        if grep -q "IB_GATEWAY_HOST" "$SPYDER_HOME/.env"; then
-            test_pass "IB Gateway Host Config" ""
+        if grep -q "TRADIER_API_KEY" "$SPYDER_HOME/.env"; then
+            test_pass "Tradier API Key" "- Configured"
         else
-            test_warn "IB Gateway Host" "Not configured in .env"
+            test_warn "Tradier API Key" "Not configured in .env"
+        fi
+        
+        if grep -q "TRADIER_ACCOUNT_ID" "$SPYDER_HOME/.env"; then
+            test_pass "Tradier Account ID" "- Configured"
+        else
+            test_warn "Tradier Account ID" "Not configured in .env"
+        fi
+        
+        if grep -q "DATABENTO_API_KEY" "$SPYDER_HOME/.env"; then
+            test_pass "Databento API Key" "- Configured"
+        else
+            test_warn "Databento API Key" "Not configured in .env"
         fi
     else
         test_fail "Configuration File" ".env not found"
@@ -371,9 +354,9 @@ generate_recommendations() {
             echo "  • Create virtual environment: python3 -m venv $VENV_PATH" >> "$REPORT_FILE"
         fi
         
-        if ! pgrep -f "ibgateway" > /dev/null 2>&1; then
-            echo "  • Start IB Gateway before running Spyder"
-            echo "  • Start IB Gateway before running Spyder" >> "$REPORT_FILE"
+        if ! grep -q "TRADIER_API_KEY" "$SPYDER_HOME/.env" 2>/dev/null; then
+            echo "  • Configure Tradier API key in .env for trading"
+            echo "  • Configure Tradier API key in .env for trading" >> "$REPORT_FILE"
         fi
     fi
     
@@ -413,7 +396,7 @@ main() {
     check_spyder_installation
     check_python_dependencies
     check_network_connectivity
-    check_ib_gateway
+    check_broker_api
     check_log_files
     check_permissions
     

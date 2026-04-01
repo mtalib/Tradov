@@ -837,11 +837,11 @@ class InteractionMatrix:
                 with self._lock:
                     self.interactions = [i for i in self.interactions if i.timestamp >= cutoff_time]
 
-                time.sleep(update_interval)
+                time.sleep(update_interval)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {str(e)}")
-                time.sleep(update_interval)
+                time.sleep(update_interval)  # thread-safe: time.sleep() intentional
 
     def _invalidate_cache(self) -> None:
         """Invalidate analysis cache"""

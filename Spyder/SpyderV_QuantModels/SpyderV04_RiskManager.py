@@ -47,10 +47,7 @@ from scipy.stats import norm, skew, kurtosis
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # ==============================================================================
 # MODULE CONFIGURATION
@@ -310,7 +307,7 @@ class SpyderRiskManager:
     """
 
     def __init__(
-        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: Any = None
     ):
         """Initialize consolidated risk manager."""
         self.config = config or {}
@@ -457,7 +454,7 @@ class SpyderRiskManager:
             return risk_metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating portfolio risk: {e}")
+            self.logger.error(f"Error calculating portfolio risk: {e}", exc_info=True)
             self.error_counts["portfolio_risk"] = (
                 self.error_counts.get("portfolio_risk", 0) + 1
             )
@@ -773,7 +770,7 @@ class SpyderRiskManager:
                 result = await self._run_single_stress_test(scenario)
                 results.append(result)
             except Exception as e:
-                self.logger.error(f"Error in stress test {scenario.name}: {e}")
+                self.logger.error(f"Error in stress test {scenario.name}: {e}", exc_info=True)
                 continue
 
         self.stress_results = results
@@ -1132,7 +1129,7 @@ class SpyderRiskManager:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_risk_manager(
-    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: Any = None
 ) -> SpyderRiskManager:
     """Factory function to create SpyderRiskManager."""
     return SpyderRiskManager(config, data_manager)

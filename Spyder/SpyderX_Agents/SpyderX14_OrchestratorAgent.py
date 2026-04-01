@@ -49,22 +49,42 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# Import all agents
-from SpyderX_Agents import (
-    SpyderX01_GreeksAgent,
-    SpyderX02_FlowAgent,
-    SpyderX03_StrategyDirectorAgent,
-    SpyderX04_RiskGuardianAgent,
-    SpyderX05_MLResearchAgent,
-    SpyderX06_BacktestingAgent,
-    SpyderX07_ExecutionStrategyAgent,
-    SpyderX08_PerformanceAnalyticsAgent,
-    SpyderX09_AlertManagerAgent,
-    SpyderX10_QuantModelsAgent,
-    SpyderX11_SentimentAnalysisAgent,
-    SpyderX12_SystemHealthAgent,
-    SpyderX13_MarketAnalysisAgent,
-)
+# Lazy agent-module registry — each X-series agent is loaded on first use so
+# a single failed agent import cannot break the entire orchestrator.
+import importlib as _importlib
+
+_AGENT_MODULE_PATHS: dict[str, str] = {
+    "greeks":       "Spyder.SpyderX_Agents.SpyderX01_GreeksAgent",
+    "flow":         "Spyder.SpyderX_Agents.SpyderX02_FlowAgent",
+    "strategy":     "Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",
+    "risk":         "Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",
+    "ml_research":  "Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",
+    "backtesting":  "Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent",
+    "execution":    "Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent",
+    "performance":  "Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent",
+    "alerts":       "Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",
+    "quant":        "Spyder.SpyderX_Agents.SpyderX10_QuantModelsAgent",
+    "sentiment":    "Spyder.SpyderX_Agents.SpyderX11_SentimentAnalysisAgent",
+    "health":       "Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent",
+    "market":       "Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent",
+}
+_AGENT_MODULE_CACHE: dict[str, Any] = {}
+
+def _load_agent_module(key: str) -> Any:
+    """Import and cache an X-series agent module; return None on failure."""
+    if key not in _AGENT_MODULE_CACHE:
+        path = _AGENT_MODULE_PATHS.get(key)
+        if not path:
+            _AGENT_MODULE_CACHE[key] = None
+            return None
+        try:
+            _AGENT_MODULE_CACHE[key] = _importlib.import_module(path)
+        except Exception as _exc:
+            logging.getLogger(__name__).warning(
+                "X-agent module %r unavailable: %s", path, _exc
+            )
+            _AGENT_MODULE_CACHE[key] = None
+    return _AGENT_MODULE_CACHE[key]
 import logging
 
 # ==============================================================================
@@ -339,24 +359,20 @@ class SpyderX14_OrchestratorAgent:
     # ==========================================================================
 
     def _initialize_agents(self) -> dict[str, Any]:
-        """Initialize all available agents."""
-        agents = {
-            "greeks": SpyderX01_GreeksAgent.get_instance(),
-            "flow": SpyderX02_FlowAgent.get_instance(),
-            "strategy": SpyderX03_StrategyDirectorAgent.get_instance(),
-            "risk": SpyderX04_RiskGuardianAgent.get_instance(),
-            "ml_research": SpyderX05_MLResearchAgent.get_instance(),
-            "backtesting": SpyderX06_BacktestingAgent.get_instance(),
-            "execution": SpyderX07_ExecutionStrategyAgent.get_instance(),
-            "performance": SpyderX08_PerformanceAnalyticsAgent.get_instance(),
-            "alerts": SpyderX09_AlertManagerAgent.get_instance(),
-            "quant": SpyderX10_QuantModelsAgent.get_instance(),
-            "sentiment": SpyderX11_SentimentAnalysisAgent.get_instance(),
-            "health": SpyderX12_SystemHealthAgent.get_instance(),
-            "market": SpyderX13_MarketAnalysisAgent.get_instance(),
-        }
-
-        return {k: v for k, v in agents.items() if v is not None}
+        """Initialize all available agents via the lazy module registry."""
+        agents: dict[str, Any] = {}
+        for key in _AGENT_MODULE_PATHS:
+            mod = _load_agent_module(key)
+            if mod is None:
+                continue
+            get_fn = getattr(mod, "get_instance", None)
+            if callable(get_fn):
+                instance = get_fn()
+                if instance is not None:
+                    agents[key] = instance
+            else:
+                self.logger.warning("Agent module %r has no get_instance()", key)
+        return agents
 
     def _initialize_rl(self) -> None:
         """Initialize reinforcement learning components."""

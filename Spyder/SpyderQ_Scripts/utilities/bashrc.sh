@@ -3,8 +3,8 @@
 # Ubuntu 25.04 64-bit + GNOME 48 + Wayland
 # Author: Mohamed Talib & SPYDER AI System
 # Created: 2025-08-26
-# Updated: 2025-10-07 - Client IDs 101-108 + Dual Credentials (Paper/Live)
-# Supports both Local IB Gateway AND Remote TWS for maximum flexibility
+# Updated: 2025-10-07 - Tradier API + Databento market data
+# Broker: Tradier REST API | Market Data: Databento
 
 # ===============================================================================
 # INTERACTIVE SHELL CHECK
@@ -121,12 +121,6 @@ maestro-glm() {
   echo "🧠 Starting Zed IDE..."
   zed
 }
-
-# ===============================================================================
-# NOTE: IB Gateway / IBKR configuration removed.
-# Broker: Tradier API (TRADIER_API_KEY, TRADIER_ACCOUNT_ID in .env)
-# Market Data: Databento (DATABENTO_API_KEY in .env)
-# ===============================================================================
 
 # ===============================================================================
 # Spyder System Settings

@@ -435,7 +435,7 @@ def _load_d_module(filename: str, module_name: str):
     """Load a D-series module by filename, registering it in sys.modules."""
     from enum import auto as _enum_auto
     from typing import (Union, Optional, Any,
-                        Callable)
+                        Callable, ClassVar)
     filepath = os.path.join(_D_PKG_PATH, filename)
     spec = _ilu.spec_from_file_location(module_name, filepath)
     mod = _ilu.module_from_spec(spec)

@@ -936,7 +936,7 @@ class IndexComponentAnalyzer:
                 self.calculate_breadth_metrics()
 
                 # Sleep
-                time.sleep(BREADTH_CALC_INTERVAL)
+                time.sleep(BREADTH_CALC_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
@@ -996,7 +996,7 @@ if __name__ == "__main__":
         analyzer.start_monitoring()
 
         # Let it collect some data
-        time.sleep(2)
+        time.sleep(2)  # thread-safe: time.sleep() intentional
 
         # Get market internals
         internals = analyzer.get_market_internals()
@@ -1016,7 +1016,7 @@ if __name__ == "__main__":
         # Get rotation analysis
         rotation = analyzer.get_sector_rotation_analysis()
 
-        time.sleep(5)
+        time.sleep(5)  # thread-safe: time.sleep() intentional
 
     finally:
         analyzer.cleanup()

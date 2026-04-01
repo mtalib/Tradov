@@ -98,7 +98,7 @@ class EarningsStrategy(Enum):
     STRADDLE_SELL = "straddle_sell"           # Sell ATM straddle for IV crush
     STRANGLE_SELL = "strangle_sell"           # Sell OTM strangle for IV crush
     IRON_CONDOR = "iron_condor"               # IC outside expected move
-    IRON_BUTTERFLY = "iron_butterfly"         # IB at expected close
+    IRON_BUTTERFLY = "iron_butterfly"         # Iron butterfly at expected close
     CALENDAR_SPREAD = "calendar_spread"       # Sell front, buy back
     DIRECTIONAL_SPREAD = "directional_spread" # Directional bet post-earnings
     STRADDLE_BUY = "straddle_buy"            # Buy for big move expectation
@@ -352,7 +352,7 @@ class EarningsStrategyHandler:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}")
+                logger.warning(f"OptionsDataProvider unavailable: {e}", exc_info=True)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -396,7 +396,7 @@ class EarningsStrategyHandler:
             return [e for e in events if e.is_upcoming]
 
         except Exception as e:
-            logger.error(f"Earnings fetch failed: {e}")
+            logger.error(f"Earnings fetch failed: {e}", exc_info=True)
             return []
 
     def get_next_earnings(self, symbol: str) -> EarningsEvent | None:
@@ -459,7 +459,7 @@ class EarningsStrategyHandler:
             return events
 
         except Exception as e:
-            logger.error(f"Earnings calendar fetch error: {e}")
+            logger.error(f"Earnings calendar fetch error: {e}", exc_info=True)
             return []
 
     # ==========================================================================
@@ -555,7 +555,7 @@ class EarningsStrategyHandler:
             )
 
         except Exception as e:
-            logger.error(f"Expected move calculation failed: {e}")
+            logger.error(f"Expected move calculation failed: {e}", exc_info=True)
             return self._empty_expected_move(symbol)
 
     def _empty_expected_move(self, symbol: str) -> ExpectedMove:
@@ -648,7 +648,7 @@ class EarningsStrategyHandler:
             )
 
         except Exception as e:
-            logger.error(f"IV crush analysis failed: {e}")
+            logger.error(f"IV crush analysis failed: {e}", exc_info=True)
             return IVCrushAnalysis(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1163,7 +1163,7 @@ class EarningsStrategyHandler:
                 logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
             return df
         except Exception as e:
-            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}")
+            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}", exc_info=True)
             return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
@@ -1178,7 +1178,7 @@ class EarningsStrategyHandler:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_get_current_price({symbol}): Tradier error: {e}")
+            logger.error(f"_get_current_price({symbol}): Tradier error: {e}", exc_info=True)
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
@@ -1194,7 +1194,7 @@ class EarningsStrategyHandler:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}")
+                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}", exc_info=True)
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1211,7 +1211,7 @@ class EarningsStrategyHandler:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_expiry_after_earnings: Tradier error: {e}")
+                logger.warning(f"_get_expiry_after_earnings: Tradier error: {e}", exc_info=True)
         days_until_friday = (4 - earnings_date.weekday()) % 7 or 7
         return earnings_date + timedelta(days=days_until_friday)
 
@@ -1226,7 +1226,7 @@ def create_earnings_handler_from_env() -> 'EarningsStrategyHandler':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}")
+            logger.warning(f"Could not create OptionsDataProvider: {e}", exc_info=True)
     return EarningsStrategyHandler(data_provider=data_provider)
 
 

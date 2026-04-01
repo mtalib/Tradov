@@ -732,7 +732,9 @@ class EventManager:
         """Metrics calculation loop"""
         while not self._shutdown_event.is_set():
             try:
-                time.sleep(10)  # Update metrics every 10 seconds
+                self._shutdown_event.wait(timeout=10)  # Update metrics every 10 seconds
+                if self._shutdown_event.is_set():
+                    break
 
                 with self._metrics_lock:
                     self.metrics.queue_size = self.event_queue.qsize()
@@ -1159,8 +1161,10 @@ class EventBus:
             for callback in self.subscribers[event_type]:
                 try:
                     callback(data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.getLogger(__name__).warning(
+                        f"EventBus subscriber callback for '{event_type}' failed: {e}"
+                    )
 
     def unsubscribe(self, event_type, callback=None):
         """Unsubscribe from an event type"""

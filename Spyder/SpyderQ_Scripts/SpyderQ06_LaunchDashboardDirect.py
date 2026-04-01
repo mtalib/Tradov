@@ -59,13 +59,7 @@ except ImportError as e:
     GUI_AVAILABLE = False
     sys.exit(1)
 
-# IB (Interactive Brokers) - optional legacy integration
-try:
-    from ib_insync import IB  # type: ignore[import-untyped]
-    IB_AVAILABLE = True
-except ImportError:
-    IB = None  # type: ignore[assignment]
-    IB_AVAILABLE = False
+# Legacy broker integration removed - Spyder now uses Tradier API
 
 # Set up logging
 logging.basicConfig(
@@ -75,7 +69,7 @@ logger = logging.getLogger(__name__)
 
 
 class DirectConnectionWorker(QThread):
-    """Worker thread for managing IB connections directly"""
+    """Worker thread for managing broker connections directly"""
 
     connection_established = Signal(int, str)  # client_id, description
     connection_failed = Signal(int, str)  # client_id, error
@@ -130,9 +124,10 @@ class DirectConnectionWorker(QThread):
         connected_count = 0
         total_clients = len(self.client_configs)
 
-        if not IB_AVAILABLE:
+        # Legacy broker code removed - now using Tradier API
+        if False:  # Disabled
             logger.error(
-                "ib_insync is not installed — IB connections unavailable. "
+                "Legacy code disabled — broker connections unavailable. "
                 "Use SpyderB40_TradierClient for broker connectivity."
             )
             return
@@ -144,7 +139,7 @@ class DirectConnectionWorker(QThread):
             try:
                 logger.info(f"Connecting client {client_id}: {config['description']}")
 
-                # Create IB instance
+                # Create broker instance (legacy — uses Tradier now)
                 ib = IB()
 
                 # Set reasonable timeout

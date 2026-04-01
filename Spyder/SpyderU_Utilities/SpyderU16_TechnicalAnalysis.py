@@ -180,9 +180,11 @@ class TechnicalAnalysis:
         self.periods = {**DEFAULT_PERIODS, **self.config.get("periods", {})}
         self.thresholds = {**SIGNAL_THRESHOLDS, **self.config.get("thresholds", {})}
 
-        # Cache for indicator calculations
-        self.indicator_cache = {}
+        # Cache for indicator calculations (bounded with TTL)
+        self.indicator_cache: dict = {}
         self.cache_ttl = 60  # seconds
+        self._cache_timestamps: dict[str, float] = {}
+        self._cache_maxsize: int = 256
 
         if self.logger:
             self.logger.info(f"{self.__class__.__name__} initialized")

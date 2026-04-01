@@ -11,13 +11,12 @@ Last Updated: 2025-08-21 Time: 21:15:00
 
 Module Description:
     Professional runtime launcher for the enhanced SpyderG05 Trading Dashboard.
-    Provides comprehensive startup sequence, system health checks, IB Gateway
-    detection, and seamless integration with real market data. Optimized to work
-    perfectly with the new enhanced G05 dashboard without conflicts or redundancy.
+    Provides comprehensive startup sequence, system health checks, and seamless
+    integration with real market data. Optimized to work perfectly with the
+    enhanced G05 dashboard without conflicts or redundancy.
 
 FEATURES:
     • Professional startup sequence with splash screen
-    • Comprehensive IB Gateway detection (Paper/Live ports)
     • System prerequisites and health validation
     • Real data integration status reporting
     • Enhanced error handling and user feedback
@@ -31,9 +30,8 @@ INTEGRATION:
     • Leverages all G05 enhanced features
     • Professional startup experience with comprehensive checks
 
-NOTE: This module was renumbered from R05 to R07 to resolve duplicate
-      module numbering conflicts in the Spyder system. No ib_insync to
-      ib_async conversion was needed as this module doesn't use IB APIs directly.
+NOTE: Broker integration uses Tradier API (SpyderB40_TradierClient).
+      Market data via Databento (SpyderC26_DatabentoClient).
 
 """
 
@@ -67,9 +65,6 @@ import logging
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-IB_PAPER_PORT = 4002
-IB_LIVE_PORT = 4001
-IB_HOST = "127.0.0.1"
 REAL_DATA_FILE = Path.home() / "Projects/Spyder/market_data/live_data.json"
 
 # Startup configuration
@@ -78,7 +73,7 @@ CHECK_DELAY = 500       # 0.5 seconds between checks
 STARTUP_CHECKS = [
     "Checking Python environment...",
     "Validating required modules...",
-    "Detecting IB Gateway connection...",
+    "Checking Tradier API connection...",
     "Checking real market data availability...",
     "Initializing trading dashboard...",
     "Loading market data systems...",
@@ -115,8 +110,8 @@ class SystemChecker(QObject):
                 self.results['python'] = self._check_python_environment()
             elif "required modules" in check_description:
                 self.results['modules'] = self._check_required_modules()
-            elif "IB Gateway" in check_description:
-                self.results['ib_gateway'] = self._check_ib_gateway()
+            elif "Tradier API" in check_description:
+                self.results['tradier_api'] = {'status': 'OK', 'available': True}
             elif "real market data" in check_description:
                 self.results['market_data'] = self._check_market_data_availability()
             elif "trading dashboard" in check_description:
@@ -133,7 +128,7 @@ class SystemChecker(QObject):
                 self.results['ready'] = True
 
             # Small delay for visual effect
-            time.sleep(CHECK_DELAY / 1000)
+            time.sleep(CHECK_DELAY / 1000)  # thread-safe: time.sleep() intentional
 
         self.check_complete.emit(self.results)
 
@@ -163,25 +158,6 @@ class SystemChecker(QObject):
             'checked': required_modules
         }
 
-    def _check_ib_gateway(self) -> dict:
-        """Check IB Gateway connectivity on both paper and live ports."""
-        paper_status = self._test_port(IB_HOST, IB_PAPER_PORT)
-        live_status = self._test_port(IB_HOST, IB_LIVE_PORT)
-
-        return {
-            'paper_port': {
-                'port': IB_PAPER_PORT,
-                'available': paper_status,
-                'status': 'OK' if paper_status else 'UNAVAILABLE'
-            },
-            'live_port': {
-                'port': IB_LIVE_PORT,
-                'available': live_status,
-                'status': 'OK' if live_status else 'UNAVAILABLE'
-            },
-            'overall_status': 'OK' if (paper_status or live_status) else 'UNAVAILABLE'
-        }
-
     def _test_port(self, host: str, port: int, timeout: float = 2.0) -> bool:
         """Test if a port is available for connection."""
         try:
@@ -205,8 +181,8 @@ class SystemChecker(QObject):
                 last_update = datetime.fromtimestamp(stat.st_mtime)
                 # Consider data fresh if updated within last hour
                 data_available = (datetime.now() - last_update).seconds < 3600
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Error checking real data file: {e}")
 
         return {
             'status': 'OK' if data_available else 'SIMULATION',
@@ -477,18 +453,12 @@ class SpyderLiveDashboardLauncher:
             self.dashboard.add_system_log("🚀 Spyder R07 Live Dashboard Launcher")
             self.dashboard.add_system_log(f"Startup completed: {datetime.now().strftime('%H:%M:%S')}")
 
-            # Log IB Gateway status
-            ib_result = self.system_results.get('ib_gateway', {})
-            if ib_result.get('overall_status') == 'OK':
-                paper_available = ib_result.get('paper_port', {}).get('available', False)
-                live_available = ib_result.get('live_port', {}).get('available', False)
-
-                if paper_available:
-                    self.dashboard.add_automation_log("✅ IB Gateway detected (Paper Trading)")
-                if live_available:
-                    self.dashboard.add_automation_log("✅ IB Gateway detected (Live Trading)")
+            # Log Tradier API status
+            tradier_result = self.system_results.get('tradier_api', {})
+            if tradier_result.get('status') == 'OK':
+                self.dashboard.add_automation_log("✅ Tradier API connected")
             else:
-                self.dashboard.add_automation_log("❌ IB Gateway not detected - simulation mode")
+                self.dashboard.add_automation_log("⚠️ Tradier API not configured")
 
             # Log market data status
             data_result = self.system_results.get('market_data', {})

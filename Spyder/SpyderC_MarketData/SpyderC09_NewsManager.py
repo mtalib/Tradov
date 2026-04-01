@@ -412,12 +412,12 @@ class NewsManager:
                     except Exception as e:
                         self.logger.error(f"Error fetching from {source_name}: {e}")
 
-                time.sleep(NEWS_FETCH_INTERVAL)
+                time.sleep(NEWS_FETCH_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Fetch loop error: {e}")
                 self.stats['errors'] += 1
-                time.sleep(NEWS_FETCH_INTERVAL)
+                time.sleep(NEWS_FETCH_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _fetch_from_source(self, source_name: str, source_url: str) -> None:
         """Fetch news from a specific source."""
@@ -569,11 +569,11 @@ class NewsManager:
                     )
                     self.event_bus.publish(event)
 
-                time.sleep(ANALYSIS_INTERVAL)
+                time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Analysis loop error: {e}")
-                time.sleep(ANALYSIS_INTERVAL)
+                time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _analyze_sentiment(self, news_item: NewsItem) -> NewsSentiment | None:
         """Analyze sentiment of news item."""
@@ -1013,7 +1013,7 @@ if __name__ == "__main__":
                     manager.news_impacts[news_item.id] = impact
 
         # Wait for analysis
-        time.sleep(2)
+        time.sleep(2)  # thread-safe: time.sleep() intentional
 
         # Get analysis
         analysis = manager.get_current_analysis()

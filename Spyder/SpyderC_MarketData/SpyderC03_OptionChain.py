@@ -10,14 +10,10 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:40:00
 
-⚠️ MIGRATION NOTE ⚠️
-    This module uses DEPRECATED ib_async imports for option chain data.
-
-    Migration Needed:
-    - ❌ Remove ib_async Contract imports (line 41)
-    - ✅ Use Tradier API for option chain data (SpyderB40_TradierClient)
-    - ✅ Use Databento for options quotes and Greeks (SpyderC26_DatabentoClient)
-    - 🔧 Update ContractBuilder references to use Tradier contracts
+BROKER NOTE:
+    This module now uses Tradier API for option chain data.
+    Market data sourced from Databento (SpyderC26_DatabentoClient).
+    Greeks calculations use SpyderF06_GreeksCalculator.
 
     Current Architecture:
     - Tradier: GET /markets/options/chains endpoint for option chains
@@ -59,10 +55,10 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 
-# B01_SpyderClient removed (IB Gateway) — Tradier via SpyderB40_TradierClient
+# B01_SpyderClient removed (legacy broker) — Tradier via SpyderB40_TradierClient
 SpyderClient = None  # type: ignore
 
-# B06_ContractBuilder removed (IB Gateway)
+# B06_ContractBuilder removed (legacy broker)
 ContractBuilder = None  # type: ignore
 OptionRight = None  # type: ignore
 
@@ -147,7 +143,7 @@ class OptionContract:
     time_value: float | None = None
     moneyness: float | None = None
 
-    # IB specific (legacy, unused after IB Gateway removal)
+    # Legacy fields (unused after broker migration)
     contract_id: int | None = None
     ib_contract: Any | None = None
     ticker_id: int | None = None
@@ -370,7 +366,7 @@ class OptionChainManager:
         Initialize option chain manager.
 
         Args:
-            ib_client: Connected SpyderClient instance
+            ib_client: Connected SpyderClient instance (legacy parameter name)
             event_manager: Event manager for publishing updates
         """
         self.ib_client = ib_client
@@ -381,7 +377,7 @@ class OptionChainManager:
         # Data storage
         self.option_chains: dict[datetime.date, OptionChain] = {}
         self.active_subscriptions: dict[int, OptionContract] = {}  # ticker_id -> contract
-        self.contract_builder = None  # ContractBuilder removed — IB Gateway deprecated; use Tradier REST API
+        self.contract_builder = None  # ContractBuilder removed — legacy broker deprecated; use Tradier REST API
         if GreeksCalculator is None:
             raise ImportError(
                 "GreeksCalculator unavailable — check SpyderF06_GreeksCalculator imports"
@@ -426,7 +422,7 @@ class OptionChainManager:
                 return True
 
             if not self.ib_client.is_connected():
-                self.logger.error("IB client not connected")
+                self.logger.error("Data client not connected")
                 return False
 
             self.running = True
@@ -446,7 +442,7 @@ class OptionChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start Option Chain Manager: {e}")
+            self.logger.error(f"Failed to start Option Chain Manager: {e}", exc_info=True)
             return False
 
     def stop(self):
@@ -464,7 +460,7 @@ class OptionChainManager:
             self.logger.info("Option Chain Manager stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping Option Chain Manager: {e}")
+            self.logger.error(f"Error stopping Option Chain Manager: {e}", exc_info=True)
 
     def load_chain(self, expiry: datetime.date) -> bool:
         """
@@ -487,14 +483,14 @@ class OptionChainManager:
                         status=ChainStatus.LOADING
                     )
 
-            # Get option contracts from IB
+            # Get option contracts from data provider
             self._request_option_contracts(expiry)
 
             self.logger.info(f"Loading option chain for {expiry}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error loading chain for {expiry}: {e}")
+            self.logger.error(f"Error loading chain for {expiry}: {e}", exc_info=True)
             return False
 
     def get_chain(self, expiry: datetime.date) -> OptionChain | None:
@@ -644,7 +640,7 @@ class OptionChainManager:
     # ==========================================================================
 
     def _setup_callbacks(self):
-        """Setup IB callbacks"""
+        """Setup data provider callbacks"""
         self.ib_client.ib.tickPrice = self._on_tick_price
         self.ib_client.ib.tickSize = self._on_tick_size
         self.ib_client.ib.tickOptionComputation = self._on_tick_option_computation
@@ -661,10 +657,10 @@ class OptionChainManager:
 
             for expiry in expiry_dates:
                 self.load_chain(expiry)
-                time.sleep(0.1)  # Small delay between requests
+                time.sleep(0.1)  # thread-safe: time.sleep() intentional
 
         except Exception as e:
-            self.logger.error(f"Error loading initial chains: {e}")
+            self.logger.error(f"Error loading initial chains: {e}", exc_info=True)
 
     def _get_target_expiry_dates(self) -> list[datetime.date]:
         """Get target expiration dates based on DTE preferences"""
@@ -693,7 +689,7 @@ class OptionChainManager:
             self._create_option_contracts_for_expiry(expiry)
 
         except Exception as e:
-            self.logger.error(f"Error requesting contracts for {expiry}: {e}")
+            self.logger.error(f"Error requesting contracts for {expiry}: {e}", exc_info=True)
 
     def _create_option_contracts_for_expiry(self, expiry: datetime.date):
         """Create option contracts around ATM for expiry"""
@@ -757,7 +753,7 @@ class OptionChainManager:
                 self._subscribe_to_chain_data(chain)
 
         except Exception as e:
-            self.logger.error(f"Error creating contracts for {expiry}: {e}")
+            self.logger.error(f"Error creating contracts for {expiry}: {e}", exc_info=True)
 
     def _subscribe_to_chain_data(self, chain: OptionChain):
         """Subscribe to market data for option chain"""
@@ -782,12 +778,12 @@ class OptionChainManager:
                         []
                     )
 
-                    time.sleep(0.01)  # Small delay to avoid overwhelming IB
+                    time.sleep(0.01)  # thread-safe: time.sleep() intentional
 
             chain.status = ChainStatus.ACTIVE
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain data: {e}")
+            self.logger.error(f"Error subscribing to chain data: {e}", exc_info=True)
             chain.status = ChainStatus.ERROR
 
     def _update_underlying_price(self):
@@ -798,7 +794,7 @@ class OptionChainManager:
             self.underlying_price = 500.0  # Placeholder
 
         except Exception as e:
-            self.logger.error(f"Error updating underlying price: {e}")
+            self.logger.error(f"Error updating underlying price: {e}", exc_info=True)
 
     def _matches_criteria(self, option: OptionContract, criteria: OptionSelectionCriteria, underlying_price: float) -> bool:
         """Check if option matches selection criteria"""
@@ -877,7 +873,7 @@ class OptionChainManager:
             option.last_update = datetime.datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error processing tick price for {ticker_id}: {e}")
+            self.logger.error(f"Error processing tick price for {ticker_id}: {e}", exc_info=True)
 
     def _on_tick_size(self, ticker_id: int, tick_type: int, size: int):
         """Handle tick size updates"""
@@ -894,7 +890,7 @@ class OptionChainManager:
                 option.open_interest = size
 
         except Exception as e:
-            self.logger.error(f"Error processing tick size for {ticker_id}: {e}")
+            self.logger.error(f"Error processing tick size for {ticker_id}: {e}", exc_info=True)
 
     def _on_tick_option_computation(self, ticker_id: int, tick_type: int,
                                    impl_vol: float, delta: float, opt_price: float,
@@ -932,10 +928,10 @@ class OptionChainManager:
             option.last_update = datetime.datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error processing option computation for {ticker_id}: {e}")
+            self.logger.error(f"Error processing option computation for {ticker_id}: {e}", exc_info=True)
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
-        """Handle IB errors"""
+        """Handle data provider errors"""
         if req_id in self.active_subscriptions:
             option = self.active_subscriptions[req_id]
             self.logger.error(f"Option data error [{option.symbol} {option.strike} {option.option_type.value}]: {error_code} - {error_string}")
@@ -956,7 +952,7 @@ class OptionChainManager:
             try:
                 self.ib_client.ib.cancelMktData(ticker_id)
             except Exception as e:
-                self.logger.warning(f"Error cancelling subscription {ticker_id}: {e}")
+                self.logger.warning(f"Error cancelling subscription {ticker_id}: {e}", exc_info=True)
 
         self.active_subscriptions.clear()
 
@@ -976,11 +972,11 @@ class OptionChainManager:
                 self._publish_chain_status()
 
                 # Sleep
-                time.sleep(CHAIN_UPDATE_INTERVAL)
+                time.sleep(CHAIN_UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Update loop error: {e}")
-                time.sleep(1.0)
+                self.logger.error(f"Update loop error: {e}", exc_info=True)
+                time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Option chain update loop stopped")
 
@@ -1024,16 +1020,19 @@ class OptionChainManager:
             self.event_manager.publish(event)
 
         except Exception as e:
-            self.logger.error(f"Error publishing chain status: {e}")
+            self.logger.error(f"Error publishing chain status: {e}", exc_info=True)
 
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
 
-def create_spy_option_contract(expiry: str, strike: float, option_type: str) -> Contract:
-    """Create SPY option contract using ib_async"""
-    from ib_async import Option
-    return Option('SPY', expiry, strike, option_type, 'SMART')
+def create_spy_option_contract(expiry: str, strike: float, option_type: str):
+    """Create SPY option contract descriptor.
+
+    .. deprecated::
+        Use SpyderB40_TradierClient for option chain data instead.
+    """
+    return {'symbol': 'SPY', 'expiry': expiry, 'strike': strike, 'type': option_type, 'exchange': 'SMART'}
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -1042,7 +1041,7 @@ if __name__ == "__main__":
     # Test option chain manager
     from SpyderA_Core.SpyderA05_EventManager import EventManager
 
-    # Mock IB client for testing
+    # Mock data client for testing
     class MockIBClient:
         def __init__(self):
             self.callbacks = defaultdict(list)

@@ -817,7 +817,7 @@ if __name__ == "__main__":
     notifier.send_trade_notification(trade_data)
 
     # Wait for sending
-    time.sleep(5)
+    time.sleep(5)  # thread-safe: time.sleep() intentional
 
     # Stop notifier
     notifier.stop()

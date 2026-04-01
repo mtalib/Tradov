@@ -1040,7 +1040,7 @@ if __name__ == "__main__":
     aggregator.start_real_time_updates(update_interval=5.0)
 
     # Let it run for a bit
-    time.sleep(10)
+    time.sleep(10)  # thread-safe: time.sleep() intentional
 
     # Stop updates
     aggregator.stop_real_time_updates()

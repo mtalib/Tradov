@@ -95,8 +95,6 @@ from Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer import (
     DEFAULT_TCP_KEEPALIVE_TIME,
     DEFAULT_TCP_KEEPALIVE_INTVL,
     DEFAULT_TCP_KEEPALIVE_PROBES,
-    IB_GATEWAY_PORTS,
-    IB_GATEWAY_JVM_HEAP,
 )
 
 
@@ -436,12 +434,6 @@ class TestGetCurrentStats:
         result = m.get_current_stats()
         assert result["total_gc_triggered"] == 5
 
-    def test_has_ib_gateway_processes(self):
-        m = _fresh_monitor()
-        m.memory_history.append(_make_snapshot())
-        result = m.get_current_stats()
-        assert "ib_gateway_processes" in result
-
 
 class TestGetRecentAlerts:
     def test_empty_returns_list(self):
@@ -467,22 +459,6 @@ class TestGetRecentAlerts:
             m.alerts.append(_make_alert("warning"))
         result = m.get_recent_alerts(limit=5)
         assert len(result) == 5
-
-
-class TestGetIbGatewayStats:
-    def test_empty_returns_list(self):
-        m = _fresh_monitor()
-        assert m.get_ib_gateway_stats() == []
-
-    def test_with_process_returns_list(self):
-        m = _fresh_monitor()
-        m.ib_gateway_processes.append(
-            ProcessInfo(1234, "ibgateway", 500_000_000, 2.0, 5.0, "running", datetime.datetime.now())
-        )
-        result = m.get_ib_gateway_stats()
-        assert len(result) == 1
-        assert "pid" in result[0]
-        assert result[0]["pid"] == 1234
 
 
 class TestGetMemoryHistoryCSV:
@@ -863,62 +839,6 @@ class TestConfigureFirewall:
             assert "UFW" in result.message or "ufw" in result.message.lower()
 
 
-class TestOptimizeIbGatewayJvm:
-    def test_returns_optimization_result(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        assert isinstance(result, OptimizationResult)
-
-    def test_component_is_jvm(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        assert result.component == SystemComponent.JVM
-
-    def test_succeeds_by_default(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        # Should write file to ~/.ibgateway/jvm_args.txt
-        assert result.success is True
-
-    def test_details_has_jvm_args(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        if result.success:
-            assert "jvm_args" in (result.details or {})
-
-    def test_appended_to_applied(self):
-        so = SystemOptimizer()
-        before = len(so.applied_optimizations)
-        so.optimize_ib_gateway_jvm()
-        assert len(so.applied_optimizations) == before + 1
-
-    def test_jvm_heap_in_args(self):
-        so = SystemOptimizer()
-        result = so.optimize_ib_gateway_jvm()
-        if result.success and result.details:
-            jvm_args = result.details.get("jvm_args", [])
-            heap_args = [a for a in jvm_args if "Xmx" in a]
-            assert len(heap_args) > 0
-
-
-class TestGenerateDockerCompose:
-    def test_returns_optimization_result(self):
-        so = SystemOptimizer()
-        result = so.generate_docker_compose()
-        assert isinstance(result, OptimizationResult)
-
-    def test_component_is_docker(self):
-        so = SystemOptimizer()
-        result = so.generate_docker_compose()
-        assert result.component == SystemComponent.DOCKER
-
-    def test_appended_to_applied(self):
-        so = SystemOptimizer()
-        before = len(so.applied_optimizations)
-        so.generate_docker_compose()
-        assert len(so.applied_optimizations) == before + 1
-
-
 class TestRunSystemDiagnostics:
     def test_returns_system_diagnostics(self):
         so = SystemOptimizer()
@@ -973,19 +893,19 @@ class TestOptimizeAll:
         # BASIC level runs nothing
         assert results == []
 
-    def test_standard_level_runs_three(self):
+    def test_standard_level_runs_two(self):
         so = SystemOptimizer(OptimizationLevel.STANDARD)
         with patch.object(so, "_is_root", return_value=False), \
              patch("shutil.which", return_value=None):
             results = so.optimize_all()
-        assert len(results) == 3  # tcp + firewall + jvm
+        assert len(results) == 2  # tcp + firewall (jvm removed)
 
-    def test_aggressive_level_runs_four(self):
+    def test_aggressive_level_runs_two(self):
         so = SystemOptimizer(OptimizationLevel.AGGRESSIVE)
         with patch.object(so, "_is_root", return_value=False), \
              patch("shutil.which", return_value=None):
             results = so.optimize_all()
-        assert len(results) == 4  # tcp + firewall + jvm + docker
+        assert len(results) == 2  # tcp + firewall (jvm + docker removed)
 
     def test_all_results_are_optimization_results(self):
         so = SystemOptimizer(OptimizationLevel.STANDARD)
@@ -1055,10 +975,3 @@ class TestConstants:
 
     def test_tcp_keepalive_probes(self):
         assert DEFAULT_TCP_KEEPALIVE_PROBES == 5
-
-    def test_ib_gateway_ports(self):
-        assert 4001 in IB_GATEWAY_PORTS
-        assert 4002 in IB_GATEWAY_PORTS
-
-    def test_jvm_heap_format(self):
-        assert "m" in IB_GATEWAY_JVM_HEAP or "g" in IB_GATEWAY_JVM_HEAP

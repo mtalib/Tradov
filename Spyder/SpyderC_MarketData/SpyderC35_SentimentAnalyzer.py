@@ -997,7 +997,7 @@ class SentimentAnalyzer:
                     ))
 
                 # Rate limiting
-                time.sleep(0.5)
+                time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 logger.error(f"Reddit fetch error for r/{subreddit}: {e}")

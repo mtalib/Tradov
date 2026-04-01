@@ -4,16 +4,75 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderS_Signals
 Module: SpyderS04_BlackSwanScheduler.py
-Purpose: SPYDER - Automated SPY Options Trading System
+Purpose: Automated scheduler for Black Swan risk monitoring, alerting, and reporting
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-03-27 Time: 00:00:00
 
-Module Description:
-    SPYDER - Automated SPY Options Trading System
+Description:
+    Provides fully automated, time-driven scheduling of Black Swan risk checks
+    for the SPY options trading system. Orchestrates data collection (via
+    BlackSwanDataCollector / SpyderS06), risk calculation (via BlackSwanCalculator /
+    SpyderS07), alert dispatch, and daily report generation.
+
+    When integrated with the Spyder system (SPYDER_INTEGRATION=True), all tasks are
+    registered with SpyderA04_Scheduler. In standalone mode, the `schedule` library
+    drives a dedicated background daemon thread that polls every second.
+
+Default Schedule (all times Eastern Time):
+    04:00   Pre-market check       — overnight risk assessment before opening bell
+    09:15   Pre-open check         — final snapshot 15 minutes before market open
+    12:00   Mid-day check          — intraday monitoring
+    15:45   Pre-close check        — late-session risk before closing orders
+    16:30   Post-market check      — after-hours summary for overnight positions
+    17:00   Daily report           — generate text / JSON / CSV summary report
+    02:00   File cleanup           — purge reports older than `retention_days` (default 30)
+
+    Default schedule times are defined in DEFAULT_SCHEDULE_TIMES and can be
+    overridden via the `schedule_times` key in the config dictionary.
+
+Interval Checks (optional):
+    Additional interval-based checks can be registered via `add_interval_check(minutes)`.
+    These fire only during US market hours (09:30–16:00 ET, Mon–Fri). Outside market
+    hours the callback is skipped even if the timer fires.
+
+Alert Logic:
+    Alerts are dispatched when any of the following conditions are true:
+        • Status is RED   and `alert_on_red`    is True (default True)
+        • Status is YELLOW and `alert_on_yellow` is True (default True)
+        • Score deteriorates by ≥ 1.0 points between two consecutive checks
+          (rapid-deterioration trigger — fires regardless of status)
+
+    Suppression:
+        • 60-minute cooldown between repeat alerts of the same status level
+          (configurable via `alert_cooldown_minutes`)
+        • Maximum 10 alerts per calendar day (MAX_DAILY_ALERTS)
+
+Notification Channels:
+    LOG       Always available; writes a WARNING-level log entry via SpyderLogger
+    EMAIL     Via SpyderJ02_EmailNotifier (Spyder mode) or direct SMTP (standalone)
+    SLACK     Stub — logs "not yet implemented"; planned for future release
+    TELEGRAM  Stub — logs "not yet implemented"; planned for future release
+
+Report Generation (daily at 17:00 ET):
+    Three files are written to the `report_dir` directory (default: black_swan_reports/):
+        daily_report_YYYYMMDD.txt    Human-readable summary with status distribution
+        daily_report_YYYYMMDD.json   Structured JSON for downstream processing
+        black_swan_data_YYYYMMDD.csv Per-row time-series for quantitative analysis
+    Reports can optionally be emailed (set `email_daily_report: True` in config).
+
+Spyder Integration:
+    When SPYDER_INTEGRATION=True the following Spyder modules are used:
+        SpyderA04_Scheduler         Task scheduling and cron management
+        SpyderJ01_AlertManager      Alert routing and deduplication
+        SpyderJ02_EmailNotifier     Email delivery
+        SpyderU10_TradingCalendar   Accurate market-hours and holiday detection
+        SpyderH01_DataAccessLayer   SQLite persistence of check results
 
 Change Log:
+    2026-03-27:
+        - Expanded module header with scheduling, alert, and reporting detail
     2026-01-16:
         - Applied standard Python formatting
         - Updated module header and structure
@@ -77,10 +136,16 @@ except ImportError:
     SPYDER_INTEGRATION = False
 
 # Import Black Swan modules
-from SpyderS06_BlackSwanDataCollector import BlackSwanDataCollector
-from SpyderS07_BlackSwanCalculator import (
-    BlackSwanCalculator, BlackSwanIndicatorResult, RiskStatus
-)
+try:
+    from SpyderS_Signals.SpyderS06_BlackSwanDataCollector import BlackSwanDataCollector
+    from SpyderS_Signals.SpyderS07_BlackSwanCalculator import (
+        BlackSwanCalculator, BlackSwanIndicatorResult, RiskStatus
+    )
+except ImportError:
+    from SpyderS06_BlackSwanDataCollector import BlackSwanDataCollector
+    from SpyderS07_BlackSwanCalculator import (
+        BlackSwanCalculator, BlackSwanIndicatorResult, RiskStatus
+    )
 
 # ==============================================================================
 # CONSTANTS
@@ -367,8 +432,8 @@ class BlackSwanScheduler:
             if self.spyder_scheduler and SPYDER_INTEGRATION:
                 try:
                     self.spyder_scheduler.remove_task(task_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Failed to remove task {task_id} from Spyder scheduler: {e}")
 
             del self.scheduled_tasks[task_id]
             self.logger.info(f"Removed task: {task_id}")
@@ -712,14 +777,80 @@ Please review market conditions and adjust positions accordingly.
             return False
 
     def _send_slack_alert(self, message: str):
-        """Send Slack alert (placeholder)."""
-        # Implement Slack integration
-        self.logger.info("Slack alerts not yet implemented")
+        """Send Slack alert.
+
+        Preferred path: SpyderJ03_WebhookNotifier (Slack channel).
+        Fallback: direct urllib POST to `slack_webhook_url` from config.
+        """
+        # ── Preferred path: use SpyderJ03_WebhookNotifier ─────────────────────
+        try:
+            from Spyder.SpyderJ_Alerts.SpyderJ03_WebhookNotifier import WebhookNotifier
+            notifier = WebhookNotifier()
+            notifier.send_slack(message=message)
+            self.logger.info("Slack alert dispatched via SpyderJ03_WebhookNotifier")
+            return
+        except Exception:
+            pass  # J03 unavailable or not configured — use direct fallback
+
+        # ── Fallback: direct urllib POST ───────────────────────────────────────
+        webhook_url = self.config.get("slack_webhook_url")
+        if not webhook_url:
+            self.logger.warning("Slack webhook URL not configured — skipping Slack alert")
+            return
+        try:
+            import json as _json
+            import urllib.request
+            payload = _json.dumps({"text": message}).encode()
+            req = urllib.request.Request(
+                webhook_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+                if resp.status == 200:
+                    self.logger.info("Slack alert sent via direct webhook")
+                else:
+                    self.logger.warning(f"Slack webhook returned status {resp.status}")
+        except Exception as e:
+            self.logger.error(f"Failed to send Slack alert: {e}", exc_info=True)
 
     def _send_telegram_alert(self, message: str):
-        """Send Telegram alert (placeholder)."""
-        # Implement Telegram integration
-        self.logger.info("Telegram alerts not yet implemented")
+        """Send Telegram alert via SpyderJ05_TelegramBot.
+
+        Falls back to a direct Bot API call when the Spyder integration is
+        unavailable. Requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in
+        the environment (read from .env by SpyderA03_Configuration).
+        """
+        # ── Preferred path: use SpyderJ05_TelegramBot ─────────────────────────
+        try:
+            from SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
+            bot = TelegramBot()
+            last_status = getattr(self, "_last_alert_status", None)
+            severity = "critical" if last_status and getattr(last_status, "value", "") == "RED" else "warning"
+            bot.send_alert(title="Black Swan Alert", message=message, severity=severity)
+            self.logger.info("Telegram alert dispatched via SpyderJ05_TelegramBot")
+            return
+        except Exception as e:
+            self.logger.debug(f"SpyderJ05_TelegramBot unavailable, using fallback: {e}")
+
+        # ── Fallback: direct Bot API call ─────────────────────────────────────
+        import os
+        import urllib.request
+        import urllib.parse
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if not token or not chat_id:
+            self.logger.warning("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — skipping")
+            return
+        try:
+            params = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode()
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            req = urllib.request.Request(url, data=params, method="POST")  # noqa: S310
+            with urllib.request.urlopen(req, timeout=10):  # noqa: S310
+                self.logger.info("Telegram alert sent via direct Bot API")
+        except Exception as e:
+            self.logger.error(f"Failed to send Telegram alert: {e}")
 
     # ==========================================================================
     # PRIVATE METHODS - Report Generation
@@ -1104,17 +1235,59 @@ Status Distribution:
         return False
 
     def _log_to_database(self, result: BlackSwanIndicatorResult):
-        """Log result to database if available."""
+        """Persist a Black Swan check result to the SQLite database.
+
+        Writes to the `black_swan_results` table (created on first write if absent).
+        Component scores are serialised to JSON and stored in the `components` column.
+        """
         if not self.data_access:
             return
 
         try:
-            # This would be implemented based on your database schema
-            # Example:
-            # self.data_access.insert_black_swan_result(result)
-            pass
+            import json as _json
+
+            # Ensure the table exists (idempotent)
+            self.data_access.execute_write("""
+                CREATE TABLE IF NOT EXISTS black_swan_results (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp   TEXT    NOT NULL,
+                    status      TEXT    NOT NULL,
+                    score       REAL    NOT NULL,
+                    alert_level TEXT,
+                    data_quality TEXT,
+                    components  TEXT,
+                    created_at  TEXT    DEFAULT (datetime('now'))
+                )
+            """)
+
+            components_json = _json.dumps({
+                name: {
+                    "raw_score": score.raw_score,
+                    "weighted_score": score.weighted_score,
+                    "description": score.description,
+                }
+                for name, score in result.component_scores.items()
+            })
+
+            self.data_access.execute_write(
+                """
+                INSERT INTO black_swan_results
+                    (timestamp, status, score, alert_level, data_quality, components)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result.timestamp.isoformat(),
+                    result.status.value,
+                    result.overall_score,
+                    getattr(result, "alert_level", None) and result.alert_level.value,
+                    result.data_quality.value,
+                    components_json,
+                ),
+            )
+            self.logger.debug(f"Black Swan result logged to DB: score={result.overall_score:.2f}")
+
         except Exception as e:
-            self.logger.error(f"Failed to log to database: {e}")
+            self.logger.error(f"Failed to log Black Swan result to database: {e}")
 
     def _run_scheduler(self):
         """Main scheduler loop."""
@@ -1133,7 +1306,7 @@ Status Distribution:
                             task.next_run = jobs[0].next_run
 
                 # Sleep briefly
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Scheduler error: {e}")
@@ -1248,21 +1421,28 @@ if __name__ == "__main__":
     scheduler = BlackSwanScheduler(test_config)
 
     # Test alert channels
+    print("Testing alert channels...")
     test_results = scheduler.test_alerts()
-    for _channel, success in test_results.items():
-        status = "✅" if success else "❌"
+    for channel, success in test_results.items():
+        icon = "\u2705" if success else "\u274c"
+        print(f"  {icon} {channel}")
 
     # Show scheduled tasks
     status = scheduler.get_status()
-    for _task_id, _task_info in status['tasks'].items():
-        pass
+    print(f"\nScheduled tasks ({len(status['tasks'])})")
+    for task_id, task_info in status['tasks'].items():
+        enabled = "enabled" if task_info['enabled'] else "disabled"
+        print(f"  {task_id:<30} {task_info['schedule']:<25} [{enabled}]")
 
     # Run a manual check
+    print("\nRunning manual check...")
     scheduler.run_now('daily_check_0900')
 
     # Show status
     status = scheduler.get_status()
-
     if status['last_result']:
-        pass
+        lr = status['last_result']
+        print(f"Last result: {lr['status']}  score={lr['score']:.2f}  at {lr['timestamp']}")
+    else:
+        print("No check result available yet.")
 

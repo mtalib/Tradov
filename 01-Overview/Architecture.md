@@ -4,17 +4,17 @@
 
 1. **NEVER commit to main branch** - Always use feature branches
 2. **NEVER hardcode credentials** - Use .env file for all sensitive data
-3. **NEVER execute live trades without explicit confirmation** - Default to paper trading
-4. **ALWAYS test IBKR API changes in paper mode first**
-5. **ALWAYS check if IB Gateway is running before making connections**
+3. **NEVER execute live trades without explicit confirmation** - Default to sandbox mode
+4. **ALWAYS test Tradier API changes in sandbox mode first**
+5. **ALWAYS verify API connectivity before executing trades**
 
 ## 🎯 Project Context
 
 You are working on **Spyder**, a sophisticated algorithmic trading system that:
-- Connects to Interactive Brokers (IBKR) for live and paper trading
-- Processes real-time market data for automated decision making
+- Connects to Tradier API for live and sandbox trading
+- Processes real-time market data via Databento (OPRA) and Tradier
 - Manages risk and positions with real financial implications
-- Uses a modular architecture with 20+ specialized components
+- Uses a modular architecture with 24+ specialized components
 
 **Remember**: This system handles REAL MONEY when in live mode. Every change must be thoroughly tested.
 
@@ -24,8 +24,8 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 
 **Core System Modules**
 - `SpyderA_Core` → System orchestration & main entry point
-- `SpyderB_Broker` → IBKR connection & order management
-- `SpyderC_MarketData` → Real-time data processing & feeds
+- `SpyderB_Broker` → Tradier API connection & order management
+- `SpyderC_MarketData` → Real-time data processing (Databento + Tradier)
 - `SpyderD_Strategies` → Trading strategy implementations
 - `SpyderE_Risk` → Risk management & position sizing
 
@@ -58,8 +58,8 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 
 ## 📋 Before Starting Any Task
 
-1. **Check current mode**: Verify if system is in PAPER or LIVE mode
-2. **Verify IB Gateway status**: Ensure it's running on correct port (4002 for paper, 4001 for live)
+1. **Check current mode**: Verify if system is in SANDBOX or LIVE mode
+2. **Verify API connectivity**: Use SpyderB40_TradierClient to check connection status
 3. **Review recent logs**: Check logs/ directory for any recent errors
 4. **Understand the module**: Each SpyderX module has specific responsibilities - respect boundaries
 
@@ -72,10 +72,10 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 - IDE: Visual Studio Code + GEDIT
 
 **Trading Infrastructure**
-- Broker: Interactive Brokers via IBKR Hub (Zurich)
-- Gateway: Standalone IB Gateway v10.39
-- API: TWS_MAJOR_VRSN="1039" with ib_async wrapper
-- Ports: 4002 (paper) / 4001 (live)
+- Broker: Tradier API (REST) — no local gateway required
+- Market Data: Databento (OPRA.PILLAR) for real-time options data
+- Fallback: Tradier quotes API for testing and redundancy
+- Modes: Sandbox (paper trading) / Production (live trading)
 
 **GUI & Visualization**
 - Framework: PySide6 with qt6-wayland
@@ -96,7 +96,7 @@ source .venv/bin/activate
 
 # System Operations
 python SpyderA_Core/SpyderA01_Main.py              # Start main system
-python test_ib_connection.py                        # Test IBKR connection
+python Spyder/SpyderB_Broker/SpyderB40_TradierClient.py  # Test Tradier connection
 python SpyderM_Monitoring/check_status.py          # Check system health
 
 # Testing & Development

@@ -278,12 +278,14 @@ class AllocationOptimizer:
         >>> print(f"Optimal allocations: {result.allocations}")
     """
 
-    def __init__(self, config: OptimizationConfig | None = None):
+    def __init__(self, config: OptimizationConfig | None = None,
+                 tradier_client: Any = None):
         """
         Initialize the Allocation Optimizer.
 
         Args:
             config: Optimization configuration
+            tradier_client: Optional TradierClient for live VIX data feed
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -296,7 +298,7 @@ class AllocationOptimizer:
         self.config = config or OptimizationConfig()
 
         # Market analysis components
-        self.vix_analyzer = VIXAnalyzer()
+        self.vix_analyzer = VIXAnalyzer(tradier_client=tradier_client)
         self.regime_classifier = RegimeClassifier() if RegimeClassifier is not None else None
         self.feature_engineer = FeatureEngineer() if FeatureEngineer is not None else None
 
@@ -2029,6 +2031,11 @@ def set_global_allocation_optimizer(optimizer: AllocationOptimizer) -> None:
     global _global_allocation_optimizer
     _global_allocation_optimizer = optimizer
 
+def reset_global_allocation_optimizer() -> None:
+    """Clear global allocation optimizer instance (for shutdown/testing)."""
+    global _global_allocation_optimizer
+    _global_allocation_optimizer = None
+
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
@@ -2082,8 +2089,8 @@ if __name__ == "__main__":
                 results[method.value] = result
 
 
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Allocation test for {method.value} failed: {e}")
 
         # Test ML model training
         market_data = pd.DataFrame({

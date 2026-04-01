@@ -554,11 +554,11 @@ class SPYFeedProcessor:
                     )
                     self.event_bus.publish(event)
 
-                time.sleep(1)  # Analysis every second
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Analysis loop error: {e}")
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
     def _perform_analysis(self) -> SPYAnalysis | None:
         """Perform comprehensive SPY analysis."""

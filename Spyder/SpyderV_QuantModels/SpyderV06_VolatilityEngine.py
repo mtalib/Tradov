@@ -62,10 +62,7 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # ==============================================================================
 # MODULE CONFIGURATION
@@ -339,7 +336,7 @@ class SpyderVolatilityEngine:
     """
 
     def __init__(
-        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: Any = None
     ):
         """Initialize consolidated volatility engine."""
         self.config = config or {}
@@ -452,7 +449,7 @@ class SpyderVolatilityEngine:
                 return self._get_historical_volatility()
 
         except Exception as e:
-            self.logger.error(f"Error getting volatility: {e}")
+            self.logger.error(f"Error getting volatility: {e}", exc_info=True)
             return 0.20  # Safe default volatility
 
     async def forecast_volatility(
@@ -519,7 +516,7 @@ class SpyderVolatilityEngine:
             return forecast
 
         except Exception as e:
-            self.logger.error(f"Error forecasting volatility: {e}")
+            self.logger.error(f"Error forecasting volatility: {e}", exc_info=True)
 
             # Return safe default forecast
             return VolatilityForecast(
@@ -582,7 +579,7 @@ class SpyderVolatilityEngine:
             return surface
 
         except Exception as e:
-            self.logger.error(f"Error generating volatility surface: {e}")
+            self.logger.error(f"Error generating volatility surface: {e}", exc_info=True)
 
             # Return flat surface as fallback
             strikes_array = np.array(strikes)
@@ -658,7 +655,7 @@ class SpyderVolatilityEngine:
             self.logger.info("Volatility model calibration completed successfully")
 
         except Exception as e:
-            self.logger.error(f"Error calibrating models: {e}")
+            self.logger.error(f"Error calibrating models: {e}", exc_info=True)
             self._set_default_parameters()
 
     async def _calibrate_garch(self) -> GARCHParameters:
@@ -682,7 +679,7 @@ class SpyderVolatilityEngine:
                 if params.validate():
                     return params
             except Exception as e:
-                self.logger.warning(f"arch GARCH(1,1) calibration failed, falling back to scipy: {e}")
+                self.logger.warning(f"arch GARCH(1,1) calibration failed, falling back to scipy: {e}", exc_info=True)
 
         # --- scipy fallback ---
         try:
@@ -701,7 +698,7 @@ class SpyderVolatilityEngine:
                 if params.validate():
                     return params
         except Exception as e:
-            self.logger.warning(f"GARCH calibration failed: {e}")
+            self.logger.warning(f"GARCH calibration failed: {e}", exc_info=True)
 
         return _DEFAULT
 
@@ -727,7 +724,7 @@ class SpyderVolatilityEngine:
                 "bic": float(fit.bic),
             }
         except Exception as e:
-            self.logger.warning(f"EGARCH calibration failed: {e}")
+            self.logger.warning(f"EGARCH calibration failed: {e}", exc_info=True)
             return None
 
     async def _calibrate_heston(self) -> HestonParameters:
@@ -1488,7 +1485,7 @@ class SpyderVolatilityEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_volatility_engine(
-    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: Any = None
 ) -> SpyderVolatilityEngine:
     """Factory function to create SpyderVolatilityEngine."""
     return SpyderVolatilityEngine(config, data_manager)

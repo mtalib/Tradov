@@ -17,7 +17,7 @@ Module Description:
 
 Change Log:
     2026-03-03:
-        - Removed IBKR / IB Gateway OAuth validation (broker migrated to Tradier)
+        - Removed legacy broker OAuth validation (broker migrated to Tradier)
         - Removed Polygon.io validation (market data migrated to Databento)
         - Added Tradier API key and account validation
         - Added Databento API key and dataset validation

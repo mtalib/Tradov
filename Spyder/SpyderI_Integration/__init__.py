@@ -12,7 +12,7 @@ Last Updated: 2025-09-04
 
 Package Description:
     The SpyderI_Integration package provides comprehensive system integration
-    capabilities including IB Gateway automation, event routing, configuration
+    capabilities including broker API automation, event routing, configuration
     management, diagnostic engines, and agent message bus functionality.
     This package ensures seamless coordination between all Spyder modules.
 

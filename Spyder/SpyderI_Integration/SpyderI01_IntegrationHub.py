@@ -280,7 +280,7 @@ class IntegrationHub:
                 except ImportError:
                     self.logger.debug(f"Module group {scan_path} not found")
                 except Exception as e:
-                    self.logger.warning(f"Error scanning {scan_path}: {e}")
+                    self.logger.warning(f"Error scanning {scan_path}: {e}", exc_info=True)
 
             self.stats['modules_discovered'] = len(self.modules)
 
@@ -729,8 +729,8 @@ class IntegrationHub:
                 if any(any(pattern in method.lower() for pattern in patterns) for method in methods):
                     capabilities.append(capability)
 
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"Capability detection failed for module: {e}")
 
         return capabilities
 

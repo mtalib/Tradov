@@ -46,6 +46,17 @@ Module Constants:
     RETRY_BACKOFF (float): Exponential backoff factor for retries (default: 2.0)
 
 Change Log:
+    2026-03-16 (v3.0.0):
+        - Added TradierMarketStream: WebSocket real-time market data streaming (ENH-01)
+        - Added dynamic rate limit header parsing — RateLimitInfo dataclass (ENH-03)
+        - Added get_rate_limit_info() for real-time rate limit monitoring (ENH-03)
+        - Added OCO/OTO/OTOCO contingent order types (ENH-04)
+        - Added missing REST endpoints: calendar, clock, gainloss, watchlists,
+          timesales, symbol search, historical quotes (ENH-05)
+        - Added order preview (dry-run) support for single-leg and multileg (ENH-06)
+        - Fixed: all async methods use get_running_loop() — Python 3.10+ (ENH-07)
+        - Added MarketEvent and RateLimitInfo dataclasses
+        - TradierAccountStream (SSE) preserved; aliased for backward compatibility
     2026-02-25 (v2.0.0):
         - Added multileg order support (spreads, Iron Condors)
         - Added option symbol builder and parser utilities
@@ -98,12 +109,21 @@ except ImportError:
     HAS_SSE = False
     sseclient = None
 
+try:
+    import websocket
+    HAS_WEBSOCKET = True
+except ImportError:
+    HAS_WEBSOCKET = False
+    websocket = None  # type: ignore[assignment]
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
-from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
+from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker, CircuitBreakerError
+from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
+from Spyder.SpyderU_Utilities.SpyderU45_RetryWithBackoff import retry_async
 
 # ==============================================================================
 # CONSTANTS
@@ -111,9 +131,14 @@ from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 TRADIER_LIVE_URL = "https://api.tradier.com/v1"
 TRADIER_SANDBOX_URL = "https://sandbox.tradier.com/v1"
 TRADIER_STREAM_URL = "https://stream.tradier.com/v1"
+TRADIER_WS_URL = "wss://ws.tradier.com/v1"
+TRADIER_SANDBOX_WS_URL = "wss://sandbox-ws.tradier.com/v1"
 DEFAULT_TIMEOUT = 10  # seconds
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # exponential backoff factor
+WS_PING_INTERVAL = 30  # seconds between WebSocket pings
+WS_PING_TIMEOUT = 10   # seconds to wait for pong response
+SESSION_TTL = 270.0    # session token refresh threshold (4.5 min; Tradier TTL is 5 min)
 
 # ==============================================================================
 # MODULE LOGGER
@@ -279,6 +304,65 @@ class AccountEvent:
     status: str = ""
 
 
+@dataclass
+class RateLimitInfo:
+    """
+    Rate limit state captured from Tradier response headers.
+
+    Tradier includes X-Ratelimit-* headers in every response.  This dataclass
+    surfaces that data so Spyder's rate limiter (SpyderU40) can adapt
+    dynamically instead of relying on a static estimate.
+
+    Attributes:
+        allowed: Total calls allowed in the current window (X-Ratelimit-Allowed).
+        used: Calls consumed so far (X-Ratelimit-Used).
+        available: Remaining calls (X-Ratelimit-Available).
+        expiry: Window expiry as Unix epoch milliseconds (X-Ratelimit-Expiry).
+        timestamp: Local time.time() when this snapshot was captured.
+    """
+    allowed: int = 0
+    used: int = 0
+    available: int = 0
+    expiry: int = 0
+    timestamp: float = 0.0
+
+    @property
+    def remaining_pct(self) -> float:
+        """Percentage of rate limit remaining (0.0–100.0)."""
+        if self.allowed <= 0:
+            return 0.0
+        return round((self.available / self.allowed) * 100, 1)
+
+
+@dataclass
+class MarketEvent:
+    """
+    Structured market event from Tradier WebSocket stream.
+
+    Populated by TradierMarketStream from incoming WebSocket JSON messages.
+
+    Attributes:
+        event_type: Event category: "trade", "quote", or "summary".
+        symbol: Ticker symbol (equity or OCC option format).
+        timestamp: Event timestamp string from Tradier.
+        bid: Best bid price (quote events).
+        ask: Best ask price (quote events).
+        last: Last trade price.
+        size: Trade size (trade events).
+        volume: Cumulative session volume.
+        data: Raw event payload for fields not captured above.
+    """
+    event_type: str = ""
+    symbol: str = ""
+    timestamp: str = ""
+    bid: float = 0.0
+    ask: float = 0.0
+    last: float = 0.0
+    size: int = 0
+    volume: int = 0
+    data: dict[str, Any] = field(default_factory=dict)
+
+
 # ==============================================================================
 # OPTION SYMBOL UTILITIES
 # ==============================================================================
@@ -439,6 +523,9 @@ class TradierClient:
         # Create session with connection pooling and retry logic
         self.session = self._create_session()
 
+        # Rate limit snapshot updated after every successful API call (ENH-03)
+        self._last_rate_limit: RateLimitInfo | None = None
+
         logger.info(f"TradierClient initialized for {environment.value} environment")
 
     def _create_session(self) -> requests.Session:
@@ -515,6 +602,29 @@ class TradierClient:
 
             # Handle different status codes
             if response.status_code == 200:
+                # ENH-03: Parse rate limit headers on every successful response
+                try:
+                    h = response.headers
+                    rl = RateLimitInfo(
+                        allowed=int(h.get("X-Ratelimit-Allowed", 0)),
+                        used=int(h.get("X-Ratelimit-Used", 0)),
+                        available=int(h.get("X-Ratelimit-Available", 0)),
+                        expiry=int(h.get("X-Ratelimit-Expiry", 0)),
+                        timestamp=time.time(),
+                    )
+                    self._last_rate_limit = rl
+                    if rl.available <= 3:
+                        logger.error(
+                            f"Rate limit critical: only {rl.available} requests remaining "
+                            f"(window expires epoch={rl.expiry})"
+                        )
+                    elif rl.available <= 10:
+                        logger.warning(
+                            f"Rate limit low: {rl.available}/{rl.allowed} remaining "
+                            f"(window expires epoch={rl.expiry})"
+                        )
+                except (ValueError, TypeError):
+                    pass  # Headers absent or malformed — not fatal
                 return response.json()
 
             elif response.status_code == 401 or response.status_code == 403:
@@ -544,12 +654,12 @@ class TradierClient:
 
         except requests.exceptions.Timeout:
             error_msg = f"Request timeout after {self.timeout}s"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
             raise TradierAPIError(error_msg)
 
         except requests.exceptions.ConnectionError as e:
             error_msg = f"Connection error: {str(e)}"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
             raise TradierAPIError(error_msg)
 
         except (TradierAuthenticationError, TradierValidationError,
@@ -558,8 +668,26 @@ class TradierClient:
 
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
             raise TradierAPIError(error_msg)
+
+    def get_rate_limit_info(self) -> RateLimitInfo | None:
+        """
+        Return the most recent rate limit snapshot from Tradier headers.
+
+        Updated automatically after every successful API call.  Callers
+        (SpyderU40_RateLimiter, dashboard widgets) can query this to adapt
+        request pacing dynamically instead of relying on a static estimate.
+
+        Returns:
+            RateLimitInfo snapshot, or None if no successful call has been made yet.
+
+        Example:
+            >>> info = client.get_rate_limit_info()
+            >>> if info and info.remaining_pct < 20:
+            ...     logger.warning(f"Only {info.available} Tradier calls left")
+        """
+        return self._last_rate_limit
 
     # ==========================================================================
     # USER & ACCOUNT ENDPOINTS
@@ -623,6 +751,102 @@ class TradierClient:
             "GET",
             f"/accounts/{self.account_id}/history",
             params={"limit": limit}
+        )
+
+    def get_gainloss(
+        self,
+        page: int | None = None,
+        limit: int | None = None,
+        sort_by: str | None = None,
+        sort_direction: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        symbol: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get realized gain/loss for closed positions.
+
+        Useful for tax reporting, performance attribution, and strategy P&L analysis.
+
+        Args:
+            page: Page number for pagination (1-based).
+            limit: Records per page (max 100).
+            sort_by: Sort field: "openDate", "closeDate", "instrument" etc.
+            sort_direction: "asc" or "desc".
+            start: Filter from date (YYYY-MM-DD).
+            end:   Filter to date (YYYY-MM-DD).
+            symbol: Filter by symbol.
+
+        Returns:
+            Gain/loss data with closed position records.
+
+        Example:
+            >>> gl = client.get_gainloss(start="2026-01-01", end="2026-03-16")
+            >>> for record in gl.get("gainloss", {}).get("closed_position", []):
+            ...     print(f"{record['symbol']}: ${record['gain_loss']:.2f}")
+        """
+        params: dict[str, Any] = {}
+        if page is not None:
+            params["page"] = page
+        if limit is not None:
+            params["limit"] = limit
+        if sort_by:
+            params["sortBy"] = sort_by
+        if sort_direction:
+            params["sort"] = sort_direction
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        if symbol:
+            params["symbol"] = symbol
+
+        logger.info(f"Fetching gain/loss for account {self.account_id}")
+        return self._make_request(
+            "GET",
+            f"/accounts/{self.account_id}/gainloss",
+            params=params,
+        )
+
+    def get_watchlists(self) -> dict[str, Any]:
+        """
+        Get all watchlists for the current user.
+
+        Returns:
+            Watchlist data with names, IDs, and symbol lists.
+
+        Example:
+            >>> wls = client.get_watchlists()
+            >>> for wl in wls.get("watchlists", {}).get("watchlist", []):
+            ...     print(wl["name"], wl["id"])
+        """
+        logger.debug("Fetching watchlists")
+        return self._make_request("GET", "/watchlists")
+
+    def add_to_watchlist(self, watchlist_id: str, symbols: list[str]) -> dict[str, Any]:
+        """
+        Add symbols to an existing watchlist.
+
+        Args:
+            watchlist_id: Watchlist ID (from get_watchlists()).
+            symbols: List of symbols to add.
+
+        Returns:
+            Updated watchlist data.
+
+        Raises:
+            ValueError: If symbols list is empty.
+
+        Example:
+            >>> import client.add_to_watchlist("default", ["SPY", "QQQ"])
+        """
+        if not symbols:
+            raise ValueError("symbols list must not be empty")
+        logger.info(f"Adding {symbols} to watchlist {watchlist_id}")
+        return self._make_request(
+            "POST",
+            f"/watchlists/{watchlist_id}/symbols",
+            data={"symbols": ",".join(symbols)},
         )
 
     # ==========================================================================
@@ -727,6 +951,191 @@ class TradierClient:
         """
         logger.info(f"Fetching all orders for account {self.account_id}")
         return self._make_request("GET", f"/accounts/{self.account_id}/orders")
+
+    # ==========================================================================
+    # ORDER PREVIEW (DRY-RUN)
+    # ==========================================================================
+
+    def preview_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: int,
+        order_type: OrderType = OrderType.MARKET,
+        duration: OrderDuration = OrderDuration.DAY,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        order_class: OrderClass = OrderClass.EQUITY,
+    ) -> dict[str, Any]:
+        """
+        Preview a single-leg order without actually placing it.
+
+        Tradier validates the order and returns estimated cost, commission,
+        and margin impact.  No order is submitted.  Use this in SpyderE_Risk
+        to pre-validate orders before execution.
+
+        Args:
+            symbol: Security symbol.
+            side: Order side (buy/sell).
+            quantity: Number of shares/contracts.
+            order_type: Order type.
+            duration: Time-in-force.
+            limit_price: Limit price (required for limit orders).
+            stop_price: Stop price (required for stop orders).
+            order_class: Security class.
+
+        Returns:
+            Preview response: estimated_cost, commission, margin_change,
+            and validation status.
+
+        Example:
+            >>> preview = client.preview_order(
+            ...     "SPY", OrderSide.BUY, 10, OrderType.LIMIT, limit_price=560.00
+            ... )
+            >>> print(preview["order"]["status"])  # "ok" or error details
+        """
+        logger.debug(f"Previewing order: {side.value} {quantity} {symbol}")
+        payload: dict[str, Any] = {
+            "class": order_class.value,
+            "symbol": symbol,
+            "side": side.value,
+            "quantity": quantity,
+            "type": order_type.value,
+            "duration": duration.value,
+            "preview": "true",
+        }
+        if limit_price is not None:
+            payload["price"] = limit_price
+        if stop_price is not None:
+            payload["stop"] = stop_price
+
+        return self._make_request(
+            "POST",
+            f"/accounts/{self.account_id}/orders",
+            data=payload,
+        )
+
+    def preview_multileg_order(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        order_type: str = "credit",
+        duration: OrderDuration = OrderDuration.DAY,
+        price: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Preview a multileg option order without placing it.
+
+        Args:
+            symbol: Underlying symbol.
+            legs: Option legs (OptionLeg objects).
+            order_type: 'market', 'credit', 'debit', or 'even'.
+            duration: Time-in-force.
+            price: Net limit price.
+
+        Returns:
+            Preview response with estimated cost/commission.
+
+        Raises:
+            ValueError: If legs are empty.
+
+        Example:
+            >>> preview = client.preview_multileg_order("SPY", legs, "credit", price=2.00)
+        """
+        if not legs:
+            raise ValueError("At least one OptionLeg is required")
+        logger.debug(f"Previewing multileg order: {symbol} {len(legs)} legs")
+        payload: dict[str, Any] = {
+            "class": "multileg",
+            "symbol": symbol,
+            "type": order_type,
+            "duration": duration.value,
+            "preview": "true",
+        }
+        if price is not None:
+            payload["price"] = str(price)
+        for i, leg in enumerate(legs):
+            payload[f"option_symbol[{i}]"] = leg.option_symbol
+            payload[f"side[{i}]"] = leg.side.value
+            payload[f"quantity[{i}]"] = str(leg.quantity)
+
+        return self._make_request(
+            "POST",
+            f"/accounts/{self.account_id}/orders",
+            data=payload,
+        )
+
+    def preview_iron_condor(
+        self,
+        symbol: str,
+        expiration: str,
+        put_buy_strike: float,
+        put_sell_strike: float,
+        call_sell_strike: float,
+        call_buy_strike: float,
+        quantity: int = 1,
+        price: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Preview an Iron Condor order (convenience wrapper for preview_multileg_order).
+
+        Args:
+            symbol: Underlying symbol.
+            expiration: Option expiration (YYYY-MM-DD).
+            put_buy_strike: Long put strike (protection).
+            put_sell_strike: Short put strike.
+            call_sell_strike: Short call strike.
+            call_buy_strike: Long call strike (protection).
+            quantity: Contracts per leg.
+            price: Net credit limit price.
+
+        Returns:
+            Preview response with estimated commission and cost.
+        """
+        legs = [
+            OptionLeg(build_option_symbol(symbol, expiration, "P", put_buy_strike),
+                      OrderSide.BUY_TO_OPEN, quantity),
+            OptionLeg(build_option_symbol(symbol, expiration, "P", put_sell_strike),
+                      OrderSide.SELL_TO_OPEN, quantity),
+            OptionLeg(build_option_symbol(symbol, expiration, "C", call_sell_strike),
+                      OrderSide.SELL_TO_OPEN, quantity),
+            OptionLeg(build_option_symbol(symbol, expiration, "C", call_buy_strike),
+                      OrderSide.BUY_TO_OPEN, quantity),
+        ]
+        return self.preview_multileg_order(symbol, legs, "credit", price=price)
+
+    def preview_credit_spread(
+        self,
+        symbol: str,
+        expiration: str,
+        sell_strike: float,
+        buy_strike: float,
+        option_type: str = "P",
+        quantity: int = 1,
+        price: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Preview a credit spread order.
+
+        Args:
+            symbol: Underlying symbol.
+            expiration: Option expiration (YYYY-MM-DD).
+            sell_strike: Short strike.
+            buy_strike: Long strike.
+            option_type: "P" for bull put, "C" for bear call.
+            quantity: Number of contracts.
+            price: Net credit limit price.
+
+        Returns:
+            Preview response with estimated commission and cost.
+        """
+        legs = [
+            OptionLeg(build_option_symbol(symbol, expiration, option_type, sell_strike),
+                      OrderSide.SELL_TO_OPEN, quantity),
+            OptionLeg(build_option_symbol(symbol, expiration, option_type, buy_strike),
+                      OrderSide.BUY_TO_OPEN, quantity),
+        ]
+        return self.preview_multileg_order(symbol, legs, "credit", price=price)
 
     # ==========================================================================
     # MARKET DATA ENDPOINTS
@@ -945,6 +1354,140 @@ class TradierClient:
         # Sort by closest to target
         matches.sort(key=lambda x: x[0])
         return [g for _, g in matches]
+
+    def get_market_calendar(
+        self,
+        month: int | None = None,
+        year: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get the trading calendar for a given month.
+
+        Returns trading days, market open/close times, and holiday markers.
+        Used by SpyderA04_Scheduler and SpyderU10_TradingCalendar.
+
+        Args:
+            month: Calendar month (1-12).  Defaults to current month.
+            year:  Calendar year (e.g., 2026).  Defaults to current year.
+
+        Returns:
+            Calendar data with market open/close flags per day.
+
+        Example:
+            >>> cal = client.get_market_calendar(month=3, year=2026)
+            >>> for day in cal["calendar"]["days"]["day"]:
+            ...     print(day["date"], day["status"])
+        """
+        params: dict[str, Any] = {}
+        if month is not None:
+            params["month"] = month
+        if year is not None:
+            params["year"] = year
+        logger.debug(f"Fetching market calendar {year}/{month}")
+        return self._make_request("GET", "/markets/calendar", params=params)
+
+    def get_market_clock(self) -> dict[str, Any]:
+        """
+        Get the current market state (pre-market, open, post-market, closed).
+
+        Returns the current time relative to market hours, next open/close times,
+        and whether the market is currently open.
+
+        Returns:
+            Market clock data.
+
+        Example:
+            >>> clock = client.get_market_clock()
+            >>> print(clock["clock"]["state"])  # "open" | "closed" | "premarket" | "postmarket"
+        """
+        logger.debug("Fetching market clock")
+        return self._make_request("GET", "/markets/clock")
+
+    def get_time_sales(
+        self,
+        symbol: str,
+        interval: str = "1min",
+        start: str | None = None,
+        end: str | None = None,
+        session_filter: str = "open",
+    ) -> dict[str, Any]:
+        """
+        Get tick-level time and sales data (OHLCV bars).
+
+        Args:
+            symbol: Symbol (e.g., "SPY").
+            interval: Bar interval: "tick", "1min", "5min", "15min" etc.
+            start: Start datetime (YYYY-MM-DD HH:MM).
+            end:   End datetime (YYYY-MM-DD HH:MM).
+            session_filter: "all" or "open" (regular session only).
+
+        Returns:
+            Time and sales data.
+
+        Example:
+            >>> ts = client.get_time_sales("SPY", interval="1min", start="2026-03-16 09:30")
+        """
+        params: dict[str, Any] = {"symbol": symbol, "interval": interval,
+                                   "session_filter": session_filter}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        logger.debug(f"Fetching time sales for {symbol} ({interval})")
+        return self._make_request("GET", "/markets/timesales", params=params)
+
+    def search_symbols(self, query: str, indexes: bool = False) -> dict[str, Any]:
+        """
+        Search for symbols by company name or ticker prefix.
+
+        Args:
+            query: Search string (e.g., "Apple" or "SPY").
+            indexes: Include index symbols in results.
+
+        Returns:
+            Search results with symbol, exchange, and description.
+
+        Example:
+            >>> results = client.search_symbols("SPDR")
+            >>> for s in results["securities"]["security"]:
+            ...     print(s["symbol"], s["description"])
+        """
+        params: dict[str, Any] = {"q": query, "indexes": str(indexes).lower()}
+        logger.debug(f"Searching symbols: '{query}'")
+        return self._make_request("GET", "/markets/search", params=params)
+
+    def get_historical_quotes(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get historical OHLCV bars for a symbol.
+
+        Args:
+            symbol: Symbol (e.g., "SPY").
+            interval: Bar size: "daily", "weekly", or "monthly".
+            start: Start date (YYYY-MM-DD).
+            end:   End date (YYYY-MM-DD).
+
+        Returns:
+            Historical OHLCV data.
+
+        Example:
+            >>> history = client.get_historical_quotes("SPY", interval="daily",
+            ...     start="2026-01-01", end="2026-03-16")
+            >>> for bar in history["history"]["day"]:
+            ...     print(bar["date"], bar["close"])
+        """
+        params: dict[str, Any] = {"symbol": symbol, "interval": interval}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        logger.debug(f"Fetching historical quotes for {symbol} ({interval})")
+        return self._make_request("GET", "/markets/history", params=params)
 
     # ==========================================================================
     # MULTILEG ORDER ENDPOINTS
@@ -1241,6 +1784,168 @@ class TradierClient:
         )
 
     # ==========================================================================
+    # CONTINGENT ORDER ENDPOINTS  (ENH-04)
+    # ==========================================================================
+
+    def place_oco_order(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """
+        Place an OCO (One-Cancels-Other) order for two option legs.
+
+        When one leg fills the other is automatically cancelled.  Useful for
+        bracketing an open position with a profit-target and a stop.
+
+        Args:
+            symbol: Underlying symbol (e.g., "SPY").
+            legs:   Exactly 2 OptionLeg objects (primary and secondary).
+            duration: Order duration. Defaults to "day".
+
+        Returns:
+            Order response dict with order ID.
+
+        Raises:
+            ValueError: If fewer than 2 legs are provided.
+
+        Example:
+            >>> legs = [
+            ...     OptionLeg("SPY260320C00550000", OrderSide.SELL_TO_CLOSE, 1),
+            ...     OptionLeg("SPY260320C00560000", OrderSide.BUY_TO_CLOSE, 1),
+            ... ]
+            >>> order = client.place_oco_order("SPY", legs)
+        """
+        if len(legs) < 2:
+            raise ValueError("OCO order requires exactly 2 legs")
+
+        payload: dict[str, Any] = {
+            "class": "oco",
+            "symbol": symbol,
+            "duration": duration,
+            "type[0]": "market",
+            "type[1]": "market",
+        }
+        for i, leg in enumerate(legs[:2]):
+            payload[f"option_symbol[{i}]"] = leg.option_symbol
+            payload[f"side[{i}]"] = leg.side.value
+            payload[f"quantity[{i}]"] = str(leg.quantity)
+
+        logger.info(f"Placing OCO order: {symbol} ({len(legs)} legs)")
+        return self._make_request(
+            "POST",
+            f"/accounts/{self.account_id}/orders",
+            data=payload,
+        )
+
+    def place_oto_order(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """
+        Place an OTO (One-Triggers-Other) order for two option legs.
+
+        The second leg is triggered only when the first leg fills.  Use this
+        to enter a position and simultaneously queue a protective stop.
+
+        Args:
+            symbol: Underlying symbol (e.g., "SPY").
+            legs:   Exactly 2 OptionLeg objects (trigger and response).
+            duration: Order duration. Defaults to "day".
+
+        Returns:
+            Order response dict with order ID.
+
+        Raises:
+            ValueError: If fewer than 2 legs are provided.
+
+        Example:
+            >>> legs = [
+            ...     OptionLeg("SPY260320P00500000", OrderSide.BUY_TO_OPEN, 1),
+            ...     OptionLeg("SPY260320P00495000", OrderSide.SELL_TO_CLOSE, 1),
+            ... ]
+            >>> order = client.place_oto_order("SPY", legs)
+        """
+        if len(legs) < 2:
+            raise ValueError("OTO order requires exactly 2 legs")
+
+        payload: dict[str, Any] = {
+            "class": "oto",
+            "symbol": symbol,
+            "duration": duration,
+            "type[0]": "market",
+            "type[1]": "market",
+        }
+        for i, leg in enumerate(legs[:2]):
+            payload[f"option_symbol[{i}]"] = leg.option_symbol
+            payload[f"side[{i}]"] = leg.side.value
+            payload[f"quantity[{i}]"] = str(leg.quantity)
+
+        logger.info(f"Placing OTO order: {symbol} ({len(legs)} legs)")
+        return self._make_request(
+            "POST",
+            f"/accounts/{self.account_id}/orders",
+            data=payload,
+        )
+
+    def place_otoco_order(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """
+        Place an OTOCO (One-Triggers-OCO) order for three option legs.
+
+        The entry leg triggers an OCO pair of a profit target and a stop loss.
+        This is the primary bracket-order mechanism for defined-risk entries.
+
+        Args:
+            symbol: Underlying symbol (e.g., "SPY").
+            legs:   Exactly 3 OptionLeg objects — entry, profit-target, stop-loss.
+            duration: Order duration. Defaults to "day".
+
+        Returns:
+            Order response dict with order ID.
+
+        Raises:
+            ValueError: If fewer than 3 legs are provided.
+
+        Example:
+            >>> legs = [
+            ...     OptionLeg("SPY260320C00550000", OrderSide.BUY_TO_OPEN, 1),   # entry
+            ...     OptionLeg("SPY260320C00550000", OrderSide.SELL_TO_CLOSE, 1), # profit target
+            ...     OptionLeg("SPY260320C00550000", OrderSide.SELL_TO_CLOSE, 1), # stop
+            ... ]
+            >>> order = client.place_otoco_order("SPY", legs)
+        """
+        if len(legs) < 3:
+            raise ValueError("OTOCO order requires exactly 3 legs")
+
+        payload: dict[str, Any] = {
+            "class": "otoco",
+            "symbol": symbol,
+            "duration": duration,
+            "type[0]": "market",
+            "type[1]": "market",
+            "type[2]": "market",
+        }
+        for i, leg in enumerate(legs[:3]):
+            payload[f"option_symbol[{i}]"] = leg.option_symbol
+            payload[f"side[{i}]"] = leg.side.value
+            payload[f"quantity[{i}]"] = str(leg.quantity)
+
+        logger.info(f"Placing OTOCO order: {symbol} ({len(legs)} legs)")
+        return self._make_request(
+            "POST",
+            f"/accounts/{self.account_id}/orders",
+            data=payload,
+        )
+
+    # ==========================================================================
     # STREAMING SESSION
     # ==========================================================================
 
@@ -1261,7 +1966,7 @@ class TradierClient:
                 logger.info("Tradier streaming session created")
             return session_id
         except TradierAPIError as e:
-            logger.error(f"Failed to create streaming session: {e}")
+            logger.error(f"Failed to create streaming session: {e}", exc_info=True)
             return None
 
     # ==========================================================================
@@ -1284,7 +1989,7 @@ class TradierClient:
                 logger.error("Tradier connection test FAILED: Invalid response")
                 return False
         except Exception as e:
-            logger.error(f"Tradier connection test FAILED: {str(e)}")
+            logger.error(f"Tradier connection test FAILED: {str(e)}", exc_info=True)
             return False
 
     def __repr__(self) -> str:
@@ -1296,6 +2001,8 @@ class TradierClient:
     # ==========================================================================
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def place_order_async(
         self,
         symbol: str,
@@ -1337,7 +2044,7 @@ class TradierClient:
             ...     order_type=OrderType.MARKET
             ... )
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Wrap sync method in async executor with circuit breaker protection
         async with tradier_breaker:
@@ -1356,6 +2063,8 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def get_quotes_async(self, symbols: list[str]) -> dict[str, Any]:
         """
         Get real-time quotes asynchronously with rate limiting and circuit breaker.
@@ -1374,7 +2083,7 @@ class TradierClient:
         Example:
             >>> quotes = await client.get_quotes_async(["SPY", "QQQ"])
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1385,6 +2094,8 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def get_account_balances_async(self) -> dict[str, Any]:
         """
         Get account balances asynchronously with protection.
@@ -1392,7 +2103,7 @@ class TradierClient:
         Returns:
             Account balance data
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1402,6 +2113,8 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def get_positions_async(self) -> dict[str, Any]:
         """
         Get current positions asynchronously with protection.
@@ -1409,7 +2122,7 @@ class TradierClient:
         Returns:
             List of current positions
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1419,6 +2132,8 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def cancel_order_async(self, order_id: int) -> dict[str, Any]:
         """
         Cancel an order asynchronously with protection.
@@ -1429,7 +2144,7 @@ class TradierClient:
         Returns:
             Cancellation response
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1440,6 +2155,8 @@ class TradierClient:
             return result
 
     @rate_limit(service="tradier")
+    @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
     async def get_option_chain_async(self, symbol: str, expiration: str) -> dict[str, Any]:
         """
         Get option chain asynchronously with protection.
@@ -1451,7 +2168,7 @@ class TradierClient:
         Returns:
             Option chain data
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1523,7 +2240,7 @@ class TradierClient:
         Returns:
             Order response with order ID.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1552,7 +2269,7 @@ class TradierClient:
         Returns:
             List of GreekData objects.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1579,7 +2296,7 @@ class TradierClient:
         Returns:
             Response with available strikes.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1612,7 +2329,7 @@ class TradierClient:
         Returns:
             Modification response.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async with tradier_breaker:
             result = await loop.run_in_executor(
@@ -1623,11 +2340,220 @@ class TradierClient:
             )
             return result
 
+    # ---- ENH-05: account endpoints ----------------------------------------
 
-# ==============================================================================
-# SSE ACCOUNT EVENT STREAM
-# ==============================================================================
-class TradierAccountStream:
+    @rate_limit(service="tradier")
+    async def get_gainloss_async(
+        self,
+        page: int | None = None,
+        limit: int | None = None,
+        sort_by: str = "closeDate",
+        sort_direction: str = "desc",
+        start: str | None = None,
+        end: str | None = None,
+        symbol: str | None = None,
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_gainloss`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.get_gainloss(
+                    page, limit, sort_by, sort_direction, start, end, symbol
+                ),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_watchlists_async(self) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_watchlists`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(None, self.get_watchlists)
+            return result
+
+    @rate_limit(service="tradier")
+    async def add_to_watchlist_async(
+        self, watchlist_id: str, symbols: list[str]
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`add_to_watchlist`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.add_to_watchlist(watchlist_id, symbols),
+            )
+            return result
+
+    # ---- ENH-05: market data endpoints ------------------------------------
+
+    @rate_limit(service="tradier")
+    async def get_market_calendar_async(
+        self,
+        month: int | None = None,
+        year: int | None = None,
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_market_calendar`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.get_market_calendar(month, year),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_market_clock_async(self) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_market_clock`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(None, self.get_market_clock)
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_time_sales_async(
+        self,
+        symbol: str,
+        interval: str = "1min",
+        start: str | None = None,
+        end: str | None = None,
+        session_filter: str = "open",
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_time_sales`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.get_time_sales(symbol, interval, start, end, session_filter),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def search_symbols_async(
+        self, query: str, indexes: bool = False
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`search_symbols`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.search_symbols(query, indexes),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_historical_quotes_async(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`get_historical_quotes`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.get_historical_quotes(symbol, interval, start, end),
+            )
+            return result
+
+    # ---- ENH-04: contingent order endpoints --------------------------------
+
+    @rate_limit(service="tradier")
+    async def place_oco_order_async(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`place_oco_order`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.place_oco_order(symbol, legs, duration),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def place_oto_order_async(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`place_oto_order`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.place_oto_order(symbol, legs, duration),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def place_otoco_order_async(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        duration: str = "day",
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`place_otoco_order`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.place_otoco_order(symbol, legs, duration),
+            )
+            return result
+
+    # ---- ENH-06: order preview ---------------------------------------------
+
+    @rate_limit(service="tradier")
+    async def preview_order_async(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        order_type: str = "market",
+        duration: str = "day",
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        order_class: OrderClass = OrderClass.OPTION,
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`preview_order`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.preview_order(
+                    symbol, side, quantity, order_type, duration,
+                    limit_price, stop_price, order_class,
+                ),
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def preview_multileg_order_async(
+        self,
+        symbol: str,
+        legs: list[OptionLeg],
+        order_type: str = "credit",
+        duration: str = "day",
+        price: float | None = None,
+    ) -> dict[str, Any]:
+        """Async wrapper for :meth:`preview_multileg_order`."""
+        loop = asyncio.get_running_loop()
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.preview_multileg_order(symbol, legs, order_type, duration, price),
+            )
+            return result
+
+
+class TradierAccountStreamSSE:
     """
     Real-time account event stream via Tradier Server-Sent Events (SSE).
 
@@ -1642,7 +2568,7 @@ class TradierAccountStream:
 
     Example:
         >>> client = create_tradier_client_from_env()
-        >>> stream = TradierAccountStream(client)
+        >>> stream = TradierAccountStreamSSE(client)
         >>> stream.on_event = lambda e: print(f"Event: {e.event_type} {e.symbol}")
         >>> stream.start()
         >>> # ... later
@@ -1704,6 +2630,9 @@ class TradierAccountStream:
             name="TradierAccountStream",
             daemon=True,
         )
+        _coord = get_shutdown_coordinator()
+        _coord.register_thread(self._thread, name="TradierAccountStream")
+        _coord.register_cleanup(self.stop)
         self._thread.start()
         logger.info("Account event stream started")
 
@@ -1769,17 +2698,17 @@ class TradierAccountStream:
                     f"Account stream error (attempt {self._reconnect_attempts}/"
                     f"{self._max_reconnect}): {e}"
                 )
-                logger.error(error_msg)
+                logger.error(error_msg, exc_info=True)
 
                 if self.on_error:
                     try:
                         self.on_error(error_msg)
-                    except Exception:
-                        pass
+                    except Exception as cb_err:
+                        logger.debug(f"on_error callback raised: {cb_err}")
 
                 if self._running:
                     logger.info(f"Reconnecting account stream in {delay:.1f}s...")
-                    time.sleep(delay)
+                    time.sleep(delay)  # thread-safe: time.sleep() intentional
 
         if self._reconnect_attempts >= self._max_reconnect:
             logger.error(
@@ -1832,13 +2761,387 @@ class TradierAccountStream:
         except json.JSONDecodeError:
             logger.debug(f"Non-JSON SSE data (heartbeat): {event.data[:50]}")
         except Exception as e:
-            logger.warning(f"Error processing SSE event: {e}")
+            logger.warning(f"Error processing SSE event: {e}", exc_info=True)
+
+
+# Backward-compatibility alias — existing code using TradierAccountStream continues to work.
+TradierAccountStream = TradierAccountStreamSSE
+
+
+# ==============================================================================
+# WEBSOCKET MARKET DATA STREAM  (ENH-01)
+# ==============================================================================
+class TradierMarketStream:
+    """
+    Real-time market data stream via Tradier WebSocket API.
+
+    Streams real-time quotes, trades, and summaries for equities and options.
+    Runs in a background thread and dispatches events via caller-supplied callbacks.
+
+    WebSocket protocol flow
+    -----------------------
+    1. ``POST /v1/markets/events/session`` → receive a ``sessionid`` (5-min TTL).
+    2. Open ``wss://ws.tradier.com/v1/markets/events``.
+    3. Send JSON subscription payload with ``sessionid``, ``symbols``, and ``filter``.
+    4. Receive streaming JSON events; re-send payload to update symbol list.
+
+    Key advantage over SSE
+    ----------------------
+    Symbols can be added or removed by re-sending the subscription payload on the
+    *existing* connection — no reconnect required (see :meth:`update_symbols`).
+
+    Example::
+
+        client = create_tradier_client_from_env()
+        stream = TradierMarketStream(client, symbols=["SPY", "QQQ"])
+        stream.on_quote = lambda msg: print(f"Quote: {msg['symbol']} {msg['bid']}/{msg['ask']}")
+        stream.start()
+        # … later …
+        stream.stop()
+
+    Attributes:
+        client: Parent :class:`TradierClient` instance.
+        on_quote: Callback invoked for every quote event.
+        on_trade: Callback invoked for every trade print.
+        on_summary: Callback invoked for per-symbol summary events.
+        on_error: Callback invoked on connection errors (receives error string).
+        on_connected: Callback invoked on successful WebSocket open.
+        on_disconnected: Callback invoked when the stream disconnects.
+    """
+
+    def __init__(
+        self,
+        client: "TradierClient",
+        symbols: list[str],
+        filters: list[str] | None = None,
+        max_reconnect: int = 10,
+        reconnect_delay: float = 2.0,
+    ) -> None:
+        """
+        Initialise TradierMarketStream.
+
+        Args:
+            client: Configured :class:`TradierClient` instance.
+            symbols: Initial list of symbols to subscribe to.
+            filters: Event type filters.  Valid values: ``"trade"``, ``"quote"``,
+                     ``"summary"``, ``"timesale"``, ``"tradex"``.
+                     Defaults to ``["trade", "quote"]``.
+            max_reconnect: Maximum reconnection attempts before giving up.
+            reconnect_delay: Base backoff delay in seconds (doubles each attempt,
+                             capped at 120 s).
+        """
+        if not HAS_WEBSOCKET:
+            raise ImportError(
+                "websocket-client is required for WebSocket market streaming. "
+                "Install it with: pip install 'websocket-client>=1.7.0'"
+            )
+
+        self.client = client
+        self._symbols: list[str] = list(symbols)
+        self._filters: list[str] = filters if filters is not None else ["trade", "quote"]
+        self._max_reconnect = max_reconnect
+        self._reconnect_delay = reconnect_delay
+
+        self._running: bool = False
+        self._thread: threading.Thread | None = None
+        self._ws: Any = None
+        self._session_id: str | None = None
+        self._session_created_at: float = 0.0
+        self._reconnect_attempts: int = 0
+        self._ws_lock: threading.Lock = threading.Lock()
+
+        # Public callbacks — assign before calling start()
+        self.on_quote: Callable[[dict[str, Any]], None] | None = None
+        self.on_trade: Callable[[dict[str, Any]], None] | None = None
+        self.on_summary: Callable[[dict[str, Any]], None] | None = None
+        self.on_error: Callable[[str], None] | None = None
+        self.on_connected: Callable[[], None] | None = None
+        self.on_disconnected: Callable[[], None] | None = None
+
+        logger.info(
+            f"TradierMarketStream initialised for {len(self._symbols)} symbol(s): {self._symbols}"
+        )
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """
+        Start streaming market data in a background daemon thread.
+
+        Raises:
+            RuntimeError: If the stream is already running.
+
+        Example::
+
+            stream.start()
+        """
+        if self._running:
+            logger.warning("TradierMarketStream is already running")
+            return
+
+        self._running = True
+        self._reconnect_attempts = 0
+        self._thread = threading.Thread(
+            target=self._stream_loop,
+            name="TradierMarketStream",
+            daemon=True,
+        )
+        _coord = get_shutdown_coordinator()
+        _coord.register_thread(self._thread, name="TradierMarketStream")
+        _coord.register_cleanup(self.stop)
+        self._thread.start()
+        logger.info(f"Market stream started — symbols: {self._symbols}")
+
+    def stop(self) -> None:
+        """
+        Gracefully stop the market data stream.
+
+        Closes the WebSocket connection and waits up to 10 s for the background
+        thread to exit.
+
+        Example::
+
+            stream.stop()
+        """
+        self._running = False
+        with self._ws_lock:
+            if self._ws is not None:
+                try:
+                    self._ws.close()
+                except Exception as ws_err:
+                    logger.debug(f"WebSocket close error: {ws_err}")
+        if self._thread is not None:
+            self._thread.join(timeout=10.0)
+            self._thread = None
+        logger.info("Market stream stopped")
+
+    def update_symbols(self, symbols: list[str]) -> None:
+        """
+        Update the symbol subscription without reconnecting.
+
+        Re-sends the subscription payload on the live connection.  This is a
+        key WebSocket advantage — no reconnection or new session needed.
+
+        Args:
+            symbols: Replacement symbol list.
+
+        Example::
+
+            stream.update_symbols(["SPY", "QQQ", "IWM"])
+        """
+        self._symbols = list(symbols)
+        with self._ws_lock:
+            ws = self._ws
+        if ws is not None and self._session_id:
+            try:
+                payload = {
+                    "symbols": self._symbols,
+                    "sessionid": self._session_id,
+                    "filter": self._filters,
+                }
+                ws.send(json.dumps(payload))
+                logger.info(f"Market stream subscription updated: {self._symbols}")
+            except Exception as exc:
+                logger.warning(f"Failed to send updated subscription: {exc}", exc_info=True)
+
+    @property
+    def is_running(self) -> bool:
+        """Return ``True`` if the stream thread is alive and active."""
+        return self._running and self._thread is not None and self._thread.is_alive()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _get_ws_url(self) -> str:
+        """Return the correct WebSocket URL for the configured environment."""
+        env = getattr(self.client, "environment", TradingEnvironment.SANDBOX)
+        if env in (TradingEnvironment.SANDBOX,):
+            return f"{TRADIER_SANDBOX_WS_URL}/markets/events"
+        return f"{TRADIER_WS_URL}/markets/events"
+
+    def _is_session_expired(self) -> bool:
+        """Return ``True`` if the session token may have expired.
+
+        Tradier session tokens expire after 5 minutes; we refresh after
+        ``SESSION_TTL`` seconds (4.5 min) to avoid edge-case expiry mid-stream.
+        """
+        return time.time() - self._session_created_at > SESSION_TTL
+
+    # ------------------------------------------------------------------
+    # Background thread
+    # ------------------------------------------------------------------
+
+    def _stream_loop(self) -> None:
+        """Main WebSocket loop with exponential-backoff reconnection."""
+        while self._running and self._reconnect_attempts < self._max_reconnect:
+            try:
+                # Refresh session token if absent or approaching expiry
+                if self._session_id is None or self._is_session_expired():
+                    session_id = self.client.create_streaming_session()
+                    if not session_id:
+                        raise TradierAPIError("create_streaming_session returned empty token")
+                    self._session_id = session_id
+                    self._session_created_at = time.time()
+                    logger.debug("Market stream session token refreshed")
+
+                ws_url = self._get_ws_url()
+                logger.info(f"Connecting market stream WebSocket → {ws_url}")
+
+                ws_app = websocket.WebSocketApp(
+                    ws_url,
+                    on_open=self._on_ws_open,
+                    on_message=self._on_ws_message,
+                    on_error=self._on_ws_error,
+                    on_close=self._on_ws_close,
+                )
+                with self._ws_lock:
+                    self._ws = ws_app
+
+                ws_app.run_forever(
+                    ping_interval=WS_PING_INTERVAL,
+                    ping_timeout=WS_PING_TIMEOUT,
+                )
+
+                # run_forever() returned — stream disconnected unexpectedly
+                if self._running:
+                    self._reconnect_attempts += 1
+                    delay = min(
+                        self._reconnect_delay * (2 ** (self._reconnect_attempts - 1)),
+                        120.0,
+                    )
+                    logger.warning(
+                        f"Market stream disconnected unexpectedly. "
+                        f"Reconnecting in {delay:.1f}s "
+                        f"(attempt {self._reconnect_attempts}/{self._max_reconnect})"
+                    )
+                    # Force session refresh on next iteration
+                    self._session_id = None
+                    time.sleep(delay)  # thread-safe: time.sleep() intentional
+
+            except Exception as exc:
+                self._reconnect_attempts += 1
+                delay = min(
+                    self._reconnect_delay * (2 ** (self._reconnect_attempts - 1)),
+                    120.0,
+                )
+                error_msg = (
+                    f"Market stream error "
+                    f"(attempt {self._reconnect_attempts}/{self._max_reconnect}): {exc}"
+                )
+                logger.error(error_msg, exc_info=True)
+                if self.on_error:
+                    try:
+                        self.on_error(error_msg)
+                    except Exception as cb_err:
+                        logger.debug(f"on_error callback raised: {cb_err}")
+                if self._running:
+                    logger.info(f"Reconnecting market stream in {delay:.1f}s…")
+                    self._session_id = None
+                    time.sleep(delay)  # thread-safe: time.sleep() intentional
+
+        with self._ws_lock:
+            self._ws = None
+
+        if self._reconnect_attempts >= self._max_reconnect:
+            logger.error(
+                f"Market stream: max reconnection attempts ({self._max_reconnect}) reached. "
+                "Stream is stopped."
+            )
+
+    # ------------------------------------------------------------------
+    # WebSocket callbacks
+    # ------------------------------------------------------------------
+
+    def _on_ws_open(self, ws: Any) -> None:
+        """Send subscription payload immediately after the WebSocket opens."""
+        payload = {
+            "symbols": self._symbols,
+            "sessionid": self._session_id,
+            "filter": self._filters,
+        }
+        ws.send(json.dumps(payload))
+        self._reconnect_attempts = 0  # Reset on successful connect
+        logger.info(
+            f"Market stream connected — subscribed to {len(self._symbols)} symbol(s)"
+        )
+        if self.on_connected:
+            try:
+                self.on_connected()
+            except Exception as exc:
+                logger.warning(f"on_connected callback raised: {exc}", exc_info=True)
+
+    def _on_ws_message(self, ws: Any, message: str) -> None:
+        """Parse and dispatch an incoming WebSocket message to the right callback."""
+        try:
+            if not message or not message.strip():
+                return  # Heartbeat / keep-alive
+
+            data: dict[str, Any] = json.loads(message)
+            if not isinstance(data, dict):
+                return
+
+            event_type: str = data.get("type", "")
+            logger.debug(f"Market event: {event_type} {data.get('symbol', '')}")
+
+            if event_type == "quote" and self.on_quote:
+                try:
+                    self.on_quote(data)
+                except Exception as exc:
+                    logger.warning(f"on_quote callback raised: {exc}", exc_info=True)
+
+            elif event_type in ("trade", "tradex") and self.on_trade:
+                try:
+                    self.on_trade(data)
+                except Exception as exc:
+                    logger.warning(f"on_trade callback raised: {exc}", exc_info=True)
+
+            elif event_type == "summary" and self.on_summary:
+                try:
+                    self.on_summary(data)
+                except Exception as exc:
+                    logger.warning(f"on_summary callback raised: {exc}", exc_info=True)
+
+        except json.JSONDecodeError:
+            logger.debug(f"Non-JSON WebSocket message (heartbeat): {message[:50]}")
+        except Exception as exc:
+            logger.warning(f"Unhandled error in _on_ws_message: {exc}", exc_info=True)
+
+    def _on_ws_error(self, ws: Any, error: Any) -> None:
+        """Handle WebSocket-level errors."""
+        error_msg = str(error)
+        logger.error(f"Market stream WebSocket error: {error_msg}")
+        if self.on_error:
+            try:
+                self.on_error(error_msg)
+            except Exception as cb_err:
+                logger.debug(f"on_error callback raised: {cb_err}")
+
+    def _on_ws_close(
+        self,
+        ws: Any,
+        close_status_code: Any,
+        close_msg: Any,
+    ) -> None:
+        """Handle WebSocket close and notify the disconnected callback."""
+        with self._ws_lock:
+            self._ws = None
+        logger.info(
+            f"Market stream disconnected (code={close_status_code}, msg={close_msg})"
+        )
+        if self.on_disconnected:
+            try:
+                self.on_disconnected()
+            except Exception as exc:
+                logger.warning(f"on_disconnected callback raised: {exc}", exc_info=True)
 
 
 # ==============================================================================
 # FACTORY FUNCTIONS
 # ==============================================================================
-def create_tradier_client_from_env(environment: TradingEnvironment = TradingEnvironment.SANDBOX) -> TradierClient:
+def create_tradier_client_from_env(environment: TradingEnvironment | None = None) -> TradierClient:
     """
     Create TradierClient from environment variables.
 
@@ -1846,8 +3149,17 @@ def create_tradier_client_from_env(environment: TradingEnvironment = TradingEnvi
         - TRADIER_API_KEY: API access token
         - TRADIER_ACCOUNT_ID: Account ID
 
+    Optional environment variables:
+        - TRADIER_ENVIRONMENT: ``"live"`` or ``"sandbox"`` (default: ``"sandbox"``).
+          When *environment* is not passed explicitly, this variable is read to
+          determine which Tradier endpoint to connect to.  This is independent of
+          ``TRADING_MODE`` so that paper-trading mode can still consume real
+          production quotes (``TRADING_MODE=paper TRADIER_ENVIRONMENT=live``).
+
     Args:
-        environment: Trading environment (live or sandbox)
+        environment: Trading environment override.  If ``None`` (the default),
+            the value of the ``TRADIER_ENVIRONMENT`` env var is used, falling
+            back to ``sandbox`` if that variable is also absent.
 
     Returns:
         Configured TradierClient instance
@@ -1859,7 +3171,8 @@ def create_tradier_client_from_env(environment: TradingEnvironment = TradingEnvi
         >>> import os
         >>> os.environ["TRADIER_API_KEY"] = "your_token"
         >>> os.environ["TRADIER_ACCOUNT_ID"] = "your_account"
-        >>> client = create_tradier_client_from_env(TradingEnvironment.SANDBOX)
+        >>> os.environ["TRADIER_ENVIRONMENT"] = "live"
+        >>> client = create_tradier_client_from_env()  # picks up TRADIER_ENVIRONMENT
     """
     api_key = os.getenv("TRADIER_API_KEY")
     account_id = os.getenv("TRADIER_ACCOUNT_ID")
@@ -1868,6 +3181,10 @@ def create_tradier_client_from_env(environment: TradingEnvironment = TradingEnvi
         raise ValueError("TRADIER_API_KEY environment variable not set")
     if not account_id:
         raise ValueError("TRADIER_ACCOUNT_ID environment variable not set")
+
+    if environment is None:
+        _env_str = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
+        environment = TradingEnvironment.LIVE if _env_str == "live" else TradingEnvironment.SANDBOX
 
     return TradierClient(
         api_key=api_key,
@@ -1905,5 +3222,5 @@ if __name__ == "__main__":
         else:
             pass
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Demo __main__ failed: {e}", exc_info=True)

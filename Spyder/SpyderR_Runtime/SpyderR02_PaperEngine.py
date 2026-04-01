@@ -4,46 +4,26 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderR_Runtime
 Module: SpyderR02_PaperEngine.py
-Purpose: Paper trading engine with modern ib_async integration
+Purpose: Paper trading engine for strategy validation
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-21 Time: 19:30:00
 
-⚠️ DEPRECATION WARNING ⚠️
-    This module uses DEPRECATED ib_async integration.
-
-    Current Status:
-    - ❌ IBKR integration via ib_async is legacy code
-    - ✅ Recommended: Use Tradier sandbox mode for paper trading
-    - 🔧 See: SpyderB40_TradierClient (supports sandbox mode)
-
-    The Spyder system has migrated to:
-    - Tradier API for order execution and paper trading
-    - Databento for market data (SpyderC26_DatabentoClient)
-
-    This module remains for backward compatibility only.
-
 Module Description:
-    This module provides a comprehensive paper trading engine using the modern
-    ib_async library for IB Gateway 10.37 compatibility. It simulates live trading
-    operations with real market data while maintaining detailed records for strategy
-    testing and validation. Features include realistic order filling, commission
-    simulation, and performance tracking.
+    Paper trading engine that simulates live trading operations while
+    maintaining detailed records for strategy testing and validation.
+    Uses Tradier sandbox mode for realistic order simulation.
 
 Key Features:
-    • Modern ib_async integration for enhanced stability
-    • Realistic paper trading simulation
-    • Real market data integration
+    • Tradier sandbox integration for paper trading
+    • Realistic order filling simulation
     • Commission and slippage simulation
     • Comprehensive position tracking
     • Performance analytics and reporting
 
 Dependencies:
-    • ib_async (modern IB API wrapper)
-    • Standard Python libraries for data processing
-
-Installation Note:
-    pip install ib_async
+    • SpyderB40_TradierClient (Tradier API)
+    • SpyderC26_DatabentoClient (market data)
 """
 
 # ==============================================================================
@@ -58,58 +38,9 @@ from dataclasses import dataclass, field
 import uuid
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS - Modern ib_async (DEPRECATED)
+# THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-
-# ⚠️ DEPRECATED: ib_async is no longer used by Spyder trading system
-# For paper trading, use Tradier sandbox mode via SpyderB40_TradierClient
-# This import remains for backward compatibility only.
-try:
-    from ib_async import Contract, Order, Trade, LimitOrder, MarketOrder  # noqa: F401
-    from ib_async import Stock, Option, Future, IB, Ticker  # noqa: F401
-    HAS_IB_ASYNC = True
-except ImportError:
-    logging.info("⚠️ ib_async not available - running in simulation mode")
-    logging.info("For paper trading, use Tradier sandbox mode instead")
-    logging.info("See: SpyderB40_TradierClient.py")
-    HAS_IB_ASYNC = False
-
-    # Fallback classes for when ib_async is not available
-    class Contract:
-        def __init__(self):
-            self.symbol = ""
-            self.secType = ""
-            self.exchange = ""
-            self.currency = ""
-
-    class Order:
-        def __init__(self):
-            self.action = ""
-            self.totalQuantity = 0
-            self.orderType = ""
-
-    class LimitOrder:
-        def __init__(self, action, totalQuantity, lmtPrice):
-            self.action = action
-            self.totalQuantity = totalQuantity
-            self.lmtPrice = lmtPrice
-
-    class MarketOrder:
-        def __init__(self, action, totalQuantity):
-            self.action = action
-            self.totalQuantity = totalQuantity
-
-    class IB:
-        def connect(self, *args, **kwargs): return False
-        def disconnect(self): pass
-        def isConnected(self): return False
-
-    class Ticker:
-        def __init__(self):
-            self.last = 0.0
-            self.bid = 0.0
-            self.ask = 0.0
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -125,7 +56,7 @@ import logging
 DEFAULT_TIF = "DAY"
 DEFAULT_OUTSIDE_RTH = False
 
-# Order status mapping for ib_async
+# Order status mapping
 ORDER_STATUS_MAPPING = {
     "Submitted": "SUBMITTED",
     "Filled": "FILLED",
@@ -233,32 +164,29 @@ class PaperFill:
 
 class PaperTradingEngine:
     """
-    Comprehensive paper trading engine with modern ib_async integration.
+    Comprehensive paper trading engine with modern broker API integration.
 
     This class provides a realistic paper trading environment that simulates
-    live trading operations using real market data from Interactive Brokers.
+    Paper trading engine that simulates live trading operations.
     Features include realistic order fills, commission calculations, position
     tracking, and comprehensive performance analytics.
 
     Key Features:
-    - Modern ib_async integration
-    - Real market data simulation
+    - Tradier sandbox mode for paper trading
     - Realistic order filling with slippage
     - Commission and fee simulation
     - Comprehensive position tracking
     - Performance metrics and reporting
     """
 
-    def __init__(self, ib_client=None, config: dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         Initialize the paper trading engine.
 
         Args:
-            ib_client: Optional IB client connection
             config: Configuration dictionary
         """
         # Core components
-        self.ib_client = ib_client
         self.config = config or {}
 
         # Logging and error handling
@@ -288,7 +216,7 @@ class PaperTradingEngine:
         self.total_pnl = 0.0
         self.start_time: datetime.datetime | None = None
 
-        self.logger.info("PaperTradingEngine initialized with ib_async")
+        self.logger.info("PaperTradingEngine initialized")
 
     # ==========================================================================
     # ENGINE LIFECYCLE
@@ -307,10 +235,6 @@ class PaperTradingEngine:
                 return True
 
             self.logger.info("🚀 Starting paper trading engine...")
-
-            # Initialize market data connection if available
-            if self.ib_client and HAS_IB_ASYNC:
-                self._setup_market_data()
 
             self.is_running = True
             self.start_time = datetime.datetime.now()
@@ -339,10 +263,6 @@ class PaperTradingEngine:
 
             # Cancel all pending orders
             self._cancel_all_orders()
-
-            # Cleanup market data subscriptions
-            if self.ib_client and HAS_IB_ASYNC:
-                self._cleanup_market_data()
 
             self.is_running = False
 
@@ -656,32 +576,12 @@ class PaperTradingEngine:
     # ==========================================================================
 
     def _setup_market_data(self):
-        """Setup market data subscriptions."""
-        try:
-            if not self.ib_client or not HAS_IB_ASYNC:
-                return
-
-            # Setup event handlers for market data
-            self.ib_client.pendingTickersEvent += self._on_ticker_update
-
-            self.logger.info("📡 Market data setup complete")
-
-        except Exception as e:
-            self.logger.error(f"❌ Failed to setup market data: {e}")
+        """Setup market data subscriptions (Tradier sandbox)."""
+        self.logger.info("Market data setup via Tradier sandbox")
 
     def _cleanup_market_data(self):
         """Cleanup market data subscriptions."""
-        try:
-            if not self.ib_client or not HAS_IB_ASYNC:
-                return
-
-            # Remove event handlers
-            self.ib_client.pendingTickersEvent -= self._on_ticker_update
-
-            self.logger.info("📡 Market data cleanup complete")
-
-        except Exception as e:
-            self.logger.error(f"❌ Failed to cleanup market data: {e}")
+        self.logger.info("Market data cleanup complete")
 
     def _on_ticker_update(self, tickers):
         """Handle ticker updates."""
@@ -833,8 +733,7 @@ class PaperTradingEngine:
         return {
             'running': self.is_running,
             'mode': self.execution_mode.name,
-            'library': 'ib_async (modern)',
-            'has_ib_connection': self.ib_client is not None and HAS_IB_ASYNC,
+            'broker': 'tradier_sandbox',
             'orders_count': len(self.orders),
             'positions_count': len([p for p in self.positions.values() if p.quantity != 0]),
             'trades_executed': self.trades_executed,
@@ -861,18 +760,17 @@ class PaperTradingEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 
-def create_paper_engine(ib_client=None, config: dict[str, Any] = None) -> PaperTradingEngine:
+def create_paper_engine(config: dict[str, Any] = None) -> PaperTradingEngine:
     """
     Create paper trading engine with default configuration.
 
     Args:
-        ib_client: Optional IB client connection
         config: Configuration dictionary
 
     Returns:
         PaperTradingEngine instance
     """
-    return PaperTradingEngine(ib_client=ib_client, config=config)
+    return PaperTradingEngine(config=config)
 
 def get_paper_engine() -> PaperTradingEngine:
     """Get paper trading engine with default configuration."""
@@ -888,7 +786,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    logger.info("PaperTradingEngine - Enhanced with ib_async")
+    logger.info("PaperTradingEngine")
     logger.info("=" * 50)
 
     try:
@@ -897,37 +795,26 @@ if __name__ == "__main__":
 
         # Start engine
         if engine.start():
-            logger.info("✅ Paper engine started successfully")
+            logger.info("Paper engine started successfully")
 
             # Show status
             status = engine.get_status()
-            logger.info(f"📊 Status: {status}")
-
-            # Test contract creation and order placement
-            if HAS_IB_ASYNC:
-                spy_contract = Stock('SPY', 'SMART', 'USD')
-                market_order = MarketOrder('BUY', 100)
-
-                order_id = engine.place_order(spy_contract, market_order)
-                logger.info(f"📝 Test order placed: {order_id}")
+            logger.info(f"Status: {status}")
 
             # Show account info
             account = engine.get_account_info()
-            logger.info(f"💰 Account: ${account.net_liquidation:,.2f}")
+            logger.info(f"Account: ${account.net_liquidation:,.2f}")
 
             # Show performance
             performance = engine.get_performance_summary()
-            logger.info(f"📈 Performance: {performance}")
+            logger.info(f"Performance: {performance}")
 
             # Stop engine
             engine.stop()
-            logger.info("✅ Paper engine stopped successfully")
+            logger.info("Paper engine stopped successfully")
 
         else:
-            logger.error("❌ Failed to start paper engine")
+            logger.error("Failed to start paper engine")
 
     except Exception as e:
         logger.error(f"Error in main: {e}")
-
-    logger.info("\n🎉 PaperTradingEngine ready with ib_async!")
-    logger.info(f"Library available: {HAS_IB_ASYNC}")

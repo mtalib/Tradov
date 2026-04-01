@@ -648,6 +648,56 @@ if HAS_PROMETHEUS:
                 registry=self.registry
             )
 
+            # =================================================================
+            # STRATEGY P&L BY REGIME
+            # =================================================================
+            self.strategy_pnl_by_regime = Histogram(
+                "strategy_pnl_by_regime_dollars",
+                "Strategy P&L in dollars, labeled by strategy and market regime",
+                ["strategy_id", "regime"],
+                buckets=[-500, -200, -100, -50, -20, 0, 20, 50, 100, 200, 500, 1000],
+                namespace=NAMESPACE,
+                subsystem=SUBSYSTEM_TRADING,
+                registry=self.registry
+            )
+
+            # =================================================================
+            # ORDER FILL LATENCY
+            # =================================================================
+            self.order_fill_latency_ms = Histogram(
+                "order_fill_latency_milliseconds",
+                "Time from order submission to fill confirmation in milliseconds",
+                ["order_type", "symbol"],
+                buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000],
+                namespace=NAMESPACE,
+                subsystem=SUBSYSTEM_TRADING,
+                registry=self.registry
+            )
+
+            # =================================================================
+            # RISK BREACH COUNTER
+            # =================================================================
+            self.risk_breach_total = Counter(
+                "risk_breach_total",
+                "Total number of risk limit breaches by type",
+                ["breach_type", "severity"],
+                namespace=NAMESPACE,
+                subsystem=SUBSYSTEM_RISK,
+                registry=self.registry
+            )
+
+            # =================================================================
+            # REGIME CLASSIFICATION CONFIDENCE
+            # =================================================================
+            self.regime_classification_confidence = Gauge(
+                "regime_classification_confidence",
+                "Current confidence score of market regime classification (0.0-1.0)",
+                ["regime_type", "detector"],
+                namespace=NAMESPACE,
+                subsystem=SUBSYSTEM_MARKET,
+                registry=self.registry
+            )
+
 # ==============================================================================
 # TRADING METRICS CLASS
 # ==============================================================================
@@ -1159,6 +1209,65 @@ class PrometheusMetricsCollector:
                     order_type="market"
                 ).observe(abs(trade.slippage_bps))
 
+    def record_strategy_pnl(self, strategy_id: str, regime: str, pnl: float):
+        """
+        Record strategy P&L observation bucketed by market regime.
+
+        Args:
+            strategy_id: Identifier for the strategy (e.g. 'iron_condor').
+            regime: Current market regime label (e.g. 'trending', 'mean_reverting').
+            pnl: Realized or unrealized P&L in dollars for this observation.
+        """
+        if HAS_PROMETHEUS and self.metrics:
+            self.metrics.strategy_pnl_by_regime.labels(
+                strategy_id=strategy_id,
+                regime=regime
+            ).observe(pnl)
+
+    def record_fill_latency(self, order_type: str, symbol: str, latency_ms: float):
+        """
+        Record the latency from order submission to fill confirmation.
+
+        Args:
+            order_type: Type of order (e.g. 'market', 'limit').
+            symbol: Instrument symbol (e.g. 'SPY').
+            latency_ms: Fill latency in milliseconds.
+        """
+        if HAS_PROMETHEUS and self.metrics:
+            self.metrics.order_fill_latency_ms.labels(
+                order_type=order_type,
+                symbol=symbol
+            ).observe(latency_ms)
+
+    def record_risk_breach(self, breach_type: str, severity: str):
+        """
+        Increment the risk breach counter for a given breach type and severity.
+
+        Args:
+            breach_type: Category of breach (e.g. 'position_limit', 'var_limit', 'drawdown').
+            severity: Severity level (e.g. 'warning', 'critical').
+        """
+        if HAS_PROMETHEUS and self.metrics:
+            self.metrics.risk_breach_total.labels(
+                breach_type=breach_type,
+                severity=severity
+            ).inc()
+
+    def update_regime_confidence(self, regime_type: str, detector: str, confidence: float):
+        """
+        Update the gauge reflecting current regime classification confidence.
+
+        Args:
+            regime_type: The classified regime (e.g. 'trending', 'volatile', 'neutral').
+            detector: Identifier for the detector model (e.g. 'hmm', 'ml_ensemble').
+            confidence: Confidence score in the range [0.0, 1.0].
+        """
+        if HAS_PROMETHEUS and self.metrics:
+            self.metrics.regime_classification_confidence.labels(
+                regime_type=regime_type,
+                detector=detector
+            ).set(confidence)
+
 # ==============================================================================
 # FACTORY FUNCTIONS
 # ==============================================================================
@@ -1187,6 +1296,58 @@ def get_default_metrics_collector() -> PrometheusMetricsCollector:
 
     return get_default_metrics_collector._instance
 
+
+# ==============================================================================
+# MODULE-LEVEL HELPER FUNCTIONS
+# ==============================================================================
+
+def record_strategy_pnl(strategy_id: str, regime: str, pnl: float):
+    """
+    Module-level helper: record strategy P&L by regime on the default collector.
+
+    Args:
+        strategy_id: Identifier for the strategy (e.g. 'iron_condor').
+        regime: Current market regime label (e.g. 'trending', 'mean_reverting').
+        pnl: Realized or unrealized P&L in dollars for this observation.
+    """
+    get_default_metrics_collector().record_strategy_pnl(strategy_id, regime, pnl)
+
+
+def record_fill_latency(order_type: str, symbol: str, latency_ms: float):
+    """
+    Module-level helper: record order fill latency on the default collector.
+
+    Args:
+        order_type: Type of order (e.g. 'market', 'limit').
+        symbol: Instrument symbol (e.g. 'SPY').
+        latency_ms: Fill latency in milliseconds.
+    """
+    get_default_metrics_collector().record_fill_latency(order_type, symbol, latency_ms)
+
+
+def record_risk_breach(breach_type: str, severity: str):
+    """
+    Module-level helper: increment the risk breach counter on the default collector.
+
+    Args:
+        breach_type: Category of breach (e.g. 'position_limit', 'var_limit').
+        severity: Severity level (e.g. 'warning', 'critical').
+    """
+    get_default_metrics_collector().record_risk_breach(breach_type, severity)
+
+
+def update_regime_confidence(regime_type: str, detector: str, confidence: float):
+    """
+    Module-level helper: update regime classification confidence on the default collector.
+
+    Args:
+        regime_type: The classified regime (e.g. 'trending', 'volatile', 'neutral').
+        detector: Identifier for the detector model (e.g. 'hmm', 'ml_ensemble').
+        confidence: Confidence score in the range [0.0, 1.0].
+    """
+    get_default_metrics_collector().update_regime_confidence(regime_type, detector, confidence)
+
+
 # ==============================================================================
 # EXPORTS
 # ==============================================================================
@@ -1203,7 +1364,11 @@ __all__ = [
     'TradingMetrics', 'PrometheusMetricsCollector',
 
     # Factory functions
-    'create_metrics_collector', 'get_default_metrics_collector'
+    'create_metrics_collector', 'get_default_metrics_collector',
+
+    # New metric helper functions
+    'record_strategy_pnl', 'record_fill_latency',
+    'record_risk_breach', 'update_regime_confidence',
 ]
 
 # ==============================================================================

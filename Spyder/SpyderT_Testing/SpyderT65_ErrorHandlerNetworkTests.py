@@ -1031,33 +1031,6 @@ class TestCheckInternetConnection:
         assert result is True
 
 
-class TestCheckIbConnection:
-    """Tests for check_ib_connection."""
-
-    def test_invalid_connection_type_returns_false(self):
-        net = _make_network_utils()
-        result = net.check_ib_connection("INVALID_TYPE")
-        assert result is False
-
-    def test_gateway_type_accepted(self):
-        net = _make_network_utils()
-        with patch.object(net, "_test_host_connection", return_value=True):
-            result = net.check_ib_connection("GATEWAY")
-        assert result is True
-
-    def test_tws_type_accepted(self):
-        net = _make_network_utils()
-        with patch.object(net, "_test_host_connection", return_value=False):
-            result = net.check_ib_connection("TWS")
-        assert result is False
-
-    def test_returns_bool(self):
-        net = _make_network_utils()
-        with patch.object(net, "_test_host_connection", return_value=True):
-            result = net.check_ib_connection()
-        assert isinstance(result, bool)
-
-
 class TestMeasureLatency:
     """Tests for measure_latency."""
 
@@ -1206,25 +1179,25 @@ class TestGetNetworkStatus:
 
     def test_returns_dict(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
             status = net.get_network_status()
         assert isinstance(status, dict)
 
     def test_status_has_internet_connected_key(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "measure_latency", return_value=10.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
             status = net.get_network_status()
         assert "internet_connected" in status
 
     def test_status_has_latency_key(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=False), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=5.5), patch.object(net, "_test_dns_resolution", return_value=False), patch.object(net, "_test_http_connection", return_value=False):
+        with patch.object(net, "check_internet_connection", return_value=False), patch.object(net, "measure_latency", return_value=5.5), patch.object(net, "_test_dns_resolution", return_value=False), patch.object(net, "_test_http_connection", return_value=False):
             status = net.get_network_status()
         assert "latency_ms" in status
 
     def test_stats_latency_updated(self):
         net = _make_network_utils()
-        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "check_ib_connection", return_value=False), patch.object(net, "measure_latency", return_value=42.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
+        with patch.object(net, "check_internet_connection", return_value=True), patch.object(net, "measure_latency", return_value=42.0), patch.object(net, "_test_dns_resolution", return_value=True), patch.object(net, "_test_http_connection", return_value=True):
             net.get_network_status()
         assert net.stats.latency_ms == 42.0
 

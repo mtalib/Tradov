@@ -58,10 +58,7 @@ from gym import spaces
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # ==============================================================================
 # MODULE CONFIGURATION
@@ -574,7 +571,7 @@ class SpyderAIModels:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in AI option pricing: {e}")
+            self.logger.error(f"Error in AI option pricing: {e}", exc_info=True)
             raise
 
     async def generate_trading_signal(self, market_state: dict[str, Any]) -> TradingSignal:
@@ -623,7 +620,7 @@ class SpyderAIModels:
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error generating trading signal: {e}")
+            self.logger.error(f"Error generating trading signal: {e}", exc_info=True)
             return self._generate_fallback_signal(market_state)
 
     async def train_models(self,
@@ -657,7 +654,7 @@ class SpyderAIModels:
             return results
 
         except Exception as e:
-            self.logger.error(f"Error training AI models: {e}")
+            self.logger.error(f"Error training AI models: {e}", exc_info=True)
             return {model: False for model in model_types}
 
     def get_model_performance(self) -> dict[str, ModelPerformance]:
@@ -789,7 +786,7 @@ class SpyderAIModels:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error training transformer: {e}")
+            self.logger.error(f"Error training transformer: {e}", exc_info=True)
             return False
 
     async def _train_rl_agent(self, data: pd.DataFrame) -> bool:
@@ -862,7 +859,7 @@ class SpyderAIModels:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error training RL agent: {e}")
+            self.logger.error(f"Error training RL agent: {e}", exc_info=True)
             return False
 
     # ==========================================================================

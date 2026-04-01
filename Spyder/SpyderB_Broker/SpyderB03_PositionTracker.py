@@ -36,7 +36,7 @@ class PositionTracker:
 
     This class provides comprehensive real-time position tracking with live P&L
     calculation, Greeks monitoring, and portfolio analytics. It maintains accurate
-    position records synchronized with Interactive Brokers, handles partial fills,
+    position records synchronized with the broker API, handles partial fills,
     tracks cost basis, and provides real-time risk metrics calculation including
     all commissions and fees.
     """
@@ -117,6 +117,24 @@ class PositionTracker:
 
         self.logger.info("Background threads stopped")
 
+    def start(self) -> None:
+        """Start all background monitoring threads."""
+        if self._running:
+            self.logger.warning("PositionTracker already running")
+            return
+        self._running = True
+        self._shutdown_event.clear()
+        self._start_background_threads()
+        self.logger.info("PositionTracker started")
+
+    def stop(self) -> None:
+        """Stop all background monitoring threads gracefully."""
+        if not self._running:
+            return
+        self._running = False
+        self._stop_background_threads()
+        self.logger.info("PositionTracker stopped")
+
     # ==========================================================================
     # CALLBACK MANAGEMENT
     # ==========================================================================
@@ -195,44 +213,122 @@ class PositionTracker:
         """Background loop for syncing positions with broker."""
         while not self._shutdown_event.is_set():
             try:
-                # TODO: Implement position synchronization logic
-                self.logger.debug("Position sync loop iteration")
+                # Sync positions with broker if broker interface is available
+                if hasattr(self, 'broker_interface') and self.broker_interface:
+                    try:
+                        broker_positions = self.broker_interface.get_positions()
+                        if broker_positions:
+                            with self.lock:
+                                # Update internal position tracking
+                                for symbol, broker_pos in broker_positions.items():
+                                    if symbol in self.positions:
+                                        self.positions[symbol].update_from_broker(broker_pos)
+                                    else:
+                                        self.logger.info(f"New position detected: {symbol}")
+                                        self.positions[symbol] = broker_pos
+                    except (ConnectionError, TimeoutError) as e:
+                        self.logger.warning(f"Broker connection issue during sync: {e}")
+                    except Exception as e:
+                        self.logger.error(f"Error fetching broker positions: {e}", exc_info=True)
+                else:
+                    self.logger.debug("Position sync loop iteration (no broker connection)")
+                    
                 self._shutdown_event.wait(self.update_interval)
             except Exception as e:
-                self.logger.error(f"Error in position sync loop: {e}")
+                self.logger.error(f"Error in position sync loop: {e}", exc_info=True)
                 self._shutdown_event.wait(5.0)  # Wait 5 seconds on error
 
     def _greeks_update_loop(self):
         """Background loop for updating Greeks."""
         while not self._shutdown_event.is_set():
             try:
-                # TODO: Implement Greeks update logic
-                self.logger.debug("Greeks update loop iteration")
+                # Update Greeks for all option positions
+                with self.lock:
+                    for symbol, position in self.positions.items():
+                        if hasattr(position, 'is_option') and position.is_option:
+                            try:
+                                # Calculate Greeks if position has underlying price
+                                if hasattr(position, 'update_greeks'):
+                                    position.update_greeks()
+                            except (ValueError, AttributeError) as e:
+                                self.logger.debug(f"Could not update Greeks for {symbol}: {e}")
+                            except Exception as e:
+                                self.logger.warning(f"Error updating Greeks for {symbol}: {e}")
+                                
                 self._shutdown_event.wait(self.update_interval)
             except Exception as e:
-                self.logger.error(f"Error in Greeks update loop: {e}")
+                self.logger.error(f"Error in Greeks update loop: {e}", exc_info=True)
                 self._shutdown_event.wait(5.0)  # Wait 5 seconds on error
 
     def _pnl_update_loop(self):
         """Background loop for updating P&L."""
         while not self._shutdown_event.is_set():
             try:
-                # TODO: Implement P&L update logic
-                self.logger.debug("P&L update loop iteration")
+                # Calculate P&L for all positions based on current market prices
+                total_unrealized_pnl = 0.0
+                total_realized_pnl = 0.0
+                
+                with self.lock:
+                    for symbol, position in self.positions.items():
+                        try:
+                            if hasattr(position, 'calculate_pnl'):
+                                unrealized, realized = position.calculate_pnl()
+                                total_unrealized_pnl += unrealized
+                                total_realized_pnl += realized
+                        except (ValueError, AttributeError) as e:
+                            self.logger.debug(f"Could not calculate P&L for {symbol}: {e}")
+                        except Exception as e:
+                            self.logger.warning(f"Error calculating P&L for {symbol}: {e}")
+                    
+                    # Store aggregate P&L
+                    self.total_unrealized_pnl = total_unrealized_pnl
+                    self.total_realized_pnl = total_realized_pnl
+                    
                 self._shutdown_event.wait(self.update_interval)
             except Exception as e:
-                self.logger.error(f"Error in P&L update loop: {e}")
+                self.logger.error(f"Error in P&L update loop: {e}", exc_info=True)
                 self._shutdown_event.wait(5.0)  # Wait 5 seconds on error
 
     def _reconciliation_loop(self):
         """Background loop for position reconciliation."""
         while not self._shutdown_event.is_set():
             try:
-                # TODO: Implement reconciliation logic
-                self.logger.debug("Reconciliation loop iteration")
+                # Reconcile internal positions with broker positions
+                if hasattr(self, 'broker_interface') and self.broker_interface:
+                    try:
+                        broker_positions = self.broker_interface.get_positions()
+                        
+                        with self.lock:
+                            # Find discrepancies
+                            internal_symbols = set(self.positions.keys())
+                            broker_symbols = set(broker_positions.keys()) if broker_positions else set()
+                            
+                            # Positions we have but broker doesn't
+                            orphaned = internal_symbols - broker_symbols
+                            if orphaned:
+                                self.logger.warning(f"Orphaned positions detected: {orphaned}")
+                                for symbol in orphaned:
+                                    # Mark for review or auto-close
+                                    self.logger.info(f"Reconciling orphaned position: {symbol}")
+                            
+                            # Positions broker has but we don't
+                            missing = broker_symbols - internal_symbols
+                            if missing:
+                                self.logger.warning(f"Missing positions detected: {missing}")
+                                for symbol in missing:
+                                    self.positions[symbol] = broker_positions[symbol]
+                                    self.logger.info(f"Added missing position: {symbol}")
+                                    
+                    except (ConnectionError, TimeoutError) as e:
+                        self.logger.warning(f"Broker connection issue during reconciliation: {e}")
+                    except Exception as e:
+                        self.logger.error(f"Error during reconciliation: {e}", exc_info=True)
+                else:
+                    self.logger.debug("Reconciliation loop iteration (no broker connection)")
+                    
                 self._shutdown_event.wait(self.update_interval * 10)  # Less frequent
             except Exception as e:
-                self.logger.error(f"Error in reconciliation loop: {e}")
+                self.logger.error(f"Error in reconciliation loop: {e}", exc_info=True)
                 self._shutdown_event.wait(10.0)  # Wait 10 seconds on error
 
 

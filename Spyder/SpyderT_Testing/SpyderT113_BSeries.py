@@ -297,10 +297,10 @@ _b04 = _load_b_module("SpyderB04_AccountManager.py", "Spyder.SpyderB_Broker.Spyd
 # B15 — PrometheusMetrics
 _b15 = _load_b_module("SpyderB15_PrometheusMetrics.py", "Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics")
 
-# B26 — PySideAsyncBridge (DEPRECATED, PySide6/ib_async stubbed)
-_b26 = _load_b_module("SpyderB26_PySideAsyncBridge.py", "Spyder.SpyderB_Broker.SpyderB26_PySideAsyncBridge")
+# B26 — PySideAsyncBridge (REMOVED — file no longer exists after broker migration)
+_b26 = None
 
-# B30 — SPYOptionsChainManager (lazy ib_async + B08 stubs)
+# B30 — SPYOptionsChainManager (lazy data type imports + B08 stubs)
 # B30 has internal fallback when B08 is absent — just load
 _b30 = _load_b_module("SpyderB30_SPYOptionsChainManager.py", "Spyder.SpyderB_Broker.SpyderB30_SPYOptionsChainManager")
 
@@ -614,37 +614,8 @@ class TestB15PrometheusMetrics:
 
 
 # ===========================================================================
-# B26 — PySideAsyncBridge (DEPRECATED)
+# B26 — PySideAsyncBridge (REMOVED — file deleted during broker migration)
 # ===========================================================================
-class TestB26PySideAsyncBridge:
-    def test_connection_state_members(self):
-        CS = _b26.ConnectionState
-        assert CS.DISCONNECTED
-        assert CS.CONNECTING
-        assert CS.CONNECTED
-        assert CS.RECONNECTING
-        assert CS.ERROR
-
-    def test_async_ib_bridge_class_exists(self):
-        assert hasattr(_b26, "AsyncIBGatewayBridge")
-
-    def test_connection_state_is_enum(self):
-        from enum import Enum
-        assert issubclass(_b26.ConnectionState, Enum)
-
-    def test_default_host_constant(self):
-        assert hasattr(_b26, "DEFAULT_HOST")
-        assert _b26.DEFAULT_HOST == "127.0.0.1"
-
-    def test_default_ports_constants(self):
-        assert hasattr(_b26, "DEFAULT_PAPER_PORT")
-        assert hasattr(_b26, "DEFAULT_LIVE_PORT")
-        assert _b26.DEFAULT_PAPER_PORT == 4002
-        assert _b26.DEFAULT_LIVE_PORT == 4001
-
-    def test_max_reconnect_attempts_constant(self):
-        assert hasattr(_b26, "MAX_RECONNECT_ATTEMPTS")
-        assert _b26.MAX_RECONNECT_ATTEMPTS > 0
 
 
 # ===========================================================================

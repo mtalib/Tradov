@@ -34,6 +34,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -172,22 +173,22 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
         if X05_AVAILABLE:
             try:
                 self._x05_agent = SpyderX05_MLResearchAgent()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize X05 MLResearchAgent: {e}")
 
         self._ml_predictor: Any | None = None
         if ML_PREDICTOR_AVAILABLE:
             try:
                 self._ml_predictor = SpyderL01_MLPredictor()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize MLPredictor: {e}")
 
         self._feature_store: Any | None = None
         if FEATURE_STORE_AVAILABLE:
             try:
                 self._feature_store = SpyderL18_FeatureStore()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to initialize FeatureStore: {e}")
 
     # ==========================================================================
     # LIFECYCLE
@@ -275,7 +276,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
                     ))
 
         except Exception as e:
-            self.logger.warning(f"Prediction generation failed: {e}")
+            self.logger.warning(f"Prediction generation failed: {e}", exc_info=True)
 
     # ==========================================================================
     # MODEL HEALTH MONITORING
@@ -378,11 +379,9 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
         if self._x05_agent and hasattr(self._x05_agent, "optimize_model"):
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                result = loop.run_until_complete(
+                result = asyncio.run(
                     self._x05_agent.optimize_model(model_name=task.model_name)
                 )
-                loop.close()
                 task.result = f"Optimization complete: {result}"
             except Exception as e:
                 task.result = f"Optimization failed: {e}"

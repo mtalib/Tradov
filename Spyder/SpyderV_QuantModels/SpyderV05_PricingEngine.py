@@ -48,10 +48,7 @@ from numba import jit
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-except ImportError:
-    MultiClientDataManager = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # ==============================================================================
 # MODULE CONFIGURATION
@@ -358,7 +355,7 @@ class SpyderPricingEngine:
     """
 
     def __init__(
-        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: Any = None
     ):
         """Initialize consolidated pricing engine."""
         self.config = config or {}
@@ -463,7 +460,7 @@ class SpyderPricingEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error pricing option: {e}")
+            self.logger.error(f"Error pricing option: {e}", exc_info=True)
             self.calculation_errors += 1
 
             # Return safe default result
@@ -662,7 +659,7 @@ class SpyderPricingEngine:
 
         except Exception as e:
             # Fallback to European pricing
-            self.logger.warning(f"Barone-Adesi failed, using European: {e}")
+            self.logger.warning(f"Barone-Adesi failed, using European: {e}", exc_info=True)
             return await self._black_scholes_pricing(contract, parameters)
 
     def _barone_adesi_approximation(self, S, K, T, r, q, sigma, is_call):
@@ -1329,7 +1326,7 @@ class ModelSelector:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_pricing_engine(
-    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: Any = None
 ) -> SpyderPricingEngine:
     """Factory function to create SpyderPricingEngine."""
     return SpyderPricingEngine(config, data_manager)

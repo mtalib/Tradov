@@ -503,7 +503,7 @@ class MultiProcessManager:
                     self.logger.info(f"{proc_info.engine_type.value} started successfully")
                     return True
 
-                time.sleep(0.5)
+                time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             raise Exception("Process startup timeout")
 
@@ -549,7 +549,7 @@ class MultiProcessManager:
         self._stop_process(proc_info, timeout=5.0)
 
         # Wait before restart
-        time.sleep(RESTART_DELAY)
+        time.sleep(RESTART_DELAY)  # thread-safe: time.sleep() intentional
 
         # Start again
         return self._start_process(proc_info)
@@ -580,7 +580,7 @@ class MultiProcessManager:
                     self._check_process_health()
                     next_check = now + HEALTH_CHECK_INTERVAL
 
-                time.sleep(0.1)
+                time.sleep(0.1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Health monitor error: {e}")
@@ -631,7 +631,7 @@ class MultiProcessManager:
                     self._update_system_resources()
                     next_check = now + MEMORY_CHECK_INTERVAL
 
-                time.sleep(0.5)
+                time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Resource monitor error: {e}")
@@ -874,7 +874,7 @@ class SpyderEngineProcess:
                 # Process work - implement in subclass
                 self.process_work()
 
-                time.sleep(0.01)  # Prevent busy loop
+                time.sleep(0.01)  # Prevent busy loop  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Process error: {e}")

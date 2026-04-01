@@ -193,6 +193,7 @@ class FSeriesRiskIntegrator:
         self.f_series_metrics: dict[str, FSeriesRiskMetrics] = {}
         self.risk_alerts: list[RiskAlert] = []
         self.position_sizing_cache: dict[str, PositionSizingRecommendation] = {}
+        self._cache_maxsize = 500
 
         # Greeks risk management
         self.greeks_profile = GreeksRiskProfile()
@@ -362,7 +363,7 @@ class FSeriesRiskIntegrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register F-series interface {module_name}: {e}")
+            self.logger.error(f"Failed to register F-series interface {module_name}: {e}", exc_info=True)
             return False
 
     def register_e_series_interface(self, module_name: str, interface: Any) -> bool:
@@ -373,7 +374,7 @@ class FSeriesRiskIntegrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register E-series interface {module_name}: {e}")
+            self.logger.error(f"Failed to register E-series interface {module_name}: {e}", exc_info=True)
             return False
 
     def register_orchestrator_interface(self, orchestrator_interface: Any) -> bool:
@@ -384,7 +385,7 @@ class FSeriesRiskIntegrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register orchestrator interface: {e}")
+            self.logger.error(f"Failed to register orchestrator interface: {e}", exc_info=True)
             return False
 
     # ==========================================================================
@@ -441,7 +442,7 @@ class FSeriesRiskIntegrator:
                 await asyncio.sleep(self.config["risk_check_interval_s"])
 
             except Exception as e:
-                self.logger.error(f"Risk monitoring loop error: {e}")
+                self.logger.error(f"Risk monitoring loop error: {e}", exc_info=True)
                 await asyncio.sleep(5)  # Longer sleep on error
 
     async def _update_f_series_risk_metrics(self) -> None:
@@ -485,7 +486,7 @@ class FSeriesRiskIntegrator:
                 metrics.last_updated = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"F-series risk metrics update failed: {e}")
+            self.logger.error(f"F-series risk metrics update failed: {e}", exc_info=True)
 
     def _check_risk_limits(self) -> None:
         """Check all risk limits and trigger alerts if necessary"""
@@ -519,7 +520,7 @@ class FSeriesRiskIntegrator:
                     self._create_risk_alert(limit_name, limit, severity)
 
         except Exception as e:
-            self.logger.error(f"Risk limit checking failed: {e}")
+            self.logger.error(f"Risk limit checking failed: {e}", exc_info=True)
 
     def _get_current_risk_value(self, limit: RiskLimit) -> float:
         """Get current value for a specific risk limit"""
@@ -555,7 +556,7 @@ class FSeriesRiskIntegrator:
                 return 0.0
 
         except Exception as e:
-            self.logger.error(f"Failed to get current risk value for {limit.limit_name}: {e}")
+            self.logger.error(f"Failed to get current risk value for {limit.limit_name}: {e}", exc_info=True)
             return 0.0
 
     def _create_risk_alert(self, limit_name: str, limit: RiskLimit, severity: RiskSeverity) -> None:
@@ -599,10 +600,10 @@ class FSeriesRiskIntegrator:
                 try:
                     callback(alert)
                 except Exception as e:
-                    self.logger.error(f"Alert callback failed: {e}")
+                    self.logger.error(f"Alert callback failed: {e}", exc_info=True)
 
         except Exception as e:
-            self.logger.error(f"Risk alert creation failed: {e}")
+            self.logger.error(f"Risk alert creation failed: {e}", exc_info=True)
 
     def _identify_source_module(self, limit_name: str) -> str:
         """Identify F-series source module for risk limit"""
@@ -662,7 +663,7 @@ class FSeriesRiskIntegrator:
             })
 
         except Exception as e:
-            self.logger.error(f"Greeks risk profile update failed: {e}")
+            self.logger.error(f"Greeks risk profile update failed: {e}", exc_info=True)
 
     async def _calculate_portfolio_greeks(self) -> dict[str, float]:
         """Calculate portfolio-level Greeks (mock implementation)"""
@@ -694,7 +695,7 @@ class FSeriesRiskIntegrator:
                 self.position_sizing_cache[symbol] = recommendation
 
         except Exception as e:
-            self.logger.error(f"Position sizing recommendations update failed: {e}")
+            self.logger.error(f"Position sizing recommendations update failed: {e}", exc_info=True)
 
     async def _gather_f_series_signals(self) -> dict[str, float]:
         """Gather predictive signals from all F-series modules"""
@@ -719,7 +720,7 @@ class FSeriesRiskIntegrator:
             return signals
 
         except Exception as e:
-            self.logger.error(f"F-series signal gathering failed: {e}")
+            self.logger.error(f"F-series signal gathering failed: {e}", exc_info=True)
             return {}
 
     async def _calculate_position_sizing(self, symbol: str, signals: dict[str, float]) -> PositionSizingRecommendation:
@@ -773,7 +774,7 @@ class FSeriesRiskIntegrator:
             return recommendation
 
         except Exception as e:
-            self.logger.error(f"Position sizing calculation failed for {symbol}: {e}")
+            self.logger.error(f"Position sizing calculation failed for {symbol}: {e}", exc_info=True)
             return PositionSizingRecommendation(symbol=symbol, strategy_type="options", current_position=0, recommended_position=0, sizing_factor=0, confidence_level=0, risk_budget_utilization=0, max_position_size=0)
 
     def _calculate_signal_factor(self, signals: dict[str, float]) -> float:
@@ -803,7 +804,7 @@ class FSeriesRiskIntegrator:
                 return 1.0  # Neutral if no signals
 
         except Exception as e:
-            self.logger.error(f"Signal factor calculation failed: {e}")
+            self.logger.error(f"Signal factor calculation failed: {e}", exc_info=True)
             return 1.0
 
     # ==========================================================================
@@ -827,7 +828,7 @@ class FSeriesRiskIntegrator:
             return var_estimate
 
         except Exception as e:
-            self.logger.error(f"Portfolio VaR calculation failed: {e}")
+            self.logger.error(f"Portfolio VaR calculation failed: {e}", exc_info=True)
             return 0.0
 
     def _calculate_portfolio_expected_shortfall(self, confidence_level: float = 0.95) -> float:
@@ -840,7 +841,7 @@ class FSeriesRiskIntegrator:
             return expected_shortfall
 
         except Exception as e:
-            self.logger.error(f"Expected Shortfall calculation failed: {e}")
+            self.logger.error(f"Expected Shortfall calculation failed: {e}", exc_info=True)
             return 0.0
 
     def _calculate_single_position_var(self, symbol: str, confidence_level: float = 0.95) -> float:
@@ -858,7 +859,7 @@ class FSeriesRiskIntegrator:
             return var_estimate
 
         except Exception as e:
-            self.logger.error(f"Single position VaR calculation failed for {symbol}: {e}")
+            self.logger.error(f"Single position VaR calculation failed for {symbol}: {e}", exc_info=True)
             return 0.0
 
     # ==========================================================================
@@ -888,7 +889,7 @@ class FSeriesRiskIntegrator:
             self.logger.info(f"Risk action completed: {alert.suggested_action.value}")
 
         except Exception as e:
-            self.logger.error(f"Risk action execution failed: {e}")
+            self.logger.error(f"Risk action execution failed: {e}", exc_info=True)
 
     async def _execute_position_reduction(self, alert: RiskAlert) -> None:
         """Execute position reduction to manage risk"""
@@ -909,7 +910,7 @@ class FSeriesRiskIntegrator:
             await asyncio.sleep(0.1)
 
         except Exception as e:
-            self.logger.error(f"Position reduction execution failed: {e}")
+            self.logger.error(f"Position reduction execution failed: {e}", exc_info=True)
 
     async def _execute_hedge_trades(self, alert: RiskAlert) -> None:
         """Execute hedge trades to neutralize risk"""
@@ -922,7 +923,7 @@ class FSeriesRiskIntegrator:
                 await self._execute_portfolio_hedge(alert)
 
         except Exception as e:
-            self.logger.error(f"Hedge trade execution failed: {e}")
+            self.logger.error(f"Hedge trade execution failed: {e}", exc_info=True)
 
     async def _execute_greeks_hedge(self, alert: RiskAlert) -> None:
         """Execute Greeks-specific hedging"""
@@ -944,7 +945,7 @@ class FSeriesRiskIntegrator:
             await asyncio.sleep(0.1)
 
         except Exception as e:
-            self.logger.error(f"Greeks hedge execution failed: {e}")
+            self.logger.error(f"Greeks hedge execution failed: {e}", exc_info=True)
 
     async def _execute_portfolio_hedge(self, alert: RiskAlert) -> None:
         """Execute general portfolio hedging"""
@@ -956,7 +957,7 @@ class FSeriesRiskIntegrator:
             await asyncio.sleep(0.1)
 
         except Exception as e:
-            self.logger.error(f"Portfolio hedge execution failed: {e}")
+            self.logger.error(f"Portfolio hedge execution failed: {e}", exc_info=True)
 
     async def _execute_position_closure(self, alert: RiskAlert) -> None:
         """Execute position closure for extreme risk"""
@@ -968,7 +969,7 @@ class FSeriesRiskIntegrator:
             await asyncio.sleep(0.1)
 
         except Exception as e:
-            self.logger.error(f"Position closure execution failed: {e}")
+            self.logger.error(f"Position closure execution failed: {e}", exc_info=True)
 
     async def _execute_trading_halt(self, alert: RiskAlert) -> None:
         """Execute trading halt for emergency situations"""
@@ -996,10 +997,10 @@ class FSeriesRiskIntegrator:
                 try:
                     callback(emergency_alert)
                 except Exception as e:
-                    self.logger.error(f"Emergency halt notification failed: {e}")
+                    self.logger.error(f"Emergency halt notification failed: {e}", exc_info=True)
 
         except Exception as e:
-            self.logger.error(f"Trading halt execution failed: {e}")
+            self.logger.error(f"Trading halt execution failed: {e}", exc_info=True)
 
     def _process_risk_alerts(self) -> None:
         """Process and manage risk alerts"""
@@ -1026,7 +1027,7 @@ class FSeriesRiskIntegrator:
                 self.logger.info(f"Active risk alerts: {alert_summary}")
 
         except Exception as e:
-            self.logger.error(f"Risk alert processing failed: {e}")
+            self.logger.error(f"Risk alert processing failed: {e}", exc_info=True)
 
     # ==========================================================================
     # MOCK F-SERIES INTERFACE METHODS (Replace with actual integrations)
@@ -1185,7 +1186,7 @@ class FSeriesRiskIntegrator:
             }
 
         except Exception as e:
-            self.logger.error(f"Risk status retrieval failed: {e}")
+            self.logger.error(f"Risk status retrieval failed: {e}", exc_info=True)
             return {"error": str(e)}
 
     def _calculate_overall_risk_level(self) -> str:
@@ -1209,7 +1210,7 @@ class FSeriesRiskIntegrator:
                 return "LOW"
 
         except Exception as e:
-            self.logger.error(f"Overall risk level calculation failed: {e}")
+            self.logger.error(f"Overall risk level calculation failed: {e}", exc_info=True)
             return "UNKNOWN"
 
     def get_position_sizing_recommendation(self, symbol: str) -> PositionSizingRecommendation | None:
@@ -1227,7 +1228,7 @@ class FSeriesRiskIntegrator:
             return False
 
         except Exception as e:
-            self.logger.error(f"Alert acknowledgment failed: {e}")
+            self.logger.error(f"Alert acknowledgment failed: {e}", exc_info=True)
             return False
 
     def add_alert_callback(self, callback: Callable) -> None:
@@ -1300,7 +1301,7 @@ class FSeriesRiskIntegrator:
             return output_file
 
         except Exception as e:
-            self.logger.error(f"Risk report export failed: {e}")
+            self.logger.error(f"Risk report export failed: {e}", exc_info=True)
             raise
 
 # ==============================================================================

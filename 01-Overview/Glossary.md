@@ -64,14 +64,14 @@ SpyderProject/Glossary.md (Complete)
 - **Thread Pool**: Managed collection of threads for concurrent execution
 - **Thread-Safe**: Code that functions correctly during simultaneous access
 
-### Interactive Brokers (IBKR) Specific
-- **Client ID**: Unique identifier for each API connection to IBKR
-- **Contract**: IBKR's representation of a tradeable instrument
-- **Gateway**: IBKR's trading application (alternative to TWS)
-- **IB API**: Interactive Brokers' programming interface
-- **Paper Trading**: Simulated trading with virtual money
-- **ib_async**: Python library wrapping IBKR API with async support
-- **TWS (Trader Workstation)**: IBKR's desktop trading platform
+### Tradier & Databento Specific
+- **Tradier API**: RESTful API for options trading and market data
+- **Bearer Token**: Authentication method for Tradier API requests
+- **Databento**: Institutional-grade market data provider (OPRA feed)
+- **OPRA.PILLAR**: Options Price Reporting Authority data via Databento
+- **Sandbox Mode**: Simulated trading with virtual money (Tradier sandbox)
+- **Account ID**: Unique identifier for Tradier trading account
+- **Symbol**: Ticker symbol (e.g., SPY for S&P 500 ETF)
 - **Tick Size**: Minimum price increment for an instrument
 
 ### Database & Storage
@@ -102,7 +102,7 @@ SpyderProject/Glossary.md (Complete)
 
 ### Module Series
 - **A-Series (SpyderA)**: Core system modules - orchestration and main entry
-- **B-Series (SpyderB)**: Broker integration modules - IBKR connections and orders
+- **B-Series (SpyderB)**: Broker integration modules - Tradier API connections and orders
 - **C-Series (SpyderC)**: Market data modules - real-time feeds and processing
 - **D-Series (SpyderD)**: Strategy modules - trading algorithm implementations
 - **E-Series (SpyderE)**: Risk management modules - position sizing and limits

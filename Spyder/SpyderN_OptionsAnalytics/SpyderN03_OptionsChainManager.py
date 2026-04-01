@@ -240,6 +240,7 @@ class OptionsChainManager:
         # Cache
         self.cache = {}
         self.cache_timestamp = {}
+        self._cache_maxsize = 500
 
         self.logger.info("OptionsChainManager initialized")
 
@@ -1053,6 +1054,36 @@ class OptionsChainManager:
             del self.cache[key]
             if key in self.cache_timestamp:
                 del self.cache_timestamp[key]
+        # Enforce cache maxsize
+        while len(self.cache) > self._cache_maxsize:
+            oldest_key = min(self.cache_timestamp, key=self.cache_timestamp.get)
+            del self.cache[oldest_key]
+            del self.cache_timestamp[oldest_key]
+
+    def prune_expired_chains(self, as_of: datetime | None = None) -> int:
+        """Remove expired option contracts from the chains dict.
+
+        Args:
+            as_of: Reference datetime; defaults to now.
+
+        Returns:
+            Number of expiration buckets removed.
+        """
+        cutoff = (as_of or datetime.now()).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        removed = 0
+        with self.lock:
+            for symbol in list(self.chains):
+                for expiry in list(self.chains[symbol]):
+                    if expiry < cutoff:
+                        del self.chains[symbol][expiry]
+                        removed += 1
+                if not self.chains[symbol]:
+                    del self.chains[symbol]
+        if removed:
+            self.logger.info(f"Pruned {removed} expired option chain buckets")
+        return removed
 
     # ==========================================================================
     # PUBLIC UTILITY METHODS
@@ -1138,7 +1169,7 @@ class OptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Export failed: {e}")
+            self.logger.error(f"Export failed: {e}", exc_info=True)
             return False
 
 # ==============================================================================

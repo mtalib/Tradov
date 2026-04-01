@@ -75,13 +75,6 @@ sys.modules["hmmlearn"] = _hmmlearn_mod
 if "pytz" not in sys.modules:
     sys.modules["pytz"] = types.ModuleType("pytz")
 
-# ---- ib_async stub ----
-_ib_mod = types.ModuleType("ib_async")
-for _attr in ["IB", "Contract", "Order", "Trade", "Fill", "OrderStatus",
-              "Stock", "Option", "Future", "Forex"]:
-    setattr(_ib_mod, _attr, MagicMock())
-sys.modules["ib_async"] = _ib_mod
-
 # ---- PySide6 stubs — use __getattr__ so ANY widget name works ----
 class _AnyAttrModule(types.ModuleType):
     """Module stub that returns MagicMock for any missing attribute."""
@@ -256,7 +249,7 @@ if not hasattr(_a05, "EventManager"):
     _a05.EventManager = _A05EventManagerCls
 
 # ---------------------------------------------------------------------------
-# B-Broker stubs (E01 try/except; E13 hard-import via ib_async)
+# B-Broker stubs (E01 try/except)
 # ---------------------------------------------------------------------------
 _b02 = _ensure_mod("Spyder.SpyderB_Broker.SpyderB02_OrderManager")
 if not hasattr(_b02, "Order"):
@@ -436,7 +429,7 @@ _e11 = _load_e_module("SpyderE11_MaxLossProtection.py", "Spyder.SpyderE_Risk.Spy
 # E12 — imports E11 + P05 + I06 (Spyder-prefixed)
 _e12 = _load_e_module("SpyderE12_PortfolioVaR.py", "Spyder.SpyderE_Risk.SpyderE12_PortfolioVaR")
 
-# E13 — imports ib_async + PySide6 (stubbed above)
+# E13 — imports PySide6 (stubbed above)
 _e13 = _load_e_module("SpyderE13_DayProfitTarget.py", "Spyder.SpyderE_Risk.SpyderE13_DayProfitTarget")
 
 # E14 — imports Spyder.SpyderU01/U02

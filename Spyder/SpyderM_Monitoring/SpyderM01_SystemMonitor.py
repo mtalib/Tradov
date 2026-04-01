@@ -230,6 +230,7 @@ class SystemMonitor:
         # Monitoring thread
         self._monitor_thread: threading.Thread | None = None
         self._running = False
+        self._stop_event = threading.Event()
         self._monitor_lock = threading.RLock()
 
         # Network baseline
@@ -268,6 +269,7 @@ class SystemMonitor:
     def stop(self) -> None:
         """Stop system monitoring"""
         self._running = False
+        self._stop_event.set()
 
         if self._monitor_thread:
             self._monitor_thread.join(timeout=10.0)
@@ -300,10 +302,11 @@ class SystemMonitor:
                 self._cleanup_old_data()
 
                 # Sleep
-                time.sleep(MONITOR_INTERVAL)
+                if self._stop_event.wait(timeout=MONITOR_INTERVAL):
+                    break
 
             except Exception as e:
-                self.logger.error(f"Error in monitor loop: {e}")
+                self.logger.error(f"Error in monitor loop: {e}", exc_info=True)
                 self.error_tracker.append({
                     'timestamp': datetime.datetime.now(),
                     'error': str(e),
@@ -604,7 +607,7 @@ class SystemMonitor:
                     )
 
             except Exception as e:
-                self.logger.error(f"Error running health check for {component}: {e}")
+                self.logger.error(f"Error running health check for {component}: {e}", exc_info=True)
 
                 self.health_checks[component] = HealthCheck(
                     component=component,
@@ -894,7 +897,7 @@ class SystemMonitor:
             )
 
         except Exception as e:
-            self.logger.warning(f"Could not register event handlers: {e}")
+            self.logger.warning(f"Could not register event handlers: {e}", exc_info=True)
 
     def _emit_alert_event(self, alert: SystemAlert) -> None:
         """Emit alert event to event manager"""
@@ -915,7 +918,7 @@ class SystemMonitor:
                     }
                 )
             except Exception as e:
-                self.logger.error(f"Failed to emit alert event: {e}")
+                self.logger.error(f"Failed to emit alert event: {e}", exc_info=True)
 
 # ==============================================================================
 # MODULE INITIALIZATION
@@ -936,7 +939,7 @@ if __name__ == "__main__":
             monitor.record_error(f"Test error {i}")
 
     # Wait a bit
-    time.sleep(10)
+    time.sleep(10)  # thread-safe: time.sleep() intentional
 
     # Get status
     status = monitor.get_system_status()

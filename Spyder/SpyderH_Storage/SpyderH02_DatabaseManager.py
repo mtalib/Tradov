@@ -33,6 +33,7 @@ Key Features:
 import sqlite3
 import json
 import gzip
+import math
 import shutil
 import threading
 import queue
@@ -196,8 +197,8 @@ class DatabaseManager:
         self.last_vacuum = None
 
         # Initialize database
-        self._initialize_database()
         self._setup_connection_pool()
+        self._initialize_database()
 
         self.logger.info(f"✅ DatabaseManager initialized: {self.db_path}")
 
@@ -463,8 +464,21 @@ class DatabaseManager:
     # TRADING DATA OPERATIONS
     # ==========================================================================
 
+    @staticmethod
+    def _validate_finite(value: float, name: str) -> None:
+        """Reject NaN, Inf, and (for prices) negative values."""
+        if not isinstance(value, (int, float)):
+            raise ValueError(f"{name} must be numeric, got {type(value).__name__}")
+        if math.isnan(value) or math.isinf(value):
+            raise ValueError(f"{name} must be finite, got {value}")
+
     def insert_trade(self, trade: Trade) -> int:
         """Insert trade record"""
+        self._validate_finite(trade.price, "price")
+        if trade.price < 0:
+            raise ValueError(f"price must be non-negative, got {trade.price}")
+        self._validate_finite(trade.commission, "commission")
+        self._validate_finite(trade.pnl, "pnl")
         with self.lock, self._get_connection() as conn:
             cursor = conn.cursor()
 
@@ -553,6 +567,9 @@ class DatabaseManager:
 
     def insert_market_data_batch(self, data_points: list[MarketDataPoint]):
         """Insert batch of market data efficiently"""
+        for dp in data_points:
+            for field in ("bid", "ask", "last"):
+                self._validate_finite(getattr(dp, field), field)
         with self.lock, self._get_connection() as conn:
             cursor = conn.cursor()
 
@@ -757,15 +774,28 @@ class DatabaseManager:
             }
 
             # Get row counts for each table
+            _allowed_tables = frozenset(TABLES.values())
             for table_name in TABLES.values():
-                cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
-                stats['tables'][table_name] = cursor.fetchone()[0]
+                if table_name not in _allowed_tables:
+                    continue
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+                    stats['tables'][table_name] = cursor.fetchone()[0]
+                except sqlite3.OperationalError:
+                    stats['tables'][table_name] = 0
 
             return stats
 
     # ==========================================================================
     # AUDIT AND LOGGING
     # ==========================================================================
+
+    @staticmethod
+    def _json_default(obj: Any) -> str:
+        """JSON serializer for objects not handled by default json."""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
     def _audit_log(self, conn: sqlite3.Connection, action: str, table_name: str,
                    record_id: Any, old_values: dict | None, new_values: dict | None):
@@ -782,8 +812,8 @@ class DatabaseManager:
             ) VALUES (?, ?, ?, ?, ?, ?)
         """, (
             action, table_name, str(record_id),
-            json.dumps(old_values) if old_values else None,
-            json.dumps(new_values) if new_values else None,
+            json.dumps(old_values, default=self._json_default) if old_values else None,
+            json.dumps(new_values, default=self._json_default) if new_values else None,
             checksum
         ))
 

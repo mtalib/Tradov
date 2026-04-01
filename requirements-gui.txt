@@ -2,7 +2,7 @@
 # Primary GUI Framework
 PySide6>=6.5.0
 
-# OAuth 2.0 and JWT Authentication for IBKR Web API
+# Authentication and Security
 PyJWT>=2.8.0
 cryptography>=41.0.0
 requests>=2.31.0

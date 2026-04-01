@@ -42,8 +42,20 @@ from scipy import stats
 # SPYDER IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal
-from Spyder.SpyderN_Numerical.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
-from Spyder.SpyderN_Numerical.SpyderN05_VolatilityModeling import VolatilityModeling
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    HAS_GREEKS_CALC = True
+except ImportError:
+    OptionsGreeksCalculator = None
+    HAS_GREEKS_CALC = False
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    HAS_VOL_MODELING = True
+except ImportError:
+    VolatilityModeling = None
+    HAS_VOL_MODELING = False
 
 # ==============================================================================
 # CONSTANTS
@@ -162,8 +174,8 @@ class VerticalSpreadOptimizer(BaseStrategy):
         self.version = "1.0.0"
 
         # Components
-        self.greeks_calculator = OptionsGreeksCalculator()
-        self.volatility_model = VolatilityModeling()
+        self.greeks_calculator = OptionsGreeksCalculator() if HAS_GREEKS_CALC else None
+        self.volatility_model = VolatilityModeling() if HAS_VOL_MODELING else None
 
         # Strategy settings
         self.optimization_mode = OptimizationMode(

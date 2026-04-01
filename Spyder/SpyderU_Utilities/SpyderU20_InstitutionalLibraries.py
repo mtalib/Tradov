@@ -268,6 +268,7 @@ class InstitutionalLibraries:
 
         # Performance cache
         self._calculation_cache = {}
+        self._calculation_cache_maxsize = 512
 
         self.logger.info(f"Institutional libraries initialized. Available: {sum(self.available_libraries.values())}/{len(self.available_libraries)}")
 
@@ -293,7 +294,7 @@ class InstitutionalLibraries:
             self.logger.info("QuantLib initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"QuantLib initialization failed: {e}")
+            self.logger.error(f"QuantLib initialization failed: {e}", exc_info=True)
             self.available_libraries['quantlib'] = False
 
     def _initialize_ray(self):
@@ -310,7 +311,7 @@ class InstitutionalLibraries:
             self.logger.info("Ray distributed computing initialized")
 
         except Exception as e:
-            self.logger.error(f"Ray initialization failed: {e}")
+            self.logger.error(f"Ray initialization failed: {e}", exc_info=True)
             self.available_libraries['ray'] = False
 
     # ==========================================================================
@@ -411,7 +412,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Options pricing failed: {e}")
+            self.logger.error(f"Options pricing failed: {e}", exc_info=True)
             return None
 
     def price_spread(self,
@@ -488,7 +489,7 @@ class InstitutionalLibraries:
             }
 
         except Exception as e:
-            self.logger.error(f"Spread pricing failed: {e}")
+            self.logger.error(f"Spread pricing failed: {e}", exc_info=True)
             return None
 
     # ==========================================================================
@@ -601,7 +602,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Institutional metrics calculation failed: {e}")
+            self.logger.error(f"Institutional metrics calculation failed: {e}", exc_info=True)
             return None
 
     # ==========================================================================
@@ -641,7 +642,7 @@ class InstitutionalLibraries:
                 return self._optimize_with_scipy(returns_data, method, constraints, risk_free_rate)
 
         except Exception as e:
-            self.logger.error(f"Portfolio optimization failed: {e}")
+            self.logger.error(f"Portfolio optimization failed: {e}", exc_info=True)
             return None
 
     def _optimize_with_riskfolio(self, returns_data, method, constraints, risk_free_rate):
@@ -685,7 +686,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"RiskFolio optimization failed: {e}")
+            self.logger.error(f"RiskFolio optimization failed: {e}", exc_info=True)
             return None
 
     def _optimize_with_scipy(self, returns_data, method, constraints, risk_free_rate):
@@ -747,7 +748,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Scipy optimization failed: {e}")
+            self.logger.error(f"Scipy optimization failed: {e}", exc_info=True)
             return None
 
     # ==========================================================================

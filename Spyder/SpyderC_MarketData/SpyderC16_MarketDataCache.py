@@ -11,7 +11,12 @@ Year Created: 2025
 Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    SPYDER - Automated SPY Options Trading System
+    Multi-tier market data cache (memory → Redis → SQLite) designed for
+    real-time streaming data with EventManager integration.
+
+    Note: SpyderH03_MarketDataCache provides a simpler in-memory-only cache
+    with typed get/set methods (quote, bar, option_chain, greeks). For general
+    caching, prefer H03. Use C16 only when persistence or Redis is required.
 
 Change Log:
     2026-01-16:
@@ -35,7 +40,7 @@ from collections import OrderedDict
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import sqlite3
-import pickle
+import json
 import gzip
 import heapq
 import pandas as pd
@@ -52,6 +57,10 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
+from Spyder.SpyderH_Storage.SpyderH03_MarketDataCache import (
+    MarketDataCache as L1MarketDataCache,
+    CacheDataType,
+)
 
 # ==============================================================================
 # CONSTANTS
@@ -199,16 +208,21 @@ class MarketDataCache:
         # Configuration
         self.config = config or DEFAULT_CACHE_CONFIG
 
-        # In-memory cache (OrderedDict for LRU)
-        self._memory_cache: OrderedDict[str, CachedMarketData] = OrderedDict()
+        # L1 cache ownership is delegated to H03.
         self._cache_lock = threading.RLock()
-
-        # Priority queue for expiration
-        self._expiry_heap: list[tuple[datetime, str]] = []
+        self._l1_cache = L1MarketDataCache(
+            max_size=self.config['memory']['max_size'],
+            default_ttl=int(self.config['memory']['ttl_seconds']),
+            auto_cleanup=True,
+        )
 
         # Statistics
         self.stats = CacheStats()
         self._access_times: list[float] = []
+        self._l1_hits = 0
+        self._l2_hits = 0
+        self._l3_hits = 0
+        self._redis_fallbacks = 0
 
         # Redis connection (optional)
         self.redis_client: Any | None = None
@@ -241,7 +255,7 @@ class MarketDataCache:
             self.redis_client.ping()
             self.logger.info("Redis cache connected")
         except Exception as e:
-            self.logger.warning(f"Redis connection failed: {e}")
+            self.logger.warning(f"Redis connection failed: {e}", exc_info=True)
             self.redis_client = None
 
     def _init_database(self):
@@ -284,7 +298,7 @@ class MarketDataCache:
                 self.logger.info("SQLite database initialized")
 
         except Exception as e:
-            self.logger.error(f"Database initialization failed: {e}")
+            self.logger.error(f"Database initialization failed: {e}", exc_info=True)
             raise
 
     # ==========================================================================
@@ -321,6 +335,9 @@ class MarketDataCache:
         # Close connections
         if self.redis_client:
             self.redis_client.close()
+
+        # Stop delegated L1 cache thread
+        self._l1_cache.shutdown()
 
         self.logger.info("Market Data Cache stopped")
 
@@ -361,6 +378,8 @@ class MarketDataCache:
             # Store in Redis if available
             if self.redis_client:
                 self._store_redis(symbol, entry)
+            elif self.config['redis']['enabled']:
+                self._redis_fallbacks += 1
 
             # Store tick data in SQLite
             if self.config['persistence']['enabled']:
@@ -372,7 +391,7 @@ class MarketDataCache:
             return True
 
         except Exception as e:
-            self.logger.error(f"Cache put failed for {symbol}: {e}")
+            self.logger.error(f"Cache put failed for {symbol}: {e}", exc_info=True)
             return False
 
     def get(self, symbol: str, max_age: float | None = None) -> dict[str, Any] | None:
@@ -400,6 +419,7 @@ class MarketDataCache:
 
             if entry:
                 self.stats.hits += 1
+                self._l1_hits += 1
                 self._access_times.append((time.time() - start_time) * 1000)
                 return entry.data
 
@@ -411,6 +431,7 @@ class MarketDataCache:
                 with self._cache_lock:
                     self._store_memory(symbol, entry)
                 self.stats.hits += 1
+                self._l2_hits += 1
                 self._access_times.append((time.time() - start_time) * 1000)
                 return entry.data
 
@@ -422,6 +443,7 @@ class MarketDataCache:
                 with self._cache_lock:
                     self._store_memory(symbol, entry)
                 self.stats.hits += 1
+                self._l3_hits += 1
                 self._access_times.append((time.time() - start_time) * 1000)
                 return entry.data
 
@@ -473,7 +495,7 @@ class MarketDataCache:
                     return self._aggregate_tick_data(symbol, start_time, end_time, granularity)
 
         except Exception as e:
-            self.logger.error(f"Failed to get range data: {e}")
+            self.logger.error(f"Failed to get range data: {e}", exc_info=True)
             return pd.DataFrame()
 
     def invalidate(self, symbol: str | None = None):
@@ -485,11 +507,11 @@ class MarketDataCache:
         """
         with self._cache_lock:
             if symbol:
-                if symbol in self._memory_cache:
-                    del self._memory_cache[symbol]
+                if symbol in self._l1_cache:
+                    self._l1_cache.invalidate(symbol)
                     self.logger.debug(f"Invalidated cache for {symbol}")
             else:
-                self._memory_cache.clear()
+                self._l1_cache.clear()
                 self.logger.info("Invalidated all cache entries")
 
         # Invalidate Redis
@@ -504,7 +526,7 @@ class MarketDataCache:
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics"""
         with self._cache_lock:
-            memory_size = len(self._memory_cache)
+            memory_size = len(self._l1_cache)
 
         # Calculate average access time
         avg_access_time = 0.0
@@ -515,7 +537,15 @@ class MarketDataCache:
         self.stats.memory_size = memory_size
         self.stats.avg_access_time_ms = avg_access_time
 
+        mode = "local_only"
+        redis_available = self.redis_client is not None
+        if self.config['redis']['enabled'] and redis_available:
+            mode = "local_plus_redis"
+        elif self.config['redis']['enabled'] and not redis_available:
+            mode = "degraded"
+
         return {
+            'mode': mode,
             'hit_rate': self.stats.hit_rate,
             'hits': self.stats.hits,
             'misses': self.stats.misses,
@@ -523,7 +553,13 @@ class MarketDataCache:
             'memory_size': memory_size,
             'memory_limit': self.config['memory']['max_size'],
             'avg_access_time_ms': avg_access_time,
-            'redis_available': self.redis_client is not None,
+            'redis_available': redis_available,
+            'tier_hits': {
+                'l1': self._l1_hits,
+                'l2_redis': self._l2_hits,
+                'l3_disk': self._l3_hits,
+            },
+            'redis_fallbacks': self._redis_fallbacks,
             'disk_enabled': self.config['persistence']['enabled']
         }
 
@@ -531,54 +567,22 @@ class MarketDataCache:
     # MEMORY CACHE OPERATIONS
     # ==========================================================================
     def _store_memory(self, key: str, entry: CachedMarketData):
-        """Store entry in memory cache with LRU eviction"""
-        # Check size limit
-        if len(self._memory_cache) >= self.config['memory']['max_size']:
-            # Evict based on priority and age
-            self._evict_memory()
-
-        # Store entry
-        self._memory_cache[key] = entry
-
-        # Add to expiry heap if TTL set
-        if entry.expiry:
-            heapq.heappush(self._expiry_heap, (entry.expiry, key))
+        """Store entry in delegated H03 L1 cache."""
+        ttl = int(entry.ttl or self.config['memory']['ttl_seconds'])
+        self._l1_cache.set(key, entry, data_type=CacheDataType.CUSTOM, ttl=ttl)
 
     def _get_memory(self, key: str) -> CachedMarketData | None:
-        """Get entry from memory cache"""
-        if key in self._memory_cache:
-            # Move to end (most recently used)
-            entry = self._memory_cache.pop(key)
-            self._memory_cache[key] = entry
-
-            # Update access stats
+        """Get entry from delegated H03 L1 cache."""
+        entry = self._l1_cache.get(key)
+        if isinstance(entry, CachedMarketData):
             entry.access_count += 1
             entry.last_access = datetime.now()
-
             return entry
         return None
 
     def _evict_memory(self):
-        """Evict entries from memory based on priority and age"""
-        # Find candidates for eviction (lowest priority, least recently used)
-        candidates = []
-
-        for key, entry in self._memory_cache.items():
-            score = entry.priority * 1000  # Higher priority = higher score
-            if entry.last_access:
-                age = (datetime.now() - entry.last_access).total_seconds()
-                score -= age  # Older = lower score
-            candidates.append((score, key))
-
-        # Sort by score (lowest first)
-        candidates.sort()
-
-        # Evict lowest scoring entries
-        evict_count = max(1, len(self._memory_cache) // 10)  # Evict 10%
-
-        for _, key in candidates[:evict_count]:
-            del self._memory_cache[key]
-            self.stats.evictions += 1
+        """Compatibility no-op: H03 owns eviction."""
+        return
 
     # ==========================================================================
     # REDIS OPERATIONS
@@ -590,7 +594,7 @@ class MarketDataCache:
 
         try:
             key = f"spyder:market:{symbol}"
-            data = pickle.dumps(entry.to_dict())
+            data = json.dumps(entry.to_dict()).encode()
 
             if self.config['persistence']['compression']:
                 data = gzip.compress(data)
@@ -599,7 +603,7 @@ class MarketDataCache:
             self.redis_client.setex(key, int(ttl), data)
 
         except Exception as e:
-            self.logger.error(f"Redis store failed: {e}")
+            self.logger.error(f"Redis store failed: {e}", exc_info=True)
 
     def _get_redis(self, symbol: str) -> CachedMarketData | None:
         """Get entry from Redis cache"""
@@ -614,11 +618,11 @@ class MarketDataCache:
                 if self.config['persistence']['compression']:
                     data = gzip.decompress(data)
 
-                entry_dict = pickle.loads(data)
+                entry_dict = json.loads(data)
                 return CachedMarketData.from_dict(entry_dict)
 
         except Exception as e:
-            self.logger.error(f"Redis get failed: {e}")
+            self.logger.error(f"Redis get failed: {e}", exc_info=True)
 
         return None
 
@@ -646,7 +650,7 @@ class MarketDataCache:
                 ))
 
         except Exception as e:
-            self.logger.error(f"Failed to store tick data: {e}")
+            self.logger.error(f"Failed to store tick data: {e}", exc_info=True)
 
     def _get_disk(self, symbol: str, max_age: float | None) -> CachedMarketData | None:
         """Get latest entry from disk"""
@@ -676,7 +680,7 @@ class MarketDataCache:
                     if self.config['persistence']['compression']:
                         data_blob = gzip.decompress(data_blob)
 
-                    data = pickle.loads(data_blob)
+                    data = json.loads(data_blob)
                     return CachedMarketData(
                         symbol=symbol,
                         timestamp=datetime.fromtimestamp(timestamp),
@@ -684,7 +688,7 @@ class MarketDataCache:
                     )
 
         except Exception as e:
-            self.logger.error(f"Failed to get disk data: {e}")
+            self.logger.error(f"Failed to get disk data: {e}", exc_info=True)
 
         return None
 
@@ -706,27 +710,14 @@ class MarketDataCache:
                 self._update_stats()
 
             except Exception as e:
-                self.logger.error(f"Cleanup error: {e}")
+                self.logger.error(f"Cleanup error: {e}", exc_info=True)
 
             # Wait for next cleanup
-            time.sleep(self.config['memory']['cleanup_interval'])
+            time.sleep(self.config['memory']['cleanup_interval'])  # thread-safe: time.sleep() intentional
 
     def _cleanup_expired(self):
-        """Remove expired entries from memory"""
-        now = datetime.now()
-        expired_keys = []
-
-        with self._cache_lock:
-            # Check expiry heap
-            while self._expiry_heap and self._expiry_heap[0][0] <= now:
-                _, key = heapq.heappop(self._expiry_heap)
-                if key in self._memory_cache and self._memory_cache[key].is_expired():
-                    expired_keys.append(key)
-
-            # Remove expired entries
-            for key in expired_keys:
-                del self._memory_cache[key]
-                self.logger.debug(f"Expired cache entry: {key}")
+        """Compatibility no-op: H03 handles expiration cleanup."""
+        return
 
     def _cleanup_disk(self):
         """Clean old data from disk"""
@@ -751,7 +742,7 @@ class MarketDataCache:
                 conn.execute('VACUUM')
 
         except Exception as e:
-            self.logger.error(f"Disk cleanup failed: {e}")
+            self.logger.error(f"Disk cleanup failed: {e}", exc_info=True)
 
     # ==========================================================================
     # CACHE WARMING
@@ -777,15 +768,22 @@ class MarketDataCache:
                     self.logger.info(f"Preloaded {symbol} with {len(df)} data points")
 
             except Exception as e:
-                self.logger.error(f"Failed to preload {symbol}: {e}")
+                self.logger.error(f"Failed to preload {symbol}: {e}", exc_info=True)
 
     def _persist_critical_data(self):
         """Persist critical data before shutdown"""
         try:
+            if not self.config['persistence']['enabled']:
+                return
+
             with sqlite3.connect(self.db_path) as conn:
-                for _key, entry in self._memory_cache.items():
+                for key in self._l1_cache.get_keys():
+                    entry = self._l1_cache.get(key)
+                    if not isinstance(entry, CachedMarketData):
+                        continue
+
                     if entry.priority <= CACHE_PRIORITY['HIGH']:
-                        data_blob = pickle.dumps(entry.data)
+                        data_blob = json.dumps(entry.data).encode()
                         if self.config['persistence']['compression']:
                             data_blob = gzip.compress(data_blob)
 
@@ -803,7 +801,7 @@ class MarketDataCache:
                 conn.commit()
 
         except Exception as e:
-            self.logger.error(f"Failed to persist critical data: {e}")
+            self.logger.error(f"Failed to persist critical data: {e}", exc_info=True)
 
     # ==========================================================================
     # UTILITY METHODS
@@ -884,7 +882,7 @@ if __name__ == "__main__":
         }
 
         cache.put(symbol, data, priority=random.randint(1, 4))
-        time.sleep(0.01)
+        time.sleep(0.01)  # thread-safe: time.sleep() intentional
 
     # Retrieve data
     for symbol in symbols:

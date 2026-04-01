@@ -40,14 +40,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # MOCK CLASSES for ConnectAPI and OrderManager
 # ==============================================================================
 # E01_RiskManager accepts a ConnectAPI instance but B01_ConnectAPI has been
-# removed (IB Gateway deprecated). We pass mock objects directly to the
+# removed (legacy broker deprecated). We pass mock objects directly to the
 # RiskManager constructor instead of injecting into sys.modules.
-
-class _MockMessageType(Enum):
-    POSITION_UPDATE = auto()
-    ACCOUNT_SUMMARY_UPDATE = auto()
-    ORDER_STATUS = auto()
-
 
 class _MockConnectAPI:
     def __init__(self, *a, **kw):
@@ -81,6 +75,7 @@ class _MockOrderState(Enum):
 # ==============================================================================
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
     DEFAULT_RISK_LIMITS,
+    MessageType,
     Position,
     RiskCheckResponse,
     RiskCheckResult,
@@ -91,22 +86,10 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
     create_risk_manager,
 )
 
-# Patch MessageType into the E01 module so _register_handlers uses our enum
-# (E01 sets MessageType=None because B01_ConnectAPI no longer exists; tests
-# pass _MockConnectAPI which expects a real enum as the handler key.)
-# Patch MessageType into the E01 module so _register_handlers uses our enum
-# (E01 sets MessageType=None because B01_ConnectAPI no longer exists; tests
-# pass _MockConnectAPI which expects a real enum as the handler key.)
-# IMPORTANT: Patch __globals__ of _register_handlers directly, because
-# T112_ESeries replaces sys.modules["...SpyderE01_RiskManager"] with a fresh
-# exec'd module, so patching via 'import ... as _e01_mod' may patch a
-# *different* module object than the one RiskManager.__globals__ belongs to.
-RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
-
-
+# MessageType is now defined in E01 itself — no __globals__ patching needed.
 def _patch_message_type():
-    """Re-apply MessageType mock in case T112 reset it between tests."""
-    RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
+    """No-op: retained for call-site compatibility; E01 owns MessageType."""
+    pass
 
 # ==============================================================================
 # HELPERS
@@ -164,8 +147,8 @@ class TestRiskManagerInit(unittest.TestCase):
 
         # register_handler called for POSITION_UPDATE and ACCOUNT_SUMMARY_UPDATE
         self.assertEqual(len(api._handlers), 2)
-        self.assertIn(_MockMessageType.POSITION_UPDATE, api._handlers)
-        self.assertIn(_MockMessageType.ACCOUNT_SUMMARY_UPDATE, api._handlers)
+        self.assertIn(MessageType.POSITION_UPDATE, api._handlers)
+        self.assertIn(MessageType.ACCOUNT_SUMMARY_UPDATE, api._handlers)
 
     def test_03_factory_function(self):
         """create_risk_manager() returns a valid RiskManager."""

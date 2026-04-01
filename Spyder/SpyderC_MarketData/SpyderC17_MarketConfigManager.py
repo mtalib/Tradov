@@ -312,10 +312,9 @@ class MarketConfigManager:
 
         # Load additional defaults
         self.defaults["connections"] = {
-            "ibkr": {
-                "host": "127.0.0.1",
-                "port": 7497,  # Paper trading
-                "client_id": 1,
+            "tradier": {
+                "base_url": "https://api.tradier.com/v1",
+                "sandbox_url": "https://sandbox.tradier.com/v1",
                 "timeout": 30,
             }
         }
@@ -856,7 +855,7 @@ class MarketConfigManager:
             except Exception as e:
                 self.logger.error(f"Error in file watcher: {e}")
 
-            time.sleep(1)  # Check every second
+            time.sleep(1)  # thread-safe: time.sleep() intentional
 
     # ==========================================================================
     # CHANGE TRACKING

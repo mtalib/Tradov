@@ -348,7 +348,7 @@ class VolatilitySurfaceBuilder:
                 return surface
 
             except Exception as e:
-                self.logger.error(f"Failed to build surface: {e}")
+                self.logger.error(f"Failed to build surface: {e}", exc_info=True)
                 raise
 
     def _prepare_surface_data(self, options_data: pd.DataFrame,
@@ -650,8 +650,8 @@ class VolatilitySurfaceBuilder:
 
                 expiry = datetime.now() + timedelta(days=int(t * 365))
                 smile_params[expiry] = params
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Smile parameter fit failed for expiry {t:.4f}: {e}")
 
         return smile_params
 

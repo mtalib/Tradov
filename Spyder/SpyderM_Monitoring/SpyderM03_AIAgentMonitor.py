@@ -211,6 +211,20 @@ class AIAgentMonitor:
         # Performance baselines
         self.performance_baselines: dict[str, dict[MetricType, float]] = {}
 
+        # Monitoring thresholds (mutable per-instance, overridable via update_thresholds)
+        self.thresholds: dict[str, float] = {
+            "LATENCY_WARNING_MS": LATENCY_WARNING_MS,
+            "LATENCY_CRITICAL_MS": LATENCY_CRITICAL_MS,
+            "ERROR_RATE_WARNING": ERROR_RATE_WARNING,
+            "ERROR_RATE_CRITICAL": ERROR_RATE_CRITICAL,
+            "SUCCESS_RATE_WARNING": SUCCESS_RATE_WARNING,
+            "SUCCESS_RATE_CRITICAL": SUCCESS_RATE_CRITICAL,
+            "MEMORY_WARNING_MB": MEMORY_WARNING_MB,
+            "MEMORY_CRITICAL_MB": MEMORY_CRITICAL_MB,
+            "CPU_WARNING_PERCENT": CPU_WARNING_PERCENT,
+            "CPU_CRITICAL_PERCENT": CPU_CRITICAL_PERCENT,
+        }
+
         self.logger.info("AI Agent Monitor initialized")
 
     # ==========================================================================
@@ -418,9 +432,11 @@ class AIAgentMonitor:
         Args:
             thresholds: New threshold values
         """
-        # Update global thresholds
-        globals().update(thresholds)
-        self.logger.info(f"Updated monitoring thresholds: {thresholds}")
+        # Update instance thresholds (only recognised keys are accepted)
+        valid_keys = set(self.thresholds)
+        updated = {k: v for k, v in thresholds.items() if k in valid_keys}
+        self.thresholds.update(updated)
+        self.logger.info(f"Updated monitoring thresholds: {updated}")
 
     # ==========================================================================
     # PRIVATE METHODS - INITIALIZATION
@@ -552,19 +568,19 @@ class AIAgentMonitor:
 
         # Check metrics
         if MetricType.LATENCY in metrics:
-            if metrics[MetricType.LATENCY] > LATENCY_CRITICAL_MS:
+            if metrics[MetricType.LATENCY] > self.thresholds["LATENCY_CRITICAL_MS"]:
                 status = HealthStatus.CRITICAL
                 issues.append(f"High latency: {metrics[MetricType.LATENCY]:.0f}ms")
-            elif metrics[MetricType.LATENCY] > LATENCY_WARNING_MS:
+            elif metrics[MetricType.LATENCY] > self.thresholds["LATENCY_WARNING_MS"]:
                 if status != HealthStatus.CRITICAL:
                     status = HealthStatus.WARNING
                 issues.append(f"Elevated latency: {metrics[MetricType.LATENCY]:.0f}ms")
 
         if MetricType.ERROR_RATE in metrics:
-            if metrics[MetricType.ERROR_RATE] > ERROR_RATE_CRITICAL:
+            if metrics[MetricType.ERROR_RATE] > self.thresholds["ERROR_RATE_CRITICAL"]:
                 status = HealthStatus.CRITICAL
                 issues.append(f"High error rate: {metrics[MetricType.ERROR_RATE]:.1%}")
-            elif metrics[MetricType.ERROR_RATE] > ERROR_RATE_WARNING:
+            elif metrics[MetricType.ERROR_RATE] > self.thresholds["ERROR_RATE_WARNING"]:
                 if status != HealthStatus.CRITICAL:
                     status = HealthStatus.WARNING
                 issues.append(f"Elevated error rate: {metrics[MetricType.ERROR_RATE]:.1%}")
@@ -669,17 +685,17 @@ class AIAgentMonitor:
         # Define thresholds
         thresholds = {
             MetricType.LATENCY: {
-                AlertLevel.WARNING: LATENCY_WARNING_MS,
-                AlertLevel.CRITICAL: LATENCY_CRITICAL_MS
+                AlertLevel.WARNING: self.thresholds["LATENCY_WARNING_MS"],
+                AlertLevel.CRITICAL: self.thresholds["LATENCY_CRITICAL_MS"],
             },
             MetricType.ERROR_RATE: {
-                AlertLevel.WARNING: ERROR_RATE_WARNING,
-                AlertLevel.CRITICAL: ERROR_RATE_CRITICAL
+                AlertLevel.WARNING: self.thresholds["ERROR_RATE_WARNING"],
+                AlertLevel.CRITICAL: self.thresholds["ERROR_RATE_CRITICAL"],
             },
             MetricType.SUCCESS_RATE: {
-                AlertLevel.WARNING: SUCCESS_RATE_WARNING,
-                AlertLevel.CRITICAL: SUCCESS_RATE_CRITICAL
-            }
+                AlertLevel.WARNING: self.thresholds["SUCCESS_RATE_WARNING"],
+                AlertLevel.CRITICAL: self.thresholds["SUCCESS_RATE_CRITICAL"],
+            },
         }
 
         if metric_type not in thresholds:
@@ -823,13 +839,13 @@ class AIAgentMonitor:
 
         # Latency recommendations
         if MetricType.LATENCY in metrics:
-            if metrics[MetricType.LATENCY] > LATENCY_WARNING_MS:
+            if metrics[MetricType.LATENCY] > self.thresholds["LATENCY_WARNING_MS"]:
                 recommendations.append("Consider using a smaller/faster LLM model")
                 recommendations.append("Enable response caching if not already active")
 
         # Error rate recommendations
         if MetricType.ERROR_RATE in metrics:
-            if metrics[MetricType.ERROR_RATE] > ERROR_RATE_WARNING:
+            if metrics[MetricType.ERROR_RATE] > self.thresholds["ERROR_RATE_WARNING"]:
                 recommendations.append("Review recent error logs for patterns")
                 recommendations.append("Check input validation and error handling")
 

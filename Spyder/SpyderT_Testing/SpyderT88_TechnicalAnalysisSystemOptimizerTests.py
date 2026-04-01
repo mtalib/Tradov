@@ -1141,66 +1141,6 @@ class TestConfigureFirewall:
         assert result in opt.applied_optimizations
 
 
-class TestOptimizeIbGatewayJvm:
-    """Tests for optimize_ib_gateway_jvm."""
-
-    def test_success_creates_file(self):
-        opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            Path(tmpdir) / ".ibgateway" / "jvm_args.txt"
-            with patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
-                result = opt.optimize_ib_gateway_jvm()
-        assert result.success is True
-        assert result.component == SystemComponent.JVM
-
-    def test_result_has_jvm_args_in_details(self):
-        opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
-            result = opt.optimize_ib_gateway_jvm()
-        assert result.details is not None
-        assert "jvm_args" in result.details
-
-    def test_appended_to_applied(self):
-        opt = SystemOptimizer()
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "home", return_value=Path(tmpdir)):
-            result = opt.optimize_ib_gateway_jvm()
-        assert result in opt.applied_optimizations
-
-    def test_failure_on_exception(self):
-        opt = SystemOptimizer()
-        with patch.object(_u27.Path, "home", side_effect=RuntimeError("test error")):
-            result = opt.optimize_ib_gateway_jvm()
-        assert result.success is False
-        assert result.component == SystemComponent.JVM
-
-
-class TestGenerateDockerCompose:
-    """Tests for generate_docker_compose."""
-
-    def test_success_with_yaml_mocked(self):
-        opt = SystemOptimizer()
-        mock_yaml = MagicMock()
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(_u27.Path, "cwd", return_value=Path(tmpdir)), patch.dict("sys.modules", {"yaml": mock_yaml}):
-            # Patch the open call inside yaml.dump  or use real file
-            result = opt.generate_docker_compose()
-        # Whether success or not depends on yaml availability; just check type
-        assert isinstance(result, OptimizationResult)
-        assert result.component == SystemComponent.DOCKER
-
-    def test_failure_on_exception(self):
-        opt = SystemOptimizer()
-        with patch.object(_u27.Path, "cwd", side_effect=RuntimeError("no cwd")):
-            result = opt.generate_docker_compose()
-        assert result.success is False
-        assert result.component == SystemComponent.DOCKER
-
-    def test_appended_to_applied(self):
-        opt = SystemOptimizer()
-        with patch.object(_u27.Path, "cwd", side_effect=RuntimeError("x")):
-            result = opt.generate_docker_compose()
-        assert result in opt.applied_optimizations
-
-
 class TestRunSystemDiagnostics:
     """Tests for run_system_diagnostics."""
 
@@ -1234,27 +1174,25 @@ class TestOptimizeAll:
             results = opt.optimize_all()
         assert isinstance(results, list)
 
-    def test_standard_level_calls_three_methods(self):
+    def test_standard_level_calls_two_methods(self):
         opt = SystemOptimizer(OptimizationLevel.STANDARD)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")) as m1, patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")) as m2, patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")) as m3:
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")) as m1, patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")) as m2:
             results = opt.optimize_all()
         m1.assert_called_once()
         m2.assert_called_once()
-        m3.assert_called_once()
-        assert len(results) == 3
+        assert len(results) == 2
 
     def test_aggressive_level_includes_docker(self):
         opt = SystemOptimizer(OptimizationLevel.AGGRESSIVE)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")), patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")), patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")) as m_docker:
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")):
             results = opt.optimize_all()
-        m_docker.assert_called_once()
-        assert len(results) == 4
+        assert len(results) == 2
 
     def test_ultra_level_same_as_aggressive(self):
         opt = SystemOptimizer(OptimizationLevel.ULTRA)
-        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")), patch.object(opt, "optimize_ib_gateway_jvm", return_value=OptimizationResult(SystemComponent.JVM, True, "ok")), patch.object(opt, "generate_docker_compose", return_value=OptimizationResult(SystemComponent.DOCKER, True, "ok")):
+        with patch.object(opt, "optimize_tcp_keepalive", return_value=OptimizationResult(SystemComponent.NETWORK, True, "ok")), patch.object(opt, "configure_firewall", return_value=OptimizationResult(SystemComponent.FIREWALL, True, "ok")):
             results = opt.optimize_all()
-        assert len(results) == 4
+        assert len(results) == 2
 
 
 class TestGetNetworkConfig:

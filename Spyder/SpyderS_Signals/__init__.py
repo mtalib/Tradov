@@ -31,11 +31,17 @@ __email__ = "mohamed.talib@spyder.ai"
 # Package metadata
 __all__ = [
     "SpyderS07_CustomMetricsOrchestrator",
+    "SpyderS08_ShortSqueezeDetector",
 ]
 
 # Module imports (when needed)
 try:
     from . import SpyderS07_CustomMetricsOrchestrator
+except ImportError:
+    pass
+
+try:
+    from . import SpyderS08_ShortSqueezeDetector
 except ImportError:
     pass
 

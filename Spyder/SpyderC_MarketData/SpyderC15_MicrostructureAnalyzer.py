@@ -1003,7 +1003,7 @@ class MicrostructureAnalyzer:
 
             except Exception as e:
                 self.error_handler.handle_error(e, {"method": "_analysis_loop"})
-                time.sleep(1)
+                time.sleep(1)  # thread-safe: time.sleep() intentional
 
     def _periodic_analysis(self):
         """Perform periodic analysis of all symbols."""

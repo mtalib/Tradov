@@ -156,7 +156,6 @@ class SpyderDiagnostic:
             ('PyQt6.QtWidgets', 'Qt Widgets', 'pip install PyQt6'),
             ('PyQt6.QtCore', 'Qt Core', 'pip install PyQt6'),
             ('PyQt6.QtGui', 'Qt GUI', 'pip install PyQt6'),
-            ('ib_insync', 'Interactive Brokers API', 'pip install ib_insync'),
             ('pandas', 'Data analysis', 'pip install pandas'),
             ('numpy', 'Numerical computing', 'pip install numpy'),
             ('matplotlib', 'Plotting', 'pip install matplotlib'),

@@ -585,7 +585,7 @@ class TelegramBot:
             # Retry if possible
             if message.retry_count < MAX_RETRIES:
                 message.retry_count += 1
-                time.sleep(RETRY_DELAY * message.retry_count)
+                time.sleep(RETRY_DELAY * message.retry_count)  # thread-safe: time.sleep() intentional
                 return self._send_message_now(message)
 
             return False
@@ -852,7 +852,7 @@ if __name__ == "__main__":
         max_risk=1250
     )
 
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Test trade closed
     bot.send_trade_closed(
@@ -867,7 +867,7 @@ if __name__ == "__main__":
         reason="Target reached"
     )
 
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Test daily summary
     bot.send_daily_summary(
@@ -884,7 +884,7 @@ if __name__ == "__main__":
         account_balance=10425
     )
 
-    time.sleep(2)
+    time.sleep(2)  # thread-safe: time.sleep() intentional
 
     # Test alert
     bot.send_alert(
@@ -893,7 +893,7 @@ if __name__ == "__main__":
         severity="warning"
     )
 
-    time.sleep(5)
+    time.sleep(5)  # thread-safe: time.sleep() intentional
 
     # Get stats
     stats = bot.get_stats()

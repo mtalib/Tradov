@@ -12,7 +12,7 @@ Last Updated: 2025-09-13 Time: 15:45:00
 Module Description:
     This module provides comprehensive memory monitoring and management utilities
     for the Spyder trading system. It tracks memory usage patterns, detects leaks,
-    triggers garbage collection, and monitors IB Gateway resource usage to ensure
+    triggers garbage collection, and monitors system resource usage to ensure
     system stability during extended trading sessions.
 """
 
@@ -72,15 +72,6 @@ DEEP_MONITORING_INTERVAL = 300    # Deep analysis every 5 minutes
 MAX_MEMORY_HISTORY = 1000         # Keep last 1000 measurements
 MAX_PROCESS_HISTORY = 100         # Keep last 100 process snapshots
 
-# IB Gateway process patterns
-IB_GATEWAY_PATTERNS = [
-    'ibgateway',
-    'tws',
-    'IBGateway',
-    'java.*ibgateway',
-    'java.*tws'
-]
-
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
@@ -137,7 +128,7 @@ class SpyderMemoryMonitor:
     - Real-time memory usage tracking
     - Memory leak detection
     - Automatic garbage collection
-    - IB Gateway process monitoring
+    - System process monitoring
     - Performance impact analysis
     - Alert system for memory issues
     """
@@ -160,7 +151,6 @@ class SpyderMemoryMonitor:
 
         # Process tracking
         self.main_process = None
-        self.ib_gateway_processes: list[ProcessInfo] = []
         self.tracked_processes: dict[int, ProcessInfo] = {}
 
         # Statistics
@@ -255,7 +245,7 @@ class SpyderMemoryMonitor:
 
             except Exception as e:
                 self.error_handler.handle_error(e, "Memory monitoring loop error")
-                time.sleep(10)  # Wait before retrying
+                time.sleep(10)  # thread-safe: time.sleep() intentional
 
     # ==========================================================================
     # MEMORY MEASUREMENT
@@ -301,7 +291,7 @@ class SpyderMemoryMonitor:
                 try:
                     callback(snapshot)
                 except Exception as e:
-                    self.logger.error(f"Stats callback error: {e}")
+                    self.logger.error(f"Stats callback error: {e}", exc_info=True)
 
         except Exception as e:
             self.error_handler.handle_error(e, "Memory check failed")
@@ -349,7 +339,7 @@ class SpyderMemoryMonitor:
             try:
                 callback(alert)
             except Exception as e:
-                self.logger.error(f"Alert callback error: {e}")
+                self.logger.error(f"Alert callback error: {e}", exc_info=True)
 
     # ==========================================================================
     # GARBAGE COLLECTION MANAGEMENT
@@ -412,9 +402,6 @@ class SpyderMemoryMonitor:
     def _perform_deep_analysis(self):
         """Perform deep memory and process analysis."""
         try:
-            # Update IB Gateway processes
-            self._find_ib_gateway_processes()
-
             # Analyze memory trends
             self._analyze_memory_trends()
 
@@ -426,36 +413,6 @@ class SpyderMemoryMonitor:
 
         except Exception as e:
             self.error_handler.handle_error(e, "Deep analysis failed")
-
-    def _find_ib_gateway_processes(self):
-        """Find and monitor IB Gateway processes."""
-        try:
-            self.ib_gateway_processes.clear()
-
-            for proc in psutil.process_iter(['pid', 'name', 'memory_info', 'cpu_percent']):
-                try:
-                    proc_name = proc.info['name'].lower()
-
-                    # Check if this is an IB Gateway process
-                    for pattern in IB_GATEWAY_PATTERNS:
-                        if pattern.lower() in proc_name:
-                            process_info = ProcessInfo(
-                                pid=proc.info['pid'],
-                                name=proc.info['name'],
-                                memory_rss=proc.info['memory_info'].rss,
-                                memory_percent=proc.memory_percent(),
-                                cpu_percent=proc.info['cpu_percent'] or 0.0,
-                                status=proc.status(),
-                                create_time=datetime.datetime.fromtimestamp(proc.create_time())
-                            )
-                            self.ib_gateway_processes.append(process_info)
-                            break
-
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-
-        except Exception as e:
-            self.logger.error(f"IB Gateway process detection failed: {e}")
 
     def _analyze_memory_trends(self):
         """Analyze memory usage trends."""
@@ -477,7 +434,7 @@ class SpyderMemoryMonitor:
                     self.logger.info(f"Memory trend: {direction} by {abs(trend_change):.1f}%")
 
         except Exception as e:
-            self.logger.error(f"Trend analysis failed: {e}")
+            self.logger.error(f"Trend analysis failed: {e}", exc_info=True)
 
     def _detect_memory_leaks(self) -> bool:
         """Detect potential memory leaks."""
@@ -506,7 +463,7 @@ class SpyderMemoryMonitor:
                     return True
 
         except Exception as e:
-            self.logger.error(f"Leak detection failed: {e}")
+            self.logger.error(f"Leak detection failed: {e}", exc_info=True)
 
         return False
 
@@ -538,7 +495,6 @@ class SpyderMemoryMonitor:
                 'process_count': current.process_count,
                 'gc_collections': current.gc_count,
                 'total_gc_triggered': self.total_gc_triggered,
-                'ib_gateway_processes': len(self.ib_gateway_processes),
                 'monitoring_duration_hours': len(self.memory_history) * MEMORY_CHECK_INTERVAL / 3600,
                 'last_updated': current.timestamp.isoformat()
             }
@@ -546,21 +502,6 @@ class SpyderMemoryMonitor:
         except Exception as e:
             self.error_handler.handle_error(e, "Stats calculation failed")
             return {}
-
-    def get_ib_gateway_stats(self) -> list[dict[str, Any]]:
-        """Get IB Gateway process statistics."""
-        stats = []
-        for proc in self.ib_gateway_processes:
-            stats.append({
-                'pid': proc.pid,
-                'name': proc.name,
-                'memory_gb': proc.memory_rss / 1e9,
-                'memory_percent': proc.memory_percent,
-                'cpu_percent': proc.cpu_percent,
-                'status': proc.status,
-                'uptime_hours': (datetime.datetime.now() - proc.create_time).total_seconds() / 3600
-            })
-        return stats
 
     def get_recent_alerts(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent memory alerts."""
@@ -677,7 +618,7 @@ def main():
         logging.info("Monitoring started...")
 
         try:
-            time.sleep(10)  # Monitor for 10 seconds
+            time.sleep(10)  # thread-safe: time.sleep() intentional
 
             # Show current stats
             stats = monitor.get_current_stats()

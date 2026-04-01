@@ -389,7 +389,7 @@ class ComprehensiveSystemTest:
                     TestCategory.BROKER,
                     TestResult.WARNING,
                     time.time() - start_time,
-                    "Connection factory returned None (expected without IB Gateway)"
+                    "Connection factory returned None (expected without broker API)"
                 )
         except Exception as e:
             self._add_result(

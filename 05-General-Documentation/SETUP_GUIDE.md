@@ -1,5 +1,14 @@
 # SPYDER OAuth Launcher - Complete Setup Guide
 
+> ⛔ **DEPRECATED:** This guide describes IBKR OAuth setup which is no longer used.  
+> Spyder migrated to **Tradier API** (February 2026). See:
+> - [ACCOUNT_SETUP_GUIDE.md](./ACCOUNT_SETUP_GUIDE.md) - Current Tradier setup
+> - [IBKR_TO_TRADIER_MIGRATION_GUIDE.md](../09-Implementation-History/IBKR_TO_TRADIER_MIGRATION_GUIDE.md) - Migration guide
+
+**Status:** ⚠️ **ARCHIVED - HISTORICAL REFERENCE ONLY**
+
+---
+
 ## Issues Encountered & Solutions
 
 ### Issue 1: Externally-Managed Python Environment

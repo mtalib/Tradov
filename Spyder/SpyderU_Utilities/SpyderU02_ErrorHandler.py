@@ -598,7 +598,7 @@ class SpyderErrorHandler:
 
             # Default recovery actions
             if strategy.action == RecoveryAction.RETRY:
-                time.sleep(strategy.retry_delay)
+                time.sleep(strategy.retry_delay)  # thread-safe: time.sleep() intentional
                 return True
 
             elif strategy.action == RecoveryAction.RECONNECT:

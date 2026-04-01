@@ -55,7 +55,7 @@ except ImportError:
 # ==============================================================================
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    logger = SpyderLogger("SpyderY_AutoAgents")
+    logger = SpyderLogger.get_logger("SpyderY_AutoAgents")
 except ImportError:
     logger = logging.getLogger("SpyderY_AutoAgents")
     logger.setLevel(logging.INFO)
@@ -486,7 +486,7 @@ class BaseAutoAgent(ABC):
                     f"[{self.AGENT_ID}] LLM query attempt {attempt + 1} failed: {e}"
                 )
                 if attempt < self.ollama_config.max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt)  # thread-safe: time.sleep() intentional
 
         logger.error(f"[{self.AGENT_ID}] LLM query failed after all retries")
         return None

@@ -47,23 +47,47 @@ import numpy as np
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# Import all 15 agents
-from Spyder.SpyderX_Agents.SpyderX01_GreeksAgent import GreeksAgent
-from Spyder.SpyderX_Agents.SpyderX02_FlowAgent import FlowAgent
-from Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent import StrategyDirectorAgent
-from Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent import RiskGuardianAgent
-from Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent import MLResearchAgent
-from Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent import BacktestingAgent
-from Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent import ExecutionStrategyAgent
-from Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent import PerformanceAnalyticsAgent
-from Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent import AlertManagerAgent
-from Spyder.SpyderX_Agents.SpyderX10_QuantModelsAgent import QuantModelsAgent
-from Spyder.SpyderX_Agents.SpyderX11_SentimentAnalysisAgent import SentimentAnalysisAgent
-from Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent import SystemHealthAgent
-from Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent import MarketAnalysisAgent
-from Spyder.SpyderX_Agents.SpyderX14_OrchestratorAgent import OrchestratorAgent
-from Spyder.SpyderX_Agents.SpyderX15_StrategyGeneratorAgent import StrategyGeneratorAgent
-import builtins
+# Lazy agent-class registry — each agent class is loaded on first instantiation
+# so a single failed agent import cannot break the MetaCoordinator.
+import importlib as _importlib
+
+_AGENT_CLASS_REGISTRY: dict[str, tuple[str, str]] = {
+    "X01_Greeks":          ("Spyder.SpyderX_Agents.SpyderX01_GreeksAgent",             "GreeksAgent"),
+    "X02_Flow":            ("Spyder.SpyderX_Agents.SpyderX02_FlowAgent",                "FlowAgent"),
+    "X03_StrategyDirector":("Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",   "StrategyDirectorAgent"),
+    "X04_RiskGuardian":    ("Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",        "RiskGuardianAgent"),
+    "X05_MLResearch":      ("Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",          "MLResearchAgent"),
+    "X06_Backtesting":     ("Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent",         "BacktestingAgent"),
+    "X07_ExecutionStrategy":("Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent", "ExecutionStrategyAgent"),
+    "X08_Performance":     ("Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent","PerformanceAnalyticsAgent"),
+    "X09_AlertManager":    ("Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",        "AlertManagerAgent"),
+    "X10_QuantModels":     ("Spyder.SpyderX_Agents.SpyderX10_QuantModelsAgent",         "QuantModelsAgent"),
+    "X11_Sentiment":       ("Spyder.SpyderX_Agents.SpyderX11_SentimentAnalysisAgent",   "SentimentAnalysisAgent"),
+    "X12_SystemHealth":    ("Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent",        "SystemHealthAgent"),
+    "X13_MarketAnalysis":  ("Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent",      "MarketAnalysisAgent"),
+    "X14_Orchestrator":    ("Spyder.SpyderX_Agents.SpyderX14_OrchestratorAgent",        "OrchestratorAgent"),
+    "X15_StrategyGenerator":("Spyder.SpyderX_Agents.SpyderX15_StrategyGeneratorAgent", "StrategyGeneratorAgent"),
+}
+_AGENT_CLASS_CACHE: dict[str, type | None] = {}
+
+def _get_agent_class(agent_id: str) -> type | None:
+    """Lazy-load and cache an X-series agent class; return None on failure."""
+    if agent_id in _AGENT_CLASS_CACHE:
+        return _AGENT_CLASS_CACHE[agent_id]
+    entry = _AGENT_CLASS_REGISTRY.get(agent_id)
+    if not entry:
+        _AGENT_CLASS_CACHE[agent_id] = None
+        return None
+    mod_path, class_name = entry
+    try:
+        mod = _importlib.import_module(mod_path)
+        _AGENT_CLASS_CACHE[agent_id] = getattr(mod, class_name)
+    except Exception as _exc:
+        logging.getLogger(__name__).warning(
+            "X-agent %r (%s.%s) unavailable: %s", agent_id, mod_path, class_name, _exc
+        )
+        _AGENT_CLASS_CACHE[agent_id] = None
+    return _AGENT_CLASS_CACHE[agent_id]
 
 # ==============================================================================
 # CONSTANTS
@@ -218,26 +242,20 @@ class MetaCoordinator:
         self.logger.info("MetaCoordinator initialized with 15 agents")
 
     def _initialize_agents(self):
-        """Initialize all 15 agents"""
+        """Initialize all agents via the lazy class registry."""
         try:
-            # Create agent instances
-            self.agents = {
-                'X01_Greeks': GreeksAgent(),
-                'X02_Flow': FlowAgent(),
-                'X03_StrategyDirector': StrategyDirectorAgent(),
-                'X04_RiskGuardian': RiskGuardianAgent(),
-                'X05_MLResearch': MLResearchAgent(),
-                'X06_Backtesting': BacktestingAgent(),
-                'X07_ExecutionStrategy': ExecutionStrategyAgent(),
-                'X08_Performance': PerformanceAnalyticsAgent(),
-                'X09_AlertManager': AlertManagerAgent(),
-                'X10_QuantModels': QuantModelsAgent(),
-                'X11_Sentiment': SentimentAnalysisAgent(),
-                'X12_SystemHealth': SystemHealthAgent(),
-                'X13_MarketAnalysis': MarketAnalysisAgent(),
-                'X14_Orchestrator': OrchestratorAgent(),
-                'X15_StrategyGenerator': StrategyGeneratorAgent()
-            }
+            self.agents = {}
+            for agent_id in _AGENT_CLASS_REGISTRY:
+                cls = _get_agent_class(agent_id)
+                if cls is None:
+                    self.logger.warning("Skipping unavailable agent: %s", agent_id)
+                    continue
+                try:
+                    self.agents[agent_id] = cls()
+                except Exception as exc:
+                    self.logger.error(
+                        "Failed to instantiate agent %s: %s", agent_id, exc, exc_info=True
+                    )
 
             # Initialize performance tracking
             for agent_id in self.agents:

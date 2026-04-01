@@ -126,7 +126,7 @@ def _simple_iron_condor(strats: OptionStrategies = None) -> OptionStrategy:
 class TestEncryptionManagerInit:
     def test_init_not_initialized(self):
         em = EncryptionManager()
-        assert em.is_initialized is False
+        assert em.is_initialized is True
 
     def test_encryption_alias(self):
         assert _u04.Encryption is EncryptionManager
@@ -140,10 +140,10 @@ class TestEncryptionManagerEncryptDecrypt:
         result = self.em.encrypt("hello")
         assert isinstance(result, str)
 
-    def test_encrypt_returns_base64(self):
+    def test_encrypt_returns_fernet_token(self):
         result = self.em.encrypt("hello")
-        decoded = base64.b64decode(result.encode()).decode()
-        assert decoded == "hello"
+        # Fernet tokens are ciphertext, not raw base64 of plaintext
+        assert self.em.decrypt(result) == "hello"
 
     def test_decrypt_round_trip(self):
         original = "secret data"
@@ -178,10 +178,10 @@ class TestEncryptionManagerGenerateKey:
         key = em.generate_key()
         assert isinstance(key, bytes)
 
-    def test_key_length_32(self):
+    def test_key_length_44(self):
         em = EncryptionManager()
         key = em.generate_key()
-        assert len(key) == 32
+        assert len(key) == 44  # Fernet key = url-safe base64 of 32 bytes
 
     def test_key_uniqueness(self):
         em = EncryptionManager()
@@ -208,7 +208,9 @@ class TestCredentialManager:
 
     def test_set_credential_stores_value(self):
         self.cm.set_credential("key1", "value1")
-        assert self.cm.credentials["key1"] == "value1"
+        # With Fernet, stored value is encrypted (not plaintext)
+        assert "key1" in self.cm.credentials
+        assert self.cm.get_credential("key1") == "value1"
 
     def test_get_credential_existing(self):
         self.cm.set_credential("test_key", "test_value")
@@ -248,10 +250,10 @@ class TestCredentialManager:
 class TestU04ModuleFunctions:
     def test_encrypt_data(self):
         result = _u04.encrypt_data("hello world")
-        assert base64.b64decode(result.encode()).decode() == "hello world"
+        assert _u04.decrypt_data(result) == "hello world"
 
     def test_decrypt_data(self):
-        enc = base64.b64encode(b"test").decode()
+        enc = _u04.encrypt_data("test")
         assert _u04.decrypt_data(enc) == "test"
 
     def test_encrypt_decrypt_roundtrip(self):
@@ -259,7 +261,8 @@ class TestU04ModuleFunctions:
         assert _u04.decrypt_data(_u04.encrypt_data(data)) == data
 
     def test_encrypt_alias(self):
-        assert _u04.encrypt("hi") == _u04.encrypt_data("hi")
+        # Fernet uses random IV, so outputs differ; verify both decrypt correctly
+        assert _u04.decrypt(_u04.encrypt("hi")) == "hi"
 
     def test_decrypt_alias(self):
         enc = _u04.encrypt("hi")
@@ -288,15 +291,16 @@ class TestU04ModuleFunctions:
 
     def test_hash_password_sha256_hex(self):
         pw = "testpwd"
-        expected = hashlib.sha256(pw.encode()).hexdigest()
-        assert _u04.hash_password(pw) == expected
+        h = _u04.hash_password(pw)
+        assert h.startswith("$argon2")  # Argon2id hash
 
-    def test_hash_password_deterministic(self):
-        assert _u04.hash_password("abc") == _u04.hash_password("abc")
+    def test_hash_password_verifiable(self):
+        h = _u04.hash_password("abc")
+        assert _u04.verify_password("abc", h)
 
     def test_hash_password_length(self):
         result = _u04.hash_password("anything")
-        assert len(result) == 64  # SHA-256 hex = 64 chars
+        assert len(result) > 64  # Argon2 hash is longer than SHA-256
 
     def test_all_exports(self):
         for name in _u04.__all__:

@@ -4,17 +4,18 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderV_QuantModels
 Module: SpyderV03_DataInterface.py
-Purpose: Data bridge between SpyderB08 feeds and quantitative models
+Purpose: Data bridge between market data providers and quantitative models
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-20 Time: 12:30:00
 
 Module Description:
-    Provides seamless data integration between SpyderB08 multi-client
-    data feeds and quantitative models. Normalizes data formats,
-    handles real-time streaming, caches for performance, and provides
-    unified interface for pricing and risk models to access market data.
+    Provides seamless data integration between Tradier (SpyderB40) and
+    Massive (SpyderC27) market data feeds and quantitative models.
+    Normalizes data formats, handles real-time streaming, caches for
+    performance, and provides a unified interface for pricing and risk
+    models to access market data.
 """
 
 # ==============================================================================
@@ -38,15 +39,8 @@ import pandas as pd
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-    from SpyderB08_MultiClientDataManager import ClientPurpose
-    B08_AVAILABLE = True
-except ImportError:
-    logging.info("⚠️  SpyderB08 not available - using simulated data")
-    MultiClientDataManager = None
-    ClientPurpose = None
-    B08_AVAILABLE = False
+# Legacy SpyderB08_MultiClientDataManager (IBKR) has been removed.
+# Data is sourced via SpyderB40_TradierClient and SpyderC27_MassiveClient.
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -102,7 +96,7 @@ class InternationalData:
     timestamp: datetime = field(default_factory=datetime.now)
 
 class DataSource(Enum):
-    """SpyderB08 data source mapping."""
+    """Logical data source channels for market data."""
     CORE_DATA = 3           # Client 3: Core market data (SPY, QQQ, etc.)
     SPY_OPTIONS = 4         # Client 4: SPY options chains
     MARKET_INTERNALS = 6    # Client 6: VUD + market internals
@@ -113,10 +107,10 @@ class DataSource(Enum):
 # ==============================================================================
 class SpyderDataInterface:
     """
-    High-performance data bridge between SpyderB08 and quantitative models.
+    High-performance data bridge between Tradier/Massive and quantitative models.
 
     Features:
-    - Real-time data streaming from multiple B08 clients
+    - Real-time data streaming via Tradier (B40) and Massive (C27)
     - Intelligent caching and data normalization
     - Options chain processing and Greeks calculation
     - Market sentiment analysis from internals
@@ -181,13 +175,7 @@ class SpyderDataInterface:
         try:
             self.logger.info("🚀 Starting SpyderDataInterface...")
 
-            # Initialize B08 connection
-            if B08_AVAILABLE:
-                self.b08_manager = MultiClientDataManager()
-                b08_success = self.b08_manager.start()
-                if not b08_success:
-                    self.logger.warning("⚠️  B08 connection failed - using simulated data")
-                    self.b08_manager = None
+            # Data is sourced via Tradier (B40) and Massive (C27).
 
             # Start data streaming
             self.is_running = True
@@ -204,7 +192,7 @@ class SpyderDataInterface:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to start DataInterface: {e}")
+            self.logger.error(f"❌ Failed to start DataInterface: {e}", exc_info=True)
             return False
 
     async def stop(self) -> bool:
@@ -224,7 +212,7 @@ class SpyderDataInterface:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error stopping DataInterface: {e}")
+            self.logger.error(f"❌ Error stopping DataInterface: {e}", exc_info=True)
             return False
 
     def _data_update_loop(self):
@@ -248,7 +236,7 @@ class SpyderDataInterface:
                 threading.Event().wait(self.update_frequency)
 
             except Exception as e:
-                self.logger.error(f"Error in data update loop: {e}")
+                self.logger.error(f"Error in data update loop: {e}", exc_info=True)
                 self.stats['errors'] += 1
                 threading.Event().wait(5)  # Wait before retry
 
@@ -285,7 +273,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.CORE_DATA] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating core data: {e}")
+            self.logger.error(f"Error updating core data: {e}", exc_info=True)
 
     def _update_options_data(self):
         """Update SPY options chain data."""
@@ -326,7 +314,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.SPY_OPTIONS] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating options data: {e}")
+            self.logger.error(f"Error updating options data: {e}", exc_info=True)
 
     def _update_market_internals(self):
         """Update market internals including VUD Put/Call ratio."""
@@ -356,7 +344,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.MARKET_INTERNALS] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating market internals: {e}")
+            self.logger.error(f"Error updating market internals: {e}", exc_info=True)
 
     def _update_international_data(self):
         """Update international market data."""
@@ -384,7 +372,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.INTERNATIONAL] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating international data: {e}")
+            self.logger.error(f"Error updating international data: {e}", exc_info=True)
 
     def get_spot_price(self, symbol: str) -> float | None:
         """Get current spot price for a symbol."""
@@ -516,7 +504,7 @@ class SpyderDataInterface:
         }
 
     # ==============================================================================
-    # SIMULATION METHODS (for testing without B08)
+    # SIMULATION METHODS (for testing without live market data)
     # ==============================================================================
     def _generate_simulated_core_data(self) -> dict[str, dict[str, Any]]:
         """Generate simulated core market data."""
@@ -608,7 +596,7 @@ class SpyderDataInterface:
                 # This would process real-time updates
                 await asyncio.sleep(0.1)
             except Exception as e:
-                self.logger.error(f"Error processing data queue: {e}")
+                self.logger.error(f"Error processing data queue: {e}", exc_info=True)
 
 # ==============================================================================
 # TESTING

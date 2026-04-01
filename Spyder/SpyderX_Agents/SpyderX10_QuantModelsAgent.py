@@ -191,11 +191,12 @@ class SpyderX10_QuantModelsAgent:
                 self.ollama_client = ollama
                 self.logger.info("Ollama connection established")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error(f"Failed to connect to Ollama: {e}", exc_info=True)
 
         # Model cache
         self.model_cache = {}
         self.volatility_cache = {}
+        self._cache_maxsize = 200
 
         # Historical data storage
         self.price_history = deque(maxlen=252)  # 1 year of daily data
@@ -292,7 +293,7 @@ class SpyderX10_QuantModelsAgent:
             return output
 
         except Exception as e:
-            self.logger.error(f"Option pricing failed: {e}")
+            self.logger.error(f"Option pricing failed: {e}", exc_info=True)
             # Return basic output
             return ModelOutput(
                 model_type=ModelType.BLACK_SCHOLES,
@@ -364,7 +365,7 @@ class SpyderX10_QuantModelsAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Volatility forecast failed: {e}")
+            self.logger.error(f"Volatility forecast failed: {e}", exc_info=True)
             return VolatilityForecast(
                 current_volatility=0.2,  # Default 20% volatility
                 forecast_1d=0.2,
@@ -425,7 +426,7 @@ class SpyderX10_QuantModelsAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Model validation failed: {e}")
+            self.logger.error(f"Model validation failed: {e}", exc_info=True)
             return ModelValidation(
                 model_type=model_type,
                 validation_metrics={},
@@ -700,7 +701,7 @@ Provide a JSON response:
                 return ModelType.BLACK_SCHOLES
 
         except Exception as e:
-            self.logger.error(f"AI model selection failed: {e}")
+            self.logger.error(f"AI model selection failed: {e}", exc_info=True)
             return ModelType.BLACK_SCHOLES
 
     async def _get_ai_pricing_insights(self, contract: OptionContract,
@@ -755,7 +756,7 @@ Provide a JSON response:
                 return {'source': 'failed_parsing'}
 
         except Exception as e:
-            self.logger.error(f"AI pricing insights failed: {e}")
+            self.logger.error(f"AI pricing insights failed: {e}", exc_info=True)
             return {'error': str(e)}
 
     async def _get_ai_volatility_forecast(self, prices: list[float],
@@ -828,7 +829,7 @@ Provide a JSON response:
                 }
 
         except Exception as e:
-            self.logger.error(f"AI volatility forecast failed: {e}")
+            self.logger.error(f"AI volatility forecast failed: {e}", exc_info=True)
             return {
                 '1d': current_vol,
                 '5d': current_vol,
@@ -890,7 +891,7 @@ Provide a JSON response:
                 return {'evaluation': 'Failed to parse'}
 
         except Exception as e:
-            self.logger.error(f"AI model evaluation failed: {e}")
+            self.logger.error(f"AI model evaluation failed: {e}", exc_info=True)
             return {'error': str(e)}
 
     # ==========================================================================

@@ -67,8 +67,8 @@ except ImportError as e:
 
 # B-Series: Broker
 try:
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-    from SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
+    from SpyderB_Broker.SpyderB40_TradierClient import TradierClient
+    from SpyderB_Broker.SpyderB02_OrderManager import OrderManager
 
     import_status["B-Broker"] = True
     print(Fore.GREEN + "✅ B-Series (Broker) imported successfully")
@@ -138,10 +138,9 @@ except ImportError as e:
 # TEST CONFIGURATION
 # ==============================================================================
 TEST_CONFIG = {
-    "ib_gateway": {
-        "host": "127.0.0.1",
-        "port": 7497,  # Paper trading port
-        "client_id": 999,  # Test client ID
+    "broker_api": {
+        "host": "api.tradier.com",
+        "sandbox": True,
     },
     "test_duration": 30,  # seconds
     "signal_test_interval": 5,  # seconds
@@ -225,16 +224,16 @@ class SpyderSystemTest(QObject):
         # Test Connection Manager
         try:
             conn_mgr = ConnectionManager()
-            # Note: This will fail if IB Gateway is not running
+            # Note: This will fail if broker API is not configured
             is_connected = conn_mgr.test_connection(
-                TEST_CONFIG["ib_gateway"]["host"], TEST_CONFIG["ib_gateway"]["port"]
+                TEST_CONFIG["broker_api"]["host"], 443
             )
             results["connection"] = is_connected
 
             if is_connected:
-                print(f"{Fore.GREEN}  ✅ IB Gateway connection successful")
+                print(f"{Fore.GREEN}  ✅ Broker API connection successful")
             else:
-                print(f"{Fore.YELLOW}  ⚠️  IB Gateway not connected (expected if not running)")
+                print(f"{Fore.YELLOW}  ⚠️  Broker API not connected (expected if not configured)")
         except Exception as e:
             results["connection"] = False
             print(f"{Fore.YELLOW}  ⚠️  Broker connection test skipped: {e}")

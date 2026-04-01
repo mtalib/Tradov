@@ -49,6 +49,11 @@ except ImportError:
     HMM_AVAILABLE = False
     warnings.warn("hmmlearn not installed. HMM functionality will be limited.", stacklevel=2)
 
+# L09 Unified Regime Engine — imported lazily inside _get_l09_regime_map() to
+# avoid loading PyTorch (via SpyderL13_LSTMPricer) at module-import time.
+# Importing this package eagerly costs 3-5 seconds on cold start.
+L09_AVAILABLE: bool | None = None  # None = not yet attempted
+
 # Suppress warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -250,7 +255,7 @@ class SpyderM06_HMMRegimeDetector:
             )
             logger.info("HMM model initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize HMM model: {e}")
+            logger.error(f"Failed to initialize HMM model: {e}", exc_info=True)
             self.hmm_model = None
 
     # ==========================================================================
@@ -283,7 +288,7 @@ class SpyderM06_HMMRegimeDetector:
                     self._detect_regime()
 
             except Exception as e:
-                logger.error(f"Error updating market data: {e}")
+                logger.error(f"Error updating market data: {e}", exc_info=True)
 
     def _engineer_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -330,7 +335,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error engineering features: {e}")
+            logger.error(f"Error engineering features: {e}", exc_info=True)
             return pd.DataFrame()
 
     def _add_technical_indicators(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -365,7 +370,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding technical indicators: {e}")
+            logger.error(f"Error adding technical indicators: {e}", exc_info=True)
             return features
 
     def _add_microstructure_features(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -391,7 +396,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding microstructure features: {e}")
+            logger.error(f"Error adding microstructure features: {e}", exc_info=True)
             return features
 
     def _add_statistical_features(self, features: pd.DataFrame) -> pd.DataFrame:
@@ -418,7 +423,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding statistical features: {e}")
+            logger.error(f"Error adding statistical features: {e}", exc_info=True)
             return features
 
     def _calculate_hurst(self, series: pd.Series) -> float:
@@ -493,7 +498,7 @@ class SpyderM06_HMMRegimeDetector:
                 self._update_metrics(regime_data)
 
         except Exception as e:
-            logger.error(f"Error in regime detection: {e}")
+            logger.error(f"Error in regime detection: {e}", exc_info=True)
 
     def _prepare_hmm_features(self) -> np.ndarray | None:
         """Prepare features for HMM model"""
@@ -530,7 +535,7 @@ class SpyderM06_HMMRegimeDetector:
             return features.values
 
         except Exception as e:
-            logger.error(f"Error preparing HMM features: {e}")
+            logger.error(f"Error preparing HMM features: {e}", exc_info=True)
             return None
 
     def _ensure_stationarity(self, features: pd.DataFrame) -> pd.DataFrame:
@@ -555,7 +560,7 @@ class SpyderM06_HMMRegimeDetector:
             return stationary_features.fillna(method='ffill').fillna(0)
 
         except Exception as e:
-            logger.error(f"Error ensuring stationarity: {e}")
+            logger.error(f"Error ensuring stationarity: {e}", exc_info=True)
             return features
 
     def _should_retrain(self) -> bool:
@@ -629,7 +634,7 @@ class SpyderM06_HMMRegimeDetector:
                        f"(rolling window from {len(features)} total)")
 
         except Exception as e:
-            logger.error(f"Error training model: {e}")
+            logger.error(f"Error training model: {e}", exc_info=True)
 
     def _train_regime_models(self, features: np.ndarray) -> None:
         """Train regime-specific ML models"""
@@ -668,7 +673,7 @@ class SpyderM06_HMMRegimeDetector:
                 logger.debug(f"Trained model for {regime.value} with {len(X)} samples")
 
         except Exception as e:
-            logger.error(f"Error training regime models: {e}")
+            logger.error(f"Error training regime models: {e}", exc_info=True)
 
     def _predict_regime(self, features: np.ndarray) -> RegimeData | None:
         """Predict current market regime"""
@@ -711,7 +716,7 @@ class SpyderM06_HMMRegimeDetector:
             return regime_data
 
         except Exception as e:
-            logger.error(f"Error predicting regime: {e}")
+            logger.error(f"Error predicting regime: {e}", exc_info=True)
             return None
 
     def _map_state_to_regime(self, state: int, features: np.ndarray) -> MarketRegime:
@@ -738,7 +743,7 @@ class SpyderM06_HMMRegimeDetector:
                 return MarketRegime.TRANSITIONAL_NEUTRAL
 
         except Exception as e:
-            logger.error(f"Error mapping state to regime: {e}")
+            logger.error(f"Error mapping state to regime: {e}", exc_info=True)
             return MarketRegime.TRANSITIONAL_NEUTRAL
 
     def _calculate_transition_probability(self, states: np.ndarray) -> float:
@@ -762,7 +767,7 @@ class SpyderM06_HMMRegimeDetector:
             return float(trans_prob)
 
         except Exception as e:
-            logger.error(f"Error calculating transition probability: {e}")
+            logger.error(f"Error calculating transition probability: {e}", exc_info=True)
             return 0.0
 
     def _extract_current_features(self) -> dict[str, float]:
@@ -787,7 +792,7 @@ class SpyderM06_HMMRegimeDetector:
             return current_features
 
         except Exception as e:
-            logger.error(f"Error extracting features: {e}")
+            logger.error(f"Error extracting features: {e}", exc_info=True)
             return {}
 
     # ==========================================================================
@@ -834,7 +839,7 @@ class SpyderM06_HMMRegimeDetector:
             self.regime_history.append(regime_data)
 
         except Exception as e:
-            logger.error(f"Error updating regime state: {e}")
+            logger.error(f"Error updating regime state: {e}", exc_info=True)
 
     # ==========================================================================
     # SIGNAL GENERATION METHODS
@@ -862,7 +867,7 @@ class SpyderM06_HMMRegimeDetector:
                 signals.extend(self._generate_neutral_signals(regime_data))
 
         except Exception as e:
-            logger.error(f"Error generating signals: {e}")
+            logger.error(f"Error generating signals: {e}", exc_info=True)
 
         return signals
 
@@ -897,7 +902,7 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating trending signals: {e}")
+            logger.error(f"Error generating trending signals: {e}", exc_info=True)
 
         return signals
 
@@ -932,7 +937,7 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating mean reversion signals: {e}")
+            logger.error(f"Error generating mean reversion signals: {e}", exc_info=True)
 
         return signals
 
@@ -958,13 +963,104 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating neutral signals: {e}")
+            logger.error(f"Error generating neutral signals: {e}", exc_info=True)
 
         return signals
 
     # ==========================================================================
     # INTEGRATION METHODS
     # ==========================================================================
+
+    # L09 8-state → M06 3-state mapping (lazily built to avoid circular imports)
+    _L09_TO_M06_REGIME_MAP: dict | None = None
+
+    @classmethod
+    def _get_l09_regime_map(cls) -> dict:
+        """Return the L09 → M06 regime mapping, building it on first access."""
+        global L09_AVAILABLE
+        if cls._L09_TO_M06_REGIME_MAP is None:
+            if L09_AVAILABLE is None:
+                # First call: try to import lazily (avoids PyTorch at module load time)
+                try:
+                    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+                        MarketRegime as L09MarketRegime,
+                    )
+                    L09_AVAILABLE = True
+                except ImportError:
+                    try:
+                        from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+                            MarketRegime as L09MarketRegime,
+                        )
+                        L09_AVAILABLE = True
+                    except ImportError:
+                        L09_AVAILABLE = False
+                        L09MarketRegime = None  # type: ignore
+            else:
+                L09MarketRegime = None  # type: ignore
+
+            if L09_AVAILABLE and L09MarketRegime is not None:
+                cls._L09_TO_M06_REGIME_MAP = {
+                    L09MarketRegime.BULL_TRENDING: MarketRegime.LOW_VOLATILITY_TRENDING,
+                    L09MarketRegime.LOW_VOLATILITY: MarketRegime.LOW_VOLATILITY_TRENDING,
+                    L09MarketRegime.RECOVERY_MODE: MarketRegime.LOW_VOLATILITY_TRENDING,
+                    L09MarketRegime.BEAR_TRENDING: MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING,
+                    L09MarketRegime.HIGH_VOLATILITY: MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING,
+                    L09MarketRegime.CRISIS_MODE: MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING,
+                    L09MarketRegime.SIDEWAYS_RANGE: MarketRegime.TRANSITIONAL_NEUTRAL,
+                    L09MarketRegime.UNKNOWN: MarketRegime.TRANSITIONAL_NEUTRAL,
+                }
+            else:
+                cls._L09_TO_M06_REGIME_MAP = {}
+        return cls._L09_TO_M06_REGIME_MAP
+
+    def update_from_unified_engine(self, consensus: 'L09RegimeConsensus') -> None:
+        """
+        Update regime state from L09 UnifiedRegimeEngine consensus.
+
+        This allows M06 to display regime data from the centralised L09
+        hub instead of training its own independent HMM, reducing
+        redundant computation and ensuring regime consistency across
+        the system.
+
+        Args:
+            consensus: L09 RegimeConsensus result
+        """
+        with self.lock:
+            try:
+                regime_map = self._get_l09_regime_map()
+                mapped = regime_map.get(
+                    consensus.regime, MarketRegime.TRANSITIONAL_NEUTRAL
+                )
+
+                regime_data = RegimeData(
+                    regime=mapped,
+                    confidence=consensus.confidence,
+                    state_probabilities=np.array([
+                        consensus.confidence if mapped == r else
+                        (1.0 - consensus.confidence) / 2
+                        for r in MarketRegime
+                    ]),
+                    timestamp=consensus.timestamp,
+                    persistence=self.regime_persistence,
+                    features={'l09_source': consensus.regime.value},
+                    metadata={
+                        'source': 'l09_unified_engine',
+                        'consensus_score': consensus.consensus_score,
+                        'contributing_sources': [
+                            s.value for s in consensus.contributing_sources
+                        ],
+                    },
+                )
+
+                self._update_regime_state(regime_data)
+
+                logger.info(
+                    f"Regime updated from L09: {consensus.regime.value} "
+                    f"→ {mapped.value} (confidence={consensus.confidence:.2%})"
+                )
+
+            except Exception as e:
+                logger.error(f"Error updating from unified engine: {e}", exc_info=True)
 
     def get_regime_context(self) -> dict[str, Any]:
         """
@@ -1102,7 +1198,7 @@ class SpyderM06_HMMRegimeDetector:
                 )
 
         except Exception as e:
-            logger.error(f"Error updating metrics: {e}")
+            logger.error(f"Error updating metrics: {e}", exc_info=True)
 
     def get_performance_metrics(self) -> dict[str, Any]:
         """Get performance metrics"""
@@ -1282,7 +1378,7 @@ class SpyderM06_HMMRegimeDetector:
             logger.info(f"Model saved to {filepath}")
 
         except Exception as e:
-            logger.error(f"Error saving model: {e}")
+            logger.error(f"Error saving model: {e}", exc_info=True)
 
     def load_model(self, filepath: str) -> None:
         """Load model from disk"""
@@ -1299,7 +1395,7 @@ class SpyderM06_HMMRegimeDetector:
             logger.info(f"Model loaded from {filepath}")
 
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
+            logger.error(f"Error loading model: {e}", exc_info=True)
 
     def cleanup(self) -> None:
         """Cleanup resources"""
@@ -1307,7 +1403,7 @@ class SpyderM06_HMMRegimeDetector:
             self.executor.shutdown(wait=True)
             logger.info("HMM Regime Detector cleaned up")
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 # ==============================================================================
 # MODULE FUNCTIONS

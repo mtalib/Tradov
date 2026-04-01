@@ -16,6 +16,24 @@ Description:
     autonomous agents. Provides a unified control plane, health dashboard
     data, and graceful shutdown orchestration.
 
+Boundary with Y08 (MetaOrchestratorAgent)
+------------------------------------------
+    Y10 owns **when agents run and whether they are alive**:
+      - Starting, stopping, and pausing individual agents on demand
+      - Enforcing market-hours gating (agents only active during session)
+      - Detecting and restarting crashed or unresponsive agents
+      - Exposing the lifecycle state consumed by G32 AgentHealthDashboard
+      - Coordinating graceful shutdown across all daemons at EOD
+
+    Y08 owns **what the agents decide and whether they agree**:
+      - Conflict resolution when agents emit contradictory signals
+      - Cross-agent decision synthesis and confidence weighting
+      - Adjusting agent confidence thresholds based on market conditions
+      - Escalating irreconcilable conflicts to human operators
+
+    Rule of thumb: if the question is "are the agents running?", that is
+    Y10.  If the question is "do their outputs agree?", that is Y08.
+
 License: All dependencies are MIT/BSD/Apache — AGPL-free.
 """
 
@@ -40,7 +58,7 @@ from .SpyderY00_BaseAutoAgent import (
 
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    logger = SpyderLogger("SpyderY_Scheduler")
+    logger = SpyderLogger.get_logger("SpyderY_Scheduler")
 except ImportError:
     logger = logging.getLogger("SpyderY_Scheduler")
     logger.setLevel(logging.INFO)
@@ -157,7 +175,7 @@ class AgentScheduler:
                 agent.start()
                 logger.info(f"  ✓ {agent.AGENT_NAME} started")
             except Exception as e:
-                logger.error(f"  ✗ {agent.AGENT_NAME} failed to start: {e}")
+                logger.error(f"  ✗ {agent.AGENT_NAME} failed to start: {e}", exc_info=True)
 
         # Start health monitoring
         self._health_thread = threading.Thread(
@@ -185,7 +203,7 @@ class AgentScheduler:
                 agent.stop()
                 logger.info(f"  ✓ {agent.AGENT_NAME} stopped")
             except Exception as e:
-                logger.error(f"  ✗ {agent.AGENT_NAME} failed to stop: {e}")
+                logger.error(f"  ✗ {agent.AGENT_NAME} failed to stop: {e}", exc_info=True)
 
         if self._health_thread and self._health_thread.is_alive():
             self._health_thread.join(timeout=5)
@@ -202,7 +220,7 @@ class AgentScheduler:
             agent.start()
             return True
         except Exception as e:
-            logger.error(f"Failed to start {agent_id}: {e}")
+            logger.error(f"Failed to start {agent_id}: {e}", exc_info=True)
             return False
 
     def stop_agent(self, agent_id: str) -> bool:
@@ -214,7 +232,7 @@ class AgentScheduler:
             agent.stop()
             return True
         except Exception as e:
-            logger.error(f"Failed to stop {agent_id}: {e}")
+            logger.error(f"Failed to stop {agent_id}: {e}", exc_info=True)
             return False
 
     def pause_agent(self, agent_id: str) -> bool:
@@ -288,7 +306,7 @@ class AgentScheduler:
                 new_agent.start()
                 logger.info(f"Agent {agent_id} restarted successfully")
             except Exception as e:
-                logger.error(f"Agent {agent_id} restart failed: {e}")
+                logger.error(f"Agent {agent_id} restart failed: {e}", exc_info=True)
 
     # ==========================================================================
     # STATUS & DASHBOARD

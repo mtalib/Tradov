@@ -46,13 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderB08_MultiClientDataManager import MultiClientDataManager
-    from SpyderB08_MultiClientDataManager import ClientPurpose
-except ImportError:
-    logging.info("⚠️  SpyderB08 not available - running in standalone mode")
-    MultiClientDataManager = None
-    ClientPurpose = None
+# SpyderB08_MultiClientDataManager (IB) has been removed.
 
 # Import consolidated V-series modules
 try:
@@ -171,7 +165,7 @@ class SpyderQuantEngine:
     """
 
     def __init__(
-        self, config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+        self, config: dict[str, Any] = None, data_manager: Any = None
     ):
         """Initialize pure orchestration engine."""
         self.config = config or {}
@@ -227,7 +221,7 @@ class SpyderQuantEngine:
             self.logger.info("Consolidated engines V04/V05 initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize engines: {e}")
+            self.logger.error(f"Failed to initialize engines: {e}", exc_info=True)
             raise
 
     # ==========================================================================
@@ -331,7 +325,7 @@ class SpyderQuantEngine:
             return response
 
         except Exception as e:
-            self.logger.error(f"Error processing request {request.request_id}: {e}")
+            self.logger.error(f"Error processing request {request.request_id}: {e}", exc_info=True)
             self.metrics.failed_requests += 1
 
             return self._create_error_response(request, str(e), start_time)
@@ -754,7 +748,7 @@ class SpyderQuantEngine:
 # FACTORY FUNCTIONS
 # ==============================================================================
 def create_quant_engine(
-    config: dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    config: dict[str, Any] = None, data_manager: Any = None
 ) -> SpyderQuantEngine:
     """Factory function to create SpyderQuantEngine orchestrator."""
     return SpyderQuantEngine(config, data_manager)

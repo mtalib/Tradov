@@ -1097,7 +1097,7 @@ class OptionsGreeksFlowAnalyzer:
                 if abs(profile.total_expected_flow) > LARGE_GAMMA_FLOW:
                     self._emit_greek_flow_event(profile)
 
-                time.sleep(30)  # Update every 30 seconds
+                time.sleep(30)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
                 self.logger.error(f"Error in Greek flow monitoring: {e}")
@@ -1171,7 +1171,7 @@ if __name__ == "__main__":
         for move in [-5, -2, 0, 2, 5]:
             prediction = analyzer.predict_hedging_flows(move)
 
-        time.sleep(5)
+        time.sleep(5)  # thread-safe: time.sleep() intentional
 
     finally:
         analyzer.cleanup()

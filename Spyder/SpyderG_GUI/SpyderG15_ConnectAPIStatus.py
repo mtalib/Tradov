@@ -29,7 +29,7 @@ Change Log:
         - Added Databento data-feed status panel
 
     2025-10-20 (v1.0.0):
-        - Initial module creation (ConnectAPI / IB Gateway)
+        - Initial module creation (ConnectAPI)
 """
 
 # ==============================================================================
@@ -594,8 +594,8 @@ class BrokerStatusWidget(QWidget):
                           OrderState.PARTIALLY_FILLED, OrderState.PENDING):
                 try:
                     orders.extend(self.order_manager.get_orders_by_state(state))
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Failed to get orders for state {state}: {e}")
 
             if orders:
                 self._apply_status_style(self.order_status_label, "ACTIVE")
@@ -680,8 +680,8 @@ class BrokerStatusWidget(QWidget):
                                if total_val > 0 else 0)
                         self.risk_positions_table.setItem(
                             i, 4, QTableWidgetItem(f"{pct:.2f}%"))
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Failed to render risk positions: {e}")
 
             self.status_changed.emit("risk", risk_metrics.risk_level.name)
 
@@ -708,8 +708,8 @@ class BrokerStatusWidget(QWidget):
                     self.success_rate_label.setText(
                         f"Success Rate: {om.get('success_rate', 0):.2f}%"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Failed to get order manager metrics: {e}")
 
         except Exception as e:
             self.logger.error(f"Error updating detailed metrics: {e}")

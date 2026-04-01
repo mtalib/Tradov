@@ -1164,31 +1164,6 @@ class TestCheckInternetConnection:
         assert result is False
 
 
-class TestCheckIbConnection:
-    def test_valid_gateway(self):
-        nu = NetworkUtils()
-        with patch.object(nu, "_test_host_connection", return_value=True):
-            result = nu.check_ib_connection("GATEWAY")
-        assert result is True
-
-    def test_valid_tws(self):
-        nu = NetworkUtils()
-        with patch.object(nu, "_test_host_connection", return_value=False):
-            result = nu.check_ib_connection("TWS")
-        assert result is False
-
-    def test_unknown_connection_type(self):
-        nu = NetworkUtils()
-        result = nu.check_ib_connection("UNKNOWN_TYPE")
-        assert result is False
-
-    def test_exception_returns_false(self):
-        nu = NetworkUtils()
-        with patch.object(nu, "_test_host_connection", side_effect=Exception("err")):
-            result = nu.check_ib_connection("GATEWAY")
-        assert result is False
-
-
 class TestMeasureLatency:
     def test_successful_measurement(self):
         nu = NetworkUtils()
@@ -1316,7 +1291,6 @@ class TestGetNetworkStatus:
     def test_returns_dict(self):
         nu = NetworkUtils()
         with patch.object(nu, "check_internet_connection", return_value=True), \
-             patch.object(nu, "check_ib_connection", return_value=False), \
              patch.object(nu, "measure_latency", return_value=5.0), \
              patch.object(nu, "_test_dns_resolution", return_value=True), \
              patch.object(nu, "_test_http_connection", return_value=True):
@@ -1328,7 +1302,6 @@ class TestGetNetworkStatus:
     def test_updates_stats_latency(self):
         nu = NetworkUtils()
         with patch.object(nu, "check_internet_connection", return_value=True), \
-             patch.object(nu, "check_ib_connection", return_value=False), \
              patch.object(nu, "measure_latency", return_value=42.0), \
              patch.object(nu, "_test_dns_resolution", return_value=True), \
              patch.object(nu, "_test_http_connection", return_value=True):
@@ -1338,7 +1311,6 @@ class TestGetNetworkStatus:
     def test_updates_status_connected(self):
         nu = NetworkUtils()
         with patch.object(nu, "check_internet_connection", return_value=True), \
-             patch.object(nu, "check_ib_connection", return_value=False), \
              patch.object(nu, "measure_latency", return_value=5.0), \
              patch.object(nu, "_test_dns_resolution", return_value=True), \
              patch.object(nu, "_test_http_connection", return_value=True):
@@ -1348,7 +1320,6 @@ class TestGetNetworkStatus:
     def test_updates_status_disconnected(self):
         nu = NetworkUtils()
         with patch.object(nu, "check_internet_connection", return_value=False), \
-             patch.object(nu, "check_ib_connection", return_value=False), \
              patch.object(nu, "measure_latency", return_value=-1.0), \
              patch.object(nu, "_test_dns_resolution", return_value=False), \
              patch.object(nu, "_test_http_connection", return_value=False):
@@ -1375,7 +1346,7 @@ class TestMonitorConnection:
             created_threads.append(t)
             return t
 
-        with patch.object(nu, "get_network_status", return_value={"internet_connected": True, "ib_gateway_connected": True}), patch("threading.Thread", side_effect=mock_thread):
+        with patch.object(nu, "get_network_status", return_value={"internet_connected": True}), patch("threading.Thread", side_effect=mock_thread):
             nu.monitor_connection(interval=9999)
         assert len(created_threads) > 0
         assert created_threads[0].daemon is True
