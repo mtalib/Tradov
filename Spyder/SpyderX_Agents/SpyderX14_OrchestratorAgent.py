@@ -59,7 +59,6 @@ _AGENT_MODULE_PATHS: dict[str, str] = {
     "strategy":     "Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",
     "risk":         "Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",
     "ml_research":  "Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",
-    "backtesting":  "Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent",
     "execution":    "Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent",
     "performance":  "Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent",
     "alerts":       "Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",

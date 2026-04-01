@@ -50,7 +50,7 @@ sys.modules.setdefault("zmq", types.ModuleType("zmq"))
 # --- shap stub (F13 dependency) -----------------------------------------------
 sys.modules.setdefault("shap", types.ModuleType("shap"))
 
-# --- plotly stubs (F12 dependency) --------------------------------------------
+# --- F-series stubs (plotly/seaborn/tqdm used by multiple F-series modules) ---
 _plotly_go = types.ModuleType("plotly.graph_objects")
 _plotly_go.Figure = type("Figure", (), {"add_trace": lambda *a, **k: None, "update_layout": lambda *a, **k: None, "show": lambda *a, **k: None})
 _plotly_go.Bar = type("Bar", (), {})
@@ -68,10 +68,10 @@ sys.modules.setdefault("plotly.graph_objects", _plotly_go)
 sys.modules.setdefault("plotly.subplots", _plotly_sub)
 sys.modules.setdefault("plotly.express", _plotly_express)
 
-# --- seaborn stub (F12 dependency) --------------------------------------------
+# --- seaborn stub -------------------------------------------------------------
 sys.modules.setdefault("seaborn", types.ModuleType("seaborn"))
 
-# --- tqdm stub (F12 dependency) -----------------------------------------------
+# --- tqdm stub ----------------------------------------------------------------
 _tqdm_mod = types.ModuleType("tqdm")
 _tqdm_mod.tqdm = lambda x, *a, **k: x
 _tqdm_auto_mod = types.ModuleType("tqdm.auto")
@@ -87,7 +87,7 @@ if _u03_key not in sys.modules or not hasattr(sys.modules.get(_u03_key), "DateTi
     _u03_stub.DateTimeUtils = type("DateTimeUtils", (), {})
     sys.modules[_u03_key] = _u03_stub
 
-# --- Ensure other U-series stubs used by F12 are populated -------------------
+# --- Ensure U-series stubs are populated ------------------------------------
 for _umod_key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
     "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
@@ -100,7 +100,7 @@ for _umod_key in [
     if not hasattr(_umod, "MathUtils"):
         _umod.MathUtils = type("MathUtils", (), {})
 
-# --- E-series stubs used by F12 -----------------------------------------------
+# --- E-series stubs used by F-series analytics --------------------------------
 for _emod_key, _ecls in [
     ("Spyder.SpyderE_Risk.SpyderE01_RiskManager", "RiskManager"),
     ("Spyder.SpyderE_Risk.SpyderE17_RealTimeStressTesting", "RealTimeStressTesting"),
@@ -1043,57 +1043,6 @@ class TestF11GreeksCalculationEngine(unittest.TestCase):
     def test_has_config_manager(self):
         obj = GreeksCalculationEngine(_mock_cm)
         self.assertEqual(obj.config_manager, _mock_cm)
-
-
-# ==============================================================================
-# F12_AdvancedBacktestingEngine — enums, AdvancedBacktestingEngine
-# ==============================================================================
-from Spyder.SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine import (
-    BacktestType,
-    PerformanceMetric,
-    BacktestStatus,
-    OptimizationObjective,
-    ValidationMethod as F12ValidationMethod,
-    AdvancedBacktestingEngine,
-)
-
-
-class TestF12Enums(unittest.TestCase):
-    def test_backtest_type_values(self):
-        self.assertEqual(BacktestType.SINGLE_STRATEGY.value, "single_strategy")
-        self.assertEqual(BacktestType.WALK_FORWARD.value, "walk_forward")
-        self.assertEqual(BacktestType.MONTE_CARLO.value, "monte_carlo")
-        self.assertGreaterEqual(len(BacktestType), 4)
-
-    def test_performance_metric_values(self):
-        self.assertEqual(PerformanceMetric.TOTAL_RETURN.value, "total_return")
-        self.assertEqual(PerformanceMetric.SHARPE_RATIO.value, "sharpe_ratio")
-        self.assertEqual(PerformanceMetric.MAX_DRAWDOWN.value, "max_drawdown")
-        self.assertGreaterEqual(len(PerformanceMetric), 5)
-
-    def test_backtest_status_values(self):
-        self.assertEqual(BacktestStatus.PENDING.value, "pending")
-        self.assertEqual(BacktestStatus.RUNNING.value, "running")
-        self.assertEqual(BacktestStatus.COMPLETED.value, "completed")
-        self.assertEqual(BacktestStatus.FAILED.value, "failed")
-
-    def test_optimization_objective_values(self):
-        self.assertEqual(OptimizationObjective.MAXIMIZE_RETURN.value, "maximize_return")
-        self.assertEqual(OptimizationObjective.MAXIMIZE_SHARPE.value, "maximize_sharpe")
-
-    def test_validation_method_values(self):
-        self.assertEqual(F12ValidationMethod.BOOTSTRAP.value, "bootstrap")
-        self.assertEqual(F12ValidationMethod.WALK_FORWARD.value, "walk_forward")
-
-
-class TestF12Engine(unittest.TestCase):
-    def test_instantiation_no_args(self):
-        obj = AdvancedBacktestingEngine()
-        self.assertIsNotNone(obj)
-
-    def test_has_logger(self):
-        obj = AdvancedBacktestingEngine()
-        self.assertTrue(hasattr(obj, "logger"))
 
 
 # ==============================================================================

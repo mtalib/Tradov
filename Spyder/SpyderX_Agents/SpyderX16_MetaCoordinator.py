@@ -57,7 +57,6 @@ _AGENT_CLASS_REGISTRY: dict[str, tuple[str, str]] = {
     "X03_StrategyDirector":("Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",   "StrategyDirectorAgent"),
     "X04_RiskGuardian":    ("Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",        "RiskGuardianAgent"),
     "X05_MLResearch":      ("Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",          "MLResearchAgent"),
-    "X06_Backtesting":     ("Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent",         "BacktestingAgent"),
     "X07_ExecutionStrategy":("Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent", "ExecutionStrategyAgent"),
     "X08_Performance":     ("Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent","PerformanceAnalyticsAgent"),
     "X09_AlertManager":    ("Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",        "AlertManagerAgent"),
@@ -99,7 +98,7 @@ AGENT_TIMEOUT = 3.0  # Timeout for individual agent responses
 
 # Agent Groups
 CRITICAL_AGENTS = ['X04_RiskGuardian', 'X12_SystemHealth']
-STRATEGY_AGENTS = ['X03_StrategyDirector', 'X15_StrategyGenerator', 'X06_Backtesting']
+STRATEGY_AGENTS = ['X03_StrategyDirector', 'X15_StrategyGenerator']
 EXECUTION_AGENTS = ['X07_ExecutionStrategy', 'X02_Flow']
 ANALYSIS_AGENTS = ['X01_Greeks', 'X13_MarketAnalysis', 'X10_QuantModels', 'X11_Sentiment']
 SUPPORT_AGENTS = ['X08_Performance', 'X09_AlertManager', 'X05_MLResearch', 'X14_Orchestrator']
@@ -276,7 +275,6 @@ class MetaCoordinator:
             'X03_StrategyDirector': {'base': 0.9, 'regime_multiplier': {}},
             'X04_RiskGuardian': {'base': 1.0, 'regime_multiplier': {}},  # Always highest
             'X05_MLResearch': {'base': 0.6, 'regime_multiplier': {}},
-            'X06_Backtesting': {'base': 0.5, 'regime_multiplier': {}},
             'X07_ExecutionStrategy': {'base': 0.8, 'regime_multiplier': {}},
             'X08_Performance': {'base': 0.6, 'regime_multiplier': {}},
             'X09_AlertManager': {'base': 0.7, 'regime_multiplier': {}},
@@ -319,7 +317,6 @@ class MetaCoordinator:
             'X04_RiskGuardian': 1.3,
             'X02_Flow': 1.2,
             'X10_QuantModels': 1.2,
-            'X06_Backtesting': 0.7  # Historical less relevant
         }
         return high_vol_weights.get(agent_id, 1.0)
 
@@ -348,7 +345,6 @@ class MetaCoordinator:
         range_weights = {
             'X01_Greeks': 1.3,
             'X15_StrategyGenerator': 1.2,
-            'X06_Backtesting': 1.2,
             'X13_MarketAnalysis': 0.8
         }
         return range_weights.get(agent_id, 1.0)
@@ -455,7 +451,7 @@ class MetaCoordinator:
                 'X08_Performance', 'X10_QuantModels'
             ],
             DecisionType.STRATEGY_SELECTION: [
-                'X03_StrategyDirector', 'X15_StrategyGenerator', 'X06_Backtesting',
+                'X03_StrategyDirector', 'X15_StrategyGenerator',
                 'X13_MarketAnalysis', 'X08_Performance', 'X05_MLResearch'
             ],
             DecisionType.RISK_ADJUSTMENT: [

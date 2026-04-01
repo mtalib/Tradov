@@ -62,14 +62,6 @@ except Exception as _e:
     create_ml_research_agent = None  # type: ignore
 
 try:
-    from .SpyderX06_BacktestingAgent import (SpyderX06_BacktestingAgent,
-                                            create_backtesting_agent)
-except Exception as _e:
-    _import_errors.append(f"X06: {_e}")
-    SpyderX06_BacktestingAgent = None  # type: ignore
-    create_backtesting_agent = None  # type: ignore
-
-try:
     from .SpyderX07_ExecutionStrategyAgent import (
         SpyderX07_ExecutionStrategyAgent, create_execution_strategy_agent)
 except Exception as _e:
@@ -148,9 +140,6 @@ __all__ = [
     # ML Research Agent
     "SpyderX05_MLResearchAgent",
     "create_ml_research_agent",
-    # Backtesting Agent
-    "SpyderX06_BacktestingAgent",
-    "create_backtesting_agent",
     # Execution Strategy Agent
     "SpyderX07_ExecutionStrategyAgent",
     "create_execution_strategy_agent",
@@ -221,13 +210,6 @@ if SpyderX05_MLResearchAgent is not None:
         "factory": create_ml_research_agent,
         "description": "AutoML and dynamic model management",
         "capabilities": ["automl", "feature_engineering", "model_selection", "continuous_learning"],
-    }
-if SpyderX06_BacktestingAgent is not None:
-    AGENT_REGISTRY["backtesting"] = {
-        "class": SpyderX06_BacktestingAgent,
-        "factory": create_backtesting_agent,
-        "description": "AI-enhanced backtesting and strategy validation",
-        "capabilities": ["hypothesis_generation", "parameter_optimization", "performance_analysis"],
     }
 if SpyderX07_ExecutionStrategyAgent is not None:
     AGENT_REGISTRY["execution"] = {

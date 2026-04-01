@@ -417,21 +417,6 @@ MAX_ORDER_SIZE = 10000
 MAX_ORDER_VALUE = 1000000.0
 
 # =============================================================================
-# BACKTESTING CONSTANTS
-# =============================================================================
-# Monte Carlo simulation
-MONTE_CARLO_ITERATIONS = 1000
-CONFIDENCE_INTERVALS = [0.95, 0.99]
-
-# Walk-forward analysis
-WALK_FORWARD_PERIODS = 12
-IN_SAMPLE_RATIO = 0.70             # 70% in-sample
-
-# Optimization
-MAX_OPTIMIZATION_ITERATIONS = 1000
-OPTIMIZATION_TOLERANCE = 0.0001
-
-# =============================================================================
 # ERROR HANDLING CONSTANTS
 # =============================================================================
 # Error thresholds
@@ -485,7 +470,6 @@ DEFAULT_FEATURE_FLAGS = {
     'enable_zero_dte': True,
     'enable_calendar_spreads': False,
     'enable_diagonal_spreads': False,
-    'enable_backtesting': True,
     'enable_paper_trading': True,
     'enable_live_trading': False,
     'enable_advanced_greeks': True,

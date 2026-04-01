@@ -49,9 +49,6 @@ from sklearn.model_selection import cross_val_score
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
-
-# Integration with our masterpieces
-from Spyder.SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine import AdvancedBacktestingEngine
 import logging
 
 # ==============================================================================
@@ -375,7 +372,7 @@ class ModelValidationEngine:
         )
 
         # Integration components
-        self.backtesting_engine: AdvancedBacktestingEngine | None = None
+        self.backtesting_engine: Any | None = None
         self.math_utils = MathUtils()
         self.thread_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_VALIDATIONS)
 
@@ -401,15 +398,6 @@ class ModelValidationEngine:
         """
         try:
             self.logger.info("Initializing model validation engine...")
-
-            # Initialize backtesting integration if enabled
-            if enable_backtesting_integration:
-                try:
-                    from SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine import get_backtesting_engine_instance
-                    self.backtesting_engine = get_backtesting_engine_instance()
-                    self.logger.info("F12 backtesting integration enabled")
-                except ImportError:
-                    self.logger.warning("F12 backtesting integration not available", exc_info=True)
 
             # Initialize performance tracking
             self._initialize_performance_tracking()

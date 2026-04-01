@@ -89,10 +89,6 @@ try:
     from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 except ImportError:
     RiskManager = None
-try:
-    from Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent import BacktestingAgent
-except ImportError:
-    BacktestingAgent = None
 
 # ==============================================================================
 # CONSTANTS

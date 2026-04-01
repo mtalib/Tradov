@@ -80,12 +80,6 @@ except ImportError:
 
 # F-series integrations
 try:
-    from SpyderF12_AdvancedBacktestingEngine import AdvancedBacktestingEngine  # noqa: F401
-    F12_AVAILABLE = True
-except ImportError:
-    F12_AVAILABLE = False
-
-try:
     from SpyderF13_ModelValidation import ModelValidationEngine  # noqa: F401
     F13_AVAILABLE = True
 except ImportError:
@@ -389,13 +383,8 @@ class RealTimeAnalyticsEngine:
             self.zmq_publisher = None
 
     async def _initialize_f_series_integrations(self) -> None:
-        """Initialize integrations with F12-F15 modules."""
+        """Initialize integrations with F13-F15 modules."""
         try:
-            # F12 Backtesting Engine integration
-            if F12_AVAILABLE:
-                self.backtesting_engine = None  # Would get singleton in production
-                self.logger.info("F12 backtesting integration initialized")
-
             # F13 Model Validation integration
             if F13_AVAILABLE:
                 self.model_validator = None  # Would get singleton in production
@@ -1630,7 +1619,7 @@ async def main():
             return False
 
         logging.info("Integration status:")
-        logging.info(f"   F12 Backtesting: {'Connected' if engine.backtesting_engine else 'Not available'}")
+        logging.info(f"   F13 Validation: {'Connected' if getattr(engine, 'model_validator', None) else 'Not available'}")
         logging.info(f"   F13 Model Validation: {'Connected' if engine.model_validator else 'Not available'}")
         logging.info(f"   F14 Market Microstructure: {'Connected' if engine.microstructure_engine else 'Not available'}")
         logging.info(f"   F15 Performance Attribution: {'Connected' if engine.attribution_engine else 'Not available'}")

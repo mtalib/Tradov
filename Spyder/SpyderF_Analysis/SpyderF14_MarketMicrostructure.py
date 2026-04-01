@@ -45,13 +45,10 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 import logging
 
-# Integration with our masterpieces
 try:
-    from SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine import AdvancedBacktestingEngine
     from SpyderF_Analysis.SpyderF13_ModelValidation import ModelValidationEngine
 except ImportError:
-    # Graceful degradation if modules not available
-    AdvancedBacktestingEngine = None
+    # Graceful degradation if module not available
     ModelValidationEngine = None
 
 # ==============================================================================
@@ -451,7 +448,7 @@ class MarketMicrostructureEngine:
         self.alert_thresholds: dict[str, dict[str, float]] = {}
 
         # Integration components
-        self.backtesting_engine: AdvancedBacktestingEngine | None = None
+        self.backtesting_engine: Any | None = None
         self.model_validator: ModelValidationEngine | None = None
 
         # Processing optimization
@@ -1063,7 +1060,7 @@ class MarketMicrostructureEngine:
 
             # Integration Status
             report_lines.append("INTEGRATION STATUS:")
-            report_lines.append(f"  F12 Backtesting: {'✅ Connected' if self.backtesting_engine else '❌ Not available'}")
+            report_lines.append(f"  F13 Validation: {'✅ Connected' if getattr(self, 'model_validator', None) else '❌ Not available'}")
             report_lines.append(f"  F13 Model Validation: {'✅ Connected' if self.model_validator else '❌ Not available'}")
             report_lines.append("")
 
@@ -1207,14 +1204,8 @@ class MarketMicrostructureEngine:
         self.logger.debug("Alert thresholds initialized")
 
     def _initialize_integrations(self) -> None:
-        """Initialize integrations with F12/F13 modules."""
+        """Initialize integrations with F13 module."""
         try:
-            # Try to initialize F12 backtesting integration
-            if AdvancedBacktestingEngine is not None:
-                # This would get the singleton instance in production
-                self.backtesting_engine = None  # Placeholder for now
-                self.logger.info("F12 backtesting integration initialized")
-
             # Try to initialize F13 model validation integration
             if ModelValidationEngine is not None:
                 # This would get the singleton instance in production
@@ -1383,7 +1374,7 @@ async def main():
             return False
 
         logging.info("🔗 Integration status:")
-        logging.info(f"   • F12 Backtesting: {'✅' if engine.backtesting_engine else '❌'}")
+        logging.info(f"   • F13 Validation: {'✅' if getattr(engine, 'model_validator', None) else '❌'}")
         logging.info(f"   • F13 Model Validation: {'✅' if engine.model_validator else '❌'}")
 
         # Create sample tick data

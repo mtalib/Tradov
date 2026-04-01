@@ -5,7 +5,7 @@ SPYDER - Automated SPY Options Trading System
 Package: SpyderR_Runtime
 Purpose: Runtime Operations
 
-This package contains runtime execution engines for backtesting, paper trading,
+This package contains runtime execution engines for paper trading
 and live trading operations.
 
 Author: Mohamed Talib
@@ -16,7 +16,6 @@ Version: 1.4
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-# from .SpyderR01_BacktestEngine import BacktestEngine, BacktestResults
 # from .SpyderR02_PaperEngine import PaperTradingEngine
 # from .SpyderR03_PaperMonitor import PaperTradingMonitor
 # from .SpyderR04_LiveEngine import LiveTradingEngine
@@ -25,9 +24,6 @@ Version: 1.4
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    # Backtesting
-    "BacktestEngine",
-    "BacktestResults",
     # Paper trading
     "PaperTradingEngine",
     "PaperTradingMonitor",

@@ -4,14 +4,9 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
 Module: SpyderT116_RSeries.py
-Purpose: Unit tests for SpyderR01_BacktestEngine and SpyderR04_LiveEngine
+Purpose: Unit tests for SpyderR04_LiveEngine
 
 Coverage targets:
-    R01 BacktestEngine:
-        - @dataclass fix: BacktestConfig / BacktestTrade / BacktestResults all
-          accept keyword arguments (regression guard for missing-decorator bug)
-        - BacktestResults default_factory fields initialise correctly
-        - print_warning() does not raise
     R04 LiveEngine:
         - LiveTradingConfig has close_positions_on_emergency field
         - emergency_stop_all sets emergency_stop flag and EMERGENCY_STOP mode
@@ -34,14 +29,6 @@ Coverage targets:
 import unittest
 from datetime import datetime
 from unittest.mock import MagicMock
-
-# ---------------------------------------------------------------------------
-# Module-level setup: SpyderR01_BacktestEngine imports `Signal` from D01, but
-# D01 only exports `TradingSignal`.  Inject the alias before the module loads.
-# ---------------------------------------------------------------------------
-import Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy as _d01_mod
-if not hasattr(_d01_mod, "Signal"):
-    _d01_mod.Signal = _d01_mod.TradingSignal
 
 
 # ---------------------------------------------------------------------------
@@ -84,127 +71,6 @@ def _make_live_engine(account_id: str = "ACC_001", close_on_emergency: bool = Fa
     risk_manager = _make_mock_risk_manager()
     engine = LiveEngine(broker, risk_manager, config)
     return engine, broker, risk_manager
-
-
-# ---------------------------------------------------------------------------
-# R01 - BacktestEngine
-# ---------------------------------------------------------------------------
-
-
-class TestR01BacktestConfigDataclass(unittest.TestCase):
-    """BacktestConfig must be a proper dataclass (keyword-arg instantiation)."""
-
-    def _make_strategy_mock(self):
-        from unittest.mock import MagicMock
-        return MagicMock()
-
-    def test_backtest_config_keyword_instantiation(self):
-        """BacktestConfig(start_date=...) must not raise TypeError."""
-        import datetime as dt
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestConfig
-
-        cfg = BacktestConfig(
-            start_date=dt.date(2025, 1, 1),
-            end_date=dt.date(2025, 3, 31),
-            initial_capital=50_000.0,
-            strategies=[self._make_strategy_mock()],
-        )
-        self.assertEqual(cfg.initial_capital, 50_000.0)
-        self.assertFalse(cfg.partial_fills)
-
-    def test_backtest_config_defaults(self):
-        """Default parameters are accessible."""
-        import datetime as dt
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import (
-            BacktestConfig, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE,
-        )
-
-        cfg = BacktestConfig(
-            start_date=dt.date(2025, 1, 1),
-            end_date=dt.date(2025, 6, 30),
-            initial_capital=10_000.0,
-            strategies=[],
-        )
-        self.assertEqual(cfg.slippage, DEFAULT_SLIPPAGE)
-        self.assertEqual(cfg.commission, DEFAULT_COMMISSION)
-        self.assertTrue(cfg.debug_mode)
-
-
-class TestR01BacktestTradeDataclass(unittest.TestCase):
-    """BacktestTrade must be a proper dataclass."""
-
-    def test_backtest_trade_keyword_instantiation(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestTrade
-        from unittest.mock import MagicMock
-
-        signal_mock = MagicMock()
-        trade = BacktestTrade(
-            trade_id="T_001",
-            strategy="test_strat",
-            signal=signal_mock,
-            entry_time=datetime(2025, 3, 1, 10, 0),
-            entry_price=450.0,
-        )
-        self.assertEqual(trade.trade_id, "T_001")
-        self.assertEqual(trade.status, "OPEN")
-        self.assertTrue(trade.perfect_fill)
-
-    def test_backtest_trade_optional_fields_default_none(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestTrade
-        from unittest.mock import MagicMock
-
-        trade = BacktestTrade(
-            trade_id="T_002",
-            strategy="s",
-            signal=MagicMock(),
-            entry_time=datetime.now(),
-            entry_price=100.0,
-        )
-        self.assertIsNone(trade.exit_time)
-        self.assertIsNone(trade.exit_price)
-
-
-class TestR01BacktestResultsDataclass(unittest.TestCase):
-    """BacktestResults must initialise with default_factory fields."""
-
-    def test_results_default_instantiation(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
-
-        results = BacktestResults()
-        self.assertIsInstance(results, object)
-        self.assertIsInstance(results.trades, list)
-        self.assertIsInstance(results.logic_errors, list)
-        self.assertIsInstance(results.strategy_signals, dict)
-
-    def test_results_warning_field_is_non_empty_string(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults, BACKTEST_WARNING
-
-        results = BacktestResults()
-        self.assertIsInstance(results.warning, str)
-        self.assertGreater(len(results.warning), 0)
-        self.assertEqual(results.warning, BACKTEST_WARNING)
-
-    def test_results_is_not_realistic(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
-
-        self.assertFalse(BacktestResults().is_realistic)
-
-    def test_results_print_warning_does_not_raise(self):
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
-
-        try:
-            BacktestResults().print_warning()
-        except Exception as exc:
-            self.fail(f"print_warning() raised unexpectedly: {exc}")
-
-    def test_results_trades_lists_are_independent(self):
-        """Two BacktestResults instances must not share list references."""
-        from Spyder.SpyderR_Runtime.SpyderR01_BacktestEngine import BacktestResults
-
-        r1 = BacktestResults()
-        r2 = BacktestResults()
-        r1.trades.append("trade_x")
-        self.assertEqual(r2.trades, [], "Shared default_factory list detected")
 
 
 # ---------------------------------------------------------------------------

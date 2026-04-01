@@ -62,7 +62,6 @@ DEFAULT_FEATURES = {
     "portfolio_optimization": True,
     "alert_notifications": True,
     "performance_analytics": True,
-    "backtesting_engine": True,
 }
 
 # Environment-based overrides

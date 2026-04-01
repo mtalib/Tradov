@@ -1339,7 +1339,6 @@ class TestA06Enums:
     def test_trading_mode_values(self):
         assert TradingMode.PAPER.value == "paper"
         assert TradingMode.LIVE.value == "live"
-        assert TradingMode.BACKTEST.value == "backtest"
         assert TradingMode.SIMULATION.value == "simulation"
 
 

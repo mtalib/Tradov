@@ -19,7 +19,7 @@ Usage:
     python SpyderQ14_MainLauncher.py [options]
 
 Options:
-    --mode          : Trading mode (live/paper/backtest) [default: paper]
+    --mode          : Trading mode (live/paper) [default: paper]
     --config        : Path to configuration file
     --gui           : Launch with GUI [default: True]
     --headless      : Run in headless mode (no GUI)
@@ -443,7 +443,7 @@ Examples:
         """
     )
 
-    parser.add_argument("--mode", choices=["live", "paper", "backtest"],
+    parser.add_argument("--mode", choices=["live", "paper"],
                        default="paper", help="Trading mode")
     parser.add_argument("--config", type=str, help="Path to configuration file")
     parser.add_argument("--gui", action="store_true", default=True, help="Launch with GUI")

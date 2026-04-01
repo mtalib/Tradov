@@ -15,8 +15,7 @@ Data Sources:
     - SpyderC01_DataFeed for provider-agnostic data abstraction
 
 Module Description:
-    Enhanced trading dashboard with THREE TRADING MODES:
-    - BACKTEST: Historical data replay via SpyderR08_EnhancedBacktestEngine + Massive historical API
+    Enhanced trading dashboard with TWO TRADING MODES:
     - PAPER:    Live data with simulated fills via Tradier sandbox + SpyderR02_PaperEngine
     - LIVE:     Real order execution via Tradier production API + SpyderR04_LiveEngine
 
@@ -25,8 +24,7 @@ Module Description:
     switching between real and simulation data.
 
 FEATURES:
-    • Three trading modes (BACKTEST / PAPER / LIVE) with toolbar selector
-    • Backtest controls panel with date range and slippage configuration
+    • Two trading modes (PAPER / LIVE) with toolbar selector
     • LIVE mode requires explicit user confirmation before execution
     • Automatic real data detection and seamless switching
     • Simulation fallback with monitoring for real data availability
@@ -233,13 +231,6 @@ except ImportError:
     circuit_breaker_monitor_available = False
     logging.info("⚠️ Circuit Breaker Monitor not available")
 
-# SpyderR08_EnhancedBacktestEngine is imported lazily inside _run_backtest() to
-# defer its ~0.43 s import cost to when the user actually runs a backtest.
-create_backtest_engine = None   # type: ignore  – populated on first use
-EnhancedBacktestEngine = None   # type: ignore  – populated on first use
-BacktestResult = None           # type: ignore  – populated on first use
-backtest_engine_available = None  # None = not yet attempted; True/False after first check
-
 # Client Connection Manager — DEPRECATED (legacy multi-client no longer used)
 ClientConnectionManager = None
 ClientStatus = None
@@ -378,13 +369,11 @@ def check_api_connection():
 # TRADING MODE ENUM
 # ==============================================================================
 class TradingMode(Enum):
-    """Three trading modes available in the Spyder system.
+    """Two trading modes available in the Spyder system.
 
-    BACKTEST: Replay historical data via SpyderR08_EnhancedBacktestEngine + SpyderC27 historical API.
     PAPER:    Simulated fills against live market data via Tradier sandbox + SpyderR02_PaperEngine.
     LIVE:     Real order execution through Tradier production API + SpyderR04_LiveEngine.
     """
-    BACKTEST = "BACKTEST"
     PAPER = "PAPER"
     LIVE = "LIVE"
 
@@ -1560,144 +1549,6 @@ class _PaperTradingWorker(QObject):
 
 
 # ==============================================================================
-# BACKTEST WORKER (runs off the GUI thread)
-# ==============================================================================
-
-
-class _MomentumStrategy:
-    """Simple momentum strategy for dashboard backtesting.
-
-    Buys SPY when the ML price prediction exceeds the current close by
-    more than *threshold* percent, sells when it falls below.
-    """
-
-    def __init__(self, name: str = "momentum", threshold: float = 0.01):
-        self.name = name
-        self.threshold = threshold
-        self.parameters: dict = {}
-
-    def get_id(self) -> str:
-        return self.name
-
-    def generate_signal(self, market_data: dict, ml_predictions: dict) -> dict | None:
-        close = market_data.get("close", 0)
-        pred = ml_predictions.get("price_prediction", close)
-        if close <= 0:
-            return None
-        pct = (pred - close) / close
-        if pct > self.threshold:
-            return {
-                "symbol": "SPY",
-                "direction": "buy",
-                "price": close,
-                "expected_profit": abs(pred - close) * 100,
-                "expected_loss": abs(pred - close) * 50,
-                "volatility": ml_predictions.get("volatility_forecast", 0.15),
-            }
-        if pct < -self.threshold:
-            return {
-                "symbol": "SPY",
-                "direction": "sell",
-                "price": close,
-                "expected_profit": abs(pred - close) * 100,
-                "expected_loss": abs(pred - close) * 50,
-                "volatility": ml_predictions.get("volatility_forecast", 0.15),
-            }
-        return None
-
-    def get_parameter_grid(self) -> list[dict]:
-        return [self.parameters]
-
-    def set_parameters(self, params: dict):
-        self.parameters = params
-
-
-class _BacktestWorker(QObject):
-    """Executes a backtest via SpyderR08 in a background QThread."""
-
-    finished = Signal(str)   # summary text
-    error = Signal(str)      # error message
-    progress = Signal(str)   # status updates
-
-    def __init__(
-        self,
-        start_date: str,
-        end_date: str,
-        slippage_per_contract: float = 0.01,
-        initial_capital: float = 100_000.0,
-    ):
-        super().__init__()
-        self.start_date = start_date
-        self.end_date = end_date
-        self.slippage_per_contract = slippage_per_contract
-        self.initial_capital = initial_capital
-
-    def run(self):
-        """Fetch historical data from Massive and run the backtest engine."""
-        try:
-            # Ensure .env variables (MASSIVE_API_KEY etc.) are in os.environ
-            from dotenv import load_dotenv
-            load_dotenv()
-
-            self.progress.emit("Loading historical minute data from Massive…")
-            data = EnhancedBacktestEngine.load_data_from_massive(
-                start_date=self.start_date,
-                end_date=self.end_date,
-                symbol="SPY",
-                timespan="minute",
-            )
-
-            self.progress.emit(f"Loaded {len(data):,} bars — creating engine…")
-            engine = create_backtest_engine({
-                "start_date": self.start_date,
-                "end_date": self.end_date,
-                "initial_capital": self.initial_capital,
-                "data_frequency": "1m",
-                "execution_model": "realistic",
-                "slippage_per_contract": self.slippage_per_contract,
-                "slippage_model": "fixed",
-                "position_sizing": "fixed",
-                "use_ml_predictions": True,
-                "use_risk_management": True,
-            })
-
-            # 2% threshold — with MockML std=1%, triggers on ~4.6% of bars
-            strategy = _MomentumStrategy("momentum", threshold=0.02)
-
-            self.progress.emit(f"Running backtest on {len(data):,} minute bars…")
-            result = engine.run_backtest(
-                [strategy], data,
-                progress_callback=self.progress.emit,
-            )
-
-            # Build a human-readable summary from BacktestResult
-            lines = ["BACKTEST RESULTS"]
-            lines.append(f"  Period      : {self.start_date} → {self.end_date}")
-            lines.append(f"  Bars        : {len(data)}")
-            m = getattr(result, "performance_metrics", None) or {}
-            for key in (
-                "total_return",
-                "sharpe_ratio",
-                "max_drawdown",
-                "win_rate",
-                "total_trades",
-                "profit_factor",
-            ):
-                if key in m:
-                    val = m[key]
-                    if isinstance(val, float):
-                        lines.append(f"  {key:<14}: {val:.4f}")
-                    else:
-                        lines.append(f"  {key:<14}: {val}")
-            lines.append(f"  Slippage    : ${self.slippage_per_contract:.2f}/contract")
-            summary = "\n".join(lines)
-            self.finished.emit(summary)
-
-        except Exception as exc:
-            self.error.emit(str(exc))
-
-
-# ==============================================================================
 # MAIN DASHBOARD CLASS
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
@@ -1790,14 +1641,6 @@ class SpyderTradingDashboard(QMainWindow):
         self.backtest_controls = None
         self.backtest_pnl_widget = None
         self.paper_pnl_widget = None
-        self._paper_metric_labels = {}
-        self._paper_status_label = None
-        self._paper_thread = None
-        self._paper_worker = None
-        self.backtest_start_date = None
-        self.backtest_end_date = None
-        self.backtest_slippage = None
-        self.run_backtest_btn = None
         self.risk_params_btn = None
         self.settled_value = None
         self.realized_value = None
@@ -2297,7 +2140,6 @@ class SpyderTradingDashboard(QMainWindow):
             """
         )
         self.mode_selector.setToolTip(
-            "BACKTEST: Historical data replay\n"
             "PAPER: Live data, simulated fills (Tradier sandbox)\n"
             "LIVE: Real order execution (Tradier production)"
         )
@@ -2724,55 +2566,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         logs_container.setLayout(logs_container_layout)
 
-        # Backtest P&L Summary (hidden by default, visible in BACKTEST mode)
-        self.backtest_pnl_widget = QWidget()
-        self.backtest_pnl_widget.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;"
-        )
-        pnl_layout = QVBoxLayout()
-        pnl_layout.setContentsMargins(8, 6, 8, 6)
-        pnl_layout.setSpacing(4)
-
-        pnl_title = QLabel("BACKTEST P&L SUMMARY")
-        pnl_title.setStyleSheet(f"color: {COLORS['cyan']}; font-size: 12px; border: none;")
-        pnl_layout.addWidget(pnl_title)
-
-        # Metrics grid: 2 rows x 3 columns
-        pnl_grid = QGridLayout()
-        pnl_grid.setHorizontalSpacing(20)
-        pnl_grid.setVerticalSpacing(2)
-
-        metric_label_style = f"color: {COLORS['text']}; font-size: 11px; border: none;"
-        metric_value_style = f"color: {COLORS['text']}; font-size: 13px; border: none;"
-
-        metric_names = [
-            ("Total Return", "total_return_val"),
-            ("Sharpe Ratio", "sharpe_ratio_val"),
-            ("Max Drawdown", "max_drawdown_val"),
-            ("Win Rate", "win_rate_val"),
-            ("Total Trades", "total_trades_val"),
-            ("Profit Factor", "profit_factor_val"),
-        ]
-        self._bt_metric_labels = {}
-        for i, (name, attr) in enumerate(metric_names):
-            row, col = divmod(i, 3)
-            lbl = QLabel(name)
-            lbl.setStyleSheet(metric_label_style)
-            pnl_grid.addWidget(lbl, row * 2, col)
-            val = QLabel("—")
-            val.setStyleSheet(metric_value_style)
-            pnl_grid.addWidget(val, row * 2 + 1, col)
-            self._bt_metric_labels[attr] = val
-
-        pnl_layout.addLayout(pnl_grid)
-
-        self._bt_period_label = QLabel("Run a backtest to see results")
-        self._bt_period_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px; border: none;")
-        pnl_layout.addWidget(self._bt_period_label)
-
-        self.backtest_pnl_widget.setLayout(pnl_layout)
-        self.backtest_pnl_widget.setVisible(False)
-        layout.addWidget(self.backtest_pnl_widget, 0)
+        # Backtest P&L Summary — removed; backtest feature has been removed
+        self.backtest_pnl_widget = None
 
         # Paper Trading P&L Summary (hidden by default, visible in PAPER mode when trading)
         self.paper_pnl_widget = QWidget()
@@ -2823,72 +2618,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.paper_pnl_widget.setVisible(False)
         layout.addWidget(self.paper_pnl_widget, 0)
 
-        # Backtest controls (hidden by default, visible in BACKTEST mode)
-        # Placed in the center panel above SYSTEM LOG / SIGNAL MONITOR.
-        self.backtest_controls = QWidget()
-        self.backtest_controls.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['orange']}; border-radius: 5px;"
-        )
-        bt_layout = QGridLayout()
-        bt_layout.setContentsMargins(6, 6, 6, 6)
-        bt_layout.setHorizontalSpacing(6)
-        bt_layout.setVerticalSpacing(4)
-
-        bt_title = QLabel("BACKTEST SETTINGS")
-        bt_title.setStyleSheet(f"color: {COLORS['orange']}; font-size: 12px; border: none;")
-        bt_layout.addWidget(bt_title, 0, 0, 1, 4)
-
-        bt_label_style = f"color: {COLORS['text']}; font-size: 11px; border: none;"
-        date_style = f"""
-            QDateEdit {{
-                background-color: {COLORS['background']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                padding: 2px 4px;
-                font-size: 11px;
-            }}
-        """
-
-        bt_layout.addWidget(QLabel("From:"), 1, 0)
-        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
-        self.backtest_start_date = QDateEdit()
-        self.backtest_start_date.setCalendarPopup(True)
-        self.backtest_start_date.setDate(QDate.currentDate().addMonths(-6))
-        self.backtest_start_date.setStyleSheet(date_style)
-        bt_layout.addWidget(self.backtest_start_date, 1, 1)
-
-        bt_layout.addWidget(QLabel("To:"), 1, 2)
-        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
-        self.backtest_end_date = QDateEdit()
-        self.backtest_end_date.setCalendarPopup(True)
-        self.backtest_end_date.setDate(QDate.currentDate().addDays(-1))
-        self.backtest_end_date.setStyleSheet(date_style)
-        bt_layout.addWidget(self.backtest_end_date, 1, 3)
-
-        bt_layout.addWidget(QLabel("Slippage $/contract:"), 2, 0, 1, 2)
-        bt_layout.itemAt(bt_layout.count() - 1).widget().setStyleSheet(bt_label_style)
-        self.backtest_slippage = QDoubleSpinBox()
-        self.backtest_slippage.setRange(0.00, 0.50)
-        self.backtest_slippage.setSingleStep(0.01)
-        self.backtest_slippage.setValue(0.01)
-        self.backtest_slippage.setPrefix("$")
-        self.backtest_slippage.setStyleSheet(
-            f"background-color: {COLORS['background']}; color: {COLORS['text']}; "
-            f"border: 1px solid {COLORS['border']}; padding: 2px 4px; font-size: 11px;"
-        )
-        bt_layout.addWidget(self.backtest_slippage, 2, 2, 1, 2)
-
-        self.run_backtest_btn = QPushButton("RUN BACKTEST")
-        self.run_backtest_btn.setStyleSheet(
-            f"background-color: {COLORS['orange']}; color: black; font-size: 12px; padding: 4px;"
-        )
-        self.run_backtest_btn.setToolTip("Launch backtest with selected date range and slippage")
-        self.run_backtest_btn.clicked.connect(self._run_backtest)
-        bt_layout.addWidget(self.run_backtest_btn, 3, 0, 1, 4)
-
-        self.backtest_controls.setLayout(bt_layout)
-        self.backtest_controls.setVisible(False)  # Hidden until BACKTEST mode selected
-        layout.addWidget(self.backtest_controls, 0)
+        # Backtest controls — removed; backtest feature has been removed
+        self.backtest_controls = None
 
         layout.addWidget(logs_container, 0)  # Stretch factor 0 - stays fixed size
 
@@ -4097,7 +3828,6 @@ class SpyderTradingDashboard(QMainWindow):
         # Update mode label in account info
         if self.mode_lbl:
             mode_colors = {
-                TradingMode.BACKTEST: COLORS["orange"],
                 TradingMode.PAPER: COLORS["orange"],
                 TradingMode.LIVE: COLORS["negative"],
             }
@@ -4117,34 +3847,13 @@ class SpyderTradingDashboard(QMainWindow):
             ) if self.trading_mode == TradingMode.LIVE else self.mode_selector.styleSheet()
         )
 
-        # Show/hide backtest controls and auto-toggle chart
-        is_backtest = self.trading_mode == TradingMode.BACKTEST
+        # Show/hide paper P&L widget based on mode
         is_paper = self.trading_mode == TradingMode.PAPER
-        if self.backtest_controls:
-            self.backtest_controls.setVisible(is_backtest)
-        if self.backtest_pnl_widget:
-            self.backtest_pnl_widget.setVisible(is_backtest)
         if self.paper_pnl_widget:
             self.paper_pnl_widget.setVisible(is_paper)
-        if is_backtest:
-            # Hide chart to make room for backtest settings
-            if self.chart_visible:
-                self.chart_widget.hide()
-                self.chart_visible = False
-                self.chart_toggle_btn.setToolTip("Show SPY Chart (5-min)")
-        else:
-            # Restore chart when leaving BACKTEST mode
-            if not self.chart_visible:
-                self.chart_widget.show()
-                self.chart_visible = True
-                self.chart_toggle_btn.setToolTip("Hide SPY Chart (5-min)")
 
-        # Update button labels based on mode
-        if self.trading_mode == TradingMode.BACKTEST:
-            self.start_btn.setText("START TRADING")
-            self.start_btn.setToolTip("Start trading is disabled in backtest mode — use RUN BACKTEST")
-            self.stop_btn.setToolTip("Not applicable in backtest mode")
-        elif self.trading_mode == TradingMode.PAPER:
+        # Update button tooltips based on mode
+        if self.trading_mode == TradingMode.PAPER:
             self.start_btn.setText("START TRADING")
             self.start_btn.setToolTip("Start paper trading with simulated fills")
             self.stop_btn.setToolTip("Stop paper trading but keep simulated positions")
@@ -4155,197 +3864,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.add_system_log(f"Trading mode changed to {self.trading_mode.value}")
 
-        # Update market data provider indicator for backtest mode
-        if self.trading_mode == TradingMode.BACKTEST:
-            self._apply_mkt_provider_display("backtest")
-        else:
-            import os
-            current_provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
-            self._apply_mkt_provider_display(current_provider)
-
-    def _run_backtest(self):
-        """Launch a backtest with the configured date range and slippage."""
-        global backtest_engine_available, create_backtest_engine, EnhancedBacktestEngine, BacktestResult
-        # Lazy-import: defer ~0.43s backtest engine cost to first backtest run.
-        if backtest_engine_available is None:
-            try:
-                from Spyder.SpyderR_Runtime.SpyderR08_EnhancedBacktestEngine import (
-                    create_backtest_engine as _cbe,
-                    EnhancedBacktestEngine as _EBE,
-                    BacktestResult as _BR,
-                )
-                create_backtest_engine = _cbe
-                EnhancedBacktestEngine = _EBE
-                BacktestResult = _BR
-                backtest_engine_available = True
-                logging.info("✅ Backtest engine (SpyderR08) loaded (lazy)")
-            except ImportError:
-                backtest_engine_available = False
-                logging.info("⚠️ Backtest engine (SpyderR08) not available")
-
-        if not backtest_engine_available:
-            QMessageBox.warning(
-                self,
-                "Engine Unavailable",
-                "SpyderR08_EnhancedBacktestEngine could not be imported.\n"
-                "Check logs for import errors.",
-            )
-            return
-
-        start = self.backtest_start_date.date().toPython()
-        end = self.backtest_end_date.date().toPython()
-
-        if start >= end:
-            QMessageBox.warning(
-                self,
-                "Invalid Date Range",
-                "Start date must be before end date.",
-            )
-            return
-
-        slippage = self.backtest_slippage.value()
-
-        self.add_system_log(
-            f"Launching backtest: {start} → {end} | slippage=${slippage:.2f}/contract"
-        )
-        self.add_automation_log(
-            f"BACKTEST STARTED — {start} to {end} | "
-            f"Slippage: ${slippage:.2f}/contract | "
-            f"Engine: SpyderR08_EnhancedBacktestEngine"
-        )
-
-        # Disable button during run
-        self.run_backtest_btn.setText("RUNNING...")
-        self.run_backtest_btn.setEnabled(False)
-
-        # Run backtest in a background thread so the UI stays responsive.
-        # Parent the QThread to *self* so it is not garbage-collected while
-        # running — destroying a running QThread calls abort().
-        self._backtest_thread = QThread(self)  # parent prevents premature GC
-        self._backtest_worker = _BacktestWorker(
-            start_date=str(start),
-            end_date=str(end),
-            slippage_per_contract=slippage,
-        )
-        self._backtest_worker.moveToThread(self._backtest_thread)
-        self._backtest_thread.started.connect(self._backtest_worker.run)
-        self._backtest_worker.finished.connect(self._on_backtest_finished)
-        self._backtest_worker.error.connect(self._on_backtest_error)
-        self._backtest_worker.progress.connect(self._on_backtest_progress)
-        self._backtest_worker.finished.connect(self._cleanup_backtest_thread)
-        self._backtest_worker.error.connect(self._cleanup_backtest_thread)
-        self._backtest_thread.start()
-
-    def _on_backtest_progress(self, msg: str):
-        """Handle backtest progress update in the main/GUI thread.
-
-        Must be a bound method (not a lambda) so PySide6 can resolve
-        the receiver QObject and use QueuedConnection for cross-thread
-        signal delivery.  A lambda has no QObject receiver, causing
-        AutoConnection to fall back to DirectConnection — which would
-        run add_system_log in the worker thread and crash Qt.
-        """
-        self.add_system_log(f"Backtest: {msg}")
-
-    def _cleanup_backtest_thread(self):
-        """Safely shut down the backtest QThread so Qt does not abort()."""
-        thread = getattr(self, "_backtest_thread", None)
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(10_000)  # block up to 10 s for thread to finish
-
-    def _on_backtest_finished(self, summary: str):
-        """Handle successful backtest completion."""
-        self.run_backtest_btn.setText("RUN BACKTEST")
-        self.run_backtest_btn.setEnabled(True)
-        self.add_system_log("Backtest completed successfully")
-        self.add_automation_log(summary)
-        self._update_backtest_pnl(summary)
-
-    def _update_backtest_pnl(self, summary: str):
-        """Parse backtest summary text and update the P&L widget."""
-        if not self._bt_metric_labels:
-            return
-
-        # Parse key=value lines from the summary
-        parsed = {}
-        for line in summary.splitlines():
-            if ":" in line:
-                key, _, val = line.partition(":")
-                parsed[key.strip().lower().replace(" ", "_")] = val.strip()
-
-        # Map parsed keys to widget labels
-        mapping = {
-            "total_return_val": "total_return",
-            "sharpe_ratio_val": "sharpe_ratio",
-            "max_drawdown_val": "max_drawdown",
-            "win_rate_val": "win_rate",
-            "total_trades_val": "total_trades",
-            "profit_factor_val": "profit_factor",
-        }
-
-        for attr, key in mapping.items():
-            lbl = self._bt_metric_labels.get(attr)
-            if lbl and key in parsed:
-                val_text = parsed[key]
-                # Handle nan/inf display
-                try:
-                    num = float(val_text.replace("%", "").replace("$", "").replace(",", ""))
-                    import math
-                    if math.isnan(num) or math.isinf(num):
-                        lbl.setText("N/A")
-                        lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px; border: none;")
-                        continue
-                except (ValueError, TypeError):
-                    pass
-
-                lbl.setText(val_text)
-                # Color: green for positive returns, red for negative
-                try:
-                    num = float(val_text.replace("%", "").replace("$", "").replace(",", ""))
-                    if key in ("total_return", "sharpe_ratio", "profit_factor"):
-                        color = COLORS["positive"] if num > 0 else COLORS["negative"]
-                    elif key == "max_drawdown":
-                        color = COLORS["negative"] if abs(num) > 0.10 else COLORS["warning"]
-                    elif key == "win_rate":
-                        color = COLORS["positive"] if num >= 0.50 else COLORS["warning"]
-                    else:
-                        color = COLORS["text"]
-                    lbl.setStyleSheet(f"color: {color}; font-size: 13px; border: none;")
-                except (ValueError, TypeError):
-                    lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px; border: none;")
-
-        # Update period label
-        period = parsed.get("period", "")
-        bars = parsed.get("bars", "")
-        if period:
-            period_text = f"Period: {period}"
-            if bars:
-                period_text += f"  |  Bars: {bars}"
-            self._bt_period_label.setText(period_text)
-            self._bt_period_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px; border: none;")
-
-    def _on_backtest_error(self, error_msg: str):
-        """Handle backtest failure."""
-        self.run_backtest_btn.setText("RUN BACKTEST")
-        self.run_backtest_btn.setEnabled(True)
-        self.add_system_log(f"Backtest FAILED: {error_msg}")
-        # QMessageBox must run in the GUI thread — safe here because
-        # this slot is a bound method of a QObject (auto QueuedConnection).
-        QMessageBox.warning(self, "Backtest Error", error_msg)
+        import os
+        current_provider = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
+        self._apply_mkt_provider_display(current_provider)
 
     def start_trading(self):
         """Handle start trading button click — mode-aware."""
-        # BACKTEST mode uses the RUN BACKTEST button, not START TRADING
-        if self.trading_mode == TradingMode.BACKTEST:
-            QMessageBox.information(
-                self,
-                "Backtest Mode",
-                "In BACKTEST mode, use the RUN BACKTEST button\n"
-                "in the backtest settings panel.",
-            )
-            return
-
         if self.trading_active:
             self.add_system_log("Trading already active")
             return
@@ -4727,10 +4251,6 @@ class SpyderTradingDashboard(QMainWindow):
 
     def toggle_market_data_provider(self, event):
         """Switch market data source between Tradier and Massive."""
-        # Disable toggle in backtest mode
-        if self.trading_mode == TradingMode.BACKTEST:
-            self.add_system_log("⚠️ Cannot switch data provider in BACKTEST mode")
-            return
         import os
         current = os.getenv("MARKET_DATA_PROVIDER", "massive").lower()
         new_provider = "massive" if current == "tradier" else "tradier"
@@ -4754,14 +4274,11 @@ class SpyderTradingDashboard(QMainWindow):
         """Update the market data provider indicator label in the toolbar.
 
         Color is connection-based: red when disconnected, green when connected.
-        BACKTEST mode is always green.
         """
         if not hasattr(self, "mkt_provider_label"):
             return
         provider_lower = provider.lower()
-        if provider_lower == "backtest":
-            color = COLORS["positive"]
-        elif getattr(self, "mkt_data_connected", False):
+        if getattr(self, "mkt_data_connected", False):
             color = COLORS["positive"]
         else:
             color = COLORS["negative"]
@@ -4798,10 +4315,6 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _toggle_mkt_data_connection(self, event):
         """Toggle market data feed connection (⚡ icon click handler)."""
-        if self.trading_mode == TradingMode.BACKTEST:
-            self.add_system_log("⚠️ Cannot toggle data connection in BACKTEST mode")
-            return
-
         if self.mkt_data_connected:
             # Disconnect data feed
             self.mkt_data_connected = False
@@ -5601,9 +5114,6 @@ class SpyderTradingDashboard(QMainWindow):
                 self.market_thread.quit()
                 self.market_thread.wait(3000)
 
-            # Stop backtest thread if running
-            self._cleanup_backtest_thread()
-
             # Stop all timers
             if hasattr(self, "datetime_timer"):
                 self.datetime_timer.stop()
@@ -5909,7 +5419,7 @@ def main():
             logging.info(
                 "   • Clean data status: SIMULATED, EOD, LIVE"
             )
-            logging.info("   • Market data source: TRADIER DATA, MASSIVE DATA, or BACKTEST DATA")
+            logging.info("   • Market data source: TRADIER DATA or MASSIVE DATA")
             logging.info("   • Blue simulation button only visible when Tradier disconnected")
             logging.info("   • Fixed-width status containers (no UI jumping)")
 
@@ -5975,7 +5485,7 @@ def main():
             logging.info(
                 "   • Clean data status: SIMULATED, EOD, LIVE"
             )
-            logging.info("   • Market data source: TRADIER DATA, MASSIVE DATA, or BACKTEST DATA")
+            logging.info("   • Market data source: TRADIER DATA or MASSIVE DATA")
             logging.info("   • Blue simulation button only visible when Tradier disconnected")
             logging.info("   • Fixed-width status containers (no UI jumping)")
 

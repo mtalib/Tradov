@@ -934,8 +934,8 @@ Module-level boundary sections added to both Y08 and Y10 docstrings. Y10 owns li
 **14. Inter-series API contracts** ⚠️ **DEFERRED**
 Introducing typed Protocol classes for series boundaries (E↔D, F↔X, B↔Z) is a significant architectural undertaking. The C00 Protocol pattern provides a good model. Recommended as a future sprint with dedicated scope.
 
-**15. Backtesting realism improvement for R01/R08** ⚠️ **DEFERRED**
-Wiring N05 pin-risk and F18 max-pain models into R08 is valuable but requires changes across three series. Recommended for a dedicated backtesting sprint.
+**15. Backtesting realism improvement for R01/R08** ✅ **SUPERSEDED — FEATURE REMOVED**
+Backtesting deemed unreliable and too cumbersome. Feature removed entirely. Deleted: `SpyderR01_BacktestEngine`, `SpyderR08_EnhancedBacktestEngine`, `SpyderR10_DistributedBacktester`, `SpyderF12_AdvancedBacktestingEngine`, `SpyderX06_BacktestingAgent` (~7,000 LOC). Updated: A06 TradingMode enum, Q14 CLI, G05 Dashboard, X14/X16 agent registries, X/R `__init__.py`, U07 constants, U11 feature flags, H02 DB tables, T116/T107/T106 tests, F13/F14/F16/L16/R09 module refs.
 
 **16. Federated learning activation (L17)** ⚠️ **DEFERRED**
 L17 is architecturally complete. Wiring it to L11's model lifecycle requires infrastructure (multi-process or multi-node test setup). Recommended after the backtesting sprint.

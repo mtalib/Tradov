@@ -307,14 +307,6 @@ class ProductionDeploymentManager:
 
         # F-Series Analytics Components (F01-F16)
         f_series_components = {
-            "F12_AdvancedBacktesting": ComponentConfig(
-                component_id="F12_AdvancedBacktesting",
-                component_type=ComponentType.ANALYTICS,
-                module_path="SpyderF_Analysis/SpyderF12_AdvancedBacktestingEngine.py",
-                startup_command="python -m SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine",
-                priority=3,
-                resource_limits={"memory_mb": 2048, "cpu_cores": 2}
-            ),
             "F13_ModelValidation": ComponentConfig(
                 component_id="F13_ModelValidation",
                 component_type=ComponentType.ANALYTICS,

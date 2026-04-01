@@ -95,7 +95,6 @@ class TradingMode(Enum):
 
     PAPER = "paper"
     LIVE = "live"
-    BACKTEST = "backtest"
     SIMULATION = "simulation"
 
 

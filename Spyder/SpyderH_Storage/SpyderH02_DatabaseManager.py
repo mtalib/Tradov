@@ -86,8 +86,7 @@ TABLES = {
     "alerts": "alerts",
     "system_logs": "system_logs",
     "audit_trail": "audit_trail",
-    "ml_predictions": "ml_predictions",
-    "backtests": "backtests"
+    "ml_predictions": "ml_predictions"
 }
 
 # ==============================================================================
