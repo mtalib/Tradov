@@ -19,6 +19,7 @@ Module Description:
     - Market data provided by Databento (see SpyderC_MarketData)
     - Simplified authentication (Bearer token vs OAuth 2.0)
 """
+from __future__ import annotations
 
 # ==============================================================================
 # PACKAGE METADATA
@@ -31,7 +32,7 @@ __description__ = "SPYDER Broker Package - Tradier API (OrderManager + Multileg 
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 # ==============================================================================
 # PACKAGE INITIALIZATION LOGGING
@@ -44,9 +45,9 @@ def _log_import_status(module_name: str, success: bool, error: str = None):
     """Log import status for debugging and validation."""
     _module_status[module_name] = success
     if success:
-        _logger.debug(f"[OK] {module_name} imported successfully")
+        _logger.debug("[OK] %s imported successfully", module_name)
     else:
-        _logger.warning(f"[FAIL] {module_name} import failed: {error}")
+        _logger.warning("[FAIL] %s import failed: %s", module_name, error)
 
 
 def get_module_status() -> dict[str, bool]:
@@ -70,10 +71,10 @@ def get_package_status() -> dict[str, Any]:
 def print_package_status():
     """Print formatted package status."""
     status = get_package_status()
-    logging.info(f"SpyderB_Broker Package Status (v{status['version']}):")
-    logging.info(f"  Broker: {status['broker']}")
-    logging.info(f"  Data Provider: {status['data_provider']}")
-    logging.info(f"  Modules loaded: {status['modules_loaded']}/{status['modules_total']}")
+    logging.info("SpyderB_Broker Package Status (v%s):", status['version'])
+    logging.info("  Broker: %s", status['broker'])
+    logging.info("  Data Provider: %s", status['data_provider'])
+    logging.info("  Modules loaded: %s/%s", status['modules_loaded'], status['modules_total'])
     logging.info(f"  Success rate: {status['success_rate']:.1%}")
 
 
@@ -83,7 +84,7 @@ def print_package_status():
 
 # Order Types (B00) - Generic order type definitions
 try:
-    from .SpyderB00_OrderTypes import (  # noqa: F401
+    from .SpyderB00_OrderTypes import (
         # Enums
         OrderAction, OrderStatus, TimeInForce, TriggerMethod,
         OCAType, SecType, OptionRight, OrderOrigin,
@@ -252,7 +253,7 @@ def create_broker_client(
         else:
             return create_tradier_client_from_env()
     except Exception as e:
-        _logger.error(f"Failed to create broker client: {e}")
+        _logger.error("Failed to create broker client: %s", e)
         return None
 
 
@@ -262,17 +263,17 @@ def diagnose_broker_package():
     logging.info("=" * 50)
 
     status = get_package_status()
-    logging.info(f"Package Version: {status['version']}")
-    logging.info(f"Broker: {status['broker']}")
-    logging.info(f"Data Provider: {status['data_provider']}")
-    logging.info(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
+    logging.info("Package Version: %s", status['version'])
+    logging.info("Broker: %s", status['broker'])
+    logging.info("Data Provider: %s", status['data_provider'])
+    logging.info("Modules Loaded: %s/%s", status['modules_loaded'], status['modules_total'])
     logging.info(f"Success Rate: {status['success_rate']:.1%}")
     logging.info()
 
     logging.info("Module Status:")
     for module, success in _module_status.items():
         status_icon = "[OK]" if success else "[FAIL]"
-        logging.info(f"  {status_icon} {module}")
+        logging.info("  %s %s", status_icon, module)
 
     logging.info()
     if TradierClient:
@@ -345,5 +346,5 @@ for component_name in [
 # PACKAGE INITIALIZATION COMPLETE
 # ==============================================================================
 
-_logger.info(f"SpyderB_Broker package initialized (v{__version__}) - Tradier integration")
-_logger.info(f"Loaded {sum(_module_status.values())}/{len(_module_status)} modules")
+_logger.info("SpyderB_Broker package initialized (v%s) - Tradier integration", __version__)
+_logger.info("Loaded %s/%s modules", sum(_module_status.values()), len(_module_status))

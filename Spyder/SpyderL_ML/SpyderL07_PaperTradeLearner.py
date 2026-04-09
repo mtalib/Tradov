@@ -225,7 +225,7 @@ class PaperTradeLearner:
             trades_df = self._load_trade_data(start_date, end_date)
 
             if len(trades_df) < MIN_TRADES_FOR_LEARNING:
-                self.logger.warning(f"Insufficient trades for learning: {len(trades_df)}")
+                self.logger.warning("Insufficient trades for learning: %s", len(trades_df))
                 return self._create_minimal_report(trades_df)
 
             # Analyze performance by strategy
@@ -271,7 +271,7 @@ class PaperTradeLearner:
             return report
 
         except Exception as e:
-            self.logger.error(f"Error in analyze_and_learn: {e}")
+            self.logger.error("Error in analyze_and_learn: %s", e)
             self.error_handler.handle_error(e, "analyze_and_learn")
             return self._create_error_report(str(e))
 
@@ -815,7 +815,7 @@ class PaperTradeLearner:
             self._save_ml_models()
 
         except Exception as e:
-            self.logger.error(f"Error training ML models: {e}")
+            self.logger.error("Error training ML models: %s", e)
 
     def _prepare_ml_features(self, trades_df: pd.DataFrame) -> pd.DataFrame | None:
         """Prepare features for ML models"""
@@ -1084,7 +1084,7 @@ class PaperTradeLearner:
             }
 
         except Exception as e:
-            self.logger.error(f"Error in predict_trade_success: {e}")
+            self.logger.error("Error in predict_trade_success: %s", e)
             return {'success_probability': 0.5, 'confidence': 0.0}
 
     def suggest_parameters(
@@ -1383,7 +1383,7 @@ class PaperTradeLearner:
                 json.dump(report_data, f, indent=2, default=str)
 
         except Exception as e:
-            self.logger.error(f"Error saving learning report: {e}")
+            self.logger.error("Error saving learning report: %s", e)
 
     def _save_ml_models(self) -> None:
         """Save trained ML models"""
@@ -1396,7 +1396,7 @@ class PaperTradeLearner:
                 joblib.dump(self.profit_predictor, 'models/profit_predictor.pkl')
 
         except Exception as e:
-            self.logger.error(f"Error saving ML models: {e}")
+            self.logger.error("Error saving ML models: %s", e)
 
     def _get_top_features(
         self,
@@ -1599,7 +1599,7 @@ class PaperTradeLearner:
             model = PPO('MlpPolicy', env, verbose=0,
                        learning_rate=3e-4, n_steps=2048)
             model.learn(total_timesteps=total_timesteps)
-            self.logger.info(f"Paper trade RL policy trained: {total_timesteps} steps")
+            self.logger.info("Paper trade RL policy trained: %s steps", total_timesteps)
             return model
         except ImportError:
             self.logger.warning("stable-baselines3 not installed")

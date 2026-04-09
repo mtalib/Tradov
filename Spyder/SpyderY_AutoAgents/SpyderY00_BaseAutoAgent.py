@@ -44,11 +44,12 @@ from typing import Any
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-try:
-    import ollama
-    OLLAMA_AVAILABLE = True
-except ImportError:
-    OLLAMA_AVAILABLE = False
+from .SpyderY_InferenceBackends import (
+    InferenceBackend,
+    OllamaBackend,
+    OpenVINOBackend,
+    OpenVINOConfig,
+)
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -125,6 +126,26 @@ class OllamaConfig:
                 os.getenv("OLLAMA_TEMPERATURE_CREATIVE", str(cls.temperature_creative))
             ),
         )
+
+
+def _build_inference_backend(ollama_config: "OllamaConfig") -> InferenceBackend:
+    """Construct an InferenceBackend from SPYDER_LLM_BACKEND env var.
+
+    SPYDER_LLM_BACKEND=ollama    → OllamaBackend  (default)
+    SPYDER_LLM_BACKEND=openvino  → OpenVINOBackend (Intel CPU/GPU/NPU)
+
+    The role→model-id mapping for OllamaBackend is derived from the
+    supplied OllamaConfig so that env-var overrides are still honoured.
+    """
+    backend_name = os.getenv("SPYDER_LLM_BACKEND", "ollama").lower().strip()
+    if backend_name == "openvino":
+        return OpenVINOBackend(OpenVINOConfig.from_env())
+    return OllamaBackend({
+        "primary": ollama_config.primary_model,
+        "fast":    ollama_config.fast_model,
+        "code":    ollama_config.code_model,
+        "finance": ollama_config.finance_model,
+    })
 
 
 # ==============================================================================
@@ -230,10 +251,16 @@ class BaseAutoAgent(ABC):
         ollama_config: OllamaConfig | None = None,
         message_bus: Any | None = None,
         state_dir: Path | None = None,
+        inference_backend: InferenceBackend | None = None,
     ):
         # Configuration
         self.ollama_config = ollama_config or OllamaConfig.from_env()
         self.message_bus = message_bus
+
+        # Inference backend (Ollama or OpenVINO)
+        self._backend: InferenceBackend = (
+            inference_backend or _build_inference_backend(self.ollama_config)
+        )
 
         # State
         self.state = AgentState.INITIALIZING
@@ -260,7 +287,7 @@ class BaseAutoAgent(ABC):
         self._subscriptions: list[str] = []
 
         logger.info(
-            f"[{self.AGENT_ID}] {self.AGENT_NAME} v{self.AGENT_VERSION} initialized"
+            "[%s] %s v%s initialized", self.AGENT_ID, self.AGENT_NAME, self.AGENT_VERSION
         )
 
     # ==========================================================================
@@ -269,7 +296,7 @@ class BaseAutoAgent(ABC):
     def start(self) -> None:
         """Start the agent in a background thread."""
         if self.state == AgentState.RUNNING:
-            logger.warning(f"[{self.AGENT_ID}] Already running")
+            logger.warning("[%s] Already running", self.AGENT_ID)
             return
 
         self._stop_event.clear()
@@ -290,14 +317,14 @@ class BaseAutoAgent(ABC):
             daemon=True,
         )
         self._thread.start()
-        logger.info(f"[{self.AGENT_ID}] Started")
+        logger.info("[%s] Started", self.AGENT_ID)
 
     def stop(self) -> None:
         """Gracefully stop the agent, persisting state."""
         if self.state in (AgentState.STOPPED, AgentState.STOPPING):
             return
 
-        logger.info(f"[{self.AGENT_ID}] Stopping...")
+        logger.info("[%s] Stopping...", self.AGENT_ID)
         self.state = AgentState.STOPPING
         self._stop_event.set()
         self._pause_event.set()  # Unpause if paused, so loop can exit
@@ -312,21 +339,21 @@ class BaseAutoAgent(ABC):
         self._save_state()
 
         self.state = AgentState.STOPPED
-        logger.info(f"[{self.AGENT_ID}] Stopped")
+        logger.info("[%s] Stopped", self.AGENT_ID)
 
     def pause(self) -> None:
         """Pause the agent (it stays alive but stops ticking)."""
         if self.state == AgentState.RUNNING:
             self._pause_event.clear()
             self.state = AgentState.PAUSED
-            logger.info(f"[{self.AGENT_ID}] Paused")
+            logger.info("[%s] Paused", self.AGENT_ID)
 
     def resume(self) -> None:
         """Resume a paused agent."""
         if self.state == AgentState.PAUSED:
             self._pause_event.set()
             self.state = AgentState.RUNNING
-            logger.info(f"[{self.AGENT_ID}] Resumed")
+            logger.info("[%s] Resumed", self.AGENT_ID)
 
     # ==========================================================================
     # MAIN LOOP
@@ -361,7 +388,7 @@ class BaseAutoAgent(ABC):
                 self._errors += 1
                 self._last_error = str(e)
                 logger.error(
-                    f"[{self.AGENT_ID}] Error in tick: {e}\n{traceback.format_exc()}"
+                    "[%s] Error in tick: %s\n%s", self.AGENT_ID, e, traceback.format_exc()
                 )
                 # Back off on error
                 self._stop_event.wait(timeout=min(self.TICK_INTERVAL * 2, 300))
@@ -418,7 +445,7 @@ class BaseAutoAgent(ABC):
 
     def on_wake(self, session: MarketSession) -> None:
         """Called when the agent wakes up after sleeping through an inactive session."""
-        logger.info(f"[{self.AGENT_ID}] Waking up for {session.value}")
+        logger.info("[%s] Waking up for %s", self.AGENT_ID, session.value)
 
     def on_message(self, topic: str, message: Any) -> None:
         """Called when a subscribed message bus topic receives a message."""
@@ -447,14 +474,17 @@ class BaseAutoAgent(ABC):
         Returns:
             The LLM response text, or None if unavailable/failed.
         """
-        if not OLLAMA_AVAILABLE:
-            logger.debug(f"[{self.AGENT_ID}] Ollama not available, skipping LLM query")
+        if not self._backend.is_available():
+            logger.debug(
+                f"[{self.AGENT_ID}] Backend '{self._backend.name}' not available, "
+                "skipping LLM query"
+            )
             return None
 
-        model = self._get_model_for_role(role)
+        model = self._backend.model_id_for_role(role.value)
         temp = temperature or self.ollama_config.temperature_default
 
-        messages = []
+        messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
@@ -462,20 +492,14 @@ class BaseAutoAgent(ABC):
         for attempt in range(self.ollama_config.max_retries):
             try:
                 start_ms = time.time() * 1000
-                response = ollama.chat(
-                    model=model,
-                    messages=messages,
-                    options={
-                        "temperature": temp,
-                        "num_predict": max_tokens,
-                    },
-                )
+                content = self._backend.chat(model, messages, temp, max_tokens)
                 elapsed_ms = (time.time() * 1000) - start_ms
+
+                if content is None:
+                    raise RuntimeError("Backend returned None")
 
                 self._llm_calls += 1
                 self._llm_total_latency_ms += elapsed_ms
-
-                content = response.get("message", {}).get("content", "")
                 logger.debug(
                     f"[{self.AGENT_ID}] LLM ({model}) responded in {elapsed_ms:.0f}ms"
                 )
@@ -483,12 +507,12 @@ class BaseAutoAgent(ABC):
 
             except Exception as e:
                 logger.warning(
-                    f"[{self.AGENT_ID}] LLM query attempt {attempt + 1} failed: {e}"
+                    "[%s] LLM query attempt %s failed: %s", self.AGENT_ID, attempt + 1, e
                 )
                 if attempt < self.ollama_config.max_retries - 1:
                     time.sleep(2 ** attempt)  # thread-safe: time.sleep() intentional
 
-        logger.error(f"[{self.AGENT_ID}] LLM query failed after all retries")
+        logger.error("[%s] LLM query failed after all retries", self.AGENT_ID)
         return None
 
     def llm_query_json(
@@ -542,18 +566,8 @@ class BaseAutoAgent(ABC):
             except json.JSONDecodeError:
                 pass
 
-        logger.warning(f"[{self.AGENT_ID}] Failed to parse LLM response as JSON")
+        logger.warning("[%s] Failed to parse LLM response as JSON", self.AGENT_ID)
         return None
-
-    def _get_model_for_role(self, role: LLMRole) -> str:
-        """Map an LLM role to the configured model name."""
-        role_map = {
-            LLMRole.PRIMARY: self.ollama_config.primary_model,
-            LLMRole.FAST: self.ollama_config.fast_model,
-            LLMRole.CODE: self.ollama_config.code_model,
-            LLMRole.FINANCE: self.ollama_config.finance_model,
-        }
-        return role_map.get(role, self.ollama_config.primary_model)
 
     # ==========================================================================
     # MESSAGE BUS
@@ -591,7 +605,7 @@ class BaseAutoAgent(ABC):
                 self.message_bus.publish(msg)
                 return True
             except Exception as e:
-                logger.error(f"[{self.AGENT_ID}] Failed to publish: {e}")
+                logger.error("[%s] Failed to publish: %s", self.AGENT_ID, e)
                 return False
         else:
             # Log output when bus is unavailable (development/testing)
@@ -615,7 +629,7 @@ class BaseAutoAgent(ABC):
                 )
             except Exception as e:
                 logger.warning(
-                    f"[{self.AGENT_ID}] Failed to subscribe to {topic}: {e}"
+                    "[%s] Failed to subscribe to %s: %s", self.AGENT_ID, topic, e
                 )
 
     # ==========================================================================
@@ -671,9 +685,9 @@ class BaseAutoAgent(ABC):
             }
             with open(self._state_file, "w") as f:
                 json.dump(state, f, indent=2, default=str)
-            logger.debug(f"[{self.AGENT_ID}] State saved to {self._state_file}")
+            logger.debug("[%s] State saved to %s", self.AGENT_ID, self._state_file)
         except Exception as e:
-            logger.error(f"[{self.AGENT_ID}] Failed to save state: {e}")
+            logger.error("[%s] Failed to save state: %s", self.AGENT_ID, e)
 
     def _load_state(self) -> None:
         """Restore agent state from disk."""
@@ -696,10 +710,10 @@ class BaseAutoAgent(ABC):
                 self.restore_state(agent_state)
 
             logger.info(
-                f"[{self.AGENT_ID}] State restored from {self._state_file}"
+                "[%s] State restored from %s", self.AGENT_ID, self._state_file
             )
         except Exception as e:
-            logger.warning(f"[{self.AGENT_ID}] Failed to load state: {e}")
+            logger.warning("[%s] Failed to load state: %s", self.AGENT_ID, e)
 
     # ==========================================================================
     # HEALTH
@@ -765,7 +779,8 @@ class BaseAutoAgent(ABC):
             "errors": self._errors,
             "last_error": self._last_error,
             "subscriptions": self._subscriptions,
-            "ollama_available": OLLAMA_AVAILABLE,
+            "backend": self._backend.name,
+            "backend_available": self._backend.is_available(),
         }
 
     # ==========================================================================

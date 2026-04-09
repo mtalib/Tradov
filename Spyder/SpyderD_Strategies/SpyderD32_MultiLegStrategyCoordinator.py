@@ -420,7 +420,7 @@ class MultiLegMarketAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Market environment analysis failed: {e}", exc_info=True)
+            self.logger.error("Market environment analysis failed: %s", e, exc_info=True)
             neutral = MarketEnvironmentAnalysis(
                 timestamp=datetime.now(),
                 underlying_price=market_data['close'].iloc[-1],
@@ -602,7 +602,7 @@ class MultiLegMarketAnalyzer:
                     )
                     return max(0.0, skew)
             except Exception as _skew_exc:
-                self.logger.debug(f"Live skew calculation failed ({_skew_exc}); using estimate.")
+                self.logger.debug("Live skew calculation failed (%s); using estimate.", _skew_exc)
 
         # Fallback: conservative middle estimate
         self.logger.debug("Using estimated volatility skew (live option_chain not provided)")
@@ -810,11 +810,11 @@ class MultiLegStrategyConstructor:
             elif strategy_type == MultiLegStrategyType.JADE_LIZARD:
                 return self._construct_jade_lizard(market_analysis, days_to_expiration)
             else:
-                self.logger.warning(f"Strategy type {strategy_type} not implemented yet")
+                self.logger.warning("Strategy type %s not implemented yet", strategy_type)
                 return None
 
         except Exception as e:
-            self.logger.error(f"Strategy construction failed: {e}", exc_info=True)
+            self.logger.error("Strategy construction failed: %s", e, exc_info=True)
             return None
 
     def _select_optimal_strategy(self, market_analysis: MarketEnvironmentAnalysis) -> MultiLegStrategyType:
@@ -856,7 +856,7 @@ class MultiLegStrategyConstructor:
                     return MultiLegStrategyType.IRON_CONDOR
 
         except Exception as e:
-            self.logger.error(f"Strategy selection failed: {e}", exc_info=True)
+            self.logger.error("Strategy selection failed: %s", e, exc_info=True)
             return MultiLegStrategyType.IRON_CONDOR  # Default fallback
 
     def _construct_iron_condor(self, market_analysis: MarketEnvironmentAnalysis,
@@ -940,7 +940,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Iron Condor construction failed: {e}", exc_info=True)
+            self.logger.error("Iron Condor construction failed: %s", e, exc_info=True)
             raise
 
     def _construct_iron_butterfly(self, market_analysis: MarketEnvironmentAnalysis,
@@ -1012,7 +1012,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Iron Butterfly construction failed: {e}", exc_info=True)
+            self.logger.error("Iron Butterfly construction failed: %s", e, exc_info=True)
             raise
 
     def _construct_jade_lizard(self, market_analysis: MarketEnvironmentAnalysis,
@@ -1087,7 +1087,7 @@ class MultiLegStrategyConstructor:
             )
 
         except Exception as e:
-            self.logger.error(f"Jade Lizard construction failed: {e}", exc_info=True)
+            self.logger.error("Jade Lizard construction failed: %s", e, exc_info=True)
             raise
 
     def _calculate_optimal_wing_width(self, market_analysis: MarketEnvironmentAnalysis) -> float:
@@ -1169,7 +1169,7 @@ class MultiLegStrategyConstructor:
                 leg.implied_vol = implied_vol
 
         except Exception as e:
-            self.logger.error(f"Legs pricing estimation failed: {e}", exc_info=True)
+            self.logger.error("Legs pricing estimation failed: %s", e, exc_info=True)
 
     def _calculate_net_credit(self, legs: list[OptionLeg]) -> float:
         """Calculate net credit/debit for the strategy"""
@@ -1377,14 +1377,14 @@ class MultiLegStrategyCoordinator:
                 self.regime_engine = get_unified_regime_engine()
                 self.logger.info("Connected to unified regime engine")
             except Exception as e:
-                self.logger.warning(f"Could not connect to regime engine: {e}", exc_info=True)
+                self.logger.warning("Could not connect to regime engine: %s", e, exc_info=True)
 
         if RISK_COORDINATOR_AVAILABLE:
             try:
                 self.risk_coordinator = get_unified_risk_coordinator()
                 self.logger.info("Connected to unified risk coordinator")
             except Exception as e:
-                self.logger.warning(f"Could not connect to risk coordinator: {e}", exc_info=True)
+                self.logger.warning("Could not connect to risk coordinator: %s", e, exc_info=True)
 
         # Position management
         self.active_positions: dict[str, MultiLegPosition] = {}
@@ -1434,7 +1434,7 @@ class MultiLegStrategyCoordinator:
         try:
             if model_path:
                 self._rl_morph_model = PPO.load(model_path)
-                self.logger.info(f"RL morph model loaded from {model_path}")
+                self.logger.info("RL morph model loaded from %s", model_path)
             else:
                 default_path = "models/rl/strategy_morph/strategy_morph_PPO_final"
                 if os.path.exists(default_path + ".zip"):
@@ -1444,7 +1444,7 @@ class MultiLegStrategyCoordinator:
                     self._rl_morph_enabled = False
         except Exception as e:
             self._rl_morph_enabled = False
-            self.logger.warning(f"Failed to load RL morph model: {e}", exc_info=True)
+            self.logger.warning("Failed to load RL morph model: %s", e, exc_info=True)
 
     def _get_rl_adjustment_recommendation(
         self,
@@ -1518,12 +1518,12 @@ class MultiLegStrategyCoordinator:
             recommended = action_map.get(action)
             if recommended:
                 self.logger.info(
-                    f"RL recommends {recommended.value} for position {position.position_id}"
+                    "RL recommends %s for position %s", recommended.value, position.position_id
                 )
             return recommended
 
         except Exception as e:
-            self.logger.warning(f"RL adjustment recommendation failed: {e}", exc_info=True)
+            self.logger.warning("RL adjustment recommendation failed: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -1583,7 +1583,7 @@ class MultiLegStrategyCoordinator:
             return None
 
         except Exception as e:
-            self.logger.error(f"Multi-leg opportunity analysis failed: {e}", exc_info=True)
+            self.logger.error("Multi-leg opportunity analysis failed: %s", e, exc_info=True)
             return None
 
     def _are_conditions_favorable(self, market_analysis: MarketEnvironmentAnalysis) -> bool:
@@ -1597,7 +1597,7 @@ class MultiLegStrategyCoordinator:
             # Avoid extreme volatility unless specifically targeting it
             if (market_analysis.volatility_environment == VolatilityEnvironment.EXTREME_VOL and
                 market_analysis.vix_level > 50):
-                self.logger.debug(f"VIX too extreme: {market_analysis.vix_level}")
+                self.logger.debug("VIX too extreme: %s", market_analysis.vix_level)
                 return False
 
             # Need reasonable IV rank for good premium collection
@@ -1703,7 +1703,7 @@ class MultiLegStrategyCoordinator:
                         )
                         return None
                     self.logger.info(
-                        f"Combo order submitted: Tradier ID={broker_order_id}"
+                        "Combo order submitted: Tradier ID=%s", broker_order_id
                     )
                 except Exception as broker_exc:
                     self.logger.error(
@@ -1763,7 +1763,7 @@ class MultiLegStrategyCoordinator:
             return position_id
 
         except Exception as e:
-            self.logger.error(f"Multi-leg strategy execution failed: {e}", exc_info=True)
+            self.logger.error("Multi-leg strategy execution failed: %s", e, exc_info=True)
             return None
 
     def _submit_combo_order(
@@ -1819,7 +1819,7 @@ class MultiLegStrategyCoordinator:
                     )
                     if result.success:
                         return result.tradier_order_id
-                    self.logger.error(f"Iron condor order rejected: {result.message}")
+                    self.logger.error("Iron condor order rejected: %s", result.message)
                     return None
 
             # ----- Jade Lizard and other multi-leg structures ---------------
@@ -1841,16 +1841,16 @@ class MultiLegStrategyCoordinator:
                 )
                 if result.success:
                     return result.tradier_order_id
-                self.logger.error(f"Multileg order rejected: {result.message}")
+                self.logger.error("Multileg order rejected: %s", result.message)
                 return None
 
             self.logger.warning(
-                f"No legs defined for {strategy_type.value} — cannot route combo order"
+                "No legs defined for %s — cannot route combo order", strategy_type.value
             )
             return None
 
         except Exception as exc:
-            self.logger.error(f"_submit_combo_order error: {exc}", exc_info=True)
+            self.logger.error("_submit_combo_order error: %s", exc, exc_info=True)
             return None
 
     def get_coordinator_status(self) -> dict[str, Any]:

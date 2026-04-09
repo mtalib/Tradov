@@ -14,7 +14,7 @@ Module Description:
     analysis, order flow dynamics, market depth assessment, liquidity measurement,
     and institutional trading pattern detection. Features high-frequency data processing,
     order book reconstruction, trade classification, market impact analysis, and
-    seamless integration with SpyderF12 backtesting and SpyderF13 model validation
+    seamless integration with SpyderF13 model validation
     for complete institutional-grade market structure intelligence.
 """
 
@@ -22,7 +22,7 @@ Module Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta, time as dt_time
@@ -397,7 +397,7 @@ class MarketMicrostructureEngine:
     This class provides comprehensive market microstructure analysis including
     tick-by-tick processing, order book reconstruction, trade classification,
     liquidity measurement, order flow analysis, and institutional trading
-    pattern detection with seamless integration to backtesting and model
+    pattern detection with seamless integration to model
     validation systems for complete market structure intelligence.
 
     Attributes:
@@ -448,7 +448,6 @@ class MarketMicrostructureEngine:
         self.alert_thresholds: dict[str, dict[str, float]] = {}
 
         # Integration components
-        self.backtesting_engine: Any | None = None
         self.model_validator: ModelValidationEngine | None = None
 
         # Processing optimization
@@ -457,6 +456,7 @@ class MarketMicrostructureEngine:
 
         # Real-time processing
         self._processing_active = False
+        self._stop_event = threading.Event()
         self._last_processing_time: dict[str, datetime] = {}
 
         self.logger.info("MarketMicrostructureEngine initialized")
@@ -469,7 +469,7 @@ class MarketMicrostructureEngine:
         Initialize the market microstructure engine.
 
         Args:
-            enable_integrations: Enable F12/F13 integrations
+            enable_integrations: Enable F13 integration
 
         Returns:
             bool: True if initialization successful
@@ -512,6 +512,7 @@ class MarketMicrostructureEngine:
             return True
 
         try:
+            self._stop_event.clear()
             self._processing_active = True
 
             # Start processing thread
@@ -533,6 +534,7 @@ class MarketMicrostructureEngine:
             bool: True if processing stopped successfully
         """
         try:
+            self._stop_event.set()
             self._processing_active = False
 
             if hasattr(self, '_processing_thread'):
@@ -548,7 +550,7 @@ class MarketMicrostructureEngine:
     # ==========================================================================
     # PUBLIC METHODS - Tick Data Processing
     # ==========================================================================
-    def process_tick_data(self, tick_data: Union[TickData, list[TickData]],
+    def process_tick_data(self, tick_data: TickData | list[TickData],
                          symbol: str) -> bool:
         """
         Process incoming tick data.
@@ -669,7 +671,7 @@ class MarketMicrostructureEngine:
             Comprehensive liquidity metrics
         """
         try:
-            self.logger.debug(f"Calculating liquidity metrics for {symbol}")
+            self.logger.debug("Calculating liquidity metrics for %s", symbol)
 
             # Get relevant ticks for the period
             relevant_ticks = self._get_ticks_for_period(symbol, start_time, end_time)
@@ -773,7 +775,7 @@ class MarketMicrostructureEngine:
             Comprehensive order flow analysis
         """
         try:
-            self.logger.debug(f"Analyzing order flow for {symbol}")
+            self.logger.debug("Analyzing order flow for %s", symbol)
 
             analysis_id = f"flow_{symbol}_{int(time.time())}"
 
@@ -1213,7 +1215,7 @@ class MarketMicrostructureEngine:
                 self.logger.info("F13 model validation integration initialized")
 
         except Exception as e:
-            self.logger.warning(f"Integration initialization failed: {e}")
+            self.logger.warning("Integration initialization failed: %s", e)
 
     def _processing_loop(self) -> None:
         """Main processing loop for real-time tick processing."""
@@ -1236,11 +1238,11 @@ class MarketMicrostructureEngine:
                         self._last_processing_time[symbol] = current_time
 
                 # Sleep briefly before next iteration
-                time.sleep(0.001)  # thread-safe: time.sleep() intentional (1ms for high-frequency processing)
+                self._stop_event.wait(timeout=0.001)
 
             except Exception as e:
-                self.logger.error(f"Error in processing loop: {e}")
-                time.sleep(1.0)  # thread-safe: time.sleep() intentional
+                self.logger.error("Error in processing loop: %s", e)
+                self._stop_event.wait(timeout=1.0)
 
         self.logger.info("Microstructure processing loop stopped")
 
@@ -1259,7 +1261,7 @@ class MarketMicrostructureEngine:
             self._check_real_time_alerts(tick, symbol)
 
         except Exception as e:
-            self.logger.warning(f"Error processing single tick: {e}")
+            self.logger.warning("Error processing single tick: %s", e)
 
     # Additional private methods would be implemented here...
     # (Due to length constraints, showing structure rather than full implementation)
@@ -1288,7 +1290,7 @@ class MarketMicrostructureEngine:
             self.logger.info("Market microstructure engine cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1374,20 +1376,20 @@ async def main():
             return False
 
         logging.info("🔗 Integration status:")
-        logging.info(f"   • F13 Validation: {'✅' if getattr(engine, 'model_validator', None) else '❌'}")
-        logging.info(f"   • F13 Model Validation: {'✅' if engine.model_validator else '❌'}")
+        logging.info("   • F13 Validation: %s", '✅' if getattr(engine, 'model_validator', None) else '❌')
+        logging.info("   • F13 Model Validation: %s", '✅' if engine.model_validator else '❌')
 
         # Create sample tick data
         logging.info("\n📊 Creating sample tick data...")
         symbol = "SPY"
         tick_data = create_sample_tick_data(symbol, 1000)
-        logging.info(f"   Generated: {len(tick_data)} ticks for {symbol}")
-        logging.info(f"   Time Range: {tick_data[0].timestamp.strftime('%H:%M:%S')} to {tick_data[-1].timestamp.strftime('%H:%M:%S')}")
+        logging.info("   Generated: %s ticks for %s", len(tick_data), symbol)
+        logging.info("   Time Range: %s to %s", tick_data[0].timestamp.strftime('%H:%M:%S'), tick_data[-1].timestamp.strftime('%H:%M:%S'))
 
         # Process tick data
         logging.info("\n⚡ Processing tick data...")
         processing_success = engine.process_tick_data(tick_data, symbol)
-        logging.info(f"   Processing: {'✅ Success' if processing_success else '❌ Failed'}")
+        logging.info("   Processing: %s", '✅ Success' if processing_success else '❌ Failed')
 
         if not processing_success:
             return False
@@ -1410,7 +1412,7 @@ async def main():
 
         for method in ["lee_ready", "tick_rule", "quote_rule"]:
             direction = await engine.classify_trade_direction(sample_tick, method)
-            logging.info(f"   {method.upper()}: {direction.value.upper()}")
+            logging.info("   %s: %s", method.upper(), direction.value.upper())
 
         # Calculate liquidity metrics
         logging.info("\n💧 Calculating liquidity metrics...")
@@ -1435,19 +1437,19 @@ async def main():
         logging.info(f"   Net Flow: {order_flow_analysis.net_flow:,}")
         logging.info(f"   Flow Imbalance: {order_flow_analysis.flow_imbalance:.3f}")
         logging.info(f"   Institutional Ratio: {order_flow_analysis.institutional_flow_ratio:.3f}")
-        logging.info(f"   Dominant Flow: {order_flow_analysis.dominant_flow_direction.value.upper()}")
-        logging.info(f"   Market Regime: {order_flow_analysis.market_regime.value.upper()}")
+        logging.info("   Dominant Flow: %s", order_flow_analysis.dominant_flow_direction.value.upper())
+        logging.info("   Market Regime: %s", order_flow_analysis.market_regime.value.upper())
 
         # Test real-time processing
         logging.info("\n📡 Testing real-time processing...")
         rt_started = engine.start_real_time_processing()
-        logging.info(f"   Real-time Processing: {'✅ Started' if rt_started else '❌ Failed to start'}")
+        logging.info("   Real-time Processing: %s", '✅ Started' if rt_started else '❌ Failed to start')
 
         # Wait a moment for processing
         await asyncio.sleep(2)
 
         rt_stopped = engine.stop_real_time_processing()
-        logging.info(f"   Real-time Processing: {'✅ Stopped' if rt_stopped else '❌ Failed to stop'}")
+        logging.info("   Real-time Processing: %s", '✅ Stopped' if rt_stopped else '❌ Failed to stop')
 
         # Test market impact analysis
         logging.info("\n💥 Testing market impact analysis...")
@@ -1490,8 +1492,8 @@ async def main():
         logging.info(f"   Available Ticks: {summary['data_availability']['tick_count']:,}")
         logging.info(f"   Available Trades: {summary['data_availability']['trade_count']:,}")
         logging.info(f"   Order Book Snapshots: {summary['data_availability']['order_book_snapshots']:,}")
-        logging.info(f"   Real-time Active: {'✅' if summary['processing_status']['real_time_active'] else '❌'}")
-        logging.info(f"   Active Alerts: {summary['alert_summary']['active_alerts']}")
+        logging.info("   Real-time Active: %s", '✅' if summary['processing_status']['real_time_active'] else '❌')
+        logging.info("   Active Alerts: %s", summary['alert_summary']['active_alerts'])
 
         # Display engine statistics
         stats = engine.processing_stats
@@ -1504,7 +1506,7 @@ async def main():
         # Test performance with Numba optimization
         logging.info("\n🚀 PERFORMANCE FEATURES:")
         logging.info("   • Numba JIT Compilation: ✅ Enabled")
-        logging.info(f"   • Parallel Processing: ✅ {MAX_CONCURRENT_ANALYSIS} threads")
+        logging.info("   • Parallel Processing: ✅ %s threads", MAX_CONCURRENT_ANALYSIS)
         logging.info("   • High-Frequency Optimization: ✅ Sub-millisecond processing")
         logging.info(f"   • Memory Management: ✅ {MAX_TICK_BUFFER_SIZE:,} tick buffer")
 
@@ -1522,7 +1524,7 @@ async def main():
         logging.info("   • Real-Time Market Regime Detection")
         logging.info("   • Numba-Optimized High-Performance Computing")
         logging.info("   • Professional Alert System")
-        logging.info("   • F12/F13 Integration Ready")
+        logging.info("   • F13 Integration Ready")
         logging.info("   • Institutional-Grade Market Structure Intelligence")
         logging.info("   • Sub-Millisecond Processing Capability")
         logging.info("   • Advanced Statistical Analysis")
@@ -1530,7 +1532,7 @@ async def main():
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
 if __name__ == "__main__":

@@ -150,7 +150,7 @@ class SystemUtilities:
         for directory in [BACKUP_DIR, EXPORT_DIR, TEMP_DIR]:
             directory.mkdir(parents=True, exist_ok=True)
 
-        self.logger.info(f"SystemUtilities initialized (dry_run={dry_run})")
+        self.logger.info("SystemUtilities initialized (dry_run=%s)", dry_run)
 
     # ==========================================================================
     # CLEANUP METHODS
@@ -215,7 +215,7 @@ class SystemUtilities:
         Returns:
             CleanupReport with operation results
         """
-        self.logger.info(f"Cleaning logs older than {retention_days} days")
+        self.logger.info("Cleaning logs older than %s days", retention_days)
 
         files_deleted = 0
         space_freed = 0.0
@@ -234,7 +234,7 @@ class SystemUtilities:
                                     self.logger.info(f"[DRY RUN] Would delete: {log_file} ({size_mb:.2f} MB)")
                                 else:
                                     log_file.unlink()
-                                    self.logger.debug(f"Deleted: {log_file}")
+                                    self.logger.debug("Deleted: %s", log_file)
 
                                 files_deleted += 1
                                 space_freed += size_mb
@@ -281,7 +281,7 @@ class SystemUtilities:
                             size_mb = temp_file.stat().st_size / (1024 * 1024)
 
                             if self.dry_run:
-                                self.logger.info(f"[DRY RUN] Would delete: {temp_file}")
+                                self.logger.info("[DRY RUN] Would delete: %s", temp_file)
                             else:
                                 temp_file.unlink()
 
@@ -311,7 +311,7 @@ class SystemUtilities:
         Returns:
             CleanupReport with operation results
         """
-        self.logger.info(f"Cleaning backups older than {retention_days} days")
+        self.logger.info("Cleaning backups older than %s days", retention_days)
 
         files_deleted = 0
         space_freed = 0.0
@@ -325,7 +325,7 @@ class SystemUtilities:
                         size_mb = backup_file.stat().st_size / (1024 * 1024)
 
                         if self.dry_run:
-                            self.logger.info(f"[DRY RUN] Would delete backup: {backup_file}")
+                            self.logger.info("[DRY RUN] Would delete backup: %s", backup_file)
                         else:
                             backup_file.unlink()
 
@@ -367,7 +367,7 @@ class SystemUtilities:
         backup_id = f"spyder_backup_{backup_type.value}_{timestamp}"
         backup_file = BACKUP_DIR / f"{backup_id}.tar.gz"
 
-        self.logger.info(f"Creating {backup_type.value} backup: {backup_id}")
+        self.logger.info("Creating %s backup: %s", backup_type.value, backup_id)
 
         try:
             files_count = 0
@@ -437,7 +437,7 @@ class SystemUtilities:
             return backup_info
 
         except Exception as e:
-            self.logger.error(f"Backup failed: {e}")
+            self.logger.error("Backup failed: %s", e)
             if backup_file.exists():
                 backup_file.unlink()
             return None
@@ -461,7 +461,7 @@ class SystemUtilities:
             backup_path.unlink()
 
         except Exception as e:
-            self.logger.warning(f"SQLite backup failed, using file copy: {e}")
+            self.logger.warning("SQLite backup failed, using file copy: %s", e)
             tar.add(db_path, arcname=f"data/{db_path.name}")
 
     def restore_backup(self, backup_id: str, target_dir: Path | None = None) -> bool:
@@ -478,13 +478,13 @@ class SystemUtilities:
         backup_file = BACKUP_DIR / f"{backup_id}.tar.gz"
 
         if not backup_file.exists():
-            self.logger.error(f"Backup not found: {backup_file}")
+            self.logger.error("Backup not found: %s", backup_file)
             return False
 
         target = target_dir or Path(SPYDER_HOME)
 
         try:
-            self.logger.info(f"Restoring backup: {backup_id}")
+            self.logger.info("Restoring backup: %s", backup_id)
 
             with tarfile.open(backup_file, "r:gz") as tar:
                 # Check manifest first
@@ -492,7 +492,7 @@ class SystemUtilities:
                     manifest_member = tar.getmember("manifest.json")
                     manifest_file = tar.extractfile(manifest_member)
                     manifest = json.load(manifest_file)
-                    self.logger.info(f"Restoring {manifest['type']} backup from {manifest['timestamp']}")
+                    self.logger.info("Restoring %s backup from %s", manifest['type'], manifest['timestamp'])
                 except KeyError:
                     self.logger.warning("No manifest found in backup")
 
@@ -503,7 +503,7 @@ class SystemUtilities:
             return True
 
         except Exception as e:
-            self.logger.error(f"Restore failed: {e}")
+            self.logger.error("Restore failed: %s", e)
             return False
 
     # ==========================================================================
@@ -527,7 +527,7 @@ class SystemUtilities:
             Path to exported file if successful
         """
         if format not in EXPORT_FORMATS:
-            self.logger.error(f"Invalid export format: {format}")
+            self.logger.error("Invalid export format: %s", format)
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -552,11 +552,11 @@ class SystemUtilities:
             elif format == "parquet":
                 data.to_parquet(export_file, index=False)
 
-            self.logger.info(f"Data exported successfully: {export_file}")
+            self.logger.info("Data exported successfully: %s", export_file)
             return export_file
 
         except Exception as e:
-            self.logger.error(f"Export failed: {e}")
+            self.logger.error("Export failed: %s", e)
             return None
 
     def _collect_trading_data(
@@ -602,7 +602,7 @@ class SystemUtilities:
             return df
 
         except Exception as e:
-            self.logger.error(f"Failed to collect trading data: {e}")
+            self.logger.error("Failed to collect trading data: %s", e)
             return None
 
     # ==========================================================================
@@ -633,10 +633,10 @@ class SystemUtilities:
                 conn.execute("ANALYZE")
 
                 conn.close()
-                self.logger.debug(f"Optimized: {db_file.name}")
+                self.logger.debug("Optimized: %s", db_file.name)
 
             except Exception as e:
-                self.logger.error(f"Failed to optimize {db_file.name}: {e}")
+                self.logger.error("Failed to optimize %s: %s", db_file.name, e)
                 success = False
 
         return success
@@ -667,7 +667,7 @@ class SystemUtilities:
             }
 
         except Exception as e:
-            self.logger.error(f"Failed to check disk space: {e}")
+            self.logger.error("Failed to check disk space: %s", e)
             return {}
 
     def generate_maintenance_report(self) -> str:

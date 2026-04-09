@@ -27,7 +27,9 @@ import time
 import queue
 import re
 from datetime import datetime, timedelta
-from typing import Any, Callable, Pattern
+from typing import Any
+from collections.abc import Callable
+from re import Pattern
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -368,7 +370,7 @@ class EventRouter:
             for rule in default_rules:
                 self.add_routing_rule(rule)
 
-            self.logger.info(f"📝 Loaded {len(default_rules)} default routing rules")
+            self.logger.info("📝 Loaded %s default routing rules", len(default_rules))
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -401,7 +403,7 @@ class EventRouter:
             # Store rule
             self.routing_rules[rule.rule_id] = rule
 
-            self.logger.info(f"➕ Added routing rule: {rule.name}")
+            self.logger.info("➕ Added routing rule: %s", rule.name)
             return True
 
         except Exception as e:
@@ -420,7 +422,7 @@ class EventRouter:
                 if rule_id in self.compiled_patterns:
                     del self.compiled_patterns[rule_id]
 
-                self.logger.info(f"➖ Removed routing rule: {rule_id}")
+                self.logger.info("➖ Removed routing rule: %s", rule_id)
                 return True
 
             return False
@@ -442,12 +444,12 @@ class EventRouter:
 
             # Check for duplicate rule ID
             if rule.rule_id in self.routing_rules:
-                self.logger.warning(f"Rule ID already exists: {rule.rule_id}")
+                self.logger.warning("Rule ID already exists: %s", rule.rule_id)
                 return False
 
             # Validate pattern
             if not self._validate_pattern(rule.pattern):
-                self.logger.warning(f"Invalid pattern: {rule.pattern}")
+                self.logger.warning("Invalid pattern: %s", rule.pattern)
                 return False
 
             # Validate target modules
@@ -489,7 +491,7 @@ class EventRouter:
                 return re.compile(pattern, re.IGNORECASE)
 
         except Exception as e:
-            self.logger.warning(f"Could not compile pattern '{pattern}': {e}")
+            self.logger.warning("Could not compile pattern '%s': %s", pattern, e)
             return None
 
     # ==========================================================================
@@ -522,7 +524,7 @@ class EventRouter:
 
             self.handlers[handler_id] = handler_info
 
-            self.logger.info(f"📋 Registered handler {handler_id} for {module_id}")
+            self.logger.info("📋 Registered handler %s for %s", handler_id, module_id)
             return handler_id
 
         except Exception as e:
@@ -537,7 +539,7 @@ class EventRouter:
         try:
             if handler_id in self.handlers:
                 del self.handlers[handler_id]
-                self.logger.info(f"📤 Unregistered handler: {handler_id}")
+                self.logger.info("📤 Unregistered handler: %s", handler_id)
                 return True
 
             return False
@@ -770,7 +772,7 @@ class EventRouter:
                 time.sleep(0.01)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in routing loop: {e}")
+                self.logger.error("Error in routing loop: %s", e)
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
     def _process_priority_events(self) -> None:
@@ -883,7 +885,7 @@ class EventRouter:
                 try:
                     future.result(timeout=5.0)  # 5 second timeout
                 except Exception as e:
-                    self.logger.warning(f"Batch processing failed: {e}")
+                    self.logger.warning("Batch processing failed: %s", e)
 
             self.metrics.events_routed += len(events_batch)
 
@@ -1013,7 +1015,7 @@ class EventRouter:
                         handler.state = HandlerState.CIRCUIT_OPEN
                         handler.circuit_breaker_count += 1
                         self.metrics.circuit_breaker_trips += 1
-                        self.logger.warning(f"🔌 Circuit breaker opened for handler {handler.handler_id}")
+                        self.logger.warning("🔌 Circuit breaker opened for handler %s", handler.handler_id)
 
                 raise e
 
@@ -1103,7 +1105,7 @@ class EventRouter:
                 time.sleep(CORRELATION_ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in correlation analysis: {e}")
+                self.logger.error("Error in correlation analysis: %s", e)
                 time.sleep(CORRELATION_ANALYSIS_INTERVAL * 2)  # thread-safe: time.sleep() intentional
 
     def _analyze_correlations(self) -> None:
@@ -1143,239 +1145,6 @@ class EventRouter:
             return recent_events
 
         except Exception as e:
-            self.logger.error(f"Error getting recent events: {e}")
+            self.logger.error("Error getting recent events: %s", e)
             return pd.DataFrame()
-# -*- coding: utf-8 -*-
-"""
-SPYDER - Automated SPY Options Trading System
 
-Module: SpyderI02_EventRouter.py
-Group: I (Integration)
-Purpose: Event-driven integration routing with intelligent filtering and correlation
-
-Description:
-    The Event Router manages intelligent routing of events between SPYDER modules
-    with advanced filtering, correlation, and optimization. Features include
-    pattern-based routing, event correlation analysis, performance optimization,
-    circuit breaking for overloaded modules, and real-time event analytics.
-    Supports both synchronous and asynchronous event processing with guaranteed
-    delivery and comprehensive monitoring.
-
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 16:30:00
-"""
-
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-from datetime import datetime
-from typing import Any, Callable, Pattern
-from dataclasses import dataclass, field
-from enum import Enum
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from Spyder.SpyderA_Core.SpyderA05_EventManager import Event
-
-# Integration Hub integration
-try:
-    from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
-    HUB_AVAILABLE = True
-except ImportError:
-    HUB_AVAILABLE = False
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Routing configuration
-DEFAULT_BATCH_SIZE = 100
-DEFAULT_BATCH_TIMEOUT = 1.0  # seconds
-MAX_RETRY_ATTEMPTS = 3
-RETRY_BACKOFF_FACTOR = 1.5
-
-# Performance thresholds
-CIRCUIT_BREAKER_THRESHOLD = 10  # errors per minute
-SLOW_HANDLER_THRESHOLD = 1000   # milliseconds
-HIGH_LATENCY_THRESHOLD = 500    # milliseconds
-
-# Queue sizes
-EVENT_QUEUE_SIZE = 10000
-PRIORITY_QUEUE_SIZE = 1000
-CORRELATION_BUFFER_SIZE = 5000
-
-# Monitoring intervals
-PERFORMANCE_CHECK_INTERVAL = 30  # seconds
-CORRELATION_ANALYSIS_INTERVAL = 60  # seconds
-CLEANUP_INTERVAL = 300  # 5 minutes
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
-class RoutingStrategy(Enum):
-    """Event routing strategies."""
-    BROADCAST = "broadcast"        # Send to all matching handlers
-    ROUND_ROBIN = "round_robin"    # Distribute evenly
-    LOAD_BALANCED = "load_balanced" # Send to least loaded handler
-    PRIORITY = "priority"          # Route by handler priority
-    FAILOVER = "failover"         # Try primary, fallback on failure
-
-class EventPriority(Enum):
-    """Event priority levels."""
-    LOW = 1
-    NORMAL = 2
-    HIGH = 3
-    CRITICAL = 4
-    URGENT = 5
-
-class HandlerState(Enum):
-    """Event handler states."""
-    HEALTHY = "healthy"
-    SLOW = "slow"
-    OVERLOADED = "overloaded"
-    CIRCUIT_OPEN = "circuit_open"
-    DISABLED = "disabled"
-
-class CorrelationType(Enum):
-    """Types of event correlations."""
-    CAUSAL = "causal"           # A causes B
-    TEMPORAL = "temporal"       # A and B happen together
-    SEQUENTIAL = "sequential"   # A then B in sequence
-    INVERSE = "inverse"         # A and not B
-    PATTERN = "pattern"         # Complex patterns
-
-# ==============================================================================
-# DATA STRUCTURES
-# ==============================================================================
-@dataclass
-class RoutingRule:
-    """Event routing rule definition."""
-    rule_id: str
-    name: str
-    pattern: str                    # Event pattern to match
-    target_modules: list[str]       # Target module IDs
-    strategy: RoutingStrategy = RoutingStrategy.BROADCAST
-    priority: int = 0               # Higher number = higher priority
-    conditions: dict[str, Any] = field(default_factory=dict)
-    transformations: list[str] = field(default_factory=list)
-    enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.now)
-    usage_count: int = 0
-    success_count: int = 0
-    error_count: int = 0
-
-@dataclass
-class HandlerInfo:
-    """Information about an event handler."""
-    handler_id: str
-    module_id: str
-    event_types: set[str]
-    handler_function: Callable
-    priority: int = 0
-    state: HandlerState = HandlerState.HEALTHY
-    last_execution: datetime | None = None
-    total_executions: int = 0
-    success_count: int = 0
-    error_count: int = 0
-    average_latency: float = 0.0
-    max_latency: float = 0.0
-    circuit_breaker_count: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class EventCorrelation:  # noqa: F811
-    """Event correlation information."""
-    correlation_id: str
-    source_event: str
-    target_event: str
-    correlation_type: CorrelationType
-    strength: float                 # 0.0 to 1.0
-    confidence: float              # Statistical confidence
-    time_window: float             # Time window in seconds
-    occurrences: int = 0
-    last_seen: datetime | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class RoutingMetrics:  # noqa: F811
-    """Routing performance metrics."""
-    events_processed: int = 0
-    events_routed: int = 0
-    events_dropped: int = 0
-    events_failed: int = 0
-    average_routing_time: float = 0.0
-    handler_utilization: dict[str, float] = field(default_factory=dict)
-    correlation_hits: int = 0
-    circuit_breaker_trips: int = 0
-
-@dataclass
-class PrioritizedEvent:
-    """Event with priority and routing information."""
-    event: Event
-    priority: EventPriority
-    routing_rules: list[str]
-    correlation_id: str | None = None
-    retry_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
-
-# ==============================================================================
-# EVENT ROUTER CLASS
-# ==============================================================================
-class EventRouter:  # noqa: F811
-    """
-    Intelligent event routing system for SPYDER integration.
-
-    The Event Router provides sophisticated event routing capabilities:
-    - Pattern-based routing with regex and glob support
-    - Multiple routing strategies (broadcast, round-robin, load-balanced)
-    - Event correlation analysis and pattern detection
-    - Circuit breaker protection for handlers
-    - Performance monitoring and optimization
-    - Guaranteed delivery with retry mechanisms
-    - Real-time analytics and reporting
-
-    Features:
-    - Dynamic routing rule management
-    - Handler health monitoring and load balancing
-    - Event correlation analysis for pattern detection
-    - Performance optimization with batching and caching
-    - Circuit breaker protection against overloaded handlers
-    - Comprehensive metrics and monitoring
-    - Integration with SPYDER ecosystem components
-
-    Attributes:
-        routing_rules: Active routing rules
-        handlers: Registered event handlers
-        correlations: Detected event correlations
-        metrics: Performance and usage metrics
-    """
-
-    def __init__(self, config: dict[str, Any] = None):
-        """Initialize the Event Router."""
-        # Core components
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.event_manager = get_event_manager()
-
-        # Configuration
-        self.config = config or {}
-        self.enable_correlation = self.config.get('enable_correlation', True)
-        self.enable_circuit_breaker = self.config.get('enable_circuit_breaker', True)
-        self.enable_batching = self.config.get('enable_batching', True)
-        self.batch_size = self.config.get('batch_size', DEFAULT_BATCH_SIZE)
-        self.batch_timeout = self.config.get('batch_timeout', DEFAULT_BATCH_TIMEOUT)
-
-        # Routing system
-        self.routing_rules: dict[str, RoutingRule] = {}
-        self.handlers: dict[str, HandlerInfo] = {}
-        self.compiled_patterns: dict[str, Pattern] = {}
-
-        # Event queues
-        self.event_queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=EVENT_QUEUE_SIZE)
-        self.priority_queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=PRIORITY_QUEUE_SIZE)

@@ -129,7 +129,7 @@ class ApplicationManager(QObject):
         self.state = AppState.NOT_INITIALIZED
         self._widgets = []
 
-        self.logger.info(f"ApplicationManager initialized for {self.config.display_mode.value} mode")
+        self.logger.info("ApplicationManager initialized for %s mode", self.config.display_mode.value)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -142,7 +142,7 @@ class ApplicationManager(QObject):
             bool: True if initialization successful
         """
         if self.state != AppState.NOT_INITIALIZED:
-            self.logger.warning(f"Application already in state: {self.state}")
+            self.logger.warning("Application already in state: %s", self.state)
             return self.app is not None
 
         self.state = AppState.INITIALIZING
@@ -178,7 +178,7 @@ class ApplicationManager(QObject):
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize Qt application: {e}")
+            self.logger.error("Failed to initialize Qt application: %s", e)
             self.error_handler.handle_error(e, {"method": "initialize_application"})
             self.state = AppState.NOT_INITIALIZED
             return False
@@ -204,11 +204,11 @@ class ApplicationManager(QObject):
             widget = widget_class(*args, **kwargs)
             self._widgets.append(widget)
 
-            self.logger.debug(f"Created widget: {widget_class.__name__}")
+            self.logger.debug("Created widget: %s", widget_class.__name__)
             return widget
 
         except Exception as e:
-            self.logger.error(f"Failed to create widget {widget_class.__name__}: {e}")
+            self.logger.error("Failed to create widget %s: %s", widget_class.__name__, e)
             self.error_handler.handle_error(e, {"widget_class": widget_class.__name__})
             return None
 
@@ -241,11 +241,11 @@ class ApplicationManager(QObject):
         try:
             self.logger.info("Starting Qt application event loop")
             exit_code = self.app.exec()
-            self.logger.info(f"Qt application exited with code: {exit_code}")
+            self.logger.info("Qt application exited with code: %s", exit_code)
             return exit_code
 
         except Exception as e:
-            self.logger.error(f"Application event loop error: {e}")
+            self.logger.error("Application event loop error: %s", e)
             self.error_handler.handle_error(e, {"method": "run_application"})
             return 1
         finally:
@@ -266,7 +266,7 @@ class ApplicationManager(QObject):
                         widget.close()
                 except Exception as e:
                     # Log widget closure failure but continue cleanup
-                    self.logger.warning(f"Failed to close widget {widget.__class__.__name__}: {e}")
+                    self.logger.warning("Failed to close widget %s: %s", widget.__class__.__name__, e)
 
             self._widgets.clear()
 
@@ -282,7 +282,7 @@ class ApplicationManager(QObject):
             self.logger.info("Application shutdown completed")
 
         except Exception as e:
-            self.logger.error(f"Error during application shutdown: {e}")
+            self.logger.error("Error during application shutdown: %s", e)
 
     def is_headless(self) -> bool:
         """
@@ -351,7 +351,7 @@ class ApplicationManager(QObject):
                     self.app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
                 except (ImportError, AttributeError) as e:
                     # High DPI settings not available or not supported
-                    self.logger.debug(f"High DPI scaling not available: {e}")
+                    self.logger.debug("High DPI scaling not available: %s", e)
 
 # ==============================================================================
 # SINGLETON PATTERN

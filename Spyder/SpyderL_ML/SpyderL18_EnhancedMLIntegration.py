@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
@@ -50,10 +50,7 @@ from torch.utils.data import DataLoader, TensorDataset
 # LOGGING CONFIGURATION
 # ==================================================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+
 logger = logging.getLogger(__name__)
 
 # ==================================================================================
@@ -94,7 +91,7 @@ class MLPrediction:
     """ML model prediction"""
     model_type: ModelType
     timestamp: datetime
-    prediction: Union[float, str, dict]
+    prediction: float | str | dict
     confidence: float
     feature_importance: dict[str, float]
     horizon: PredictionHorizon
@@ -241,7 +238,7 @@ class EnhancedMLEngine:
         # Initialize models
         self._initialize_models()
 
-        logger.info(f"Enhanced ML Engine initialized on {self.device}")
+        logger.info("Enhanced ML Engine initialized on %s", self.device)
 
     def _initialize_models(self):
         """Initialize all ML models"""
@@ -621,7 +618,7 @@ class EnhancedMLEngine:
         elif model_type == ModelType.RISK_ESTIMATOR:
             self._update_risk_model(X, y)
 
-        logger.info(f"Online update completed for {model_type.value}")
+        logger.info("Online update completed for %s", model_type.value)
 
     def _update_price_model(self, X: np.ndarray, y: np.ndarray):
         """Update price prediction model"""
@@ -1148,7 +1145,7 @@ class EnhancedMLEngine:
         # Save scalers
         joblib.dump(self.scalers, f"{path}/scalers.pkl")
 
-        logger.info(f"Models saved to {path}")
+        logger.info("Models saved to %s", path)
 
     def load_models(self, path: str):
         """Load models from disk"""
@@ -1166,7 +1163,7 @@ class EnhancedMLEngine:
         # Load scalers
         self.scalers = joblib.load(f"{path}/scalers.pkl")
 
-        logger.info(f"Models loaded from {path}")
+        logger.info("Models loaded from %s", path)
 
 # ==================================================================================
 # FACTORY FUNCTION

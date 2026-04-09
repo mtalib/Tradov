@@ -33,7 +33,7 @@ import warnings
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-import pickle
+import joblib
 
 warnings.filterwarnings("ignore")
 
@@ -581,7 +581,7 @@ class VolatilitySurfaceAI:
             return adjustment
 
         except Exception as e:
-            self.logger.error(f"ML prediction error: {e}")
+            self.logger.error("ML prediction error: %s", e)
             return np.zeros((SURFACE_GRID_SIZE, SURFACE_GRID_SIZE))
 
     def _prepare_ml_features(
@@ -1063,7 +1063,7 @@ class VolatilitySurfaceAI:
             return True
 
         except Exception as e:
-            self.logger.error(f"Real-time update error: {e}")
+            self.logger.error("Real-time update error: %s", e)
             return False
 
     def _local_smoothing(self, surface: np.ndarray, i: int, j: int, radius: int = 2):
@@ -1130,14 +1130,12 @@ class VolatilitySurfaceAI:
     def save_surface(self, filename: str):
         """Save current surface to file"""
         if self.current_surface:
-            with open(filename, "wb") as f:
-                pickle.dump(self.current_surface, f)
-            self.logger.info(f"Saved surface to {filename}")
+            joblib.dump(self.current_surface, filename)
+            self.logger.info("Saved surface to %s", filename)
 
     def load_surface(self, filename: str) -> VolatilitySurface:
         """Load surface from file"""
-        with open(filename, "rb") as f:
-            surface = pickle.load(f)
+        surface = joblib.load(filename)
         self.current_surface = surface
         return surface
 
@@ -1225,8 +1223,8 @@ async def main():
 
         if surface:
             logging.info("Surface built successfully!")
-            logging.info(f"Strikes: {len(surface.strikes)}")
-            logging.info(f"Expiries: {len(surface.expiries)}")
+            logging.info("Strikes: %s", len(surface.strikes))
+            logging.info("Expiries: %s", len(surface.expiries))
             logging.info(f"ATM Vol: {surface.implied_vols[25, 5]:.1%}")
 
     if args.plot and surface_ai.current_surface:
@@ -1256,9 +1254,9 @@ async def main():
         logging.info(f"Smile Asymmetry: {metrics.smile_asymmetry:.3f}")
 
         if metrics.arbitrage_violations:
-            logging.info(f"\nArbitrage Violations: {len(metrics.arbitrage_violations)}")
+            logging.info("\nArbitrage Violations: %s", len(metrics.arbitrage_violations))
             for v in metrics.arbitrage_violations[:3]:
-                logging.info(f"  {v['type']}: {v}")
+                logging.info("  %s: %s", v['type'], v)
 
     if args.greeks and surface_ai.current_surface:
         logging.info("\n=== Calculating Greeks Surfaces ===")

@@ -69,7 +69,7 @@ except ImportError:
 
     class SpyderErrorHandler:
         def handle_error(self, error, context):
-            logging.info(f"Error in {context}: {error}")
+            logging.info("Error in %s: %s", context, error)
 
 
 # ==============================================================================
@@ -849,7 +849,7 @@ class OptionsPricer:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error pricing option {contract.symbol}: {e}")
+            self.logger.error("Error pricing option %s: %s", contract.symbol, e)
             self.error_handler.handle_error(e, {"contract": contract.symbol})
 
             # Return zero price on error

@@ -807,7 +807,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Opened {spread.spread_type.name} spread: {spread.spread_id}")
+            self.logger.info("Opened %s spread: %s", spread.spread_type.name, spread.spread_id)
             return spread
 
         except Exception as e:

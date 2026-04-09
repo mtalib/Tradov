@@ -102,7 +102,7 @@ try:
     get_logger_func = get_logger
     has_logger = True
 except ImportError as e:
-    logging.getLogger("SpyderA01_Main").warning(f"Logger not available: {e}")
+    logging.getLogger("SpyderA01_Main").warning("Logger not available: %s", e)
 
     def setup_logging(**_kwargs: Any) -> None:
         pass
@@ -132,46 +132,9 @@ has_broker_modules = False
 get_spyder_client = None
 get_connection_manager = None
 
-# Real Trading Dashboard (SpyderG05)
-has_trading_dashboard = False
-SpyderTradingDashboard: type | None = None
-
-try:
-    from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
-
-    has_trading_dashboard = True
-    logging.getLogger("SpyderA01_Main").info("Real Trading Dashboard (G05) loaded successfully.")
-except ImportError as e:
-    logging.getLogger("SpyderA01_Main").warning(f"Trading Dashboard not available: {e}")
-
-# GUI log handler (optional — dashboard works without it)
-setup_gui_logging: Any = None
-try:
-    from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
-except ImportError as e:
-    logging.getLogger("SpyderA01_Main").warning(f"GUI log handler not available: {e}")
-
-# Working Trading Dashboard (fallback)
-has_working_dashboard = False
-WorkingSpyderDashboard: type | None = None
-
-try:
-    # Try to import our working dashboard
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "launch_spyder_working_dashboard",
-        project_root / "launch_spyder_working_dashboard.py"
-    )
-    if spec and spec.loader:
-        working_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(working_module)
-        WorkingSpyderDashboard = working_module.WorkingSpyderDashboard
-        has_working_dashboard = True
-        logging.getLogger("SpyderA01_Main").info("Working Trading Dashboard loaded successfully.")
-except ImportError as e:
-    logging.getLogger("SpyderA01_Main").warning(f"Working Trading Dashboard not available: {e}")
-except Exception as e:
-    logging.getLogger("SpyderA01_Main").warning(f"Error loading Working Trading Dashboard: {e}")
+# NOTE: GUI imports (SpyderG05_TradingDashboard, etc.) are intentionally deferred.
+# They are loaded lazily inside start_gui() to avoid importing matplotlib/plotly/PySide6
+# at module level, which would add 2+ seconds to any code that imports A01_Main.
 
 # ==============================================================================
 # CONFIGURATION
@@ -257,7 +220,7 @@ class SpyderMainWindow(_BaseWidget):  # type: ignore[misc]
             return
         title = QLabel("SPYDER - Autonomous Options Trading System")
         title.setStyleSheet(
-            "font-size: 24px; font-weight: bold; color: #2E8B57; margin: 20px;"
+            "font-size: 24px; font-weight: normal; color: #2E8B57; margin: 20px;"
         )
         layout.addWidget(title)
 
@@ -330,7 +293,7 @@ class SpyderMainWindow(_BaseWidget):  # type: ignore[misc]
                         account_info = self.spyder_app.client.get_account_info()
                     except Exception as e:
                         self.spyder_app.logger.warning(
-                            f"Failed to get account info: {e}"
+                            "Failed to get account info: %s", e
                         )
                         account_info = {"accounts": [], "connection_status": "Error"}
 
@@ -364,9 +327,9 @@ GUI Status: VISIBLE (proving connection is stable!)
         except Exception as e:
             # Log the error but don't crash the GUI
             if hasattr(self.spyder_app, "logger"):
-                self.spyder_app.logger.error(f"Status update error: {e}", exc_info=True)
+                self.spyder_app.logger.error("Status update error: %s", e, exc_info=True)
             else:
-                logging.getLogger("SpyderA01_Main").error(f"Status update error: {e}")
+                logging.getLogger("SpyderA01_Main").error("Status update error: %s", e)
 
     def test_connection_fix(self) -> None:
         """Test the PROVEN race condition fix."""
@@ -442,7 +405,7 @@ class SpyderApplication:
             _get_coordinator().register_cleanup(self.shutdown)
 
         self.logger.info("=" * 70)
-        self.logger.info(f"SPYDER v{self.config.version} - PROVEN Race Condition Fix")
+        self.logger.info("SPYDER v%s - PROVEN Race Condition Fix", self.config.version)
         self.logger.info("=" * 70)
         self.logger.info(
             "Initializing application with proven broker connection fix..."
@@ -545,20 +508,25 @@ class SpyderApplication:
             if has_logger and setup_logging_func:
                 setup_logging_func()
             else:
-                # Fallback logging setup
-                logging.basicConfig(
-                    level=self.config.log_level,
-                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                )
+                # Fallback: attach a handler to the Spyder package logger only,
+                # leaving the root logger untouched.
+                _spyder_root = logging.getLogger("Spyder")
+                if not _spyder_root.handlers:
+                    _handler = logging.StreamHandler()
+                    _handler.setFormatter(
+                        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+                    )
+                    _spyder_root.addHandler(_handler)
+                _spyder_root.setLevel(self.config.log_level)
 
-            # Reduce dashboard worker logging (but allow chart creation messages)
-                logging.getLogger("SpyderG_GUI.SpyderG05_TradingDashboard").setLevel(
-                    logging.INFO  # Changed from WARNING to see chart messages
-                )
+            # Reduce dashboard worker logging (unconditional — applies on both paths)
+            logging.getLogger("SpyderG_GUI.SpyderG05_TradingDashboard").setLevel(logging.INFO)
 
         except Exception as e:
-            logging.getLogger("SpyderA01_Main").warning(f"Could not setup advanced logging: {e}")
-            logging.basicConfig(level=logging.WARNING)
+            logging.getLogger("SpyderA01_Main").warning("Could not setup advanced logging: %s", e)
+            _spyder_root = logging.getLogger("Spyder")
+            if not _spyder_root.handlers:
+                _spyder_root.addHandler(logging.StreamHandler())
 
     def initialize_core_systems(self) -> bool:
         """
@@ -577,7 +545,7 @@ class SpyderApplication:
                     self.event_manager = EventManager()
                     self.logger.info("✅ Event manager initialized")
                 except Exception as e:
-                    self.logger.warning(f"Event manager initialization failed: {e}", exc_info=True)
+                    self.logger.warning("Event manager initialization failed: %s", e, exc_info=True)
                     self.event_manager = None
             else:
                 self.logger.info(
@@ -602,7 +570,7 @@ class SpyderApplication:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Core system initialization failed: {e}", exc_info=True)
+            self.logger.error("❌ Core system initialization failed: %s", e, exc_info=True)
             return False
 
     def _initialize_broker_connection(self) -> bool:
@@ -641,14 +609,49 @@ class SpyderApplication:
             self.gui_app.setApplicationName(self.config.app_name)
             self.gui_app.setApplicationVersion(self.config.version)
 
-            # Create main window - Use real Trading Dashboard if available
+            # Create main window - lazy-load GUI modules (deferred to avoid slow startup)
+            # Try real SpyderG05 Trading Dashboard first
+            has_trading_dashboard = False
+            SpyderTradingDashboard = None
+            try:
+                from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard  # type: ignore[assignment]
+                has_trading_dashboard = True
+                self.logger.info("Real Trading Dashboard (G05) loaded successfully.")
+            except ImportError as e:
+                self.logger.warning("Trading Dashboard not available: %s", e)
+
+            # Lazy-load GUI log handler
+            setup_gui_logging = None
+            try:
+                from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging  # type: ignore[assignment]
+            except ImportError:
+                pass
+
+            # Lazy-load fallback Working Trading Dashboard
+            has_working_dashboard = False
+            WorkingSpyderDashboard = None
+            try:
+                import importlib.util as _ilu
+                _spec = _ilu.spec_from_file_location(
+                    "launch_spyder_working_dashboard",
+                    project_root / "launch_spyder_working_dashboard.py"
+                )
+                if _spec and _spec.loader:
+                    _wmod = _ilu.module_from_spec(_spec)
+                    _spec.loader.exec_module(_wmod)  # type: ignore[union-attr]
+                    WorkingSpyderDashboard = _wmod.WorkingSpyderDashboard
+                    has_working_dashboard = True
+                    self.logger.info("Working Trading Dashboard loaded.")
+            except Exception:
+                pass
+
             if has_trading_dashboard and SpyderTradingDashboard:
                 self.logger.info("🚀 Starting REAL SpyderG05 Trading Dashboard...")
 
                 try:
                     self.main_window = SpyderTradingDashboard()
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to create dashboard: {e}", exc_info=True)
+                    self.logger.error("❌ Failed to create dashboard: %s", e, exc_info=True)
                     import traceback
 
                     self.logger.debug(traceback.format_exc())
@@ -667,20 +670,21 @@ class SpyderApplication:
                 try:
                     import os
                     gui_log_level = os.environ.get("GUI_LOG_LEVEL", "INFO")
-                    self.gui_log_handler = setup_gui_logging(
-                        self.main_window,
-                        log_level=gui_log_level
-                    )
-                    self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
+                    if setup_gui_logging is not None:
+                        self.gui_log_handler = setup_gui_logging(
+                            self.main_window,
+                            log_level=gui_log_level
+                        )
+                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}", exc_info=True)
+                    self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             elif has_working_dashboard and WorkingSpyderDashboard:
                 self.logger.info("🚀 Starting Working Trading Dashboard (fallback)...")
 
                 try:
                     self.main_window = WorkingSpyderDashboard()
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to create working dashboard: {e}", exc_info=True)
+                    self.logger.error("❌ Failed to create working dashboard: %s", e, exc_info=True)
                     import traceback
 
                     self.logger.debug(traceback.format_exc())
@@ -693,13 +697,14 @@ class SpyderApplication:
                 try:
                     import os
                     gui_log_level = os.environ.get("GUI_LOG_LEVEL", "INFO")
-                    self.gui_log_handler = setup_gui_logging(
-                        self.main_window,
-                        log_level=gui_log_level
-                    )
-                    self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
+                    if setup_gui_logging is not None:
+                        self.gui_log_handler = setup_gui_logging(
+                            self.main_window,
+                            log_level=gui_log_level
+                        )
+                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}", exc_info=True)
+                    self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             else:
                 self.logger.info(
                     "⚠️ Trading Dashboard not available, using test window..."
@@ -713,7 +718,7 @@ class SpyderApplication:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ GUI startup failed: {e}", exc_info=True)
+            self.logger.error("❌ GUI startup failed: %s", e, exc_info=True)
             import traceback
 
             self.logger.debug(traceback.format_exc())
@@ -734,7 +739,7 @@ class SpyderApplication:
             # anything else.  validate_startup_config() raises ConfigurationError
             # with a complete list of problems if anything is wrong.
             try:
-                from config.config import validate_startup_config, ConfigurationError
+                from config.config import validate_startup_config
                 validate_startup_config()
                 self.logger.info("✅ Startup configuration validated successfully")
             except ImportError:
@@ -757,7 +762,7 @@ class SpyderApplication:
                 # Run GUI event loop
                 self.logger.info("🔄 Running GUI event loop...")
                 exit_code = self.gui_app.exec()
-                self.logger.info(f"GUI event loop ended with code: {exit_code}")
+                self.logger.info("GUI event loop ended with code: %s", exit_code)
                 return exit_code
             else:
                 # Headless mode
@@ -770,7 +775,7 @@ class SpyderApplication:
                 return 0
 
         except Exception as e:
-            self.logger.error(f"❌ Application runtime error: {e}", exc_info=True)
+            self.logger.error("❌ Application runtime error: %s", e, exc_info=True)
             import traceback
 
             self.logger.debug(traceback.format_exc())
@@ -791,14 +796,14 @@ class SpyderApplication:
                     self.client.disconnect()
                     self.logger.info("🔌 Broker disconnected")
                 except Exception as e:
-                    self.logger.warning(f"Broker disconnect error: {e}", exc_info=True)
+                    self.logger.warning("Broker disconnect error: %s", e, exc_info=True)
 
             # Cleanup GUI
             if self.gui_app:
                 try:
                     self.gui_app.quit()
                 except Exception as e:
-                    self.logger.warning(f"GUI cleanup error: {e}", exc_info=True)
+                    self.logger.warning("GUI cleanup error: %s", e, exc_info=True)
 
             self.logger.info("✅ Shutdown complete")
 
@@ -852,7 +857,7 @@ def main() -> int:
 
     # Setup signal handlers
     def signal_handler(signum: int, _frame: Any) -> None:
-        _startup_log.info(f"Received signal {signum}, shutting down...")
+        _startup_log.info("Received signal %s, shutting down...", signum)
         app.shutdown()
 
     _ = signal.signal(signal.SIGINT, signal_handler)
@@ -862,7 +867,7 @@ def main() -> int:
     _startup_log.info("Starting SPYDER with PROVEN race condition fix...")
     exit_code = app.run()
 
-    _startup_log.info(f"SPYDER exited with code: {exit_code} ({'success' if exit_code == 0 else 'failure'})")
+    _startup_log.info("SPYDER exited with code: %s (%s)", exit_code, 'success' if exit_code == 0 else 'failure')
     return exit_code
 
 

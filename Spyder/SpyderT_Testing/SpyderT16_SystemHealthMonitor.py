@@ -28,8 +28,7 @@ import time
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-
+from typing import Optional
 # Terminal colors
 from colorama import Back, Fore, Style, init
 

@@ -32,7 +32,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import time as dt_time
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -209,7 +210,7 @@ class MasterController:
         # Signal handlers
         self._setup_signal_handlers()
 
-        logger.info(f"Master Controller initialized in {self.config.environment} environment")
+        logger.info("Master Controller initialized in %s environment", self.config.environment)
 
     # ==================================================================================
     # CONFIGURATION
@@ -246,10 +247,10 @@ class MasterController:
         )
 
     def _get_default_config(self) -> dict[str, Any]:
-        """Get default configuration"""
+        """Get default configuration — env vars take precedence over hardcoded defaults."""
         return {
-            "trading_mode": "paper",
-            "environment": "development",
+            "trading_mode": os.environ.get("TRADING_MODE", "paper"),
+            "environment": os.environ.get("ENVIRONMENT", "development"),
             "portfolio_value": 1000000,
             "max_daily_loss": 50000,
             "max_positions": 10,
@@ -355,6 +356,9 @@ class MasterController:
             ),
             # Alert System (Priority 14)
             ("J01_AlertManager", "J", "Alert Manager", ["I06_AgentMessageBus"], 14),
+            ("J05_TelegramBot", "J", "Telegram Bot", ["J01_AlertManager"], 14),
+            # Autonomous Agents — Y-series (Priority 15)
+            ("Y10_AgentScheduler", "Y", "Agent Scheduler", ["I06_AgentMessageBus"], 15),
         ]
 
         # Create module info objects
@@ -380,8 +384,8 @@ class MasterController:
         try:
             logger.info("=" * 80)
             logger.info("SPYDER SYSTEM STARTUP INITIATED")
-            logger.info(f"Mode: {self.config.trading_mode.value}")
-            logger.info(f"Environment: {self.config.environment}")
+            logger.info("Mode: %s", self.config.trading_mode.value)
+            logger.info("Environment: %s", self.config.environment)
             logger.info("=" * 80)
 
             self.startup_time = datetime.now()
@@ -393,7 +397,7 @@ class MasterController:
             # Execute startup phases
             for phase in startup_sequence:
                 if not self._execute_startup_phase(phase):
-                    logger.error(f"Startup failed at phase: {phase.phase}")
+                    logger.error("Startup failed at phase: %s", phase.phase)
                     self.status = SystemStatus.ERROR
                     return False
 
@@ -418,7 +422,7 @@ class MasterController:
             return True
 
         except Exception as e:
-            logger.error(f"System startup failed: {e}", exc_info=True)
+            logger.error("System startup failed: %s", e, exc_info=True)
             logger.error(traceback.format_exc(), exc_info=True)
             self._emergency_shutdown()
             return False
@@ -528,17 +532,24 @@ class MasterController:
             ),
             StartupSequence(
                 phase="User Interface",
-                modules=["G05_TradingDashboard", "J01_AlertManager"],
+                modules=["G05_TradingDashboard", "J01_AlertManager", "J05_TelegramBot"],
                 parallel=True,
                 timeout=30,
                 critical=False,
+            ),
+            StartupSequence(
+                phase="Autonomous Agents",
+                modules=["Y10_AgentScheduler"],
+                parallel=False,
+                timeout=60,
+                critical=False,  # Agents are non-critical — system trades without them
             ),
         ]
 
     def _execute_startup_phase(self, phase: StartupSequence) -> bool:
         """Execute a startup phase"""
 
-        logger.info(f"Starting phase: {phase.phase}")
+        logger.info("Starting phase: %s", phase.phase)
 
         try:
             if phase.parallel:
@@ -553,10 +564,10 @@ class MasterController:
                     try:
                         result = future.result(timeout=phase.timeout)
                         if not result and phase.critical:
-                            logger.error(f"Critical module {module_id} failed to start")
+                            logger.error("Critical module %s failed to start", module_id)
                             return False
                     except TimeoutError:
-                        logger.error(f"Module {module_id} startup timeout", exc_info=True)
+                        logger.error("Module %s startup timeout", module_id, exc_info=True)
                         if phase.critical:
                             return False
             else:
@@ -564,34 +575,34 @@ class MasterController:
                 for module_id in phase.modules:
                     if not self._start_module(module_id):
                         if phase.critical:
-                            logger.error(f"Critical module {module_id} failed to start")
+                            logger.error("Critical module %s failed to start", module_id)
                             return False
 
-            logger.info(f"Phase completed: {phase.phase}")
+            logger.info("Phase completed: %s", phase.phase)
             return True
 
         except Exception as e:
-            logger.error(f"Phase {phase.phase} failed: {e}", exc_info=True)
+            logger.error("Phase %s failed: %s", phase.phase, e, exc_info=True)
             return not phase.critical
 
     def _start_module(self, module_id: str) -> bool:
         """Start an individual module"""
 
         if module_id not in self.modules:
-            logger.warning(f"Module {module_id} not found in registry")
+            logger.warning("Module %s not found in registry", module_id)
             return True  # Non-fatal
 
         module = self.modules[module_id]
 
         try:
-            logger.debug(f"Starting module: {module_id}")
+            logger.debug("Starting module: %s", module_id)
 
             # Check dependencies
             for dep_id in module.dependencies:
                 if dep_id in self.modules:
                     dep_status = self.modules[dep_id].status
                     if dep_status not in [ModuleStatus.RUNNING, ModuleStatus.HEALTHY]:
-                        logger.warning(f"Dependency {dep_id} not ready for {module_id}")
+                        logger.warning("Dependency %s not ready for %s", dep_id, module_id)
                         return False
 
             # Simulate module startup (replace with actual module initialization)
@@ -602,42 +613,196 @@ class MasterController:
             if component:
                 self.components[module_id] = component
                 module.status = ModuleStatus.RUNNING
-                logger.info(f"✓ Module started: {module_id}")
+                logger.info("✓ Module started: %s", module_id)
                 return True
             else:
                 module.status = ModuleStatus.ERROR
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to start module {module_id}: {e}", exc_info=True)
+            logger.error("Failed to start module %s: %s", module_id, e, exc_info=True)
             module.status = ModuleStatus.ERROR
             module.last_error = str(e)
             module.error_count += 1
             return False
 
     def _initialize_component(self, module_id: str) -> Any | None:
-        """Initialize actual component (placeholder for real implementation)"""
+        """Import and instantiate the real module component with graceful fallback."""
+        import importlib
 
-        # This is where you would actually import and initialize the module
-        # For now, return a mock object
+        def _load(pkg: str, cls: str, *args, **kwargs):
+            """Dynamically import a class and instantiate it."""
+            try:
+                mod = importlib.import_module(pkg)
+                return getattr(mod, cls)(*args, **kwargs)
+            except Exception as e:
+                logger.warning("Could not load %s.%s: %s — using stub", pkg, cls, e)
+                return {"module_id": module_id, "status": "stub", "error": str(e)}
 
-        module_initializers = {
-            "H02_DatabaseManager": lambda: {"type": "database", "connected": True},
-            "I06_AgentMessageBus": lambda: {"type": "message_bus", "running": True},
-            # Would connect to broker
-            "B01_SpyderClient": lambda: {"type": "broker_client", "connected": False},
-            "E11_MaxLossProtection": lambda: {"type": "risk_manager", "limits_set": True},
-            "L18_EnhancedMLIntegration": lambda: {"type": "ml_engine", "models_loaded": True},
-            "X16_MetaCoordinator": lambda: {"type": "coordinator", "agents_ready": True},
-            "K10_RealTimePerformanceAnalytics": lambda: {"type": "analytics", "tracking": True},
-            "G05_TradingDashboard": lambda: {"type": "dashboard", "visible": False},  # GUI
-        }
+        # ── Modules with straightforward initialization ──────────────────────
+        if module_id == "H02_DatabaseManager":
+            from pathlib import Path as _Path
+            db_path = _Path(self.config.database.get("path", "data/spyder.db"))
+            return _load(
+                "SpyderH_Storage.SpyderH02_DatabaseManager",
+                "DatabaseManager",
+                db_path=db_path,
+            )
 
-        if module_id in module_initializers:
-            return module_initializers[module_id]()
+        if module_id == "U01_Logger":
+            # The logger is a singleton already configured by the entry point.
+            return {"module_id": module_id, "status": "singleton"}
 
-        # Default mock component
-        return {"type": "module", "id": module_id, "status": "initialized"}
+        if module_id == "U02_ErrorHandler":
+            return _load("SpyderU_Utilities.SpyderU02_ErrorHandler", "SpyderErrorHandler")
+
+        if module_id == "I06_AgentMessageBus":
+            return _load("SpyderI_Integration.SpyderI06_AgentMessageBus", "AgentMessageBus")
+
+        if module_id == "L18_EnhancedMLIntegration":
+            return _load("SpyderL_ML.SpyderL18_EnhancedMLIntegration", "EnhancedMLEngine")
+
+        if module_id == "X16_MetaCoordinator":
+            return _load("SpyderX_Agents.SpyderX16_MetaCoordinator", "MetaCoordinator")
+
+        # ── Broker client — requires env-var credentials ──────────────────────
+        if module_id in ("B40_TradierClient", "B01_SpyderClient"):
+            try:
+                from SpyderB_Broker.SpyderB40_TradierClient import (
+                    TradierClient,
+                    TradingEnvironment,
+                )
+                api_key = os.environ.get("TRADIER_API_KEY", "")
+                account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+                if not api_key or not account_id:
+                    logger.warning(
+                        "TRADIER_API_KEY or TRADIER_ACCOUNT_ID not set — "
+                        "broker client unavailable"
+                    )
+                    return None
+                env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+                env = (
+                    TradingEnvironment.LIVE
+                    if env_str == "live"
+                    else TradingEnvironment.SANDBOX
+                )
+                client = TradierClient(
+                    api_key=api_key, account_id=account_id, environment=env
+                )
+                logger.info(
+                    "TradierClient connected (%s environment)", env_str
+                )
+                return client
+            except Exception as e:
+                logger.warning("Could not initialize TradierClient: %s", e)
+                return None
+
+        # ── Order manager — reuses the broker client if already loaded ─────────
+        if module_id == "B02_OrderManager":
+            try:
+                from SpyderB_Broker.SpyderB02_OrderManager import OrderManager
+                tradier = self.components.get("B40_TradierClient") or self.components.get(
+                    "B01_SpyderClient"
+                )
+                # Pass the shared client only when it's a real TradierClient instance.
+                tradier_arg = (
+                    tradier
+                    if tradier is not None and hasattr(tradier, "account_id")
+                    else None
+                )
+                return OrderManager(tradier_client=tradier_arg)
+            except Exception as e:
+                logger.warning("Could not initialize OrderManager: %s", e)
+                return None
+
+        # ── Telegram Bot — optional; skipped silently when no token is configured ──
+        if module_id == "J05_TelegramBot":
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+            if not bot_token or not chat_id:
+                logger.info(
+                    "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — "
+                    "Telegram notifications disabled"
+                )
+                return None
+            try:
+                from SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
+                from SpyderA_Core.SpyderA05_EventManager import EventManager
+                event_mgr = self.components.get("A05_EventManager")
+                if event_mgr is None or not isinstance(event_mgr, EventManager):
+                    from SpyderA_Core.SpyderA05_EventManager import EventManager as _EM
+                    event_mgr = _EM()
+                bot = TelegramBot(
+                    bot_token=bot_token,
+                    chat_id=chat_id,
+                    event_manager=event_mgr,
+                )
+                bot.start()
+                logger.info("TelegramBot connected (chat_id=%s)", chat_id)
+                return bot
+            except Exception as e:
+                logger.warning("Could not initialize TelegramBot: %s", e)
+                return None
+
+        # ── Agent Scheduler — wires TelegramBot and Y-series agents ──────────
+        if module_id == "Y10_AgentScheduler":
+            try:
+                from SpyderY_AutoAgents.SpyderY10_AgentScheduler import AgentScheduler
+                from SpyderY_AutoAgents.SpyderY01_MarketSenseAgent import SpyderY01_MarketSenseAgent
+                from SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent import SpyderY02_StrategyPilotAgent
+                from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import SpyderY03_RiskSentinelAgent
+                from SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent import SpyderY04_AlphaLearnerAgent
+                from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import SpyderY05_ExecutionOptimizerAgent
+                from SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent import SpyderY06_NewsSentinelAgent
+                from SpyderY_AutoAgents.SpyderY07_TradeJournalAgent import SpyderY07_TradeJournalAgent
+                from SpyderY_AutoAgents.SpyderY08_MetaOrchestratorAgent import SpyderY08_MetaOrchestratorAgent
+                from SpyderY_AutoAgents.SpyderY09_CodeReviewerAgent import SpyderY09_CodeReviewerAgent
+
+                telegram_bot = self.components.get("J05_TelegramBot")
+                message_bus = self.components.get("I06_AgentMessageBus")
+
+                scheduler = AgentScheduler(
+                    message_bus=message_bus,
+                    telegram_bot=telegram_bot,
+                )
+
+                # Register all Y-series agents
+                for agent_cls in [
+                    SpyderY01_MarketSenseAgent,
+                    SpyderY02_StrategyPilotAgent,
+                    SpyderY03_RiskSentinelAgent,
+                    SpyderY04_AlphaLearnerAgent,
+                    SpyderY05_ExecutionOptimizerAgent,
+                    SpyderY06_NewsSentinelAgent,
+                    SpyderY07_TradeJournalAgent,
+                ]:
+                    scheduler.register(agent_cls)
+
+                # Y08 MetaOrchestrator gets the telegram_bot too
+                scheduler.register(
+                    SpyderY08_MetaOrchestratorAgent,
+                    telegram_bot=telegram_bot,
+                )
+
+                # Y09 CodeReviewer (monitored by Y08)
+                scheduler.register(SpyderY09_CodeReviewerAgent)
+
+                scheduler.start_all()
+                logger.info(
+                    "AgentScheduler started with %d Y-series agents",
+                    len(scheduler._agents),
+                )
+                return scheduler
+            except Exception as e:
+                logger.warning("Could not initialize AgentScheduler: %s", e, exc_info=True)
+                return None
+
+        # ── Modules with complex cross-dependencies: return an initialized stub ─
+        # These are logged so the gap is visible but startup is not blocked.
+        logger.debug(
+            "No specific factory for %s — using status stub", module_id
+        )
+        return {"module_id": module_id, "status": "initialized"}
 
     # ==================================================================================
     # SYSTEM SHUTDOWN
@@ -648,7 +813,7 @@ class MasterController:
 
         try:
             logger.info("=" * 80)
-            logger.info(f"SYSTEM SHUTDOWN INITIATED - Reason: {reason}")
+            logger.info("SYSTEM SHUTDOWN INITIATED - Reason: %s", reason)
             logger.info("=" * 80)
 
             self.shutdown_time = datetime.now()
@@ -661,7 +826,7 @@ class MasterController:
             shutdown_sequence = self._get_shutdown_sequence()
 
             for phase in shutdown_sequence:
-                logger.info(f"Shutting down: {phase['name']}")
+                logger.info("Shutting down: %s", phase['name'])
                 self._shutdown_phase(phase["modules"])
 
             # Stop health monitor
@@ -683,7 +848,7 @@ class MasterController:
             return True
 
         except Exception as e:
-            logger.error(f"Shutdown error: {e}", exc_info=True)
+            logger.error("Shutdown error: %s", e, exc_info=True)
             self._emergency_shutdown()
             return False
 
@@ -691,6 +856,8 @@ class MasterController:
         """Get shutdown sequence (reverse of startup)"""
 
         return [
+            {"name": "Autonomous Agents", "modules": ["Y10_AgentScheduler"]},
+            {"name": "Notifications", "modules": ["J05_TelegramBot"]},
             {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker"]},
             {"name": "Strategies", "modules": ["D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"]},
             {
@@ -731,7 +898,7 @@ class MasterController:
                 if module_id in self.modules:
                     self._stop_module(module_id)
             except Exception as e:
-                logger.error(f"Error stopping module {module_id}: {e}", exc_info=True)
+                logger.error("Error stopping module %s: %s", module_id, e, exc_info=True)
 
     def _stop_module(self, module_id: str):
         """Stop an individual module"""
@@ -746,39 +913,60 @@ class MasterController:
             if module_id in self.components:
                 # Call cleanup method if available
                 component = self.components[module_id]
-                if hasattr(component, "shutdown"):
+                if hasattr(component, "stop_all"):
+                    component.stop_all()
+                elif hasattr(component, "stop"):
+                    component.stop()
+                elif hasattr(component, "shutdown"):
                     component.shutdown()
                 del self.components[module_id]
 
             module.status = ModuleStatus.STOPPED
-            logger.info(f"✓ Module stopped: {module_id}")
+            logger.info("✓ Module stopped: %s", module_id)
 
         except Exception as e:
-            logger.error(f"Error stopping module {module_id}: {e}", exc_info=True)
+            logger.error("Error stopping module %s: %s", module_id, e, exc_info=True)
 
     def _emergency_shutdown(self):
-        """Emergency shutdown procedure"""
+        """Emergency shutdown: cancel all open orders then force-stop all modules."""
 
         logger.critical("EMERGENCY SHUTDOWN ACTIVATED")
         self.status = SystemStatus.EMERGENCY_STOP
 
         try:
-            # Close all positions immediately
-            if "B02_OrderManager" in self.components:
-                logger.info("Closing all positions...")
-                # Would call actual position closing logic
+            # Cancel every open order via the OrderManager
+            order_mgr = self.components.get("B02_OrderManager")
+            if order_mgr is not None and hasattr(order_mgr, "_orders"):
+                open_ids = [
+                    oid
+                    for oid, o in order_mgr._orders.items()
+                    if hasattr(o, "state")
+                    and str(o.state) not in ("FILLED", "CANCELLED", "REJECTED")
+                ]
+                logger.info("Cancelling %d open order(s)", len(open_ids))
+                for order_id in open_ids:
+                    try:
+                        order_mgr.cancel_order(order_id)
+                    except Exception as e:
+                        logger.error(
+                            "Failed to cancel order %s: %s", order_id, e, exc_info=True
+                        )
+            else:
+                logger.warning(
+                    "OrderManager not available — manual position review required"
+                )
 
-            # Kill all threads
+            # Signal all threads to stop
             self.shutdown_event.set()
 
-            # Force stop all modules
+            # Force-mark all modules stopped
             for module_id in self.modules:
                 self.modules[module_id].status = ModuleStatus.STOPPED
 
             self.status = SystemStatus.STOPPED
 
         except Exception as e:
-            logger.critical(f"Emergency shutdown error: {e}", exc_info=True)
+            logger.critical("Emergency shutdown error: %s", e, exc_info=True)
 
     # ==================================================================================
     # HEALTH MONITORING
@@ -819,7 +1007,7 @@ class MasterController:
                     time.sleep(10)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                logger.error(f"Health monitor error: {e}", exc_info=True)
+                logger.error("Health monitor error: %s", e, exc_info=True)
 
     def _collect_health_metrics(self) -> HealthMetrics:
         """Collect system health metrics"""
@@ -867,7 +1055,7 @@ class MasterController:
                         is_healthy = module.health_check()
                         module.status = ModuleStatus.HEALTHY if is_healthy else ModuleStatus.WARNING
                     except Exception as e:
-                        logger.warning(f"Health check failed for {module_id}: {e}", exc_info=True)
+                        logger.warning("Health check failed for %s: %s", module_id, e, exc_info=True)
                         module.status = ModuleStatus.WARNING
 
     def _check_system_resources(self, metrics: HealthMetrics):
@@ -875,15 +1063,15 @@ class MasterController:
 
         # CPU warning
         if metrics.cpu_usage > 80:
-            logger.warning(f"High CPU usage: {metrics.cpu_usage}%")
+            logger.warning("High CPU usage: %s%%", metrics.cpu_usage)
 
         # Memory warning
         if metrics.memory_usage > 85:
-            logger.warning(f"High memory usage: {metrics.memory_usage}%")
+            logger.warning("High memory usage: %s%%", metrics.memory_usage)
 
         # Disk warning
         if metrics.disk_usage > 90:
-            logger.critical(f"Critical disk usage: {metrics.disk_usage}%")
+            logger.critical("Critical disk usage: %s%%", metrics.disk_usage)
 
     def _check_stuck_modules(self):
         """Check for modules that might be stuck"""
@@ -894,7 +1082,7 @@ class MasterController:
                 if module.metadata.get("start_time"):
                     elapsed = (datetime.now() - module.metadata["start_time"]).total_seconds()
                     if elapsed > 300:  # 5 minutes
-                        logger.error(f"Module {module_id} stuck in STARTING state")
+                        logger.error("Module %s stuck in STARTING state", module_id)
                         module.status = ModuleStatus.ERROR
 
     def _handle_failed_modules(self):
@@ -910,7 +1098,7 @@ class MasterController:
                         if cooldown < 60:  # 1 minute cooldown
                             continue
 
-                    logger.info(f"Attempting to restart module {module_id}")
+                    logger.info("Attempting to restart module %s", module_id)
                     module.restart_attempts += 1
                     module.last_restart = datetime.now()
                     module.status = ModuleStatus.RESTARTING
@@ -928,13 +1116,13 @@ class MasterController:
 
             # Start it again
             if self._start_module(module_id):
-                logger.info(f"Module {module_id} restarted successfully")
+                logger.info("Module %s restarted successfully", module_id)
                 self.modules[module_id].restart_attempts = 0
             else:
-                logger.error(f"Failed to restart module {module_id}")
+                logger.error("Failed to restart module %s", module_id)
 
         except Exception as e:
-            logger.error(f"Error restarting module {module_id}: {e}", exc_info=True)
+            logger.error("Error restarting module %s: %s", module_id, e, exc_info=True)
 
     # ==================================================================================
     # MARKET STATE MANAGEMENT
@@ -970,7 +1158,7 @@ class MasterController:
         else:
             self.market_state = MarketState.MARKET_CLOSED
 
-        logger.info(f"Market state: {self.market_state.value}")
+        logger.info("Market state: %s", self.market_state.value)
 
     def handle_market_open(self):
         """Handle market open transition"""
@@ -998,7 +1186,7 @@ class MasterController:
             logger.info("Market open transition complete")
 
         except Exception as e:
-            logger.error(f"Market open transition failed: {e}", exc_info=True)
+            logger.error("Market open transition failed: %s", e, exc_info=True)
 
     def handle_market_close(self):
         """Handle market close transition"""
@@ -1027,7 +1215,7 @@ class MasterController:
             logger.info("Market close transition complete")
 
         except Exception as e:
-            logger.error(f"Market close transition failed: {e}", exc_info=True)
+            logger.error("Market close transition failed: %s", e, exc_info=True)
 
     def _perform_premarket_checks(self):
         """Perform pre-market system checks"""
@@ -1043,11 +1231,11 @@ class MasterController:
         for check_name, check_func in checks:
             try:
                 if check_func():
-                    logger.info(f"✓ Pre-market check passed: {check_name}")
+                    logger.info("✓ Pre-market check passed: %s", check_name)
                 else:
-                    logger.warning(f"✗ Pre-market check failed: {check_name}")
+                    logger.warning("✗ Pre-market check failed: %s", check_name)
             except Exception as e:
-                logger.error(f"Pre-market check error ({check_name}): {e}", exc_info=True)
+                logger.error("Pre-market check error (%s): %s", check_name, e, exc_info=True)
 
     def _check_database(self) -> bool:
         """Check database connection"""
@@ -1075,7 +1263,7 @@ class MasterController:
     # ==================================================================================
 
     def _enable_trading(self):
-        """Enable trading"""
+        """Enable trading by starting the order manager and all loaded strategies."""
 
         if self.trading_enabled:
             logger.info("Trading already enabled")
@@ -1083,42 +1271,58 @@ class MasterController:
 
         logger.info("Enabling trading")
 
-        # Enable order manager
-        if "B02_OrderManager" in self.components:
-            # Would enable actual order manager
-            pass
+        # Start order manager (registers persistence thread and optional SSE stream)
+        order_mgr = self.components.get("B02_OrderManager")
+        if order_mgr is not None and hasattr(order_mgr, "start"):
+            try:
+                order_mgr.start()
+                logger.info("OrderManager started")
+            except Exception as e:
+                logger.error("Failed to start OrderManager: %s", e, exc_info=True)
 
-        # Enable strategies
-        for module_id in self.modules:
-            if module_id.startswith("D"):  # Strategy modules
-                # Would enable strategy
-                pass
+        # Start strategy components
+        for module_id, component in self.components.items():
+            if module_id.startswith("D") and hasattr(component, "start"):
+                try:
+                    component.start()
+                    logger.debug("Strategy %s started", module_id)
+                except Exception as e:
+                    logger.warning("Failed to start strategy %s: %s", module_id, e)
 
         self.trading_enabled = True
         self.status = SystemStatus.TRADING
+        self._broadcast_event("TRADING_ENABLED", {"mode": self.config.trading_mode.value})
         logger.info("Trading enabled")
 
     def _disable_trading(self):
-        """Disable trading"""
+        """Disable trading by stopping all strategies then the order manager."""
 
         if not self.trading_enabled:
             return
 
         logger.info("Disabling trading")
 
-        # Disable new orders
-        if "B02_OrderManager" in self.components:
-            # Would disable order manager
-            pass
+        # Stop strategy components first so no new orders are generated
+        for module_id, component in list(self.components.items()):
+            if module_id.startswith("D") and hasattr(component, "stop"):
+                try:
+                    component.stop()
+                    logger.debug("Strategy %s stopped", module_id)
+                except Exception as e:
+                    logger.warning("Failed to stop strategy %s: %s", module_id, e)
 
-        # Disable strategies
-        for module_id in self.modules:
-            if module_id.startswith("D"):
-                # Would disable strategy
-                pass
+        # Stop order manager (flushes persistence thread, closes SSE stream)
+        order_mgr = self.components.get("B02_OrderManager")
+        if order_mgr is not None and hasattr(order_mgr, "stop"):
+            try:
+                order_mgr.stop()
+                logger.info("OrderManager stopped")
+            except Exception as e:
+                logger.error("Failed to stop OrderManager: %s", e, exc_info=True)
 
         self.trading_enabled = False
         self.status = SystemStatus.RUNNING
+        self._broadcast_event("TRADING_DISABLED", {})
         logger.info("Trading disabled")
 
     def _close_expiring_positions(self):
@@ -1154,7 +1358,7 @@ class MasterController:
 
         logger.info("Startup Report:")
         for key, value in report.items():
-            logger.info(f"  {key}: {value}")
+            logger.info("  %s: %s", key, value)
 
     def _generate_shutdown_report(self):
         """Generate system shutdown report"""
@@ -1175,7 +1379,7 @@ class MasterController:
 
         logger.info("Shutdown Report:")
         for key, value in report.items():
-            logger.info(f"  {key}: {value}")
+            logger.info("  %s: %s", key, value)
 
     def _generate_eod_reports(self):
         """Generate end-of-day reports"""
@@ -1206,17 +1410,30 @@ class MasterController:
     # ==================================================================================
 
     def _broadcast_event(self, event_type: str, data: dict[str, Any]):
-        """Broadcast event to all modules"""
+        """Broadcast event to all modules via the AgentMessageBus."""
 
-        if "I06_AgentMessageBus" in self.components:
-            # Would broadcast via message bus
-            logger.debug(f"Broadcasting event: {event_type}")
+        message_bus = self.components.get("I06_AgentMessageBus")
+        if message_bus is not None and hasattr(message_bus, "broadcast"):
+            try:
+                message_bus.broadcast(
+                    payload={
+                        "event": event_type,
+                        "data": data,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                    sender="MasterController",
+                )
+                logger.debug("Broadcast event dispatched: %s", event_type)
+            except Exception as e:
+                logger.warning("Failed to broadcast event %s: %s", event_type, e)
+        else:
+            logger.debug("Broadcasting event: %s (message bus not available)", event_type)
 
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 
         def signal_handler(signum, frame):
-            logger.info(f"Received signal {signum}")
+            logger.info("Received signal %s", signum)
             self.shutdown_system("Signal received")
             sys.exit(0)
 
@@ -1271,10 +1488,10 @@ class MasterController:
         """Manually restart a module"""
 
         if module_id not in self.modules:
-            logger.error(f"Module {module_id} not found")
+            logger.error("Module %s not found", module_id)
             return False
 
-        logger.info(f"Manual restart requested for {module_id}")
+        logger.info("Manual restart requested for %s", module_id)
         self._restart_module(module_id)
         return True
 
@@ -1326,6 +1543,12 @@ if __name__ == "__main__":
     Main entry point for Spyder Autonomous Trading System
     """
 
+    # Load .env so API keys/tokens are available when running outside systemd.
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    except ImportError:
+        pass  # python-dotenv not installed; rely on env vars already exported
 
     # Create master controller
     master = create_master_controller()
@@ -1339,22 +1562,35 @@ if __name__ == "__main__":
 
         try:
             # Keep the system running
+            # Track which date-keyed transitions have already fired to avoid
+            # duplicate triggers when the loop wakes up mid-minute.
+            _fired: set = set()
             while True:
                 time.sleep(1)
 
-                # Check market transitions
-                current_hour = datetime.now().hour
-                current_minute = datetime.now().minute
+                now = datetime.now()
+                date_key = now.date()
 
                 # Market open at 9:30 AM
-                if current_hour == 9 and current_minute == 30:
-                    if master.market_state != MarketState.MARKET_OPEN:
-                        master.handle_market_open()
+                open_key = (date_key, "open")
+                if (
+                    open_key not in _fired
+                    and now.hour == 9
+                    and now.minute >= 30
+                    and master.market_state != MarketState.MARKET_OPEN
+                ):
+                    master.handle_market_open()
+                    _fired.add(open_key)
 
                 # Market close at 4:00 PM
-                elif current_hour == 16 and current_minute == 0:
-                    if master.market_state == MarketState.MARKET_OPEN:
-                        master.handle_market_close()
+                close_key = (date_key, "close")
+                if (
+                    close_key not in _fired
+                    and now.hour >= 16
+                    and master.market_state == MarketState.MARKET_OPEN
+                ):
+                    master.handle_market_close()
+                    _fired.add(close_key)
 
         except KeyboardInterrupt:
             master.shutdown_system("User interrupted")

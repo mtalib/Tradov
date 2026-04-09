@@ -101,7 +101,7 @@ SpyderColors = u24_mod.SpyderColors
 SpyderIcons = u24_mod.SpyderIcons
 SpyderStyleManager = u24_mod.SpyderStyleManager
 
-import pytest  # noqa: E402
+import pytest
 
 
 # ==============================================================================

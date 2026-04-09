@@ -351,7 +351,7 @@ class SpyderX14_OrchestratorAgent:
         # Load saved weights if available
         self._load_saved_state()
 
-        self.logger.info(f"✅ Orchestrator initialized with {len(self.agents)} agents")
+        self.logger.info("✅ Orchestrator initialized with %s agents", len(self.agents))
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -392,7 +392,7 @@ class SpyderX14_OrchestratorAgent:
             )
 
         except Exception as e:
-            self.logger.warning(f"RL initialization failed: {e}")
+            self.logger.warning("RL initialization failed: %s", e)
             self.rl_model = None
 
     def _load_saved_state(self) -> None:
@@ -410,9 +410,9 @@ class SpyderX14_OrchestratorAgent:
             if not weights_path.exists():
                 legacy = weights_path.with_suffix('.pkl')
                 if legacy.exists():
-                    import pickle as _pickle
+                    import joblib as _joblib
                     with open(legacy, 'rb') as _f:
-                        _wd = _pickle.load(_f)
+                        _wd = _joblib.load(_f)
                     weights_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(weights_path, 'w', encoding='utf-8') as _f:
                         json.dump(dict(_wd), _f, indent=2)
@@ -424,7 +424,7 @@ class SpyderX14_OrchestratorAgent:
                 self.logger.info("Loaded saved agent weights")
 
         except Exception as e:
-            self.logger.warning(f"Failed to load saved state: {e}")
+            self.logger.warning("Failed to load saved state: %s", e)
 
     # ==========================================================================
     # AGENT COORDINATION METHODS
@@ -520,7 +520,7 @@ class SpyderX14_OrchestratorAgent:
                     outputs.append(output)
             except Exception as e:
                 agent_id = agent_futures[future]
-                self.logger.warning(f"Agent {agent_id} failed: {e}")
+                self.logger.warning("Agent %s failed: %s", agent_id, e)
                 self._handle_agent_failure(agent_id)
 
         return outputs
@@ -563,7 +563,7 @@ class SpyderX14_OrchestratorAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Agent {agent_id} error: {e}")
+            self.logger.error("Agent %s error: %s", agent_id, e)
             return None
 
     # ==========================================================================
@@ -609,7 +609,7 @@ class SpyderX14_OrchestratorAgent:
             return agent_weights
 
         except Exception as e:
-            self.logger.error(f"Weight calculation error: {e}")
+            self.logger.error("Weight calculation error: %s", e)
             # Fallback to equal weights
             return {
                 output.agent_id: 1.0 / len(agent_outputs) for output in agent_outputs
@@ -896,7 +896,7 @@ class SpyderX14_OrchestratorAgent:
             return
 
         try:
-            self.logger.info(f"Training meta-learner for {episodes} episodes...")
+            self.logger.info("Training meta-learner for %s episodes...", episodes)
             self.rl_model.learn(total_timesteps=episodes * 100)
 
             # Save trained model
@@ -907,7 +907,7 @@ class SpyderX14_OrchestratorAgent:
             self.logger.info("✅ Meta-learner training complete")
 
         except Exception as e:
-            self.logger.error(f"Training failed: {e}")
+            self.logger.error("Training failed: %s", e)
 
     # ==========================================================================
     # UTILITY METHODS
@@ -975,7 +975,7 @@ class SpyderX14_OrchestratorAgent:
         # Degrade agent if too many failures
         if performance.failure_count > 5:
             self.agent_states[agent_id] = AgentState.DEGRADED
-            self.logger.warning(f"Agent {agent_id} degraded due to failures")
+            self.logger.warning("Agent %s degraded due to failures", agent_id)
 
     def get_agent_status(self) -> dict[str, Any]:
         """Get current status of all agents."""
@@ -1013,7 +1013,7 @@ class SpyderX14_OrchestratorAgent:
             self.logger.info("Saved orchestrator state")
 
         except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
+            self.logger.error("Failed to save state: %s", e)
 
 
 # ==============================================================================
@@ -1074,14 +1074,14 @@ async def main():
             market_state, "should_enter_iron_condor"
         )
 
-        logging.info(f"\nDecision: {decision.action}")
+        logging.info("\nDecision: %s", decision.action)
         logging.info(f"Confidence: {decision.confidence:.2%}")
         logging.info(f"Consensus Score: {decision.consensus_score:.2%}")
-        logging.info(f"Contributing Agents: {len(decision.contributing_agents)}")
-        logging.info(f"\nReasoning:\n{decision.reasoning}")
+        logging.info("Contributing Agents: %s", len(decision.contributing_agents))
+        logging.info("\nReasoning:\n%s", decision.reasoning)
 
         if decision.dissenting_opinions:
-            logging.info(f"\nDissenting Opinions: {len(decision.dissenting_opinions)}")
+            logging.info("\nDissenting Opinions: %s", len(decision.dissenting_opinions))
             for dissent in decision.dissenting_opinions[:3]:
                 logging.info(
                     f"- {dissent['agent']}: {dissent['prediction']} ({dissent['confidence']:.2%})"
@@ -1092,8 +1092,8 @@ async def main():
         status = orchestrator.get_agent_status()
 
         for agent_id, info in status.items():
-            logging.info(f"\n{agent_id}:")
-            logging.info(f"  State: {info['state']}")
+            logging.info("\n%s:", agent_id)
+            logging.info("  State: %s", info['state'])
             logging.info(f"  Reliability: {info['reliability']:.2%}")
             logging.info(f"  Avg Latency: {info['avg_latency']:.3f}s")
             logging.info(f"  Recent Weight: {info['recent_weight']:.2%}")

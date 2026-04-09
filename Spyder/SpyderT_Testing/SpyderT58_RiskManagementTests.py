@@ -44,7 +44,6 @@ import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
-from typing import List
 
 # ==============================================================================
 # PATH SETUP

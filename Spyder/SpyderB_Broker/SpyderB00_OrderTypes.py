@@ -33,7 +33,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
-from typing import Any, Union
+from typing import Any
 
 # ==============================================================================
 # CORE ENUMS
@@ -258,7 +258,7 @@ class OrderRequest:
     # Required fields
     contract: ContractDetails
     action: OrderAction
-    total_quantity: Union[int, float]
+    total_quantity: int | float
     order_type: OrderType
 
     # Price fields
@@ -628,7 +628,7 @@ class Fill:
 # ==============================================================================
 
 def create_market_order(contract: ContractDetails, action: OrderAction,
-                       quantity: Union[int, float], **kwargs) -> OrderRequest:
+                       quantity: int | float, **kwargs) -> OrderRequest:
     """Create a market order."""
     return OrderRequest(
         contract=contract,
@@ -639,7 +639,7 @@ def create_market_order(contract: ContractDetails, action: OrderAction,
     )
 
 def create_limit_order(contract: ContractDetails, action: OrderAction,
-                      quantity: Union[int, float], limit_price: float,
+                      quantity: int | float, limit_price: float,
                       **kwargs) -> OrderRequest:
     """Create a limit order."""
     return OrderRequest(
@@ -652,7 +652,7 @@ def create_limit_order(contract: ContractDetails, action: OrderAction,
     )
 
 def create_stop_order(contract: ContractDetails, action: OrderAction,
-                     quantity: Union[int, float], stop_price: float,
+                     quantity: int | float, stop_price: float,
                      **kwargs) -> OrderRequest:
     """Create a stop order."""
     return OrderRequest(
@@ -665,7 +665,7 @@ def create_stop_order(contract: ContractDetails, action: OrderAction,
     )
 
 def create_stop_limit_order(contract: ContractDetails, action: OrderAction,
-                           quantity: Union[int, float], stop_price: float,
+                           quantity: int | float, stop_price: float,
                            limit_price: float, **kwargs) -> OrderRequest:
     """Create a stop-limit order."""
     return OrderRequest(

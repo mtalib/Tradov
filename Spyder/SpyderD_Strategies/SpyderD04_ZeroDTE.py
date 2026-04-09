@@ -277,7 +277,7 @@ class ZeroDTEStrategy(BaseStrategy):
                 signal = self._create_signal_from_setup(setup)
                 if signal:
                     signals.append(signal)
-                    self.logger.info(f"Generated 0DTE signal: {signal.signal_id}")
+                    self.logger.info("Generated 0DTE signal: %s", signal.signal_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -426,11 +426,11 @@ class ZeroDTEStrategy(BaseStrategy):
 
         # Validate market filters
         if self.current_conditions.vix > MAX_VIX:
-            self.logger.debug(f"VIX too high: {self.current_conditions.vix}")
+            self.logger.debug("VIX too high: %s", self.current_conditions.vix)
             return False
 
         if self.current_conditions.iv_rank < MIN_IVR:
-            self.logger.debug(f"IV rank too low: {self.current_conditions.iv_rank}")
+            self.logger.debug("IV rank too low: %s", self.current_conditions.iv_rank)
             return False
 
         if abs(self.current_conditions.gap_percentage) > MAX_OVERNIGHT_GAP:
@@ -806,7 +806,7 @@ class ZeroDTEStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Opened 0DTE position: {position.position_id}")
+            self.logger.info("Opened 0DTE position: %s", position.position_id)
             return position
 
         except Exception as e:
@@ -942,7 +942,7 @@ class ZeroDTEStrategy(BaseStrategy):
         """Schedule daily entry check at specified time"""
         # In production, would use proper scheduler
         # This is a placeholder
-        self.logger.info(f"Scheduled 0DTE entry check at {ENTRY_TIME}")
+        self.logger.info("Scheduled 0DTE entry check at %s", ENTRY_TIME)
 
     def _reset_daily_stats(self) -> None:
         """Reset daily statistics"""

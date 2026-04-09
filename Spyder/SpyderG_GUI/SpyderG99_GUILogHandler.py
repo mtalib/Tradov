@@ -148,7 +148,7 @@ class GUILogHandler(QObject, logging.Handler):
 
         except Exception as e:
             # Fail silently to prevent infinite logging loops
-            logging.info(f"Error in GUI log handler: {e}")
+            logging.info("Error in GUI log handler: %s", e)
 
     def _is_automation_log(self, logger_name: str, message: str) -> bool:
         """

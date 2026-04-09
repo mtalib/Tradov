@@ -31,12 +31,13 @@ Last Updated: 2026-03-16 Time: 20:00:00
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 try:
     from typing import Protocol, runtime_checkable
 except ImportError:                                     # Python < 3.8 fallback
-    from typing_extensions import Protocol, runtime_checkable  # type: ignore[assignment]
+    from typing import Protocol, runtime_checkable  # type: ignore[assignment]
 
 # ==============================================================================
 # LOGGER
@@ -297,7 +298,7 @@ class TradierMarketDataAdapter:
             self._stream.on_trade = _trade_cb
 
         self._stream.start()
-        logger.info(f"TradierMarketDataAdapter stream started for {symbols}")
+        logger.info("TradierMarketDataAdapter stream started for %s", symbols)
 
     def stop_stream(self) -> None:
         """Stop the active WebSocket stream."""
@@ -349,10 +350,20 @@ class DatabentoMarketDataAdapter:
     """
 
     def __init__(self) -> None:
-        from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
-            create_databento_client_from_env,
-        )
-        self._client = create_databento_client_from_env()
+        # SpyderC26_DatabentoClient was removed in v2; use SpyderC27_MassiveClient instead.
+        try:
+            from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
+                create_massive_client_from_env,
+            )
+            self._client = create_massive_client_from_env()
+        except ImportError as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "DatabentoMarketDataAdapter: market data client unavailable (%s). "
+                "Ensure SpyderC27_MassiveClient is installed.",
+                exc,
+            )
+            self._client = None
         self._user_on_quote: Callable[[NormalizedQuote], None] | None = None
         self._user_on_trade: Callable[[NormalizedTrade], None] | None = None
 
@@ -409,7 +420,7 @@ class DatabentoMarketDataAdapter:
         """
         defs_df = self._client.get_instrument_definitions(symbol, expiration)
         if defs_df is None or (hasattr(defs_df, "empty") and defs_df.empty):
-            logger.warning(f"DatabentoAdapter: no definitions for {symbol} {expiration}")
+            logger.warning("DatabentoAdapter: no definitions for %s %s", symbol, expiration)
             return []
         rows = list(defs_df.to_dict("records")) if hasattr(defs_df, "to_dict") else []
         if option_type:
@@ -440,7 +451,7 @@ class DatabentoMarketDataAdapter:
                 dates = sorted(str(d) for d in defs_df["expiration"].dropna().unique())
             return {"expirations": {"date": dates}}
         except Exception as exc:
-            logger.error(f"DatabentoAdapter: error fetching expirations for {symbol}: {exc}")
+            logger.error("DatabentoAdapter: error fetching expirations for %s: %s", symbol, exc)
             return {"expirations": {"date": []}}
 
     # ---- MarketDataStreamProvider -------------------------------------------
@@ -469,7 +480,7 @@ class DatabentoMarketDataAdapter:
         if on_trade:
             self._client.on_trade = self._handle_databento_trade
         self._client.start_live(underlyings=symbols, schema="mbp-1")
-        logger.info(f"DatabentoMarketDataAdapter stream started for {symbols}")
+        logger.info("DatabentoMarketDataAdapter stream started for %s", symbols)
 
     def stop_stream(self) -> None:
         """Stop the active Databento live stream."""
@@ -516,7 +527,7 @@ class DatabentoMarketDataAdapter:
             )
             self._user_on_quote(nq)
         except Exception as exc:
-            logger.error(f"DatabentoAdapter: error normalizing quote: {exc}")
+            logger.error("DatabentoAdapter: error normalizing quote: %s", exc)
 
     def _handle_databento_trade(self, update: Any) -> None:
         """Convert MarketDataUpdate → NormalizedTrade and forward to caller."""
@@ -532,7 +543,7 @@ class DatabentoMarketDataAdapter:
             )
             self._user_on_trade(nt)
         except Exception as exc:
-            logger.error(f"DatabentoAdapter: error normalizing trade: {exc}")
+            logger.error("DatabentoAdapter: error normalizing trade: %s", exc)
 
 
 # ==============================================================================
@@ -541,7 +552,7 @@ class DatabentoMarketDataAdapter:
 class MassiveMarketDataAdapter:
     """
     Implements both ``OptionsDataProvider`` and ``MarketDataStreamProvider``
-    using ``SpyderC27_MassiveClient`` (Massive, formerly Polygon.io).
+    using ``SpyderC27_MassiveClient`` (Massive).
 
     Advantages over Tradier for options scanning:
         - Pre-calculated Greeks (delta/gamma/theta/vega) on every contract —
@@ -561,7 +572,6 @@ class MassiveMarketDataAdapter:
     def __init__(self) -> None:
         try:
             from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
-                MassiveClient as _MassiveClient,
                 MassiveQuoteUpdate,
                 MassiveTradeUpdate,
                 create_massive_client_from_env as _create,
@@ -669,7 +679,7 @@ class MassiveMarketDataAdapter:
             dates = self._client.get_option_expirations(symbol)
             return {"expirations": {"date": dates}}
         except Exception as exc:
-            logger.error(f"MassiveAdapter: error fetching expirations for {symbol}: {exc}")
+            logger.error("MassiveAdapter: error fetching expirations for %s: %s", symbol, exc)
             return {"expirations": {"date": []}}
 
     # ---- MarketDataStreamProvider -------------------------------------------
@@ -699,7 +709,7 @@ class MassiveMarketDataAdapter:
             include_quotes=on_quote is not None,
             include_trades=on_trade is not None,
         )
-        logger.info(f"MassiveMarketDataAdapter stream started for {symbols}")
+        logger.info("MassiveMarketDataAdapter stream started for %s", symbols)
 
     def stop_stream(self) -> None:
         """Stop the active Massive WebSocket stream."""
@@ -743,7 +753,7 @@ class MassiveMarketDataAdapter:
             )
             self._user_on_quote(nq)
         except Exception as exc:
-            logger.error(f"MassiveAdapter: error normalizing quote: {exc}")
+            logger.error("MassiveAdapter: error normalizing quote: %s", exc)
 
     def _handle_massive_trade(self, update: Any) -> None:
         """Convert MassiveTradeUpdate → NormalizedTrade and forward to caller."""
@@ -760,7 +770,7 @@ class MassiveMarketDataAdapter:
             )
             self._user_on_trade(nt)
         except Exception as exc:
-            logger.error(f"MassiveAdapter: error normalizing trade: {exc}")
+            logger.error("MassiveAdapter: error normalizing trade: %s", exc)
 
 
 # ==============================================================================
@@ -880,7 +890,7 @@ def switch_market_data_provider(provider: str) -> None:
             "'tradier', 'databento', and 'massive'."
         )
     os.environ["MARKET_DATA_PROVIDER"] = provider
-    logger.info(f"MARKET_DATA_PROVIDER switched to '{provider}' (session-level).")
+    logger.info("MARKET_DATA_PROVIDER switched to '%s' (session-level).", provider)
 
 
 # ==============================================================================

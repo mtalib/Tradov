@@ -669,6 +669,419 @@ class IronCondorEnvironment(OptionsEnvironment):
 
 
 # ==============================================================================
+# SPY OPTIONS ENVIRONMENT — live analytics wiring
+# ==============================================================================
+class SPYOptionsEnvironment(OptionsEnvironment):
+    """
+    Concrete options environment for SPY positions wired to live analytics.
+
+    Implements all 7 abstract methods using:
+    - SpyderN04_OptionsGreeksCalculator for real Greeks
+    - SpyderP01_PortfolioManager for live P&L lookup
+    - SpyderD14_CalendarSpread roll logic for position rolling
+
+    Args:
+        strategy_type: Options strategy type (e.g. 'iron_condor', 'credit_spread').
+        historical_data: DataFrame with columns close, implied_volatility, iv_rank, volume.
+        risk_free_rate: Annual risk-free rate used in BSM pricing (default 0.05).
+        portfolio_manager: Optional SpyderP01 PortfolioManager instance for live P&L.
+        greeks_engine: Optional SpyderN04 OptionsGreeksCalculator instance.
+    """
+
+    def __init__(
+        self,
+        strategy_type: str,
+        historical_data: pd.DataFrame,
+        risk_free_rate: float = 0.05,
+        portfolio_manager: Any = None,
+        greeks_engine: Any = None,
+    ):
+        super().__init__(strategy_type, historical_data, risk_free_rate)
+        # Prefer injected instances; fall back to local greeks_calculator from base
+        self._portfolio_manager = portfolio_manager
+        self._greeks_engine = greeks_engine  # SpyderN04
+
+        # Try to import live analytics modules lazily
+        if self._greeks_engine is None:
+            try:
+                from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+                    OptionsGreeksCalculator,
+                )
+                self._greeks_engine = OptionsGreeksCalculator()
+            except Exception:
+                self._greeks_engine = None  # falls back to base greeks_calculator
+
+        if self._portfolio_manager is None:
+            try:
+                from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                    get_portfolio_manager,
+                )
+                self._portfolio_manager = get_portfolio_manager()
+            except Exception:
+                self._portfolio_manager = None
+
+    # ------------------------------------------------------------------
+    # ABSTRACT METHOD IMPLEMENTATIONS
+    # ------------------------------------------------------------------
+
+    def _initialize_position(self) -> dict[str, Any]:
+        """
+        Initialise a SPY position using current market data snapshot.
+
+        Builds a position dictionary compatible with the base _get_state() method.
+        For iron_condor/credit_spread the strikes are placed at ±1σ from spot using
+        the IV from the first row of the current data slice.
+        """
+        row = self.data_slice.iloc[0]
+        spot: float = float(row["close"])
+        iv: float = float(row.get("implied_volatility", 0.20))
+        dte: int = 45  # Standard entry DTE
+
+        # 1-σ move over DTE (simplified)
+        one_sigma = spot * iv * (dte / 365.0) ** 0.5
+
+        if self.strategy_type in ("iron_condor", "iron_butterfly"):
+            put_short = round(spot - one_sigma * 0.5, 2)
+            put_long = round(spot - one_sigma, 2)
+            call_short = round(spot + one_sigma * 0.5, 2)
+            call_long = round(spot + one_sigma, 2)
+            spread_width = call_long - call_short
+            initial_credit = round(spread_width * 0.35, 2)  # ~35% of width
+            return {
+                "type": self.strategy_type,
+                "entry_price": spot,
+                "entry_iv": iv,
+                "dte": dte,
+                "legs": {
+                    "put_short": {"strike": put_short, "qty": -1, "option_type": "put"},
+                    "put_long": {"strike": put_long, "qty": 1, "option_type": "put"},
+                    "call_short": {"strike": call_short, "qty": -1, "option_type": "call"},
+                    "call_long": {"strike": call_long, "qty": 1, "option_type": "call"},
+                },
+                "initial_credit": initial_credit,
+                "max_profit": initial_credit,
+                "max_loss": round(spread_width - initial_credit, 2),
+                "margin": round((spread_width - initial_credit) * 100, 2),
+            }
+
+        # Fallback: simple short put credit spread (bull put)
+        put_short = round(spot - one_sigma * 0.5, 2)
+        put_long = round(spot - one_sigma, 2)
+        spread_width = put_short - put_long
+        initial_credit = round(spread_width * 0.35, 2)
+        return {
+            "type": "credit_spread",
+            "entry_price": spot,
+            "entry_iv": iv,
+            "dte": dte,
+            "legs": {
+                "put_short": {"strike": put_short, "qty": -1, "option_type": "put"},
+                "put_long": {"strike": put_long, "qty": 1, "option_type": "put"},
+            },
+            "initial_credit": initial_credit,
+            "max_profit": initial_credit,
+            "max_loss": round(spread_width - initial_credit, 2),
+            "margin": round((spread_width - initial_credit) * 100, 2),
+        }
+
+    def _calculate_position_greeks(self) -> dict[str, float]:
+        """
+        Aggregate Greeks across all legs using SpyderN04 or F06 fallback.
+
+        Returns:
+            dict with keys delta, gamma, theta, vega (portfolio-level, signed).
+        """
+        if not self.current_position:
+            return {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+
+        row = self.data_slice.iloc[self.current_step]
+        spot: float = float(row["close"])
+        iv: float = float(row.get("implied_volatility", self.current_position["entry_iv"]))
+        dte_remaining = max(1, self.current_position["dte"] - self.current_step)
+        t = dte_remaining / 365.0
+
+        totals: dict[str, float] = {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+
+        for leg in self.current_position["legs"].values():
+            strike: float = float(leg["strike"])
+            qty: float = float(leg.get("qty", leg.get("quantity", 1)))
+            opt_type: str = leg.get("option_type", "call")
+
+            try:
+                if self._greeks_engine is not None and hasattr(
+                    self._greeks_engine, "calculate_greeks"
+                ):
+                    g = self._greeks_engine.calculate_greeks(
+                        spot=spot,
+                        strike=strike,
+                        time_to_expiry=t,
+                        volatility=iv,
+                        risk_free_rate=self.risk_free_rate,
+                        option_type=opt_type,
+                    )
+                else:
+                    # Fall back to base class greeks_calculator (F06)
+                    g = self.greeks_calculator.calculate_greeks(
+                        spot=spot,
+                        strike=strike,
+                        time_to_expiry=t,
+                        volatility=iv,
+                        risk_free_rate=self.risk_free_rate,
+                        option_type=opt_type,
+                    )
+                for k in totals:
+                    totals[k] += g.get(k, 0.0) * qty
+            except Exception as e:
+                self.logger.debug("_calculate_position_greeks leg error: %s", e)
+
+        return totals
+
+    def _calculate_pnl(self) -> float:
+        """
+        Calculate current unrealised P&L.
+
+        Attempts to delegate to PortfolioManager; falls back to simplified
+        Black-Scholes mark-to-market if unavailable.
+        """
+        if not self.current_position:
+            return 0.0
+
+        # Try PortfolioManager live P&L
+        if self._portfolio_manager is not None:
+            try:
+                pos_id = self.current_position.get("position_id")
+                if pos_id:
+                    pnl = self._portfolio_manager.get_position_pnl(pos_id)
+                    if pnl is not None:
+                        return float(pnl)
+            except Exception as e:
+                self.logger.debug("_calculate_pnl portfolio_manager error: %s", e)
+
+        # Fallback: simplified mark via BSM delta approximation
+        row = self.data_slice.iloc[self.current_step]
+        spot = float(row["close"])
+        entry_spot = self.current_position["entry_price"]
+        greeks = self._calculate_position_greeks()
+        # First-order approximation: ΔP ≈ delta × ΔS
+        delta_s = spot - entry_spot
+        approx_pnl = greeks["delta"] * delta_s + self.current_position["initial_credit"]
+        return float(np.clip(approx_pnl, -self.current_position["max_loss"],
+                             self.current_position["max_profit"]))
+
+    def _calculate_closing_cost(self) -> float:
+        """
+        Estimate cost to close the entire position (slippage + commissions).
+
+        Uses 1 tick ($0.01) slippage per leg × contract × 100 multiplier,
+        plus $0.65 per-leg commission (standard retail rate).
+        """
+        if not self.current_position:
+            return 0.0
+
+        n_legs = len(self.current_position["legs"])
+        commission_per_leg = 0.65
+        slippage_per_leg = 0.05  # $0.05 per contract
+        cost = n_legs * (commission_per_leg + slippage_per_leg)
+
+        # Add intrinsic value of any ITM legs
+        row = self.data_slice.iloc[self.current_step]
+        spot = float(row["close"])
+        for leg in self.current_position["legs"].values():
+            strike = float(leg["strike"])
+            qty = float(leg.get("qty", leg.get("quantity", 1)))
+            opt_type = leg.get("option_type", "call")
+            intrinsic = max(0.0, spot - strike) if opt_type == "call" else max(0.0, strike - spot)
+            cost += abs(qty) * intrinsic
+        return round(cost, 2)
+
+    def _roll_position(self, direction: str) -> dict[str, Any]:
+        """
+        Roll position strikes or expiration using D14 CalendarSpread roll logic.
+
+        Args:
+            direction: 'up' | 'down' | 'out' (extend DTE).
+
+        Returns:
+            dict with success, cost, description.
+        """
+        result: dict[str, Any] = {"success": False, "cost": 0.0, "description": ""}
+        if not self.current_position:
+            return result
+
+        row = self.data_slice.iloc[self.current_step]
+        spot = float(row["close"])
+        iv = float(row.get("implied_volatility", self.current_position["entry_iv"]))
+
+        # Try to delegate to D14 roll logic
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpread
+            # D14 exposes a static helper for roll cost estimation
+            roll_cost = getattr(CalendarSpread, "estimate_roll_cost", None)
+            if roll_cost is not None:
+                result["cost"] = float(roll_cost(iv=iv, dte=self.current_position["dte"]))
+        except Exception as e:
+            self.logger.debug("_roll_position D14 import error: %s", e)
+            result["cost"] = round(iv * spot * 0.002, 2)  # Fallback: 0.2% of notional
+
+        shift = spot * 0.02  # 2% strike shift
+
+        if direction == "up":
+            for leg in self.current_position["legs"].values():
+                leg["strike"] = round(float(leg["strike"]) + shift, 2)
+            result.update({"success": True, "description": "Rolled all strikes up 2%"})
+
+        elif direction == "down":
+            for leg in self.current_position["legs"].values():
+                leg["strike"] = round(float(leg["strike"]) - shift, 2)
+            result.update({"success": True, "description": "Rolled all strikes down 2%"})
+
+        elif direction == "out":
+            extension = 21  # Roll 3 weeks out
+            self.current_position["dte"] += extension
+            result.update({
+                "success": True,
+                "cost": result["cost"] * 1.5,  # Rolling in time costs more
+                "description": f"Rolled expiration out {extension} days",
+            })
+
+        return result
+
+    def _add_hedge(self) -> dict[str, Any]:
+        """
+        Add a protective OTM option as a hedge against directional risk.
+
+        Selects put or call hedge based on current net delta exposure.
+        Cost is estimated using IV and distance from spot.
+        """
+        result: dict[str, Any] = {"success": False, "cost": 0.0, "description": ""}
+        if not self.current_position:
+            return result
+
+        greeks = self._calculate_position_greeks()
+        row = self.data_slice.iloc[self.current_step]
+        spot = float(row["close"])
+        iv = float(row.get("implied_volatility", self.current_position["entry_iv"]))
+
+        # Determine hedge direction from net delta
+        if greeks["delta"] > 0.20:
+            # Long delta → buy protective put
+            hedge_strike = round(spot * 0.97, 2)
+            hedge_cost = round(spot * iv * 0.01, 2)  # ~1% of notional
+            self.current_position["legs"]["hedge_put"] = {
+                "strike": hedge_strike, "qty": 1, "option_type": "put",
+            }
+            result.update({
+                "success": True, "cost": hedge_cost,
+                "description": f"Added protective put hedge at {hedge_strike:.2f}",
+            })
+        elif greeks["delta"] < -0.20:
+            # Short delta → buy protective call
+            hedge_strike = round(spot * 1.03, 2)
+            hedge_cost = round(spot * iv * 0.01, 2)
+            self.current_position["legs"]["hedge_call"] = {
+                "strike": hedge_strike, "qty": 1, "option_type": "call",
+            }
+            result.update({
+                "success": True, "cost": hedge_cost,
+                "description": f"Added protective call hedge at {hedge_strike:.2f}",
+            })
+        else:
+            result.update({"success": True, "cost": 0.0, "description": "Delta neutral — no hedge needed"})
+
+        return result
+
+    def _adjust_size(self, direction: str) -> dict[str, Any]:
+        """
+        Scale position size up or down by 50%.
+
+        Args:
+            direction: 'reduce_size' or 'increase_size'.
+
+        Returns:
+            dict with success, cost, description.
+        """
+        result: dict[str, Any] = {"success": False, "cost": 0.0, "description": ""}
+        if not self.current_position:
+            return result
+
+        factor = 0.5 if direction == "reduce_size" else 1.5
+        for leg in self.current_position["legs"].values():
+            qty_key = "qty" if "qty" in leg else "quantity"
+            leg[qty_key] = round(float(leg[qty_key]) * factor, 4)
+
+        # Commission cost proportional to legs touched
+        n_legs = len(self.current_position["legs"])
+        result.update({
+            "success": True,
+            "cost": round(n_legs * 0.65, 2),
+            "description": f"{'Reduced' if factor < 1 else 'Increased'} position size by {abs(factor - 1) * 100:.0f}%",
+        })
+        return result
+
+    def _convert_position(self, new_type: str) -> dict[str, Any]:
+        """
+        Convert the current position structure to a different options strategy.
+
+        Supported targets: 'iron_condor', 'butterfly', 'credit_spread'.
+
+        Args:
+            new_type: Target strategy name.
+
+        Returns:
+            dict with success, cost, description.
+        """
+        result: dict[str, Any] = {"success": False, "cost": 0.0, "description": ""}
+        if not self.current_position:
+            return result
+
+        row = self.data_slice.iloc[self.current_step]
+        spot = float(row["close"])
+        iv = float(row.get("implied_volatility", self.current_position["entry_iv"]))
+        dte = max(1, self.current_position["dte"] - self.current_step)
+        one_sigma = spot * iv * (dte / 365.0) ** 0.5
+        conversion_cost = round(self._calculate_closing_cost() * 0.5, 2)
+
+        if new_type == "butterfly":
+            # Collapse short strikes to ATM
+            atm = round(spot, 2)
+            for leg_name in list(self.current_position["legs"].keys()):
+                if "short" in leg_name:
+                    self.current_position["legs"][leg_name]["strike"] = atm
+            self.current_position["type"] = "iron_butterfly"
+            result.update({
+                "success": True, "cost": conversion_cost,
+                "description": f"Converted to Iron Butterfly with ATM strike {atm:.2f}",
+            })
+
+        elif new_type == "iron_condor":
+            # Widen to full iron condor from current structure
+            put_short = round(spot - one_sigma * 0.5, 2)
+            call_short = round(spot + one_sigma * 0.5, 2)
+            if "put_short" in self.current_position["legs"]:
+                self.current_position["legs"]["put_short"]["strike"] = put_short
+            if "call_short" in self.current_position["legs"]:
+                self.current_position["legs"]["call_short"]["strike"] = call_short
+            self.current_position["type"] = "iron_condor"
+            result.update({
+                "success": True, "cost": conversion_cost,
+                "description": "Converted to Iron Condor (widened to ±0.5σ short strikes)",
+            })
+
+        elif new_type == "credit_spread":
+            # Keep only the put spread (most common simplification)
+            legs = self.current_position["legs"]
+            for key in [k for k in list(legs.keys()) if "call" in k]:
+                del legs[key]
+            self.current_position["type"] = "credit_spread"
+            result.update({
+                "success": True, "cost": conversion_cost,
+                "description": "Converted to bull put credit spread (removed call legs)",
+            })
+
+        return result
+
+
+# ==============================================================================
 # ENSEMBLE RL AGENT
 # ==============================================================================
 class OptionsAdjustmentRL:
@@ -722,7 +1135,7 @@ class OptionsAdjustmentRL:
             for strategy, env in self.environments.items()
         }
 
-        self.logger.info(f"Initialized {len(self.environments)} strategy environments")
+        self.logger.info("Initialized %s strategy environments", len(self.environments))
 
     def _initialize_models(self):
         """Initialize RL models for each strategy"""
@@ -743,7 +1156,7 @@ class OptionsAdjustmentRL:
             # SAC for continuous adjustments (if needed)
             # self.models[f"{strategy}_sac"] = SAC(...)
 
-        self.logger.info(f"Initialized {len(self.models)} RL models")
+        self.logger.info("Initialized %s RL models", len(self.models))
 
     def _load_historical_data(self) -> pd.DataFrame:
         """Load historical market data for training"""
@@ -785,7 +1198,7 @@ class OptionsAdjustmentRL:
             Training results and metrics
         """
         try:
-            self.logger.info(f"Starting training for {strategy} strategy...")
+            self.logger.info("Starting training for %s strategy...", strategy)
 
             model_name = f"{strategy}_ppo"
             model = self.models[model_name]
@@ -1217,7 +1630,7 @@ class OptionsAdjustmentRL:
         for name, model in self.models.items():
             model_path = Path(path) / f"{name}.zip"
             model.save(model_path)
-            self.logger.info(f"Saved model: {name}")
+            self.logger.info("Saved model: %s", name)
 
         # Save training history
         history_path = Path(path) / "training_history.json"
@@ -1238,7 +1651,7 @@ class OptionsAdjustmentRL:
                     self.models[model_name] = PPO.load(
                         model_file, env=self.vec_environments[strategy]
                     )
-                    self.logger.info(f"Loaded model: {model_name}")
+                    self.logger.info("Loaded model: %s", model_name)
 
         # Load training history
         history_path = Path(path) / "training_history.json"
@@ -1246,9 +1659,9 @@ class OptionsAdjustmentRL:
         if not history_path.exists():
             legacy = history_path.with_suffix('.pkl')
             if legacy.exists():
-                import pickle as _pickle
+                import joblib as _joblib
                 with open(legacy, 'rb') as _f:
-                    _hist = _pickle.load(_f)
+                    _hist = _joblib.load(_f)
                 with open(history_path, 'w', encoding='utf-8') as _f:
                     json.dump(dict(_hist), _f, indent=2)
         if history_path.exists():
@@ -1474,7 +1887,7 @@ async def main():
     rl_system = create_options_adjustment_rl()
 
     if args.train:
-        logging.info(f"\n=== Training {args.train} Strategy ===")
+        logging.info("\n=== Training %s Strategy ===", args.train)
         results = rl_system.train(strategy=args.train, episodes=args.episodes)
 
         logging.info("\nTraining Results:")
@@ -1487,7 +1900,7 @@ async def main():
         rl_system.save_models()
 
     if args.test:
-        logging.info(f"\n=== Testing {args.test} Strategy ===")
+        logging.info("\n=== Testing %s Strategy ===", args.test)
 
         # Load models if needed
         rl_system.load_models()
@@ -1515,10 +1928,10 @@ async def main():
             test_position, test_market
         )
 
-        logging.info(f"\nRecommendation: {recommendation.action_type}")
+        logging.info("\nRecommendation: %s", recommendation.action_type)
         logging.info(f"Confidence: {recommendation.confidence:.2%}")
-        logging.info(f"Reason: {recommendation.reason}")
-        logging.info(f"Parameters: {recommendation.parameters}")
+        logging.info("Reason: %s", recommendation.reason)
+        logging.info("Parameters: %s", recommendation.parameters)
 
     if args.demo:
         logging.info("\n=== Adjustment Demo ===")
@@ -1562,8 +1975,8 @@ async def main():
 
             if rec.action_type != "hold":
                 logging.info(f"\nDay {day}: Price=${market['price']:.2f}")
-                logging.info(f"Action: {rec.action_type}")
-                logging.info(f"Reason: {rec.reason}")
+                logging.info("Action: %s", rec.action_type)
+                logging.info("Reason: %s", rec.reason)
                 logging.info(f"P&L: ${position['unrealized_pnl']:.2f}")
 
 

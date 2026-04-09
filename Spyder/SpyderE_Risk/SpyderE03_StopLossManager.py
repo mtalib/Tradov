@@ -48,7 +48,7 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 try:
@@ -293,7 +293,7 @@ class StopLossManager:
 
                 # Validate stop price
                 if not self._validate_stop_price(initial_stop_price, entry_price, position_side):
-                    self.logger.error(f"Invalid stop price calculated: {initial_stop_price}")
+                    self.logger.error("Invalid stop price calculated: %s", initial_stop_price)
                     initial_stop_price = self._calculate_emergency_stop(entry_price, position_side)
 
                 # Create initial stop order
@@ -352,7 +352,7 @@ class StopLossManager:
                 return position_stops
 
         except Exception as e:
-            self.logger.error(f"Error creating position stops: {e}")
+            self.logger.error("Error creating position stops: %s", e)
             self.error_handler.handle_error(e, {"method": "create_position_stops"})
 
             # Return minimal stop setup
@@ -424,7 +424,7 @@ class StopLossManager:
                 return updated_stops
 
             except Exception as e:
-                self.logger.error(f"Error updating stops: {e}")
+                self.logger.error("Error updating stops: %s", e)
                 self.error_handler.handle_error(e, {"method": "update_stops"})
                 return []
 
@@ -569,7 +569,7 @@ class StopLossManager:
             return round(stop_price, 2)
 
         except Exception as e:
-            self.logger.error(f"ATR calculation error: {e}")
+            self.logger.error("ATR calculation error: %s", e)
             return self._calculate_percentage_stop(entry_price, position_side, 0.02)
 
     def _calculate_percentage_stop(
@@ -620,7 +620,7 @@ class StopLossManager:
             return round(stop_price, 2)
 
         except Exception as e:
-            self.logger.error(f"Technical stop calculation error: {e}")
+            self.logger.error("Technical stop calculation error: %s", e)
             return self._calculate_percentage_stop(entry_price, position_side, 0.02)
 
     def _calculate_emergency_stop(self, entry_price: float, position_side: PositionSide) -> float:
@@ -848,15 +848,15 @@ class StopLossManager:
                 stop_order.status = StopStatus.SUBMITTED
                 self.broker_order_map[broker_order_id] = stop_order.order_id
 
-                self.logger.info(f"Stop order submitted to broker: {stop_order.order_id}")
+                self.logger.info("Stop order submitted to broker: %s", stop_order.order_id)
                 return True
             else:
                 stop_order.status = StopStatus.REJECTED
-                self.logger.error(f"Broker rejected stop order: {stop_order.order_id}")
+                self.logger.error("Broker rejected stop order: %s", stop_order.order_id)
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error submitting stop to broker: {e}")
+            self.logger.error("Error submitting stop to broker: %s", e)
             stop_order.status = StopStatus.ACTIVE  # Fallback to manual monitoring
             return False
 
@@ -873,14 +873,14 @@ class StopLossManager:
             )
 
             if success:
-                self.logger.debug(f"Stop order modified with broker: {stop_order.order_id}")
+                self.logger.debug("Stop order modified with broker: %s", stop_order.order_id)
                 return True
             else:
-                self.logger.error(f"Failed to modify stop order: {stop_order.order_id}")
+                self.logger.error("Failed to modify stop order: %s", stop_order.order_id)
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error modifying stop with broker: {e}")
+            self.logger.error("Error modifying stop with broker: %s", e)
             return False
 
     def _cancel_stop_order(self, stop_order: StopOrder) -> bool:
@@ -890,9 +890,9 @@ class StopLossManager:
         if self.broker_client and stop_order.broker_order_id:
             try:
                 self.broker_client.cancel_order(stop_order.broker_order_id)
-                self.logger.debug(f"Stop order cancelled with broker: {stop_order.order_id}")
+                self.logger.debug("Stop order cancelled with broker: %s", stop_order.order_id)
             except Exception as e:
-                self.logger.error(f"Error cancelling stop with broker: {e}")
+                self.logger.error("Error cancelling stop with broker: %s", e)
 
         return True
 
@@ -1163,7 +1163,7 @@ class StopLossManager:
         """
         with self._lock:
             self.strategy_configs[strategy] = config
-            self.logger.info(f"Configured stops for strategy {strategy}")
+            self.logger.info("Configured stops for strategy %s", strategy)
 
     def get_position_stops(self, position_id: str) -> PositionStops | None:
         """Get stops for a position."""
@@ -1199,7 +1199,7 @@ class StopLossManager:
                 if partial_stop.status in [StopStatus.ACTIVE, StopStatus.PENDING]:
                     self._cancel_stop_order(partial_stop)
 
-            self.logger.info(f"Cancelled all stops for position {position_id}")
+            self.logger.info("Cancelled all stops for position %s", position_id)
 
     def cleanup_position(self, position_id: str) -> None:
         """Clean up stops for closed position."""
@@ -1217,7 +1217,7 @@ class StopLossManager:
                     if stop.position_id != position_id
                 }
 
-                self.logger.info(f"Cleaned up stops for position {position_id}")
+                self.logger.info("Cleaned up stops for position %s", position_id)
 
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS
@@ -1314,7 +1314,7 @@ class StopLossManager:
                 threading.Event().wait(10)  # Check every 10 seconds
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
                 self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
 
     def _sync_broker_status(self, position_stops: PositionStops) -> None:
@@ -1332,10 +1332,10 @@ class StopLossManager:
                 active_stop.triggered_at = datetime.now()
                 active_stop.trigger_reason = "Broker execution"
 
-                self.logger.info(f"Stop executed by broker: {active_stop.order_id}")
+                self.logger.info("Stop executed by broker: %s", active_stop.order_id)
 
         except Exception as e:
-            self.logger.error(f"Error syncing broker status: {e}")
+            self.logger.error("Error syncing broker status: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS

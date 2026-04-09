@@ -54,7 +54,8 @@ import traceback
 import psutil
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
@@ -268,11 +269,11 @@ class FSeriesOrchestrator:
     def _log_configuration(self) -> None:
         """Log orchestrator configuration details"""
         self.logger.info("F-Series Orchestrator Configuration:")
-        self.logger.info(f"  Max Concurrent Tasks: {self.config.max_concurrent_tasks}")
-        self.logger.info(f"  Resource Strategy: {self.config.resource_allocation_strategy}")
-        self.logger.info(f"  Auto Scaling: {self.config.auto_scaling_enabled}")
-        self.logger.info(f"  Failover: {self.config.failover_enabled}")
-        self.logger.info(f"  Task Timeout: {self.config.task_timeout_s}s")
+        self.logger.info("  Max Concurrent Tasks: %s", self.config.max_concurrent_tasks)
+        self.logger.info("  Resource Strategy: %s", self.config.resource_allocation_strategy)
+        self.logger.info("  Auto Scaling: %s", self.config.auto_scaling_enabled)
+        self.logger.info("  Failover: %s", self.config.failover_enabled)
+        self.logger.info("  Task Timeout: %ss", self.config.task_timeout_s)
 
     # ==========================================================================
     # MODULE REGISTRATION AND INTERFACES
@@ -287,11 +288,11 @@ class FSeriesOrchestrator:
             self.f_series_modules[module_name] = module_instance
             self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)
 
-            self.logger.info(f"F-series module registered: {module_name}")
+            self.logger.info("F-series module registered: %s", module_name)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register F-series module {module_name}: {e}")
+            self.logger.error("Failed to register F-series module %s: %s", module_name, e)
             return False
 
     def register_c_series_module(self, module_name: str, module_instance: Any) -> bool:
@@ -303,11 +304,11 @@ class FSeriesOrchestrator:
             self.c_series_modules[module_name] = module_instance
             self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)
 
-            self.logger.info(f"C-series module registered: {module_name}")
+            self.logger.info("C-series module registered: %s", module_name)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register C-series module {module_name}: {e}")
+            self.logger.error("Failed to register C-series module %s: %s", module_name, e)
             return False
 
     def _create_module_interface(self, module_name: str, module_instance: Any) -> dict[str, Callable]:
@@ -395,11 +396,11 @@ class FSeriesOrchestrator:
             queue_item = (priority.value, time.time(), task)
             self.task_queues[priority].put(queue_item)
 
-            self.logger.debug(f"Task submitted: {task_id} [{module_name}.{function_name}]")
+            self.logger.debug("Task submitted: %s [%s.%s]", task_id, module_name, function_name)
             return task_id
 
         except Exception as e:
-            self.logger.error(f"Failed to submit task: {e}")
+            self.logger.error("Failed to submit task: %s", e)
             raise
 
     def _get_default_resources(self, module_name: str) -> ResourceAllocation:
@@ -502,12 +503,12 @@ class FSeriesOrchestrator:
                 queue_item = (task.priority.value, time.time(), task)
                 self.task_queues[task.priority].put(queue_item)
 
-                self.logger.warning(f"Task {task.task_id} failed, retrying ({task.retry_count}/{task.max_retries})")
+                self.logger.warning("Task %s failed, retrying (%s/%s)", task.task_id, task.retry_count, task.max_retries)
             else:
                 self.completed_tasks[task.task_id] = task
                 if task.task_id in self.running_tasks:
                     del self.running_tasks[task.task_id]
-                self.logger.error(f"Task {task.task_id} failed permanently: {e}")
+                self.logger.error("Task %s failed permanently: %s", task.task_id, e)
 
             return False
 
@@ -536,7 +537,7 @@ class FSeriesOrchestrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Resource allocation failed for task {task.task_id}: {e}")
+            self.logger.error("Resource allocation failed for task %s: %s", task.task_id, e)
             return False
 
     def _release_resources(self, task: ModuleTask) -> None:
@@ -545,7 +546,7 @@ class FSeriesOrchestrator:
             if task.task_id in self.resource_allocations:
                 del self.resource_allocations[task.task_id]
         except Exception as e:
-            self.logger.error(f"Resource release failed for task {task.task_id}: {e}")
+            self.logger.error("Resource release failed for task %s: %s", task.task_id, e)
 
     def _check_resource_availability(self, requirements: ResourceAllocation) -> bool:
         """Check if required resources are available"""
@@ -590,7 +591,7 @@ class FSeriesOrchestrator:
             metrics.last_activity = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Failed to update metrics for {task.module_name}: {e}")
+            self.logger.error("Failed to update metrics for %s: %s", task.module_name, e)
 
     # ==========================================================================
     # ORCHESTRATION ENGINE
@@ -632,11 +633,11 @@ class FSeriesOrchestrator:
 
         while self.running_tasks and (time.time() - start_time) < timeout:
             await asyncio.sleep(1)
-            self.logger.info(f"Waiting for {len(self.running_tasks)} tasks to complete...")
+            self.logger.info("Waiting for %s tasks to complete...", len(self.running_tasks))
 
         # Force stop remaining tasks if timeout exceeded
         if self.running_tasks:
-            self.logger.warning(f"Force stopping {len(self.running_tasks)} remaining tasks")
+            self.logger.warning("Force stopping %s remaining tasks", len(self.running_tasks))
 
         self.logger.info("F-Series Orchestration Engine stopped")
 
@@ -659,7 +660,7 @@ class FSeriesOrchestrator:
                 await asyncio.sleep(0.1)
 
             except Exception as e:
-                self.logger.error(f"Orchestration loop error: {e}")
+                self.logger.error("Orchestration loop error: %s", e)
                 await asyncio.sleep(1)  # Longer sleep on error
 
     async def _process_priority_queues(self) -> None:
@@ -691,13 +692,13 @@ class FSeriesOrchestrator:
                 asyncio.create_task(self.execute_task(task))
                 current_running += 1
 
-                self.logger.debug(f"Started task: {task.task_id} [Priority: {priority.name}]")
+                self.logger.debug("Started task: %s [Priority: %s]", task.task_id, priority.name)
 
             except queue.Empty:
                 # No tasks in this priority queue
                 continue
             except Exception as e:
-                self.logger.error(f"Error processing priority queue {priority.name}: {e}")
+                self.logger.error("Error processing priority queue %s: %s", priority.name, e)
 
     async def _monitoring_loop(self) -> None:
         """System monitoring and health checks"""
@@ -721,7 +722,7 @@ class FSeriesOrchestrator:
                 await asyncio.sleep(self.config.performance_monitoring_interval_s)
 
             except Exception as e:
-                self.logger.error(f"Monitoring loop error: {e}")
+                self.logger.error("Monitoring loop error: %s", e)
                 await asyncio.sleep(10)  # Longer sleep on error
 
     def _update_system_resources(self) -> None:
@@ -753,7 +754,7 @@ class FSeriesOrchestrator:
                 self.system_resources.load_average = os.getloadavg()
 
         except Exception as e:
-            self.logger.error(f"Failed to update system resources: {e}")
+            self.logger.error("Failed to update system resources: %s", e)
 
     def _check_module_health(self) -> None:
         """Check health status of all registered modules"""
@@ -773,7 +774,7 @@ class FSeriesOrchestrator:
                     self.logger.warning(f"Module {module_name} health degraded: {metrics.health_score:.1f}")
 
             except Exception as e:
-                self.logger.error(f"Health check failed for {module_name}: {e}")
+                self.logger.error("Health check failed for %s: %s", module_name, e)
 
     def _optimize_resource_allocation(self) -> None:
         """Optimize resource allocation based on current system state"""
@@ -793,7 +794,7 @@ class FSeriesOrchestrator:
                 self.adaptive_parameters["memory_threshold"] = min(90, memory_usage + 15)
 
         except Exception as e:
-            self.logger.error(f"Resource optimization failed: {e}")
+            self.logger.error("Resource optimization failed: %s", e)
 
     def _detect_performance_bottlenecks(self) -> None:
         """Detect and log performance bottlenecks"""
@@ -813,10 +814,10 @@ class FSeriesOrchestrator:
             # Check task queue lengths
             for priority, task_queue in self.task_queues.items():
                 if task_queue.qsize() > 50:
-                    self.logger.warning(f"Task queue bottleneck: {priority.name} queue has {task_queue.qsize()} tasks")
+                    self.logger.warning("Task queue bottleneck: %s queue has %s tasks", priority.name, task_queue.qsize())
 
         except Exception as e:
-            self.logger.error(f"Bottleneck detection failed: {e}")
+            self.logger.error("Bottleneck detection failed: %s", e)
 
     def _update_performance_history(self) -> None:
         """Update performance history for trend analysis"""
@@ -833,7 +834,7 @@ class FSeriesOrchestrator:
             self.performance_history.append(performance_snapshot)
 
         except Exception as e:
-            self.logger.error(f"Performance history update failed: {e}")
+            self.logger.error("Performance history update failed: %s", e)
 
     def _adjust_adaptive_parameters(self) -> None:
         """Adjust adaptive parameters based on performance trends"""
@@ -856,7 +857,7 @@ class FSeriesOrchestrator:
                     self.adaptive_parameters["auto_scale_factor"] * 0.9)
 
         except Exception as e:
-            self.logger.error(f"Adaptive parameter adjustment failed: {e}")
+            self.logger.error("Adaptive parameter adjustment failed: %s", e)
 
     # ==========================================================================
     # TASK MANAGEMENT AND QUERIES
@@ -939,7 +940,7 @@ class FSeriesOrchestrator:
                 self.completed_tasks[task_id] = task
                 del self.running_tasks[task_id]
 
-                self.logger.info(f"Running task cancelled: {task_id}")
+                self.logger.info("Running task cancelled: %s", task_id)
                 return True
 
             # Check queued tasks and remove
@@ -957,7 +958,7 @@ class FSeriesOrchestrator:
                             task.error = "Task cancelled by user"
                             self.completed_tasks[task_id] = task
                             task_cancelled = True
-                            self.logger.info(f"Queued task cancelled: {task_id}")
+                            self.logger.info("Queued task cancelled: %s", task_id)
                         else:
                             temp_items.append(item)
                 except queue.Empty:
@@ -973,7 +974,7 @@ class FSeriesOrchestrator:
             return False
 
         except Exception as e:
-            self.logger.error(f"Failed to cancel task {task_id}: {e}")
+            self.logger.error("Failed to cancel task %s: %s", task_id, e)
             return False
 
     # ==========================================================================
@@ -1057,7 +1058,7 @@ class FSeriesOrchestrator:
             return report
 
         except Exception as e:
-            self.logger.error(f"Performance report generation failed: {e}")
+            self.logger.error("Performance report generation failed: %s", e)
             return {"error": str(e)}
 
     def export_performance_data(self, output_file: str | None = None) -> str:
@@ -1072,11 +1073,11 @@ class FSeriesOrchestrator:
             with open(output_file, 'w') as f:
                 json.dump(report, f, indent=2, default=str)
 
-            self.logger.info(f"Performance data exported to: {output_file}")
+            self.logger.info("Performance data exported to: %s", output_file)
             return output_file
 
         except Exception as e:
-            self.logger.error(f"Performance data export failed: {e}")
+            self.logger.error("Performance data export failed: %s", e)
             raise
 
 # ==============================================================================
@@ -1106,7 +1107,7 @@ class MasterControllerIntegration:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to register with Master Controller: {e}")
+            self.logger.error("Failed to register with Master Controller: %s", e)
             return False
 
     def handle_master_controller_commands(self, command: str, parameters: dict[str, Any]) -> Any:
@@ -1137,7 +1138,7 @@ class MasterControllerIntegration:
                 raise ValueError(f"Unknown command: {command}")
 
         except Exception as e:
-            self.logger.error(f"Command handling failed: {command} - {e}")
+            self.logger.error("Command handling failed: %s - %s", command, e)
             raise
 
 # ==============================================================================
@@ -1192,7 +1193,7 @@ async def main():
         )
         task_ids.append(task_id)
 
-        logging.info(f"✅ Submitted {len(task_ids)} test tasks")
+        logging.info("✅ Submitted %s test tasks", len(task_ids))
 
         # Monitor execution for 30 seconds
         logging.info("📊 Monitoring execution for 30 seconds...")
@@ -1211,15 +1212,15 @@ async def main():
         report = orchestrator.generate_performance_report()
 
         logging.info(f"Overall Success Rate: {report['aggregate_metrics']['overall_success_rate']:.1f}%")
-        logging.info(f"Tasks Completed: {report['aggregate_metrics']['total_tasks_completed']}")
+        logging.info("Tasks Completed: %s", report['aggregate_metrics']['total_tasks_completed'])
         logging.info(f"Average CPU Usage: {report['system_performance']['average_cpu_usage_percent']:.1f}%")
 
         # Export performance data
         export_file = orchestrator.export_performance_data()
-        logging.info(f"Performance data exported to: {export_file}")
+        logging.info("Performance data exported to: %s", export_file)
 
     except Exception as e:
-        logging.info(f"❌ Orchestrator test failed: {e}")
+        logging.info("❌ Orchestrator test failed: %s", e)
         traceback.print_exc()
 
     finally:

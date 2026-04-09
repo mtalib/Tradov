@@ -25,6 +25,8 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
+import os
 from datetime import datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
@@ -117,7 +119,7 @@ DEFAULT_CONFIG = {
 }
 
 # Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_MODEL = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
 DEFAULT_TEMPERATURE = 0.3
 
 # ==============================================================================
@@ -215,7 +217,7 @@ class SpyderX12_SystemHealthAgent:
                 self.ollama_client = ollama
                 self.logger.info("Ollama connection established")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error("Failed to connect to Ollama: %s", e)
 
         # Metric storage
         self.metrics_history = defaultdict(lambda: deque(maxlen=1440))  # 24h at 1min
@@ -306,7 +308,7 @@ class SpyderX12_SystemHealthAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"System health monitoring failed: {e}")
+            self.logger.error("System health monitoring failed: %s", e)
             return self._create_error_diagnostic(str(e))
 
     async def check_component_status(self,
@@ -333,7 +335,7 @@ class SpyderX12_SystemHealthAgent:
         Returns:
             List of performance predictions
         """
-        self.logger.info(f"Predicting failures for next {horizon_minutes} minutes")
+        self.logger.info("Predicting failures for next %s minutes", horizon_minutes)
 
         predictions = []
 
@@ -368,7 +370,7 @@ class SpyderX12_SystemHealthAgent:
         Returns:
             Remediation result
         """
-        self.logger.info(f"Attempting auto-remediation for {alert.component.value}")
+        self.logger.info("Attempting auto-remediation for %s", alert.component.value)
 
         if not alert.auto_remediation_available:
             return {
@@ -393,7 +395,7 @@ class SpyderX12_SystemHealthAgent:
             return result
 
         except Exception as e:
-            self.logger.error(f"Auto-remediation failed: {e}")
+            self.logger.error("Auto-remediation failed: %s", e)
             return {
                 'success': False,
                 'error': str(e)
@@ -467,7 +469,7 @@ Provide a JSON response:
                 return {'analysis': 'Failed to parse AI response'}
 
         except Exception as e:
-            self.logger.error(f"AI system analysis failed: {e}")
+            self.logger.error("AI system analysis failed: %s", e)
             return {'error': str(e)}
 
     async def _predict_metric(self, component: SystemComponent,
@@ -566,7 +568,7 @@ Provide a JSON response:
                 return None
 
         except Exception as e:
-            self.logger.error(f"AI metric prediction failed: {e}")
+            self.logger.error("AI metric prediction failed: %s", e)
             return None
 
     # ==========================================================================
@@ -1121,12 +1123,16 @@ def create_system_health_agent(model_name: str = DEFAULT_MODEL,
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX12_SystemHealthAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_system_health_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_system_health_agent()
     return _module_instance
 
 # ==============================================================================
@@ -1147,20 +1153,20 @@ async def test_system_health():
 
     diagnostic = await agent.monitor_system_health()
 
-    logging.info(f"Overall Status: {diagnostic.overall_status.value}")
+    logging.info("Overall Status: %s", diagnostic.overall_status.value)
     logging.info(f"Overall Health Score: {diagnostic.overall_health_score:.1f}/100")
 
     logging.info("\nComponent Health:")
     for component, health in list(diagnostic.component_health.items())[:5]:
-        logging.info(f"  {component.value}:")
-        logging.info(f"    Status: {health.status.value}")
+        logging.info("  %s:", component.value)
+        logging.info("    Status: %s", health.status.value)
         logging.info(f"    Score: {health.health_score:.1f}")
         if health.issues:
-            logging.info(f"    Issues: {', '.join(health.issues[:2])}")
+            logging.info("    Issues: %s", ', '.join(health.issues[:2]))
 
-    logging.info(f"\nActive Issues: {len(diagnostic.active_issues)}")
+    logging.info("\nActive Issues: %s", len(diagnostic.active_issues))
     for issue in diagnostic.active_issues[:3]:
-        logging.info(f"  [{issue['severity']}] {issue['description']}")
+        logging.info("  [%s] %s", issue['severity'], issue['description'])
 
     # Test 2: Failure Predictions
     logging.info("\n\nTest 2: Failure Predictions")
@@ -1168,14 +1174,14 @@ async def test_system_health():
 
     predictions = await agent.predict_failures(horizon_minutes=30)
 
-    logging.info(f"Predicted Issues: {len(predictions)}")
+    logging.info("Predicted Issues: %s", len(predictions))
     for pred in predictions[:3]:
-        logging.info(f"\n{pred.component.value} - {pred.metric_type.value}:")
+        logging.info("\n%s - %s:", pred.component.value, pred.metric_type.value)
         logging.info(f"  Predicted Value: {pred.predicted_value:.2f}")
-        logging.info(f"  Risk Level: {pred.risk_level}")
+        logging.info("  Risk Level: %s", pred.risk_level)
         logging.info(f"  Confidence: {pred.confidence:.1%}")
         if pred.recommended_action:
-            logging.info(f"  Action: {pred.recommended_action}")
+            logging.info("  Action: %s", pred.recommended_action)
 
     # Test 3: Component Status Check
     logging.info("\n\nTest 3: Component Status Check")
@@ -1183,11 +1189,11 @@ async def test_system_health():
 
     trading_health = await agent.check_component_status(SystemComponent.TRADING_ENGINE)
 
-    logging.info(f"Component: {trading_health.component.value}")
-    logging.info(f"Status: {trading_health.status.value}")
+    logging.info("Component: %s", trading_health.component.value)
+    logging.info("Status: %s", trading_health.status.value)
     logging.info(f"Health Score: {trading_health.health_score:.1f}")
     logging.info(f"Uptime: {trading_health.uptime_percentage:.1f}%")
-    logging.info(f"Dependencies OK: {trading_health.dependencies_ok}")
+    logging.info("Dependencies OK: %s", trading_health.dependencies_ok)
 
     logging.info("\nMetrics:")
     for metric, value in list(trading_health.metrics.items())[:3]:
@@ -1212,8 +1218,8 @@ async def test_system_health():
     remediation_result = await agent.auto_remediate(test_alert)
 
     logging.info("Remediation Result:")
-    logging.info(f"  Success: {remediation_result.get('success', False)}")
-    logging.info(f"  Action: {remediation_result.get('action', 'N/A')}")
+    logging.info("  Success: %s", remediation_result.get('success', False))
+    logging.info("  Action: %s", remediation_result.get('action', 'N/A'))
     logging.info(f"  Duration: {remediation_result.get('duration', 0):.1f}s")
 
 # ==============================================================================

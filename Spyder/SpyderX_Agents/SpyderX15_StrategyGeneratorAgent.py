@@ -41,8 +41,6 @@ try:
 except ImportError:
     SPYDER_LOGGER_AVAILABLE = False
     import logging
-    logging.basicConfig(level=logging.INFO)
-
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -254,7 +252,7 @@ class SimplifiedStrategyGenerator:
         self.population.sort(key=lambda s: s.fitness, reverse=True)
         self.best_strategy = self.population[0]
 
-        self.logger.info(f"Initialized population of {size} strategies")
+        self.logger.info("Initialized population of %s strategies", size)
         self.logger.info(f"Best initial fitness: {self.best_strategy.fitness:.3f}")
 
     def evolve_generation(self) -> None:
@@ -322,7 +320,7 @@ class SimplifiedStrategyGenerator:
 
     def evolve(self, generations: int = GENERATION_COUNT) -> None:
         """Run complete evolution"""
-        self.logger.info(f"Starting evolution for {generations} generations...")
+        self.logger.info("Starting evolution for %s generations...", generations)
 
         for _gen in range(generations):
             self.evolve_generation()
@@ -395,14 +393,14 @@ async def main():
 
     # Show initial report
     report = generator.get_report()
-    logging.info(f"   Population: {report['population_size']} strategies")
+    logging.info("   Population: %s strategies", report['population_size'])
     logging.info(f"   Best fitness: {report['best_fitness']:.3f}")
     logging.info(f"   Average fitness: {report['avg_fitness']:.3f}")
 
     if report['best_strategy']:
         best = report['best_strategy']
-        logging.info(f"   Best strategy: {best['name']} ({best['type']})")
-        logging.info(f"   Entry conditions: {', '.join(best['entry_conditions'])}")
+        logging.info("   Best strategy: %s (%s)", best['name'], best['type'])
+        logging.info("   Entry conditions: %s", ', '.join(best['entry_conditions']))
 
     # Evolve for a few generations
     logging.info("\n2️⃣ Running evolution...")
@@ -411,18 +409,18 @@ async def main():
     # Final report
     final_report = generator.get_report()
     logging.info("\n3️⃣ Evolution Results:")
-    logging.info(f"   Generations completed: {final_report['generation']}")
+    logging.info("   Generations completed: %s", final_report['generation'])
     logging.info(f"   Final best fitness: {final_report['best_fitness']:.3f}")
     logging.info(f"   Final avg fitness: {final_report['avg_fitness']:.3f}")
 
     logging.info("\n🏆 Best Strategy:")
     if final_report['best_strategy']:
         best = final_report['best_strategy']
-        logging.info(f"   Name: {best['name']}")
-        logging.info(f"   Type: {best['type']}")
+        logging.info("   Name: %s", best['name'])
+        logging.info("   Type: %s", best['type'])
         logging.info(f"   Fitness: {best['fitness']:.3f}")
-        logging.info(f"   Entry: {', '.join(best['entry_conditions'])}")
-        logging.info(f"   Exit: {', '.join(best['exit_conditions'])}")
+        logging.info("   Entry: %s", ', '.join(best['entry_conditions']))
+        logging.info("   Exit: %s", ', '.join(best['exit_conditions']))
         logging.info(f"   Risk Factor: {best['risk_factor']:.3f}")
 
     logging.info("\n📊 Top 5 Strategies:")
@@ -431,11 +429,11 @@ async def main():
 
     logging.info("\n📈 Strategy Type Distribution:")
     for stype, count in final_report['strategy_type_distribution'].items():
-        logging.info(f"   {stype}: {count}")
+        logging.info("   %s: %s", stype, count)
 
     logging.info("\n🎯 Common Entry Conditions:")
     for condition, count in final_report['common_entry_conditions']:
-        logging.info(f"   {condition}: {count}")
+        logging.info("   %s: %s", condition, count)
 
     logging.info("\n✅ Simplified Strategy Generator test completed!")
     logging.info("🚀 Ready for full institutional strategy evolution!")

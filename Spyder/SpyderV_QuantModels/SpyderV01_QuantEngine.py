@@ -221,7 +221,7 @@ class SpyderQuantEngine:
             self.logger.info("Consolidated engines V04/V05 initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize engines: {e}", exc_info=True)
+            self.logger.error("Failed to initialize engines: %s", e, exc_info=True)
             raise
 
     # ==========================================================================
@@ -248,7 +248,7 @@ class SpyderQuantEngine:
         # Wait for active requests to complete
         if self.active_requests:
             self.logger.info(
-                f"Waiting for {len(self.active_requests)} active requests..."
+                "Waiting for %s active requests...", len(self.active_requests)
             )
             await asyncio.sleep(2.0)  # Grace period
 
@@ -325,7 +325,7 @@ class SpyderQuantEngine:
             return response
 
         except Exception as e:
-            self.logger.error(f"Error processing request {request.request_id}: {e}", exc_info=True)
+            self.logger.error("Error processing request %s: %s", request.request_id, e, exc_info=True)
             self.metrics.failed_requests += 1
 
             return self._create_error_response(request, str(e), start_time)
@@ -798,11 +798,11 @@ async def main():
 
             logging.info(f"   Option Price: ${result['price']:.4f}")
             logging.info(f"   Delta: {result['greeks']['delta']:.4f}")
-            logging.info(f"   Model Used: {result['model_used']}")
+            logging.info("   Model Used: %s", result['model_used'])
             logging.info(f"   Calculation Time: {result['calculation_time_ms']:.1f}ms")
 
         except Exception as e:
-            logging.info(f"   ❌ Error: {e}")
+            logging.info("   ❌ Error: %s", e)
 
         # Test 2: Portfolio Risk Assessment
         logging.info("\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
@@ -833,10 +833,10 @@ async def main():
             logging.info(f"   Portfolio VaR (95%): ${risk_result['var']:,.2f}")
             logging.info(f"   Portfolio CVaR (95%): ${risk_result['cvar']:,.2f}")
             logging.info(f"   Risk Utilization: {risk_result['risk_utilization']:.1%}")
-            logging.info(f"   Calculation Method: {risk_result['calculation_method']}")
+            logging.info("   Calculation Method: %s", risk_result['calculation_method'])
 
         except Exception as e:
-            logging.info(f"   ❌ Error: {e}")
+            logging.info("   ❌ Error: %s", e)
 
         # Test 3: Unified Request Processing
         logging.info("\n--- Test 3: Unified Request Processing ---")
@@ -869,42 +869,42 @@ async def main():
             response = await quant_engine.process_request(unified_request)
 
             if response.success:
-                logging.info(f"   Request ID: {response.request_id}")
+                logging.info("   Request ID: %s", response.request_id)
                 logging.info(f"   Portfolio Value: ${response.data['portfolio_value']:.2f}")
                 logging.info(
                     f"   Portfolio Delta: {response.data['portfolio_greeks']['delta']:.4f}"
                 )
                 logging.info(f"   Execution Time: {response.execution_time_ms:.1f}ms")
-                logging.info(f"   Contracts Processed: {response.data['total_contracts']}")
+                logging.info("   Contracts Processed: %s", response.data['total_contracts'])
             else:
-                logging.info(f"   ❌ Request Failed: {response.data.get('error')}")
+                logging.info("   ❌ Request Failed: %s", response.data.get('error'))
 
         except Exception as e:
-            logging.info(f"   ❌ Error: {e}")
+            logging.info("   ❌ Error: %s", e)
 
         # Test 4: Orchestration Status
         logging.info("\n--- Test 4: Orchestration Performance ---")
         try:
             status = quant_engine.get_orchestration_status()
 
-            logging.info(f"   Engine Running: {status['engine_running']}")
-            logging.info(f"   Total Requests: {status['total_requests_processed']}")
+            logging.info("   Engine Running: %s", status['engine_running'])
+            logging.info("   Total Requests: %s", status['total_requests_processed'])
             logging.info(f"   Success Rate: {status['success_rate']:.1%}")
             logging.info(f"   Avg Response Time: {status['avg_response_time_ms']:.1f}ms")
-            logging.info(f"   Pricing Engine Calls: {status['pricing_engine_calls']}")
-            logging.info(f"   Risk Manager Calls: {status['risk_manager_calls']}")
+            logging.info("   Pricing Engine Calls: %s", status['pricing_engine_calls'])
+            logging.info("   Risk Manager Calls: %s", status['risk_manager_calls'])
 
             logging.info("\n   Engines Available:")
             for engine, available in status["engines_available"].items():
-                logging.info(f"     {engine}: {'✅' if available else '❌'}")
+                logging.info("     %s: %s", engine, '✅' if available else '❌')
 
             if status["requests_by_type"]:
                 logging.info("\n   Requests by Type:")
                 for req_type, count in status["requests_by_type"].items():
-                    logging.info(f"     {req_type}: {count}")
+                    logging.info("     %s: %s", req_type, count)
 
         except Exception as e:
-            logging.info(f"   ❌ Error: {e}")
+            logging.info("   ❌ Error: %s", e)
 
         # Shutdown
         await quant_engine.shutdown()
@@ -924,7 +924,7 @@ async def main():
         logging.info("=" * 80)
 
     except Exception as e:
-        logging.info(f"\n❌ INITIALIZATION ERROR: {e}")
+        logging.info("\n❌ INITIALIZATION ERROR: %s", e)
         logging.info("   Make sure V04_RiskManager and V05_PricingEngine are available")
 
 

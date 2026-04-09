@@ -79,7 +79,7 @@ except ImportError:
     import logging
     SpyderLogger = logging.getLogger
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
+        'handle_error': lambda self, e, context: logging.error("[%s] %s", context, e)
     })
 
 # ==============================================================================
@@ -327,7 +327,7 @@ class KernelRegression:
             # Validate input
             if prices is None or len(prices) < MIN_OBSERVATIONS:
                 self.logger.error(
-                    f"Insufficient data: need at least {MIN_OBSERVATIONS} observations"
+                    "Insufficient data: need at least %s observations", MIN_OBSERVATIONS
                 )
                 raise ValueError(f"Need at least {MIN_OBSERVATIONS} observations")
 

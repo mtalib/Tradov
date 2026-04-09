@@ -26,6 +26,8 @@ import asyncio
 import hashlib
 import json
 import logging
+import threading
+import os
 import signal
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -52,6 +54,7 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
+from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
 from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
 from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 from Spyder.SpyderF_Analysis.SpyderF02_PriceAction import PriceActionAnalyzer
@@ -61,7 +64,7 @@ import logging
 # CONSTANTS
 # ==============================================================================
 # Model configuration
-DEFAULT_MODEL = "llama3" if OLLAMA_AVAILABLE else None
+DEFAULT_MODEL = os.getenv("OLLAMA_PRIMARY_MODEL", "gemma4:26b") if OLLAMA_AVAILABLE else None
 DEFAULT_TEMPERATURE = 0.4  # Balanced for market analysis
 
 # Market regime thresholds
@@ -244,7 +247,7 @@ class SpyderX13_MarketAnalysisAgent:
         # Market indicators
         self.indicator_history = defaultdict(lambda: deque(maxlen=100))
 
-        self.logger.info(f"Market Analysis Agent initialized with model: {model_name}")
+        self.logger.info("Market Analysis Agent initialized with model: %s", model_name)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN FUNCTIONALITY
@@ -330,7 +333,7 @@ class SpyderX13_MarketAnalysisAgent:
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Market analysis failed: {e}")
+            self.logger.error("Market analysis failed: %s", e)
             return self._create_error_analysis(str(e))
 
     async def predict_market_movement(
@@ -365,7 +368,7 @@ class SpyderX13_MarketAnalysisAgent:
             return predictions
 
         except Exception as e:
-            self.logger.error(f"Market prediction failed: {e}")
+            self.logger.error("Market prediction failed: %s", e)
             return {}
 
     async def detect_regime_change(
@@ -410,7 +413,7 @@ class SpyderX13_MarketAnalysisAgent:
             return None
 
         except Exception as e:
-            self.logger.error(f"Regime change detection failed: {e}")
+            self.logger.error("Regime change detection failed: %s", e)
             return None
 
     async def identify_trading_opportunities(
@@ -463,7 +466,7 @@ class SpyderX13_MarketAnalysisAgent:
             return ranked[:10]  # Top 10 opportunities
 
         except Exception as e:
-            self.logger.error(f"Opportunity identification failed: {e}")
+            self.logger.error("Opportunity identification failed: %s", e)
             return []
 
     # ==========================================================================
@@ -639,7 +642,7 @@ class SpyderX13_MarketAnalysisAgent:
             return analysis
 
         except Exception as e:
-            self.logger.error(f"AI market analysis failed: {e}")
+            self.logger.error("AI market analysis failed: %s", e)
             return self._create_rule_based_analysis(
                 regime_analysis, trend_analysis, sr_levels,
                 patterns, indicators, correlations,
@@ -665,13 +668,13 @@ class SpyderX13_MarketAnalysisAgent:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                options={"temperature": self.temperature}
+                options={"temperature": self.temperature, "think": False}
             )
 
-            return response['message']['content']
+            return strip_thinking_block(response['message']['content'])
 
         except Exception as e:
-            self.logger.error(f"AI model query failed: {e}")
+            self.logger.error("AI model query failed: %s", e)
             return ""
 
     def _construct_market_prompt(self, context: dict[str, Any]) -> str:
@@ -821,7 +824,7 @@ Format as JSON with keys: summary, opportunities, risks, prediction, confidence"
             'data_points': len(market_data.ohlcv)
         }
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         """Check if cache is still valid"""
@@ -869,10 +872,14 @@ def create_market_analysis_agent(
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX13_MarketAnalysisAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_market_analysis_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_market_analysis_agent()
     return _module_instance

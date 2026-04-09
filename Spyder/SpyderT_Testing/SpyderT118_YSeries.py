@@ -265,7 +265,7 @@ class TestAutoAgentClassAttrs(unittest.TestCase):
             obj = getattr(mod, attr_name)
             if (isinstance(obj, type)
                     and hasattr(obj, "AGENT_ID")
-                    and obj.AGENT_ID == spec["agent_id"]):
+                    and spec["agent_id"] == obj.AGENT_ID):
                 return obj
         self.fail(f"No class with AGENT_ID={spec['agent_id']} in {spec['module']}")
 
@@ -341,7 +341,7 @@ class TestAutoAgentTickIntervals(unittest.TestCase):
             obj = getattr(mod, attr_name)
             if (isinstance(obj, type)
                     and hasattr(obj, "AGENT_ID")
-                    and obj.AGENT_ID == spec["agent_id"]):
+                    and spec["agent_id"] == obj.AGENT_ID):
                 return obj
         self.fail(f"No class found for {spec['agent_id']}")
 
@@ -385,7 +385,7 @@ class TestAutoAgentInheritance(unittest.TestCase):
                     obj = getattr(mod, attr_name)
                     if (isinstance(obj, type)
                             and hasattr(obj, "AGENT_ID")
-                            and obj.AGENT_ID == spec["agent_id"]):
+                            and spec["agent_id"] == obj.AGENT_ID):
                         cls = obj
                         break
                 self.assertIsNotNone(cls, f"No class found for {key}")
@@ -411,7 +411,7 @@ class TestAutoAgentAbstractMethods(unittest.TestCase):
                     obj = getattr(mod, attr_name)
                     if (isinstance(obj, type)
                             and hasattr(obj, "AGENT_ID")
-                            and obj.AGENT_ID == spec["agent_id"]):
+                            and spec["agent_id"] == obj.AGENT_ID):
                         cls = obj
                         break
                 self.assertIsNotNone(cls)

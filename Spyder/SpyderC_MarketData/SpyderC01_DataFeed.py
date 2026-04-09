@@ -50,7 +50,8 @@ import time
 import threading
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Optional, Any, Callable, Union
+from typing import Optional, Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -364,7 +365,7 @@ class DatabentoProvider(MarketDataProvider):
             return True
 
         except Exception as e:
-            self._logger.error(f"DatabentoProvider connect failed: {e}")
+            self._logger.error("DatabentoProvider connect failed: %s", e)
             return False
 
     def disconnect(self) -> None:
@@ -417,7 +418,7 @@ class DatabentoProvider(MarketDataProvider):
                 }).dropna()
             return df if df is not None else pd.DataFrame()
         except Exception as e:
-            self._logger.error(f"Historical data fetch failed for {symbol}: {e}")
+            self._logger.error("Historical data fetch failed for %s: %s", symbol, e)
             return pd.DataFrame()
 
     # ------------------------------------------------------------------
@@ -502,8 +503,8 @@ class MassiveProvider(MarketDataProvider):
     """
     Wraps ``SpyderC27_MassiveClient`` as a ``MarketDataProvider``.
 
-    Streams real-time SPY equity quotes and trades from Massive (formerly
-    Polygon.io) WebSocket, delivering normalized ``MarketTick`` objects.
+    Streams real-time SPY equity quotes and trades from the Massive
+    WebSocket, delivering normalized ``MarketTick`` objects.
     Historical OHLCV bars are served by the Massive REST API.
 
     This is the preferred provider for SPY equity price ticks when pairing
@@ -556,12 +557,12 @@ class MassiveProvider(MarketDataProvider):
             )
             self._started = True
             self._logger.info(
-                f"MassiveProvider connected, streaming {self._symbols}"
+                "MassiveProvider connected, streaming %s", self._symbols
             )
             return True
 
         except Exception as exc:
-            self._logger.error(f"MassiveProvider connect failed: {exc}")
+            self._logger.error("MassiveProvider connect failed: %s", exc)
             return False
 
     def disconnect(self) -> None:
@@ -618,7 +619,7 @@ class MassiveProvider(MarketDataProvider):
             )
         except Exception as exc:
             self._logger.error(
-                f"MassiveProvider.get_historical({symbol}) failed: {exc}"
+                "MassiveProvider.get_historical(%s) failed: %s", symbol, exc
             )
             return pd.DataFrame()
 
@@ -747,9 +748,9 @@ class DataFeedManager:
 
     def __init__(
         self,
-        provider: Union[str, MarketDataProvider] | None = None,
+        provider: str | MarketDataProvider | None = None,
         event_manager: EventManager | None = None,
-        config: Union[DataFeedConfig, dict] | None = None,
+        config: DataFeedConfig | dict | None = None,
     ):
         """
         Initialize enhanced data feed manager.
@@ -822,7 +823,7 @@ class DataFeedManager:
         self._initialize_components()
 
         self.logger.info(
-            f"DataFeedManager initialized — provider={self._provider.__class__.__name__}"
+            "DataFeedManager initialized — provider=%s", self._provider.__class__.__name__
         )
 
     # ------------------------------------------------------------------
@@ -851,7 +852,7 @@ class DataFeedManager:
             self._load_custom_handlers()
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize components: {e}")
+            self.logger.error("Failed to initialize components: %s", e)
             self.error_handler.handle_error(e, {"method": "_initialize_components"})
 
     def _setup_event_subscriptions(self) -> None:
@@ -870,9 +871,9 @@ class DataFeedManager:
             if cfg.get('enabled'):
                 try:
                     cfg['module']
-                    self.logger.info(f"Loaded custom handler for {metric_name}")
+                    self.logger.info("Loaded custom handler for %s", metric_name)
                 except Exception as e:
-                    self.logger.error(f"Failed to load {metric_name} handler: {e}")
+                    self.logger.error("Failed to load %s handler: %s", metric_name, e)
 
     # ==========================================================================
     # PUBLIC INTERFACE
@@ -923,11 +924,11 @@ class DataFeedManager:
             else:
                 self.status = DataFeedStatus.DEGRADED
 
-            self.logger.info(f"Data feed started — status: {self.status.value}")
+            self.logger.info("Data feed started — status: %s", self.status.value)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start data feed: {e}")
+            self.logger.error("Failed to start data feed: %s", e)
             self.status = DataFeedStatus.ERROR
             return False
 
@@ -958,7 +959,7 @@ class DataFeedManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping data feed: {e}")
+            self.logger.error("Error stopping data feed: %s", e)
             return False
 
     def subscribe(
@@ -1038,7 +1039,7 @@ class DataFeedManager:
             True on success.
         """
         if group_name not in SYMBOL_GROUPS:
-            self.logger.error(f"Unknown symbol group: {group_name}")
+            self.logger.error("Unknown symbol group: %s", group_name)
             return False
 
         with self._lock:
@@ -1179,7 +1180,7 @@ class DataFeedManager:
             # Validate if enabled
             if self.config.validation_enabled:
                 if not self.data_validator.validate_tick(tick.to_dict()):
-                    self.logger.warning(f"Invalid tick data for {symbol}")
+                    self.logger.warning("Invalid tick data for %s", symbol)
                     self.error_counts[symbol] += 1
                     return
 
@@ -1213,7 +1214,7 @@ class DataFeedManager:
             self.error_counts[symbol] = 0
 
         except Exception as e:
-            self.logger.error(f"Error handling provider data: {e}")
+            self.logger.error("Error handling provider data: %s", e)
             self.error_handler.handle_error(
                 e, {"method": "_on_provider_data"}
             )
@@ -1223,7 +1224,7 @@ class DataFeedManager:
         old = self.status
         self.status = new_status
         if old != new_status:
-            self.logger.info(f"Feed status: {old.value} → {new_status.value}")
+            self.logger.info("Feed status: %s → %s", old.value, new_status.value)
 
     # ==========================================================================
     # CUSTOM / SYSTEM EVENT HANDLERS
@@ -1248,7 +1249,7 @@ class DataFeedManager:
             self._notify_subscribers(symbol, tick)
 
         except Exception as e:
-            self.logger.error(f"Error handling custom metric: {e}")
+            self.logger.error("Error handling custom metric: %s", e)
 
     def _handle_system_error(self, data: dict[str, Any]) -> None:
         """Handle system error event."""
@@ -1256,7 +1257,7 @@ class DataFeedManager:
         error = data.get('error', 'Unknown error')
         severity = data.get('severity', 'warning')
 
-        self.logger.error(f"System error from {component}: {error}")
+        self.logger.error("System error from %s: %s", component, error)
 
         if severity == 'critical' and component in (
             'DatabentoProvider', 'MarketDataHub'
@@ -1273,7 +1274,7 @@ class DataFeedManager:
                 self._update_custom_metrics()
                 self._check_stale_data()
             except Exception as e:
-                self.logger.error(f"Error in update loop: {e}")
+                self.logger.error("Error in update loop: %s", e)
             if self._stop_event.wait(timeout=self.config.update_interval):
                 break
 
@@ -1285,7 +1286,7 @@ class DataFeedManager:
                 self._publish_status_update()
                 self._cleanup_old_data()
             except Exception as e:
-                self.logger.error(f"Error in monitor loop: {e}")
+                self.logger.error("Error in monitor loop: %s", e)
             if self._stop_event.wait(timeout=self.config.heartbeat_interval):
                 break
 
@@ -1295,7 +1296,7 @@ class DataFeedManager:
             try:
                 self.executor.submit(handler.update)
             except Exception as e:
-                self.logger.error(f"Error updating {metric_name}: {e}")
+                self.logger.error("Error updating %s: %s", metric_name, e)
 
     def _check_stale_data(self) -> None:
         """Check for stale market data."""
@@ -1323,7 +1324,7 @@ class DataFeedManager:
                 try:
                     self.executor.submit(callback, tick)
                 except Exception as e:
-                    self.logger.error(f"Error in subscriber callback: {e}")
+                    self.logger.error("Error in subscriber callback: %s", e)
 
         for group_name, symbols in SYMBOL_GROUPS.items():
             if symbol in symbols and group_name in self.group_subscribers:
@@ -1332,7 +1333,7 @@ class DataFeedManager:
                     try:
                         self.executor.submit(callback, group_data)
                     except Exception as e:
-                        self.logger.error(f"Error in group callback: {e}")
+                        self.logger.error("Error in group callback: %s", e)
 
     def _create_group_callback(self, group_name: str) -> Callable:
         """Create a no-op callback for group symbol subscriptions."""
@@ -1411,7 +1412,7 @@ class DataFeedManager:
             if c > self.config.error_threshold
         ]
         if high_error_symbols:
-            self.logger.warning(f"High error rates for: {high_error_symbols}")
+            self.logger.warning("High error rates for: %s", high_error_symbols)
 
     def _publish_status_update(self) -> None:
         """Publish system status update via event manager."""
@@ -1447,7 +1448,7 @@ class DataFeedManager:
                 self.group_subscribers.clear()
             self.logger.info("DataFeedManager shut down")
         except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}")
+            self.logger.error("Error during shutdown: %s", e)
 
     def cleanup(self) -> None:
         """Clean up resources."""
@@ -1461,7 +1462,7 @@ _data_feed_instance: DataFeedManager | None = None
 
 
 def get_data_feed_manager(
-    provider: Union[str, MarketDataProvider] | None = None,
+    provider: str | MarketDataProvider | None = None,
     event_manager: EventManager | None = None,
     config: dict | None = None,
 ) -> DataFeedManager:

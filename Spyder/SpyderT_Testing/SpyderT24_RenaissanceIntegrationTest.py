@@ -40,11 +40,10 @@ Dependencies:
 # ==============================================================================
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import warnings
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -66,7 +65,7 @@ except ImportError:
     import logging
     SpyderLogger = logging.getLogger
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
+        'handle_error': lambda self, e, context: logging.error("[%s] %s", context, e)
     })
 
 # Import Renaissance frameworks

@@ -25,6 +25,8 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
+import os
 from datetime import datetime
 from typing import Any
 from dataclasses import dataclass, field
@@ -95,7 +97,7 @@ DEFAULT_CONFIG = {
 }
 
 # Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_MODEL = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
 DEFAULT_TEMPERATURE = 0.3  # Lower temperature for execution decisions
 
 # ==============================================================================
@@ -183,7 +185,7 @@ class SpyderX07_ExecutionStrategyAgent:
                 self.ollama_client = ollama
                 self.logger.info("Ollama connection established")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error("Failed to connect to Ollama: %s", e)
 
         # Performance tracking
         self.execution_history = deque(maxlen=1000)
@@ -235,7 +237,7 @@ class SpyderX07_ExecutionStrategyAgent:
             return result
 
         except Exception as e:
-            self.logger.error(f"Execution failed: {e}")
+            self.logger.error("Execution failed: %s", e)
             return ExecutionResult(
                 success=False,
                 filled_quantity=0,
@@ -372,7 +374,7 @@ Provide a JSON response with:
                 return self._get_fallback_strategy(request, market)
 
         except Exception as e:
-            self.logger.error(f"AI execution strategy failed: {e}")
+            self.logger.error("AI execution strategy failed: %s", e)
             return self._get_fallback_strategy(request, market)
 
     def _get_fallback_strategy(self, request: ExecutionRequest,
@@ -673,7 +675,7 @@ Provide a JSON response with:
         for key, value in kwargs.items():
             if key in self.config:
                 self.config[key] = value
-                self.logger.info(f"Updated config: {key} = {value}")
+                self.logger.info("Updated config: %s = %s", key, value)
 
     # --------------------------------------------------------------------------
     # STABLE-BASELINES3: RL EXECUTION STRATEGY
@@ -785,7 +787,7 @@ Provide a JSON response with:
             model = PPO('MlpPolicy', env, verbose=0,
                        learning_rate=3e-4, n_steps=2048)
             model.learn(total_timesteps=total_timesteps)
-            self.logger.info(f"Execution RL policy trained: {total_timesteps} steps")
+            self.logger.info("Execution RL policy trained: %s steps", total_timesteps)
             return model
         except ImportError:
             self.logger.warning("stable-baselines3 not installed")
@@ -811,12 +813,16 @@ def create_execution_strategy_agent(model_name: str = DEFAULT_MODEL,
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX07_ExecutionStrategyAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_execution_strategy_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_execution_strategy_agent()
     return _module_instance
 
 # ==============================================================================
@@ -856,11 +862,11 @@ async def test_execution_agent():
 
     result = await agent.execute_order(request, market)
     logging.info("Execution Result:")
-    logging.info(f"  Success: {result.success}")
-    logging.info(f"  Filled: {result.filled_quantity}/{request.quantity}")
+    logging.info("  Success: %s", result.success)
+    logging.info("  Filled: %s/%s", result.filled_quantity, request.quantity)
     logging.info(f"  Avg Price: ${result.average_price:.2f}")
     logging.info(f"  Slippage: {result.slippage_bps:.1f} bps")
-    logging.info(f"  Algorithm: {result.algorithm_used}")
+    logging.info("  Algorithm: %s", result.algorithm_used)
     logging.info(f"  Time: {result.execution_time:.1f}s")
 
     # Test case 2: Large order in illiquid market
@@ -889,11 +895,11 @@ async def test_execution_agent():
 
     result2 = await agent.execute_order(request2, market2)
     logging.info("Execution Result:")
-    logging.info(f"  Success: {result2.success}")
-    logging.info(f"  Filled: {result2.filled_quantity}/{request2.quantity}")
+    logging.info("  Success: %s", result2.success)
+    logging.info("  Filled: %s/%s", result2.filled_quantity, request2.quantity)
     logging.info(f"  Avg Price: ${result2.average_price:.2f}")
     logging.info(f"  Slippage: {result2.slippage_bps:.1f} bps")
-    logging.info(f"  Algorithm: {result2.algorithm_used}")
+    logging.info("  Algorithm: %s", result2.algorithm_used)
     logging.info(f"  Time: {result2.execution_time:.1f}s")
 
     # Test case 3: Critical urgency order
@@ -921,11 +927,11 @@ async def test_execution_agent():
 
     result3 = await agent.execute_order(request3, market3)
     logging.info("Execution Result:")
-    logging.info(f"  Success: {result3.success}")
-    logging.info(f"  Filled: {result3.filled_quantity}/{request3.quantity}")
+    logging.info("  Success: %s", result3.success)
+    logging.info("  Filled: %s/%s", result3.filled_quantity, request3.quantity)
     logging.info(f"  Avg Price: ${result3.average_price:.2f}")
     logging.info(f"  Slippage: {result3.slippage_bps:.1f} bps")
-    logging.info(f"  Algorithm: {result3.algorithm_used}")
+    logging.info("  Algorithm: %s", result3.algorithm_used)
     logging.info(f"  Time: {result3.execution_time:.1f}s")
 
     # Show performance statistics

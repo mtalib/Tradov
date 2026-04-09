@@ -90,11 +90,13 @@ except ImportError:
     FeatureEngineer = None
 
 try:
-    from SpyderP_Portfolio.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation  # noqa: F401
+    from SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation  # noqa: F401
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
     HUB_AVAILABLE = True
 except ImportError:
     HUB_AVAILABLE = False
+
+_module_logger = SpyderLogger.get_logger(__name__)
 
 # ==============================================================================
 # CONSTANTS
@@ -490,7 +492,7 @@ class AllocationOptimizer:
                 self.ml_models['regime_predictor'].fit(regime_features, regime_labels)
 
             self.is_trained = True
-            self.logger.info(f"ML models trained successfully. Performance: {performance}")
+            self.logger.info("ML models trained successfully. Performance: %s", performance)
 
             return performance
 
@@ -529,7 +531,7 @@ class AllocationOptimizer:
                 scenarios.append(scenario_result)
 
                 if (i + 1) % 100 == 0:
-                    self.logger.info(f"Generated {i + 1}/{num_scenarios} scenarios")
+                    self.logger.info("Generated %s/%s scenarios", i + 1, num_scenarios)
 
             return scenarios
 
@@ -1735,7 +1737,8 @@ class AllocationOptimizer:
             diversification_benefit = (equal_weight_vol - result.expected_volatility) / equal_weight_vol
             return f"{diversification_benefit:.1%}"
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_diversification_benefit calculation error: %s", e)
             return "N/A"
 
     def _get_model_accuracy_summary(self) -> dict[str, str]:
@@ -1755,7 +1758,8 @@ class AllocationOptimizer:
 
             return summary
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_get_model_accuracy_summary calculation error: %s", e)
             return {"error": "Unable to calculate accuracy"}
 
     def _extract_regime_features(self, features_df: pd.DataFrame) -> np.ndarray:
@@ -1822,7 +1826,8 @@ class AllocationOptimizer:
             noise = np.random.normal(0, 0.02, len(expected_returns))  # 2% noise
             return expected_returns + noise
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_perturb_expected_returns calculation error: %s", e)
             return returns_df.mean().values * 252
 
     def _perturb_covariance_matrix(self, returns_df: pd.DataFrame) -> np.ndarray:
@@ -1844,7 +1849,8 @@ class AllocationOptimizer:
 
             return perturbed_cov
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_perturb_covariance_matrix calculation error: %s", e)
             return returns_df.cov().values * 252
 
     async def _optimize_scenario(self, expected_returns: np.ndarray,
@@ -1956,7 +1962,8 @@ def calculate_efficient_frontier(expected_returns: np.ndarray, cov_matrix: np.nd
 
         return np.array(volatilities), target_returns
 
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("calculate_efficient_frontier error: %s", e)
         return np.array([]), np.array([])
 
 def optimize_black_litterman_views(expected_returns: np.ndarray, cov_matrix: np.ndarray,
@@ -2012,7 +2019,8 @@ def optimize_black_litterman_views(expected_returns: np.ndarray, cov_matrix: np.
 
         return weights.value if problem.status == cp.OPTIMAL else np.ones(n_assets) / n_assets
 
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("optimize_black_litterman_views error: %s", e)
         return np.ones(len(expected_returns)) / len(expected_returns)
 
 # ==============================================================================
@@ -2090,7 +2098,7 @@ if __name__ == "__main__":
 
 
             except Exception as e:
-                self.logger.debug(f"Allocation test for {method.value} failed: {e}")
+                _module_logger.debug("Allocation test for %s failed: %s", method.value, e)
 
         # Test ML model training
         market_data = pd.DataFrame({

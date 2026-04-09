@@ -165,6 +165,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     }
 
     def __init__(self, **kwargs: Any):
+        self._telegram_bot = kwargs.pop("telegram_bot", None)
         super().__init__(**kwargs)
 
         # Agent health tracking
@@ -315,6 +316,24 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
 
         conflict.resolution = response
         self._conflicts.append(conflict)
+
+        # If the LLM chose option 4 (escalate to human), send a Telegram alert
+        if "4" in response[:10] and self._telegram_bot is not None:
+            try:
+                self._telegram_bot.send_alert(
+                    title="Agent Conflict — Human Escalation Required",
+                    message=(
+                        f"Agents: {', '.join(conflict.agents)}\n"
+                        f"Issue: {conflict.description}\n"
+                        f"LLM reasoning: {response}"
+                    ),
+                    severity="critical",
+                )
+            except Exception as _alert_err:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "Failed to send escalation Telegram alert: %s", _alert_err
+                )
 
         decision = SystemDecision(
             decision_id=f"D_{datetime.now().strftime('%Y%m%d_%H%M%S')}",

@@ -398,7 +398,7 @@ class FederatedClient:
         self.rounds_participated = 0
         self.total_updates_sent = 0
 
-        self.logger.info(f"Federated client {config.client_id} initialized")
+        self.logger.info("Federated client %s initialized", config.client_id)
 
     def _generate_keys(self):
         """Generate RSA key pair for secure communication"""
@@ -435,7 +435,7 @@ class FederatedClient:
                 self.logger.info("Successfully registered with coordinator")
                 return True
             else:
-                self.logger.error(f"Registration failed: {response.text}")
+                self.logger.error("Registration failed: %s", response.text)
                 return False
 
         except Exception as e:
@@ -457,7 +457,7 @@ class FederatedClient:
                 "std_values": data.std().to_dict(),
             }
 
-            self.logger.info(f"Loaded {len(data)} samples for {model_type.value}")
+            self.logger.info("Loaded %s samples for %s", len(data), model_type.value)
 
         except Exception as e:
             self.error_handler.handle_error(e, {"method": "load_local_data"})
@@ -470,7 +470,7 @@ class FederatedClient:
     ) -> ModelUpdate:
         """Train model locally on private data"""
         try:
-            self.logger.info(f"Starting local training for round {round_number}")
+            self.logger.info("Starting local training for round %s", round_number)
 
             # Get or create model
             if model_type not in self.local_models:
@@ -627,7 +627,7 @@ class FederatedClient:
     def _sign_update(self, update: ModelUpdate) -> bytes:
         """Sign model update for authenticity"""
         # Create hash of update
-        update_bytes = pickle.dumps(
+        update_bytes = pickle.dumps(  # noqa: S301 — network binary payload, not stored/loaded as pickle
             {
                 "client_id": update.client_id,
                 "round_number": update.round_number,
@@ -832,7 +832,7 @@ class FederatedCoordinator:
         client_id = client_config.client_id
 
         if client_id in self.clients:
-            self.logger.warning(f"Client {client_id} already registered")
+            self.logger.warning("Client %s already registered", client_id)
             return
 
         self.clients[client_id] = client_config
@@ -844,7 +844,7 @@ class FederatedCoordinator:
             )
 
         self.logger.info(
-            f"Registered client {client_id} with role {client_config.role.value}"
+            "Registered client %s with role %s", client_id, client_config.role.value
         )
 
     def initialize_global_model(self, model_type: ModelType, architecture: nn.Module):
@@ -857,7 +857,7 @@ class FederatedCoordinator:
         )
 
         self.global_models[model_type] = federated_model
-        self.logger.info(f"Initialized global model for {model_type.value}")
+        self.logger.info("Initialized global model for %s", model_type.value)
 
     def start_training_round(self, model_type: ModelType) -> FederatedRound:
         """Start a new federated training round"""
@@ -900,7 +900,7 @@ class FederatedCoordinator:
             self._notify_clients_for_training(selected_clients, model_type)
 
             self.logger.info(
-                f"Started round {self.current_round} with {len(selected_clients)} clients"
+                "Started round %s with %s clients", self.current_round, len(selected_clients)
             )
 
             return fed_round
@@ -977,7 +977,7 @@ class FederatedCoordinator:
             self.performance_history[model_type].append(metrics)
 
             self.logger.info(
-                f"Aggregated {len(current_round.model_updates)} updates for round {round_number}"
+                "Aggregated %s updates for round %s", len(current_round.model_updates), round_number
             )
 
             return result
@@ -1160,7 +1160,7 @@ class FederatedCoordinator:
     ):
         """Notify clients to start training"""
         # In production, this would send actual network requests
-        self.logger.info(f"Notifying {len(client_ids)} clients for training")
+        self.logger.info("Notifying %s clients for training", len(client_ids))
 
     def _store_client_update(self, update: ModelUpdate):
         """Store client update for current round"""
@@ -1268,11 +1268,11 @@ class FederatedCoordinator:
                 model_path,
             )
 
-            self.logger.info(f"Saved global model to {model_path}")
+            self.logger.info("Saved global model to %s", model_path)
 
     def start_server(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
         """Start the coordinator server"""
-        self.logger.info(f"Starting coordinator server on {host}:{port}")
+        self.logger.info("Starting coordinator server on %s:%s", host, port)
         self.app.run(host=host, port=port, threaded=True)
 
 
@@ -1319,7 +1319,7 @@ class FederatedLearningManager:
         success = self.local_client.register_with_coordinator(coordinator_url)
 
         if success:
-            self.logger.info(f"Setup complete as client {client_id}")
+            self.logger.info("Setup complete as client %s", client_id)
         else:
             self.logger.error("Failed to register with coordinator")
 
@@ -1364,14 +1364,14 @@ class FederatedLearningManager:
         if not self.is_coordinator:
             raise ValueError("Must be coordinator to run training")
 
-        self.logger.info(f"Starting federated training for {num_rounds} rounds")
+        self.logger.info("Starting federated training for %s rounds", num_rounds)
 
         for round_num in range(num_rounds):
             # Start round
             fed_round = self.coordinator.start_training_round(model_type)
 
             if not fed_round:
-                self.logger.error(f"Failed to start round {round_num + 1}")
+                self.logger.error("Failed to start round %s", round_num + 1)
                 continue
 
             # Wait for client updates
@@ -1538,7 +1538,7 @@ class FederatedLearningManager:
                 'status': 'completed',
             }
 
-        self.logger.info(f"Ray federated round: {len(client_datasets)} clients")
+        self.logger.info("Ray federated round: %s clients", len(client_datasets))
 
         futures = [
             _train_client.remote(model_ref, cd, i)
@@ -1576,13 +1576,16 @@ class FederatedLearningManager:
 # MODULE INITIALIZATION
 # ==============================================================================
 _manager_instance = None
+_manager_instance_lock = threading.Lock()
 
 
 def get_federated_manager() -> FederatedLearningManager:
     """Get or create the global FederatedLearningManager instance."""
     global _manager_instance
     if _manager_instance is None:
-        _manager_instance = FederatedLearningManager()
+        with _manager_instance_lock:
+            if _manager_instance is None:
+                _manager_instance = FederatedLearningManager()
     return _manager_instance
 
 

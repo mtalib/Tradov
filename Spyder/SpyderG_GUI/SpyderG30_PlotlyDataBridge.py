@@ -306,7 +306,7 @@ class PlotlyDataBridge(QObject):
             self.chart_update_ready.emit(function_name, json_data)
 
         except Exception as e:
-            logging.info(f"Error sending chart update: {e}")
+            logging.info("Error sending chart update: %s", e)
 
     def batch_update_indicators(self, indicators: dict[str, float]):
         """Send batch update for multiple indicators."""

@@ -42,8 +42,10 @@ Module Description:
 import asyncio
 import functools
 import random
+import threading
 import time
-from typing import Callable, Any, Type
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -184,6 +186,7 @@ def retry_sync(
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
     jitter: float = DEFAULT_JITTER,
     exceptions: tuple[type, ...] = (Exception,),
+    stop_event: threading.Event | None = None,
 ) -> Callable:
     """
     Decorator: retry a synchronous function with exponential back-off.
@@ -210,7 +213,7 @@ def retry_sync(
                             f"failed ({exc.__class__.__name__}: {exc}); "
                             f"retrying in {delay:.2f}s"
                         )
-                        time.sleep(delay)
+                        time.sleep(delay) if stop_event is None else stop_event.wait(delay)
                     else:
                         logger.error(
                             f"{func.__qualname__}: all {max_attempts} attempts failed; "

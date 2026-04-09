@@ -1,0 +1,31 @@
+# ==============================================================================
+# Spyder pre-commit configuration
+# ==============================================================================
+# Install hooks: pre-commit install
+# Run manually:  pre-commit run --all-files
+# ------------------------------------------------------------------------------
+
+repos:
+
+  # ── ruff: linting + auto-fix ───────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ── local hooks ────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+
+      # Validates that every .py module inside each Spyder package is referenced
+      # in its package __init__.py.  Prevents invisible modules slipping through
+      # (the root cause of the H-1 audit finding that survived three reviews).
+      - id: validate-missing-exports
+        name: Validate __init__.py exports (Q09)
+        entry: python Spyder/SpyderQ_Scripts/SpyderQ09_ValidateMissingExports.py --strict
+        language: python
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

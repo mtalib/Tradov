@@ -83,7 +83,6 @@ except ImportError:
 # ==============================================================================
 # MODULE CONFIGURATION
 # ==============================================================================
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
@@ -290,12 +289,12 @@ class SpyderModelManager:
             successful_engines = sum(initialization_results.values())
             total_engines = len(initialization_results)
 
-            self.logger.info(f"Engine initialization complete: {successful_engines}/{total_engines} engines ready")
+            self.logger.info("Engine initialization complete: %s/%s engines ready", successful_engines, total_engines)
 
             return initialization_results
 
         except Exception as e:
-            self.logger.error(f"Error initializing engines: {e}", exc_info=True)
+            self.logger.error("Error initializing engines: %s", e, exc_info=True)
             return {engine_type: False for engine_type in EngineType}
 
     async def _initialize_risk_manager(self) -> bool:
@@ -318,7 +317,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V04 RiskManager: {e}", exc_info=True)
+            self.logger.error("Failed to initialize V04 RiskManager: %s", e, exc_info=True)
             self.engine_status[EngineType.RISK_MANAGER] = EngineStatus.ERROR
             return False
 
@@ -342,7 +341,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V05 PricingEngine: {e}", exc_info=True)
+            self.logger.error("Failed to initialize V05 PricingEngine: %s", e, exc_info=True)
             self.engine_status[EngineType.PRICING_ENGINE] = EngineStatus.ERROR
             return False
 
@@ -366,7 +365,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V06 VolatilityEngine: {e}", exc_info=True)
+            self.logger.error("Failed to initialize V06 VolatilityEngine: %s", e, exc_info=True)
             self.engine_status[EngineType.VOLATILITY_ENGINE] = EngineStatus.ERROR
             return False
 
@@ -390,7 +389,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V07 AdvancedModels: {e}", exc_info=True)
+            self.logger.error("Failed to initialize V07 AdvancedModels: %s", e, exc_info=True)
             self.engine_status[EngineType.ADVANCED_MODELS] = EngineStatus.ERROR
             return False
 
@@ -412,7 +411,7 @@ class SpyderModelManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize V08 AIModels: {e}", exc_info=True)
+            self.logger.error("Failed to initialize V08 AIModels: %s", e, exc_info=True)
             self.engine_status[EngineType.AI_MODELS] = EngineStatus.ERROR
             return False
 
@@ -446,7 +445,7 @@ class SpyderModelManager:
             return response
 
         except Exception as e:
-            self.logger.error(f"Error executing operation {request.operation}: {e}", exc_info=True)
+            self.logger.error("Error executing operation %s: %s", request.operation, e, exc_info=True)
             return ConsolidatedResponse(
                 request_id=request.request_id,
                 engine_type=request.engine_type,
@@ -720,7 +719,7 @@ class SpyderModelManager:
                 # Process queued requests (if implemented)
                 await asyncio.sleep(0.1)
             except Exception as e:
-                self.logger.error(f"Error in request processor: {e}", exc_info=True)
+                self.logger.error("Error in request processor: %s", e, exc_info=True)
 
     def _update_performance_metrics(self, engine_type: EngineType, response: ConsolidatedResponse):
         """Update performance metrics for engine."""
@@ -851,7 +850,7 @@ class EngineHealthChecker:
                 await self._check_all_engines()
                 await asyncio.sleep(60)  # Check every minute
             except Exception as e:
-                self.logger.error(f"Error in health checker: {e}", exc_info=True)
+                self.logger.error("Error in health checker: %s", e, exc_info=True)
 
     async def _check_all_engines(self):
         """Check health of all engines."""
@@ -869,7 +868,7 @@ class EngineHealthChecker:
                         self.model_manager.engine_status[engine_type] = EngineStatus.DEGRADED
 
             except Exception as e:
-                self.logger.error(f"Health check failed for {engine_type.value}: {e}", exc_info=True)
+                self.logger.error("Health check failed for %s: %s", engine_type.value, e, exc_info=True)
                 self.model_manager.engine_status[engine_type] = EngineStatus.ERROR
 
 class PerformanceMonitor:
@@ -886,13 +885,13 @@ class PerformanceMonitor:
                 await self._analyze_performance()
                 await asyncio.sleep(300)  # Analyze every 5 minutes
             except Exception as e:
-                self.logger.error(f"Error in performance monitor: {e}", exc_info=True)
+                self.logger.error("Error in performance monitor: %s", e, exc_info=True)
 
     async def _analyze_performance(self):
         """Analyze and optimize performance."""
         for engine_type, performance in self.model_manager.current_performance.items():
             if performance.accuracy < 0.8 or performance.error_rate > 0.2:
-                self.logger.warning(f"Performance degradation detected in {engine_type.value}")
+                self.logger.warning("Performance degradation detected in %s", engine_type.value)
                 # Could trigger recalibration or model switching
 
 # ==============================================================================
@@ -938,7 +937,7 @@ async def main():
     logging.info("Engine Initialization Results:")
     for engine_type, success in initialization_results.items():
         status_icon = "✅" if success else "❌"
-        logging.info(f"   {status_icon} {engine_type.value}: {'Ready' if success else 'Failed'}")
+        logging.info("   %s %s: %s", status_icon, engine_type.value, 'Ready' if success else 'Failed')
 
     # Test 2: Model Selection Intelligence
     logging.info("\n--- Test 2: Intelligent Model Selection ---")
@@ -966,12 +965,12 @@ async def main():
     ]
 
     for context_name, context in contexts:
-        logging.info(f"\n{context_name} Context:")
+        logging.info("\n%s Context:", context_name)
 
         # Test pricing operation selection
         recommendation = await model_manager.select_optimal_engine("price_option", context)
         logging.info(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
-        logging.info(f"   Reasoning: {recommendation.reasoning}")
+        logging.info("   Reasoning: %s", recommendation.reasoning)
 
         # Test risk analysis selection
         recommendation = await model_manager.select_optimal_engine("calculate_risk_metrics", context)
@@ -983,15 +982,15 @@ async def main():
     health_report = model_manager.get_consolidated_health_report()
 
     logging.info("System Health Report:")
-    logging.info(f"   Total Engines: {health_report['total_engines']}")
-    logging.info(f"   Healthy Engines: {health_report['healthy_engines']}")
+    logging.info("   Total Engines: %s", health_report['total_engines'])
+    logging.info("   Healthy Engines: %s", health_report['healthy_engines'])
     logging.info(f"   System Load: {health_report['system_load']:.1%}")
-    logging.info(f"   Market Regime: {health_report['market_regime']}")
+    logging.info("   Market Regime: %s", health_report['market_regime'])
 
     logging.info("\nEngine Status:")
     for engine_name, status in health_report['engine_status'].items():
         status_icon = "✅" if status == "ready" else "⚠️" if status == "degraded" else "❌"
-        logging.info(f"   {status_icon} {engine_name}: {status}")
+        logging.info("   %s %s: %s", status_icon, engine_name, status)
 
     # Test 4: Unified Operations Interface
     logging.info("\n--- Test 4: Unified Operations Interface ---")
@@ -1006,18 +1005,18 @@ async def main():
     ]
 
     for operation in operations:
-        logging.info(f"   • {operation}")
+        logging.info("   • %s", operation)
 
     # Test 5: Configuration Display
     logging.info("\n--- Test 5: Engine Configurations ---")
 
     for engine_type, config in model_manager.engine_configs.items():
-        logging.info(f"\n{engine_type.value.upper()}:")
-        logging.info(f"   Enabled: {config.enabled}")
-        logging.info(f"   Priority: {config.priority}")
+        logging.info("\n%s:", engine_type.value.upper())
+        logging.info("   Enabled: %s", config.enabled)
+        logging.info("   Priority: %s", config.priority)
         logging.info(f"   Performance Threshold: {config.performance_threshold:.1%}")
         logging.info(f"   Max Response Time: {config.max_response_time_ms:.0f}ms")
-        logging.info(f"   Calibration Schedule: {config.calibration_schedule}")
+        logging.info("   Calibration Schedule: %s", config.calibration_schedule)
 
     # Test 6: Architecture Summary
     logging.info("\n--- Consolidated V-Series Architecture ---")
@@ -1034,7 +1033,7 @@ async def main():
     ]
 
     for line in architecture:
-        logging.info(f"   {line}")
+        logging.info("   %s", line)
 
     logging.info("\n🎯 CONSOLIDATED V-SERIES COMPLETE!")
     logging.info("   • 8 modules with zero duplications")

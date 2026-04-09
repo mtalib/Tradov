@@ -439,7 +439,7 @@ class InstitutionalAttributionAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Performance metrics calculation failed: {e}")
+            self.logger.error("Performance metrics calculation failed: %s", e)
             # Return zero metrics as fallback
             return PerformanceMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)
 
@@ -507,7 +507,7 @@ class InstitutionalAttributionAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Factor attribution failed: {e}")
+            self.logger.error("Factor attribution failed: %s", e)
             # Return empty attribution
             return AttributionResult(0, 0, 0, 0, {}, {}, {}, 0, 0, (0, 0), 0)
 
@@ -575,7 +575,7 @@ class AIPerformanceAnalyzer:
             return patterns
 
         except Exception as e:
-            self.logger.error(f"Pattern detection failed: {e}")
+            self.logger.error("Pattern detection failed: %s", e)
             return []
 
     def _engineer_pattern_features(self, returns: pd.Series,
@@ -617,7 +617,7 @@ class AIPerformanceAnalyzer:
                 return features
 
         except Exception as e:
-            self.logger.error(f"Feature engineering failed: {e}")
+            self.logger.error("Feature engineering failed: %s", e)
             return None
 
     def _analyze_pattern(self, pattern_id: int, pattern_returns: pd.Series,
@@ -666,7 +666,7 @@ class AIPerformanceAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Pattern analysis failed: {e}")
+            self.logger.error("Pattern analysis failed: %s", e)
             return None
 
     def _determine_frequency(self, occurrences: int, total_periods: int) -> str:
@@ -717,7 +717,7 @@ class AIPerformanceAnalyzer:
             return anomalies
 
         except Exception as e:
-            self.logger.error(f"Anomaly detection failed: {e}")
+            self.logger.error("Anomaly detection failed: %s", e)
             return []
 
     def generate_ai_insights(self, performance_metrics: PerformanceMetrics,
@@ -832,7 +832,7 @@ class AIPerformanceAnalyzer:
                 ))
 
         except Exception as e:
-            self.logger.error(f"AI insight generation failed: {e}")
+            self.logger.error("AI insight generation failed: %s", e)
 
         return insights
 
@@ -890,7 +890,7 @@ class NaturalLanguageGenerator:
             return base_summary + attribution_text + ai_text + risk_text
 
         except Exception as e:
-            self.logger.error(f"Executive summary generation failed: {e}")
+            self.logger.error("Executive summary generation failed: %s", e)
             return "Performance analysis completed. See detailed metrics for specific insights."
 
     def _rate_performance(self, performance_metrics: PerformanceMetrics,
@@ -942,7 +942,7 @@ class NaturalLanguageGenerator:
                 findings.append("Performance anomalies detected requiring investigation")
 
         except Exception as e:
-            self.logger.error(f"Key findings generation failed: {e}")
+            self.logger.error("Key findings generation failed: %s", e)
 
         return findings
 
@@ -977,14 +977,14 @@ class UnifiedPerformanceEngine:
                 self.regime_engine = get_unified_regime_engine()
                 self.logger.info("Connected to unified regime engine")
             except Exception as e:
-                self.logger.warning(f"Could not connect to regime engine: {e}")
+                self.logger.warning("Could not connect to regime engine: %s", e)
 
         if RISK_COORDINATOR_AVAILABLE:
             try:
                 self.risk_coordinator = get_unified_risk_coordinator()
                 self.logger.info("Connected to unified risk coordinator")
             except Exception as e:
-                self.logger.warning(f"Could not connect to risk coordinator: {e}")
+                self.logger.warning("Could not connect to risk coordinator: %s", e)
 
         # Performance tracking
         self.analysis_history: deque = deque(maxlen=100)
@@ -1021,7 +1021,7 @@ class UnifiedPerformanceEngine:
             start_time = time.time()
             timestamp = datetime.now()
 
-            self.logger.info(f"Generating comprehensive performance report for {len(returns)} periods")
+            self.logger.info("Generating comprehensive performance report for %s periods", len(returns))
 
             # Align data
             common_index = returns.index.intersection(benchmark_returns.index)
@@ -1122,7 +1122,7 @@ class UnifiedPerformanceEngine:
             return unified_report
 
         except Exception as e:
-            self.logger.error(f"Performance report generation failed: {e}")
+            self.logger.error("Performance report generation failed: %s", e)
             self.error_handler.handle_error(e, {"method": "generate_comprehensive_report"})
             raise
 
@@ -1154,7 +1154,7 @@ class UnifiedPerformanceEngine:
             return pd.DataFrame(factor_data, index=index)
 
         except Exception as e:
-            self.logger.error(f"Factor returns generation failed: {e}")
+            self.logger.error("Factor returns generation failed: %s", e)
             # Return empty factor returns
             return pd.DataFrame(index=index)
 
@@ -1167,7 +1167,7 @@ class UnifiedPerformanceEngine:
             # Would integrate with regime engine - placeholder for now
             return "bull_trending"  # Example regime
         except Exception as e:
-            self.logger.error(f"Regime context retrieval failed: {e}")
+            self.logger.error("Regime context retrieval failed: %s", e)
             return None
 
     async def _generate_performance_predictions(self, returns: pd.Series,
@@ -1200,7 +1200,7 @@ class UnifiedPerformanceEngine:
             return predictions
 
         except Exception as e:
-            self.logger.error(f"Performance prediction failed: {e}")
+            self.logger.error("Performance prediction failed: %s", e)
             return {}
 
     def _generate_recommendations(self, performance_metrics: PerformanceMetrics,
@@ -1235,7 +1235,7 @@ class UnifiedPerformanceEngine:
             recommendations = list(set(recommendations))
 
         except Exception as e:
-            self.logger.error(f"Recommendation generation failed: {e}")
+            self.logger.error("Recommendation generation failed: %s", e)
 
         return recommendations[:8]  # Limit to top 8 recommendations
 
@@ -1265,7 +1265,7 @@ class UnifiedPerformanceEngine:
                 warnings.append("CAUTION: Extreme negative returns indicate potential tail risk")
 
         except Exception as e:
-            self.logger.error(f"Risk warning generation failed: {e}")
+            self.logger.error("Risk warning generation failed: %s", e)
 
         return warnings
 

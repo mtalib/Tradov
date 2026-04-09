@@ -40,7 +40,7 @@ import sys
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 # ==============================================================================

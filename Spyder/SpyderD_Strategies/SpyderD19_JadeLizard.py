@@ -239,7 +239,7 @@ class JadeLizardStrategy(BaseStrategy):
             'worst_trade': 0.0
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # MARKET ANALYSIS
@@ -292,7 +292,7 @@ class JadeLizardStrategy(BaseStrategy):
                 return MarketSentiment.BEARISH
 
         except Exception as e:
-            self.logger.error(f"Error analyzing sentiment: {e}")
+            self.logger.error("Error analyzing sentiment: %s", e)
             return MarketSentiment.NEUTRAL
 
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
@@ -507,7 +507,7 @@ class JadeLizardStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating Jade Lizard setup: {e}")
+            self.logger.error("Error creating Jade Lizard setup: %s", e)
             return None
 
     def _get_current_iv(self, market_data: pd.DataFrame) -> float:
@@ -698,7 +698,7 @@ class JadeLizardStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating signal: {e}")
+            self.logger.error("Error creating signal: %s", e)
             return None
 
     def _calculate_risk_metrics(self, setup: JadeLizardSetup,
@@ -827,7 +827,7 @@ class JadeLizardStrategy(BaseStrategy):
             position.pnl_percent = (position.unrealized_pnl / setup.total_credit) * 100
 
         except Exception as e:
-            self.logger.error(f"Error updating position value: {e}")
+            self.logger.error("Error updating position value: %s", e)
 
     def _update_risk_metrics(self, position: JadeLizardPosition,
                            current_price: float,
@@ -841,14 +841,14 @@ class JadeLizardStrategy(BaseStrategy):
             # Check for new management triggers
             if new_metrics.pin_risk and "pin_risk" not in position.management_triggers:
                 position.management_triggers.append("pin_risk")
-                self.logger.warning(f"Pin risk detected for {position.position_id}")
+                self.logger.warning("Pin risk detected for %s", position.position_id)
 
             if new_metrics.early_assignment_risk and "assignment_risk" not in position.management_triggers:
                 position.management_triggers.append("assignment_risk")
-                self.logger.warning(f"Early assignment risk for {position.position_id}")
+                self.logger.warning("Early assignment risk for %s", position.position_id)
 
         except Exception as e:
-            self.logger.error(f"Error updating risk metrics: {e}")
+            self.logger.error("Error updating risk metrics: %s", e)
 
     def _check_exit_conditions(self, position: JadeLizardPosition,
                              market_data: pd.DataFrame) -> TradingSignal | None:
@@ -967,7 +967,7 @@ class JadeLizardStrategy(BaseStrategy):
         )
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added Jade Lizard position {position_id}")
+        self.logger.info("Added Jade Lizard position %s", position_id)
 
         return position_id
 
@@ -1044,9 +1044,9 @@ def test_jade_lizard():
     # Create strategy
     strategy = JadeLizardStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
-    logging.info(f"Min Credit: ${strategy.min_credit}")
-    logging.info(f"Enforce No Upside Risk: {strategy.enforce_no_upside_risk}")
+    logging.info("Strategy: %s", strategy.name)
+    logging.info("Min Credit: $%s", strategy.min_credit)
+    logging.info("Enforce No Upside Risk: %s", strategy.enforce_no_upside_risk)
 
     # Create neutral to slightly bullish market
     dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
@@ -1073,20 +1073,20 @@ def test_jade_lizard():
     # Test market sentiment
     logging.info("\nMarket Sentiment Analysis:")
     sentiment = strategy._analyze_market_sentiment(market_data)
-    logging.info(f"Sentiment: {sentiment.value}")
+    logging.info("Sentiment: %s", sentiment.value)
 
     # Test IV rank
     iv_rank = strategy._calculate_iv_rank(market_data)
     logging.info(f"IV Rank: {iv_rank:.1f}")
 
     # Check events
-    logging.info(f"Events Clear: {strategy._check_upcoming_events()}")
+    logging.info("Events Clear: %s", strategy._check_upcoming_events())
 
     # Generate signals
     logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"Generated {len(signals)} signals")
+    logging.info("Generated %s signals", len(signals))
 
     for signal in signals:
         setup = signal.metadata
@@ -1096,20 +1096,20 @@ def test_jade_lizard():
         logging.info(f"Total Credit: ${setup['credits']['total']:.2f}")
         logging.info(f"  - Put Credit: ${setup['credits']['put']:.2f}")
         logging.info(f"  - Call Spread Credit: ${setup['credits']['call_spread']:.2f}")
-        logging.info(f"No Upside Risk: {setup['no_upside_risk']}")
+        logging.info("No Upside Risk: %s", setup['no_upside_risk'])
         logging.info(f"Breakeven: ${setup['breakeven']:.2f}")
         logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
         logging.info(f"Max Loss: ${setup['max_loss']:.2f}")
         logging.info(f"Probability of Profit: {signal.confidence:.1%}")
         logging.info(f"IV Rank: {setup['iv_rank']:.1f}")
-        logging.info(f"Market Sentiment: {setup['sentiment']}")
+        logging.info("Market Sentiment: %s", setup['sentiment'])
 
         # Risk metrics
         risk = setup['risk_metrics']
         logging.info("\nRisk Metrics:")
         logging.info(f"Portfolio Delta: {risk['portfolio_delta']:.1f}")
         logging.info(f"Portfolio Theta: ${risk['portfolio_theta']:.2f}")
-        logging.info(f"Risk Level: {risk['current_risk_level']}")
+        logging.info("Risk Level: %s", risk['current_risk_level'])
 
         # Add position
         strategy.add_position(signal)
@@ -1147,13 +1147,13 @@ def test_jade_lizard():
 
                 if management_signals:
                     for signal in management_signals:
-                        logging.info(f"\nExit Signal Day {i}")
-                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
-                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info("\nExit Signal Day %s", i)
+                        logging.info("Reason: %s", signal.metadata['exit_reason'])
+                        logging.info("Days Held: %s", signal.metadata['days_held'])
                         logging.info(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
                         logging.info(f"P&L %: {signal.metadata['pnl_percent']:.1f}%")
-                        logging.info(f"Final DTE: {signal.metadata['final_dte']}")
-                        logging.info(f"Triggers: {signal.metadata['management_triggers']}")
+                        logging.info("Final DTE: %s", signal.metadata['final_dte'])
+                        logging.info("Triggers: %s", signal.metadata['management_triggers'])
 
     # Print position summary
     positions = strategy.get_position_summary()
@@ -1161,24 +1161,24 @@ def test_jade_lizard():
         logging.info("\n" + "=" * 40)
         logging.info("Active Positions:")
         for pos in positions:
-            logging.info(f"\n{pos['position_id']}:")
-            logging.info(f"  DTE: {pos['dte']}")
+            logging.info("\n%s:", pos['position_id'])
+            logging.info("  DTE: %s", pos['dte'])
             logging.info(f"  P&L: ${pos['unrealized_pnl']:.2f} ({pos['pnl_percent']:.1f}%)")
             logging.info(f"  Strikes: Put ${pos['strikes']['put']}, "
                   f"Call ${pos['strikes']['short_call']}/{pos['strikes']['long_call']}")
-            logging.info(f"  Risk Level: {pos['risk_level']}")
-            logging.info(f"  State: {pos['state']}")
+            logging.info("  Risk Level: %s", pos['risk_level'])
+            logging.info("  State: %s", pos['state'])
 
     # Print final statistics
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info("Active Positions: %s", stats['active_positions'])
     logging.info("Portfolio Greeks:")
     logging.info(f"  Delta: {stats['portfolio_greeks']['delta']:.1f}")
     logging.info(f"  Gamma: {stats['portfolio_greeks']['gamma']:.1f}")
     logging.info(f"  Theta: ${stats['portfolio_greeks']['theta']:.2f}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
     logging.info(f"Perfect Trade Rate: {stats['perfect_trade_rate']:.1%}")
     logging.info(f"Average Credit: ${stats['avg_credit']:.2f}")

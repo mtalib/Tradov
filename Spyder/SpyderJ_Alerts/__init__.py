@@ -17,6 +17,7 @@ Version: 1.4
 # ==============================================================================
 from .SpyderJ01_AlertManager import AlertManager
 from .SpyderJ02_EmailNotifier import EmailNotifier
+from .SpyderJ03_WebhookNotifier import WebhookNotifier, Severity as WebhookSeverity, get_notifier
 from .SpyderJ04_DesktopNotifier import DesktopNotifier
 
 # Import TelegramBot with proper error handling
@@ -40,6 +41,10 @@ __all__ = [
     "AlertManager",
     "DesktopNotifier",
     "EmailNotifier",
+    # J03 — webhook notifications (Slack / Teams / Discord)
+    "WebhookNotifier",
+    "WebhookSeverity",
+    "get_notifier",
     "TelegramBot",
 ]
 

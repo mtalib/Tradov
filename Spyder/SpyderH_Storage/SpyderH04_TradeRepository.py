@@ -212,7 +212,7 @@ class TradeRepository:
             self._ensure_table_exists()
 
         self.logger.info(
-            f"TradeRepository initialized (mode: {'in-memory' if self._use_memory else 'database'})"
+            "TradeRepository initialized (mode: %s)", 'in-memory' if self._use_memory else 'database'
         )
 
     def _ensure_table_exists(self) -> None:
@@ -257,7 +257,7 @@ class TradeRepository:
             self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy_name)")
             self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_executed ON trades(executed_at)")
         except Exception as e:
-            self.logger.error(f"Error creating trades table: {e}")
+            self.logger.error("Error creating trades table: %s", e)
 
     def _generate_trade_id(self) -> str:
         """Generate a unique trade ID."""
@@ -285,7 +285,7 @@ class TradeRepository:
             else:
                 self._save_to_database(trade)
 
-            self.logger.debug(f"Trade saved: {trade.trade_id}")
+            self.logger.debug("Trade saved: %s", trade.trade_id)
             return trade.trade_id
 
     def _save_to_database(self, trade: Trade) -> None:

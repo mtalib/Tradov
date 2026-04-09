@@ -92,7 +92,7 @@ class ConfigurationValidator:
         # Run all validation checks
         self._validate_trading_mode()
         self._validate_tradier_config()
-        self._validate_databento_config()
+        self._validate_massive_config()
         self._validate_risk_config()
         self._validate_logging_config()
         self._validate_security_config()
@@ -203,34 +203,34 @@ class ConfigurationValidator:
                 None
             ))
 
-    def _validate_databento_config(self):
-        """Validate Databento configuration"""
-        api_key = os.environ.get("DATABENTO_API_KEY", "")
+    def _validate_massive_config(self):
+        """Validate Massive market data configuration"""
+        api_key = os.environ.get("MASSIVE_API_KEY", "")
 
         if not api_key:
             self.add_result(ValidationResult(
-                "DATABENTO_API_KEY",
+                "MASSIVE_API_KEY",
                 ValidationLevel.ERROR,
                 "Not set",
-                "Get API key from https://databento.com/"
+                "Get API key from your Massive account dashboard"
             ))
-        elif api_key == "your_databento_api_key_here":
+        elif api_key == "your_massive_api_key_here":
             self.add_result(ValidationResult(
-                "DATABENTO_API_KEY",
+                "MASSIVE_API_KEY",
                 ValidationLevel.ERROR,
                 "Using template value",
-                "Replace with actual Databento API key"
+                "Replace with actual Massive API key"
             ))
-        elif len(api_key) < 20:
+        elif len(api_key) < 10:
             self.add_result(ValidationResult(
-                "DATABENTO_API_KEY",
+                "MASSIVE_API_KEY",
                 ValidationLevel.WARNING,
                 "Appears too short, may be invalid",
                 "Verify API key format"
             ))
         else:
             self.add_result(ValidationResult(
-                "DATABENTO_API_KEY",
+                "MASSIVE_API_KEY",
                 ValidationLevel.INFO,
                 "Present (not validating actual key)",
                 None
@@ -340,7 +340,7 @@ class ConfigurationValidator:
                 "Not set - emergency override will not work",
                 "Set a strong password for emergency override functionality"
             ))
-        elif override_password == "your_secure_password_here":
+        elif override_password == "your_secure_password_here":  # noqa: S105
             self.add_result(ValidationResult(
                 "EMERGENCY_OVERRIDE_PASSWORD",
                 ValidationLevel.WARNING,

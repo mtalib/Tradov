@@ -28,7 +28,8 @@ import time
 import queue
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import logging
@@ -279,11 +280,11 @@ class SpyderPublisher:
             # Start message processor thread
             self._start_message_processor()
 
-            self.logger.info(f"Publisher connected on port {self.port}")
+            self.logger.info("Publisher connected on port %s", self.port)
             return True
 
         except Exception as e:
-            self.logger.error(f"Connection failed: {e}")
+            self.logger.error("Connection failed: %s", e)
             with self._lock:
                 self.state = ConnectionState.FAILED
             self._schedule_reconnect()
@@ -300,7 +301,7 @@ class SpyderPublisher:
             # Use circuit breaker for protection
             return self.circuit_breaker.call(self._publish_internal, message)
         except Exception as e:
-            self.logger.error(f"Publish failed: {e}")
+            self.logger.error("Publish failed: %s", e)
             self._queue_message(message)
             return False
 
@@ -358,7 +359,7 @@ class SpyderPublisher:
                         self._publish_internal(heartbeat)
                         self.metrics.last_heartbeat = datetime.now()
                 except Exception as e:
-                    self.logger.error(f"Heartbeat failed: {e}")
+                    self.logger.error("Heartbeat failed: %s", e)
 
                 self._stop_event.wait(timeout=HEARTBEAT_INTERVAL)
 
@@ -384,7 +385,7 @@ class SpyderPublisher:
                 except queue.Empty:
                     pass
                 except Exception as e:
-                    self.logger.error(f"Message processor error: {e}")
+                    self.logger.error("Message processor error: %s", e)
 
                 time.sleep(0.01)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
 
@@ -408,7 +409,7 @@ class SpyderPublisher:
                 message.retry_count += 1
                 self._retry_queue.append((time.time() + MESSAGE_RETRY_DELAY, message))
             else:
-                self.logger.error(f"Message {msg_id} failed after {MESSAGE_RETRY_ATTEMPTS} attempts")
+                self.logger.error("Message %s failed after %s attempts", msg_id, MESSAGE_RETRY_ATTEMPTS)
                 self.metrics.messages_failed += 1
 
     def _process_retries(self):
@@ -421,7 +422,7 @@ class SpyderPublisher:
 
     def _handle_connection_error(self, error: Exception):
         """Handle connection errors."""
-        self.logger.error(f"Connection error: {error}")
+        self.logger.error("Connection error: %s", error)
         with self._lock:
             self.state = ConnectionState.FAILED
             self.metrics.error_count += 1
@@ -437,7 +438,7 @@ class SpyderPublisher:
             while self.state != ConnectionState.CONNECTED and self._running:
                 time.sleep(self._reconnect_delay)  # thread-safe: time.sleep() intentional
 
-                self.logger.info(f"Attempting reconnection (attempt {self.metrics.reconnect_attempts + 1})")
+                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)
                 with self._lock:
                     self.state = ConnectionState.RECONNECTING
                     self.metrics.reconnect_attempts += 1
@@ -538,11 +539,11 @@ class SpyderSubscriber:
                 self._running = True
                 self._reconnect_delay = RECONNECT_INITIAL_DELAY
 
-            self.logger.info(f"Subscriber connected to port {self.port}")
+            self.logger.info("Subscriber connected to port %s", self.port)
             return True
 
         except Exception as e:
-            self.logger.error(f"Connection failed: {e}")
+            self.logger.error("Connection failed: %s", e)
             with self._lock:
                 self.state = ConnectionState.FAILED
             self._schedule_reconnect()
@@ -596,7 +597,7 @@ class SpyderSubscriber:
                     if e.errno != zmq.EAGAIN:
                         self._handle_connection_error(e)
                 except Exception as e:
-                    self.logger.error(f"Listen error: {e}")
+                    self.logger.error("Listen error: %s", e)
 
                 time.sleep(0.001)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
 
@@ -614,10 +615,10 @@ class SpyderSubscriber:
                 try:
                     handler(message)
                 except Exception as e:
-                    self.logger.error(f"Handler error: {e}")
+                    self.logger.error("Handler error: %s", e)
 
         except Exception as e:
-            self.logger.error(f"Message processing error: {e}")
+            self.logger.error("Message processing error: %s", e)
 
     def _send_acknowledgment(self, message: SpyderMessage):
         """Send acknowledgment for received message."""
@@ -636,7 +637,7 @@ class SpyderSubscriber:
                 self._acknowledgment_socket.send_string(ack.to_json())
 
         except Exception as e:
-            self.logger.error(f"Failed to send acknowledgment: {e}")
+            self.logger.error("Failed to send acknowledgment: %s", e)
 
     def _check_heartbeat_timeout(self):
         """Check if heartbeat has timed out."""
@@ -655,7 +656,7 @@ class SpyderSubscriber:
 
     def _handle_connection_error(self, error: Exception):
         """Handle connection errors."""
-        self.logger.error(f"Connection error: {error}")
+        self.logger.error("Connection error: %s", error)
         with self._lock:
             self.state = ConnectionState.FAILED
             self.metrics.error_count += 1
@@ -668,7 +669,7 @@ class SpyderSubscriber:
             while self.state != ConnectionState.CONNECTED and self._running:
                 self._stop_event.wait(timeout=self._reconnect_delay)
 
-                self.logger.info(f"Attempting reconnection (attempt {self.metrics.reconnect_attempts + 1})")
+                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)
                 with self._lock:
                     self.state = ConnectionState.RECONNECTING
                     self.metrics.reconnect_attempts += 1
@@ -756,11 +757,11 @@ class SpyderRequester:
             with self._lock:
                 self.state = ConnectionState.CONNECTED
 
-            self.logger.info(f"Requester connected to port {self.port}")
+            self.logger.info("Requester connected to port %s", self.port)
             return True
 
         except Exception as e:
-            self.logger.error(f"Connection failed: {e}")
+            self.logger.error("Connection failed: %s", e)
             with self._lock:
                 self.state = ConnectionState.FAILED
             return False
@@ -780,7 +781,7 @@ class SpyderRequester:
                     self._request_internal, message, timeout
                 )
             except Exception as e:
-                self.logger.error(f"Request attempt {attempt + 1} failed: {e}")
+                self.logger.error("Request attempt %s failed: %s", attempt + 1, e)
 
                 if attempt < MESSAGE_RETRY_ATTEMPTS - 1:
                     # Reconnect for next attempt
@@ -825,7 +826,7 @@ class SpyderRequester:
                 self.state = ConnectionState.CONNECTED
 
         except Exception as e:
-            self.logger.error(f"Reconnection failed: {e}")
+            self.logger.error("Reconnection failed: %s", e)
             with self._lock:
                 self.state = ConnectionState.FAILED
 
@@ -871,24 +872,24 @@ class SpyderCommHub:
         # Connect all publishers
         for name, publisher in self.publishers.items():
             if publisher.connect():
-                self.logger.info(f"Publisher '{name}' started")
+                self.logger.info("Publisher '%s' started", name)
             else:
-                self.logger.error(f"Failed to start publisher '{name}'")
+                self.logger.error("Failed to start publisher '%s'", name)
 
         # Connect all subscribers and start listening
         for name, subscriber in self.subscribers.items():
             if subscriber.connect():
                 subscriber.start_listening()
-                self.logger.info(f"Subscriber '{name}' started")
+                self.logger.info("Subscriber '%s' started", name)
             else:
-                self.logger.error(f"Failed to start subscriber '{name}'")
+                self.logger.error("Failed to start subscriber '%s'", name)
 
         # Connect all requesters
         for name, requester in self.requesters.items():
             if requester.connect():
-                self.logger.info(f"Requester '{name}' started")
+                self.logger.info("Requester '%s' started", name)
             else:
-                self.logger.error(f"Failed to start requester '{name}'")
+                self.logger.error("Failed to start requester '%s'", name)
 
         # Start monitoring thread
         self._start_monitoring()
@@ -937,13 +938,13 @@ class SpyderCommHub:
                     # Check for issues
                     for name, metric in metrics.items():
                         if metric.error_count > 10:
-                            self.logger.warning(f"High error count for {name}: {metric.error_count}")
+                            self.logger.warning("High error count for %s: %s", name, metric.error_count)
 
                         if metric.messages_failed > metric.messages_sent * 0.1:
-                            self.logger.warning(f"High failure rate for {name}")
+                            self.logger.warning("High failure rate for %s", name)
 
                 except Exception as e:
-                    self.logger.error(f"Monitoring error: {e}")
+                    self.logger.error("Monitoring error: %s", e)
 
                 time.sleep(10)  # Monitor every 10 seconds  # thread-safe: time.sleep() intentional
 
@@ -983,8 +984,8 @@ def example_market_data_publisher():
         return
 
     logging.info("✅ Publisher connected")
-    logging.info(f"   Port: {MARKET_DATA_PORT}")
-    logging.info(f"   State: {publisher.state.name}")
+    logging.info("   Port: %s", MARKET_DATA_PORT)
+    logging.info("   State: %s", publisher.state.name)
 
     # Simulate market data publishing
     logging.info("\nPublishing market data...")
@@ -1013,17 +1014,17 @@ def example_market_data_publisher():
         if success:
             logging.info(f"   ✓ Published update {i}: SPY @ ${market_data.data['last']:.2f}")
         else:
-            logging.info(f"   ✗ Failed to publish update {i}")
+            logging.info("   ✗ Failed to publish update %s", i)
 
         time.sleep(0.5)
 
     # Show metrics
     metrics = publisher.get_metrics()
     logging.info("\nPublisher Metrics:")
-    logging.info(f"   Messages sent: {metrics.messages_sent}")
-    logging.info(f"   Messages failed: {metrics.messages_failed}")
-    logging.info(f"   Error count: {metrics.error_count}")
-    logging.info(f"   Reconnect attempts: {metrics.reconnect_attempts}")
+    logging.info("   Messages sent: %s", metrics.messages_sent)
+    logging.info("   Messages failed: %s", metrics.messages_failed)
+    logging.info("   Error count: %s", metrics.error_count)
+    logging.info("   Reconnect attempts: %s", metrics.reconnect_attempts)
 
     # Simulate connection failure and recovery
     logging.info("\n🔧 Simulating connection failure...")
@@ -1072,14 +1073,14 @@ def example_dashboard_subscriber():
             data = message.data
             logging.info(f"📊 Market Update: {data['symbol']} @ ${data.get('last', 0):.2f}")
         except Exception as e:
-            logging.info(f"❌ Handler error: {e}")
+            logging.info("❌ Handler error: %s", e)
 
     def handle_risk_update(message: SpyderMessage):
         try:
             data = message.data
-            logging.info(f"⚠️  Risk Update: {data}")
+            logging.info("⚠️  Risk Update: %s", data)
         except Exception as e:
-            logging.info(f"❌ Handler error: {e}")
+            logging.info("❌ Handler error: %s", e)
 
     # Subscribe with handlers
     subscriber.subscribe("MARKET_DATA", handle_market_data)
@@ -1091,8 +1092,8 @@ def example_dashboard_subscriber():
         return
 
     logging.info("✅ Subscriber connected")
-    logging.info(f"   Port: {MARKET_DATA_PORT}")
-    logging.info(f"   Topics: {subscriber.topics}")
+    logging.info("   Port: %s", MARKET_DATA_PORT)
+    logging.info("   Topics: %s", subscriber.topics)
 
     # Start listening
     subscriber.start_listening()
@@ -1104,9 +1105,9 @@ def example_dashboard_subscriber():
     # Show metrics
     metrics = subscriber.get_metrics()
     logging.info("\nSubscriber Metrics:")
-    logging.info(f"   Messages received: {metrics.messages_received}")
-    logging.info(f"   Last heartbeat: {metrics.last_heartbeat}")
-    logging.info(f"   Error count: {metrics.error_count}")
+    logging.info("   Messages received: %s", metrics.messages_received)
+    logging.info("   Last heartbeat: %s", metrics.last_heartbeat)
+    logging.info("   Error count: %s", metrics.error_count)
 
     # Test heartbeat timeout detection
     logging.info("\n🔧 Testing heartbeat timeout detection...")
@@ -1153,7 +1154,7 @@ def example_request_reply():
     )
 
     logging.info("\n📤 Sending order request...")
-    logging.info(f"   Order: {order_request.data}")
+    logging.info("   Order: %s", order_request.data)
 
     # Send request with timeout
     start_time = time.time()
@@ -1162,8 +1163,8 @@ def example_request_reply():
 
     if reply:
         logging.info(f"\n✅ Received reply in {elapsed:.2f}s:")
-        logging.info(f"   Type: {reply.msg_type.value}")
-        logging.info(f"   Data: {reply.data}")
+        logging.info("   Type: %s", reply.msg_type.value)
+        logging.info("   Data: %s", reply.data)
     else:
         logging.info(f"\n❌ Request failed or timed out after {elapsed:.2f}s")
 
@@ -1206,9 +1207,9 @@ def example_communication_hub():
     hub.create_requester("execution", TRADE_EXECUTION_PORT)
 
     logging.info("✅ Communication components created:")
-    logging.info(f"   Publishers: {list(hub.publishers.keys())}")
-    logging.info(f"   Subscribers: {list(hub.subscribers.keys())}")
-    logging.info(f"   Requesters: {list(hub.requesters.keys())}")
+    logging.info("   Publishers: %s", list(hub.publishers.keys()))
+    logging.info("   Subscribers: %s", list(hub.subscribers.keys()))
+    logging.info("   Requesters: %s", list(hub.requesters.keys()))
 
     # Start all components
     hub.start()
@@ -1221,11 +1222,11 @@ def example_communication_hub():
     all_metrics = hub.get_all_metrics()
     logging.info("\n📊 System-wide Communication Metrics:")
     for name, metrics in all_metrics.items():
-        logging.info(f"   {name}:")
-        logging.info(f"      Sent: {metrics.messages_sent}")
-        logging.info(f"      Received: {metrics.messages_received}")
-        logging.info(f"      Failed: {metrics.messages_failed}")
-        logging.info(f"      Errors: {metrics.error_count}")
+        logging.info("   %s:", name)
+        logging.info("      Sent: %s", metrics.messages_sent)
+        logging.info("      Received: %s", metrics.messages_received)
+        logging.info("      Failed: %s", metrics.messages_failed)
+        logging.info("      Errors: %s", metrics.error_count)
 
     # Stop hub
     hub.stop()

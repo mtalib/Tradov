@@ -53,6 +53,19 @@ try:
 except ImportError:
     logging.info("Warning: SpyderH07_PerformanceAnalytics not available")
 
+# H02 — additional storage module
+try:
+    from .SpyderH02_DatabaseManager import DatabaseManager
+    __all__.extend(["DatabaseManager"])
+except ImportError:
+    logging.info("Warning: SpyderH02_DatabaseManager not available")
+
+try:
+    from .SpyderH08_TradeJournal import TradeJournal
+    __all__.extend(["TradeJournal"])
+except ImportError:
+    logging.info("Warning: SpyderH08_TradeJournal not available")
+
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================

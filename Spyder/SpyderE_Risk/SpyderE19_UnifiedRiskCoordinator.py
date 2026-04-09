@@ -76,7 +76,7 @@ try:
     CORE_RISK_AVAILABLE = True
 except ImportError as e:
     CORE_RISK_AVAILABLE = False
-    logging.info(f"⚠️  Core risk modules not available: {e}")
+    logging.info("⚠️  Core risk modules not available: %s", e)
 
 # V04 Quantitative Risk Specialist
 try:
@@ -300,7 +300,7 @@ class RiskCalculationCache:
         # Create hash of calculation type and relevant data
         key_data = {
             'type': calculation_type.value,
-            'data_hash': hashlib.md5(str(sorted(data.items())).encode()).hexdigest()
+            'data_hash': hashlib.md5(str(sorted(data.items())).encode(), usedforsecurity=False).hexdigest()
         }
         return f"{calculation_type.value}_{key_data['data_hash']}"
 
@@ -446,7 +446,7 @@ class UnifiedRiskCoordinator:
                 self.drawdown_controller = DrawdownController()
                 self.logger.info("✅ E-Series core risk components initialized")
             except Exception as e:
-                self.logger.error(f"Failed to initialize E-Series components: {e}")
+                self.logger.error("Failed to initialize E-Series components: %s", e)
 
         # V04 Quantitative Risk Specialist
         if QUANT_RISK_AVAILABLE:
@@ -454,7 +454,7 @@ class UnifiedRiskCoordinator:
                 self.quant_risk_manager = create_quant_risk_manager()
                 self.logger.info("✅ V04 quantitative risk manager initialized")
             except Exception as e:
-                self.logger.error(f"Failed to initialize V04 quant manager: {e}")
+                self.logger.error("Failed to initialize V04 quant manager: %s", e)
 
         # X04 AI Risk Guardian
         if AI_RISK_AVAILABLE:
@@ -462,7 +462,7 @@ class UnifiedRiskCoordinator:
                 self.ai_risk_guardian = create_risk_guardian_agent()
                 self.logger.info("✅ X04 AI risk guardian initialized")
             except Exception as e:
-                self.logger.error(f"Failed to initialize X04 AI guardian: {e}")
+                self.logger.error("Failed to initialize X04 AI guardian: %s", e)
 
         # L09 Regime Engine Integration
         if REGIME_ENGINE_AVAILABLE:
@@ -470,7 +470,7 @@ class UnifiedRiskCoordinator:
                 self.regime_engine = get_unified_regime_engine()
                 self.logger.info("✅ L09 unified regime engine connected")
             except Exception as e:
-                self.logger.error(f"Failed to connect regime engine: {e}")
+                self.logger.error("Failed to connect regime engine: %s", e)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN RISK INTERFACE
@@ -494,7 +494,7 @@ class UnifiedRiskCoordinator:
             start_time = time.time()
             timestamp = datetime.now()
 
-            self.logger.info(f"Calculating unified risk profile for {len(positions)} positions")
+            self.logger.info("Calculating unified risk profile for %s positions", len(positions))
 
             # Initialize results containers
             calculation_sources = []
@@ -551,7 +551,7 @@ class UnifiedRiskCoordinator:
             return unified_profile
 
         except Exception as e:
-            self.logger.error(f"Unified risk calculation failed: {e}")
+            self.logger.error("Unified risk calculation failed: %s", e)
             self.error_handler.handle_error(e, {"method": "calculate_unified_risk_profile"})
 
             # Return safe emergency profile
@@ -566,7 +566,7 @@ class UnifiedRiskCoordinator:
         try:
             # Check cache first
             cache_key_data = {
-                'positions_hash': hashlib.md5(str(positions).encode()).hexdigest(),
+                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),
                 'portfolio_value': portfolio_value
             }
 
@@ -622,7 +622,7 @@ class UnifiedRiskCoordinator:
             return result
 
         except Exception as e:
-            self.logger.error(f"Core risk analysis failed: {e}")
+            self.logger.error("Core risk analysis failed: %s", e)
             return None
 
     async def _get_quantitative_risk_analysis(self, positions: list[dict[str, Any]],
@@ -635,8 +635,8 @@ class UnifiedRiskCoordinator:
         try:
             # Check cache
             cache_key_data = {
-                'positions_hash': hashlib.md5(str(positions).encode()).hexdigest(),
-                'market_data_hash': hashlib.md5(str(market_data).encode()).hexdigest() if market_data else 'none'
+                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),
+                'market_data_hash': hashlib.md5(str(market_data).encode(), usedforsecurity=False).hexdigest() if market_data else 'none'
             }
 
             cached_result = self.cache.get(RiskCalculationType.VAR_ANALYSIS, cache_key_data)
@@ -666,7 +666,7 @@ class UnifiedRiskCoordinator:
             return result
 
         except Exception as e:
-            self.logger.error(f"Quantitative risk analysis failed: {e}")
+            self.logger.error("Quantitative risk analysis failed: %s", e)
             return None
 
     async def _get_ai_risk_analysis(self, positions: list[dict[str, Any]],
@@ -725,7 +725,7 @@ class UnifiedRiskCoordinator:
             return result
 
         except Exception as e:
-            self.logger.error(f"AI risk analysis failed: {e}")
+            self.logger.error("AI risk analysis failed: %s", e)
             return None
 
     async def _get_regime_context(self, market_data: dict[str, Any] | None) -> str | None:
@@ -739,7 +739,7 @@ class UnifiedRiskCoordinator:
             current_regime = "bull_trending"  # Would be actual regime detection
             return current_regime
         except Exception as e:
-            self.logger.error(f"Regime context failed: {e}")
+            self.logger.error("Regime context failed: %s", e)
             return None
 
     def _create_unified_profile(self, **kwargs) -> UnifiedRiskProfile:
@@ -880,7 +880,7 @@ class UnifiedRiskCoordinator:
             self.active_alerts = [a for a in self.active_alerts if a.timestamp > cutoff_time]
 
         if new_alerts:
-            self.logger.warning(f"Generated {len(new_alerts)} risk alerts")
+            self.logger.warning("Generated %s risk alerts", len(new_alerts))
 
     def _create_emergency_profile(self, portfolio_value: float, timestamp: datetime) -> UnifiedRiskProfile:
         """Create emergency risk profile when calculations fail"""

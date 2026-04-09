@@ -24,7 +24,8 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from typing import Any, Callable, Union
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
@@ -282,7 +283,7 @@ class SpyderErrorHandler:
     # ==========================================================================
     def handle_error(
         self,
-        error: Union[Exception, str],
+        error: Exception | str,
         component_name: str,
         strategy_name: str | None = None,
         order_id: str | None = None,
@@ -333,7 +334,7 @@ class SpyderErrorHandler:
 
     def _create_error_context(
         self,
-        error: Union[Exception, str],
+        error: Exception | str,
         component_name: str,
         strategy_name: str | None = None,
         order_id: str | None = None,
@@ -510,7 +511,7 @@ class SpyderErrorHandler:
         """Initiate shutdown based on error context"""
         if error_context.strategy_name:
             self.logger.critical(
-                f"Initiating strategy shutdown: {error_context.strategy_name}"
+                "Initiating strategy shutdown: %s", error_context.strategy_name
             )
             self._shutdown_strategy(error_context.strategy_name, error_context)
         else:
@@ -530,7 +531,7 @@ class SpyderErrorHandler:
             try:
                 callback("strategy", strategy_name, error_context)
             except Exception as e:
-                self.logger.error(f"Error in shutdown callback: {e}")
+                self.logger.error("Error in shutdown callback: %s", e)
 
     def _shutdown_system(self, error_context: ErrorContext):
         """Shutdown the entire system"""
@@ -543,7 +544,7 @@ class SpyderErrorHandler:
             try:
                 callback("system", None, error_context)
             except Exception as e:
-                self.logger.error(f"Error in shutdown callback: {e}")
+                self.logger.error("Error in shutdown callback: %s", e)
 
     # ==========================================================================
     # RECOVERY
@@ -581,7 +582,7 @@ class SpyderErrorHandler:
                     error_context.resolved = True
                     error_context.resolution_time = datetime.now()
                     self.logger.info(
-                        f"Recovery successful for {error_context.error_type}"
+                        "Recovery successful for %s", error_context.error_type
                     )
 
                 return success
@@ -620,7 +621,7 @@ class SpyderErrorHandler:
             return False
 
         except Exception as e:
-            self.logger.error(f"Error during recovery action: {e}")
+            self.logger.error("Error during recovery action: %s", e)
             return False
 
     # ==========================================================================
@@ -655,7 +656,7 @@ class SpyderErrorHandler:
             and error_context.stack_trace
         ):
             self.logger.debug(
-                f"Stack trace for {error_context.error_id}:\n{error_context.stack_trace}"
+                "Stack trace for %s:\n%s", error_context.error_id, error_context.stack_trace
             )
 
     # ==========================================================================
@@ -683,7 +684,7 @@ class SpyderErrorHandler:
             self.event_manager.emit_event(EventType.ERROR_OCCURRED, event_data)
 
         except Exception as e:
-            self.logger.warning(f"Failed to emit error event: {e}")
+            self.logger.warning("Failed to emit error event: %s", e)
 
     def _emit_strategy_shutdown_event(
         self, strategy_name: str, reason: str, error_context: ErrorContext
@@ -705,7 +706,7 @@ class SpyderErrorHandler:
             self.event_manager.emit_event(EventType.STRATEGY_SHUTDOWN, event_data)
 
         except Exception as e:
-            self.logger.warning(f"Failed to emit strategy shutdown event: {e}")
+            self.logger.warning("Failed to emit strategy shutdown event: %s", e)
 
     def _emit_system_shutdown_event(self, reason: str, error_context: ErrorContext):
         """Emit system shutdown event"""
@@ -726,7 +727,7 @@ class SpyderErrorHandler:
             self.event_manager.emit_event(EventType.SYSTEM_SHUTDOWN, event_data)
 
         except Exception as e:
-            self.logger.warning(f"Failed to emit system shutdown event: {e}")
+            self.logger.warning("Failed to emit system shutdown event: %s", e)
 
     # ==========================================================================
     # CALLBACKS
@@ -737,7 +738,7 @@ class SpyderErrorHandler:
             try:
                 callback(error_context)
             except Exception as e:
-                self.logger.error(f"Error in callback execution: {e}")
+                self.logger.error("Error in callback execution: %s", e)
 
     def register_error_callback(self, callback: Callable[[ErrorContext], None]):
         """Register error callback"""

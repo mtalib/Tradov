@@ -22,6 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import sys
 import os
 from datetime import datetime
@@ -73,7 +74,7 @@ class WorkingSpyderDashboard(QMainWindow):
                 border: none;
                 padding: 8px 16px;
                 border-radius: 4px;
-                font-weight: bold;
+                font-weight: normal;
             }
             QPushButton:hover {
                 background-color: #38b2ac;
@@ -90,7 +91,7 @@ class WorkingSpyderDashboard(QMainWindow):
                 border-radius: 8px;
                 margin-top: 1ex;
                 padding-top: 10px;
-                font-weight: bold;
+                font-weight: normal;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -145,7 +146,7 @@ class WorkingSpyderDashboard(QMainWindow):
             QTabBar::tab:selected {
                 background-color: #4fd1c7;
                 color: #1a202c;
-                font-weight: bold;
+                font-weight: normal;
             }
         """)
 
@@ -167,7 +168,6 @@ class WorkingSpyderDashboard(QMainWindow):
         header_layout = QHBoxLayout()
         title_label = QLabel("🕷️ SPYDER Trading Dashboard")
         title_font = QFont("Arial", 20)
-        title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: #4fd1c7;")
 
@@ -271,7 +271,7 @@ class WorkingSpyderDashboard(QMainWindow):
         market_data_layout = QHBoxLayout()
 
         self.last_price = QLabel("Last: ---")
-        self.last_price.setStyleSheet("font-size: 16px; font-weight: bold; color: #4fd1c7;")
+        self.last_price.setStyleSheet("font-size: 16px; font-weight: normal; color: #4fd1c7;")
 
         self.bid_price = QLabel("Bid: ---")
         self.bid_price.setStyleSheet("font-size: 14px; color: #68d391;")
@@ -470,7 +470,7 @@ class WorkingSpyderDashboard(QMainWindow):
                 self.bid_price.setText(f"Bid: {quote.get('bid', '---')}")
                 self.ask_price.setText(f"Ask: {quote.get('ask', '---')}")
         except Exception as e:
-            logging.getLogger(__name__).debug(f"Failed to fetch quote: {e}")
+            logging.getLogger(__name__).debug("Failed to fetch quote: %s", e)
 
     def place_order(self, action):
         """Place an order (sends to Tradier — not yet wired to SpyderB40)."""

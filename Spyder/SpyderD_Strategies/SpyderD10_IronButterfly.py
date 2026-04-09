@@ -214,7 +214,7 @@ class IronButterflyStrategy(BaseStrategy):
                 self.multileg_coordinator = get_multileg_coordinator()
                 self.logger.info("Connected to MultiLegStrategyCoordinator")
             except Exception as e:
-                self.logger.error(f"Failed to connect to coordinator: {e}")
+                self.logger.error("Failed to connect to coordinator: %s", e)
         else:
             self.logger.warning("MultiLegStrategyCoordinator not available")
 
@@ -321,7 +321,7 @@ class IronButterflyStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Iron Butterfly analysis failed: {e}")
+            self.logger.error("Iron Butterfly analysis failed: %s", e)
             self.error_handler.handle_error(e, {"method": "analyze_iron_butterfly_opportunity"})
 
             return IronButterflyAnalysis(
@@ -371,7 +371,7 @@ class IronButterflyStrategy(BaseStrategy):
             return trend_neutral and position_centered and volatility_stable
 
         except Exception as e:
-            self.logger.error(f"Neutral outlook analysis failed: {e}")
+            self.logger.error("Neutral outlook analysis failed: %s", e)
             return False
 
     def _analyze_atm_conditions(self, market_data: pd.DataFrame, current_price: float) -> dict[str, float]:
@@ -392,7 +392,7 @@ class IronButterflyStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"ATM analysis failed: {e}")
+            self.logger.error("ATM analysis failed: %s", e)
             return {
                 'current_price': current_price,
                 'price_stability': 0.02,
@@ -423,7 +423,7 @@ class IronButterflyStrategy(BaseStrategy):
             return iv_analysis
 
         except Exception as e:
-            self.logger.error(f"IB IV analysis failed: {e}")
+            self.logger.error("IB IV analysis failed: %s", e)
             return {
                 'current_iv': 0.20,
                 'iv_rank': 40.0,
@@ -456,7 +456,7 @@ class IronButterflyStrategy(BaseStrategy):
             return (iv_rank_score * 0.7 + iv_level_score * 0.3)
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Iron Butterfly calculation failed: {e}")
+            self.logger.warning("Iron Butterfly calculation failed: %s", e)
             return 0.0
 
     def _analyze_time_decay_potential(self, market_data: pd.DataFrame) -> dict[str, float]:
@@ -484,7 +484,7 @@ class IronButterflyStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Time decay analysis failed: {e}")
+            self.logger.error("Time decay analysis failed: %s", e)
             return {
                 'estimated_daily_theta': 0.02,
                 'optimal_close_dte': 15,
@@ -519,7 +519,7 @@ class IronButterflyStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Expected move analysis failed: {e}")
+            self.logger.error("Expected move analysis failed: %s", e)
             return {
                 'expected_move_dollars': 8.0,
                 'expected_move_percent': 0.02,
@@ -542,7 +542,7 @@ class IronButterflyStrategy(BaseStrategy):
                 return 0.0
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Iron Butterfly calculation failed: {e}")
+            self.logger.warning("Iron Butterfly calculation failed: %s", e)
             return 0.0
 
     def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: dict,
@@ -558,7 +558,7 @@ class IronButterflyStrategy(BaseStrategy):
             return outlook_suitable and iv_suitable and move_suitable and decay_suitable
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Iron Butterfly validation failed: {e}")
+            self.logger.warning("Iron Butterfly validation failed: %s", e)
             return False
 
     # ==========================================================================
@@ -585,7 +585,7 @@ class IronButterflyStrategy(BaseStrategy):
                 return None
 
         except Exception as e:
-            self.logger.error(f"ATM strike selection failed: {e}")
+            self.logger.error("ATM strike selection failed: %s", e)
             return None
 
     def _find_optimal_wing_width(self, current_price: float, option_chain: pd.DataFrame,
@@ -625,7 +625,7 @@ class IronButterflyStrategy(BaseStrategy):
             return actual_wing_width if IB_WING_WIDTH_MIN <= actual_wing_width <= IB_WING_WIDTH_MAX else None
 
         except Exception as e:
-            self.logger.error(f"Wing width selection failed: {e}")
+            self.logger.error("Wing width selection failed: %s", e)
             return None
 
     # ==========================================================================
@@ -655,12 +655,12 @@ class IronButterflyStrategy(BaseStrategy):
             if position_id:
                 self.active_setups.append(setup)
                 self.strategy_state = IronButterflyState.ACTIVE
-                self.logger.info(f"Iron Butterfly position created: {position_id}")
+                self.logger.info("Iron Butterfly position created: %s", position_id)
 
             return position_id
 
         except Exception as e:
-            self.logger.error(f"Iron Butterfly position creation failed: {e}")
+            self.logger.error("Iron Butterfly position creation failed: %s", e)
             return None
 
     # ==========================================================================
@@ -698,7 +698,7 @@ class IronButterflyStrategy(BaseStrategy):
             return False, "Hold position"
 
         except Exception as e:
-            self.logger.error(f"Exit criteria analysis failed: {e}")
+            self.logger.error("Exit criteria analysis failed: %s", e)
             return True, "Exit due to analysis error"
 
     def suggest_iron_butterfly_adjustment(self, position_data: dict) -> IronButterflyAdjustmentType | None:
@@ -732,7 +732,7 @@ class IronButterflyStrategy(BaseStrategy):
             return None
 
         except Exception as e:
-            self.logger.error(f"Adjustment analysis failed: {e}")
+            self.logger.error("Adjustment analysis failed: %s", e)
             return None
 
     # ==========================================================================
@@ -762,7 +762,7 @@ class IronButterflyStrategy(BaseStrategy):
             return recommendation, overall_score
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Iron Butterfly recommendation failed: {e}")
+            self.logger.warning("Iron Butterfly recommendation failed: %s", e)
             return "Analysis incomplete", 0.0
 
     def _identify_ib_risk_warnings(self, neutral_outlook: bool, iv_analysis: dict,
@@ -790,7 +790,7 @@ class IronButterflyStrategy(BaseStrategy):
             return warnings
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Iron Butterfly risk analysis failed: {e}")
+            self.logger.warning("Iron Butterfly risk analysis failed: %s", e)
             return ["Risk analysis incomplete"]
 
     def get_strategy_performance(self) -> dict[str, Any]:

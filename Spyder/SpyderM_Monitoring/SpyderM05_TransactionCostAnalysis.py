@@ -396,14 +396,14 @@ class TransactionCostAnalyzer:
             Detailed cost breakdown
         """
         if order_id not in self.order_contexts:
-            self.logger.warning(f"No context for order {order_id}")
+            self.logger.warning("No context for order %s", order_id)
             return None
 
         order_context = self.order_contexts[order_id]
         executions = self.executions[order_id]
 
         if not executions:
-            self.logger.warning(f"No executions for order {order_id}")
+            self.logger.warning("No executions for order %s", order_id)
             return None
 
         # Calculate weighted average execution price
@@ -847,7 +847,7 @@ class TransactionCostAnalyzer:
                 relevant_orders.append(order_id)
 
         if not relevant_orders:
-            self.logger.warning(f"No orders found for period {start_time} to {end_time}")
+            self.logger.warning("No orders found for period %s to %s", start_time, end_time)
             return None
 
         # Calculate TCA for each order
@@ -1048,7 +1048,7 @@ class TransactionCostAnalyzer:
                 self.stop_monitoring.wait(30)  # Check every 30 seconds
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
 
         self.logger.info("TCA monitoring stopped")
 
@@ -1089,7 +1089,7 @@ class TransactionCostAnalyzer:
                 alert = self.alert_queue.get_nowait()
 
                 # Log alert
-                self.logger.warning(f"Alert: {alert['type']} - {alert}")
+                self.logger.warning("Alert: %s - %s", alert['type'], alert)
 
                 # Could send to monitoring system, email, etc.
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: UP007
 from __future__ import annotations
 """
 SPYDER - Autonomous Options Trading System v1.0
@@ -46,7 +45,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 
 # ==============================================================================
@@ -63,8 +63,6 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     # Fallback logging
-    logging.basicConfig(level=logging.INFO)
-
     class SpyderLogger:
         @staticmethod
         def get_logger(name):
@@ -299,7 +297,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Options chain manager initialization failed: {e}", exc_info=True)
+            self.logger.error("Options chain manager initialization failed: %s", e, exc_info=True)
             return False
 
     def start_options_monitoring(self) -> bool:
@@ -329,7 +327,7 @@ class SPYOptionsChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start options monitoring: {e}", exc_info=True)
+            self.logger.error("Failed to start options monitoring: %s", e, exc_info=True)
             return False
 
     def stop_options_monitoring(self) -> None:
@@ -347,7 +345,7 @@ class SPYOptionsChainManager:
             self.logger.info("SPY options monitoring stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping options monitoring: {e}", exc_info=True)
+            self.logger.error("Error stopping options monitoring: %s", e, exc_info=True)
 
     # ==========================================================================
     # OPTIONS CHAIN MANAGEMENT
@@ -371,11 +369,11 @@ class SPYOptionsChainManager:
                 self.subscription_callbacks[chain_type].append(callback)
                 self.total_subscriptions += 1
 
-            self.logger.info(f"Subscribed to {chain_type.value} options chain updates")
+            self.logger.info("Subscribed to %s options chain updates", chain_type.value)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain {chain_type}: {e}", exc_info=True)
+            self.logger.error("Error subscribing to chain %s: %s", chain_type, e, exc_info=True)
             return False
 
     def unsubscribe_from_chain(
@@ -398,12 +396,12 @@ class SPYOptionsChainManager:
                     self.total_subscriptions -= 1
 
             self.logger.info(
-                f"Unsubscribed from {chain_type.value} options chain updates"
+                "Unsubscribed from %s options chain updates", chain_type.value
             )
             return True
 
         except Exception as e:
-            self.logger.error(f"Error unsubscribing from chain {chain_type}: {e}", exc_info=True)
+            self.logger.error("Error unsubscribing from chain %s: %s", chain_type, e, exc_info=True)
             return False
 
     def get_options_chain(self, chain_type: OptionsChainType) -> OptionsChain | None:
@@ -448,7 +446,7 @@ class SPYOptionsChainManager:
                     self._reselect_strikes_for_all_chains()
 
         except Exception as e:
-            self.logger.error(f"Error updating SPY price: {e}", exc_info=True)
+            self.logger.error("Error updating SPY price: %s", e, exc_info=True)
 
     def get_manager_status(self) -> dict[str, Any]:
         """
@@ -545,7 +543,7 @@ class SPYOptionsChainManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to SPY price: {e}", exc_info=True)
+            self.logger.error("Error subscribing to SPY price: %s", e, exc_info=True)
 
     def _initialize_options_chains(self) -> None:
         """Initialize all options chains based on specifications."""
@@ -603,7 +601,7 @@ class SPYOptionsChainManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error initializing options chains: {e}", exc_info=True)
+            self.logger.error("Error initializing options chains: %s", e, exc_info=True)
 
     def _calculate_expiration_date(
         self, current_date: date, days_to_expiry: int
@@ -705,7 +703,7 @@ class SPYOptionsChainManager:
             return options_contract
 
         except Exception as e:
-            self.logger.error(f"Error creating options contract: {e}", exc_info=True)
+            self.logger.error("Error creating options contract: %s", e, exc_info=True)
             return None
 
     def _start_initial_subscriptions(self) -> None:
@@ -717,7 +715,7 @@ class SPYOptionsChainManager:
                     self._subscribe_to_chain_data(chain)
 
         except Exception as e:
-            self.logger.error(f"Error starting initial subscriptions: {e}", exc_info=True)
+            self.logger.error("Error starting initial subscriptions: %s", e, exc_info=True)
 
     def _subscribe_to_chain_data(self, chain: OptionsChain) -> None:
         """Subscribe to market data for an options chain."""
@@ -759,7 +757,7 @@ class SPYOptionsChainManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain data: {e}", exc_info=True)
+            self.logger.error("Error subscribing to chain data: %s", e, exc_info=True)
 
     def _cancel_all_subscriptions(self) -> None:
         """Cancel all active options subscriptions."""
@@ -775,7 +773,7 @@ class SPYOptionsChainManager:
                     cancelled.append("SPY_price_stream")
                 except Exception as stop_exc:
                     self.logger.warning(
-                        f"Error stopping SPY price stream: {stop_exc}"
+                        "Error stopping SPY price stream: %s", stop_exc
                     )
 
             # Cancel options-chain subscriptions via data manager if available
@@ -788,7 +786,7 @@ class SPYOptionsChainManager:
                         cancelled.append(chain_type.value)
                     except Exception as unsub_exc:
                         self.logger.warning(
-                            f"Error unsubscribing {chain_type.value}: {unsub_exc}"
+                            "Error unsubscribing %s: %s", chain_type.value, unsub_exc
                         )
             else:
                 # Record each chain cancellation in the log for traceability
@@ -796,17 +794,17 @@ class SPYOptionsChainManager:
                     cancelled.append(chain_type.value)
 
             self.logger.info(
-                f"Cancelled all options subscriptions: {cancelled}"
+                "Cancelled all options subscriptions: %s", cancelled
             )
 
         except Exception as e:
-            self.logger.error(f"Error cancelling subscriptions: {e}", exc_info=True)
+            self.logger.error("Error cancelling subscriptions: %s", e, exc_info=True)
 
     def _reselect_strikes_for_all_chains(self) -> None:
         """Reselect strikes for all chains based on new SPY price."""
         try:
             self.logger.info(
-                f"Reselecting strikes based on new SPY price: {self.current_spy_price}"
+                "Reselecting strikes based on new SPY price: %s", self.current_spy_price
             )
 
             for chain_type, chain in self.active_chains.items():
@@ -822,7 +820,7 @@ class SPYOptionsChainManager:
                 chain.underlying_price = self.current_spy_price
 
         except Exception as e:
-            self.logger.error(f"Error reselecting strikes: {e}", exc_info=True)
+            self.logger.error("Error reselecting strikes: %s", e, exc_info=True)
 
     def _options_monitor_loop(self) -> None:
         """Main monitoring loop for options chains."""
@@ -840,7 +838,7 @@ class SPYOptionsChainManager:
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in options monitor loop: {e}", exc_info=True)
+                self.logger.error("Error in options monitor loop: %s", e, exc_info=True)
                 time.sleep(5)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Options monitoring loop stopped")
@@ -858,7 +856,7 @@ class SPYOptionsChainManager:
                 self.update_counts[chain_type] += 1
 
         except Exception as e:
-            self.logger.error(f"Error updating chain statistics: {e}", exc_info=True)
+            self.logger.error("Error updating chain statistics: %s", e, exc_info=True)
 
     def _check_expired_chains(self) -> None:
         """Check for and handle expired options chains."""
@@ -874,14 +872,14 @@ class SPYOptionsChainManager:
                 ):
 
                     if chain.status != ChainStatus.EXPIRED:
-                        self.logger.info(f"{chain_type.value} chain expired")
+                        self.logger.info("%s chain expired", chain_type.value)
                         chain.status = ChainStatus.EXPIRED
 
                         # TODO: Reinitialize with new expiration
                         # self._reinitialize_expired_chain(chain_type)
 
         except Exception as e:
-            self.logger.error(f"Error checking expired chains: {e}", exc_info=True)
+            self.logger.error("Error checking expired chains: %s", e, exc_info=True)
 
 
 # ==============================================================================

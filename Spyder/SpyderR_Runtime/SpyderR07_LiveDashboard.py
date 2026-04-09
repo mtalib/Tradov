@@ -31,7 +31,7 @@ INTEGRATION:
     • Professional startup experience with comprehensive checks
 
 NOTE: Broker integration uses Tradier API (SpyderB40_TradierClient).
-      Market data via Databento (SpyderC26_DatabentoClient).
+      Market data via Massive (SpyderC27_MassiveClient).
 
 """
 
@@ -182,7 +182,7 @@ class SystemChecker(QObject):
                 # Consider data fresh if updated within last hour
                 data_available = (datetime.now() - last_update).seconds < 3600
         except Exception as e:
-            logging.getLogger(__name__).debug(f"Error checking real data file: {e}")
+            logging.getLogger(__name__).debug("Error checking real data file: %s", e)
 
         return {
             'status': 'OK' if data_available else 'SIMULATION',
@@ -270,7 +270,7 @@ class SpyderSplashScreen(QSplashScreen):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Title
-        title_font = QFont("Arial", 28, QFont.Weight.Bold)
+        title_font = QFont("Arial", 28)
         painter.setFont(title_font)
         painter.setPen(QColor(0, 255, 0))  # Green
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
@@ -468,14 +468,14 @@ class SpyderLiveDashboardLauncher:
                 self.dashboard.add_system_log("ℹ️ Using simulated market data")
 
         except Exception as e:
-            logging.info(f"Error logging startup info: {e}")
+            logging.info("Error logging startup info: %s", e)
 
     def _show_error(self, title: str, message: str):
         """Show error message to user."""
         if self.app:
             QMessageBox.critical(None, title, message)
         else:
-            logging.info(f"ERROR - {title}: {message}")
+            logging.info("ERROR - %s: %s", title, message)
 
 # ==============================================================================
 # CONVENIENCE FUNCTIONS

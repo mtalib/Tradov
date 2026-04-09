@@ -61,7 +61,6 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -125,7 +124,7 @@ def _vault_get(key: str) -> str | None:
             },
             method="GET",
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=5) as resp:
             body = json.loads(resp.read())
             data = body.get("data", {}).get("data", {})
             return data.get(key)

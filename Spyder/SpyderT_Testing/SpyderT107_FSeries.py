@@ -1513,7 +1513,6 @@ class TestFSeriesCrossModule(unittest.TestCase):
             FilterResult, EntryQuality,
             F10MarketRegime, TrendRegime, VolatilityCluster, LiquidityRegime,
             GreeksValidationLevel, GreeksLimitType, HedgingAction,
-            BacktestType, PerformanceMetric, BacktestStatus, OptimizationObjective,
             ModelType, DriftType, ModelStatus, AlertSeverity,
             TradeDirection, LiquidityProvision, TradingSession,
             AttributionMethod, PerformancePeriod, InsightType, PerformanceRating,

@@ -26,7 +26,8 @@ import asyncio
 import logging
 import threading
 import warnings
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections import deque
@@ -79,20 +80,17 @@ try:
     SPYDER_INDICATORS_AVAILABLE = True
 except ImportError:
     # Fallback implementations
-    logging.basicConfig(level=logging.INFO)
     SpyderLogger = logging.getLogger
     class ErrorHandler:
         @staticmethod
         def handle_error(error, context=""):
-            logging.error(f"Error in {context}: {error}")
+            logging.error("Error in %s: %s", context, error)
     SPYDER_INDICATORS_AVAILABLE = False
 
 # Spyder integrations
-try:
-    from SpyderC21_FSeriesIntegrationHub import get_fseries_integration_hub
-    C21_AVAILABLE = True
-except ImportError:
-    C21_AVAILABLE = False
+# SpyderC21_FSeriesIntegrationHub was removed in v2; integration is via A08_FSeriesOrchestrator.
+C21_AVAILABLE = False
+get_fseries_integration_hub = None  # type: ignore[assignment]
 
 try:
     from SpyderC22_FactorDataProvider import get_factor_data_provider
@@ -354,10 +352,10 @@ class ModelDataPipeline:
     def _initialize_integrations(self) -> None:
         """Initialize integrations with other Spyder modules."""
         try:
-            # Connect to C21 Integration Hub
+            # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to SpyderC21_FSeriesIntegrationHub")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
 
             # Connect to C22 Factor Data Provider
             if C22_AVAILABLE:
@@ -370,7 +368,7 @@ class ModelDataPipeline:
                 self.logger.info("Connected to SpyderF13_ModelValidation")
 
         except Exception as e:
-            self.logger.warning(f"Integration initialization failed: {e}", exc_info=True)
+            self.logger.warning("Integration initialization failed: %s", e, exc_info=True)
 
     def _initialize_mlops(self) -> None:
         """Initialize MLOps integrations."""
@@ -380,7 +378,7 @@ class ModelDataPipeline:
                 self.mlflow_client = mlflow.tracking.MlflowClient()
                 self.logger.info("MLflow integration initialized")
         except Exception as e:
-            self.logger.warning(f"MLOps initialization failed: {e}", exc_info=True)
+            self.logger.warning("MLOps initialization failed: %s", e, exc_info=True)
 
     # ==============================================================================
     # CORE FEATURE ENGINEERING METHODS
@@ -414,7 +412,7 @@ class ModelDataPipeline:
 
             for category in feature_categories:
                 if category in self.feature_engineers:
-                    self.logger.debug(f"Engineering {category} features")
+                    self.logger.debug("Engineering %s features", category)
 
                     category_features = self.feature_engineers[category](market_data)
 
@@ -448,7 +446,7 @@ class ModelDataPipeline:
             )
 
             self.pipeline_metrics.features_processed = len(feature_set.feature_names)
-            self.logger.info(f"Engineered {len(feature_set.feature_names)} features")
+            self.logger.info("Engineered %s features", len(feature_set.feature_names))
 
             return feature_set
 
@@ -508,7 +506,7 @@ class ModelDataPipeline:
             result[cols] = pl_df.to_pandas().values
             return result
         except Exception as exc:
-            self.logger.warning(f"polars batch normalisation failed, using pandas fallback: {exc}", exc_info=True)
+            self.logger.warning("polars batch normalisation failed, using pandas fallback: %s", exc, exc_info=True)
             result = data.copy()
             if method == "zscore":
                 result[cols] = (result[cols] - result[cols].mean()) / (result[cols].std() + 1e-9)
@@ -669,7 +667,7 @@ class ModelDataPipeline:
                             features = pd.concat([features, factor_aligned], axis=1)
 
                     except Exception as e:
-                        self.logger.warning(f"Failed to get factor data: {e}", exc_info=True)
+                        self.logger.warning("Failed to get factor data: %s", e, exc_info=True)
 
                 # Simulated macro features
                 features['dollar_strength'] = 100 + np.random.normal(0, 2, len(data))
@@ -911,7 +909,7 @@ class ModelDataPipeline:
 
             # Create drift report
             drift_report = DataDriftReport(
-                report_id=hashlib.md5(f"{datetime.now()}".encode()).hexdigest()[:8],
+                report_id=hashlib.md5(f"{datetime.now()}".encode(), usedforsecurity=False).hexdigest()[:8],
                 timestamp=datetime.now(),
                 drift_detected=drift_detected,
                 drift_score=overall_drift_score,
@@ -1371,6 +1369,8 @@ class ModelDataPipeline:
 # ==============================================================================
 # Global instance for singleton pattern
 _pipeline_instance = None
+_pipeline_instance_lock = threading.Lock()
+
 
 def get_model_data_pipeline(config: dict[str, Any] | None = None) -> ModelDataPipeline:
     """
@@ -1384,7 +1384,9 @@ def get_model_data_pipeline(config: dict[str, Any] | None = None) -> ModelDataPi
     """
     global _pipeline_instance
     if _pipeline_instance is None:
-        _pipeline_instance = ModelDataPipeline(config)
+        with _pipeline_instance_lock:
+            if _pipeline_instance is None:
+                _pipeline_instance = ModelDataPipeline(config)
         _pipeline_instance.initialize()
     return _pipeline_instance
 
@@ -1430,7 +1432,7 @@ async def main():
             'volume': np.random.randint(1000000, 10000000, len(dates))
         }, index=dates)
 
-        logging.info(f"   Generated market data: {len(market_data)} days")
+        logging.info("   Generated market data: %s days", len(market_data))
         logging.info(f"   Price range: ${market_data['close'].min():.2f} - ${market_data['close'].max():.2f}")
 
         # Test feature engineering
@@ -1440,7 +1442,7 @@ async def main():
             feature_categories=['technical', 'market_structure', 'options', 'time_series']
         )
 
-        logging.info(f"   ✅ Engineered {len(feature_set.feature_names)} features")
+        logging.info("   ✅ Engineered %s features", len(feature_set.feature_names))
         logging.info(f"   Quality score: {feature_set.quality_score:.3f}")
         logging.info("   Feature categories:")
 
@@ -1451,7 +1453,7 @@ async def main():
             category_counts[category] = category_counts.get(category, 0) + 1
 
         for category, count in category_counts.items():
-            logging.info(f"     • {category}: {count} features")
+            logging.info("     • %s: %s features", category, count)
 
         # Test data quality validation
         logging.info("🔍 Testing data quality validation...")
@@ -1476,37 +1478,37 @@ async def main():
         )
 
         logging.info("   Drift Detection Results:")
-        logging.info(f"     • Drift Detected: {'Yes' if drift_report.drift_detected else 'No'}")
+        logging.info("     • Drift Detected: %s", 'Yes' if drift_report.drift_detected else 'No')
         logging.info(f"     • Drift Score: {drift_report.drift_score:.3f}")
-        logging.info(f"     • Drifted Features: {len(drift_report.drift_features)}")
+        logging.info("     • Drifted Features: %s", len(drift_report.drift_features))
 
         if drift_report.drift_features:
-            logging.info(f"     • Top Drifted: {', '.join(drift_report.drift_features[:3])}")
+            logging.info("     • Top Drifted: %s", ', '.join(drift_report.drift_features[:3]))
 
         logging.info("   Recommendations:")
         for rec in drift_report.recommendations[:3]:
-            logging.info(f"     • {rec}")
+            logging.info("     • %s", rec)
 
         # Get pipeline status
         status = pipeline.get_pipeline_status()
 
         logging.info("📈 Pipeline Status:")
-        logging.info(f"   • Running: {'Yes' if status['is_running'] else 'No'}")
+        logging.info("   • Running: %s", 'Yes' if status['is_running'] else 'No')
         logging.info(f"   • Features Processed: {status['features_processed']:,}")
         logging.info(f"   • Data Quality Score: {status['data_quality_score']:.3f}")
         logging.info(f"   • Processing Latency: {status['processing_latency_ms']:.1f}ms")
         logging.info(f"   • Uptime: {status['uptime_percent']:.1f}%")
-        logging.info(f"   • Drift Alerts: {status['drift_alerts_generated']}")
+        logging.info("   • Drift Alerts: %s", status['drift_alerts_generated'])
 
         logging.info("🔌 Integration Status:")
         for integration, connected in status['integrations'].items():
-            logging.info(f"   • {integration}: {'✅' if connected else '❌'}")
+            logging.info("   • %s: %s", integration, '✅' if connected else '❌')
 
         logging.info("🎊 Model Data Pipeline demonstration completed successfully!")
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error in main execution: {e}")
+        logging.info("❌ Error in main execution: %s", e)
         return False
 
     finally:

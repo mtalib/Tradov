@@ -295,7 +295,7 @@ class MaxPainCalculator:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}", exc_info=True)
+                logger.warning("OptionsDataProvider unavailable: %s", e, exc_info=True)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -350,7 +350,7 @@ class MaxPainCalculator:
             # Fetch option chain
             chain = self._fetch_option_chain(symbol, expiry)
             if chain.empty:
-                logger.warning(f"Empty option chain for {symbol} {expiry}")
+                logger.warning("Empty option chain for %s %s", symbol, expiry)
                 return self._empty_result(symbol, expiry)
 
             # Get current price
@@ -437,7 +437,7 @@ class MaxPainCalculator:
             return result
 
         except Exception as e:
-            logger.error(f"Max pain calculation failed: {e}", exc_info=True)
+            logger.error("Max pain calculation failed: %s", e, exc_info=True)
             return self._empty_result(symbol, expiry)
 
     def _calculate_strike_pain(
@@ -744,7 +744,7 @@ class MaxPainCalculator:
             )
 
         except Exception as e:
-            logger.error(f"Multi-expiry analysis failed: {e}", exc_info=True)
+            logger.error("Multi-expiry analysis failed: %s", e, exc_info=True)
             return MultiExpiryAnalysis(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -955,23 +955,23 @@ class MaxPainCalculator:
     def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
         """Fetch option chain from market data provider."""
         if self._data_provider is None:
-            logger.warning(f"_fetch_option_chain({symbol}): OptionsDataProvider not available.")
+            logger.warning("_fetch_option_chain(%s): OptionsDataProvider not available.", symbol)
             return pd.DataFrame()
         try:
             expiry_str = expiry.strftime('%Y-%m-%d') if hasattr(expiry, 'strftime') else str(expiry)
             greek_data = self._data_provider.get_option_chain_with_greeks(symbol, expiry_str)
             df = self._greek_data_to_df(greek_data)
             if df.empty:
-                logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
+                logger.warning("Empty option chain from Tradier for %s %s", symbol, expiry_str)
             return df
         except Exception as e:
-            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}", exc_info=True)
+            logger.error("_fetch_option_chain(%s): Tradier error: %s", symbol, e, exc_info=True)
             return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
         """Get current stock price from market data provider."""
         if self._data_provider is None:
-            logger.warning(f"_get_current_price({symbol}): OptionsDataProvider not available.")
+            logger.warning("_get_current_price(%s): OptionsDataProvider not available.", symbol)
             return 0.0
         try:
             response = self._data_provider.get_quotes([symbol])
@@ -980,7 +980,7 @@ class MaxPainCalculator:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_get_current_price({symbol}): Tradier error: {e}", exc_info=True)
+            logger.error("_get_current_price(%s): Tradier error: %s", symbol, e, exc_info=True)
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
@@ -996,7 +996,7 @@ class MaxPainCalculator:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}", exc_info=True)
+                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1013,7 +1013,7 @@ class MaxPainCalculator:
                 future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
                 return future[:count]
             except Exception as e:
-                logger.warning(f"_get_upcoming_expiries({symbol}): Tradier error: {e}", exc_info=True)
+                logger.warning("_get_upcoming_expiries(%s): Tradier error: %s", symbol, e, exc_info=True)
         nearest = self._get_nearest_expiry(symbol)
         return [nearest + timedelta(weeks=i) for i in range(count)]
 
@@ -1048,7 +1048,7 @@ def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}", exc_info=True)
+            logger.warning("Could not create OptionsDataProvider: %s", e, exc_info=True)
     return MaxPainCalculator(data_provider=data_provider)
 
 

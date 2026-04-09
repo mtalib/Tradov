@@ -24,9 +24,8 @@ import traceback
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Optional, Any
 import json
-
 # ==============================================================================
 # SETUP AND CONFIGURATION
 # ==============================================================================

@@ -25,8 +25,11 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
+import os
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -103,7 +106,7 @@ DEFAULT_CONFIG = {
 }
 
 # Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_MODEL = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
 DEFAULT_TEMPERATURE = 0.3
 
 # ==============================================================================
@@ -192,7 +195,7 @@ class SpyderX09_AlertManagerAgent:
                 self.ollama_client = ollama
                 self.logger.info("Ollama connection established")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error("Failed to connect to Ollama: %s", e)
 
         # Alert management
         self.conditions: dict[str, AlertCondition] = {}
@@ -245,10 +248,10 @@ class SpyderX09_AlertManagerAgent:
         """
         try:
             self.conditions[condition.name] = condition
-            self.logger.info(f"Added alert condition: {condition.name}")
+            self.logger.info("Added alert condition: %s", condition.name)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to add condition: {e}")
+            self.logger.error("Failed to add condition: %s", e)
             return False
 
     async def check_conditions(self, market_data: dict[str, Any]) -> list[Alert]:
@@ -390,7 +393,7 @@ class SpyderX09_AlertManagerAgent:
         """Deliver a single alert."""
         handler = self.delivery_handlers.get(delivery.channel)
         if not handler:
-            self.logger.error(f"No handler for channel: {delivery.channel}")
+            self.logger.error("No handler for channel: %s", delivery.channel)
             return False
 
         max_attempts = self.config['delivery_retry_attempts']
@@ -409,7 +412,7 @@ class SpyderX09_AlertManagerAgent:
 
             except Exception as e:
                 delivery.error_message = str(e)
-                self.logger.error(f"Delivery failed: {e}")
+                self.logger.error("Delivery failed: %s", e)
 
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
@@ -506,7 +509,7 @@ Provide a JSON response with:
                 return alert
 
         except Exception as e:
-            self.logger.error(f"AI alert enhancement failed: {e}")
+            self.logger.error("AI alert enhancement failed: %s", e)
             return alert
 
     async def _enhance_alert_group(self, alerts: list[Alert],
@@ -518,8 +521,8 @@ Provide a JSON response with:
         # Create summary of alert group
         alert_summary = {
             'count': len(alerts),
-            'types': list(set(a.type.value for a in alerts)),
-            'severities': list(set(a.severity.value for a in alerts)),
+            'types': list({a.type.value for a in alerts}),
+            'severities': list({a.severity.value for a in alerts}),
             'titles': [a.title for a in alerts]
         }
 
@@ -589,7 +592,7 @@ Provide a JSON response with:
                 return alerts
 
         except Exception as e:
-            self.logger.error(f"AI alert group enhancement failed: {e}")
+            self.logger.error("AI alert group enhancement failed: %s", e)
             return alerts
 
     async def analyze_alert_patterns(self) -> AlertAnalysis:
@@ -671,7 +674,7 @@ Provide a JSON response with:
             return False
 
         except Exception as e:
-            self.logger.error(f"Condition evaluation failed: {e}")
+            self.logger.error("Condition evaluation failed: %s", e)
             return False
 
     def _extract_value(self, expression: str, data: dict[str, Any]) -> float | None:
@@ -726,7 +729,7 @@ Provide a JSON response with:
             return alert
 
         except Exception as e:
-            self.logger.error(f"Alert creation failed: {e}")
+            self.logger.error("Alert creation failed: %s", e)
             return None
 
     # ==========================================================================
@@ -816,13 +819,13 @@ Provide a JSON response with:
 
     async def _deliver_to_log(self, alert: Alert, recipient: str) -> bool:
         """Deliver alert to log."""
-        self.logger.info(f"ALERT [{alert.severity.value}]: {alert.title} - {alert.message}")
+        self.logger.info("ALERT [%s]: %s - %s", alert.severity.value, alert.title, alert.message)
         return True
 
     async def _deliver_to_ui(self, alert: Alert, recipient: str) -> bool:
         """Deliver alert to UI (placeholder)."""
         # In production, this would send to UI via websocket or message queue
-        self.logger.info(f"UI Alert: {alert.title}")
+        self.logger.info("UI Alert: %s", alert.title)
         return True
 
     def _group_similar_alerts(self, alerts: list[Alert]) -> list[list[Alert]]:
@@ -888,7 +891,7 @@ Provide a JSON response with:
                          if a.timestamp > datetime.now() - timedelta(hours=1))
 
         if recent_count > self.config['max_alerts_per_hour']:
-            self.logger.warning(f"Alert rate limit reached: {recent_count} alerts/hour")
+            self.logger.warning("Alert rate limit reached: %s alerts/hour", recent_count)
 
     def _get_recent_alert_summary(self) -> str:
         """Get summary of recent alerts for AI context."""
@@ -971,7 +974,7 @@ Provide a JSON response with:
         noise_factors.append(low_severity_ratio * 0.4)
 
         # Factor 2: Repeated similar alerts
-        unique_titles = len(set(a.title for a in alerts))
+        unique_titles = len({a.title for a in alerts})
         repetition_ratio = 1 - (unique_titles / len(alerts))
         noise_factors.append(repetition_ratio * 0.3)
 
@@ -1029,12 +1032,16 @@ def create_alert_manager_agent(model_name: str = DEFAULT_MODEL,
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX09_AlertManagerAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_alert_manager_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_alert_manager_agent()
     return _module_instance
 
 # ==============================================================================
@@ -1064,7 +1071,7 @@ async def test_alert_manager():
         metadata={'severity': 'HIGH'}
     )
     agent.add_condition(price_condition)
-    logging.info(f"Added: {price_condition.name}")
+    logging.info("Added: %s", price_condition.name)
 
     # Volume spike condition
     volume_condition = AlertCondition(
@@ -1077,7 +1084,7 @@ async def test_alert_manager():
         metadata={'severity': 'MEDIUM'}
     )
     agent.add_condition(volume_condition)
-    logging.info(f"Added: {volume_condition.name}")
+    logging.info("Added: %s", volume_condition.name)
 
     # Risk condition
     risk_condition = AlertCondition(
@@ -1090,7 +1097,7 @@ async def test_alert_manager():
         metadata={'severity': 'HIGH'}
     )
     agent.add_condition(risk_condition)
-    logging.info(f"Added: {risk_condition.name}")
+    logging.info("Added: %s", risk_condition.name)
 
     # Test condition checking
     logging.info("\n\nTest 1: Condition Checking")
@@ -1103,9 +1110,9 @@ async def test_alert_manager():
     }
 
     alerts = await agent.check_conditions(market_data)
-    logging.info(f"Generated {len(alerts)} alerts:")
+    logging.info("Generated %s alerts:", len(alerts))
     for alert in alerts:
-        logging.info(f"  - [{alert.severity.value}] {alert.title}: {alert.message}")
+        logging.info("  - [%s] %s: %s", alert.severity.value, alert.title, alert.message)
 
     # Test custom alert
     logging.info("\n\nTest 2: Custom Alert")
@@ -1117,10 +1124,10 @@ async def test_alert_manager():
         severity=AlertSeverity.HIGH,
         data={'win_rate': 0.45, 'trades': 20}
     )
-    logging.info(f"Custom Alert: [{custom_alert.severity.value}] {custom_alert.title}")
-    logging.info(f"Message: {custom_alert.message}")
+    logging.info("Custom Alert: [%s] %s", custom_alert.severity.value, custom_alert.title)
+    logging.info("Message: %s", custom_alert.message)
     if custom_alert.ai_enhanced:
-        logging.info(f"AI Context: {custom_alert.metadata.get('ai_context', 'N/A')}")
+        logging.info("AI Context: %s", custom_alert.metadata.get('ai_context', 'N/A'))
 
     # Test alert delivery
     logging.info("\n\nTest 3: Alert Delivery")
@@ -1130,12 +1137,12 @@ async def test_alert_manager():
     if all_alerts:
         delivery_summary = await agent.deliver_alerts(all_alerts)
         logging.info("Delivery Summary:")
-        logging.info(f"  Total Attempts: {delivery_summary['total_attempts']}")
-        logging.info(f"  Successful: {delivery_summary['successful']}")
-        logging.info(f"  Failed: {delivery_summary['failed']}")
+        logging.info("  Total Attempts: %s", delivery_summary['total_attempts'])
+        logging.info("  Successful: %s", delivery_summary['successful'])
+        logging.info("  Failed: %s", delivery_summary['failed'])
         logging.info("  By Channel:")
         for channel, stats in delivery_summary['by_channel'].items():
-            logging.info(f"    {channel}: {stats['success']} success, {stats['failed']} failed")
+            logging.info("    %s: %s success, %s failed", channel, stats['success'], stats['failed'])
 
     # Test alert pattern analysis
     logging.info("\n\nTest 4: Alert Pattern Analysis")
@@ -1155,10 +1162,10 @@ async def test_alert_manager():
     logging.info(f"  Noise Level: {analysis.noise_level:.1%}")
     logging.info("  Alert Frequency by Type:")
     for alert_type, count in analysis.alert_frequency.items():
-        logging.info(f"    {alert_type}: {count}")
+        logging.info("    %s: %s", alert_type, count)
     logging.info("  Recommendations:")
     for rec in analysis.recommendations[:3]:
-        logging.info(f"    - {rec}")
+        logging.info("    - %s", rec)
 
 # ==============================================================================
 # MAIN EXECUTION

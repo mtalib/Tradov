@@ -47,9 +47,10 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from threading import Lock
 from typing import Any
+from datetime import UTC
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -87,7 +88,7 @@ _SLACK_COLOURS: dict[str, str] = {
 # DATA STRUCTURES
 # ==============================================================================
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     INFO     = "info"
     WARNING  = "warning"
     CRITICAL = "critical"
@@ -295,7 +296,7 @@ class WebhookNotifier:
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status < 300:
                         self._log.info("%s webhook delivered (attempt %d)", platform, attempt)
                         return True
@@ -326,8 +327,8 @@ class WebhookNotifier:
 
 def _iso_now() -> str:
     """Return current UTC time as an ISO-8601 string."""
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+    return datetime.now(UTC).isoformat()
 
 
 # Module-level singleton for convenience

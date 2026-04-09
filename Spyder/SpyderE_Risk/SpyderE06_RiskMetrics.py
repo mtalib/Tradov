@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import deque
@@ -65,7 +65,7 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 # ==============================================================================
@@ -577,7 +577,7 @@ class RiskMetricsCalculator:
                 return metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating metrics: {e}")
+            self.logger.error("Error calculating metrics: %s", e)
             self.error_handler.handle_error(e, {"method": "calculate_metrics"})
             return self._create_empty_metrics()
 
@@ -642,7 +642,7 @@ class RiskMetricsCalculator:
             return metrics
 
         except Exception as e:
-            self.logger.error(f"empyrical calculation error: {e}")
+            self.logger.error("empyrical calculation error: %s", e)
             return self._calculate_fallback_metrics(returns, benchmark_returns)
 
     def _calculate_fallback_metrics(self,
@@ -702,7 +702,7 @@ class RiskMetricsCalculator:
                         }
 
         if discrepancies:
-            self.logger.warning(f"Metric discrepancies detected: {list(discrepancies.keys())}")
+            self.logger.warning("Metric discrepancies detected: %s", list(discrepancies.keys()))
 
         return {
             'local_metrics': local,
@@ -941,7 +941,7 @@ class RiskMetricsCalculator:
             return beta, alpha, r_squared
 
         except Exception as e:
-            self.logger.error(f"CAPM calculation error: {e}")
+            self.logger.error("CAPM calculation error: %s", e)
             return None, None, None
 
     def _calculate_current_drawdown(self, equity_curve: list[float]) -> float:
@@ -1033,7 +1033,7 @@ class RiskMetricsCalculator:
     # ==========================================================================
     # PUBLIC METHODS - UTILITIES
     # ==========================================================================
-    def update_returns(self, returns: Union[float, list[float]]) -> None:
+    def update_returns(self, returns: float | list[float]) -> None:
         """Update returns history."""
         with self._lock:
             if isinstance(returns, (int, float)):

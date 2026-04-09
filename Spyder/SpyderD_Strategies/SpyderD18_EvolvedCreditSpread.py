@@ -68,9 +68,6 @@ try:
     SPYDER_LOGGER_AVAILABLE = True
 except ImportError:
     SPYDER_LOGGER_AVAILABLE = False
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
 
 # ==============================================================================
 # CONSTANTS
@@ -290,11 +287,11 @@ class EvolvedCreditSpreadStrategy:
         self._setup_ta_library()
 
         # Log initialization
-        self.logger.info(f"✅ {self.strategy_name} v{self.version} initialized")
+        self.logger.info("✅ %s v%s initialized", self.strategy_name, self.version)
         self.logger.info(f"🧬 Evolution Fitness: {self.evolved_params.fitness_score:.3f}")
-        self.logger.info(f"🎯 Generation: {self.evolved_params.generation}")
-        self.logger.info(f"📊 TA Library: {TA_LIBRARY or 'fallback'}")
-        self.logger.info(f"⚡ State: {self.state.value}")
+        self.logger.info("🎯 Generation: %s", self.evolved_params.generation)
+        self.logger.info("📊 TA Library: %s", TA_LIBRARY or 'fallback')
+        self.logger.info("⚡ State: %s", self.state.value)
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -363,7 +360,7 @@ class EvolvedCreditSpreadStrategy:
                 return self._rsi_fallback(prices, period)
 
         except Exception as e:
-            self.logger.warning(f"RSI calculation error: {e}")
+            self.logger.warning("RSI calculation error: %s", e)
             return self._rsi_fallback(prices, period)
 
     def _rsi_fallback(self, prices: np.ndarray, period: int = 14) -> float | None:
@@ -405,7 +402,7 @@ class EvolvedCreditSpreadStrategy:
             return None
 
         except Exception as e:
-            self.logger.error(f"Fallback RSI calculation error: {e}")
+            self.logger.error("Fallback RSI calculation error: %s", e)
             return 50.0  # Neutral RSI as last resort
 
     def _calculate_volume_ratio(self, volumes: np.ndarray, period: int = 20) -> float:
@@ -432,7 +429,7 @@ class EvolvedCreditSpreadStrategy:
                 return 1.0
 
         except Exception as e:
-            self.logger.warning(f"Volume ratio calculation error: {e}")
+            self.logger.warning("Volume ratio calculation error: %s", e)
             return 1.0
 
     def _calculate_breakout_score(self, prices: np.ndarray, lookback: int = 5) -> float:
@@ -461,7 +458,7 @@ class EvolvedCreditSpreadStrategy:
                 return 0.5
 
         except Exception as e:
-            self.logger.warning(f"Breakout score calculation error: {e}")
+            self.logger.warning("Breakout score calculation error: %s", e)
             return 0.5
 
     def _calculate_momentum(self, prices: np.ndarray, period: int = 10) -> float:
@@ -482,7 +479,7 @@ class EvolvedCreditSpreadStrategy:
             momentum = (prices[-1] - prices[-period - 1]) / prices[-period - 1]
             return float(momentum)
         except Exception as e:
-            self.logger.warning(f"Momentum calculation error: {e}")
+            self.logger.warning("Momentum calculation error: %s", e)
             return 0.0
 
     # ==========================================================================
@@ -538,15 +535,15 @@ class EvolvedCreditSpreadStrategy:
             self.last_analysis = analysis
 
             self.logger.debug(
-                f"Market analysis complete: strength={
-                    signal_strength:.3f}, confidence={
-                    ai_confidence:.3f}"
+                "Market analysis complete: strength=%.3f, confidence=%.3f",
+                signal_strength,
+                ai_confidence,
             )
 
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Market analysis error: {e}")
+            self.logger.error("Market analysis error: %s", e)
             self.state = StrategyState.ERROR
 
             # Return basic analysis in case of error
@@ -594,12 +591,13 @@ class EvolvedCreditSpreadStrategy:
             self.technical_indicators.last_updated = datetime.now()
 
             self.logger.debug(
-                f"Technical indicators updated: RSI={rsi}, VR={
-                    self.technical_indicators.volume_ratio}"
+                "Technical indicators updated: RSI=%s, VR=%s",
+                rsi,
+                self.technical_indicators.volume_ratio,
             )
 
         except Exception as e:
-            self.logger.error(f"Error updating technical indicators: {e}")
+            self.logger.error("Error updating technical indicators: %s", e)
 
     def _check_entry_conditions(self) -> dict[str, bool]:
         """
@@ -634,11 +632,11 @@ class EvolvedCreditSpreadStrategy:
             conditions["volatility_favorable"] = self._is_volatility_favorable()
 
             self.logger.debug(
-                f"Entry conditions checked: {sum(conditions.values())}/{len(conditions)} active"
+                "Entry conditions checked: %s/%s active", sum(conditions.values()), len(conditions)
             )
 
         except Exception as e:
-            self.logger.error(f"Error checking entry conditions: {e}")
+            self.logger.error("Error checking entry conditions: %s", e)
             # Return safe defaults
             conditions = {
                 key: False
@@ -692,7 +690,7 @@ class EvolvedCreditSpreadStrategy:
             return min(1.0, max(0.0, normalized_strength))
 
         except Exception as e:
-            self.logger.error(f"Error calculating signal strength: {e}")
+            self.logger.error("Error calculating signal strength: %s", e)
             return 0.0
 
     def _calculate_ai_confidence(self, entry_signals: dict[str, bool]) -> float:
@@ -730,7 +728,7 @@ class EvolvedCreditSpreadStrategy:
             return min(1.0, max(0.0, confidence))
 
         except Exception as e:
-            self.logger.error(f"Error calculating AI confidence: {e}")
+            self.logger.error("Error calculating AI confidence: %s", e)
             return self.evolved_params.fitness_score  # Fallback to base fitness
 
     def _is_favorable_market_regime(self) -> bool:
@@ -755,7 +753,7 @@ class EvolvedCreditSpreadStrategy:
             return vix_favorable and trend_moderate
 
         except Exception as e:
-            self.logger.warning(f"Error assessing market regime: {e}")
+            self.logger.warning("Error assessing market regime: %s", e)
             return True  # Default to favorable
 
     def _is_volatility_favorable(self) -> bool:
@@ -789,7 +787,7 @@ class EvolvedCreditSpreadStrategy:
                 return MarketRegime.NEUTRAL
 
         except Exception as e:
-            self.logger.warning(f"Error identifying market regime: {e}")
+            self.logger.warning("Error identifying market regime: %s", e)
             return MarketRegime.NEUTRAL
 
     def _assess_volatility_environment(self) -> VolatilityEnvironment:
@@ -812,7 +810,7 @@ class EvolvedCreditSpreadStrategy:
                 return VolatilityEnvironment.EXTREME
 
         except Exception as e:
-            self.logger.warning(f"Error assessing volatility: {e}")
+            self.logger.warning("Error assessing volatility: %s", e)
             return VolatilityEnvironment.MEDIUM
 
     def _assess_market_quality(self) -> float:
@@ -913,8 +911,8 @@ class EvolvedCreditSpreadStrategy:
                 if entry_signal:
                     signals.append(entry_signal)
                     self.logger.info(
-                        f"Entry signal generated: strength={
-                            analysis.signal_strength:.3f}"
+                        "Entry signal generated: strength=%.3f",
+                        analysis.signal_strength,
                     )
 
             # Check for exit signals on existing positions
@@ -922,10 +920,10 @@ class EvolvedCreditSpreadStrategy:
             signals.extend(exit_signals)
 
             if exit_signals:
-                self.logger.info(f"Exit signals generated: {len(exit_signals)}")
+                self.logger.info("Exit signals generated: %s", len(exit_signals))
 
         except Exception as e:
-            self.logger.error(f"Error generating signals: {e}")
+            self.logger.error("Error generating signals: %s", e)
             self.state = StrategyState.ERROR
 
         return signals
@@ -965,7 +963,7 @@ class EvolvedCreditSpreadStrategy:
             return not analysis.analysis_quality < 0.4
 
         except Exception as e:
-            self.logger.error(f"Error determining position entry: {e}")
+            self.logger.error("Error determining position entry: %s", e)
             return False
 
     def _generate_entry_signal(self, analysis: MarketAnalysis) -> TradingSignal | None:
@@ -1008,7 +1006,7 @@ class EvolvedCreditSpreadStrategy:
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error generating entry signal: {e}")
+            self.logger.error("Error generating entry signal: %s", e)
             return None
 
     def _calculate_optimal_position_details(
@@ -1059,8 +1057,9 @@ class EvolvedCreditSpreadStrategy:
 
             if estimated_credit < MIN_CREDIT_THRESHOLD:
                 self.logger.debug(
-                    f"Credit too low: {
-                        estimated_credit:.2f} < {MIN_CREDIT_THRESHOLD}"
+                    "Credit too low: %.2f < %s",
+                    estimated_credit,
+                    MIN_CREDIT_THRESHOLD,
                 )
                 return None
 
@@ -1081,7 +1080,7 @@ class EvolvedCreditSpreadStrategy:
             return position_details
 
         except Exception as e:
-            self.logger.error(f"Error calculating position details: {e}")
+            self.logger.error("Error calculating position details: %s", e)
             return None
 
     def _estimate_credit_spread_value(
@@ -1122,7 +1121,7 @@ class EvolvedCreditSpreadStrategy:
             return estimated_credit
 
         except Exception as e:
-            self.logger.error(f"Error estimating credit spread value: {e}")
+            self.logger.error("Error estimating credit spread value: %s", e)
             return 0.0
 
     def _generate_exit_signals(self, analysis: MarketAnalysis) -> list[TradingSignal]:
@@ -1137,7 +1136,7 @@ class EvolvedCreditSpreadStrategy:
                         exit_signals.append(exit_signal)
 
         except Exception as e:
-            self.logger.error(f"Error generating exit signals: {e}")
+            self.logger.error("Error generating exit signals: %s", e)
 
         return exit_signals
 
@@ -1163,7 +1162,7 @@ class EvolvedCreditSpreadStrategy:
             return bool(self._detect_technical_reversal(analysis))
 
         except Exception as e:
-            self.logger.error(f"Error determining position exit: {e}")
+            self.logger.error("Error determining position exit: %s", e)
             return False
 
     def _create_exit_signal(
@@ -1192,7 +1191,7 @@ class EvolvedCreditSpreadStrategy:
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating exit signal: {e}")
+            self.logger.error("Error creating exit signal: %s", e)
             return None
 
     def _determine_exit_reason(
@@ -1235,7 +1234,7 @@ class EvolvedCreditSpreadStrategy:
             return False
 
         except Exception as e:
-            self.logger.warning(f"Error detecting technical reversal: {e}")
+            self.logger.warning("Error detecting technical reversal: %s", e)
             return False
 
     # ==========================================================================
@@ -1440,23 +1439,23 @@ def test_evolved_strategy():
         logging.info("📊 Test Market Data:")
         logging.info(f"   Current Price: ${sample_data['current_price']:.2f}")
         logging.info(f"   Daily Change: {sample_data['daily_change']:.3%}")
-        logging.info(f"   VIX: {sample_data['vix']}")
-        logging.info(f"   Price Series Length: {len(prices)}")
-        logging.info(f"   Volume Series Length: {len(volumes)}")
+        logging.info("   VIX: %s", sample_data['vix'])
+        logging.info("   Price Series Length: %s", len(prices))
+        logging.info("   Volume Series Length: %s", len(volumes))
 
         # Test market analysis
         logging.info("\n🔍 Running Market Analysis...")
         analysis = strategy.analyze_market(sample_data)
 
         logging.info("✅ Analysis Results:")
-        logging.info(f"   Strategy: {strategy.strategy_name}")
+        logging.info("   Strategy: %s", strategy.strategy_name)
         logging.info(f"   Evolution Fitness: {strategy.evolved_params.fitness_score:.3f}")
-        logging.info(f"   Generation: {strategy.evolved_params.generation}")
-        logging.info(f"   TA Library: {analysis.ta_library or 'fallback'}")
+        logging.info("   Generation: %s", strategy.evolved_params.generation)
+        logging.info("   TA Library: %s", analysis.ta_library or 'fallback')
         logging.info(f"   Signal Strength: {analysis.signal_strength:.3f}")
         logging.info(f"   AI Confidence: {analysis.ai_confidence:.3f}")
-        logging.info(f"   Market Regime: {analysis.market_regime.value}")
-        logging.info(f"   Volatility Env: {analysis.volatility_environment.value}")
+        logging.info("   Market Regime: %s", analysis.market_regime.value)
+        logging.info("   Volatility Env: %s", analysis.volatility_environment.value)
         logging.info(f"   Analysis Quality: {analysis.analysis_quality:.3f}")
 
         # Display technical indicators
@@ -1473,20 +1472,20 @@ def test_evolved_strategy():
         logging.info("\n🎯 Entry Signals:")
         for condition, active in analysis.entry_signals.items():
             status = "✅" if active else "❌"
-            logging.info(f"   {condition}: {status}")
+            logging.info("   %s: %s", condition, status)
 
         # Test signal generation
         logging.info("\n🚨 Generating Trading Signals...")
         signals = strategy.generate_signals(analysis)
 
-        logging.info(f"   Signals Generated: {len(signals)}")
+        logging.info("   Signals Generated: %s", len(signals))
 
         if signals:
             signal = signals[0]
             logging.info("\n📋 First Signal Details:")
-            logging.info(f"   Signal ID: {signal.signal_id}")
-            logging.info(f"   Action: {signal.action}")
-            logging.info(f"   Timestamp: {signal.timestamp}")
+            logging.info("   Signal ID: %s", signal.signal_id)
+            logging.info("   Action: %s", signal.action)
+            logging.info("   Timestamp: %s", signal.timestamp)
             logging.info(f"   Signal Strength: {signal.signal_strength:.3f}")
             logging.info(f"   AI Confidence: {signal.ai_confidence:.3f}")
 
@@ -1502,16 +1501,16 @@ def test_evolved_strategy():
         # Display strategy info
         logging.info("\n🏗️ Strategy Information:")
         info = strategy.get_strategy_info()
-        logging.info(f"   State: {info['current_state']['state']}")
-        logging.info(f"   Positions: {info['current_state']['positions_count']}")
-        logging.info(f"   Evolution Date: {info['evolved_params']['evolution_date']}")
+        logging.info("   State: %s", info['current_state']['state'])
+        logging.info("   Positions: %s", info['current_state']['positions_count'])
+        logging.info("   Evolution Date: %s", info['evolved_params']['evolution_date'])
 
         logging.info("\n✅ STRATEGY TEST COMPLETED SUCCESSFULLY!")
 
         return strategy, analysis, signals
 
     except Exception as e:
-        logging.info(f"❌ TEST FAILED: {e}")
+        logging.info("❌ TEST FAILED: %s", e)
         import traceback
 
         traceback.print_exc()

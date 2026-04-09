@@ -1170,10 +1170,13 @@ class TestMeasureLatency:
         mock_ctx = MagicMock()
         mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
         mock_ctx.__exit__ = MagicMock(return_value=False)
-        with patch(  # noqa: SIM117
-            "Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils.PING3_AVAILABLE", False
-        ), patch("socket.create_connection", return_value=mock_ctx):
-            with patch("time.time", side_effect=[0.0, 0.005, 0.005, 0.015, 0.015, 0.025]):
+        with (
+            patch(
+                "Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils.PING3_AVAILABLE", False
+            ),
+            patch("socket.create_connection", return_value=mock_ctx),
+            patch("time.time", side_effect=[0.0, 0.005, 0.005, 0.015, 0.015, 0.025]),
+        ):
                 result = nu.measure_latency("8.8.8.8", count=3)
         assert isinstance(result, float)
 

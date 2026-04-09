@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -46,7 +46,12 @@ from matplotlib import cm
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
-from Spyder.SpyderN_OptionsAnalytics.SpyderN01_VolatilitySmile import VolatilitySmileAnalyzer
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_VolatilitySmile import VolatilitySmileAnalyzer
+    _SMILE_AVAILABLE = True
+except ImportError:
+    VolatilitySmileAnalyzer = None  # type: ignore[assignment,misc]
+    _SMILE_AVAILABLE = False
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 MIN_STRIKES_PER_EXPIRY = 5
@@ -192,7 +197,7 @@ class VolatilitySurfaceAnalyzer:
 
         # Data sources
         self.option_chain_mgr = OptionChainManager()
-        self.smile_analyzer = VolatilitySmileAnalyzer(symbol)
+        self.smile_analyzer = VolatilitySmileAnalyzer(symbol) if _SMILE_AVAILABLE else None
         self.event_manager = get_event_manager()
 
         # Surface storage
@@ -208,7 +213,7 @@ class VolatilitySurfaceAnalyzer:
         self._monitor_thread: threading.Thread | None = None
         self._running = False
 
-        self.logger.info(f"VolatilitySurfaceAnalyzer initialized for {symbol}")
+        self.logger.info("VolatilitySurfaceAnalyzer initialized for %s", symbol)
 
     # ==========================================================================
     # MAIN SURFACE BUILDING METHODS
@@ -295,7 +300,7 @@ class VolatilitySurfaceAnalyzer:
             return surface
 
         except Exception as e:
-            self.logger.error(f"Error building surface: {e}", exc_info=True)
+            self.logger.error("Error building surface: %s", e, exc_info=True)
             self.error_handler.handle_error(e, {"method": "build_surface"})
             raise
 
@@ -771,7 +776,7 @@ class VolatilitySurfaceAnalyzer:
             try:
                 return float(self._interpolator(moneyness, time_to_expiry))
             except Exception as e:
-                self.logger.debug(f"Interpolator failed, falling back to bilinear: {e}")
+                self.logger.debug("Interpolator failed, falling back to bilinear: %s", e)
 
         # Fall back to bilinear interpolation
         return self._bilinear_interpolation(surface, moneyness, time_to_expiry)
@@ -879,7 +884,7 @@ class VolatilitySurfaceAnalyzer:
     def visualize_surface_3d(self,
                            surface: VolatilitySurface | None = None,
                            interactive: bool = True,
-                           show_points: bool = True) -> Union[plt.Figure, go.Figure]:
+                           show_points: bool = True) -> plt.Figure | go.Figure:
         """
         Create 3D visualization of volatility surface.
 
@@ -1104,8 +1109,8 @@ class VolatilitySurfaceAnalyzer:
                      spot: float) -> tuple[np.ndarray, np.ndarray]:
         """Create regular grids for surface representation."""
         # Get unique values
-        moneyness_values = sorted(list(set(p.moneyness for p in points)))
-        time_values = sorted(list(set(p.time_to_expiry for p in points)))
+        moneyness_values = sorted(list({p.moneyness for p in points}))
+        time_values = sorted(list({p.time_to_expiry for p in points}))
 
         # Create regular grids
         moneyness_range = np.linspace(
@@ -1209,7 +1214,7 @@ class VolatilitySurfaceAnalyzer:
 
     def export_surface_data(self,
                            surface: VolatilitySurface | None = None,
-                           format: str = 'json') -> Union[str, pd.DataFrame]:
+                           format: str = 'json') -> str | pd.DataFrame:
         """
         Export surface data for external use.
 
@@ -1282,6 +1287,9 @@ __all__ = [
     'InterpolationMethod',
     'ArbitrageType'
 ]
+
+# Short alias used by N/__init__.py and external consumers
+VolAnalytics = VolatilitySurfaceAnalyzer
 
 # ==============================================================================
 # MAIN EXECUTION

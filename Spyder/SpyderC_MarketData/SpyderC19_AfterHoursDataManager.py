@@ -22,7 +22,6 @@ Module Description:
 # ==============================================================================
 import os
 import json
-import os
 import tempfile
 import time
 import threading
@@ -224,7 +223,7 @@ class AfterHoursDataManager:
         # Load persistent data
         self._load_closing_prices()
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - LIFECYCLE
@@ -244,7 +243,7 @@ class AfterHoursDataManager:
 
                 # Determine current session
                 self.current_session = self._get_current_session()
-                self.logger.info(f"Current session: {self.current_session.value}")
+                self.logger.info("Current session: %s", self.current_session.value)
 
                 # Initialize data based on session
                 if self.current_session in [AfterHoursSession.AFTER_HOURS,
@@ -260,7 +259,7 @@ class AfterHoursDataManager:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start after-hours manager: {e}", exc_info=True)
+            self.logger.error("Failed to start after-hours manager: %s", e, exc_info=True)
             return False
 
     def stop(self) -> None:
@@ -280,7 +279,7 @@ class AfterHoursDataManager:
                 self.logger.info("After-hours data manager stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping after-hours manager: {e}", exc_info=True)
+            self.logger.error("Error stopping after-hours manager: %s", e, exc_info=True)
 
     # ==========================================================================
     # PUBLIC METHODS - CLOSING DATA ACCESS
@@ -411,7 +410,7 @@ class AfterHoursDataManager:
 
                     return True
                 else:
-                    self.logger.warning(f"No valid closing data received for {symbol}")
+                    self.logger.warning("No valid closing data received for %s", symbol)
 
                 # Cancel market data
                 self.client.cancel_market_data(req_id)
@@ -423,7 +422,7 @@ class AfterHoursDataManager:
             return False
 
         except Exception as e:
-            self.logger.error(f"Error requesting closing snapshot for {symbol}: {e}", exc_info=True)
+            self.logger.error("Error requesting closing snapshot for %s: %s", symbol, e, exc_info=True)
             return False
 
     # ==========================================================================
@@ -452,7 +451,7 @@ class AfterHoursDataManager:
                     results[symbol] = self.request_closing_snapshot(symbol)
                     time.sleep(0.5)  # thread-safe: time.sleep() intentional
                 except Exception as e:
-                    self.logger.error(f"Error requesting {symbol}: {e}", exc_info=True)
+                    self.logger.error("Error requesting %s: %s", symbol, e, exc_info=True)
                     results[symbol] = False
 
         return results
@@ -474,7 +473,7 @@ class AfterHoursDataManager:
             if snapshot and snapshot.data_freshness != DataFreshness.EXPIRED:
                 values[symbol] = snapshot.closing_price
             else:
-                self.logger.warning(f"No valid closing price for {symbol}")
+                self.logger.warning("No valid closing price for %s", symbol)
                 values[symbol] = 0.0
 
         return values
@@ -598,7 +597,7 @@ class AfterHoursDataManager:
                 return AfterHoursSession.CLOSED
 
         except Exception as e:
-            self.logger.error(f"Error determining session: {e}", exc_info=True)
+            self.logger.error("Error determining session: %s", e, exc_info=True)
             return AfterHoursSession.CLOSED
 
     # ==========================================================================
@@ -613,7 +612,7 @@ class AfterHoursDataManager:
             # This could be enhanced to include symbols from active positions
 
         except Exception as e:
-            self.logger.error(f"Error setting up after-hours feeds: {e}", exc_info=True)
+            self.logger.error("Error setting up after-hours feeds: %s", e, exc_info=True)
 
     def _prepare_closing_data(self) -> None:
         """Prepare closing data for non-trading periods."""
@@ -631,10 +630,10 @@ class AfterHoursDataManager:
                     expired_symbols.append(symbol)
 
             if expired_symbols:
-                self.logger.warning(f"Expired closing data for symbols: {expired_symbols}")
+                self.logger.warning("Expired closing data for symbols: %s", expired_symbols)
 
         except Exception as e:
-            self.logger.error(f"Error preparing closing data: {e}", exc_info=True)
+            self.logger.error("Error preparing closing data: %s", e, exc_info=True)
 
     def _stop_after_hours_feeds(self) -> None:
         """Stop any active after-hours feeds."""
@@ -643,7 +642,7 @@ class AfterHoursDataManager:
                 self.after_hours_data.clear()
 
         except Exception as e:
-            self.logger.error(f"Error stopping after-hours feeds: {e}", exc_info=True)
+            self.logger.error("Error stopping after-hours feeds: %s", e, exc_info=True)
 
     # ==========================================================================
     # PRIVATE METHODS - PERSISTENCE
@@ -677,12 +676,12 @@ class AfterHoursDataManager:
                             self.closing_snapshots[symbol] = snapshot
 
                         except Exception as e:
-                            self.logger.warning(f"Error loading snapshot for {symbol}: {e}", exc_info=True)
+                            self.logger.warning("Error loading snapshot for %s: %s", symbol, e, exc_info=True)
 
-                self.logger.info(f"Loaded {len(self.closing_snapshots)} closing price snapshots")
+                self.logger.info("Loaded %s closing price snapshots", len(self.closing_snapshots))
 
         except Exception as e:
-            self.logger.error(f"Error loading closing prices: {e}", exc_info=True)
+            self.logger.error("Error loading closing prices: %s", e, exc_info=True)
 
     def _save_closing_prices(self) -> None:
         """Save closing prices to persistent storage."""
@@ -707,10 +706,10 @@ class AfterHoursDataManager:
             with open(CLOSING_PRICES_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
 
-            self.logger.info(f"Saved {len(data)} closing price snapshots")
+            self.logger.info("Saved %s closing price snapshots", len(data))
 
         except Exception as e:
-            self.logger.error(f"Error saving closing prices: {e}", exc_info=True)
+            self.logger.error("Error saving closing prices: %s", e, exc_info=True)
 
 # ==============================================================================
 # MODULE FUNCTIONS

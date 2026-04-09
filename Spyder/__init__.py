@@ -32,5 +32,63 @@ This package contains all core modules organized by functionality:
 - SpyderZ_Communication: Communication protocols and APIs
 """
 
+import sys as _sys
+import importlib.abc as _abc
+import importlib.machinery as _machinery
+
+# ==============================================================================
+# IMPORT ALIAS HOOK — prevents double-loading of Spyder sub-packages
+#
+# Many modules use "from Spyder.SpyderX.Module import Y" while others use the
+# short form "from SpyderX.Module import Y" (when Spyder/ is on sys.path).
+# Without this hook Python loads the same package __init__.py TWICE under two
+# different sys.modules keys, doubling the import cost for every dependent
+# library (numpy, pandas, scipy, etc.).
+#
+# This MetaPathFinder redirects the long form to the already-loaded short form
+# (and vice versa), so the module code executes exactly once.
+# ==============================================================================
+
+class _SpyderAliasImporter(_abc.MetaPathFinder, _abc.Loader):
+    """Bidirectional alias between 'Spyder.SpyderX.Y' and 'SpyderX.Y'."""
+
+    @staticmethod
+    def _is_short_spyder(name: str) -> bool:
+        """Return True for short-form Spyder sub-package names like 'SpyderU_Utilities'."""
+        # Must start with 'Spyder' + an uppercase letter (not a dot or end-of-string)
+        return len(name) > 6 and name[:6] == "Spyder" and name[6:7].isupper()
+
+    def find_spec(self, fullname: str, path, target=None):  # type: ignore[override]
+        # Long-form → short-form: 'Spyder.SpyderX[.Y]' → 'SpyderX[.Y]'
+        if fullname.startswith("Spyder.Spyder"):
+            short = fullname[len("Spyder."):]  # e.g. 'SpyderU_Utilities.SpyderU01_Logger'
+            if short in _sys.modules:
+                return _machinery.ModuleSpec(fullname, self)
+
+        # Short-form → long-form: 'SpyderX[.Y]' → 'Spyder.SpyderX[.Y]'
+        elif self._is_short_spyder(fullname):
+            long = "Spyder." + fullname
+            if long in _sys.modules:
+                return _machinery.ModuleSpec(fullname, self)
+
+        return None
+
+    def create_module(self, spec: _machinery.ModuleSpec):  # type: ignore[override]
+        name = spec.name
+        if name.startswith("Spyder.Spyder"):
+            short = name[len("Spyder."):]
+            return _sys.modules.get(short)
+        else:
+            long = "Spyder." + name
+            return _sys.modules.get(long)
+
+    def exec_module(self, module) -> None:  # type: ignore[override]
+        pass  # Already fully initialised — nothing to execute
+
+
+_sys.meta_path.insert(0, _SpyderAliasImporter())
+
+
 __version__ = "0.0.0"
 __author__ = "Spyder Trading System"
+__all__: list[str] = []

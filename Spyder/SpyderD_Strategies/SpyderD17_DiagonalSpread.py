@@ -286,7 +286,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             "worst_trade": 0.0,
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # TREND ANALYSIS
@@ -352,7 +352,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             )
 
         except Exception as e:
-            self.logger.error(f"Error analyzing trend: {e}")
+            self.logger.error("Error analyzing trend: %s", e)
             return self._create_neutral_trend()
 
     def _create_neutral_trend(self) -> TrendData:
@@ -607,7 +607,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating diagonal setup: {e}")
+            self.logger.error("Error creating diagonal setup: %s", e)
             return None
 
     def _get_current_iv(self, market_data: pd.DataFrame) -> float:
@@ -811,11 +811,11 @@ class DiagonalSpreadStrategy(BaseStrategy):
                 },
             )
 
-            self.logger.info(f"Generated {setup.diagonal_type.value} signal")
+            self.logger.info("Generated %s signal", setup.diagonal_type.value)
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating signal: {e}")
+            self.logger.error("Error creating signal: %s", e)
             return None
 
     # ==========================================================================
@@ -896,7 +896,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             position.unrealized_pnl = position.current_value + position.cost_basis.current_basis
 
         except Exception as e:
-            self.logger.error(f"Error updating position value: {e}")
+            self.logger.error("Error updating position value: %s", e)
 
     def _check_roll_opportunity(
         self, position: DiagonalPosition, market_data: pd.DataFrame
@@ -1119,7 +1119,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         )
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added diagonal position {position_id}")
+        self.logger.info("Added diagonal position %s", position_id)
 
         return position_id
 
@@ -1208,9 +1208,9 @@ def test_diagonal_spread():
     # Create strategy
     strategy = DiagonalSpreadStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
-    logging.info(f"Require Trend: {strategy.require_trend}")
-    logging.info(f"Track Cost Basis: {strategy.track_cost_basis}")
+    logging.info("Strategy: %s", strategy.name)
+    logging.info("Require Trend: %s", strategy.require_trend)
+    logging.info("Track Cost Basis: %s", strategy.track_cost_basis)
 
     # Create trending market data
     dates = pd.date_range(end=datetime.now(), periods=100, freq="D")
@@ -1238,12 +1238,12 @@ def test_diagonal_spread():
     # Test trend analysis
     logging.info("\nTrend Analysis:")
     trend_data = strategy._analyze_trend(market_data)
-    logging.info(f"Direction: {trend_data.direction}")
+    logging.info("Direction: %s", trend_data.direction)
     logging.info(f"Strength: {trend_data.strength:.2f}")
     logging.info(f"Momentum: {trend_data.momentum:.2f}")
     logging.info(f"Support: ${trend_data.support:.2f}")
     logging.info(f"Resistance: ${trend_data.resistance:.2f}")
-    logging.info(f"Trend Age: {trend_data.trend_age} bars")
+    logging.info("Trend Age: %s bars", trend_data.trend_age)
     logging.info(f"Reliability: {trend_data.reliability:.2f}")
 
     # Add IV data
@@ -1253,13 +1253,13 @@ def test_diagonal_spread():
     logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"Generated {len(signals)} signals")
+    logging.info("Generated %s signals", len(signals))
 
     for signal in signals:
         setup = signal.metadata
-        logging.info(f"\nDiagonal Type: {setup['diagonal_type']}")
-        logging.info(f"Bias: {setup['bias']}")
-        logging.info(f"Trend Direction: {setup['trend_direction']}")
+        logging.info("\nDiagonal Type: %s", setup['diagonal_type'])
+        logging.info("Bias: %s", setup['bias'])
+        logging.info("Trend Direction: %s", setup['trend_direction'])
         logging.info(f"Trend Strength: {setup['trend_strength']:.2f}")
         logging.info(f"Net Debit: ${setup['net_debit']:.2f}")
         logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
@@ -1298,15 +1298,15 @@ def test_diagonal_spread():
                 if management_signals:
                     for signal in management_signals:
                         if signal.signal_type == SignalType.ADJUST:
-                            logging.info(f"\nRoll Signal Day {i}")
-                            logging.info(f"Action: {signal.metadata['action']}")
+                            logging.info("\nRoll Signal Day %s", i)
+                            logging.info("Action: %s", signal.metadata['action'])
                             logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")
-                            logging.info(f"Short DTE: {signal.metadata['current_short_dte']}")
-                            logging.info(f"Roll Count: {signal.metadata['roll_count']}")
+                            logging.info("Short DTE: %s", signal.metadata['current_short_dte'])
+                            logging.info("Roll Count: %s", signal.metadata['roll_count'])
                         elif signal.signal_type == SignalType.EXIT:
-                            logging.info(f"\nExit Signal Day {i}")
-                            logging.info(f"Reason: {signal.metadata['exit_reason']}")
-                            logging.info(f"Days Held: {signal.metadata['days_held']}")
+                            logging.info("\nExit Signal Day %s", i)
+                            logging.info("Reason: %s", signal.metadata['exit_reason'])
+                            logging.info("Days Held: %s", signal.metadata['days_held'])
                             logging.info(f"Total P&L: ${signal.metadata['total_pnl']:.2f}")
                             logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")
 
@@ -1316,26 +1316,26 @@ def test_diagonal_spread():
         logging.info("\n" + "=" * 40)
         logging.info("Active Positions:")
         for pos in positions:
-            logging.info(f"\n{pos['position_id']}:")
-            logging.info(f"  Type: {pos['type']}")
-            logging.info(f"  Bias: {pos['bias']}")
-            logging.info(f"  Short DTE: {pos['short_dte']}")
-            logging.info(f"  Long DTE: {pos['long_dte']}")
+            logging.info("\n%s:", pos['position_id'])
+            logging.info("  Type: %s", pos['type'])
+            logging.info("  Bias: %s", pos['bias'])
+            logging.info("  Short DTE: %s", pos['short_dte'])
+            logging.info("  Long DTE: %s", pos['long_dte'])
             logging.info(f"  Total P&L: ${pos['total_pnl']:.2f}")
-            logging.info(f"  Roll Count: {pos['roll_count']}")
+            logging.info("  Roll Count: %s", pos['roll_count'])
             logging.info(f"  Cost Basis: ${pos['cost_basis']:.2f}")
 
     # Print final statistics
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"Active Positions: {stats['active_positions']}")
-    logging.info(f"Current Trend: {stats['current_trend']}")
+    logging.info("Active Positions: %s", stats['active_positions'])
+    logging.info("Current Trend: %s", stats['current_trend'])
     logging.info(f"Trend Strength: {stats['trend_strength']:.2f}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
     logging.info(f"Avg Holding Period: {stats['avg_holding_period']:.1f} days")
-    logging.info(f"Total Rolls: {stats['total_rolls']}")
+    logging.info("Total Rolls: %s", stats['total_rolls'])
     logging.info(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
     logging.info(f"Avg Basis Reduction: ${stats['avg_basis_reduction']:.2f}")
     logging.info(f"Best Trade: ${stats['best_trade']:.2f}")

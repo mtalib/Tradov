@@ -54,7 +54,7 @@ sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _err_mod
 # ==============================================================================
 # IMPORT REAL pytz
 # ==============================================================================
-import pytz  # noqa: E402  (installed in venv)
+import pytz
 
 # ==============================================================================
 # IMPORT U03 (real module) — inject missing globals
@@ -99,7 +99,7 @@ for _key in list(sys.modules.keys()):
 
 u22_mod = importlib.import_module("Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay")
 
-import pytest  # noqa: E402
+import pytest
 
 # ==============================================================================
 # KNOWN DATES FOR DETERMINISTIC TESTS

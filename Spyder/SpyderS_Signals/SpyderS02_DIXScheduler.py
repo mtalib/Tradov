@@ -43,12 +43,11 @@ try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     SpyderLogger = logging
 
     class SpyderErrorHandler:
         def handle_error(self, error, code):
-            logging.error(f"{code}: {error}")
+            logging.error("%s: %s", code, error)
 
 # SpyderS02_DIXDemo and SpyderS03_DIXVisualizer were never implemented.
 # Demo mode falls back to SpyderDIXCalculator; visualizer stubs log instead of rendering.
@@ -247,7 +246,7 @@ class SpyderDIXScheduler:
         self.calculation_history = []
         self.status = SchedulerStatus.IDLE
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - INITIALIZATION
@@ -282,7 +281,7 @@ class SpyderDIXScheduler:
             return True
 
         except Exception as e:
-            self.logger.error(f"Scheduler initialization failed: {e}")
+            self.logger.error("Scheduler initialization failed: %s", e)
             self.error_handler.handle_error(e, "SCHEDULER_INIT_ERROR")
             return False
 
@@ -300,7 +299,7 @@ class SpyderDIXScheduler:
             self.run_scheduled_calculation()
 
         except Exception as e:
-            self.logger.error(f"Failed to start scheduler: {e}")
+            self.logger.error("Failed to start scheduler: %s", e)
             self.error_handler.handle_error(e, "SCHEDULER_START_ERROR")
 
     def stop(self) -> None:
@@ -310,7 +309,7 @@ class SpyderDIXScheduler:
             self.logger.info("DIX Scheduler stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping scheduler: {e}")
+            self.logger.error("Error stopping scheduler: %s", e)
 
     def run_scheduled_calculation(self) -> CalculationResult | None:
         """
@@ -324,7 +323,7 @@ class SpyderDIXScheduler:
 
         try:
             self.logger.info("=" * 60)
-            self.logger.info(f"Starting scheduled DIX calculation at {start_time}")
+            self.logger.info("Starting scheduled DIX calculation at %s", start_time)
 
             # Step 1: Check data availability
             if not self._wait_for_finra_data():
@@ -364,7 +363,7 @@ class SpyderDIXScheduler:
 
         except Exception as e:
             self.status = SchedulerStatus.ERROR
-            self.logger.error(f"Scheduled calculation failed: {e}")
+            self.logger.error("Scheduled calculation failed: %s", e)
             self.error_handler.handle_error(e, "SCHEDULED_CALC_ERROR")
 
             # Send error notification
@@ -490,7 +489,7 @@ class SpyderDIXScheduler:
                     return True
 
             except Exception as e:
-                self.logger.debug(f"FINRA check failed: {e}")
+                self.logger.debug("FINRA check failed: %s", e)
 
             # Wait before retry
             self.logger.info("FINRA data not yet available, waiting...")
@@ -508,7 +507,7 @@ class SpyderDIXScheduler:
         """
         for attempt in range(MAX_RETRY_ATTEMPTS):
             try:
-                self.logger.info(f"DIX calculation attempt {attempt + 1}")
+                self.logger.info("DIX calculation attempt %s", attempt + 1)
 
                 # Run calculation
                 results = self.calculator.run_calculation()
@@ -517,10 +516,10 @@ class SpyderDIXScheduler:
                     return results
 
             except Exception as e:
-                self.logger.error(f"Calculation attempt {attempt + 1} failed: {e}")
+                self.logger.error("Calculation attempt %s failed: %s", attempt + 1, e)
 
                 if attempt < MAX_RETRY_ATTEMPTS - 1:
-                    self.logger.info(f"Retrying in {RETRY_DELAY_SECONDS} seconds...")
+                    self.logger.info("Retrying in %s seconds...", RETRY_DELAY_SECONDS)
                     time_module.sleep(RETRY_DELAY_SECONDS)
 
         return None
@@ -536,7 +535,7 @@ class SpyderDIXScheduler:
                 self.logger.info("S&P 500 constituents updated successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to update constituents: {e}")
+            self.logger.error("Failed to update constituents: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - PROCESSING
@@ -582,7 +581,7 @@ class SpyderDIXScheduler:
 
             # Create dashboard
             dashboard_path = self.visualizer.create_summary_dashboard(results)
-            self.logger.info(f"Dashboard created: {dashboard_path}")
+            self.logger.info("Dashboard created: %s", dashboard_path)
 
             # Create time series if enough history
             if len(self.calculation_history) >= 5:
@@ -599,14 +598,14 @@ class SpyderDIXScheduler:
                     )
 
                 ts_path = self.visualizer.create_time_series_chart(history_data)
-                self.logger.info(f"Time series created: {ts_path}")
+                self.logger.info("Time series created: %s", ts_path)
 
             # Generate report
             report_path = self.visualizer.generate_analysis_report(results)
-            self.logger.info(f"Report generated: {report_path}")
+            self.logger.info("Report generated: %s", report_path)
 
         except Exception as e:
-            self.logger.error(f"Visualization generation failed: {e}")
+            self.logger.error("Visualization generation failed: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - NOTIFICATIONS
@@ -641,7 +640,7 @@ class SpyderDIXScheduler:
             self._send_daily_summary(result)
 
         except Exception as e:
-            self.logger.error(f"Failed to send notifications: {e}")
+            self.logger.error("Failed to send notifications: %s", e)
 
     def _send_alert(self, alert_type: str, result: CalculationResult) -> None:
         """Send alert email."""
@@ -811,10 +810,10 @@ Today's Trading Bias:
             with open(filename, "w") as f:
                 json.dump(data, f, indent=2)
 
-            self.logger.info(f"Results saved to {filename}")
+            self.logger.info("Results saved to %s", filename)
 
         except Exception as e:
-            self.logger.error(f"Failed to save to database: {e}")
+            self.logger.error("Failed to save to database: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
@@ -833,7 +832,7 @@ Today's Trading Bias:
             if response.status_code != 200:
                 self.logger.warning("FINRA site returned non-200 status")
         except Exception as e:
-            self.logger.error(f"FINRA test failed: {e}")
+            self.logger.error("FINRA test failed: %s", e)
             return False
 
         self.logger.info("Data source tests passed")

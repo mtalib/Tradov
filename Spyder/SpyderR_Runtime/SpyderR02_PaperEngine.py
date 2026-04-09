@@ -23,7 +23,7 @@ Key Features:
 
 Dependencies:
     • SpyderB40_TradierClient (Tradier API)
-    • SpyderC26_DatabentoClient (market data)
+    • SpyderC27_MassiveClient (market data)
 """
 
 # ==============================================================================
@@ -47,7 +47,6 @@ import numpy as np
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -128,7 +127,7 @@ class PaperPosition:
     market_price: float = 0.0
     unrealized_pnl: float = 0.0
     position_value: float = 0.0
-    contract: Contract | None = None
+    contract: Any | None = None
 
 @dataclass
 class PaperOrder:
@@ -202,7 +201,7 @@ class PaperTradingEngine:
         self.fills: list[PaperFill] = []
 
         # Market data cache
-        self.market_data: dict[str, Ticker] = {}
+        self.market_data: dict[str, Any] = {}
         self.price_lock = threading.Lock()
 
         # Engine state
@@ -243,7 +242,7 @@ class PaperTradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to start paper trading engine: {e}")
+            self.logger.error("❌ Failed to start paper trading engine: %s", e)
             self.error_handler.handle_error(e)
             return False
 
@@ -270,7 +269,7 @@ class PaperTradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to stop paper trading engine: {e}")
+            self.logger.error("❌ Failed to stop paper trading engine: %s", e)
             self.error_handler.handle_error(e)
             return False
 
@@ -278,7 +277,7 @@ class PaperTradingEngine:
     # ORDER MANAGEMENT
     # ==========================================================================
 
-    def place_order(self, contract: Contract, order: Order) -> str:
+    def place_order(self, contract: Any, order: Any) -> str:
         """
         Place a paper trading order.
 
@@ -315,11 +314,11 @@ class PaperTradingEngine:
             elif order.orderType == "LMT":
                 self._check_limit_order(order_id)
 
-            self.logger.info(f"📝 Paper order placed: {order_id} - {order.action} {order.totalQuantity} {contract.symbol}")
+            self.logger.info("📝 Paper order placed: %s - %s %s %s", order_id, order.action, order.totalQuantity, contract.symbol)
             return order_id
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to place paper order: {e}")
+            self.logger.error("❌ Failed to place paper order: %s", e)
             self.error_handler.handle_error(e)
             return ""
 
@@ -335,22 +334,22 @@ class PaperTradingEngine:
         """
         try:
             if order_id not in self.orders:
-                self.logger.warning(f"Order {order_id} not found")
+                self.logger.warning("Order %s not found", order_id)
                 return False
 
             order = self.orders[order_id]
 
             if order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED]:
-                self.logger.warning(f"Order {order_id} already {order.status.name}")
+                self.logger.warning("Order %s already %s", order_id, order.status.name)
                 return False
 
             order.status = OrderStatus.CANCELLED
 
-            self.logger.info(f"❌ Paper order cancelled: {order_id}")
+            self.logger.info("❌ Paper order cancelled: %s", order_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to cancel paper order {order_id}: {e}")
+            self.logger.error("❌ Failed to cancel paper order %s: %s", order_id, e)
             self.error_handler.handle_error(e)
             return False
 
@@ -377,7 +376,7 @@ class PaperTradingEngine:
             market_price = self._get_market_price(order.symbol, order.action)
 
             if market_price <= 0:
-                self.logger.warning(f"No market price available for {order.symbol}")
+                self.logger.warning("No market price available for %s", order.symbol)
                 return False
 
             # Apply slippage for realism
@@ -418,7 +417,7 @@ class PaperTradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to fill paper order {order_id}: {e}")
+            self.logger.error("❌ Failed to fill paper order %s: %s", order_id, e)
             self.error_handler.handle_error(e)
             return False
 
@@ -457,7 +456,7 @@ class PaperTradingEngine:
             return False
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to check limit order {order_id}: {e}")
+            self.logger.error("❌ Failed to check limit order %s: %s", order_id, e)
             return False
 
     # ==========================================================================
@@ -504,7 +503,7 @@ class PaperTradingEngine:
             self.logger.debug(f"📊 Position updated: {symbol} - {position.quantity} @ ${position.avg_price:.2f}")
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to update position for {symbol}: {e}")
+            self.logger.error("❌ Failed to update position for %s: %s", symbol, e)
 
     def get_positions(self) -> dict[str, PaperPosition]:
         """Get current positions."""
@@ -543,7 +542,7 @@ class PaperTradingEngine:
             self.logger.debug(f"💰 Account updated: Cash=${self.account.cash_balance:.2f}, NetLiq=${self.account.net_liquidation:.2f}")
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to update account: {e}")
+            self.logger.error("❌ Failed to update account: %s", e)
 
     def _update_net_liquidation(self):
         """Update net liquidation value."""
@@ -564,7 +563,7 @@ class PaperTradingEngine:
             self.account.unrealized_pnl = sum(pos.unrealized_pnl for pos in self.positions.values())
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to update net liquidation: {e}")
+            self.logger.error("❌ Failed to update net liquidation: %s", e)
 
     def get_account_info(self) -> PaperAccount:
         """Get current account information."""
@@ -600,7 +599,7 @@ class PaperTradingEngine:
                                 position.unrealized_pnl = (ticker.last - position.avg_price) * position.quantity
 
         except Exception as e:
-            self.logger.error(f"❌ Error processing ticker update: {e}")
+            self.logger.error("❌ Error processing ticker update: %s", e)
 
     def _get_market_price(self, symbol: str, side: str = "MID") -> float:
         """
@@ -632,7 +631,7 @@ class PaperTradingEngine:
                         return ticker.last if ticker.last and not np.isnan(ticker.last) else 0.0
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to get market price for {symbol}: {e}")
+            self.logger.error("❌ Failed to get market price for %s: %s", symbol, e)
             return 0.0
 
     # ==========================================================================
@@ -650,7 +649,7 @@ class PaperTradingEngine:
                 return price * (1 - slippage_factor)  # Receive slightly less
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to apply slippage: {e}")
+            self.logger.error("❌ Failed to apply slippage: %s", e)
             return price
 
     def _calculate_commission(self, symbol: str, quantity: int) -> float:
@@ -663,7 +662,7 @@ class PaperTradingEngine:
                 return quantity * DEFAULT_STOCK_COMMISSION
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to calculate commission: {e}")
+            self.logger.error("❌ Failed to calculate commission: %s", e)
             return 0.0
 
     def _cancel_all_orders(self):
@@ -675,10 +674,10 @@ class PaperTradingEngine:
             for order_id in pending_orders:
                 self.cancel_order(order_id)
 
-            self.logger.info(f"❌ Cancelled {len(pending_orders)} pending orders")
+            self.logger.info("❌ Cancelled %s pending orders", len(pending_orders))
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to cancel all orders: {e}")
+            self.logger.error("❌ Failed to cancel all orders: %s", e)
 
     # ==========================================================================
     # REPORTING AND ANALYTICS
@@ -708,7 +707,7 @@ class PaperTradingEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to generate performance summary: {e}")
+            self.logger.error("❌ Failed to generate performance summary: %s", e)
             return {}
 
     def get_open_orders(self) -> dict[str, PaperOrder]:
@@ -752,7 +751,7 @@ class PaperTradingEngine:
                    market_open <= now <= market_close)
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to check market hours: {e}")
+            self.logger.error("❌ Failed to check market hours: %s", e)
             return False
 
 
@@ -783,7 +782,6 @@ def get_paper_engine() -> PaperTradingEngine:
 if __name__ == "__main__":
     # Example usage and testing
 
-    logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
     logger.info("PaperTradingEngine")
@@ -799,7 +797,7 @@ if __name__ == "__main__":
 
             # Show status
             status = engine.get_status()
-            logger.info(f"Status: {status}")
+            logger.info("Status: %s", status)
 
             # Show account info
             account = engine.get_account_info()
@@ -807,7 +805,7 @@ if __name__ == "__main__":
 
             # Show performance
             performance = engine.get_performance_summary()
-            logger.info(f"Performance: {performance}")
+            logger.info("Performance: %s", performance)
 
             # Stop engine
             engine.stop()
@@ -817,4 +815,4 @@ if __name__ == "__main__":
             logger.error("Failed to start paper engine")
 
     except Exception as e:
-        logger.error(f"Error in main: {e}")
+        logger.error("Error in main: %s", e)

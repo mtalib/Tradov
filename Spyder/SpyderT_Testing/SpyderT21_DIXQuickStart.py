@@ -28,8 +28,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any, Optional
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -48,7 +47,7 @@ except ImportError:
 
     class SpyderErrorHandler:
         def handle_error(self, error, code):
-            logging.error(f"{code}: {error}")
+            logging.error("%s: %s", code, error)
 
     # Import from local
     from SpyderS01_DIXCalculator import SpyderDIXCalculator
@@ -196,7 +195,7 @@ class SpyderDIXQuickStart:
 
         self.visualizer = SpyderDIXVisualizer(use_demo=self.config.use_demo)
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -326,7 +325,7 @@ class SpyderDIXQuickStart:
             )
 
         except Exception as e:
-            self.logger.error(f"Quick start failed: {e}")
+            self.logger.error("Quick start failed: %s", e)
             self.error_handler.handle_error(e, "QUICKSTART_ERROR")
 
             return QuickStartResult(
@@ -413,7 +412,7 @@ class SpyderDIXQuickStart:
             return True
 
         except Exception as e:
-            self.logger.error(f"Component initialization failed: {e}")
+            self.logger.error("Component initialization failed: %s", e)
             return False
 
     def _print_banner(self) -> None:

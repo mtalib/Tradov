@@ -11,7 +11,7 @@ Last Updated: 2026-03-03 Time: 00:00:00
 Description:
     Computes Net Gamma Exposure (GEX) and Net Delta Exposure (DEX) for SPY from
     the live options chain sourced through SpyderN09_GammaExposure or directly
-    from the SpyderB30_SPYOptionsChainManager snapshot.
+    from SpyderN03_OptionsChainManager.
 
     GEX formula (per strike):
         GEX = open_interest × gamma × contract_multiplier² × spot_price
@@ -107,7 +107,7 @@ class GEXDEXCalculator:
             self._last_result = result
             return result
 
-        # Attempt to pull chain from SpyderN09 / SpyderB30 if no data passed
+        # Attempt to pull chain from SpyderN09 / SpyderN03 if no data passed
         try:
             result = self._compute_from_internal_sources(spot_price)
             self._last_result = result
@@ -115,7 +115,7 @@ class GEXDEXCalculator:
         except Exception as exc:
             raise DataUnavailableError(
                 "GEX/DEX calculation requires a live options chain snapshot. "
-                "Ensure SpyderN09_GammaExposure or SpyderB30_SPYOptionsChainManager "
+                "Ensure SpyderN09_GammaExposure or SpyderN03_OptionsChainManager "
                 f"is running and providing data. Root cause: {exc}"
             ) from exc
 
@@ -224,7 +224,7 @@ class GEXDEXCalculator:
         }
 
     def _compute_from_internal_sources(self, spot_price: float | None) -> dict:
-        """Try to obtain chain data from SpyderN09 or SpyderB30 singletons."""
+        """Try to obtain chain data from SpyderN09 or SpyderN03 singletons."""
         # Try SpyderN09_GammaExposure first
         try:
             from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
@@ -239,14 +239,22 @@ class GEXDEXCalculator:
                 "data_source": "SpyderN09_GammaExposure",
             }
         except Exception as e:
-            logging.getLogger(__name__).debug(f"SpyderN09 GEX calculation unavailable, using fallback: {e}")
+            logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)
 
-        # Fallback: SpyderB30 chain snapshot
-        from SpyderB_Broker.SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
-        chain_mgr = SPYOptionsChainManager()
-        chain_df = chain_mgr.get_chain_snapshot()
-        sp = spot_price or chain_mgr.get_spot_price()
-        return self._compute_from_chain(chain_df, sp)
+        # Fallback: SpyderN03 options chain manager (preferred over deprecated B30)
+        try:
+            from SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
+            chain_mgr = OptionsChainManager()
+            chain_df = chain_mgr.get_chain("SPY")
+            if chain_df.empty:
+                raise DataUnavailableError("SpyderN03_OptionsChainManager returned empty chain for SPY")
+            return self._compute_from_chain(chain_df, spot_price)
+        except DataUnavailableError:
+            raise
+        except Exception as e:
+            raise DataUnavailableError(
+                f"SpyderN03_OptionsChainManager fallback failed: {e}"
+            ) from e
 
 
 # ==============================================================================

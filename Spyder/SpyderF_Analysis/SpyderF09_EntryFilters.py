@@ -44,7 +44,7 @@ from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
 
 class FilterResult(Enum):
     """Filter result status."""
-    PASS = "pass"
+    PASS = "pass"  # noqa: S105
     FAIL = "fail"
     WARNING = "warning"
     SKIP = "skip"
@@ -394,12 +394,12 @@ class EntryFilters:
                     return self._create_error_result()
                 if field_name == 'current_price' and val <= 0:
                     self.logger.error(
-                        f"Invalid current_price={val} (must be > 0)"
+                        "Invalid current_price=%s (must be > 0)", val
                     )
                     return self._create_error_result()
                 if field_name == 'rsi' and not (0 <= val <= 100):
                     self.logger.warning(
-                        f"RSI={val} out of range [0,100] — clamping"
+                        "RSI=%s out of range [0,100] — clamping", val
                     )
                     entry_params = dict(entry_params)
                     entry_params['rsi'] = max(0.0, min(100.0, val))
@@ -504,7 +504,7 @@ class EntryFilters:
             # Check if we have enough data
             trade_count = optimized.get('trade_count', 0)
             if trade_count < self.min_trades_for_adaptation:
-                self.logger.info(f"Not enough trades for adaptation: {trade_count} < {self.min_trades_for_adaptation}")
+                self.logger.info("Not enough trades for adaptation: %s < %s", trade_count, self.min_trades_for_adaptation)
                 return
 
             # Scale blend factor by trade count to avoid overfitting on small samples
@@ -550,7 +550,7 @@ class EntryFilters:
             self.logger.info("Entry filter thresholds adapted from paper trading")
 
         except Exception as e:
-            self.logger.warning(f"Threshold adaptation failed: {e}", exc_info=True)
+            self.logger.warning("Threshold adaptation failed: %s", e, exc_info=True)
 
     # ==========================================================================
     # FILTER IMPLEMENTATIONS
@@ -937,7 +937,7 @@ class EntryFilters:
                 weight=self.filter_weights[FilterType.CORRELATION]
             ))
         except Exception as e:
-            self.logger.warning(f"Correlation filter check failed: {e}", exc_info=True)
+            self.logger.warning("Correlation filter check failed: %s", e, exc_info=True)
             # On failure, pass filter (don't block entry for filter error)
             results.append(FilterCheck(
                 filter_type=FilterType.CORRELATION,

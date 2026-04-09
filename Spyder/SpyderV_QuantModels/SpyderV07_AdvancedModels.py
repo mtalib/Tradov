@@ -342,7 +342,7 @@ class SpyderAdvancedModelsEngine:
             # Ensure we have sufficient data
             if len(self.return_history) < self.min_data_points:
                 self.logger.warning(
-                    f"Insufficient data for analysis: {len(self.return_history)} < {self.min_data_points}"
+                    "Insufficient data for analysis: %s < %s", len(self.return_history), self.min_data_points
                 )
                 return self._create_empty_results("Insufficient data")
 
@@ -369,7 +369,7 @@ class SpyderAdvancedModelsEngine:
             return results
 
         except Exception as e:
-            self.logger.error(f"Market analysis failed: {e}", exc_info=True)
+            self.logger.error("Market analysis failed: %s", e, exc_info=True)
             self.error_handler.handle_error(e, {"method": "analyze_market_conditions"})
             return self._create_empty_results(f"Analysis error: {str(e)}")
 
@@ -423,11 +423,11 @@ class SpyderAdvancedModelsEngine:
                 await self._detect_new_jumps(new_returns[-10:])  # Check last 10 returns
 
             self.logger.debug(
-                f"Updated market data: {len(prices)} new prices, {len(self.return_history)} total returns"
+                "Updated market data: %s new prices, %s total returns", len(prices), len(self.return_history)
             )
 
         except Exception as e:
-            self.logger.error(f"Market data update failed: {e}", exc_info=True)
+            self.logger.error("Market data update failed: %s", e, exc_info=True)
             self.error_handler.handle_error(e, {"method": "update_market_data"})
 
     # ==========================================================================
@@ -443,7 +443,7 @@ class SpyderAdvancedModelsEngine:
 
             if len(self.return_history) < self.min_data_points:
                 self.logger.warning(
-                    f"Insufficient data for Merton calibration: {len(self.return_history)}"
+                    "Insufficient data for Merton calibration: %s", len(self.return_history)
                 )
                 return False
 
@@ -514,13 +514,13 @@ class SpyderAdvancedModelsEngine:
             else:
                 self.validation_status = ModelValidationStatus.VALIDATION_FAILED
                 self.calibration_errors.append(f"Optimization failed: {result.message}")
-                self.logger.error(f"❌ Merton calibration failed: {result.message}")
+                self.logger.error("❌ Merton calibration failed: %s", result.message)
                 return False
 
         except Exception as e:
             self.validation_status = ModelValidationStatus.VALIDATION_FAILED
             self.calibration_errors.append(str(e))
-            self.logger.error(f"Merton calibration error: {e}", exc_info=True)
+            self.logger.error("Merton calibration error: %s", e, exc_info=True)
             return False
 
     async def _calculate_model_performance(self, returns: np.ndarray, dt: float):
@@ -561,7 +561,7 @@ class SpyderAdvancedModelsEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Performance calculation failed: {e}", exc_info=True)
+            self.logger.error("Performance calculation failed: %s", e, exc_info=True)
             self.model_performance = {"calibration_success": False, "error": str(e)}
 
     # ==========================================================================
@@ -619,7 +619,7 @@ class SpyderAdvancedModelsEngine:
                 self.jump_history = self.jump_history[-1000:]
 
         except Exception as e:
-            self.logger.error(f"Jump detection failed: {e}", exc_info=True)
+            self.logger.error("Jump detection failed: %s", e, exc_info=True)
 
     async def _analyze_recent_jumps(self) -> list[JumpEvent]:
         """Analyze recent jump events"""
@@ -636,7 +636,7 @@ class SpyderAdvancedModelsEngine:
             return recent_jumps[:50]  # Return top 50 most significant
 
         except Exception as e:
-            self.logger.error(f"Recent jumps analysis failed: {e}", exc_info=True)
+            self.logger.error("Recent jumps analysis failed: %s", e, exc_info=True)
             return []
 
     # ==========================================================================
@@ -726,7 +726,7 @@ class SpyderAdvancedModelsEngine:
             return assessment
 
         except Exception as e:
-            self.logger.error(f"Crisis assessment failed: {e}", exc_info=True)
+            self.logger.error("Crisis assessment failed: %s", e, exc_info=True)
             return CrisisAssessment(
                 crisis_level=CrisisLevel.NORMAL,
                 crisis_probability=NORMAL_CRISIS_PROB,
@@ -768,7 +768,7 @@ class SpyderAdvancedModelsEngine:
             return min(0.95, max(0.01, crisis_prob))  # Clamp between 1% and 95%
 
         except Exception as e:
-            self.logger.error(f"Crisis probability calculation failed: {e}", exc_info=True)
+            self.logger.error("Crisis probability calculation failed: %s", e, exc_info=True)
             return NORMAL_CRISIS_PROB
 
     def _calculate_max_drawdown(self, returns: np.ndarray) -> float:
@@ -870,7 +870,7 @@ class SpyderAdvancedModelsEngine:
             }
 
         except Exception as e:
-            self.logger.error(f"Volatility forecast failed: {e}", exc_info=True)
+            self.logger.error("Volatility forecast failed: %s", e, exc_info=True)
             return {"error": str(e)}
 
     # ==========================================================================
@@ -940,7 +940,7 @@ class SpyderAdvancedModelsEngine:
             return recommendations
 
         except Exception as e:
-            self.logger.error(f"Strategy recommendations failed: {e}", exc_info=True)
+            self.logger.error("Strategy recommendations failed: %s", e, exc_info=True)
             return [f"Error generating recommendations: {str(e)}"]
 
     # ==========================================================================
@@ -1034,10 +1034,10 @@ class SpyderAdvancedModelsEngine:
                         ret = np.log(self.price_history[i] / self.price_history[i - 1])
                         self.return_history.append(ret)
 
-            self.logger.info(f"Generated {n_points} synthetic data points")
+            self.logger.info("Generated %s synthetic data points", n_points)
 
         except Exception as e:
-            self.logger.error(f"Synthetic data generation failed: {e}", exc_info=True)
+            self.logger.error("Synthetic data generation failed: %s", e, exc_info=True)
 
     # ==========================================================================
     # PUBLIC STATUS AND REPORTING METHODS
@@ -1163,7 +1163,7 @@ async def main():
     # Force generation of synthetic data for demonstration
     advanced_engine._generate_synthetic_data()
 
-    logging.info(f"   Generated {len(advanced_engine.return_history)} return observations")
+    logging.info("   Generated %s return observations", len(advanced_engine.return_history))
     logging.info(
         f"   Price range: ${min(advanced_engine.price_history):.2f} - ${max(advanced_engine.price_history):.2f}"
     )
@@ -1189,7 +1189,7 @@ async def main():
             logging.info("   ❌ Calibration failed")
 
     except Exception as e:
-        logging.info(f"   ❌ Calibration Error: {e}")
+        logging.info("   ❌ Calibration Error: %s", e)
 
     # Test 2: Jump Detection
     logging.info("\n--- Test 2: Jump Detection Analysis ---")
@@ -1207,7 +1207,7 @@ async def main():
         await advanced_engine._detect_new_jumps(jump_returns)
 
         recent_jumps = await advanced_engine._analyze_recent_jumps()
-        logging.info(f"   Detected {len(recent_jumps)} recent jumps")
+        logging.info("   Detected %s recent jumps", len(recent_jumps))
 
         for i, jump in enumerate(recent_jumps[:3]):  # Show top 3
             logging.info(
@@ -1216,35 +1216,35 @@ async def main():
             )
 
     except Exception as e:
-        logging.info(f"   ❌ Jump Detection Error: {e}")
+        logging.info("   ❌ Jump Detection Error: %s", e)
 
     # Test 3: Crisis Assessment
     logging.info("\n--- Test 3: Crisis Probability Assessment ---")
     try:
         crisis_assessment = await advanced_engine._assess_crisis_probability()
 
-        logging.info(f"   Crisis Level: {crisis_assessment.crisis_level.value.upper()}")
+        logging.info("   Crisis Level: %s", crisis_assessment.crisis_level.value.upper())
         logging.info(f"   Crisis Probability: {crisis_assessment.crisis_probability:.1%}")
         logging.info(f"   Jump Frequency: {crisis_assessment.jump_frequency:.3f} jumps/day")
-        logging.info(f"   Volatility Regime: {crisis_assessment.volatility_regime}")
+        logging.info("   Volatility Regime: %s", crisis_assessment.volatility_regime)
 
         if crisis_assessment.recommendations:
             logging.info("   Top Recommendations:")
             for _, rec in enumerate(crisis_assessment.recommendations[:2]):
-                logging.info(f"     • {rec}")
+                logging.info("     • %s", rec)
 
     except Exception as e:
-        logging.info(f"   ❌ Crisis Assessment Error: {e}")
+        logging.info("   ❌ Crisis Assessment Error: %s", e)
 
     # Test 4: Comprehensive Analysis
     logging.info("\n--- Test 4: Comprehensive Market Analysis ---")
     try:
         results = await advanced_engine.analyze_market_conditions()
 
-        logging.info(f"   Model Status: {results.validation_status.value}")
-        logging.info(f"   Recent Jumps: {len(results.recent_jumps)}")
+        logging.info("   Model Status: %s", results.validation_status.value)
+        logging.info("   Recent Jumps: %s", len(results.recent_jumps))
         logging.info(
-            f"   Crisis Level: {results.crisis_assessment.crisis_level.value if results.crisis_assessment else 'N/A'}"
+            "   Crisis Level: %s", results.crisis_assessment.crisis_level.value if results.crisis_assessment else 'N/A'
         )
 
         if (
@@ -1257,10 +1257,10 @@ async def main():
         if results.strategy_recommendations:
             logging.info("   Strategy Recommendations:")
             for _, rec in enumerate(results.strategy_recommendations[:2]):
-                logging.info(f"     • {rec}")
+                logging.info("     • %s", rec)
 
     except Exception as e:
-        logging.info(f"   ❌ Analysis Error: {e}")
+        logging.info("   ❌ Analysis Error: %s", e)
 
     # Show model status
     logging.info("\n--- Model Status Report ---")
@@ -1268,12 +1268,12 @@ async def main():
 
     if "error" not in status:
         logging.info(
-            f"   Merton Model: {'✅ Calibrated' if status['models_calibrated']['merton'] else '❌ Not calibrated'}"
+            "   Merton Model: %s", '✅ Calibrated' if status['models_calibrated']['merton'] else '❌ Not calibrated'
         )
-        logging.info(f"   Data Quality: {status['data_status']['data_quality']}")
-        logging.info(f"   Total Jumps: {status['jump_analysis']['total_jumps_detected']}")
+        logging.info("   Data Quality: %s", status['data_status']['data_quality'])
+        logging.info("   Total Jumps: %s", status['jump_analysis']['total_jumps_detected'])
         logging.info(
-            f"   Current Crisis Level: {status['crisis_analysis']['current_crisis_level'].upper()}"
+            "   Current Crisis Level: %s", status['crisis_analysis']['current_crisis_level'].upper()
         )
 
         if status["performance_metrics"].get("calibration_success"):

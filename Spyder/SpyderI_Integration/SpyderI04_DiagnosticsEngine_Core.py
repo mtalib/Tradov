@@ -191,7 +191,7 @@ class DiagnosticsEngine:
                     thread.join(timeout=5.0)
                     if thread.is_alive():
                         self.logger.warning(
-                            f"Thread {thread_name} did not stop gracefully"
+                            "Thread %s did not stop gracefully", thread_name
                         )
 
             self.monitoring_threads.clear()
@@ -395,7 +395,7 @@ class DiagnosticsEngine:
                 issue.resolution_status = "resolved"
                 del self.active_issues[issue_id]
 
-                self.logger.info(f"Issue {issue_id} marked as resolved")
+                self.logger.info("Issue %s marked as resolved", issue_id)
                 return True
 
             return False
@@ -529,7 +529,7 @@ class DiagnosticsEngine:
                         del self.active_issues[issue_id]
 
             if resolved_issues:
-                self.logger.info(f"Auto-resolved {len(resolved_issues)} issues")
+                self.logger.info("Auto-resolved %s issues", len(resolved_issues))
 
         except Exception as e:
             self.error_handler.handle_error(e, "_cleanup_resolved_issues")

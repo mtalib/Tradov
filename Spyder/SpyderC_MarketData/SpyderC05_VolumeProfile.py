@@ -668,7 +668,7 @@ class VolumeProfileAnalyzer:
             if start_time <= current_time < end_time:
                 if self.current_session != session_name:
                     self.current_session = session_name
-                    self.logger.debug(f"Session changed to: {session_name}")
+                    self.logger.debug("Session changed to: %s", session_name)
                 break
 
     def _determine_flow_direction(self, trades: list[dict], current_price: float) -> FlowDirection:

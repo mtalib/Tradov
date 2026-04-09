@@ -206,7 +206,7 @@ class MACrossoverStrategy(BaseStrategy):
             'worst_trade': 0.0
         }
 
-        self.logger.info(f"Initialized {self.name} with {self.fast_period}/{self.slow_period} EMA")
+        self.logger.info("Initialized %s with %s/%s EMA", self.name, self.fast_period, self.slow_period)
 
     # ==========================================================================
     # MOVING AVERAGE CALCULATIONS
@@ -471,7 +471,7 @@ class MACrossoverStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating crossover signal: {e}")
+            self.logger.error("Error creating crossover signal: %s", e)
             return None
 
     def _validate_crossover_signal(self, signal: CrossoverSignal,
@@ -552,11 +552,11 @@ class MACrossoverStrategy(BaseStrategy):
                 metadata=metadata
             )
 
-            self.logger.info(f"Generated {direction} crossover signal")
+            self.logger.info("Generated %s crossover signal", direction)
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error converting signal: {e}")
+            self.logger.error("Error converting signal: %s", e)
             return None
 
     def _calculate_signal_confidence(self, signal: CrossoverSignal) -> float:
@@ -718,7 +718,7 @@ class MACrossoverStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit signal for {position.position_id}: {reason}")
+        self.logger.info("Exit signal for %s: %s", position.position_id, reason)
         return signal
 
     def _close_position(self, position: MAPosition):
@@ -806,8 +806,8 @@ def test_ma_crossover():
     # Create strategy
     strategy = MACrossoverStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
-    logging.info(f"MA Periods: {strategy.fast_period}/{strategy.slow_period}")
+    logging.info("Strategy: %s", strategy.name)
+    logging.info("MA Periods: %s/%s", strategy.fast_period, strategy.slow_period)
 
     # Create trending market data
     dates = pd.date_range(start=datetime.now().replace(hour=10, minute=30), periods=100, freq='5min')
@@ -855,16 +855,16 @@ def test_ma_crossover():
 
         if signals:
             all_signals.extend(signals)
-            logging.info(f"\nTime: {dates[i].strftime('%H:%M')}")
+            logging.info("\nTime: %s", dates[i].strftime('%H:%M'))
             logging.info(f"Price: ${prices[i]:.2f}")
             if strategy.fast_ema is not None and strategy.slow_ema is not None:
                 logging.info(f"9 EMA: ${strategy.fast_ema.iloc[-1]:.2f}")
                 logging.info(f"21 EMA: ${strategy.slow_ema.iloc[-1]:.2f}")
             for signal in signals:
                 crossover = signal.metadata['crossover_signal']
-                logging.info(f"Signal: {signal.metadata['direction']} crossover")
+                logging.info("Signal: %s crossover", signal.metadata['direction'])
                 logging.info(f"Trend Strength: {crossover['trend_strength']:.2f}")
-                logging.info(f"Volume Surge: {crossover['volume_surge']}")
+                logging.info("Volume Surge: %s", crossover['volume_surge'])
                 logging.info(f"Confidence: {signal.confidence:.1%}")
 
                 # Create position
@@ -894,20 +894,20 @@ def test_ma_crossover():
 
             if exit_signals:
                 for signal in exit_signals:
-                    logging.info(f"\nExit at {dates[i].strftime('%H:%M')}")
-                    logging.info(f"Reason: {signal.metadata['exit_reason']}")
-                    logging.info(f"Bars in trade: {signal.metadata['bars_in_trade']}")
+                    logging.info("\nExit at %s", dates[i].strftime('%H:%M'))
+                    logging.info("Reason: %s", signal.metadata['exit_reason'])
+                    logging.info("Bars in trade: %s", signal.metadata['bars_in_trade'])
                     logging.info(f"P&L: ${signal.metadata['pnl']:.2f}")
 
     # Print final stats
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"MA State: {stats['ma_state']}")
+    logging.info("MA State: %s", stats['ma_state'])
     logging.info(f"Current 9 EMA: ${stats['fast_ema']:.2f}" if stats['fast_ema'] else "9 EMA: N/A")
     logging.info(f"Current 21 EMA: ${stats['slow_ema']:.2f}" if stats['slow_ema'] else "21 EMA: N/A")
-    logging.info(f"Total Crossovers: {stats['total_crossovers']}")
-    logging.info(f"Traded Crossovers: {stats['traded_crossovers']}")
+    logging.info("Total Crossovers: %s", stats['total_crossovers'])
+    logging.info("Traded Crossovers: %s", stats['traded_crossovers'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
     logging.info(f"False Signal Rate: {stats['false_signal_rate']:.1%}")
     logging.info(f"Avg Bars in Trade: {stats['avg_bars_in_trade']:.1f}")

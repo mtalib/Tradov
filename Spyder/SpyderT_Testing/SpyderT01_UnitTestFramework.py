@@ -31,7 +31,8 @@ import json
 import uuid
 import warnings
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple, Type
+from typing import Optional, Any, Union
+from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum, auto
@@ -384,7 +385,7 @@ class SpyderTestFramework:
                 self.event_manager = get_event_manager()
                 self.has_event_manager = True
             except Exception as e:
-                self.logger.warning(f"Event manager not available: {e}")
+                self.logger.warning("Event manager not available: %s", e)
                 self.event_manager = None
                 self.has_event_manager = False
         else:
@@ -419,7 +420,7 @@ class SpyderTestFramework:
             self.logger.debug("Framework initialization completed")
 
         except Exception as e:
-            self.logger.error(f"Framework initialization failed: {e}")
+            self.logger.error("Framework initialization failed: %s", e)
             raise
 
     def _initialize_mock_generators(self):
@@ -435,10 +436,10 @@ class SpyderTestFramework:
                 MockType.NETWORK: self._generate_mock_network
             }
 
-            self.logger.debug(f"Initialized {len(self.mock_data_generators)} mock generators")
+            self.logger.debug("Initialized %s mock generators", len(self.mock_data_generators))
 
         except Exception as e:
-            self.logger.error(f"Mock generators initialization failed: {e}")
+            self.logger.error("Mock generators initialization failed: %s", e)
             raise
 
     def _setup_default_test_suites(self):
@@ -484,10 +485,10 @@ class SpyderTestFramework:
                 timeout=60
             )
 
-            self.logger.debug(f"Set up {len(self.test_suites)} default test suites")
+            self.logger.debug("Set up %s default test suites", len(self.test_suites))
 
         except Exception as e:
-            self.logger.error(f"Default test suites setup failed: {e}")
+            self.logger.error("Default test suites setup failed: %s", e)
             raise
 
     def _initialize_coverage(self):
@@ -498,7 +499,7 @@ class SpyderTestFramework:
                 self.logger.info("Code coverage tracking initialized")
 
         except Exception as e:
-            self.logger.error(f"Coverage initialization failed: {e}")
+            self.logger.error("Coverage initialization failed: %s", e)
 
     def _register_builtin_mocks(self):
         """Register built-in mock configurations for core components."""
@@ -537,7 +538,7 @@ class SpyderTestFramework:
             self.logger.debug("Built-in mocks registered successfully")
 
         except Exception as e:
-            self.logger.error(f"Built-in mocks registration failed: {e}")
+            self.logger.error("Built-in mocks registration failed: %s", e)
 
     # ==========================================================================
     # TEST DISCOVERY
@@ -568,7 +569,7 @@ class SpyderTestFramework:
 
                 # Discover test modules
                 test_files = self._find_test_files(base_path)
-                self.logger.debug(f"Found {len(test_files)} potential test files")
+                self.logger.debug("Found %s potential test files", len(test_files))
 
                 for test_file in test_files:
                     try:
@@ -577,13 +578,13 @@ class SpyderTestFramework:
 
                         if test_methods:
                             self.discovered_tests[module_name] = test_methods
-                            self.logger.debug(f"Discovered {len(test_methods)} tests in {module_name}")
+                            self.logger.debug("Discovered %s tests in %s", len(test_methods), module_name)
 
                     except Exception as e:
-                        self.logger.warning(f"Failed to discover tests in {test_file}: {e}")
+                        self.logger.warning("Failed to discover tests in %s: %s", test_file, e)
 
                 total_tests = sum(len(methods) for methods in self.discovered_tests.values())
-                self.logger.info(f"Test discovery completed: {len(self.discovered_tests)} modules, {total_tests} tests")
+                self.logger.info("Test discovery completed: %s modules, %s tests", len(self.discovered_tests), total_tests)
 
                 # Update test suites with discovered modules
                 self._update_test_suites()
@@ -591,7 +592,7 @@ class SpyderTestFramework:
                 return dict(self.discovered_tests)
 
         except Exception as e:
-            self.logger.error(f"Test discovery failed: {e}")
+            self.logger.error("Test discovery failed: %s", e)
             self.error_handler.handle_test_error(e, "SpyderTestFramework", "discover_tests")
             return {}
 
@@ -615,7 +616,7 @@ class SpyderTestFramework:
             return filtered_files
 
         except Exception as e:
-            self.logger.error(f"Test file discovery failed: {e}")
+            self.logger.error("Test file discovery failed: %s", e)
             return []
 
     def _get_module_name(self, file_path: Path, base_path: Path) -> str:
@@ -626,7 +627,7 @@ class SpyderTestFramework:
             return '.'.join(module_parts)
 
         except Exception as e:
-            self.logger.error(f"Module name extraction failed: {e}")
+            self.logger.error("Module name extraction failed: %s", e)
             return str(file_path.stem)
 
     def _discover_test_methods(self, file_path: Path) -> list[str]:
@@ -662,7 +663,7 @@ class SpyderTestFramework:
             return test_methods
 
         except Exception as e:
-            self.logger.error(f"Test method discovery failed for {file_path}: {e}")
+            self.logger.error("Test method discovery failed for %s: %s", file_path, e)
             return []
 
     def _update_test_suites(self):
@@ -685,7 +686,7 @@ class SpyderTestFramework:
             self.logger.debug("Test suites updated with discovered modules")
 
         except Exception as e:
-            self.logger.error(f"Test suites update failed: {e}")
+            self.logger.error("Test suites update failed: %s", e)
 
     # ==========================================================================
     # TEST EXECUTION
@@ -707,7 +708,7 @@ class SpyderTestFramework:
                 raise ValueError(f"Test suite '{suite_name}' not found")
 
             suite = self.test_suites[suite_name]
-            self.logger.info(f"Starting test suite: {suite.suite_name}")
+            self.logger.info("Starting test suite: %s", suite.suite_name)
 
             # Initialize execution context
             execution_id = str(uuid.uuid4())
@@ -776,7 +777,7 @@ class SpyderTestFramework:
             return report
 
         except Exception as e:
-            self.logger.error(f"Test suite execution failed: {e}")
+            self.logger.error("Test suite execution failed: %s", e)
             self.error_handler.handle_test_error(e, "SpyderTestFramework", "run_test_suite")
 
             # Return empty report on failure
@@ -812,7 +813,7 @@ class SpyderTestFramework:
             Detailed test execution result
         """
         try:
-            self.logger.info(f"Running single test: {module_name}.{test_name}")
+            self.logger.info("Running single test: %s.%s", module_name, test_name)
 
             # Create test result
             test_id = str(uuid.uuid4())
@@ -836,7 +837,7 @@ class SpyderTestFramework:
             return test_result
 
         except Exception as e:
-            self.logger.error(f"Single test execution failed: {e}")
+            self.logger.error("Single test execution failed: %s", e)
             return TestResult(
                 test_id=str(uuid.uuid4()),
                 test_name=test_name,
@@ -871,12 +872,12 @@ class SpyderTestFramework:
                     result = future.result()
                     test_results.append(result)
                 except Exception as e:
-                    self.logger.error(f"Parallel test execution error: {e}")
+                    self.logger.error("Parallel test execution error: %s", e)
 
             return test_results
 
         except Exception as e:
-            self.logger.error(f"Parallel test execution failed: {e}")
+            self.logger.error("Parallel test execution failed: %s", e)
             return []
 
     def _run_tests_sequential(self, suite: TestSuite, **kwargs) -> list[TestResult]:
@@ -895,7 +896,7 @@ class SpyderTestFramework:
             return test_results
 
         except Exception as e:
-            self.logger.error(f"Sequential test execution failed: {e}")
+            self.logger.error("Sequential test execution failed: %s", e)
             return []
 
     def _execute_test_with_timeout(self, module_name: str, test_name: str, timeout: int, **kwargs) -> TestResult:
@@ -924,7 +925,7 @@ class SpyderTestFramework:
             return test_result
 
         except Exception as e:
-            self.logger.error(f"Test execution with timeout failed: {e}")
+            self.logger.error("Test execution with timeout failed: %s", e)
             return TestResult(
                 test_id=str(uuid.uuid4()),
                 test_name=test_name,
@@ -1018,18 +1019,18 @@ class SpyderTestFramework:
         try:
             for hook in suite.setup_hooks:
                 hook()
-                self.logger.debug(f"Setup hook executed for suite: {suite.suite_name}")
+                self.logger.debug("Setup hook executed for suite: %s", suite.suite_name)
         except Exception as e:
-            self.logger.error(f"Setup hook failed for suite {suite.suite_name}: {e}")
+            self.logger.error("Setup hook failed for suite %s: %s", suite.suite_name, e)
 
     def _run_teardown_hooks(self, suite: TestSuite):
         """Run teardown hooks for a test suite."""
         try:
             for hook in suite.teardown_hooks:
                 hook()
-                self.logger.debug(f"Teardown hook executed for suite: {suite.suite_name}")
+                self.logger.debug("Teardown hook executed for suite: %s", suite.suite_name)
         except Exception as e:
-            self.logger.error(f"Teardown hook failed for suite {suite.suite_name}: {e}")
+            self.logger.error("Teardown hook failed for suite %s: %s", suite.suite_name, e)
 
     def _determine_test_type(self, module_name: str, test_name: str) -> TestType:
         """Determine the type of a test based on its name and module."""
@@ -1137,7 +1138,7 @@ class SpyderTestFramework:
             )
 
         except Exception as e:
-            self.logger.error(f"Test report generation failed: {e}")
+            self.logger.error("Test report generation failed: %s", e)
             return TestReport(
                 report_id=execution_id,
                 suite_name=suite_name,
@@ -1173,10 +1174,10 @@ class SpyderTestFramework:
                 mock_key = f"{mock_config.target_module}.{mock_config.target_class}"
                 self.mock_registry[mock_key] = mock_config
 
-                self.logger.debug(f"Mock registered: {mock_key}")
+                self.logger.debug("Mock registered: %s", mock_key)
 
         except Exception as e:
-            self.logger.error(f"Mock registration failed: {e}")
+            self.logger.error("Mock registration failed: %s", e)
 
     def activate_mock(self, mock_key: str) -> Mock | None:
         """
@@ -1191,25 +1192,25 @@ class SpyderTestFramework:
         try:
             with self._mock_lock:
                 if mock_key not in self.mock_registry:
-                    self.logger.error(f"Mock not found: {mock_key}")
+                    self.logger.error("Mock not found: %s", mock_key)
                     return None
 
                 mock_config = self.mock_registry[mock_key]
                 mock_generator = self.mock_data_generators.get(mock_config.mock_type)
 
                 if not mock_generator:
-                    self.logger.error(f"Mock generator not found for type: {mock_config.mock_type}")
+                    self.logger.error("Mock generator not found for type: %s", mock_config.mock_type)
                     return None
 
                 # Generate mock
                 mock_obj = mock_generator(mock_config)
                 self.active_mocks[mock_key] = mock_obj
 
-                self.logger.debug(f"Mock activated: {mock_key}")
+                self.logger.debug("Mock activated: %s", mock_key)
                 return mock_obj
 
         except Exception as e:
-            self.logger.error(f"Mock activation failed: {e}")
+            self.logger.error("Mock activation failed: %s", e)
             return None
 
     def deactivate_mock(self, mock_key: str):
@@ -1223,10 +1224,10 @@ class SpyderTestFramework:
             with self._mock_lock:
                 if mock_key in self.active_mocks:
                     del self.active_mocks[mock_key]
-                    self.logger.debug(f"Mock deactivated: {mock_key}")
+                    self.logger.debug("Mock deactivated: %s", mock_key)
 
         except Exception as e:
-            self.logger.error(f"Mock deactivation failed: {e}")
+            self.logger.error("Mock deactivation failed: %s", e)
 
     def deactivate_all_mocks(self):
         """Deactivate all active mocks."""
@@ -1236,7 +1237,7 @@ class SpyderTestFramework:
                 self.logger.debug("All mocks deactivated")
 
         except Exception as e:
-            self.logger.error(f"Mock deactivation failed: {e}")
+            self.logger.error("Mock deactivation failed: %s", e)
 
     # ==========================================================================
     # MOCK GENERATORS
@@ -1255,7 +1256,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock broker client generation failed: {e}")
+            self.logger.error("Mock broker client generation failed: %s", e)
             return Mock()
 
     def _generate_mock_market_data(self, config: MockConfiguration) -> Mock:
@@ -1270,7 +1271,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock market data generation failed: {e}")
+            self.logger.error("Mock market data generation failed: %s", e)
             return Mock()
 
     def _generate_mock_risk_manager(self, config: MockConfiguration) -> Mock:
@@ -1286,7 +1287,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock risk manager generation failed: {e}")
+            self.logger.error("Mock risk manager generation failed: %s", e)
             return Mock()
 
     def _generate_mock_order_manager(self, config: MockConfiguration) -> Mock:
@@ -1300,7 +1301,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock order manager generation failed: {e}")
+            self.logger.error("Mock order manager generation failed: %s", e)
             return Mock()
 
     def _generate_mock_position_tracker(self, config: MockConfiguration) -> Mock:
@@ -1317,7 +1318,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock position tracker generation failed: {e}")
+            self.logger.error("Mock position tracker generation failed: %s", e)
             return Mock()
 
     def _generate_mock_database(self, config: MockConfiguration) -> Mock:
@@ -1332,7 +1333,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock database generation failed: {e}")
+            self.logger.error("Mock database generation failed: %s", e)
             return Mock()
 
     def _generate_mock_network(self, config: MockConfiguration) -> Mock:
@@ -1346,7 +1347,7 @@ class SpyderTestFramework:
             return mock
 
         except Exception as e:
-            self.logger.error(f"Mock network generation failed: {e}")
+            self.logger.error("Mock network generation failed: %s", e)
             return Mock()
 
     # ==========================================================================
@@ -1368,7 +1369,7 @@ class SpyderTestFramework:
             Performance metrics
         """
         try:
-            self.logger.info(f"Running performance test: {test_name} ({iterations} iterations)")
+            self.logger.info("Running performance test: %s (%s iterations)", test_name, iterations)
 
             # Warm up
             for _ in range(min(100, iterations // 10)):
@@ -1428,7 +1429,7 @@ class SpyderTestFramework:
             return metrics
 
         except Exception as e:
-            self.logger.error(f"Performance test failed: {e}")
+            self.logger.error("Performance test failed: %s", e)
             return PerformanceMetrics(
                 test_name=test_name,
                 execution_time_ms=0.0,
@@ -1557,12 +1558,12 @@ class SpyderTestFramework:
             if output_path:
                 with open(output_path, 'w') as f:
                     f.write(html_content)
-                self.logger.info(f"HTML report saved to: {output_path}")
+                self.logger.info("HTML report saved to: %s", output_path)
 
             return html_content
 
         except Exception as e:
-            self.logger.error(f"HTML report generation failed: {e}")
+            self.logger.error("HTML report generation failed: %s", e)
             return f"<html><body><h1>Report Generation Failed</h1><p>{str(e)}</p></body></html>"
 
     def get_test_statistics(self) -> dict[str, Any]:
@@ -1605,7 +1606,7 @@ class SpyderTestFramework:
                 return stats
 
         except Exception as e:
-            self.logger.error(f"Test statistics calculation failed: {e}")
+            self.logger.error("Test statistics calculation failed: %s", e)
             return {'error': str(e)}
 
     # ==========================================================================
@@ -1638,7 +1639,7 @@ class SpyderTestFramework:
             self.logger.info("Test framework cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Test framework cleanup failed: {e}")
+            self.logger.error("Test framework cleanup failed: %s", e)
 
     def __enter__(self):
         """Context manager entry."""

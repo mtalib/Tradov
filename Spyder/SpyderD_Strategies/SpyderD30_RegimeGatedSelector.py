@@ -88,7 +88,7 @@ except ImportError:
     import logging
     SpyderLogger = logging.getLogger
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
+        'handle_error': lambda self, e, context: logging.error("[%s] %s", context, e)
     })
 
 # Import L09 Unified Regime Engine (preferred source)
@@ -621,7 +621,7 @@ class RegimeGatedSelector:
         try:
             if model_path:
                 self._rl_selector_model = PPO.load(model_path)
-                self.logger.info(f"RL strategy selector loaded from {model_path}")
+                self.logger.info("RL strategy selector loaded from %s", model_path)
             else:
                 import os
                 default_path = "models/rl/strategy_selection/strategy_selection_PPO_final"
@@ -633,7 +633,7 @@ class RegimeGatedSelector:
                     self.logger.debug("No RL strategy selector model found — using rule-based selection")
         except Exception as e:
             self._rl_enabled = False
-            self.logger.warning(f"Failed to load RL strategy selector: {e}")
+            self.logger.warning("Failed to load RL strategy selector: %s", e)
 
     def _get_rl_strategy_observation(self, regime_prediction) -> np.ndarray:
         """Build observation vector for RL strategy selection agent."""
@@ -693,7 +693,7 @@ class RegimeGatedSelector:
             }
             return strategy_map.get(action)
         except Exception as e:
-            self.logger.warning(f"RL strategy selection failed: {e}")
+            self.logger.warning("RL strategy selection failed: %s", e)
             return None
 
     def initialize(self, hmm_detector: HMMRegimeDetector) -> bool:
@@ -960,7 +960,7 @@ class RegimeGatedSelector:
         self.selection_history.append(selection)
 
         self.logger.info(
-            f"Initiating transition: {self.current_strategy.value} -> {new_strategy.value}"
+            "Initiating transition: %s -> %s", self.current_strategy.value, new_strategy.value
         )
 
         return selection
@@ -1004,7 +1004,7 @@ class RegimeGatedSelector:
             self.selection_history.append(selection)
 
             self.logger.info(
-                f"Transition complete: {self.current_strategy.value} active"
+                "Transition complete: %s active", self.current_strategy.value
             )
 
             return selection
@@ -1046,7 +1046,7 @@ class RegimeGatedSelector:
         self.performance_history[strategy_type].append(performance)
 
         self.logger.debug(
-            f"Performance recorded: {strategy_type.value} in {regime.value} regime"
+            "Performance recorded: %s in %s regime", strategy_type.value, regime.value
         )
 
     def get_strategy_performance(self,

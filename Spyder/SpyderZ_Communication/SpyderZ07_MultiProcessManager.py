@@ -238,7 +238,7 @@ class MultiProcessManager:
         self.health_thread = None
         self.resource_thread = None
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -266,7 +266,7 @@ class MultiProcessManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             return False
 
     def register_process(self, engine_type: EngineType, process_class: type) -> None:
@@ -283,7 +283,7 @@ class MultiProcessManager:
                 process_class=process_class
             )
 
-        self.logger.info(f"Registered process for {engine_type.value}")
+        self.logger.info("Registered process for %s", engine_type.value)
 
     def start_all_processes(self) -> None:
         """Start all registered processes."""
@@ -412,7 +412,7 @@ class MultiProcessManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to write tick data: {e}")
+            self.logger.error("Failed to write tick data: %s", e)
             return False
 
     def read_tick_data(self, count: int = 100) -> list[SharedTickData]:
@@ -450,7 +450,7 @@ class MultiProcessManager:
             return list(reversed(ticks))
 
         except Exception as e:
-            self.logger.error(f"Failed to read tick data: {e}")
+            self.logger.error("Failed to read tick data: %s", e)
             return []
 
     # ==========================================================================
@@ -460,7 +460,7 @@ class MultiProcessManager:
         """Start a single process."""
         try:
             if proc_info.is_alive():
-                self.logger.warning(f"{proc_info.engine_type.value} already running")
+                self.logger.warning("%s already running", proc_info.engine_type.value)
                 return True
 
             proc_info.state = ProcessState.STARTING
@@ -489,7 +489,7 @@ class MultiProcessManager:
                     p = psutil.Process(proc_info.pid)
                     p.nice(PROCESS_PRIORITIES[proc_info.engine_type])
                 except Exception as e:
-                    self.logger.warning(f"Failed to set priority: {e}")
+                    self.logger.warning("Failed to set priority: %s", e)
 
             # Wait for startup
             startup_timeout = time.time() + PROCESS_STARTUP_TIMEOUT
@@ -500,7 +500,7 @@ class MultiProcessManager:
                 # Check if process registered with coordinator
                 if self._check_process_registered(proc_info.engine_type):
                     proc_info.state = ProcessState.RUNNING
-                    self.logger.info(f"{proc_info.engine_type.value} started successfully")
+                    self.logger.info("%s started successfully", proc_info.engine_type.value)
                     return True
 
                 time.sleep(0.5)  # thread-safe: time.sleep() intentional
@@ -508,7 +508,7 @@ class MultiProcessManager:
             raise Exception("Process startup timeout")
 
         except Exception as e:
-            self.logger.error(f"Failed to start {proc_info.engine_type.value}: {e}")
+            self.logger.error("Failed to start %s: %s", proc_info.engine_type.value, e)
             proc_info.state = ProcessState.FAILED
             proc_info.error_count += 1
             return False
@@ -529,7 +529,7 @@ class MultiProcessManager:
 
                 # Force kill if still alive
                 if proc_info.process.is_alive():
-                    self.logger.warning(f"Force killing {proc_info.engine_type.value}")
+                    self.logger.warning("Force killing %s", proc_info.engine_type.value)
                     proc_info.process.kill()
                     proc_info.process.join(timeout=2.0)
 
@@ -538,7 +538,7 @@ class MultiProcessManager:
             proc_info.pid = None
 
         except Exception as e:
-            self.logger.error(f"Error stopping {proc_info.engine_type.value}: {e}")
+            self.logger.error("Error stopping %s: %s", proc_info.engine_type.value, e)
 
     def _restart_process(self, proc_info: ProcessInfo) -> bool:
         """Restart a process."""
@@ -562,7 +562,7 @@ class MultiProcessManager:
             instance = process_class(*args)
             instance.run()
         except Exception as e:
-            logging.error(f"Process crashed: {e}")
+            logging.error("Process crashed: %s", e)
             raise
 
     # ==========================================================================
@@ -583,7 +583,7 @@ class MultiProcessManager:
                 time.sleep(0.1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Health monitor error: {e}")
+                self.logger.error("Health monitor error: %s", e)
 
     def _check_process_health(self) -> None:
         """Check health of all processes."""
@@ -594,15 +594,15 @@ class MultiProcessManager:
 
                 # Check if process is alive
                 if not proc_info.is_alive():
-                    self.logger.error(f"{proc_info.engine_type.value} died unexpectedly")
+                    self.logger.error("%s died unexpectedly", proc_info.engine_type.value)
                     proc_info.state = ProcessState.FAILED
 
                     # Attempt restart if under limit
                     if proc_info.restart_count < MAX_RESTART_ATTEMPTS:
-                        self.logger.info(f"Attempting restart of {proc_info.engine_type.value}")
+                        self.logger.info("Attempting restart of %s", proc_info.engine_type.value)
                         self._restart_process(proc_info)
                     else:
-                        self.logger.error(f"{proc_info.engine_type.value} exceeded restart limit")
+                        self.logger.error("%s exceeded restart limit", proc_info.engine_type.value)
 
                 # Check resource usage
                 if proc_info.pid:
@@ -634,7 +634,7 @@ class MultiProcessManager:
                 time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Resource monitor error: {e}")
+                self.logger.error("Resource monitor error: %s", e)
 
     def _update_system_resources(self) -> None:
         """Update system resource snapshot."""
@@ -663,10 +663,10 @@ class MultiProcessManager:
                 self.logger.warning(f"Low system memory: {memory.available / 1024 / 1024:.1f}MB")
 
             if cpu_percent > 90:
-                self.logger.warning(f"High system CPU usage: {cpu_percent}%")
+                self.logger.warning("High system CPU usage: %s%%", cpu_percent)
 
         except Exception as e:
-            self.logger.error(f"Resource update error: {e}")
+            self.logger.error("Resource update error: %s", e)
 
     def _check_resource_limits(self, proc_info: ProcessInfo) -> ResourceAction:
         """Check if process exceeds resource limits."""
@@ -694,7 +694,7 @@ class MultiProcessManager:
 
         elif action == ResourceAction.RESTART:
             # Schedule restart
-            self.logger.info(f"Scheduling restart of {proc_info.engine_type.value} due to resource limits")
+            self.logger.info("Scheduling restart of %s due to resource limits", proc_info.engine_type.value)
             threading.Thread(
                 target=lambda: self._restart_process(proc_info),
                 daemon=True
@@ -717,7 +717,7 @@ class MultiProcessManager:
                         return engine_info['alive']
 
         except Exception as e:
-            self.logger.error(f"Failed to check registration: {e}")
+            self.logger.error("Failed to check registration: %s", e)
 
         return False
 
@@ -737,10 +737,10 @@ class MultiProcessManager:
             if self.monitor_socket.poll(1000):
                 response = self.monitor_socket.recv_json()
                 if response['status'] != 'SUCCESS':
-                    self.logger.error(f"Command failed: {response}")
+                    self.logger.error("Command failed: %s", response)
 
         except Exception as e:
-            self.logger.error(f"Failed to send command: {e}")
+            self.logger.error("Failed to send command: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - SHARED MEMORY
@@ -772,7 +772,7 @@ class MultiProcessManager:
             self.tick_buffer[:] = 0
 
         except Exception as e:
-            self.logger.error(f"Shared memory initialization failed: {e}")
+            self.logger.error("Shared memory initialization failed: %s", e)
             raise
 
     def _cleanup_shared_memory(self) -> None:
@@ -786,14 +786,14 @@ class MultiProcessManager:
                     self.shared_mem.unlink()
 
         except Exception as e:
-            self.logger.error(f"Shared memory cleanup error: {e}")
+            self.logger.error("Shared memory cleanup error: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
     def _signal_handler(self, signum: int, frame: Any) -> None:
         """Handle system signals."""
-        self.logger.info(f"Received signal {signum}")
+        self.logger.info("Received signal %s", signum)
         self.stop_all_processes()
         sys.exit(0)
 
@@ -859,7 +859,7 @@ class SpyderEngineProcess:
             )
             self.logger.info("Connected to shared memory")
         except Exception as e:
-            self.logger.error(f"Failed to connect to shared memory: {e}")
+            self.logger.error("Failed to connect to shared memory: %s", e)
 
     def run(self) -> None:
         """Main process loop - override in subclasses."""
@@ -877,7 +877,7 @@ class SpyderEngineProcess:
                 time.sleep(0.01)  # Prevent busy loop  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Process error: {e}")
+                self.logger.error("Process error: %s", e)
 
         self.cleanup()
 
@@ -945,7 +945,7 @@ class ExampleVolatilityEngine(SpyderEngineProcess):
         # Check for commands
         if self.dealer_socket.poll(0):
             message = self.dealer_socket.recv_json()
-            self.logger.info(f"Received command: {message}")
+            self.logger.info("Received command: %s", message)
 
             # Send response
             response = {

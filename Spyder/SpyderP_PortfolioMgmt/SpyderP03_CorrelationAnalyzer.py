@@ -33,7 +33,7 @@ from collections import defaultdict
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pickle
+import joblib
 import pandas as pd
 import numpy as np
 from scipy.cluster.hierarchy import linkage, cut_tree
@@ -409,7 +409,7 @@ class CorrelationAnalyzer:
                     json_mod.dump(export_data, f, indent=2)
             elif format.lower() == 'pickle':
                 with open(file_path, 'wb') as f:
-                    pickle.dump(export_data, f)
+                    joblib.dump(export_data, f)
             elif format.lower() == 'csv':
                 df = pd.DataFrame([
                     {
@@ -425,7 +425,7 @@ class CorrelationAnalyzer:
             else:
                 raise ValueError(f"Unsupported export format: {format}")
 
-            self.logger.info(f"Correlation data exported to {file_path}")
+            self.logger.info("Correlation data exported to %s", file_path)
             return True
 
         except Exception as e:
@@ -451,7 +451,7 @@ class CorrelationAnalyzer:
                     import_data = json_mod.load(f)
             elif format.lower() == 'pickle':
                 with open(file_path, 'rb') as f:
-                    import_data = pickle.load(f)
+                    import_data = joblib.load(f)
             else:
                 raise ValueError(f"Unsupported import format: {format}")
 
@@ -471,7 +471,7 @@ class CorrelationAnalyzer:
                 )
                 self.correlation_history.append(metrics)
 
-            self.logger.info(f"Correlation data imported from {file_path}")
+            self.logger.info("Correlation data imported from %s", file_path)
             return True
 
         except Exception as e:

@@ -51,6 +51,12 @@ from .SpyderY00_BaseAutoAgent import (
     MarketSession,
     OllamaConfig,
 )
+from .SpyderY_InferenceBackends import (
+    InferenceBackend,
+    OllamaBackend,
+    OpenVINOBackend,
+    OpenVINOConfig,
+)
 
 # ==============================================================================
 # AGENT IMPORTS
@@ -297,6 +303,11 @@ __all__ = [
     "LLMRole",
     "MarketSession",
     "OllamaConfig",
+    # Inference backends
+    "InferenceBackend",
+    "OllamaBackend",
+    "OpenVINOBackend",
+    "OpenVINOConfig",
     # Agents
     "SpyderY01_MarketSenseAgent",
     "SpyderY02_StrategyPilotAgent",

@@ -37,9 +37,10 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Callable
+from datetime import datetime, UTC
+from enum import StrEnum
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -63,14 +64,14 @@ _HEARTBEAT_DOWN_SECS = 120
 # ENUMS & DATA STRUCTURES
 # ==============================================================================
 
-class AgentSeries(str, Enum):
+class AgentSeries(StrEnum):
     """Which series the agent belongs to."""
     X = "X"        # on-demand agents
     Y = "Y"        # daemon agents
     OTHER = "OTHER"
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     """Derived health status based on heartbeat age."""
     UP       = "UP"
     DEGRADED = "DEGRADED"
@@ -95,7 +96,7 @@ class AgentRecord:
     series:        AgentSeries
     description:   str
     version:       str = "1.0.0"
-    registered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    registered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_heartbeat: datetime | None = None
     metrics:       AgentMetrics = field(default_factory=AgentMetrics)
     _running:      bool = False
@@ -106,7 +107,7 @@ class AgentRecord:
     def status(self) -> AgentStatus:
         if self.last_heartbeat is None:
             return AgentStatus.UNKNOWN
-        age = (datetime.now(timezone.utc) - self.last_heartbeat).total_seconds()
+        age = (datetime.now(UTC) - self.last_heartbeat).total_seconds()
         if age <= _HEARTBEAT_DEGRADED_SECS:
             return AgentStatus.UP
         if age <= _HEARTBEAT_DOWN_SECS:
@@ -217,7 +218,7 @@ class AgentRegistry:
             if record is None:
                 self._log.warning("heartbeat() called for unknown agent: %s", agent_id)
                 return
-            record.last_heartbeat = datetime.now(timezone.utc)
+            record.last_heartbeat = datetime.now(UTC)
 
     def mark_started(self, agent_id: str) -> None:
         """Signal that an agent has started its main loop."""
@@ -226,7 +227,7 @@ class AgentRegistry:
             if record is None:
                 return
             record._running = True
-            record.last_heartbeat = datetime.now(timezone.utc)
+            record.last_heartbeat = datetime.now(UTC)
             callbacks = list(record._callbacks_start)
         for cb in callbacks:
             try:
@@ -270,11 +271,16 @@ class AgentRegistry:
             if record is None:
                 return
             m = record.metrics
-            if decisions_made   is not None: m.decisions_made   = decisions_made
-            if decisions_failed is not None: m.decisions_failed = decisions_failed
-            if avg_latency_ms   is not None: m.avg_latency_ms   = avg_latency_ms
-            if last_error       is not None: m.last_error        = last_error
-            if custom           is not None: m.custom.update(custom)
+            if decisions_made is not None:
+                m.decisions_made = decisions_made
+            if decisions_failed is not None:
+                m.decisions_failed = decisions_failed
+            if avg_latency_ms is not None:
+                m.avg_latency_ms = avg_latency_ms
+            if last_error is not None:
+                m.last_error = last_error
+            if custom is not None:
+                m.custom.update(custom)
 
     # ------------------------------------------------------------------
     # Callbacks

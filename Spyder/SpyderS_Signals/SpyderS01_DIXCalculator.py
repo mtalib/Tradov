@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 import time
 import warnings
 import logging
+import threading
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -39,16 +40,22 @@ import yfinance as yf
 import requests
 
 try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    _C29_AVAILABLE = True
+except ImportError:
+    _get_c29_provider = None  # type: ignore[assignment]
+    _C29_AVAILABLE = False
+
+try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     # Fallback for standalone operation
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     SpyderLogger = logging
 
     class SpyderErrorHandler:
         def handle_error(self, error, code):
-            logging.error(f"{code}: {error}")
+            logging.error("%s: %s", code, error)
 
 # ==============================================================================
 # CONSTANTS
@@ -156,7 +163,7 @@ class SpyderDIXCalculator:
         # Suppress warnings
         warnings.filterwarnings('ignore')
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -175,11 +182,11 @@ class SpyderDIXCalculator:
             if not self._fetch_sp500_constituents():
                 raise Exception("Failed to fetch S&P 500 constituents")
 
-            self.logger.info(f"Initialized with {len(self.sp500_symbols)} S&P 500 symbols")
+            self.logger.info("Initialized with %s S&P 500 symbols", len(self.sp500_symbols))
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             self.error_handler.handle_error(e, "DIX_INIT_ERROR")
             return False
 
@@ -203,7 +210,7 @@ class SpyderDIXCalculator:
                 return self._calculate_dix_simulated()
 
         except Exception as e:
-            self.logger.warning(f"DIX calculation failed: {e}, using simulated data")
+            self.logger.warning("DIX calculation failed: %s, using simulated data", e)
             return self._calculate_dix_simulated()
 
     def _calculate_dix_simulated(self):
@@ -269,28 +276,31 @@ class SpyderDIXCalculator:
             symbols = sp500_table['Symbol'].tolist()
             self.sp500_symbols = [str(symbol).replace('.', '-') for symbol in symbols]
 
-            self.logger.info(f"Fetched {len(self.sp500_symbols)} S&P 500 constituents")
+            self.logger.info("Fetched %s S&P 500 constituents", len(self.sp500_symbols))
             return True
 
         except Exception as e:
-            self.logger.error(f"Error fetching S&P 500 constituents: {e}")
+            self.logger.error("Error fetching S&P 500 constituents: %s", e)
 
             # Fallback list
             self.sp500_symbols = self._get_fallback_symbols()
-            self.logger.warning(f"Using fallback list of {len(self.sp500_symbols)} symbols")
+            self.logger.warning("Using fallback list of %s symbols", len(self.sp500_symbols))
             return True
 
     def _fetch_market_caps(self) -> None:
         """Fetch market capitalization data for all symbols."""
-        self.logger.info(f"Fetching market cap data for {len(self.sp500_symbols)} symbols...")
+        self.logger.info("Fetching market cap data for %s symbols...", len(self.sp500_symbols))
 
         self.market_caps = {}
         failed_symbols = []
-
+        # S&P500 market-cap data via yfinance — C29 does not carry .info metadata
+        self.logger.debug(
+            "Fetching S&P500 market caps via yfinance (C29/MassiveClient has no .info endpoint)"
+        )
         # Process in batches
         for i in range(0, len(self.sp500_symbols), BATCH_SIZE):
             batch = self.sp500_symbols[i:i + BATCH_SIZE]
-            self.logger.info(f"Processing batch {i//BATCH_SIZE + 1}/{(len(self.sp500_symbols)-1)//BATCH_SIZE + 1}")
+            self.logger.info("Processing batch %s/%s", i//BATCH_SIZE + 1, (len(self.sp500_symbols)-1)//BATCH_SIZE + 1)
 
             for symbol in batch:
                 try:
@@ -307,15 +317,15 @@ class SpyderDIXCalculator:
 
                 except Exception as e:
                     failed_symbols.append(symbol)
-                    self.logger.warning(f"Error fetching {symbol}: {e}")
+                    self.logger.warning("Error fetching %s: %s", symbol, e)
 
                 time.sleep(YFINANCE_DELAY)
 
             time.sleep(BATCH_DELAY)
 
-        self.logger.info(f"Fetched market cap for {len(self.market_caps)} symbols")
+        self.logger.info("Fetched market cap for %s symbols", len(self.market_caps))
         if failed_symbols:
-            self.logger.warning(f"Failed: {len(failed_symbols)} symbols")
+            self.logger.warning("Failed: %s symbols", len(failed_symbols))
 
     def _download_finra_data(self, date: str) -> None:
         """
@@ -324,7 +334,7 @@ class SpyderDIXCalculator:
         Args:
             date: Date in YYYYMMDD format
         """
-        self.logger.info(f"Downloading FINRA data for {date}...")
+        self.logger.info("Downloading FINRA data for %s...", date)
 
         url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
 
@@ -335,7 +345,7 @@ class SpyderDIXCalculator:
 
                 # Parse data
                 self.finra_data = pd.read_csv(StringIO(response.text), sep='|')
-                self.logger.info(f"Downloaded FINRA data: {len(self.finra_data)} records")
+                self.logger.info("Downloaded FINRA data: %s records", len(self.finra_data))
                 return
 
             except Exception as e:
@@ -345,7 +355,7 @@ class SpyderDIXCalculator:
                                timedelta(days=1)).strftime(FINRA_DATE_FORMAT)
                     date = prev_date
                     url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
-                    self.logger.warning(f"Retrying with {prev_date}")
+                    self.logger.warning("Retrying with %s", prev_date)
                 else:
                     raise Exception(f"Failed to download FINRA data: {e}")
 
@@ -368,7 +378,7 @@ class SpyderDIXCalculator:
             self.finra_data['Symbol'].isin(self.sp500_symbols)
         ].copy()
 
-        self.logger.info(f"Found FINRA data for {len(sp500_finra)} symbols")
+        self.logger.info("Found FINRA data for %s symbols", len(sp500_finra))
 
         for _, row in sp500_finra.iterrows():
             symbol = row['Symbol']
@@ -392,7 +402,7 @@ class SpyderDIXCalculator:
                         contribution=0  # Will be calculated later
                     )
 
-        self.logger.info(f"Calculated DPI for {len(dpi_data)} symbols")
+        self.logger.info("Calculated DPI for %s symbols", len(dpi_data))
         return dpi_data
 
     def _calculate_weighted_dix(self, dpi_data: dict[str, StockDPI]) -> tuple[float, dict[str, StockDPI]]:
@@ -503,27 +513,12 @@ def calculate_dix_for_date(date: str) -> float | None:
         result = calculator.calculate_dix(date)
         return result.dix_percentage if result else None
     except Exception as e:
-        logging.error(f"Error calculating DIX: {e}")
+        logging.error("Error calculating DIX: %s", e)
         return None
 
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_calculator_instance: SpyderDIXCalculator | None = None
-
-def get_calculator_instance() -> SpyderDIXCalculator:
-    """
-    Get singleton instance of the calculator.
-
-    Returns:
-        Calculator instance
-    """
-    global _calculator_instance
-    if _calculator_instance is None:
-        _calculator_instance = SpyderDIXCalculator()
-        _calculator_instance.initialize()
-    return _calculator_instance
-
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
@@ -589,10 +584,14 @@ class DIXCalculator:
 
 # Singleton instance
 _calculator_instance = None
+_calculator_instance_lock = threading.Lock()
 
-def get_calculator_instance() -> DIXCalculator:  # noqa: F811
+
+def get_calculator_instance() -> DIXCalculator:
     """Get singleton DIX calculator instance"""
     global _calculator_instance
     if _calculator_instance is None:
-        _calculator_instance = DIXCalculator()
+        with _calculator_instance_lock:
+            if _calculator_instance is None:
+                _calculator_instance = DIXCalculator()
     return _calculator_instance

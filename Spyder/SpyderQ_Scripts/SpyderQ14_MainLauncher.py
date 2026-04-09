@@ -374,6 +374,30 @@ class SpyderLauncher:
             self.log_error(f"❌ Live engine prerequisites missing — cannot start live: {e}")
             return
 
+        # Build the Telegram bot for high-risk order confirmation (optional; env-gated).
+        # If the required env vars are absent the engine falls back to autonomous risk
+        # decision — no exception is raised.
+        telegram_bot = None
+        _tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        _tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
+        if _tg_token and _tg_chat:
+            try:
+                from Spyder.SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
+                from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
+                telegram_bot = TelegramBot(
+                    bot_token=_tg_token,
+                    chat_id=_tg_chat,
+                    event_manager=EventManager(),
+                )
+                self.log_info("✅ Telegram confirmation bot ready for high-risk orders")
+            except Exception as _tg_err:
+                self.log_warning(f"⚠️ Telegram bot unavailable — falling back to autonomous risk decision: {_tg_err}")
+        else:
+            self.log_warning(
+                "⚠️ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — "
+                "high-risk orders will use autonomous risk decision (no human confirmation)"
+            )
+
         try:
             # create_tradier_client_from_env() reads TRADIER_ENVIRONMENT automatically.
             # In live mode this will be "live" (api.tradier.com) unless explicitly overridden.
@@ -385,7 +409,7 @@ class SpyderLauncher:
                 "max_daily_loss": float(os.environ.get("MAX_DAILY_LOSS_USD", 10000)),
                 "require_confirmation": True,  # Always confirm live orders
             }
-            live_engine = create_live_engine(broker, risk_manager, config)
+            live_engine = create_live_engine(broker, risk_manager, config, telegram_bot=telegram_bot)
             if live_engine.initialize():
                 self.log_info("✅ Live engine initialised — safety guards active")
                 live_engine.start()

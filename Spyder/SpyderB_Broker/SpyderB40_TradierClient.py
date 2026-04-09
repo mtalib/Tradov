@@ -91,7 +91,8 @@ except ImportError:
     import json
 import asyncio
 import threading
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -121,7 +122,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
-from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker, CircuitBreakerError
+from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
 from Spyder.SpyderU_Utilities.SpyderU45_RetryWithBackoff import retry_async
 
@@ -526,7 +527,7 @@ class TradierClient:
         # Rate limit snapshot updated after every successful API call (ENH-03)
         self._last_rate_limit: RateLimitInfo | None = None
 
-        logger.info(f"TradierClient initialized for {environment.value} environment")
+        logger.info("TradierClient initialized for %s environment", environment.value)
 
     def _create_session(self) -> requests.Session:
         """
@@ -589,7 +590,7 @@ class TradierClient:
         url = f"{self.base_url}{endpoint}"
 
         try:
-            logger.debug(f"Making {method} request to {endpoint}")
+            logger.debug("Making %s request to %s", method, endpoint)
 
             response = self.session.request(
                 method=method,
@@ -718,7 +719,7 @@ class TradierClient:
             >>> balances = client.get_account_balances()
             >>> print(balances["balances"]["total_equity"])
         """
-        logger.info(f"Fetching balances for account {self.account_id}")
+        logger.info("Fetching balances for account %s", self.account_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/balances")
 
     def get_positions(self) -> dict[str, Any]:
@@ -733,7 +734,7 @@ class TradierClient:
             >>> for pos in positions["positions"]["position"]:
             ...     print(f"{pos['symbol']}: {pos['quantity']} shares")
         """
-        logger.info(f"Fetching positions for account {self.account_id}")
+        logger.info("Fetching positions for account %s", self.account_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/positions")
 
     def get_history(self, limit: int = 100) -> dict[str, Any]:
@@ -746,7 +747,7 @@ class TradierClient:
         Returns:
             Trade history events
         """
-        logger.info(f"Fetching history for account {self.account_id}")
+        logger.info("Fetching history for account %s", self.account_id)
         return self._make_request(
             "GET",
             f"/accounts/{self.account_id}/history",
@@ -801,7 +802,7 @@ class TradierClient:
         if symbol:
             params["symbol"] = symbol
 
-        logger.info(f"Fetching gain/loss for account {self.account_id}")
+        logger.info("Fetching gain/loss for account %s", self.account_id)
         return self._make_request(
             "GET",
             f"/accounts/{self.account_id}/gainloss",
@@ -842,7 +843,7 @@ class TradierClient:
         """
         if not symbols:
             raise ValueError("symbols list must not be empty")
-        logger.info(f"Adding {symbols} to watchlist {watchlist_id}")
+        logger.info("Adding %s to watchlist %s", symbols, watchlist_id)
         return self._make_request(
             "POST",
             f"/watchlists/{watchlist_id}/symbols",
@@ -890,7 +891,7 @@ class TradierClient:
             ... )
             >>> print(order["order"]["id"])
         """
-        logger.info(f"Placing {order_type.value} order: {side.value} {quantity} {symbol}")
+        logger.info("Placing %s order: %s %s %s", order_type.value, side.value, quantity, symbol)
 
         # Build order payload
         payload = {
@@ -926,7 +927,7 @@ class TradierClient:
         Returns:
             Order details
         """
-        logger.info(f"Fetching order {order_id}")
+        logger.info("Fetching order %s", order_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/orders/{order_id}")
 
     def cancel_order(self, order_id: int) -> dict[str, Any]:
@@ -939,7 +940,7 @@ class TradierClient:
         Returns:
             Cancellation response
         """
-        logger.info(f"Canceling order {order_id}")
+        logger.info("Canceling order %s", order_id)
         return self._make_request("DELETE", f"/accounts/{self.account_id}/orders/{order_id}")
 
     def get_orders(self) -> dict[str, Any]:
@@ -949,7 +950,7 @@ class TradierClient:
         Returns:
             List of orders
         """
-        logger.info(f"Fetching all orders for account {self.account_id}")
+        logger.info("Fetching all orders for account %s", self.account_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/orders")
 
     # ==========================================================================
@@ -994,7 +995,7 @@ class TradierClient:
             ... )
             >>> print(preview["order"]["status"])  # "ok" or error details
         """
-        logger.debug(f"Previewing order: {side.value} {quantity} {symbol}")
+        logger.debug("Previewing order: %s %s %s", side.value, quantity, symbol)
         payload: dict[str, Any] = {
             "class": order_class.value,
             "symbol": symbol,
@@ -1044,7 +1045,7 @@ class TradierClient:
         """
         if not legs:
             raise ValueError("At least one OptionLeg is required")
-        logger.debug(f"Previewing multileg order: {symbol} {len(legs)} legs")
+        logger.debug("Previewing multileg order: %s %s legs", symbol, len(legs))
         payload: dict[str, Any] = {
             "class": "multileg",
             "symbol": symbol,
@@ -1160,7 +1161,7 @@ class TradierClient:
             >>> print(f"SPY: ${spy_quote['last']}")
         """
         symbols_str = ",".join(symbols)
-        logger.debug(f"Fetching quotes for {symbols_str}")
+        logger.debug("Fetching quotes for %s", symbols_str)
         return self._make_request("GET", "/markets/quotes", params={"symbols": symbols_str})
 
     def get_option_chain(self, symbol: str, expiration: str) -> dict[str, Any]:
@@ -1174,7 +1175,7 @@ class TradierClient:
         Returns:
             Option chain data
         """
-        logger.debug(f"Fetching option chain for {symbol} expiring {expiration}")
+        logger.debug("Fetching option chain for %s expiring %s", symbol, expiration)
         return self._make_request(
             "GET",
             "/markets/options/chains",
@@ -1191,7 +1192,7 @@ class TradierClient:
         Returns:
             List of expiration dates
         """
-        logger.debug(f"Fetching option expirations for {symbol}")
+        logger.debug("Fetching option expirations for %s", symbol)
         return self._make_request("GET", "/markets/options/expirations", params={"symbol": symbol})
 
     def get_option_strikes(
@@ -1213,7 +1214,7 @@ class TradierClient:
             >>> strikes = client.get_option_strikes("SPY", "2026-03-20")
             >>> print(strikes["strikes"]["strike"])
         """
-        logger.debug(f"Fetching option strikes for {symbol} on {expiration}")
+        logger.debug("Fetching option strikes for %s on %s", symbol, expiration)
         return self._make_request(
             "GET",
             "/markets/options/strikes",
@@ -1250,7 +1251,7 @@ class TradierClient:
         if option_type:
             params["option_type"] = option_type.lower()
 
-        logger.debug(f"Fetching option chain with greeks for {symbol} exp {expiration}")
+        logger.debug("Fetching option chain with greeks for %s exp %s", symbol, expiration)
         response = self._make_request("GET", "/markets/options/chains", params=params)
 
         return self._parse_greeks_from_chain(response, symbol)
@@ -1383,7 +1384,7 @@ class TradierClient:
             params["month"] = month
         if year is not None:
             params["year"] = year
-        logger.debug(f"Fetching market calendar {year}/{month}")
+        logger.debug("Fetching market calendar %s/%s", year, month)
         return self._make_request("GET", "/markets/calendar", params=params)
 
     def get_market_clock(self) -> dict[str, Any]:
@@ -1433,7 +1434,7 @@ class TradierClient:
             params["start"] = start
         if end:
             params["end"] = end
-        logger.debug(f"Fetching time sales for {symbol} ({interval})")
+        logger.debug("Fetching time sales for %s (%s)", symbol, interval)
         return self._make_request("GET", "/markets/timesales", params=params)
 
     def search_symbols(self, query: str, indexes: bool = False) -> dict[str, Any]:
@@ -1453,7 +1454,7 @@ class TradierClient:
             ...     print(s["symbol"], s["description"])
         """
         params: dict[str, Any] = {"q": query, "indexes": str(indexes).lower()}
-        logger.debug(f"Searching symbols: '{query}'")
+        logger.debug("Searching symbols: '%s'", query)
         return self._make_request("GET", "/markets/search", params=params)
 
     def get_historical_quotes(
@@ -1486,7 +1487,7 @@ class TradierClient:
             params["start"] = start
         if end:
             params["end"] = end
-        logger.debug(f"Fetching historical quotes for {symbol} ({interval})")
+        logger.debug("Fetching historical quotes for %s (%s)", symbol, interval)
         return self._make_request("GET", "/markets/history", params=params)
 
     # ==========================================================================
@@ -1776,7 +1777,7 @@ class TradierClient:
         if stop is not None:
             payload["stop"] = str(stop)
 
-        logger.info(f"Modifying order {order_id}: {payload}")
+        logger.info("Modifying order %s: %s", order_id, payload)
         return self._make_request(
             "PUT",
             f"/accounts/{self.account_id}/orders/{order_id}",
@@ -1832,7 +1833,7 @@ class TradierClient:
             payload[f"side[{i}]"] = leg.side.value
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
-        logger.info(f"Placing OCO order: {symbol} ({len(legs)} legs)")
+        logger.info("Placing OCO order: %s (%s legs)", symbol, len(legs))
         return self._make_request(
             "POST",
             f"/accounts/{self.account_id}/orders",
@@ -1884,7 +1885,7 @@ class TradierClient:
             payload[f"side[{i}]"] = leg.side.value
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
-        logger.info(f"Placing OTO order: {symbol} ({len(legs)} legs)")
+        logger.info("Placing OTO order: %s (%s legs)", symbol, len(legs))
         return self._make_request(
             "POST",
             f"/accounts/{self.account_id}/orders",
@@ -1938,7 +1939,7 @@ class TradierClient:
             payload[f"side[{i}]"] = leg.side.value
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
-        logger.info(f"Placing OTOCO order: {symbol} ({len(legs)} legs)")
+        logger.info("Placing OTOCO order: %s (%s legs)", symbol, len(legs))
         return self._make_request(
             "POST",
             f"/accounts/{self.account_id}/orders",
@@ -1966,7 +1967,7 @@ class TradierClient:
                 logger.info("Tradier streaming session created")
             return session_id
         except TradierAPIError as e:
-            logger.error(f"Failed to create streaming session: {e}", exc_info=True)
+            logger.error("Failed to create streaming session: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -1989,7 +1990,7 @@ class TradierClient:
                 logger.error("Tradier connection test FAILED: Invalid response")
                 return False
         except Exception as e:
-            logger.error(f"Tradier connection test FAILED: {str(e)}", exc_info=True)
+            logger.error("Tradier connection test FAILED: %s", str(e), exc_info=True)
             return False
 
     def __repr__(self) -> str:
@@ -2704,7 +2705,7 @@ class TradierAccountStreamSSE:
                     try:
                         self.on_error(error_msg)
                     except Exception as cb_err:
-                        logger.debug(f"on_error callback raised: {cb_err}")
+                        logger.debug("on_error callback raised: %s", cb_err)
 
                 if self._running:
                     logger.info(f"Reconnecting account stream in {delay:.1f}s...")
@@ -2759,9 +2760,9 @@ class TradierAccountStreamSSE:
                     self.on_trade(account_event)
 
         except json.JSONDecodeError:
-            logger.debug(f"Non-JSON SSE data (heartbeat): {event.data[:50]}")
+            logger.debug("Non-JSON SSE data (heartbeat): %s", event.data[:50])
         except Exception as e:
-            logger.warning(f"Error processing SSE event: {e}", exc_info=True)
+            logger.warning("Error processing SSE event: %s", e, exc_info=True)
 
 
 # Backward-compatibility alias — existing code using TradierAccountStream continues to work.
@@ -2859,7 +2860,7 @@ class TradierMarketStream:
         self.on_disconnected: Callable[[], None] | None = None
 
         logger.info(
-            f"TradierMarketStream initialised for {len(self._symbols)} symbol(s): {self._symbols}"
+            "TradierMarketStream initialised for %s symbol(s): %s", len(self._symbols), self._symbols
         )
 
     # ------------------------------------------------------------------
@@ -2892,7 +2893,7 @@ class TradierMarketStream:
         _coord.register_thread(self._thread, name="TradierMarketStream")
         _coord.register_cleanup(self.stop)
         self._thread.start()
-        logger.info(f"Market stream started — symbols: {self._symbols}")
+        logger.info("Market stream started — symbols: %s", self._symbols)
 
     def stop(self) -> None:
         """
@@ -2911,7 +2912,7 @@ class TradierMarketStream:
                 try:
                     self._ws.close()
                 except Exception as ws_err:
-                    logger.debug(f"WebSocket close error: {ws_err}")
+                    logger.debug("WebSocket close error: %s", ws_err)
         if self._thread is not None:
             self._thread.join(timeout=10.0)
             self._thread = None
@@ -2942,9 +2943,9 @@ class TradierMarketStream:
                     "filter": self._filters,
                 }
                 ws.send(json.dumps(payload))
-                logger.info(f"Market stream subscription updated: {self._symbols}")
+                logger.info("Market stream subscription updated: %s", self._symbols)
             except Exception as exc:
-                logger.warning(f"Failed to send updated subscription: {exc}", exc_info=True)
+                logger.warning("Failed to send updated subscription: %s", exc, exc_info=True)
 
     @property
     def is_running(self) -> bool:
@@ -2988,7 +2989,7 @@ class TradierMarketStream:
                     logger.debug("Market stream session token refreshed")
 
                 ws_url = self._get_ws_url()
-                logger.info(f"Connecting market stream WebSocket → {ws_url}")
+                logger.info("Connecting market stream WebSocket → %s", ws_url)
 
                 ws_app = websocket.WebSocketApp(
                     ws_url,
@@ -3036,7 +3037,7 @@ class TradierMarketStream:
                     try:
                         self.on_error(error_msg)
                     except Exception as cb_err:
-                        logger.debug(f"on_error callback raised: {cb_err}")
+                        logger.debug("on_error callback raised: %s", cb_err)
                 if self._running:
                     logger.info(f"Reconnecting market stream in {delay:.1f}s…")
                     self._session_id = None
@@ -3065,13 +3066,13 @@ class TradierMarketStream:
         ws.send(json.dumps(payload))
         self._reconnect_attempts = 0  # Reset on successful connect
         logger.info(
-            f"Market stream connected — subscribed to {len(self._symbols)} symbol(s)"
+            "Market stream connected — subscribed to %s symbol(s)", len(self._symbols)
         )
         if self.on_connected:
             try:
                 self.on_connected()
             except Exception as exc:
-                logger.warning(f"on_connected callback raised: {exc}", exc_info=True)
+                logger.warning("on_connected callback raised: %s", exc, exc_info=True)
 
     def _on_ws_message(self, ws: Any, message: str) -> None:
         """Parse and dispatch an incoming WebSocket message to the right callback."""
@@ -3084,40 +3085,40 @@ class TradierMarketStream:
                 return
 
             event_type: str = data.get("type", "")
-            logger.debug(f"Market event: {event_type} {data.get('symbol', '')}")
+            logger.debug("Market event: %s %s", event_type, data.get('symbol', ''))
 
             if event_type == "quote" and self.on_quote:
                 try:
                     self.on_quote(data)
                 except Exception as exc:
-                    logger.warning(f"on_quote callback raised: {exc}", exc_info=True)
+                    logger.warning("on_quote callback raised: %s", exc, exc_info=True)
 
             elif event_type in ("trade", "tradex") and self.on_trade:
                 try:
                     self.on_trade(data)
                 except Exception as exc:
-                    logger.warning(f"on_trade callback raised: {exc}", exc_info=True)
+                    logger.warning("on_trade callback raised: %s", exc, exc_info=True)
 
             elif event_type == "summary" and self.on_summary:
                 try:
                     self.on_summary(data)
                 except Exception as exc:
-                    logger.warning(f"on_summary callback raised: {exc}", exc_info=True)
+                    logger.warning("on_summary callback raised: %s", exc, exc_info=True)
 
         except json.JSONDecodeError:
-            logger.debug(f"Non-JSON WebSocket message (heartbeat): {message[:50]}")
+            logger.debug("Non-JSON WebSocket message (heartbeat): %s", message[:50])
         except Exception as exc:
-            logger.warning(f"Unhandled error in _on_ws_message: {exc}", exc_info=True)
+            logger.warning("Unhandled error in _on_ws_message: %s", exc, exc_info=True)
 
     def _on_ws_error(self, ws: Any, error: Any) -> None:
         """Handle WebSocket-level errors."""
         error_msg = str(error)
-        logger.error(f"Market stream WebSocket error: {error_msg}")
+        logger.error("Market stream WebSocket error: %s", error_msg)
         if self.on_error:
             try:
                 self.on_error(error_msg)
             except Exception as cb_err:
-                logger.debug(f"on_error callback raised: {cb_err}")
+                logger.debug("on_error callback raised: %s", cb_err)
 
     def _on_ws_close(
         self,
@@ -3129,13 +3130,13 @@ class TradierMarketStream:
         with self._ws_lock:
             self._ws = None
         logger.info(
-            f"Market stream disconnected (code={close_status_code}, msg={close_msg})"
+            "Market stream disconnected (code=%s, msg=%s)", close_status_code, close_msg
         )
         if self.on_disconnected:
             try:
                 self.on_disconnected()
             except Exception as exc:
-                logger.warning(f"on_disconnected callback raised: {exc}", exc_info=True)
+                logger.warning("on_disconnected callback raised: %s", exc, exc_info=True)
 
 
 # ==============================================================================
@@ -3223,4 +3224,4 @@ if __name__ == "__main__":
             pass
 
     except Exception as e:
-        logger.error(f"Demo __main__ failed: {e}", exc_info=True)
+        logger.error("Demo __main__ failed: %s", e, exc_info=True)

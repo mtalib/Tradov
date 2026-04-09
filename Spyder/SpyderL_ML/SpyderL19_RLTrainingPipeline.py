@@ -200,7 +200,7 @@ if HAS_SB3:
 
                 if self.no_improvement_count >= self.patience:
                     if self.verbose > 0:
-                        logging.info(f"Early stopping after {self.patience} evals without improvement")
+                        logging.info("Early stopping after %s evals without improvement", self.patience)
                     return False
             return True
 
@@ -302,7 +302,7 @@ class RLTrainingPipeline:
             reward_description=reward_description,
         )
         self._registry[name] = spec
-        self.logger.info(f"Registered RL environment: '{name}' ({algorithm.value})")
+        self.logger.info("Registered RL environment: '%s' (%s)", name, algorithm.value)
 
     def list_environments(self) -> dict[str, dict[str, Any]]:
         """
@@ -649,7 +649,7 @@ class RLTrainingPipeline:
         save_path = path or str(self.models_dir / f"{env_name}_saved")
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         self._models[env_name].save(save_path)
-        self.logger.info(f"Model saved: {save_path}")
+        self.logger.info("Model saved: %s", save_path)
         return save_path
 
     def load_model(
@@ -678,7 +678,7 @@ class RLTrainingPipeline:
 
         algo_class = self._get_algorithm_class(algo_enum)
         self._models[env_name] = algo_class.load(path)
-        self.logger.info(f"Model loaded: {path} → '{env_name}'")
+        self.logger.info("Model loaded: %s → '%s'", path, env_name)
 
     # ==========================================================================
     # TRAINING HISTORY
@@ -727,7 +727,7 @@ class RLTrainingPipeline:
         """
         results = {}
         for env_name in self._registry:
-            self.logger.info(f"Training {env_name} ({self._registry[env_name].algorithm.value})...")
+            self.logger.info("Training %s (%s)...", env_name, self._registry[env_name].algorithm.value)
             results[env_name] = self.train(env_name, total_timesteps=total_timesteps, **train_kwargs)
         return results
 

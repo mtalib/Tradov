@@ -32,7 +32,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -300,7 +301,7 @@ class MarketConfigManager:
         # Initialize
         self._initialize_defaults()
         self._load_schemas()
-        self.logger.info(f"MarketConfigManager initialized for environment: {self.environment}")
+        self.logger.info("MarketConfigManager initialized for environment: %s", self.environment)
 
     # ==========================================================================
     # INITIALIZATION
@@ -368,7 +369,7 @@ class MarketConfigManager:
             self.logger.info("Configuration manager started")
 
         except Exception as e:
-            self.logger.error(f"Failed to start config manager: {e}")
+            self.logger.error("Failed to start config manager: %s", e)
             raise
 
     def stop(self):
@@ -464,7 +465,7 @@ class MarketConfigManager:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to set config {category}.{key}: {e}")
+            self.logger.error("Failed to set config %s.%s: %s", category, key, e)
             return False
 
     def override(self, category: str, key: str, value: Any) -> bool:
@@ -493,7 +494,7 @@ class MarketConfigManager:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to override {category}.{key}: {e}")
+            self.logger.error("Failed to override %s.%s: %s", category, key, e)
             return False
 
     def clear_overrides(self, category: str | None = None):
@@ -518,12 +519,12 @@ class MarketConfigManager:
             # Validate all configs
             validation = self.validate_all()
             if not validation.is_valid:
-                self.logger.warning(f"Configuration validation errors: {validation.errors}")
+                self.logger.warning("Configuration validation errors: %s", validation.errors)
 
-            self.logger.info(f"Loaded {len(self.configs)} configuration categories")
+            self.logger.info("Loaded %s configuration categories", len(self.configs))
 
         except Exception as e:
-            self.logger.error(f"Failed to load configurations: {e}")
+            self.logger.error("Failed to load configurations: %s", e)
             raise
 
     def reload_config(self, category: str) -> bool:
@@ -558,7 +559,7 @@ class MarketConfigManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to reload {category}: {e}")
+            self.logger.error("Failed to reload %s: %s", category, e)
             return False
 
     def validate(self, category: str, config: dict | None = None) -> ValidationResult:
@@ -722,13 +723,13 @@ class MarketConfigManager:
                 if config:
                     self.configs[category] = config
                     self._track_file(file_path)
-                    self.logger.debug(f"Loaded {category} from {file_path}")
+                    self.logger.debug("Loaded %s from %s", category, file_path)
                     return
 
         # Use defaults if no file found
         if category in self.defaults:
             self.configs[category] = copy.deepcopy(self.defaults[category])
-            self.logger.debug(f"Using defaults for {category}")
+            self.logger.debug("Using defaults for %s", category)
 
     def _load_environment_configs(self):
         """Load environment-specific configurations"""
@@ -757,7 +758,7 @@ class MarketConfigManager:
                             self.configs[category] = config
 
                         self._track_file(file_path)
-                        self.logger.debug(f"Loaded env override for {category}")
+                        self.logger.debug("Loaded env override for %s", category)
 
     def _load_file(self, file_path: Path, format: ConfigFormat) -> dict | None:
         """Load configuration from file"""
@@ -771,7 +772,7 @@ class MarketConfigManager:
                     return toml.load(f)
 
         except Exception as e:
-            self.logger.error(f"Failed to load {file_path}: {e}")
+            self.logger.error("Failed to load %s: %s", file_path, e)
 
         return None
 
@@ -807,10 +808,10 @@ class MarketConfigManager:
             # Update version
             self._create_version(category)
 
-            self.logger.info(f"Saved {category} configuration to {file_path}")
+            self.logger.info("Saved %s configuration to %s", category, file_path)
 
         except Exception as e:
-            self.logger.error(f"Failed to save {category}: {e}")
+            self.logger.error("Failed to save %s: %s", category, e)
             # Restore backup if exists
             backup_path = file_path.with_suffix(f"{file_path.suffix}.bak")
             if backup_path.exists():
@@ -844,16 +845,16 @@ class MarketConfigManager:
                             # Check if it's an environment override
                             if self.environment in path.parts:
                                 self.logger.info(
-                                    f"Detected change in environment config: {category}"
+                                    "Detected change in environment config: %s", category
                                 )
                             else:
-                                self.logger.info(f"Detected change in config file: {category}")
+                                self.logger.info("Detected change in config file: %s", category)
 
                             # Reload configuration
                             self.reload_config(category)
 
             except Exception as e:
-                self.logger.error(f"Error in file watcher: {e}")
+                self.logger.error("Error in file watcher: %s", e)
 
             time.sleep(1)  # thread-safe: time.sleep() intentional
 
@@ -889,14 +890,14 @@ class MarketConfigManager:
             try:
                 callback(key, old_value, new_value)
             except Exception as e:
-                self.logger.error(f"Error in change callback: {e}")
+                self.logger.error("Error in change callback: %s", e)
 
         # Global callbacks
         for callback in self.change_callbacks.get("*", []):
             try:
                 callback(f"{category}.{key}", old_value, new_value)
             except Exception as e:
-                self.logger.error(f"Error in global callback: {e}")
+                self.logger.error("Error in global callback: %s", e)
 
     def _notify_reload(self, category: str):
         """Notify callbacks of configuration reload"""
@@ -912,7 +913,7 @@ class MarketConfigManager:
     def _create_version(self, category: str):
         """Create new version entry"""
         config_str = json.dumps(self.configs.get(category, {}), sort_keys=True)
-        checksum = hashlib.md5(config_str.encode()).hexdigest()
+        checksum = hashlib.md5(config_str.encode(), usedforsecurity=False).hexdigest()
 
         version = ConfigVersion(
             version=self._generate_version(),

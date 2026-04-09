@@ -60,7 +60,8 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from pathlib import Path
@@ -473,7 +474,7 @@ class OrderManager:
                 order.state = OrderState.PENDING_CANCEL
                 order.updated_at = datetime.now()
 
-            self.logger.info(f"Cancelling order {order_id} (Tradier #{order.tradier_order_id})")
+            self.logger.info("Cancelling order %s (Tradier #%s)", order_id, order.tradier_order_id)
 
             response = self.tradier.cancel_order(order.tradier_order_id)
 
@@ -492,7 +493,7 @@ class OrderManager:
             )
 
         except TradierAPIError as e:
-            self.logger.error(f"Cancel failed for {order_id}: {e}")
+            self.logger.error("Cancel failed for %s: %s", order_id, e)
             with self._order_lock:
                 if order_id in self._orders:
                     self._orders[order_id].warning_message = str(e)
@@ -558,7 +559,7 @@ class OrderManager:
                         error_code="NO_TRADIER_ID",
                     )
 
-            self.logger.info(f"Modifying order {order_id} (Tradier #{order.tradier_order_id})")
+            self.logger.info("Modifying order %s (Tradier #%s)", order_id, order.tradier_order_id)
 
             response = self.tradier.modify_order(
                 order_id=order.tradier_order_id,
@@ -590,7 +591,7 @@ class OrderManager:
             )
 
         except TradierAPIError as e:
-            self.logger.error(f"Modify failed for {order_id}: {e}")
+            self.logger.error("Modify failed for %s: %s", order_id, e)
             return OrderResult(
                 success=False,
                 order_id=order_id,
@@ -1062,7 +1063,7 @@ class OrderManager:
                 modify_result = self.modify_order(current_order_id, price=limit_price)
                 if not modify_result.success:
                     self.logger.warning(
-                        f"MidWalk: modify failed on tick {tick}: {modify_result.message}"
+                        "MidWalk: modify failed on tick %s: %s", tick, modify_result.message
                     )
                     # Return last known result — order may still be open
                     return result  # type: ignore[return-value]
@@ -1088,7 +1089,7 @@ class OrderManager:
 
         # Exhausted all ticks — cancel the unfilled order
         self.logger.warning(
-            f"MidWalk: exhausted {max_walk_ticks} ticks without fill — cancelling"
+            "MidWalk: exhausted %s ticks without fill — cancelling", max_walk_ticks
         )
         if current_order_id:
             self.cancel_order(current_order_id)
@@ -1159,7 +1160,7 @@ class OrderManager:
             self._apply_tradier_status(order, tradier_order)
             return order
         except TradierAPIError as e:
-            self.logger.error(f"Failed to refresh order {order_id}: {e}")
+            self.logger.error("Failed to refresh order %s: %s", order_id, e)
             return order
 
     def refresh_all_orders(self) -> int:
@@ -1263,7 +1264,7 @@ class OrderManager:
             self.logger.info("SSE order streaming started")
 
         except Exception as e:
-            self.logger.error(f"Failed to start SSE stream: {e}")
+            self.logger.error("Failed to start SSE stream: %s", e)
 
     def _stop_sse_stream(self):
         """Stop SSE stream."""
@@ -1284,7 +1285,7 @@ class OrderManager:
 
                 order = self.get_order_by_tradier_id(tradier_id) if tradier_id else None
                 if not order:
-                    self.logger.debug(f"SSE event for unknown Tradier order #{tradier_id}")
+                    self.logger.debug("SSE event for unknown Tradier order #%s", tradier_id)
                     return
 
                 old_state = order.state
@@ -1296,7 +1297,7 @@ class OrderManager:
                         try:
                             cb(order, old_state)
                         except Exception as e:
-                            self.logger.error(f"State-change callback error: {e}")
+                            self.logger.error("State-change callback error: %s", e)
 
             elif event_type == "trade":
                 # Fill notification
@@ -1315,7 +1316,7 @@ class OrderManager:
                     self._process_fill(order, report)
 
         except Exception as e:
-            self.logger.error(f"SSE event processing error: {e}")
+            self.logger.error("SSE event processing error: %s", e)
 
     # ==========================================================================
     # PRIVATE — ORDER ROUTING
@@ -1481,7 +1482,7 @@ class OrderManager:
             try:
                 cb(order, report)
             except Exception as e:
-                self.logger.error(f"Fill callback error: {e}")
+                self.logger.error("Fill callback error: %s", e)
 
     # ==========================================================================
     # STATE PERSISTENCE
@@ -1512,7 +1513,7 @@ class OrderManager:
             try:
                 self._save_order_state()
             except Exception as e:
-                self.logger.error(f"Persistence error: {e}")
+                self.logger.error("Persistence error: %s", e)
             self._shutdown_event.wait(timeout=ORDER_STATE_PERSISTENCE_INTERVAL)
 
     def _save_order_state(self):
@@ -1546,10 +1547,10 @@ class OrderManager:
                 json.dump(orders_data, f, indent=2, default=str)
             os.replace(tmp_path, str(path))  # atomic on POSIX
 
-            self.logger.debug(f"Order state saved to {path}")
+            self.logger.debug("Order state saved to %s", path)
 
         except Exception as e:
-            self.logger.error(f"Failed to save order state: {e}")
+            self.logger.error("Failed to save order state: %s", e)
 
     # ==========================================================================
     # METRICS

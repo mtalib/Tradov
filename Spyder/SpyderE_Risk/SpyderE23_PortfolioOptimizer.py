@@ -445,6 +445,7 @@ class PortfolioOptimizer:
 
         # Monitoring state
         self._running = False
+        self._stop_event = threading.Event()
         self._last_optimization = None
         self._last_rebalancing = None
 
@@ -502,6 +503,7 @@ class PortfolioOptimizer:
             return True
 
         try:
+            self._stop_event.clear()
             self._running = True
             self.status = OptimizerStatus.RUNNING
 
@@ -525,6 +527,7 @@ class PortfolioOptimizer:
             bool: True if monitoring stopped successfully
         """
         try:
+            self._stop_event.set()
             self._running = False
             self.status = OptimizerStatus.STOPPED
 
@@ -564,7 +567,7 @@ class PortfolioOptimizer:
             # Use custom parameters if provided
             params = custom_parameters or self.parameters
 
-            self.logger.info(f"Starting portfolio optimization using {params.method.value}")
+            self.logger.info("Starting portfolio optimization using %s", params.method.value)
 
             # Validate and prepare data
             if not self._validate_optimization_inputs(returns_data, current_weights):
@@ -889,7 +892,7 @@ class PortfolioOptimizer:
             self._last_rebalancing = datetime.now()
             self.status = OptimizerStatus.RUNNING
 
-            self.logger.info(f"Rebalancing executed successfully: {execution_result['execution_quality']}")
+            self.logger.info("Rebalancing executed successfully: %s", execution_result['execution_quality'])
             return execution_result
 
         except Exception as e:
@@ -916,7 +919,7 @@ class PortfolioOptimizer:
             Comprehensive performance attribution analysis
         """
         try:
-            self.logger.debug(f"Calculating performance attribution: {start_date} to {end_date}")
+            self.logger.debug("Calculating performance attribution: %s to %s", start_date, end_date)
 
             # Filter returns data for the period
             period_mask = (self.returns_data.index >= start_date) & (self.returns_data.index <= end_date)
@@ -1214,7 +1217,7 @@ class PortfolioOptimizer:
             self.logger.debug("Optimization engines initialized")
 
         except Exception as e:
-            self.logger.error(f"Error initializing optimization engines: {e}")
+            self.logger.error("Error initializing optimization engines: %s", e)
 
     def _initialize_ml_models(self) -> None:
         """Initialize machine learning prediction models."""
@@ -1234,7 +1237,7 @@ class PortfolioOptimizer:
             self.logger.debug("ML models initialized")
 
         except Exception as e:
-            self.logger.error(f"Error initializing ML models: {e}")
+            self.logger.error("Error initializing ML models: %s", e)
 
     def _setup_default_constraints(self) -> None:
         """Set up default optimization constraints."""
@@ -1277,7 +1280,7 @@ class PortfolioOptimizer:
             self.logger.debug("Default constraints set up")
 
         except Exception as e:
-            self.logger.error(f"Error setting up default constraints: {e}")
+            self.logger.error("Error setting up default constraints: %s", e)
 
     def _initialize_performance_tracking(self) -> None:
         """Initialize performance tracking components."""
@@ -1374,11 +1377,11 @@ class PortfolioOptimizer:
                 optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
                 return optimal_weights
             else:
-                self.logger.warning(f"Mean-variance optimization failed: {result.message}")
+                self.logger.warning("Mean-variance optimization failed: %s", result.message)
                 return self._create_equal_weights(self.returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"Error in mean-variance optimization: {e}")
+            self.logger.error("Error in mean-variance optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
     async def _optimize_risk_parity(self, covariance_matrix: np.ndarray,
@@ -1415,11 +1418,11 @@ class PortfolioOptimizer:
                 optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
                 return optimal_weights
             else:
-                self.logger.warning(f"Risk parity optimization failed: {result.message}")
+                self.logger.warning("Risk parity optimization failed: %s", result.message)
                 return self._create_equal_weights(self.returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"Error in risk parity optimization: {e}")
+            self.logger.error("Error in risk parity optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
     async def _optimize_minimum_variance(self, covariance_matrix: np.ndarray,
@@ -1464,7 +1467,7 @@ class PortfolioOptimizer:
             return self._create_equal_weights(self.returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"Error in minimum variance optimization: {e}")
+            self.logger.error("Error in minimum variance optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
     async def _optimize_maximum_sharpe(self, expected_returns: np.ndarray,
@@ -1521,7 +1524,7 @@ class PortfolioOptimizer:
             return self._create_equal_weights(self.returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"Error in maximum Sharpe optimization: {e}")
+            self.logger.error("Error in maximum Sharpe optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
 
@@ -1552,7 +1555,7 @@ class PortfolioOptimizer:
             return await self._optimize_mean_variance_with_returns(mu_bl, covariance_matrix, parameters)
 
         except Exception as e:
-            self.logger.error(f"Error in Black-Litterman optimization: {e}")
+            self.logger.error("Error in Black-Litterman optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
     async def _optimize_with_ml(self, returns_data: pd.DataFrame,
@@ -1576,7 +1579,7 @@ class PortfolioOptimizer:
             return await self._optimize_mean_variance_with_returns(combined_returns, covariance_matrix, parameters)
 
         except Exception as e:
-            self.logger.error(f"Error in ML optimization: {e}")
+            self.logger.error("Error in ML optimization: %s", e)
             return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)
 
     async def _optimize_multi_objective(self, expected_returns: np.ndarray,
@@ -1636,7 +1639,7 @@ class PortfolioOptimizer:
                 return self._create_equal_weights(self.returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"Error in multi-objective optimization: {e}")
+            self.logger.error("Error in multi-objective optimization: %s", e)
             return self._create_equal_weights(self.returns_data.columns)
 
     # ==========================================================================
@@ -1739,7 +1742,7 @@ class PortfolioOptimizer:
                 return self._create_equal_weights(returns_data.columns)
 
         except Exception as e:
-            self.logger.error(f"RiskFolio optimization error: {e}")
+            self.logger.error("RiskFolio optimization error: %s", e)
             return self._create_equal_weights(returns_data.columns)
 
     def _validate_optimization_inputs(self, returns_data: pd.DataFrame,
@@ -1750,13 +1753,13 @@ class PortfolioOptimizer:
             return False
 
         if len(returns_data) < self.parameters.lookback_window:
-            self.logger.warning(f"Insufficient data: {len(returns_data)} < {self.parameters.lookback_window}")
+            self.logger.warning("Insufficient data: %s < %s", len(returns_data), self.parameters.lookback_window)
 
         if current_weights:
             # Check if all assets in weights are in returns data
             missing_assets = set(current_weights.keys()) - set(returns_data.columns)
             if missing_assets:
-                self.logger.warning(f"Assets in weights not in returns data: {missing_assets}")
+                self.logger.warning("Assets in weights not in returns data: %s", missing_assets)
 
         return True
 
@@ -1783,7 +1786,7 @@ class PortfolioOptimizer:
             return expected_returns
 
         except Exception as e:
-            self.logger.error(f"Error calculating expected returns: {e}")
+            self.logger.error("Error calculating expected returns: %s", e)
             return np.zeros(len(returns_data.columns))
 
     async def _calculate_covariance_matrix(self, returns_data: pd.DataFrame,
@@ -1802,7 +1805,7 @@ class PortfolioOptimizer:
             return covariance_matrix
 
         except Exception as e:
-            self.logger.error(f"Error calculating covariance matrix: {e}")
+            self.logger.error("Error calculating covariance matrix: %s", e)
             # Return identity matrix as fallback
             n_assets = len(returns_data.columns)
             return np.eye(n_assets) * 0.04  # 20% volatility assumption
@@ -1814,7 +1817,7 @@ class PortfolioOptimizer:
         while self._running:
             try:
                 # This would integrate with market data and position feeds
-                time.sleep(REBALANCING_FREQUENCY)  # thread-safe: time.sleep() intentional
+                self._stop_event.wait(timeout=REBALANCING_FREQUENCY)
 
                 # Check for rebalancing triggers
                 self._check_rebalancing_triggers()
@@ -1829,8 +1832,8 @@ class PortfolioOptimizer:
                 self._cleanup_old_data()
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(60)  # thread-safe: time.sleep() intentional
+                self.logger.error("Error in monitoring loop: %s", e)
+                self._stop_event.wait(timeout=60)
 
         self.logger.info("Portfolio optimization monitoring loop stopped")
 
@@ -1858,7 +1861,7 @@ class PortfolioOptimizer:
             self.logger.info("Portfolio optimizer cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1926,7 +1929,7 @@ async def main():
         # Create sample scenario
         logging.info("\n📊 Creating sample optimization scenario...")
         scenario = create_sample_optimization_scenario()
-        logging.info(f"   Created scenario: {scenario['assets']} assets, {scenario['periods']} periods")
+        logging.info("   Created scenario: %s assets, %s periods", scenario['assets'], scenario['periods'])
 
         # Test portfolio optimization
         logging.info("\n🚀 Testing portfolio optimization...")
@@ -1950,9 +1953,9 @@ async def main():
         recommendation = await optimizer.generate_rebalancing_recommendation(result)
 
         logging.info(f"   Total Turnover: {recommendation.total_turnover:.1%}")
-        logging.info(f"   Urgency Level: {recommendation.urgency_level}/5")
-        logging.info(f"   Implementation Complexity: {recommendation.get_implementation_complexity()}")
-        logging.info(f"   Expected Benefits: {len(recommendation.expected_benefits)} items")
+        logging.info("   Urgency Level: %s/5", recommendation.urgency_level)
+        logging.info("   Implementation Complexity: %s", recommendation.get_implementation_complexity())
+        logging.info("   Expected Benefits: %s items", len(recommendation.expected_benefits))
 
         # Test different optimization methods
         logging.info("\n🧪 Testing different optimization methods...")
@@ -1978,7 +1981,7 @@ async def main():
         end_date = scenario['returns_data'].index[200]
 
         attribution = optimizer.calculate_performance_attribution(start_date, end_date)
-        logging.info(f"   Attribution Period: {start_date.date()} to {end_date.date()}")
+        logging.info("   Attribution Period: %s to %s", start_date.date(), end_date.date())
         logging.info(f"   Total Return: {attribution.total_return:.2%}")
         logging.info(f"   Active Return: {attribution.active_return:.2%}")
         logging.info(f"   Information Ratio: {attribution.information_ratio:.3f}")
@@ -1998,10 +2001,10 @@ async def main():
         # Get optimizer summary
         summary = optimizer.get_optimizer_summary()
         logging.info("\n📊 OPTIMIZER SUMMARY:")
-        logging.info(f"   Status: {summary['optimizer_status']['status'].upper()}")
-        logging.info(f"   Total Optimizations: {summary['optimizer_status']['total_optimizations']}")
-        logging.info(f"   Method: {summary['configuration']['method'].upper()}")
-        logging.info(f"   Constraints: {summary['configuration']['constraints_count']}")
+        logging.info("   Status: %s", summary['optimizer_status']['status'].upper())
+        logging.info("   Total Optimizations: %s", summary['optimizer_status']['total_optimizations'])
+        logging.info("   Method: %s", summary['configuration']['method'].upper())
+        logging.info("   Constraints: %s", summary['configuration']['constraints_count'])
 
         if summary.get('performance_metrics'):
             metrics = summary['performance_metrics']
@@ -2018,8 +2021,8 @@ async def main():
         # Test rebalancing execution
         logging.info("\n⚡ Testing rebalancing execution...")
         execution_result = optimizer.execute_rebalancing(recommendation, "gradual")
-        logging.info(f"   Execution ID: {execution_result['execution_id']}")
-        logging.info(f"   Execution Quality: {execution_result['execution_quality']}")
+        logging.info("   Execution ID: %s", execution_result['execution_id'])
+        logging.info("   Execution Quality: %s", execution_result['execution_quality'])
         logging.info(f"   Success Rate: {execution_result['success_rate']:.0%}")
 
         # Cleanup
@@ -2041,7 +2044,7 @@ async def main():
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
 if __name__ == "__main__":

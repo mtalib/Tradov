@@ -234,7 +234,7 @@ class VolatilityAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Error in volatility analysis: {e}")
+            self.logger.error("Error in volatility analysis: %s", e)
             self.error_handler.handle_error(e, "analyze")
             return self._get_default_analysis()
 
@@ -468,7 +468,7 @@ class VolatilityAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"GARCH forecast error: {e}")
+            self.logger.error("GARCH forecast error: %s", e)
             return None
 
     # ==========================================================================
@@ -535,7 +535,7 @@ class VolatilityAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"VIX analysis error: {e}")
+            self.logger.error("VIX analysis error: %s", e)
             return None
 
     # ==========================================================================

@@ -171,7 +171,7 @@ class TradingCalendar:
         # Initialize holidays automatically
         self._load_holidays()
 
-        self.logger.info(f"{self.__class__.__name__} initialized for {exchange.value}")
+        self.logger.info("%s initialized for %s", self.__class__.__name__, exchange.value)
 
     # ==========================================================================
     # PUBLIC METHODS - HOLIDAY MANAGEMENT
@@ -185,9 +185,9 @@ class TradingCalendar:
         """
         try:
             self._load_holidays()
-            self.logger.info(f"Holidays loaded: {len(self.holidays)} holidays")
+            self.logger.info("Holidays loaded: %s holidays", len(self.holidays))
         except Exception as e:
-            self.logger.error(f"Error loading holidays: {e}")
+            self.logger.error("Error loading holidays: %s", e)
             self.error_handler.handle_error(e, "load_holidays")
 
     def reload_holidays(self) -> None:
@@ -217,7 +217,7 @@ class TradingCalendar:
         else:
             self._add_holiday(holiday_date, name)
 
-        self.logger.info(f"Added custom holiday: {name} on {holiday_date}")
+        self.logger.info("Added custom holiday: %s on %s", name, holiday_date)
 
     # ==========================================================================
     # PUBLIC METHODS - TRADING DAY CHECKS
@@ -272,7 +272,7 @@ class TradingCalendar:
             return hours.market_open <= current_time <= hours.market_close
 
         except Exception as e:
-            self.logger.error(f"Error checking market status: {e}")
+            self.logger.error("Error checking market status: %s", e)
             return False
 
     def is_extended_hours(self, timestamp: datetime | None = None) -> bool:
@@ -310,7 +310,7 @@ class TradingCalendar:
             return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)
 
         except Exception as e:
-            self.logger.error(f"Error checking extended hours: {e}")
+            self.logger.error("Error checking extended hours: %s", e)
             return False
 
     # ==========================================================================
@@ -371,7 +371,7 @@ class TradingCalendar:
             return MarketStatus.CLOSED
 
         except Exception as e:
-            self.logger.error(f"Error getting market status: {e}")
+            self.logger.error("Error getting market status: %s", e)
             return MarketStatus.CLOSED
 
     def get_market_session(self, timestamp: datetime | None = None) -> MarketSession:
@@ -416,7 +416,7 @@ class TradingCalendar:
                 return MarketSession.CLOSED
 
         except Exception as e:
-            self.logger.error(f"Error getting market session: {e}")
+            self.logger.error("Error getting market session: %s", e)
             return MarketSession.CLOSED
 
     # ==========================================================================
@@ -444,7 +444,7 @@ class TradingCalendar:
                 return next_date
 
         # Fallback
-        self.logger.warning(f"Could not find next trading day within {max_days} days")
+        self.logger.warning("Could not find next trading day within %s days", max_days)
         return next_date
 
     def get_previous_trading_day(self, from_date: date | None = None) -> date:
@@ -469,7 +469,7 @@ class TradingCalendar:
                 return prev_date
 
         # Fallback
-        self.logger.warning(f"Could not find previous trading day within {max_days} days")
+        self.logger.warning("Could not find previous trading day within %s days", max_days)
         return prev_date
 
     def get_trading_days(self, start_date: date, end_date: date) -> list[date]:
@@ -628,7 +628,7 @@ class TradingCalendar:
         # Load custom holidays from file if exists
         self._load_custom_holidays()
 
-        self.logger.info(f"Loaded {len(self.holidays)} holidays")
+        self.logger.info("Loaded %s holidays", len(self.holidays))
 
     def _add_fixed_holidays(self, year: int):
         """Add fixed US market holidays for a given year."""
@@ -755,7 +755,7 @@ class TradingCalendar:
             return good_friday
 
         except Exception as e:
-            self.logger.error(f"Error calculating Good Friday for {year}: {e}")
+            self.logger.error("Error calculating Good Friday for %s: %s", year, e)
             return None
 
     def _load_custom_holidays(self):
@@ -769,10 +769,10 @@ class TradingCalendar:
                     holiday_date = datetime.strptime(holiday_str, "%Y-%m-%d").date()
                     self._add_holiday(holiday_date, name)
 
-                self.logger.info(f"Loaded {len(custom_holidays)} custom holidays")
+                self.logger.info("Loaded %s custom holidays", len(custom_holidays))
 
         except Exception as e:
-            self.logger.debug(f"No custom holidays loaded: {e}")
+            self.logger.debug("No custom holidays loaded: %s", e)
 
     def save_custom_holidays(self, filepath: str | None = None) -> bool:
         """
@@ -794,11 +794,11 @@ class TradingCalendar:
             with open(save_path, "w") as f:
                 json.dump(holidays_dict, f, indent=2)
 
-            self.logger.info(f"Saved {len(holidays_dict)} holidays to {save_path}")
+            self.logger.info("Saved %s holidays to %s", len(holidays_dict), save_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error saving holidays: {e}")
+            self.logger.error("Error saving holidays: %s", e)
             return False
 
     # ==========================================================================

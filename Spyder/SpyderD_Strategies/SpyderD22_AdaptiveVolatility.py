@@ -377,7 +377,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         self.hv_history = pd.DataFrame()
         self.regime_model = None
 
-        self.logger.info(f"{self.strategy_name} initialized")
+        self.logger.info("%s initialized", self.strategy_name)
 
         # RL volatility sizing model (optional)
         self._rl_vol_model = None
@@ -393,7 +393,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             import os
             if model_path:
                 self._rl_vol_model = PPO.load(model_path)
-                self.logger.info(f"RL vol sizing model loaded from {model_path}")
+                self.logger.info("RL vol sizing model loaded from %s", model_path)
             else:
                 default_path = "models/rl/vol_sizing/vol_sizing_PPO_final"
                 if os.path.exists(default_path + ".zip"):
@@ -403,7 +403,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
                     self._rl_vol_enabled = False
         except Exception as e:
             self._rl_vol_enabled = False
-            self.logger.warning(f"Failed to load RL vol model: {e}")
+            self.logger.warning("Failed to load RL vol model: %s", e)
 
     def _get_rl_position_size(
         self,
@@ -461,7 +461,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             return size_mults[action]
 
         except Exception as e:
-            self.logger.warning(f"RL vol sizing failed: {e}")
+            self.logger.warning("RL vol sizing failed: %s", e)
             return None
 
     def analyze_market_conditions(self, market_data: dict[str, Any]) -> Signal:
@@ -518,7 +518,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             return Signal(action="HOLD")
 
         except Exception as e:
-            self.logger.error(f"Error analyzing volatility: {e}")
+            self.logger.error("Error analyzing volatility: %s", e)
             self.error_handler.handle_error(e, {"method": "analyze_market_conditions"})
             return Signal(action="HOLD")
 
@@ -585,7 +585,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             )
 
         except Exception as e:
-            self.logger.error(f"Error calculating volatility metrics: {e}")
+            self.logger.error("Error calculating volatility metrics: %s", e)
             # Return default metrics
             return VolatilityMetrics(
                 spot_price=market_data.get('SPY', {}).get('last', 450),

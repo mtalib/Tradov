@@ -436,7 +436,7 @@ class DataCollector:
             with self._data_lock:
                 self.diagnostic_history.append(report)
 
-            self.logger.debug(f"Stored diagnostic report {report.report_id}")
+            self.logger.debug("Stored diagnostic report %s", report.report_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, "store_diagnostic_report")

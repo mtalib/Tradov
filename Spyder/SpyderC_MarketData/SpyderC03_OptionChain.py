@@ -442,7 +442,7 @@ class OptionChainManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start Option Chain Manager: {e}", exc_info=True)
+            self.logger.error("Failed to start Option Chain Manager: %s", e, exc_info=True)
             return False
 
     def stop(self):
@@ -460,7 +460,7 @@ class OptionChainManager:
             self.logger.info("Option Chain Manager stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping Option Chain Manager: {e}", exc_info=True)
+            self.logger.error("Error stopping Option Chain Manager: %s", e, exc_info=True)
 
     def load_chain(self, expiry: datetime.date) -> bool:
         """
@@ -486,11 +486,11 @@ class OptionChainManager:
             # Get option contracts from data provider
             self._request_option_contracts(expiry)
 
-            self.logger.info(f"Loading option chain for {expiry}")
+            self.logger.info("Loading option chain for %s", expiry)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error loading chain for {expiry}: {e}", exc_info=True)
+            self.logger.error("Error loading chain for %s: %s", expiry, e, exc_info=True)
             return False
 
     def get_chain(self, expiry: datetime.date) -> OptionChain | None:
@@ -660,7 +660,7 @@ class OptionChainManager:
                 time.sleep(0.1)  # thread-safe: time.sleep() intentional
 
         except Exception as e:
-            self.logger.error(f"Error loading initial chains: {e}", exc_info=True)
+            self.logger.error("Error loading initial chains: %s", e, exc_info=True)
 
     def _get_target_expiry_dates(self) -> list[datetime.date]:
         """Get target expiration dates based on DTE preferences"""
@@ -689,7 +689,7 @@ class OptionChainManager:
             self._create_option_contracts_for_expiry(expiry)
 
         except Exception as e:
-            self.logger.error(f"Error requesting contracts for {expiry}: {e}", exc_info=True)
+            self.logger.error("Error requesting contracts for %s: %s", expiry, e, exc_info=True)
 
     def _create_option_contracts_for_expiry(self, expiry: datetime.date):
         """Create option contracts around ATM for expiry"""
@@ -753,7 +753,7 @@ class OptionChainManager:
                 self._subscribe_to_chain_data(chain)
 
         except Exception as e:
-            self.logger.error(f"Error creating contracts for {expiry}: {e}", exc_info=True)
+            self.logger.error("Error creating contracts for %s: %s", expiry, e, exc_info=True)
 
     def _subscribe_to_chain_data(self, chain: OptionChain):
         """Subscribe to market data for option chain"""
@@ -783,7 +783,7 @@ class OptionChainManager:
             chain.status = ChainStatus.ACTIVE
 
         except Exception as e:
-            self.logger.error(f"Error subscribing to chain data: {e}", exc_info=True)
+            self.logger.error("Error subscribing to chain data: %s", e, exc_info=True)
             chain.status = ChainStatus.ERROR
 
     def _update_underlying_price(self):
@@ -794,7 +794,7 @@ class OptionChainManager:
             self.underlying_price = 500.0  # Placeholder
 
         except Exception as e:
-            self.logger.error(f"Error updating underlying price: {e}", exc_info=True)
+            self.logger.error("Error updating underlying price: %s", e, exc_info=True)
 
     def _matches_criteria(self, option: OptionContract, criteria: OptionSelectionCriteria, underlying_price: float) -> bool:
         """Check if option matches selection criteria"""
@@ -873,7 +873,7 @@ class OptionChainManager:
             option.last_update = datetime.datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error processing tick price for {ticker_id}: {e}", exc_info=True)
+            self.logger.error("Error processing tick price for %s: %s", ticker_id, e, exc_info=True)
 
     def _on_tick_size(self, ticker_id: int, tick_type: int, size: int):
         """Handle tick size updates"""
@@ -890,7 +890,7 @@ class OptionChainManager:
                 option.open_interest = size
 
         except Exception as e:
-            self.logger.error(f"Error processing tick size for {ticker_id}: {e}", exc_info=True)
+            self.logger.error("Error processing tick size for %s: %s", ticker_id, e, exc_info=True)
 
     def _on_tick_option_computation(self, ticker_id: int, tick_type: int,
                                    impl_vol: float, delta: float, opt_price: float,
@@ -928,13 +928,13 @@ class OptionChainManager:
             option.last_update = datetime.datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error processing option computation for {ticker_id}: {e}", exc_info=True)
+            self.logger.error("Error processing option computation for %s: %s", ticker_id, e, exc_info=True)
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
         """Handle data provider errors"""
         if req_id in self.active_subscriptions:
             option = self.active_subscriptions[req_id]
-            self.logger.error(f"Option data error [{option.symbol} {option.strike} {option.option_type.value}]: {error_code} - {error_string}")
+            self.logger.error("Option data error [%s %s %s]: %s - %s", option.symbol, option.strike, option.option_type.value, error_code, error_string)
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
@@ -952,7 +952,7 @@ class OptionChainManager:
             try:
                 self.ib_client.ib.cancelMktData(ticker_id)
             except Exception as e:
-                self.logger.warning(f"Error cancelling subscription {ticker_id}: {e}", exc_info=True)
+                self.logger.warning("Error cancelling subscription %s: %s", ticker_id, e, exc_info=True)
 
         self.active_subscriptions.clear()
 
@@ -975,7 +975,7 @@ class OptionChainManager:
                 time.sleep(CHAIN_UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Update loop error: {e}", exc_info=True)
+                self.logger.error("Update loop error: %s", e, exc_info=True)
                 time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Option chain update loop stopped")
@@ -990,7 +990,7 @@ class OptionChainManager:
                 if current_time - chain.last_update > stale_threshold:
                     if chain.status == ChainStatus.ACTIVE:
                         chain.status = ChainStatus.STALE
-                        self.logger.warning(f"Chain {chain.expiry} marked as stale")
+                        self.logger.warning("Chain %s marked as stale", chain.expiry)
 
     def _publish_chain_status(self):
         """Publish chain status event"""
@@ -1020,7 +1020,7 @@ class OptionChainManager:
             self.event_manager.publish(event)
 
         except Exception as e:
-            self.logger.error(f"Error publishing chain status: {e}", exc_info=True)
+            self.logger.error("Error publishing chain status: %s", e, exc_info=True)
 
 # ==============================================================================
 # UTILITY FUNCTIONS

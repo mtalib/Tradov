@@ -62,6 +62,14 @@ except Exception as _e:
     create_ml_research_agent = None  # type: ignore
 
 try:
+    from .SpyderX06_BacktestingAgent import (
+        SpyderX06_BacktestingAgent, get_backtesting_agent)
+except Exception as _e:
+    _import_errors.append(f"X06: {_e}")
+    SpyderX06_BacktestingAgent = None  # type: ignore
+    get_backtesting_agent = None  # type: ignore
+
+try:
     from .SpyderX07_ExecutionStrategyAgent import (
         SpyderX07_ExecutionStrategyAgent, create_execution_strategy_agent)
 except Exception as _e:
@@ -119,7 +127,7 @@ except Exception as _e:
 
 if _import_errors:
     for _err in _import_errors:
-        _logger.warning(f"Agent import failed: {_err}")
+        _logger.warning("Agent import failed: %s", _err)
 
 # ==============================================================================
 # PACKAGE EXPORTS
@@ -140,6 +148,9 @@ __all__ = [
     # ML Research Agent
     "SpyderX05_MLResearchAgent",
     "create_ml_research_agent",
+    # Backtesting Agent
+    "SpyderX06_BacktestingAgent",
+    "get_backtesting_agent",
     # Execution Strategy Agent
     "SpyderX07_ExecutionStrategyAgent",
     "create_execution_strategy_agent",
@@ -261,13 +272,32 @@ if SpyderX13_MarketAnalysisAgent is not None:
         "capabilities": ["pattern_recognition", "regime_detection", "trend_analysis"],
     }
 
+# X14–X16 — additional agent modules
+try:
+    from .SpyderX14_OrchestratorAgent import SpyderX14_OrchestratorAgent
+    __all__.extend(["SpyderX14_OrchestratorAgent"])
+except ImportError as e:
+    logging.info("Warning: SpyderX14_OrchestratorAgent not available: %s", e)
+
+try:
+    from .SpyderX15_StrategyGeneratorAgent import SimplifiedStrategyGenerator
+    __all__.extend(["SimplifiedStrategyGenerator"])
+except ImportError as e:
+    logging.info("Warning: SpyderX15_StrategyGeneratorAgent not available: %s", e)
+
+try:
+    from .SpyderX16_MetaCoordinator import MetaCoordinator
+    __all__.extend(["MetaCoordinator"])
+except ImportError as e:
+    logging.info("Warning: SpyderX16_MetaCoordinator not available: %s", e)
+
 # ==============================================================================
 # PACKAGE INITIALIZATION
 # ==============================================================================
 
 # Set up package logger
 logger = logging.getLogger(__name__)
-logger.info(f"{__package_name__} package initialized (v{__version__})")
+logger.info("%s package initialized (v%s)", __package_name__, __version__)
 
 # Log available agents
-logger.info(f"Available AI agents: {list(AGENT_REGISTRY.keys())}")
+logger.info("Available AI agents: %s", list(AGENT_REGISTRY.keys()))

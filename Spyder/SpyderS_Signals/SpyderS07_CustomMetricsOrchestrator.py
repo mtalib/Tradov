@@ -220,7 +220,7 @@ class CustomMetricsOrchestrator(QObject):
         self.update_timer.timeout.connect(self.update_all_metrics)
         self.update_timer.setInterval(self.current_update_interval * 1000)
 
-        self.logger.info(f"CustomMetricsOrchestrator initialized (Client ID: {CLIENT_ID})")
+        self.logger.info("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
         self.logger.info("⚠️ Regime detection functions removed - now handled by L09_UnifiedRegimeEngine")
 
         # Auto-start if configured
@@ -235,7 +235,7 @@ class CustomMetricsOrchestrator(QObject):
                 self.dix_calculator = get_calculator_instance()
                 self.logger.info("✅ S01_DIXCalculator initialized")
             except Exception as e:
-                self.logger.error(f"Failed to init DIX: {e}", exc_info=True)
+                self.logger.error("Failed to init DIX: %s", e, exc_info=True)
                 self.dix_calculator = None
         else:
             self.dix_calculator = None
@@ -246,7 +246,7 @@ class CustomMetricsOrchestrator(QObject):
                 self.swan_indicator = get_black_swan_indicator()
                 self.logger.info("✅ S03_BlackSwanIndicator initialized")
             except Exception as e:
-                self.logger.error(f"Failed to init SWAN: {e}", exc_info=True)
+                self.logger.error("Failed to init SWAN: %s", e, exc_info=True)
                 self.swan_indicator = None
         else:
             self.swan_indicator = None
@@ -257,7 +257,7 @@ class CustomMetricsOrchestrator(QObject):
                 self.gex_calculator = GEXDEXCalculator()
                 self.logger.info("✅ S05_GEXDEXCalculator initialized")
             except Exception as e:
-                self.logger.error(f"Failed to init GEX: {e}", exc_info=True)
+                self.logger.error("Failed to init GEX: %s", e, exc_info=True)
                 self.gex_calculator = None
         else:
             self.gex_calculator = None
@@ -268,7 +268,7 @@ class CustomMetricsOrchestrator(QObject):
                 self.skew_calculator = get_skew_calculator()
                 self.logger.info("✅ S06_SKEWCalculator initialized")
             except Exception as e:
-                self.logger.error(f"Failed to init SKEW: {e}", exc_info=True)
+                self.logger.error("Failed to init SKEW: %s", e, exc_info=True)
                 self.skew_calculator = None
         else:
             self.skew_calculator = None
@@ -302,7 +302,7 @@ class CustomMetricsOrchestrator(QObject):
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
 
         except Exception as e:
-            self.logger.error(f"Failed to start orchestrator: {e}", exc_info=True)
+            self.logger.error("Failed to start orchestrator: %s", e, exc_info=True)
             self.error_occurred.emit(f"Startup failed: {str(e)}")
 
     def stop(self):
@@ -315,7 +315,7 @@ class CustomMetricsOrchestrator(QObject):
             self.connection_status_changed.emit(False, f"Client {CLIENT_ID} Stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping orchestrator: {e}", exc_info=True)
+            self.logger.error("Error stopping orchestrator: %s", e, exc_info=True)
 
     def update_all_metrics(self):
         """Update all metrics from S-Series calculators"""
@@ -378,7 +378,7 @@ class CustomMetricsOrchestrator(QObject):
                 )
 
         except Exception as e:
-            self.logger.error(f"Critical error updating metrics: {e}", exc_info=True)
+            self.logger.error("Critical error updating metrics: %s", e, exc_info=True)
             self.error_occurred.emit(str(e))
 
     def _update_gex_metrics(self, updated_metrics: dict, errors: list) -> bool:
@@ -401,7 +401,7 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"GEX update error: {e}")
-            self.logger.error(f"GEX update error: {e}", exc_info=True)
+            self.logger.error("GEX update error: %s", e, exc_info=True)
             # Use previous values
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
@@ -428,7 +428,7 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"DIX update error: {e}")
-            self.logger.error(f"DIX update error: {e}", exc_info=True)
+            self.logger.error("DIX update error: %s", e, exc_info=True)
             updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
             return False
 
@@ -453,7 +453,7 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"SWAN update error: {e}")
-            self.logger.error(f"SWAN update error: {e}", exc_info=True)
+            self.logger.error("SWAN update error: %s", e, exc_info=True)
             updated_metrics["SWAN"] = self.current_metrics.get("SWAN", 1.85)
             return False
 
@@ -475,7 +475,7 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"SKEW update error: {e}")
-            self.logger.error(f"SKEW update error: {e}", exc_info=True)
+            self.logger.error("SKEW update error: %s", e, exc_info=True)
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
 
@@ -521,7 +521,7 @@ class CustomMetricsOrchestrator(QObject):
             self.stress_history.append((datetime.now(), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
 
-            self.logger.info(f"🎯 Market stress level changed to: {new_stress_level.value.upper()}")
+            self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())
 
         # Adjust update frequency if needed
         if new_interval != self.current_update_interval:
@@ -529,7 +529,7 @@ class CustomMetricsOrchestrator(QObject):
             self.update_timer.setInterval(new_interval * 1000)
             self.last_frequency_change = datetime.now()
 
-            self.logger.info(f"⚡ Update frequency adjusted to {new_interval}s (stress: {new_stress_level.value})")
+            self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""

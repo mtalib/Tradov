@@ -24,7 +24,8 @@ Change Log:
 # ==============================================================================
 import asyncio
 import time
-from typing import Callable, Any
+from typing import Any
+from collections.abc import Callable
 from enum import Enum, auto
 from dataclasses import dataclass
 from functools import wraps
@@ -112,7 +113,7 @@ class CircuitBreaker:
         self.lock = threading.Lock()
         self.expected_exception = expected_exception or Exception
 
-        logger.info(f"{self.name} initialized (threshold={failure_threshold}, timeout={recovery_timeout}s)")
+        logger.info("%s initialized (threshold=%s, timeout=%ss)", self.name, failure_threshold, recovery_timeout)
 
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         """
@@ -135,7 +136,7 @@ class CircuitBreaker:
                 if self._should_attempt_reset():
                     self.state = CircuitState.HALF_OPEN
                     self.success_count = 0
-                    logger.info(f"{self.name} entering HALF_OPEN state")
+                    logger.info("%s entering HALF_OPEN state", self.name)
                 else:
                     raise CircuitBreakerError(
                         f"Circuit is OPEN: {self.name} "
@@ -175,7 +176,7 @@ class CircuitBreaker:
                 if self.success_count >= self.config.success_threshold:
                     self.state = CircuitState.CLOSED
                     self.success_count = 0
-                    logger.info(f"{self.name} recovered - circuit CLOSED")
+                    logger.info("%s recovered - circuit CLOSED", self.name)
 
     def _on_failure(self, exception: Exception):
         """Handle failed call"""
@@ -186,7 +187,7 @@ class CircuitBreaker:
             if self.state == CircuitState.HALF_OPEN:
                 # Failed during recovery test
                 self.state = CircuitState.OPEN
-                logger.warning(f"{self.name} recovery failed - circuit OPEN")
+                logger.warning("%s recovery failed - circuit OPEN", self.name)
 
             elif self.failure_count >= self.config.failure_threshold:
                 # Too many failures
@@ -276,7 +277,7 @@ class CircuitBreaker:
             self.failure_count = 0
             self.success_count = 0
             self.last_failure_time = None
-            logger.info(f"{self.name} manually reset")
+            logger.info("%s manually reset", self.name)
 
     def get_stats(self) -> dict:
         """Get circuit breaker statistics"""

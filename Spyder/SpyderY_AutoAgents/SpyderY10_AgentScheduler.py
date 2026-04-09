@@ -102,10 +102,12 @@ class AgentScheduler:
         ollama_config: OllamaConfig | None = None,
         message_bus: Any | None = None,
         state_dir: Path | None = None,
+        telegram_bot: Any | None = None,
     ):
         self.ollama_config = ollama_config or OllamaConfig.from_env()
         self.message_bus = message_bus
         self.state_dir = state_dir or Path("data/agent_state")
+        self.telegram_bot = telegram_bot
 
         self._agents: dict[str, BaseAutoAgent] = {}
         self._agent_classes: dict[str, type[BaseAutoAgent]] = {}
@@ -143,7 +145,7 @@ class AgentScheduler:
         self._agent_classes[agent.AGENT_ID] = agent_class
         self._restart_counts[agent.AGENT_ID] = 0
         logger.info(
-            f"Registered agent: {agent.AGENT_NAME} (id={agent.AGENT_ID})"
+            "Registered agent: %s (id=%s)", agent.AGENT_NAME, agent.AGENT_ID
         )
         return agent
 
@@ -155,14 +157,14 @@ class AgentScheduler:
             del self._agents[agent_id]
             del self._agent_classes[agent_id]
             del self._restart_counts[agent_id]
-            logger.info(f"Unregistered agent: {agent_id}")
+            logger.info("Unregistered agent: %s", agent_id)
 
     # ==========================================================================
     # LIFECYCLE
     # ==========================================================================
     def start_all(self) -> None:
         """Start all registered agents and the health monitor."""
-        logger.info(f"Starting {len(self._agents)} agents...")
+        logger.info("Starting %s agents...", len(self._agents))
         self._stop_event.clear()
         self._started = True
 
@@ -173,9 +175,9 @@ class AgentScheduler:
         for _agent_id, agent in self._agents.items():
             try:
                 agent.start()
-                logger.info(f"  ✓ {agent.AGENT_NAME} started")
+                logger.info("  ✓ %s started", agent.AGENT_NAME)
             except Exception as e:
-                logger.error(f"  ✗ {agent.AGENT_NAME} failed to start: {e}", exc_info=True)
+                logger.error("  ✗ %s failed to start: %s", agent.AGENT_NAME, e, exc_info=True)
 
         # Start health monitoring
         self._health_thread = threading.Thread(
@@ -201,9 +203,9 @@ class AgentScheduler:
             agent = self._agents[agent_id]
             try:
                 agent.stop()
-                logger.info(f"  ✓ {agent.AGENT_NAME} stopped")
+                logger.info("  ✓ %s stopped", agent.AGENT_NAME)
             except Exception as e:
-                logger.error(f"  ✗ {agent.AGENT_NAME} failed to stop: {e}", exc_info=True)
+                logger.error("  ✗ %s failed to stop: %s", agent.AGENT_NAME, e, exc_info=True)
 
         if self._health_thread and self._health_thread.is_alive():
             self._health_thread.join(timeout=5)
@@ -214,13 +216,13 @@ class AgentScheduler:
         """Start a specific agent by ID."""
         agent = self._agents.get(agent_id)
         if not agent:
-            logger.warning(f"Agent not found: {agent_id}")
+            logger.warning("Agent not found: %s", agent_id)
             return False
         try:
             agent.start()
             return True
         except Exception as e:
-            logger.error(f"Failed to start {agent_id}: {e}", exc_info=True)
+            logger.error("Failed to start %s: %s", agent_id, e, exc_info=True)
             return False
 
     def stop_agent(self, agent_id: str) -> bool:
@@ -232,7 +234,7 @@ class AgentScheduler:
             agent.stop()
             return True
         except Exception as e:
-            logger.error(f"Failed to stop {agent_id}: {e}", exc_info=True)
+            logger.error("Failed to stop %s: %s", agent_id, e, exc_info=True)
             return False
 
     def pause_agent(self, agent_id: str) -> bool:
@@ -276,6 +278,19 @@ class AgentScheduler:
                 f"Agent {agent_id} has failed {restarts} times — not restarting. "
                 f"Manual intervention required."
             )
+            if self.telegram_bot is not None:
+                try:
+                    self.telegram_bot.send_alert(
+                        title="Agent Failure — Manual Intervention Required",
+                        message=(
+                            f"Agent <b>{agent_id}</b> has failed {restarts} times "
+                            f"and will not be restarted automatically. "
+                            f"Manual intervention is required."
+                        ),
+                        severity="critical",
+                    )
+                except Exception as _alert_err:
+                    logger.warning("Failed to send Telegram alert: %s", _alert_err)
             return
 
         self._restart_counts[agent_id] = restarts + 1
@@ -304,9 +319,9 @@ class AgentScheduler:
             self._agents[agent_id] = new_agent
             try:
                 new_agent.start()
-                logger.info(f"Agent {agent_id} restarted successfully")
+                logger.info("Agent %s restarted successfully", agent_id)
             except Exception as e:
-                logger.error(f"Agent {agent_id} restart failed: {e}", exc_info=True)
+                logger.error("Agent %s restart failed: %s", agent_id, e, exc_info=True)
 
     # ==========================================================================
     # STATUS & DASHBOARD
@@ -370,7 +385,7 @@ class AgentScheduler:
     def _signal_handler(self, signum: int, frame: Any) -> None:
         """Handle SIGINT/SIGTERM for graceful shutdown."""
         sig_name = signal.Signals(signum).name
-        logger.info(f"Received {sig_name} — initiating graceful shutdown...")
+        logger.info("Received %s — initiating graceful shutdown...", sig_name)
         self.stop_all()
 
     # ==========================================================================

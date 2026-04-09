@@ -34,7 +34,6 @@ import logging
 # ==============================================================================
 import pandas as pd
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 class CircuitBreakerLevel(Enum):
     """Circuit breaker levels based on S&P 500 decline."""
@@ -197,7 +196,7 @@ class SpyderCircuitBreakerProtocol:
         try:
             await self._execute_level_protocols(new_level)
         except Exception as exc:
-            logger.error(f"Level protocol execution failed for {new_level.value}: {exc}")
+            logger.error("Level protocol execution failed for %s: %s", new_level.value, exc)
             raise
         # Commit new level only after protocols executed successfully
         self.current_level = new_level
@@ -219,7 +218,7 @@ class SpyderCircuitBreakerProtocol:
             self.halt_end_time = datetime.fromtimestamp(halt_end)
         else:
             self.halt_end_time = None  # Market closed
-        logger.critical(f"MARKET HALT TRIGGERED - Level: {level.value}")
+        logger.critical("MARKET HALT TRIGGERED - Level: %s", level.value)
         # Cancel all pending orders
         if self.order_manager:
             await self.order_manager.cancel_all_orders(
@@ -330,7 +329,7 @@ class SpyderCircuitBreakerProtocol:
                     urgency=action.urgency
                 )
         except Exception as e:
-            logger.error(f"Failed to execute action {action.action}: {str(e)}")
+            logger.error("Failed to execute action %s: %s", action.action, str(e))
     async def check_order_restrictions(self, order_type: str) -> tuple[bool, str]:
         """
         Check if an order type is allowed under current conditions.
@@ -364,7 +363,7 @@ class SpyderCircuitBreakerProtocol:
             return
         if datetime.now() >= self.halt_end_time:
             self.halt_active = False
-            logger.info(f"Market halt ended for {self.current_level.value}")
+            logger.info("Market halt ended for %s", self.current_level.value)
             # Execute post-halt protocols
             await self._execute_post_halt_protocols()
     async def _execute_post_halt_protocols(self):
@@ -397,7 +396,7 @@ class SpyderCircuitBreakerProtocol:
                     force=True  # Override normal restrictions
                 )
             except Exception as e:
-                logger.error(f"Failed to flatten position {position['id']}: {str(e)}")
+                logger.error("Failed to flatten position %s: %s", position['id'], str(e))
     async def _get_current_positions(self) -> list[dict]:
         """Get current positions from risk manager."""
         if self.risk_manager:
@@ -459,17 +458,17 @@ async def main():
         status = await protocol.monitor_market_conditions(price, market_open)
         decline_pct = ((price - market_open) / market_open) * 100
         logging.info(f"\nPrice: ${price:.2f} (Decline: {decline_pct:.1f}%)")
-        logging.info(f"Level: {status.level.value}")
-        logging.info(f"Halt Active: {status.halt_active}")
+        logging.info("Level: %s", status.level.value)
+        logging.info("Halt Active: %s", status.halt_active)
         if status.required_actions:
             logging.info("Required Actions:")
             for action in status.required_actions:
-                logging.info(f"  - {action}")
+                logging.info("  - %s", action)
         # Check order restrictions
         for order_type in ['MARKET', 'LIMIT']:
             allowed, reason = await protocol.check_order_restrictions(order_type)
             if not allowed:
-                logging.info(f"  {order_type} orders: BLOCKED - {reason}")
+                logging.info("  %s orders: BLOCKED - %s", order_type, reason)
         await asyncio.sleep(1)  # Simulate time passing
 if __name__ == "__main__":
     asyncio.run(main())

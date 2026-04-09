@@ -177,6 +177,7 @@ class MarketDataCache:
 
         # Cleanup thread
         self._cleanup_running = False
+        self._cleanup_event = threading.Event()
         self._cleanup_thread = None
         if auto_cleanup:
             self._start_cleanup_thread()
@@ -189,6 +190,7 @@ class MarketDataCache:
     def _start_cleanup_thread(self) -> None:
         """Start background cleanup thread."""
         self._cleanup_running = True
+        self._cleanup_event.clear()
         self._cleanup_thread = threading.Thread(
             target=self._cleanup_loop,
             daemon=True,
@@ -198,8 +200,7 @@ class MarketDataCache:
 
     def _cleanup_loop(self) -> None:
         """Background cleanup loop for expired entries."""
-        while self._cleanup_running:
-            time.sleep(CLEANUP_INTERVAL_SECONDS)  # thread-safe: time.sleep() intentional
+        while not self._cleanup_event.wait(CLEANUP_INTERVAL_SECONDS):
             self._remove_expired()
 
     def _remove_expired(self) -> int:
@@ -216,7 +217,7 @@ class MarketDataCache:
                 self._stats.expirations += 1
 
         if removed > 0:
-            self.logger.debug(f"Removed {removed} expired cache entries")
+            self.logger.debug("Removed %s expired cache entries", removed)
         return removed
 
     def _generate_key(
@@ -268,7 +269,7 @@ class MarketDataCache:
 
         del self._cache[key]
         self._stats.evictions += 1
-        self.logger.debug(f"Evicted cache entry: {key}")
+        self.logger.debug("Evicted cache entry: %s", key)
 
     def set(
         self,
@@ -664,6 +665,7 @@ class MarketDataCache:
     def shutdown(self) -> None:
         """Shutdown the cache and cleanup thread."""
         self._cleanup_running = False
+        self._cleanup_event.set()
         if self._cleanup_thread and self._cleanup_thread.is_alive():
             self._cleanup_thread.join(timeout=5)
         self.clear()

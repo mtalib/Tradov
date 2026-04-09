@@ -290,7 +290,7 @@ class MLModelManager:
                         })
                         mlflow.log_artifact(str(model_path))
                 except Exception as _mlflow_exc:
-                    self.logger.debug(f"MLflow logging skipped: {_mlflow_exc}")
+                    self.logger.debug("MLflow logging skipped: %s", _mlflow_exc)
 
             # Calculate model hash
             model_hash = self._calculate_model_hash(model_path)
@@ -334,11 +334,11 @@ class MLModelManager:
                 )
             )
 
-            self.logger.info(f"Registered model {name} v{version} with ID {model_id}")
+            self.logger.info("Registered model %s v%s with ID %s", name, version, model_id)
             return model_id
 
         except Exception as e:
-            self.logger.error(f"Error registering model: {e}")
+            self.logger.error("Error registering model: %s", e)
             self.error_handler.handle_error(e, "register_model")
             raise
 
@@ -381,11 +381,11 @@ class MLModelManager:
                 # Update database
                 self._update_model_status(model_id, target_status)
 
-            self.logger.info(f"Promoted model {model_id} from {old_status} to {target_status}")
+            self.logger.info("Promoted model %s from %s to %s", model_id, old_status, target_status)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error promoting model: {e}")
+            self.logger.error("Error promoting model: %s", e)
             return False
 
     # ==========================================================================
@@ -454,13 +454,13 @@ class MLModelManager:
             )
 
             self.logger.info(
-                f"Created A/B test {test_id}: {control_model_id} vs {treatment_model_id}"
+                "Created A/B test %s: %s vs %s", test_id, control_model_id, treatment_model_id
             )
 
             return test_id
 
         except Exception as e:
-            self.logger.error(f"Error creating A/B test: {e}")
+            self.logger.error("Error creating A/B test: %s", e)
             raise
 
     def update_ab_test_metrics(
@@ -503,7 +503,7 @@ class MLModelManager:
                 self._analyze_ab_test(test_id)
 
         except Exception as e:
-            self.logger.error(f"Error updating A/B test metrics: {e}")
+            self.logger.error("Error updating A/B test metrics: %s", e)
 
     def get_ab_test_results(self, test_id: str) -> ABTestResult | None:
         """Get A/B test results"""
@@ -541,7 +541,7 @@ class MLModelManager:
                     self._check_performance_degradation(model_id)
 
         except Exception as e:
-            self.logger.error(f"Error tracking model performance: {e}")
+            self.logger.error("Error tracking model performance: %s", e)
 
     def get_model_performance_summary(
         self,
@@ -584,7 +584,7 @@ class MLModelManager:
             return summary
 
         except Exception as e:
-            self.logger.error(f"Error getting performance summary: {e}")
+            self.logger.error("Error getting performance summary: %s", e)
             return {}
 
     # ==========================================================================
@@ -652,12 +652,12 @@ class MLModelManager:
                         self._archive_model_files(model_id)
                         archived_count += 1
 
-                        self.logger.info(f"Archived model {model_id}")
+                        self.logger.info("Archived model %s", model_id)
 
             return archived_count
 
         except Exception as e:
-            self.logger.error(f"Error archiving models: {e}")
+            self.logger.error("Error archiving models: %s", e)
             return 0
 
     # ==========================================================================
@@ -744,7 +744,7 @@ class MLModelManager:
                             )
 
         except Exception as e:
-            self.logger.error(f"Error checking performance degradation: {e}")
+            self.logger.error("Error checking performance degradation: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - A/B TESTING
@@ -792,7 +792,7 @@ class MLModelManager:
             result.confidence_level = CONFIDENCE_LEVEL
 
         except Exception as e:
-            self.logger.error(f"Error analyzing A/B test: {e}")
+            self.logger.error("Error analyzing A/B test: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
@@ -876,7 +876,7 @@ class MLModelManager:
             ))
 
         except Exception as e:
-            self.logger.error(f"Error saving model to database: {e}")
+            self.logger.error("Error saving model to database: %s", e)
 
     def _update_model_status(self, model_id: str, status: ModelStatus) -> None:
         """Update model status in database"""
@@ -892,7 +892,7 @@ class MLModelManager:
             db.execute(query, (status.value, datetime.now(), model_id))
 
         except Exception as e:
-            self.logger.error(f"Error updating model status: {e}")
+            self.logger.error("Error updating model status: %s", e)
 
     def _archive_model_files(self, model_id: str) -> None:
         """Archive model files"""
@@ -912,7 +912,7 @@ class MLModelManager:
                 shutil.move(str(config_file), str(archive_path / config_file.name))
 
         except Exception as e:
-            self.logger.error(f"Error archiving model files: {e}")
+            self.logger.error("Error archiving model files: %s", e)
 
     def _load_registry(self) -> None:
         """Load model registry from database"""
@@ -970,10 +970,10 @@ class MLModelManager:
                 if model_version.status == ModelStatus.PRODUCTION:
                     self.active_models[model_version.name] = model_version.model_id
 
-            self.logger.info(f"Loaded {len(self.model_registry)} models from registry")
+            self.logger.info("Loaded %s models from registry", len(self.model_registry))
 
         except Exception as e:
-            self.logger.error(f"Error loading model registry: {e}")
+            self.logger.error("Error loading model registry: %s", e)
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to relevant events"""
@@ -995,7 +995,7 @@ class MLModelManager:
                     self.track_model_performance(model_id, event.data['metrics'])
 
         except Exception as e:
-            self.logger.error(f"Error handling trading event: {e}")
+            self.logger.error("Error handling trading event: %s", e)
 
     # ==========================================================================
     # RAY DISTRIBUTED COMPUTING (Phase 3)
@@ -1095,7 +1095,7 @@ class MLModelManager:
                     'training_time': _time.time() - start,
                 }
 
-        self.logger.info(f"Ray model training: {len(model_configs)} models")
+        self.logger.info("Ray model training: %s models", len(model_configs))
 
         futures = [
             _train_single_model.remote(cfg, data_ref)
@@ -1124,7 +1124,7 @@ class MLModelManager:
     def _train_models_sequential(self, model_configs: list[dict[str, Any]],
                                   training_data: pd.DataFrame | None = None) -> dict[str, Any]:
         """Fallback sequential model training when Ray is not available."""
-        self.logger.info(f"Sequential model training: {len(model_configs)} models")
+        self.logger.info("Sequential model training: %s models", len(model_configs))
         results = []
         for cfg in model_configs:
             results.append({

@@ -351,7 +351,7 @@ class MarketAnalysisEngine:
             )
 
         except Exception as e:
-            self.logger.error(f"Market environment analysis failed: {e}")
+            self.logger.error("Market environment analysis failed: %s", e)
             # Return neutral environment
             return MarketEnvironment(
                 timestamp=datetime.now(),
@@ -566,11 +566,11 @@ class SpreadConstructionEngine:
             elif spread_type == CreditSpreadType.BEAR_CALL_SPREAD:
                 return self._construct_bear_call_spread(market_env)
             else:
-                self.logger.warning(f"Unknown spread type: {spread_type}")
+                self.logger.warning("Unknown spread type: %s", spread_type)
                 return None
 
         except Exception as e:
-            self.logger.error(f"Spread construction failed: {e}")
+            self.logger.error("Spread construction failed: %s", e)
             return None
 
     def _select_optimal_spread_type(self, market_env: MarketEnvironment) -> CreditSpreadType:
@@ -600,7 +600,7 @@ class SpreadConstructionEngine:
             return CreditSpreadType.BULL_PUT_SPREAD
 
         except Exception as e:
-            self.logger.error(f"Spread type selection failed: {e}")
+            self.logger.error("Spread type selection failed: %s", e)
             return CreditSpreadType.BULL_PUT_SPREAD
 
     def _construct_bull_put_spread(self, market_env: MarketEnvironment) -> CreditSpreadParameters:
@@ -646,7 +646,7 @@ class SpreadConstructionEngine:
             )
 
         except Exception as e:
-            self.logger.error(f"Bull put spread construction failed: {e}")
+            self.logger.error("Bull put spread construction failed: %s", e)
             raise
 
     def _construct_bear_call_spread(self, market_env: MarketEnvironment) -> CreditSpreadParameters:
@@ -692,7 +692,7 @@ class SpreadConstructionEngine:
             )
 
         except Exception as e:
-            self.logger.error(f"Bear call spread construction failed: {e}")
+            self.logger.error("Bear call spread construction failed: %s", e)
             raise
 
     def _calculate_optimal_short_strike(self, current_price: float,
@@ -833,14 +833,14 @@ class UnifiedCreditSpreadEngine:
                 self.regime_engine = get_unified_regime_engine()
                 self.logger.info("Connected to unified regime engine")
             except Exception as e:
-                self.logger.warning(f"Could not connect to regime engine: {e}")
+                self.logger.warning("Could not connect to regime engine: %s", e)
 
         if RISK_COORDINATOR_AVAILABLE:
             try:
                 self.risk_coordinator = get_unified_risk_coordinator()
                 self.logger.info("Connected to unified risk coordinator")
             except Exception as e:
-                self.logger.warning(f"Could not connect to risk coordinator: {e}")
+                self.logger.warning("Could not connect to risk coordinator: %s", e)
 
         # Position management
         self.active_positions: dict[str, CreditSpreadPosition] = {}
@@ -908,7 +908,7 @@ class UnifiedCreditSpreadEngine:
             return None
 
         except Exception as e:
-            self.logger.error(f"Spread opportunity analysis failed: {e}")
+            self.logger.error("Spread opportunity analysis failed: %s", e)
             return None
 
     def _are_conditions_favorable(self, market_env: MarketEnvironment) -> bool:
@@ -945,27 +945,27 @@ class UnifiedCreditSpreadEngine:
         try:
             # Check credit amount
             if params.target_credit < MIN_PREMIUM_TARGET:
-                self.logger.debug(f"Credit too low: {params.target_credit}")
+                self.logger.debug("Credit too low: %s", params.target_credit)
                 return False
 
             if params.target_credit > MAX_PREMIUM_TARGET:
-                self.logger.debug(f"Credit too high: {params.target_credit}")
+                self.logger.debug("Credit too high: %s", params.target_credit)
                 return False
 
             # Check probability of profit
             if params.probability_profit < MIN_PROBABILITY_PROFIT:
-                self.logger.debug(f"PoP too low: {params.probability_profit}")
+                self.logger.debug("PoP too low: %s", params.probability_profit)
                 return False
 
             # Check max loss ratio
             loss_ratio = params.max_loss / params.target_credit
             if loss_ratio > MAX_LOSS_RATIO:
-                self.logger.debug(f"Loss ratio too high: {loss_ratio}")
+                self.logger.debug("Loss ratio too high: %s", loss_ratio)
                 return False
 
             # Check spread width
             if params.spread_width < MIN_SPREAD_WIDTH or params.spread_width > MAX_SPREAD_WIDTH:
-                self.logger.debug(f"Spread width out of range: {params.spread_width}")
+                self.logger.debug("Spread width out of range: %s", params.spread_width)
                 return False
 
             return True
@@ -1031,7 +1031,7 @@ class UnifiedCreditSpreadEngine:
             return position_id
 
         except Exception as e:
-            self.logger.error(f"Credit spread execution failed: {e}")
+            self.logger.error("Credit spread execution failed: %s", e)
             return None
 
     async def manage_positions(self, market_data: pd.DataFrame) -> list[dict[str, Any]]:
@@ -1070,7 +1070,7 @@ class UnifiedCreditSpreadEngine:
                             positions_to_close.append(position_id)
 
                 except Exception as e:
-                    self.logger.error(f"Position {position_id} management failed: {e}")
+                    self.logger.error("Position %s management failed: %s", position_id, e)
 
             # Close positions that need closing
             for position_id in positions_to_close:
@@ -1079,7 +1079,7 @@ class UnifiedCreditSpreadEngine:
             return actions
 
         except Exception as e:
-            self.logger.error(f"Position management failed: {e}")
+            self.logger.error("Position management failed: %s", e)
             return []
 
     def _update_position_metrics(self, position: CreditSpreadPosition, current_price: float):
@@ -1122,7 +1122,7 @@ class UnifiedCreditSpreadEngine:
             self._update_position_state(position, current_price)
 
         except Exception as e:
-            self.logger.error(f"Position metrics update failed: {e}")
+            self.logger.error("Position metrics update failed: %s", e)
 
     def _update_position_state(self, position: CreditSpreadPosition, current_price: float):
         """Update position state based on current conditions"""
@@ -1149,7 +1149,7 @@ class UnifiedCreditSpreadEngine:
             position.state = SpreadState.ACTIVE
 
         except Exception as e:
-            self.logger.error(f"Position state update failed: {e}")
+            self.logger.error("Position state update failed: %s", e)
 
     def _evaluate_position_action(self, position: CreditSpreadPosition,
                                 current_price: float) -> str | None:
@@ -1229,7 +1229,7 @@ class UnifiedCreditSpreadEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Position closing failed: {e}")
+            self.logger.error("Position closing failed: %s", e)
             return False
 
     async def _get_current_regime(self) -> str | None:

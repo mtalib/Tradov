@@ -244,18 +244,18 @@ class EmailNotifier:
             recipient.email = validation.email
 
             self.recipients[recipient.email] = recipient
-            self.logger.info(f"Added recipient: {recipient.email}")
+            self.logger.info("Added recipient: %s", recipient.email)
             return True
 
         except EmailNotValidError as e:
-            self.logger.error(f"Invalid email address: {e}")
+            self.logger.error("Invalid email address: %s", e)
             return False
 
     def remove_recipient(self, email: str) -> None:
         """Remove email recipient"""
         if email in self.recipients:
             del self.recipients[email]
-            self.logger.info(f"Removed recipient: {email}")
+            self.logger.info("Removed recipient: %s", email)
 
     def update_recipient_preferences(
         self,
@@ -265,7 +265,7 @@ class EmailNotifier:
         """Update recipient notification preferences"""
         if email in self.recipients:
             self.recipients[email].notification_types = notification_types
-            self.logger.info(f"Updated preferences for: {email}")
+            self.logger.info("Updated preferences for: %s", email)
 
     # ==========================================================================
     # NOTIFICATION METHODS
@@ -511,7 +511,7 @@ class EmailNotifier:
                 if success:
                     item.status = EmailStatus.SENT
                     self.stats['sent'] += 1
-                    self.logger.info(f"Email sent: {item.message.subject}")
+                    self.logger.info("Email sent: %s", item.message.subject)
                 else:
                     item.attempts += 1
                     item.last_attempt = datetime.now()
@@ -519,15 +519,15 @@ class EmailNotifier:
                     if item.attempts >= MAX_RETRIES:
                         item.status = EmailStatus.FAILED
                         self.stats['failed'] += 1
-                        self.logger.error(f"Email failed after {MAX_RETRIES} attempts: {item.message.subject}")
+                        self.logger.error("Email failed after %s attempts: %s", MAX_RETRIES, item.message.subject)
                     else:
                         item.status = EmailStatus.RETRYING
                         self.stats['retried'] += 1
                         self.email_queue.put(item)  # Re-queue
-                        self.logger.warning(f"Email retry scheduled: {item.message.subject}")
+                        self.logger.warning("Email retry scheduled: %s", item.message.subject)
 
             except Exception as e:
-                self.logger.error(f"Error in sender loop: {e}")
+                self.logger.error("Error in sender loop: %s", e)
                 self.error_handler.handle_error(e, "_sender_loop")
 
     def _send_email(self, item: EmailQueueItem) -> bool:
@@ -577,7 +577,7 @@ class EmailNotifier:
 
         except Exception as e:
             item.error = str(e)
-            self.logger.error(f"Failed to send email: {e}")
+            self.logger.error("Failed to send email: %s", e)
             return False
 
     def _add_attachment(
@@ -593,7 +593,7 @@ class EmailNotifier:
 
             # Check size
             if len(data) > MAX_ATTACHMENT_SIZE:
-                self.logger.warning(f"Attachment too large: {filename}")
+                self.logger.warning("Attachment too large: %s", filename)
                 return
 
             # Create attachment
@@ -609,7 +609,7 @@ class EmailNotifier:
             msg.attach(part)
 
         except Exception as e:
-            self.logger.error(f"Error adding attachment: {e}")
+            self.logger.error("Error adding attachment: %s", e)
 
     # ==========================================================================
     # TEMPLATE RENDERING
@@ -642,7 +642,7 @@ class EmailNotifier:
             template = self.template_env.get_template(template_name)
             return template.render(**context)
         except Exception as e:
-            self.logger.error(f"Error rendering template {template_name}: {e}")
+            self.logger.error("Error rendering template %s: %s", template_name, e)
             return f"Error rendering template: {e}"
 
     def _create_default_templates(self) -> None:
@@ -725,7 +725,7 @@ This is an automated notification from {{ system_name }}.
         item = EmailQueueItem(message=message)
         self.email_queue.put(item)
 
-        self.logger.debug(f"Email queued: {message.subject}")
+        self.logger.debug("Email queued: %s", message.subject)
 
     def _html_to_text(self, html: str) -> str:
         """Convert HTML to plain text"""
@@ -768,7 +768,7 @@ This is an automated notification from {{ system_name }}.
             return True
 
         except Exception as e:
-            self.logger.error(f"SMTP connection test failed: {e}")
+            self.logger.error("SMTP connection test failed: %s", e)
             return False
 
 # ==============================================================================

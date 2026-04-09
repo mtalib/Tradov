@@ -1004,7 +1004,7 @@ class DiagnosticsUtilities:
         with open(report_path, 'w') as f:
             json.dump(report_dict, f, indent=2, default=str)
 
-        self.logger.info(f"Report saved to: {report_path}")
+        self.logger.info("Report saved to: %s", report_path)
         return report_path
 
 # ==============================================================================

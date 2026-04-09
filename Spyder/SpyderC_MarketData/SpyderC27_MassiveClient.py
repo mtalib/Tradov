@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -82,7 +81,8 @@ import os
 import time
 import threading
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from enum import Enum
 from dataclasses import dataclass, field
 from collections import deque
@@ -91,11 +91,11 @@ from collections import deque
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    import massive as _massive_sdk          # noqa: F401 (presence check)
+    import massive as _massive_sdk
     HAS_MASSIVE = True
 except ImportError:
     try:
-        import polygon as _massive_sdk      # noqa: F401 (polygon-api-client)
+        import polygon as _massive_sdk
         HAS_MASSIVE = True
     except ImportError:
         HAS_MASSIVE = False
@@ -162,6 +162,16 @@ MESSAGE_BUFFER_SIZE: int = 2000
 
 # Massive option chain default filters for SPY (strike within ±10% OTM)
 DEFAULT_OPTION_LIMIT: int = 500        # max contracts per chain snapshot
+
+# Polygon/Massive "I:" index tickers for NYSE market breadth indicators.
+# These require a Massive/Polygon subscription that includes Indices data.
+# Maps Polygon index ticker → C04 INTERNAL_SYMBOLS key.
+_MASSIVE_INTERNALS_MAP: dict[str, str] = {
+    "I:VOLD":  "VOLD",   # NYSE Up/Down Volume (not available from Tradier)
+    "I:TICK":  "TICK",   # NYSE Tick Index     (also available from Tradier)
+    "I:ADD":   "ADD",    # NYSE Advance/Decline (also available from Tradier)
+    "I:TRIN":  "TRIN",   # NYSE Arms Index      (also available from Tradier)
+}
 
 # ==============================================================================
 # ENUMS
@@ -302,6 +312,7 @@ class MassiveClient:
             align_internals()             — merge $TICK/$TRIN onto bars via merge_asof
             build_option_ticker()         — construct O: ticker from strike/expiry/type
             get_market_status()           — NYSE/NASDAQ open/closed state
+            get_market_internals()        — live NYSE breadth indicators (VOLD, TICK, ADD, TRIN)
 
         WebSocket streaming (real-time):
             start_stream()           — subscribe to quotes and/or trades
@@ -506,7 +517,7 @@ class MassiveClient:
                 },
             )
         except Exception as exc:
-            logger.error(f"MassiveClient.get_quote({symbol}) failed: {exc}")
+            logger.error("MassiveClient.get_quote(%s) failed: %s", symbol, exc)
             return NormalizedQuote(symbol=symbol)
 
     def get_quotes_batch(self, symbols: list[str]) -> dict[str, "NormalizedQuote"]:
@@ -577,11 +588,11 @@ class MassiveClient:
             ):
                 results.append(self._normalize_option_snapshot(snapshot))
             logger.debug(
-                f"MassiveClient.get_option_chain({underlying}): {len(results)} contracts"
+                "MassiveClient.get_option_chain(%s): %s contracts", underlying, len(results)
             )
             return results
         except Exception as exc:
-            logger.error(f"MassiveClient.get_option_chain({underlying}) failed: {exc}")
+            logger.error("MassiveClient.get_option_chain(%s) failed: %s", underlying, exc)
             return []
 
     def get_option_expirations(self, underlying: str) -> list[str]:
@@ -663,7 +674,7 @@ class MassiveClient:
 
             if not rows:
                 logger.warning(
-                    f"MassiveClient.get_historical_bars({symbol}): no data returned"
+                    "MassiveClient.get_historical_bars(%s): no data returned", symbol
                 )
                 return pd.DataFrame()
 
@@ -676,7 +687,7 @@ class MassiveClient:
             return df
 
         except Exception as exc:
-            logger.error(f"MassiveClient.get_historical_bars({symbol}) failed: {exc}")
+            logger.error("MassiveClient.get_historical_bars(%s) failed: %s", symbol, exc)
             return pd.DataFrame()
 
     def get_market_status(self) -> dict[str, Any]:
@@ -700,8 +711,75 @@ class MassiveClient:
                 "currencies":  dict(getattr(status, "currencies", {}) or {}),
             }
         except Exception as exc:
-            logger.error(f"MassiveClient.get_market_status() failed: {exc}")
+            logger.error("MassiveClient.get_market_status() failed: %s", exc)
             return {"market": "unknown", "server_time": "", "exchanges": {}, "currencies": {}}
+
+    def get_market_internals(
+        self,
+        symbols: list[str] | None = None,
+    ) -> dict[str, float]:
+        """
+        Fetch live NYSE market breadth internals from Massive (Polygon) index API.
+
+        Returns real-time values for breadth indicators, most importantly VOLD
+        (NYSE Up/Down Volume) which is not available from Tradier. The result
+        dict uses the same key names as C04's INTERNAL_SYMBOLS (VOLD, TICK,
+        ADD, TRIN) so callers can pass values directly to
+        MarketInternalsAnalyzer.update_internal().
+
+        Requires a Massive/Polygon subscription that includes Indices data.
+        Index tickers use the "I:" prefix (Polygon Indices format).
+
+        Args:
+            symbols: Polygon index tickers to fetch. Defaults to the full set
+                     defined in _MASSIVE_INTERNALS_MAP:
+                     ["I:VOLD", "I:TICK", "I:ADD", "I:TRIN"].
+                     Pass ["I:VOLD"] to fetch only VOLD (recommended when
+                     Tradier already covers TICK/ADD/TRIN).
+
+        Returns:
+            Dict mapping INTERNAL_SYMBOLS key → float value.
+            Example: {"VOLD": 1_234_567_890.0, "TICK": 342.0}
+            Symbols that fail or return zero are omitted.
+
+        Example::
+
+            internals = client.get_market_internals(["I:VOLD"])
+            # → {"VOLD": 1500000000.0}
+            analyzer.update_internal("VOLD", internals.get("VOLD", 0.0))
+        """
+        if symbols is None:
+            symbols = list(_MASSIVE_INTERNALS_MAP.keys())
+
+        rest = self._get_rest()
+        result: dict[str, float] = {}
+        try:
+            for snapshot in self._rest_call(rest.list_snapshot_indices, tickers=symbols):
+                ticker = getattr(snapshot, "ticker", "") or ""
+                internal_key = _MASSIVE_INTERNALS_MAP.get(ticker)
+                if not internal_key:
+                    continue
+
+                # Prefer session.close (latest intraday print), then top-level value.
+                session = getattr(snapshot, "session", None)
+                value: float = 0.0
+                if session is not None:
+                    value = float(getattr(session, "close", 0.0) or 0.0)
+                if value == 0.0:
+                    value = float(getattr(snapshot, "value", 0.0) or 0.0)
+
+                if value != 0.0:
+                    result[internal_key] = value
+
+            logger.debug(
+                "MassiveClient.get_market_internals(): %s value(s) fetched (%s)",
+                len(result),
+                list(result.keys()),
+            )
+        except Exception as exc:
+            logger.error("MassiveClient.get_market_internals() failed: %s", exc)
+
+        return result
 
     # ==========================================================================
     # REST — HISTORICAL OPTIONS DATA (BACKTESTING)
@@ -786,7 +864,7 @@ class MassiveClient:
             )
         """
         ticker = self.build_option_ticker(underlying, expiration, option_type, strike)
-        logger.info(f"MassiveClient.get_option_bars: ticker={ticker}")
+        logger.info("MassiveClient.get_option_bars: ticker=%s", ticker)
         # Options prices are not split-adjusted (adjusted=False)
         return self.get_historical_bars(
             ticker, start, end,
@@ -943,7 +1021,7 @@ class MassiveClient:
         safe_date = date.replace("-", "")
         parquet_path = os.path.join(cache_dir, f"{safe_date}.parquet")
         if os.path.exists(parquet_path):
-            logger.info(f"MassiveClient.download_flat_file: cache hit → {parquet_path}")
+            logger.info("MassiveClient.download_flat_file: cache hit → %s", parquet_path)
             try:
                 if use_polars:
                     try:
@@ -975,12 +1053,12 @@ class MassiveClient:
         df = None
 
         logger.info(
-            f"MassiveClient.download_flat_file: downloading {data_type} for {date} …"
+            "MassiveClient.download_flat_file: downloading %s for %s …", data_type, date
         )
         try:
             urllib.request.urlretrieve(url, gz_path)
             logger.info(
-                f"MassiveClient.download_flat_file: download complete → {gz_path}"
+                "MassiveClient.download_flat_file: download complete → %s", gz_path
             )
 
             # Parse: polars fast path or pandas
@@ -1009,14 +1087,14 @@ class MassiveClient:
 
         except Exception as exc:
             logger.error(
-                f"MassiveClient.download_flat_file({date}, {data_type}) failed: {exc}"
+                "MassiveClient.download_flat_file(%s, %s) failed: %s", date, data_type, exc
             )
             # Clean up partial download if present
             if os.path.exists(gz_path):
                 try:
                     os.remove(gz_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Could not remove partial download %s: %s", gz_path, e)
             return pd.DataFrame() if HAS_PANDAS else None  # type: ignore[return-value]
 
     @staticmethod
@@ -1185,7 +1263,7 @@ class MassiveClient:
             self._ws_thread.start()
 
         logger.info(
-            f"MassiveClient stream starting: symbols={symbols}, subs={subs}"
+            "MassiveClient stream starting: symbols=%s, subs=%s", symbols, subs
         )
 
     def stop_stream(self) -> None:
@@ -1236,7 +1314,7 @@ class MassiveClient:
                 except Exception:
                     pass
 
-        logger.info(f"MassiveClient subscriptions updated: {subs}")
+        logger.info("MassiveClient subscriptions updated: %s", subs)
 
     # ==========================================================================
     # WEBSOCKET — PRIVATE IMPLEMENTATION
@@ -1328,7 +1406,7 @@ class MassiveClient:
             subscriptions=subscriptions,
         )
         self._set_status(ConnectionStatus.STREAMING)
-        logger.info(f"MassiveClient: WebSocket connected, subscriptions={subscriptions}")
+        logger.info("MassiveClient: WebSocket connected, subscriptions=%s", subscriptions)
         # run() is blocking — returns on clean close or exception
         self._ws_client.run(handle_msg=self._handle_messages)
         # If execution reaches here, the connection closed cleanly
@@ -1482,7 +1560,7 @@ class MassiveClient:
                 try:
                     self.on_status_change(new_status)
                 except Exception as exc:
-                    logger.error(f"MassiveClient: on_status_change callback error: {exc}")
+                    logger.error("MassiveClient: on_status_change callback error: %s", exc)
 
     # ==========================================================================
     # STRING REPRESENTATION
@@ -1532,62 +1610,62 @@ def create_massive_client_from_env() -> MassiveClient:
 if __name__ == "__main__":
     import sys
 
-    print("MassiveClient self-test")
-    print(f"  massive SDK available: {HAS_MASSIVE}")
-    print(f"  pandas available:      {HAS_PANDAS}")
-    print(f"  PySide6 available:     {HAS_QT}")
+    print("MassiveClient self-test")  # noqa: T201
+    print(f"  massive SDK available: {HAS_MASSIVE}")  # noqa: T201
+    print(f"  pandas available:      {HAS_PANDAS}")  # noqa: T201
+    print(f"  PySide6 available:     {HAS_QT}")  # noqa: T201
 
     key = os.environ.get("MASSIVE_API_KEY", "")
     if not key:
-        print("\nSet MASSIVE_API_KEY in env to run a live test.")
+        print("\nSet MASSIVE_API_KEY in env to run a live test.")  # noqa: T201
         sys.exit(0)
 
     client = MassiveClient(api_key=key)
-    print(f"\n{client}")
+    print(f"\n{client}")  # noqa: T201
 
-    print("\n--- Market status ---")
+    print("\n--- Market status ---")  # noqa: T201
     status = client.get_market_status()
-    print(f"  market: {status.get('market')}")
+    print(f"  market: {status.get('market')}")  # noqa: T201
 
-    print("\n--- SPY quote (REST) ---")
+    print("\n--- SPY quote (REST) ---")  # noqa: T201
     q = client.get_quote("SPY")
-    print(f"  bid={q.bid}  ask={q.ask}  mid={q.mid:.2f}  spread={q.spread:.2f}")
+    print(f"  bid={q.bid}  ask={q.ask}  mid={q.mid:.2f}  spread={q.spread:.2f}")  # noqa: T201
 
-    print("\n--- Historical 1-min bars (SPY equity) ---")
+    print("\n--- Historical 1-min bars (SPY equity) ---")  # noqa: T201
     df = client.get_historical_bars("SPY", "2026-01-02", "2026-01-03", timespan="minute")
-    print(f"  rows={len(df)}, columns={list(df.columns)}")
+    print(f"  rows={len(df)}, columns={list(df.columns)}")  # noqa: T201
     if not df.empty:
-        print(f"  last bar:\n{df.tail(1)}")
+        print(f"  last bar:\n{df.tail(1)}")  # noqa: T201
 
-    print("\n--- build_option_ticker() ---")
+    print("\n--- build_option_ticker() ---")  # noqa: T201
     ticker_call = MassiveClient.build_option_ticker("SPY", "2026-06-19", "call", 600.0)
     ticker_put  = MassiveClient.build_option_ticker("SPY", "2026-03-21", "put",  582.5)
-    print(f"  call ticker: {ticker_call}")   # O:SPY260619C00600000
-    print(f"  put  ticker: {ticker_put}")    # O:SPY260321P00582500
+    print(f"  call ticker: {ticker_call}")   # O:SPY260619C00600000  # noqa: T201
+    print(f"  put  ticker: {ticker_put}")    # O:SPY260321P00582500  # noqa: T201
 
-    print("\n--- get_option_bars() (single contract) ---")
+    print("\n--- get_option_bars() (single contract) ---")  # noqa: T201
     opt_df = client.get_option_bars(
         "SPY", "2026-01-03", "call", 580.0,
         "2026-01-02", "2026-01-03", timespan="minute"
     )
-    print(f"  rows={len(opt_df)}" + (" (no data for this contract)" if opt_df.empty else ""))
+    print(f"  rows={len(opt_df)}" + (" (no data for this contract)" if opt_df.empty else ""))  # noqa: T201
     if not opt_df.empty:
-        print(f"  last bar:\n{opt_df.tail(1)}")
+        print(f"  last bar:\n{opt_df.tail(1)}")  # noqa: T201
 
-    print("\n--- get_historical_option_chain() (point-in-time, no survivorship bias) ---")
+    print("\n--- get_historical_option_chain() (point-in-time, no survivorship bias) ---")  # noqa: T201
     hist_chain = client.get_historical_option_chain(
         "SPY", "2026-01-15",
         expiration="2026-01-17",
         min_strike=570.0, max_strike=600.0,
     )
-    print(f"  contracts returned: {len(hist_chain)}")
+    print(f"  contracts returned: {len(hist_chain)}")  # noqa: T201
     if hist_chain:
         c = hist_chain[0]
-        print(f"  sample: {c['symbol']}  strike={c['strike']}  IV={c['implied_volatility']:.3f}"
+        print(f"  sample: {c['symbol']}  strike={c['strike']}  IV={c['implied_volatility']:.3f}"  # noqa: T201
               f"  delta={c['delta']:.3f}")
 
-    print("\n--- download_flat_file() note ---")
-    print("  Use client.download_flat_file('2026-03-21', data_type='options_quotes')")
-    print("  Requires Advanced Massive subscription. Files cached locally as Parquet.")
+    print("\n--- download_flat_file() note ---")  # noqa: T201
+    print("  Use client.download_flat_file('2026-03-21', data_type='options_quotes')")  # noqa: T201
+    print("  Requires Advanced Massive subscription. Files cached locally as Parquet.")  # noqa: T201
 
-    print("\nSelf-test complete.")
+    print("\nSelf-test complete.")  # noqa: T201

@@ -1166,7 +1166,7 @@ class GreeksBasedStrategy(BaseStrategy):
             if latency_ms <= self.max_latency_ms:
                 filtered.append(signal)
             else:
-                self.logger.warning(f"Signal {signal.signal_id} filtered due to latency: {latency_ms}ms")
+                self.logger.warning("Signal %s filtered due to latency: %sms", signal.signal_id, latency_ms)
 
         return filtered
 
@@ -1207,15 +1207,15 @@ class GreeksBasedStrategy(BaseStrategy):
 
             # High gamma opportunity
             if abs(greeks.gamma) > 0.05:
-                self.logger.info(f"High gamma detected: {greeks.symbol} gamma={greeks.gamma}")
+                self.logger.info("High gamma detected: %s gamma=%s", greeks.symbol, greeks.gamma)
 
             # High vega opportunity
             if abs(greeks.vega) > 0.30:
-                self.logger.info(f"High vega detected: {greeks.symbol} vega={greeks.vega}")
+                self.logger.info("High vega detected: %s vega=%s", greeks.symbol, greeks.vega)
 
             # Near-zero bid (exercise/assignment risk)
             if greeks.bid < 0.05 and greeks.delta > 0.90:
-                self.logger.warning(f"Deep ITM option near zero: {greeks.symbol}")
+                self.logger.warning("Deep ITM option near zero: %s", greeks.symbol)
 
         except Exception as e:
             self.error_handler.handle_error(e, {'method': '_check_greeks_opportunities'})
@@ -1272,7 +1272,7 @@ class GreeksBasedStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Opened Greeks position: {position.position_id}")
+            self.logger.info("Opened Greeks position: %s", position.position_id)
             return position
 
         except Exception as e:

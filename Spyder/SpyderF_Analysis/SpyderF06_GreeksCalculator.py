@@ -4,25 +4,29 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderF_Analysis
 Module: SpyderF06_GreeksCalculator.py
-Purpose: SPYDER - Automated SPY Options Trading System
+Purpose: BSM-based Greeks calculation for the F-Series analysis pipeline
+
+Architecture note:
+    SpyderV09_IVEngine is the **canonical** synchronous BSM/Greeks engine for
+    the V-Series quantitative stack (used by Z04 process workers and any module
+    that does not need F-Series indicator context).  SpyderF06 maintains its
+    own implementation to provide tight integration with F-Series indicators,
+    caching via cachetools, and support for both analytical and numerical Greeks
+    within the analysis pipeline.  Non-analysis callers should prefer V09.
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-04-01 Time: 00:00:00
 
 Module Description:
-    SPYDER - Automated SPY Options Trading System
-
-Change Log:
-    2026-01-16:
-        - Applied standard Python formatting
-        - Updated module header and structure
+    Analytical and numerical Greeks (delta, gamma, theta, vega, rho) with BSM
+    pricing, portfolio Greeks aggregation, and implied-volatility calculation.
+    Supports Black-Scholes European and approximate American option pricing.
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Union
 from enum import Enum
 import warnings
 
@@ -110,7 +114,7 @@ class GreeksCalculator:
             self.smile_interpolation = config.get('smile_interpolation', 'cubic')
 
         except Exception as e:
-            self.logger.warning(f"Could not load config, using defaults: {e}")
+            self.logger.warning("Could not load config, using defaults: %s", e)
             # Use default values
             self.binomial_steps = 100
             self.trinomial_steps = 100
@@ -152,9 +156,9 @@ class GreeksCalculator:
         r: float,
         sigma: float,
         option_type: str = 'call',
-        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        style: str | OptionStyle = OptionStyle.EUROPEAN,
         dividends: list[tuple[float, float]] | None = None,
-        model: Union[str, PricingModel] = PricingModel.AUTO
+        model: str | PricingModel = PricingModel.AUTO
     ) -> float:
         """
         Calculate option price with support for American options.
@@ -241,7 +245,7 @@ class GreeksCalculator:
             return price
 
         except Exception as e:
-            self.logger.error(f"Error calculating option price: {e}")
+            self.logger.error("Error calculating option price: %s", e)
             return 0.0
 
     def calculate_all_greeks(
@@ -252,9 +256,9 @@ class GreeksCalculator:
         r: float,
         sigma: float,
         option_type: str = 'call',
-        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        style: str | OptionStyle = OptionStyle.EUROPEAN,
         dividends: list[tuple[float, float]] | None = None,
-        model: Union[str, PricingModel] = PricingModel.AUTO
+        model: str | PricingModel = PricingModel.AUTO
     ) -> dict[str, float]:
         """
         Calculate all Greeks for an option.
@@ -310,7 +314,7 @@ class GreeksCalculator:
             return greeks
 
         except Exception as e:
-            self.logger.error(f"Error calculating Greeks: {e}")
+            self.logger.error("Error calculating Greeks: %s", e)
             return {
                 'price': 0.0,
                 'delta': 0.0,
@@ -328,7 +332,7 @@ class GreeksCalculator:
         T: float,
         r: float,
         option_type: str = 'call',
-        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        style: str | OptionStyle = OptionStyle.EUROPEAN,
         dividends: list[tuple[float, float]] | None = None
     ) -> float | None:
         """
@@ -377,11 +381,11 @@ class GreeksCalculator:
                 return iv
 
             except Exception as e:
-                self.logger.warning(f"IV calculation failed: {e}")
+                self.logger.warning("IV calculation failed: %s", e)
                 return None
 
         except Exception as e:
-            self.logger.error(f"Error in implied volatility calculation: {e}")
+            self.logger.error("Error in implied volatility calculation: %s", e)
             return None
 
     # ==========================================================================
@@ -859,7 +863,7 @@ class GreeksCalculator:
 
     def calculate_portfolio_greeks(
         self,
-        positions: list[dict[str, Union[float, str]]]
+        positions: list[dict[str, float | str]]
     ) -> dict[str, float]:
         """
         Calculate aggregate Greeks for a portfolio of options.

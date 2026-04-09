@@ -31,7 +31,7 @@ from collections import deque
 from enum import Enum, auto
 from pathlib import Path
 import queue
-import pickle
+import joblib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -367,7 +367,7 @@ class TradingEngine:
         self._state_file = Path.home() / ".spyder" / "engine_state.pkl"
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
 
-        self.logger.info(f"TradingEngine initialized with {len(self.config)} config parameters")
+        self.logger.info("TradingEngine initialized with %s config parameters", len(self.config))
 
     def _init_circuit_breaker_config(self) -> CircuitBreakerConfig:
         """Initialize circuit breaker configuration"""
@@ -421,7 +421,7 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to set risk manager: {e}")
+            self.logger.error("Failed to set risk manager: %s", e)
             self.has_risk_manager = False
             return False
 
@@ -444,7 +444,7 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to set order manager: {e}")
+            self.logger.error("Failed to set order manager: %s", e)
             self.has_order_manager = False
             return False
 
@@ -467,14 +467,14 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to set position tracker: {e}")
+            self.logger.error("Failed to set position tracker: %s", e)
             self.has_position_tracker = False
             return False
 
     def _on_risk_alert(self, alert):
         """Handle risk alert from risk manager."""
         try:
-            self.logger.warning(f"Risk alert received: {alert.message}")
+            self.logger.warning("Risk alert received: %s", alert.message)
 
             # Emit risk alert event
             if self.event_manager:
@@ -490,18 +490,18 @@ class TradingEngine:
 
             # Take action based on severity
             if alert.severity.value == 'critical':
-                self.logger.critical(f"Critical risk alert: {alert.message}")
+                self.logger.critical("Critical risk alert: %s", alert.message)
                 # Consider pausing trading
                 if self.config.get('auto_pause_on_critical_risk', False):
                     self.pause(f"Critical risk alert: {alert.message}")
 
         except Exception as e:
-            self.logger.error(f"Risk alert handler error: {e}")
+            self.logger.error("Risk alert handler error: %s", e)
 
     def _on_risk_mitigation(self, alert):
         """Handle risk mitigation action from risk manager."""
         try:
-            self.logger.warning(f"Risk mitigation triggered: {alert.recommended_action}")
+            self.logger.warning("Risk mitigation triggered: %s", alert.recommended_action)
 
             # Take action based on mitigation type
             if alert.recommended_action.value == 'stop_trading':
@@ -514,7 +514,7 @@ class TradingEngine:
                 self._reduce_position_for_risk(alert.position_id)
 
         except Exception as e:
-            self.logger.error(f"Risk mitigation handler error: {e}")
+            self.logger.error("Risk mitigation handler error: %s", e)
 
     def _close_position_for_risk(self, position_id: str):
         """Close a position due to risk mitigation."""
@@ -533,10 +533,10 @@ class TradingEngine:
                 # Submit order
                 self.process_signal(position.strategy_id, close_order)
 
-                self.logger.info(f"Closing position {position_id} for risk mitigation")
+                self.logger.info("Closing position %s for risk mitigation", position_id)
 
         except Exception as e:
-            self.logger.error(f"Failed to close position for risk: {e}")
+            self.logger.error("Failed to close position for risk: %s", e)
 
     def _reduce_position_for_risk(self, position_id: str):
         """Reduce a position due to risk mitigation."""
@@ -558,10 +558,10 @@ class TradingEngine:
                     # Submit order
                     self.process_signal(position.strategy_id, reduce_order)
 
-                    self.logger.info(f"Reducing position {position_id} by {reduce_quantity} units")
+                    self.logger.info("Reducing position %s by %s units", position_id, reduce_quantity)
 
         except Exception as e:
-            self.logger.error(f"Failed to reduce position for risk: {e}")
+            self.logger.error("Failed to reduce position for risk: %s", e)
 
     # ==========================================================================
     # LIFECYCLE MANAGEMENT
@@ -577,7 +577,7 @@ class TradingEngine:
         try:
             with self._state_lock:
                 if self.state != EngineState.INITIALIZING:
-                    self.logger.warning(f"Cannot initialize from state: {self.state}")
+                    self.logger.warning("Cannot initialize from state: %s", self.state)
                     return False
 
                 self.logger.info("Initializing TradingEngine...")
@@ -597,7 +597,7 @@ class TradingEngine:
                         else:
                             self.logger.warning("Risk manager not available")
                     except Exception as e:
-                        self.logger.warning(f"Risk manager initialization failed: {e}")
+                        self.logger.warning("Risk manager initialization failed: %s", e)
 
                 # Set up event handlers
                 self._setup_event_handlers()
@@ -627,7 +627,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine initialization failed: {e}")
+            self.logger.error("TradingEngine initialization failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.initialize")
             self.state = EngineState.ERROR
             return False
@@ -642,7 +642,7 @@ class TradingEngine:
         try:
             with self._state_lock:
                 if self.state != EngineState.READY:
-                    self.logger.warning(f"Cannot start from state: {self.state}")
+                    self.logger.warning("Cannot start from state: %s", self.state)
                     return False
 
                 self.logger.info("Starting TradingEngine...")
@@ -681,7 +681,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine start failed: {e}")
+            self.logger.error("TradingEngine start failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
             return False
@@ -699,10 +699,10 @@ class TradingEngine:
         try:
             with self._state_lock:
                 if self.state not in [EngineState.RUNNING, EngineState.PAUSED, EngineState.ERROR]:
-                    self.logger.warning(f"Cannot stop from state: {self.state}")
+                    self.logger.warning("Cannot stop from state: %s", self.state)
                     return False
 
-                self.logger.info(f"Stopping TradingEngine: {reason}")
+                self.logger.info("Stopping TradingEngine: %s", reason)
 
                 # Signal shutdown
                 self._shutdown_event.set()
@@ -727,7 +727,7 @@ class TradingEngine:
                     self.performance.uptime_seconds = session_duration.total_seconds()
 
                 self.state = EngineState.STOPPED
-                self.logger.info(f"TradingEngine stopped successfully after {session_duration}")
+                self.logger.info("TradingEngine stopped successfully after %s", session_duration)
 
                 # Emit stop event
                 if self.event_manager:
@@ -744,7 +744,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine stop failed: {e}")
+            self.logger.error("TradingEngine stop failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.stop")
             return False
 
@@ -761,10 +761,10 @@ class TradingEngine:
         try:
             with self._state_lock:
                 if self.state != EngineState.RUNNING:
-                    self.logger.warning(f"Cannot pause from state: {self.state}")
+                    self.logger.warning("Cannot pause from state: %s", self.state)
                     return False
 
-                self.logger.info(f"Pausing TradingEngine: {reason}")
+                self.logger.info("Pausing TradingEngine: %s", reason)
 
                 # Pause all active strategies
                 for strategy_id in list(self.strategies.keys()):
@@ -786,7 +786,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine pause failed: {e}")
+            self.logger.error("TradingEngine pause failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.pause")
             return False
 
@@ -800,7 +800,7 @@ class TradingEngine:
         try:
             with self._state_lock:
                 if self.state != EngineState.PAUSED:
-                    self.logger.warning(f"Cannot resume from state: {self.state}")
+                    self.logger.warning("Cannot resume from state: %s", self.state)
                     return False
 
                 self.logger.info("Resuming TradingEngine...")
@@ -830,7 +830,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine resume failed: {e}")
+            self.logger.error("TradingEngine resume failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.resume")
             return False
 
@@ -865,7 +865,7 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"TradingEngine shutdown failed: {e}")
+            self.logger.error("TradingEngine shutdown failed: %s", e)
             return False
 
     # ==========================================================================
@@ -889,17 +889,17 @@ class TradingEngine:
             with self._strategy_lock:
                 # Check if already registered
                 if strategy_id in self.strategies:
-                    self.logger.warning(f"Strategy {strategy_id} already registered")
+                    self.logger.warning("Strategy %s already registered", strategy_id)
                     return False
 
                 # Check strategy limit
                 if len(self.strategies) >= self.max_strategies:
-                    self.logger.error(f"Maximum strategies ({self.max_strategies}) reached")
+                    self.logger.error("Maximum strategies (%s) reached", self.max_strategies)
                     return False
 
                 # Validate strategy instance
                 if not self._validate_strategy(strategy_instance):
-                    self.logger.error(f"Strategy {strategy_id} validation failed")
+                    self.logger.error("Strategy %s validation failed", strategy_id)
                     return False
 
                 # Create strategy info
@@ -918,7 +918,7 @@ class TradingEngine:
                 if self.state == EngineState.RUNNING:
                     self._initialize_strategy(strategy_id)
 
-                self.logger.info(f"Registered strategy: {strategy_id}")
+                self.logger.info("Registered strategy: %s", strategy_id)
 
                 # Emit registration event
                 if self.event_manager:
@@ -934,7 +934,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Strategy registration failed: {e}")
+            self.logger.error("Strategy registration failed: %s", e)
             self.error_handler.handle_error(e, f"register_strategy.{strategy_id}")
             return False
 
@@ -952,7 +952,7 @@ class TradingEngine:
         try:
             with self._strategy_lock:
                 if strategy_id not in self.strategies:
-                    self.logger.warning(f"Strategy {strategy_id} not found")
+                    self.logger.warning("Strategy %s not found", strategy_id)
                     return False
 
                 strategy_info = self.strategies[strategy_id]
@@ -960,7 +960,7 @@ class TradingEngine:
                 # Check for open positions
                 open_positions = self._get_strategy_positions(strategy_id)
                 if open_positions and not force:
-                    self.logger.error(f"Cannot unregister strategy {strategy_id} with {len(open_positions)} open positions")
+                    self.logger.error("Cannot unregister strategy %s with %s open positions", strategy_id, len(open_positions))
                     return False
 
                 # Stop strategy if active
@@ -973,7 +973,7 @@ class TradingEngine:
                 # Remove strategy
                 del self.strategies[strategy_id]
 
-                self.logger.info(f"Unregistered strategy: {strategy_id}")
+                self.logger.info("Unregistered strategy: %s", strategy_id)
 
                 # Emit unregistration event
                 if self.event_manager:
@@ -989,7 +989,7 @@ class TradingEngine:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Strategy unregistration failed: {e}")
+            self.logger.error("Strategy unregistration failed: %s", e)
             self.error_handler.handle_error(e, f"unregister_strategy.{strategy_id}")
             return False
 
@@ -999,7 +999,7 @@ class TradingEngine:
 
         for method in required_methods:
             if not hasattr(strategy_instance, method):
-                self.logger.error(f"Strategy missing required method: {method}")
+                self.logger.error("Strategy missing required method: %s", method)
                 return False
 
         return True
@@ -1022,11 +1022,11 @@ class TradingEngine:
                     return False
 
             strategy_info.state = StrategyState.ACTIVE
-            self.logger.info(f"Strategy {strategy_id} initialized successfully")
+            self.logger.info("Strategy %s initialized successfully", strategy_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"Strategy initialization failed: {e}")
+            self.logger.error("Strategy initialization failed: %s", e)
             if strategy_info:
                 strategy_info.state = StrategyState.ERROR
                 strategy_info.last_error = str(e)
@@ -1047,11 +1047,11 @@ class TradingEngine:
                 strategy_info.class_instance.stop(reason)
 
             strategy_info.state = StrategyState.STOPPED
-            self.logger.info(f"Strategy {strategy_id} stopped: {reason}")
+            self.logger.info("Strategy %s stopped: %s", strategy_id, reason)
             return True
 
         except Exception as e:
-            self.logger.error(f"Strategy stop failed: {e}")
+            self.logger.error("Strategy stop failed: %s", e)
             return False
 
     def _pause_strategy(self, strategy_id: str) -> bool:
@@ -1059,7 +1059,7 @@ class TradingEngine:
         strategy_info = self.strategies.get(strategy_id)
         if strategy_info and strategy_info.state == StrategyState.ACTIVE:
             strategy_info.state = StrategyState.PAUSED
-            self.logger.info(f"Strategy {strategy_id} paused")
+            self.logger.info("Strategy %s paused", strategy_id)
             return True
         return False
 
@@ -1068,7 +1068,7 @@ class TradingEngine:
         strategy_info = self.strategies.get(strategy_id)
         if strategy_info and strategy_info.state == StrategyState.PAUSED:
             strategy_info.state = StrategyState.ACTIVE
-            self.logger.info(f"Strategy {strategy_id} resumed")
+            self.logger.info("Strategy %s resumed", strategy_id)
             return True
         return False
 
@@ -1078,7 +1078,7 @@ class TradingEngine:
             # Close any open positions (if forced)
             positions = self._get_strategy_positions(strategy_id)
             for position in positions:
-                self.logger.warning(f"Force closing position {position.position_id}")
+                self.logger.warning("Force closing position %s", position.position_id)
                 # Implement position closing logic
 
             # Remove strategy orders from history
@@ -1094,7 +1094,7 @@ class TradingEngine:
                 strategy_info.class_instance.cleanup()
 
         except Exception as e:
-            self.logger.error(f"Strategy cleanup failed: {e}")
+            self.logger.error("Strategy cleanup failed: %s", e)
 
     def _stop_all_strategies(self, reason: str):
         """Stop all active strategies"""
@@ -1121,17 +1121,17 @@ class TradingEngine:
         try:
             # Validate engine state
             if self.state != EngineState.RUNNING:
-                self.logger.warning(f"Cannot process signal - engine state: {self.state}")
+                self.logger.warning("Cannot process signal - engine state: %s", self.state)
                 return False
 
             # Validate strategy
             strategy_info = self.strategies.get(strategy_id)
             if not strategy_info:
-                self.logger.error(f"Strategy {strategy_id} not found")
+                self.logger.error("Strategy %s not found", strategy_id)
                 return False
 
             if strategy_info.state != StrategyState.ACTIVE:
-                self.logger.warning(f"Strategy {strategy_id} not active: {strategy_info.state}")
+                self.logger.warning("Strategy %s not active: %s", strategy_id, strategy_info.state)
                 return False
 
             # Check circuit breaker
@@ -1141,12 +1141,12 @@ class TradingEngine:
 
             # Validate signal
             if not self._validate_signal(signal):
-                self.logger.error(f"Invalid signal from strategy {strategy_id}")
+                self.logger.error("Invalid signal from strategy %s", strategy_id)
                 return False
 
             # Risk check
             if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
-                self.logger.warning(f"Signal rejected by risk manager: {signal}")
+                self.logger.warning("Signal rejected by risk manager: %s", signal)
                 return False
 
             # Update strategy metrics
@@ -1162,7 +1162,7 @@ class TradingEngine:
             priority = 1 if signal.get('urgent', False) else 5
             self.order_queue.put((priority, order.order_id, order))
 
-            self.logger.info(f"Signal processed from {strategy_id}: {signal.get('action', 'unknown')}")
+            self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))
 
             # Emit signal event
             if self.event_manager:
@@ -1179,7 +1179,7 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Signal processing failed: {e}")
+            self.logger.error("Signal processing failed: %s", e)
             self.error_handler.handle_error(e, f"process_signal.{strategy_id}")
             self._increment_strategy_error(strategy_id, str(e))
             return False
@@ -1190,19 +1190,19 @@ class TradingEngine:
 
         for field_name in required_fields:
             if field_name not in signal:
-                self.logger.error(f"Signal missing required field: {field_name}")
+                self.logger.error("Signal missing required field: %s", field_name)
                 return False
 
         # Validate action
         try:
             OrderAction(signal['action'])
         except (ValueError, KeyError):
-            self.logger.error(f"Invalid order action: {signal['action']}")
+            self.logger.error("Invalid order action: %s", signal['action'])
             return False
 
         # Validate quantity
         if not isinstance(signal['quantity'], (int, float)) or signal['quantity'] <= 0:
-            self.logger.error(f"Invalid quantity: {signal['quantity']}")
+            self.logger.error("Invalid quantity: %s", signal['quantity'])
             return False
 
         return True
@@ -1229,13 +1229,13 @@ class TradingEngine:
             result = self.risk_manager.check_trade(risk_check)
 
             if not result.get('approved', False):
-                self.logger.warning(f"Risk check failed: {result.get('reason', 'Unknown')}")
+                self.logger.warning("Risk check failed: %s", result.get('reason', 'Unknown'))
                 return False
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Risk check error: {e}")
+            self.logger.error("Risk check error: %s", e)
             # Fail safe - reject on error
             return False
 
@@ -1276,7 +1276,7 @@ class TradingEngine:
             return order
 
         except Exception as e:
-            self.logger.error(f"Order creation failed: {e}")
+            self.logger.error("Order creation failed: %s", e)
             return None
 
     # ==========================================================================
@@ -1334,7 +1334,7 @@ class TradingEngine:
                 self._shutdown_event.wait(10)
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
                 self.error_handler.handle_error(e, "monitoring_loop")
 
     def _perform_health_check(self):
@@ -1351,10 +1351,10 @@ class TradingEngine:
                 'circuit_breaker': self.circuit_breaker_state.name
             }
 
-            self.logger.info(f"Health check: {health_status}")
+            self.logger.info("Health check: %s", health_status)
 
         except Exception as e:
-            self.logger.error(f"Health check failed: {e}")
+            self.logger.error("Health check failed: %s", e)
 
     def get_health_status(self) -> dict[str, Any]:
         """Get current health status"""
@@ -1379,7 +1379,7 @@ class TradingEngine:
                 }
             }
         except Exception as e:
-            self.logger.error(f"Error getting health status: {e}")
+            self.logger.error("Error getting health status: %s", e)
             return {'error': str(e)}
 
     # ==========================================================================
@@ -1405,7 +1405,7 @@ class TradingEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Configuration validation failed: {e}")
+            self.logger.error("Configuration validation failed: %s", e)
             return False
 
     def _setup_event_handlers(self):
@@ -1425,7 +1425,7 @@ class TradingEngine:
                 self.logger.info("Event handlers registered")
 
         except Exception as e:
-            self.logger.error(f"Event handler setup failed: {e}")
+            self.logger.error("Event handler setup failed: %s", e)
 
     def _on_order_filled(self, event):
         """Handle order filled event"""
@@ -1444,7 +1444,7 @@ class TradingEngine:
                 self.performance.successful_orders += 1
 
         except Exception as e:
-            self.logger.error(f"Order filled handler error: {e}")
+            self.logger.error("Order filled handler error: %s", e)
 
     def _on_order_cancelled(self, event):
         """Handle order cancelled event"""
@@ -1459,7 +1459,7 @@ class TradingEngine:
                 order.state = OrderState.CANCELLED
 
         except Exception as e:
-            self.logger.error(f"Order cancelled handler error: {e}")
+            self.logger.error("Order cancelled handler error: %s", e)
 
     def _on_position_update(self, event):
         """Handle position update event"""
@@ -1468,7 +1468,7 @@ class TradingEngine:
             pass
 
         except Exception as e:
-            self.logger.error(f"Position update handler error: {e}")
+            self.logger.error("Position update handler error: %s", e)
 
     def _on_system_error(self, event):
         """Handle system error event"""
@@ -1477,7 +1477,7 @@ class TradingEngine:
             self.circuit_breaker_metrics['errors_per_hour'] += 1
 
         except Exception as e:
-            self.logger.error(f"System error handler error: {e}")
+            self.logger.error("System error handler error: %s", e)
 
     def _initialize_performance_tracking(self):
         """Initialize performance tracking systems"""
@@ -1493,7 +1493,7 @@ class TradingEngine:
 
             # Check if strategy should be disabled
             if strategy.error_count > 10:
-                self.logger.error(f"Strategy {strategy_id} disabled due to excessive errors")
+                self.logger.error("Strategy %s disabled due to excessive errors", strategy_id)
                 strategy.state = StrategyState.ERROR
 
     def _start_worker_threads(self):
@@ -1520,12 +1520,12 @@ class TradingEngine:
                 priority, order_id, order = self.order_queue.get(timeout=1.0)
 
                 # Process order (simplified)
-                self.logger.info(f"Processing order {order_id}")
+                self.logger.info("Processing order %s", order_id)
 
             except queue.Empty:
                 continue
             except Exception as e:
-                self.logger.error(f"Order processor error: {e}")
+                self.logger.error("Order processor error: %s", e)
 
     def _stop_worker_threads(self):
         """Stop all worker threads"""
@@ -1568,18 +1568,18 @@ class TradingEngine:
                 return False
 
             if order.state not in [OrderState.PENDING, OrderState.SUBMITTED]:
-                self.logger.warning(f"Cannot cancel order {order_id} in state {order.state}")
+                self.logger.warning("Cannot cancel order %s in state %s", order_id, order.state)
                 return False
 
             # Update order state
             order.state = OrderState.CANCELLED
             order.metadata['cancel_reason'] = reason
 
-            self.logger.info(f"Order {order_id} cancelled: {reason}")
+            self.logger.info("Order %s cancelled: %s", order_id, reason)
             return True
 
         except Exception as e:
-            self.logger.error(f"Order cancellation failed: {e}")
+            self.logger.error("Order cancellation failed: %s", e)
             return False
 
     def _save_state(self):
@@ -1593,13 +1593,12 @@ class TradingEngine:
             }
 
             # Save to file
-            with open(self._state_file, 'wb') as f:
-                pickle.dump(state_data, f)
+            joblib.dump(state_data, self._state_file)
 
             self.logger.debug("Engine state saved")
 
         except Exception as e:
-            self.logger.error(f"State save failed: {e}")
+            self.logger.error("State save failed: %s", e)
 
     def _load_state(self):
         """Load engine state from disk"""
@@ -1607,8 +1606,7 @@ class TradingEngine:
             if not self._state_file.exists():
                 return
 
-            with open(self._state_file, 'rb') as f:
-                state_data = pickle.load(f)
+            state_data = joblib.load(self._state_file)
 
             # Restore performance metrics
             if 'performance' in state_data:
@@ -1619,7 +1617,7 @@ class TradingEngine:
             self.logger.info("Engine state loaded from disk")
 
         except Exception as e:
-            self.logger.error(f"State load failed: {e}")
+            self.logger.error("State load failed: %s", e)
 
     def _cleanup_resources(self):
         """Clean up all resources"""
@@ -1638,7 +1636,7 @@ class TradingEngine:
             self.logger.info("Resources cleaned up")
 
         except Exception as e:
-            self.logger.error(f"Resource cleanup failed: {e}")
+            self.logger.error("Resource cleanup failed: %s", e)
 
     def get_state(self) -> dict[str, Any]:
         """Get current engine state for external persistence"""

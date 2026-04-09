@@ -24,7 +24,8 @@ Module Description:
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
@@ -192,7 +193,7 @@ class SpyderDataInterface:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to start DataInterface: {e}", exc_info=True)
+            self.logger.error("❌ Failed to start DataInterface: %s", e, exc_info=True)
             return False
 
     async def stop(self) -> bool:
@@ -212,7 +213,7 @@ class SpyderDataInterface:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error stopping DataInterface: {e}", exc_info=True)
+            self.logger.error("❌ Error stopping DataInterface: %s", e, exc_info=True)
             return False
 
     def _data_update_loop(self):
@@ -236,7 +237,7 @@ class SpyderDataInterface:
                 threading.Event().wait(self.update_frequency)
 
             except Exception as e:
-                self.logger.error(f"Error in data update loop: {e}", exc_info=True)
+                self.logger.error("Error in data update loop: %s", e, exc_info=True)
                 self.stats['errors'] += 1
                 threading.Event().wait(5)  # Wait before retry
 
@@ -273,7 +274,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.CORE_DATA] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating core data: {e}", exc_info=True)
+            self.logger.error("Error updating core data: %s", e, exc_info=True)
 
     def _update_options_data(self):
         """Update SPY options chain data."""
@@ -314,7 +315,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.SPY_OPTIONS] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating options data: {e}", exc_info=True)
+            self.logger.error("Error updating options data: %s", e, exc_info=True)
 
     def _update_market_internals(self):
         """Update market internals including VUD Put/Call ratio."""
@@ -344,7 +345,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.MARKET_INTERNALS] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating market internals: {e}", exc_info=True)
+            self.logger.error("Error updating market internals: %s", e, exc_info=True)
 
     def _update_international_data(self):
         """Update international market data."""
@@ -372,7 +373,7 @@ class SpyderDataInterface:
             self.last_update[DataSource.INTERNATIONAL] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Error updating international data: {e}", exc_info=True)
+            self.logger.error("Error updating international data: %s", e, exc_info=True)
 
     def get_spot_price(self, symbol: str) -> float | None:
         """Get current spot price for a symbol."""
@@ -477,7 +478,7 @@ class SpyderDataInterface:
     def register_callback(self, data_type: str, callback: Callable):
         """Register callback for data updates."""
         self.update_callbacks[data_type].append(callback)
-        self.logger.info(f"📡 Registered callback for {data_type}")
+        self.logger.info("📡 Registered callback for %s", data_type)
 
     def get_data_freshness(self) -> dict[str, float]:
         """Get data freshness in seconds for each source."""
@@ -596,7 +597,7 @@ class SpyderDataInterface:
                 # This would process real-time updates
                 await asyncio.sleep(0.1)
             except Exception as e:
-                self.logger.error(f"Error processing data queue: {e}", exc_info=True)
+                self.logger.error("Error processing data queue: %s", e, exc_info=True)
 
 # ==============================================================================
 # TESTING
@@ -612,7 +613,7 @@ async def test_data_interface():
     # Test 1: Start interface
     logging.info("\n📡 Test 1: Starting data interface...")
     start_success = await interface.start()
-    logging.info(f"✅ Interface started: {start_success}")
+    logging.info("✅ Interface started: %s", start_success)
 
     # Wait for some data
     await asyncio.sleep(2)
@@ -625,7 +626,7 @@ async def test_data_interface():
     # Test 3: Get options chain
     logging.info("\n📊 Test 3: Getting options chain...")
     options = interface.get_options_chain('SPY')
-    logging.info(f"✅ SPY options available: {len(options)}")
+    logging.info("✅ SPY options available: %s", len(options))
 
     if options:
         logging.info(f"✅ Sample option: {options[0].strike} {options[0].option_type} @ ${options[0].mid:.2f}")
@@ -640,7 +641,7 @@ async def test_data_interface():
     # Test 5: Get statistics
     logging.info("\n📊 Test 5: Getting statistics...")
     stats = interface.get_statistics()
-    logging.info(f"✅ Updates processed: {stats['updates_processed']}")
+    logging.info("✅ Updates processed: %s", stats['updates_processed'])
     logging.info(f"✅ Cache hit ratio: {stats['cache_hit_ratio']:.2%}")
     logging.info(f"✅ Avg latency: {stats['avg_latency_ms']:.1f}ms")
 
@@ -648,13 +649,13 @@ async def test_data_interface():
     logging.info("\n🌊 Test 6: Getting volatility surface data...")
     surface_data = interface.get_volatility_surface_data()
     if surface_data:
-        logging.info(f"✅ Surface points: {len(surface_data.get('surface_points', []))}")
+        logging.info("✅ Surface points: %s", len(surface_data.get('surface_points', [])))
         logging.info(f"✅ Spot price: ${surface_data.get('spot_price', 0):.2f}")
 
     # Test 7: Stop interface
     logging.info("\n🛑 Test 7: Stopping interface...")
     stop_success = await interface.stop()
-    logging.info(f"✅ Interface stopped: {stop_success}")
+    logging.info("✅ Interface stopped: %s", stop_success)
 
     logging.info("\n🎯 DATA INTERFACE TEST COMPLETE")
 

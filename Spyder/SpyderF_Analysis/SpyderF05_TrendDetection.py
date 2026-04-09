@@ -114,7 +114,7 @@ class MultiTimeframeTrend:
             return 0.0
 
         # Count aligned trends
-        main_direction = max(set([t.direction for t in trends]),
+        main_direction = max({t.direction for t in trends},
                            key=[t.direction for t in trends].count)
         aligned = sum(1 for t in trends if t.direction == main_direction)
 
@@ -209,7 +209,7 @@ class TrendDetector:
 
             # Ensure enough data
             if len(data) < period:
-                self.logger.warning(f"Insufficient data for {timeframe.value} trend")
+                self.logger.warning("Insufficient data for %s trend", timeframe.value)
                 return self._create_neutral_trend(timeframe)
 
             # Use recent data for analysis
@@ -234,7 +234,7 @@ class TrendDetector:
                     return combined_trend
 
                 except Exception as e:
-                    self.logger.warning(f"ML trend prediction failed: {e}", exc_info=True)
+                    self.logger.warning("ML trend prediction failed: %s", e, exc_info=True)
                     # Fall back to traditional
 
             # Record performance
@@ -551,7 +551,7 @@ class TrendDetector:
             return prediction
 
         except Exception as e:
-            self.logger.error(f"ML prediction error: {e}", exc_info=True)
+            self.logger.error("ML prediction error: %s", e, exc_info=True)
             return None
 
     def _prepare_ml_features(self, data: pd.DataFrame) -> pd.DataFrame:

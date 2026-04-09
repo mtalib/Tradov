@@ -116,7 +116,7 @@ class SimpleETDisplay:
             else:
                 return et_now.strftime(SIMPLE_TIME_FORMAT)
         except Exception as e:
-            self.logger.error(f"ET time error: {e}")
+            self.logger.error("ET time error: %s", e)
             return datetime.now().strftime(SIMPLE_TIME_FORMAT)
 
 # ==============================================================================

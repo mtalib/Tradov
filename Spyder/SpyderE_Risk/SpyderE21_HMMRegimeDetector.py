@@ -75,7 +75,7 @@ except ImportError:
     import logging
     SpyderLogger = logging.getLogger
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
+        'handle_error': lambda self, e, context: logging.error("[%s] %s", context, e)
     })
 
 # ==============================================================================
@@ -288,7 +288,7 @@ class HMMRegimeDetector:
             # Validate input data
             if historical_returns is None or len(historical_returns) < self.min_observations:
                 self.logger.error(
-                    f"Insufficient data: need at least {self.min_observations} observations"
+                    "Insufficient data: need at least %s observations", self.min_observations
                 )
                 return False
 
@@ -372,7 +372,7 @@ class HMMRegimeDetector:
             vix_ma
         ]).T
 
-        self.logger.debug(f"Features prepared: shape={features.shape}")
+        self.logger.debug("Features prepared: shape=%s", features.shape)
         return features
 
     def _train_hmm(self, features: np.ndarray) -> tuple[Any, HMMTrainingResult]:
@@ -517,7 +517,7 @@ class HMMRegimeDetector:
                 stationary_distribution=None
         )
 
-        self.logger.warning(f"Fallback classifier used: {len(regimes)} regimes classified")
+        self.logger.warning("Fallback classifier used: %s regimes classified", len(regimes))
         return None, training_result
 
     def _calculate_model_metrics(self,

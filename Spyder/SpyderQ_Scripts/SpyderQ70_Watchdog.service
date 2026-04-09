@@ -32,18 +32,21 @@ User=adam
 Group=adam
 WorkingDirectory=/home/adam/Projects/Spyder
 
+# Load secrets from .env
+EnvironmentFile=/home/adam/Projects/Spyder/.env
+
 # Environment setup
 Environment="PYTHONPATH=/home/adam/Projects/Spyder"
 Environment="SPYDER_HOME=/home/adam/Projects/Spyder"
-Environment="PATH=/home/adam/Projects/Spyder/spyder_venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/home/adam/Projects/Spyder/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 
 # Virtual environment activation and execution
 ExecStartPre=/bin/bash -c 'test -f /home/adam/Projects/Spyder/.env || echo "Warning: .env file not found"'
-ExecStartPre=/bin/bash -c 'source /home/adam/Projects/Spyder/spyder_venv/bin/activate'
+ExecStartPre=/bin/bash -c 'test -x /home/adam/Projects/Spyder/.venv/bin/python || (echo "ERROR: .venv not found" && exit 1)'
 
 # Main watchdog execution
-ExecStart=/home/adam/Projects/Spyder/spyder_venv/bin/python /home/adam/Projects/Spyder/SpyderQ_Scripts/SpyderQ24_ProductionWatchdog.py
+ExecStart=/home/adam/Projects/Spyder/.venv/bin/python /home/adam/Projects/Spyder/Spyder/SpyderQ_Scripts/SpyderQ24_ProductionWatchdog.py
 
 # Restart configuration
 Restart=always

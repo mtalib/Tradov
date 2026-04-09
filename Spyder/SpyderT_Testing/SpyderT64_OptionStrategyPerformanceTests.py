@@ -20,7 +20,7 @@ import os
 import sys
 import types
 from datetime import datetime, timedelta
-from typing import List
+
 from unittest.mock import MagicMock
 
 import numpy as np

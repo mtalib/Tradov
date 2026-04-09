@@ -208,7 +208,7 @@ class IronCondorStrategy(BaseStrategy):
                 self.multileg_coordinator = get_multileg_coordinator()
                 self.logger.info("✅ Connected to MultiLegStrategyCoordinator")
             except Exception as e:
-                self.logger.error(f"Failed to connect to coordinator: {e}")
+                self.logger.error("Failed to connect to coordinator: %s", e)
         else:
             self.logger.warning("❌ MultiLegStrategyCoordinator not available")
 
@@ -304,7 +304,7 @@ class IronCondorStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Iron Condor analysis failed: {e}")
+            self.logger.error("Iron Condor analysis failed: %s", e)
             self.error_handler.handle_error(e, {"method": "analyze_iron_condor_opportunity"})
 
             return IronCondorAnalysis(
@@ -341,7 +341,7 @@ class IronCondorStrategy(BaseStrategy):
             return iv_analysis
 
         except Exception as e:
-            self.logger.error(f"IV analysis failed: {e}")
+            self.logger.error("IV analysis failed: %s", e)
             return {
                 'current_iv': 0.20,
                 'iv_rank': 50.0,
@@ -363,7 +363,7 @@ class IronCondorStrategy(BaseStrategy):
             return (iv_rank_score * 0.6 + iv_level_score * 0.4)
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"IV analysis failed: {e}")
+            self.logger.warning("IV analysis failed: %s", e)
             return 0.0
 
     def _analyze_expected_move_for_ic(self, market_data: pd.DataFrame,
@@ -389,7 +389,7 @@ class IronCondorStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Expected move analysis failed: {e}")
+            self.logger.error("Expected move analysis failed: %s", e)
             return {
                 'expected_move_dollars': 10.0,
                 'expected_move_percent': 0.03,
@@ -412,7 +412,7 @@ class IronCondorStrategy(BaseStrategy):
                 return 0.0
 
         except (ValueError, ZeroDivisionError, TypeError) as e:
-            self.logger.warning(f"Move quality calculation failed: {e}")
+            self.logger.warning("Move quality calculation failed: %s", e)
             return 0.0
 
     def _analyze_trend_for_iron_condor(self, market_data: pd.DataFrame) -> dict[str, Any]:
@@ -448,7 +448,7 @@ class IronCondorStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Trend analysis failed: {e}")
+            self.logger.error("Trend analysis failed: %s", e)
             return {
                 'trend_strength': 0.01,
                 'is_range_bound': True,
@@ -471,7 +471,7 @@ class IronCondorStrategy(BaseStrategy):
             return iv_suitable and move_suitable and trend_suitable
 
         except (KeyError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Market condition check failed: {e}")
+            self.logger.warning("Market condition check failed: %s", e)
             return False
 
     # ==========================================================================
@@ -538,7 +538,7 @@ class IronCondorStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Strike selection failed: {e}")
+            self.logger.error("Strike selection failed: %s", e)
             return None
 
     def _select_best_short_strike(self, candidates: pd.DataFrame, option_type: str) -> float | None:
@@ -560,7 +560,7 @@ class IronCondorStrategy(BaseStrategy):
             return best_candidate['strike']
 
         except Exception as e:
-            self.logger.error(f"Best strike selection failed: {e}")
+            self.logger.error("Best strike selection failed: %s", e)
             return None
 
     def _find_long_protection_strike(self, options: pd.DataFrame, short_strike: float,
@@ -595,7 +595,7 @@ class IronCondorStrategy(BaseStrategy):
             return best_candidate['strike']
 
         except Exception as e:
-            self.logger.error(f"Long protection strike selection failed: {e}")
+            self.logger.error("Long protection strike selection failed: %s", e)
             return None
 
     def _validate_iron_condor_strikes(self, long_put: float, short_put: float,
@@ -622,7 +622,7 @@ class IronCondorStrategy(BaseStrategy):
 
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"Strike validation failed: {e}")
+            self.logger.warning("Strike validation failed: %s", e)
             return False
 
     # ==========================================================================
@@ -652,12 +652,12 @@ class IronCondorStrategy(BaseStrategy):
             if position_id:
                 self.active_setups.append(setup)
                 self.strategy_state = IronCondorState.ACTIVE
-                self.logger.info(f"✅ Iron Condor position created: {position_id}")
+                self.logger.info("✅ Iron Condor position created: %s", position_id)
 
             return position_id
 
         except Exception as e:
-            self.logger.error(f"Iron Condor position creation failed: {e}")
+            self.logger.error("Iron Condor position creation failed: %s", e)
             return None
 
     # ==========================================================================
@@ -690,7 +690,7 @@ class IronCondorStrategy(BaseStrategy):
             return False, "Hold position"
 
         except Exception as e:
-            self.logger.error(f"Exit criteria analysis failed: {e}")
+            self.logger.error("Exit criteria analysis failed: %s", e)
             return True, "Exit due to analysis error"
 
     def suggest_iron_condor_adjustment(self, position_data: dict) -> IronCondorAdjustmentType | None:
@@ -719,7 +719,7 @@ class IronCondorStrategy(BaseStrategy):
                 return IronCondorAdjustmentType.CONVERT_TO_BUTTERFLY
 
         except Exception as e:
-            self.logger.error(f"Adjustment analysis failed: {e}")
+            self.logger.error("Adjustment analysis failed: %s", e)
             return None
 
     # ==========================================================================
@@ -748,7 +748,7 @@ class IronCondorStrategy(BaseStrategy):
             return abs(put_iv - call_iv)
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"IV skew calculation failed: {e}")
+            self.logger.warning("IV skew calculation failed: %s", e)
             return 0.0
 
     def _generate_ic_recommendation(self, iv_analysis: dict, expected_move_analysis: dict,
@@ -773,7 +773,7 @@ class IronCondorStrategy(BaseStrategy):
             return recommendation, overall_score
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"IC recommendation generation failed: {e}")
+            self.logger.warning("IC recommendation generation failed: %s", e)
             return "Analysis incomplete", 0.0
 
     def _identify_ic_risk_warnings(self, iv_analysis: dict, expected_move_analysis: dict,
@@ -801,7 +801,7 @@ class IronCondorStrategy(BaseStrategy):
             return warnings
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
-            self.logger.warning(f"IC risk warning identification failed: {e}")
+            self.logger.warning("IC risk warning identification failed: %s", e)
             return ["Risk analysis incomplete"]
 
     def get_strategy_performance(self) -> dict[str, Any]:

@@ -89,7 +89,7 @@ importlib.invalidate_caches()
 
 # P01 has a pre-existing broken import (get_risk_manager missing from E01)
 try:
-    from Spyder.SpyderP_PortfolioMgmt import SpyderP01_PortfolioManager  # noqa: F401
+    from Spyder.SpyderP_PortfolioMgmt import SpyderP01_PortfolioManager
     P01_AVAILABLE = True
 except ImportError:
     P01_AVAILABLE = False

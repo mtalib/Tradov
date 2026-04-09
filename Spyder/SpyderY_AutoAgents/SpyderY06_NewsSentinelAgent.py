@@ -169,7 +169,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
             try:
                 self._x11_agent = SpyderX11_SentimentAnalysisAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize X11 SentimentAnalysisAgent: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize X11 SentimentAnalysisAgent: %s", e)
 
     # ==========================================================================
     # LIFECYCLE
@@ -234,7 +234,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
                             category=getattr(item, "category", "general"),
                         ))
             except Exception as e:
-                logging.getLogger(__name__).warning(f"News fetch failed: {e}")
+                logging.getLogger(__name__).warning("News fetch failed: %s", e)
 
     # ==========================================================================
     # NEWS PROCESSING

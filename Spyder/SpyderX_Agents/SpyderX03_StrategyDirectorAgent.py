@@ -49,12 +49,21 @@ except ImportError:
 # ==============================================================================
 # Note: In standalone mode, we're not importing from other Spyder modules
 # In production, these would be imported from the Spyder ecosystem
+try:
+    from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import get_primary_model, strip_thinking_block
+except ImportError:
+    import os
+    def get_primary_model() -> str:  # type: ignore[misc]
+        return os.getenv("OLLAMA_PRIMARY_MODEL", "gemma4:26b")
+    def strip_thinking_block(content: str) -> str:  # type: ignore[misc]
+        import re
+        return re.sub(r"<\|channel>thought\n.*?<channel\|>", "", content, flags=re.DOTALL).strip()
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
 # LLM Configuration
-DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_LLM_MODEL = get_primary_model()
 DEFAULT_TEMPERATURE = 0.3
 MAX_TOKENS = 2000
 
@@ -71,7 +80,6 @@ MIN_WIN_RATE = 0.5
 # ==============================================================================
 # LOGGING SETUP
 # ==============================================================================
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
@@ -215,9 +223,9 @@ class SpyderX03_StrategyDirectorAgent:
                 # Test if Ollama is running
                 ollama.list()
                 self.ollama_client = ollama
-                self.logger.info(f"Ollama initialized with model: {self.model_name}")
+                self.logger.info("Ollama initialized with model: %s", self.model_name)
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.error("Failed to connect to Ollama: %s", e)
                 self.logger.info("Agent will work with reduced AI capabilities")
 
         # Strategy management
@@ -233,7 +241,7 @@ class SpyderX03_StrategyDirectorAgent:
         self.strategy_cache: dict[str, tuple[StrategyRecommendation, datetime]] = {}
         self.cache_ttl = timedelta(seconds=STRATEGY_CACHE_TTL)
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -309,7 +317,7 @@ class SpyderX03_StrategyDirectorAgent:
             return None
 
         except Exception as e:
-            self.logger.error(f"Error in strategy selection: {str(e)}")
+            self.logger.error("Error in strategy selection: %s", str(e))
             return None
 
     async def manage_active_strategies(
@@ -506,19 +514,31 @@ class SpyderX03_StrategyDirectorAgent:
                 risk_constraints
             )
 
-            # Query Ollama
+            # Query Ollama — use chat() for consistent system-role support
             response = await asyncio.to_thread(
-                self.ollama_client.generate,
+                self.ollama_client.chat,
                 model=self.model_name,
-                prompt=prompt,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert options trading strategist for SPY. "
+                            "Select the optimal strategy based on market conditions and risk constraints. "
+                            "Respond in JSON."
+                        )
+                    },
+                    {"role": "user", "content": prompt}
+                ],
                 options={
                     'temperature': self.temperature,
-                    'num_predict': MAX_TOKENS
+                    'num_predict': MAX_TOKENS,
+                    'think': False
                 }
             )
 
+            raw = response['message']['content']
             # Parse AI response
-            ai_recommendation = self._parse_ai_strategy_response(response['response'])
+            ai_recommendation = self._parse_ai_strategy_response(strip_thinking_block(raw))
 
             # Create strategy parameters
             strategy_params = self._create_strategy_parameters(
@@ -542,7 +562,7 @@ class SpyderX03_StrategyDirectorAgent:
             return recommendation
 
         except Exception as e:
-            self.logger.error(f"Error getting AI strategy recommendation: {e}")
+            self.logger.error("Error getting AI strategy recommendation: %s", e)
             return None
 
     def _build_strategy_prompt(
@@ -620,7 +640,7 @@ Provide your recommendation as JSON with the following structure:
 
                 return data
         except Exception as e:
-            self.logger.error(f"Failed to parse AI response: {e}")
+            self.logger.error("Failed to parse AI response: %s", e)
 
         # Fallback response
         return {
@@ -845,7 +865,7 @@ Provide your recommendation as JSON with the following structure:
         ]
 
         key_string = ":".join(key_parts)
-        return hashlib.md5(key_string.encode()).hexdigest()
+        return hashlib.md5(key_string.encode(), usedforsecurity=False).hexdigest()
 
     def _get_cached_strategy(self, cache_key: str) -> StrategyRecommendation | None:
         """Get cached strategy if still valid."""

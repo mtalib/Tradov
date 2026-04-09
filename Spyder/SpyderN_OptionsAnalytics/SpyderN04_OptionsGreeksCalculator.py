@@ -8,7 +8,14 @@ Group: N (Options Analytics)
 Purpose: Advanced Greeks calculations, scenarios, and portfolio risk metrics
 Author: Mohamed Talib
 Date Created: 2025-08-07
-Last Updated: 2025-08-07 Time: 20:00:00
+Last Updated: 2026-04-01 Time: 00:00:00
+
+Architecture note:
+    ``_bsm_greeks_kernel`` in this module is a numba @njit JIT-compiled kernel
+    for maximum throughput during intraday Greeks sweeps.  It coexists with
+    SpyderV09_IVEngine which is the **canonical** scipy-based synchronous BSM
+    engine for non-performance-critical code paths.  New callers that do not
+    need numba throughput should call V09.BlackScholesCalculator directly.
 
 Description:
     This module provides comprehensive Greeks calculations including second-order
@@ -26,7 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import numpy as np
 import matplotlib.pyplot as plt

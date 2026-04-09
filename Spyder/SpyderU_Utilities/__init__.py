@@ -1,6 +1,4 @@
-import logging
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
 
@@ -19,6 +17,8 @@ Version: 1.4
 # ==============================================================================
 # MODULE IMPORTS (DEFENSIVE - ACTUAL EXISTING MODULES)
 # ==============================================================================
+import logging
+
 __all__ = []
 
 # SpyderU01_Logger - ALWAYS AVAILABLE
@@ -27,7 +27,7 @@ try:
 
     __all__.extend(["SpyderLogger", "get_logger"])
 except ImportError as e:
-    logging.info(f"Critical: SpyderU01_Logger import failed: {e}")
+    logging.info("Critical: SpyderU01_Logger import failed: %s", e)
 
 # SpyderU02_ErrorHandler - COMPREHENSIVE LEAN VERSION
 try:
@@ -36,7 +36,7 @@ try:
 
     __all__.extend(["SpyderErrorHandler", "ErrorCategory", "ErrorSeverity"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU02_ErrorHandler import failed: {e}")
+    logging.info("Warning: SpyderU02_ErrorHandler import failed: %s", e)
 
 # SpyderU03_DateTimeUtils - DATE/TIME UTILITIES
 try:
@@ -44,7 +44,7 @@ try:
 
     __all__.extend(["DateTimeUtils", "TradingCalendar"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU03_DateTimeUtils import failed: {e}")
+    logging.info("Warning: SpyderU03_DateTimeUtils import failed: %s", e)
 
 # SpyderU04_Encryption - SECURITY UTILITIES
 try:
@@ -53,7 +53,7 @@ try:
 
     __all__.extend(["EncryptionManager", "encrypt_data", "decrypt_data"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU04_Encryption import failed: {e}")
+    logging.info("Warning: SpyderU04_Encryption import failed: %s", e)
 
 # SpyderU05_NetworkUtils - NETWORK UTILITIES
 try:
@@ -61,19 +61,17 @@ try:
 
     __all__.extend(["NetworkUtils", "check_internet_connection"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU05_NetworkUtils import failed: {e}")
+    logging.info("Warning: SpyderU05_NetworkUtils import failed: %s", e)
 
 # SpyderU06_MathUtils - MATHEMATICAL UTILITIES
-try:
-    from .SpyderU06_MathUtils import MathUtils, calculate_sharpe_ratio
-
-    __all__.extend(["MathUtils", "calculate_sharpe_ratio"])
-except ImportError as e:
-    logging.info(f"Warning: SpyderU06_MathUtils import failed: {e}")
+# NOTE: Deferred from eager load — imports scipy which adds 300ms to startup.
+# Import SpyderU06_MathUtils directly when MathUtils is needed.
+# try:
+#     from .SpyderU06_MathUtils import MathUtils, calculate_sharpe_ratio
 
 # SpyderU07_Constants - SYSTEM CONSTANTS
 try:
-    from .SpyderU07_Constants import (  # noqa: F401
+    from .SpyderU07_Constants import (
         # System info
         SYSTEM_NAME, SYSTEM_VERSION, SYSTEM_DESCRIPTION,
         # Trading constants
@@ -178,7 +176,7 @@ try:
         "validate_constants",
     ])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU07_Constants import failed: {e}")
+    logging.info("Warning: SpyderU07_Constants import failed: %s", e)
 
 # SpyderU08_Validators - DATA VALIDATION
 try:
@@ -186,7 +184,7 @@ try:
 
     __all__.extend(["DataValidators", "validate_order_data"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU08_Validators import failed: {e}")
+    logging.info("Warning: SpyderU08_Validators import failed: %s", e)
 
 # SpyderU09_DataTypes - DATA TYPE DEFINITIONS
 try:
@@ -194,7 +192,7 @@ try:
 
     __all__.extend(["MarketData", "OrderData", "PositionData"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU09_DataTypes import failed: {e}")
+    logging.info("Warning: SpyderU09_DataTypes import failed: %s", e)
 
 # SpyderU10_TradingCalendar - TRADING CALENDAR
 try:
@@ -203,7 +201,7 @@ try:
 
     __all__.extend(["Calendar", "get_trading_calendar"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU10_TradingCalendar import failed: {e}")
+    logging.info("Warning: SpyderU10_TradingCalendar import failed: %s", e)
 
 # SpyderU11_FeatureFlags - FEATURE FLAG MANAGEMENT
 try:
@@ -211,7 +209,7 @@ try:
 
     __all__.extend(["FeatureFlags", "check_feature_enabled"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU11_FeatureFlags import failed: {e}")
+    logging.info("Warning: SpyderU11_FeatureFlags import failed: %s", e)
 
 # SpyderU13_TechnicalIndicators - TECHNICAL ANALYSIS INDICATORS
 try:
@@ -220,7 +218,7 @@ try:
 
     __all__.extend(["TechnicalIndicators", "calculate_rsi", "calculate_macd"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU13_TechnicalIndicators import failed: {e}")
+    logging.info("Warning: SpyderU13_TechnicalIndicators import failed: %s", e)
 
 # SpyderU14_OptionStrategies - OPTION STRATEGY UTILITIES
 try:
@@ -229,7 +227,7 @@ try:
 
     __all__.extend(["OptionStrategy", "calculate_option_payoff"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU14_OptionStrategies import failed: {e}")
+    logging.info("Warning: SpyderU14_OptionStrategies import failed: %s", e)
 
 # SpyderU15_PerformanceMetrics - PERFORMANCE CALCULATION
 try:
@@ -238,22 +236,23 @@ try:
 
     __all__.extend(["PerformanceCalculator", "calculate_metrics"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU15_PerformanceMetrics import failed: {e}")
+    logging.info("Warning: SpyderU15_PerformanceMetrics import failed: %s", e)
 
 # SpyderU16_TechnicalAnalysis - ADVANCED TECHNICAL ANALYSIS
-try:
-
-    __all__.extend(["TechnicalAnalysis", ])
-except ImportError as e:
-    logging.info(f"Warning: SpyderU16_TechnicalAnalysis import failed: {e}")
+# NOTE: Deferred from eager load — its module-level import of SpyderU_Utilities
+# (short form) triggers a full second load of this __init__, adding ~340ms.
+# Import SpyderU16_TechnicalAnalysis directly when TechnicalAnalysis is needed.
+# try:
+#     from .SpyderU16_TechnicalAnalysis import TechnicalAnalysis
+#     __all__.extend(["TechnicalAnalysis"])
+# except ImportError as e:
+#     logging.info("Warning: SpyderU16_TechnicalAnalysis import failed: %s", e)
 
 # SpyderU18_DependencyAnalyzer - DEPENDENCY ANALYSIS
-try:
-    from .SpyderU18_DependencyAnalyzer import DependencyAnalyzer
-
-    __all__.extend(["DependencyAnalyzer"])
-except ImportError as e:
-    logging.info(f"Warning: SpyderU18_DependencyAnalyzer import failed: {e}")
+# NOTE: Deferred from eager load — imports networkx which adds 80ms to startup.
+# Import SpyderU18_DependencyAnalyzer directly when DependencyAnalyzer is needed.
+# try:
+#     from .SpyderU18_DependencyAnalyzer import DependencyAnalyzer
 
 # SpyderU19_InteractionMatrix - MODULE INTERACTION MATRIX
 try:
@@ -261,7 +260,7 @@ try:
 
     __all__.extend(["InteractionMatrix"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU19_InteractionMatrix import failed: {e}")
+    logging.info("Warning: SpyderU19_InteractionMatrix import failed: %s", e)
 
 # ==============================================================================
 # UTILITY FUNCTIONS
@@ -281,7 +280,7 @@ def list_available_utilities():
             # Check if the module/class is actually available
             if module in globals():
                 available.append(module)
-        except BaseException:
+        except Exception:
             pass
     return available
 
@@ -291,7 +290,7 @@ def list_available_utilities():
 # ==============================================================================
 # Count successfully loaded modules
 loaded_modules = len([m for m in __all__ if m in globals()])
-logging.info(f"✅ SpyderU_Utilities: {loaded_modules} modules loaded successfully")
+logging.info("✅ SpyderU_Utilities: %s modules loaded successfully", loaded_modules)
 
 # ==============================================================================
 # BACKWARDS COMPATIBILITY ALIASES
@@ -302,16 +301,16 @@ try:
     from .SpyderU08_Validators import DataValidators as Validators
 
     __all__.append("Validators")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias Validators not available: %s", e)
 
 try:
     # Alias for validate_order -> validate_order_data
     from .SpyderU08_Validators import validate_order_data as validate_order
 
     __all__.append("validate_order")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias validate_order not available: %s", e)
 
 try:
     # Other common aliases
@@ -326,53 +325,49 @@ try:
     from .SpyderU04_Encryption import decrypt_data as decrypt
 
     __all__.append("decrypt")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional encryption aliases not available: %s", e)
 
 try:
     from .SpyderU05_NetworkUtils import \
         check_internet_connection as check_connection
 
     __all__.append("check_connection")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias check_connection not available: %s", e)
 
-try:
-    from .SpyderU06_MathUtils import calculate_sharpe_ratio as calculate_sharpe
-
-    __all__.append("calculate_sharpe")
-except BaseException:
-    pass
+# Alias deferred: SpyderU06_MathUtils (scipy) is not eagerly loaded.
+# Import calculate_sharpe_ratio directly from SpyderU06_MathUtils when needed.
 
 try:
     from .SpyderU09_DataTypes import MarketData as SpyderDataTypes
 
     __all__.append("SpyderDataTypes")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias SpyderDataTypes not available: %s", e)
 
 try:
     from .SpyderU11_FeatureFlags import \
         check_feature_enabled as is_feature_enabled
 
     __all__.append("is_feature_enabled")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias is_feature_enabled not available: %s", e)
 
 try:
     from .SpyderU14_OptionStrategies import OptionStrategy as OptionStrategies
 
     __all__.append("OptionStrategies")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias OptionStrategies not available: %s", e)
 
 try:
     from .SpyderU15_PerformanceMetrics import \
         PerformanceCalculator as PerformanceMetrics
 
     __all__.append("PerformanceMetrics")
-except BaseException:
-    pass
+except Exception as e:
+    logging.debug("Optional alias PerformanceMetrics not available: %s", e)
 
 # SpyderU44_ShutdownCoordinator - GRACEFUL SHUTDOWN
 try:
@@ -380,7 +375,7 @@ try:
 
     __all__.extend(["ShutdownCoordinator", "get_shutdown_coordinator"])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU44_ShutdownCoordinator import failed: {e}")
+    logging.info("Warning: SpyderU44_ShutdownCoordinator import failed: %s", e)
 
 # SpyderU45_RetryWithBackoff - EXPONENTIAL BACKOFF RETRY
 try:
@@ -394,11 +389,104 @@ try:
         "tradier_retry", "datafeed_retry", "http_retry",
     ])
 except ImportError as e:
-    logging.info(f"Warning: SpyderU45_RetryWithBackoff import failed: {e}")
+    logging.info("Warning: SpyderU45_RetryWithBackoff import failed: %s", e)
+
+# SpyderU12_AgentIntegration - AGENT REGISTRY
+try:
+    from .SpyderU12_AgentIntegration import (
+        AgentRegistry,
+        AgentSeries,
+        AgentStatus,
+        AgentMetrics,
+        AgentRecord,
+        get_registry,
+    )
+    __all__.extend([
+        "AgentRegistry", "AgentSeries", "AgentStatus",
+        "AgentMetrics", "AgentRecord", "get_registry",
+    ])
+except ImportError as e:
+    logging.info("Warning: SpyderU12_AgentIntegration import failed: %s", e)
+
+# SpyderU46_SecretsManager - CENTRALISED SECRETS MANAGEMENT
+try:
+    from .SpyderU46_SecretsManager import SecretsManager, get_secrets
+    __all__.extend(["SecretsManager", "get_secrets"])
+except ImportError as e:
+    logging.info("Warning: SpyderU46_SecretsManager import failed: %s", e)
+
+# U20, U22–U24, U27, U40, U41 — additional utility modules
+# NOTE: U20 is deferred — imports scipy.stats which adds ~270ms to startup.
+# Import SpyderU20_InstitutionalLibraries directly when InstitutionalLibraries is needed.
+# try:
+#     from .SpyderU20_InstitutionalLibraries import InstitutionalLibraries
+#     __all__.extend(["InstitutionalLibraries"])
+# except ImportError as e:
+#     logging.info("Warning: SpyderU20_InstitutionalLibraries import failed: %s", e)
+
+try:
+    from .SpyderU22_ETTimeDisplay import SimpleETDisplay
+    __all__.extend(["SimpleETDisplay"])
+except ImportError as e:
+    logging.info("Warning: SpyderU22_ETTimeDisplay import failed: %s", e)
+
+try:
+    from .SpyderU23_MemoryMonitor import SpyderMemoryMonitor
+    __all__.extend(["SpyderMemoryMonitor"])
+except ImportError as e:
+    logging.info("Warning: SpyderU23_MemoryMonitor import failed: %s", e)
+
+# SpyderU24_StyleManager
+# NOTE: Deferred from eager load — imports PySide6.QtWidgets which adds ~60ms to startup.
+# This module is only needed for GUI components; import SpyderU24_StyleManager directly.
+# try:
+#     from .SpyderU24_StyleManager import SpyderStyleManager
+#     __all__.extend(["SpyderStyleManager"])
+# except ImportError as e:
+#     logging.info("Warning: SpyderU24_StyleManager import failed: %s", e)
+
+try:
+    from .SpyderU27_SystemOptimizer import SystemOptimizer
+    __all__.extend(["SystemOptimizer"])
+except ImportError as e:
+    logging.info("Warning: SpyderU27_SystemOptimizer import failed: %s", e)
+
+try:
+    from .SpyderU40_RateLimiter import TokenBucket, RateLimiter, MultiRateLimiter
+    __all__.extend(["TokenBucket", "RateLimiter", "MultiRateLimiter"])
+except ImportError as e:
+    logging.info("Warning: SpyderU40_RateLimiter import failed: %s", e)
+
+try:
+    from .SpyderU41_CircuitBreaker import CircuitBreaker
+    __all__.extend(["CircuitBreaker"])
+except ImportError as e:
+    logging.info("Warning: SpyderU41_CircuitBreaker import failed: %s", e)
+
+try:
+    from .SpyderU17_LLMUtils import (
+        get_primary_model, get_fast_model, get_code_model, get_finance_model,
+    )
+    __all__.extend(["get_primary_model", "get_fast_model",
+                    "get_code_model", "get_finance_model"])
+except ImportError as e:
+    logging.info("Warning: SpyderU17_LLMUtils not available: %s", e)
+
+try:
+    from .SpyderU42_StrategyCircuitBreaker import StrategyCircuitBreaker
+    __all__.extend(["StrategyCircuitBreaker"])
+except ImportError as e:
+    logging.info("Warning: SpyderU42_StrategyCircuitBreaker not available: %s", e)
+
+try:
+    from .SpyderU43_CorrelationLogger import CorrelationFilter, StructuredFormatter
+    __all__.extend(["CorrelationFilter", "StructuredFormatter"])
+except ImportError as e:
+    logging.info("Warning: SpyderU43_CorrelationLogger not available: %s", e)
 
 # ==============================================================================
 # PACKAGE INFO
 # ==============================================================================
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __author__ = "Mohamed Talib"
 __description__ = "Utility functions and classes for Spyder trading system"

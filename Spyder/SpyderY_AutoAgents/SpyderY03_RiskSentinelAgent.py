@@ -196,7 +196,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
             try:
                 self._x04_agent = SpyderX04_RiskGuardianAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize X04 RiskGuardianAgent: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize X04 RiskGuardianAgent: %s", e)
 
         # Position manager
         self._position_mgr: Any | None = None
@@ -204,7 +204,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
             try:
                 self._position_mgr = SpyderE19_PositionManager()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize PositionManager: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize PositionManager: %s", e)
 
     # ==========================================================================
     # LIFECYCLE
@@ -273,7 +273,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                     )
                     snapshot.daily_pnl = getattr(risk, "daily_pnl", 0.0)
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to get risk snapshot: {e}")
+                logging.getLogger(__name__).warning("Failed to get risk snapshot: %s", e)
 
         # Get position concentration from position manager
         if self._position_mgr:
@@ -291,7 +291,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                             (max_single / total_value) * 100
                         )
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to compute position concentration: {e}")
+                logging.getLogger(__name__).warning("Failed to compute position concentration: %s", e)
 
         # Compute composite risk score (0-100)
         snapshot.risk_score = self._compute_risk_score(snapshot)

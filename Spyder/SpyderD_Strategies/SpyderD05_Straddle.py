@@ -300,7 +300,7 @@ class StraddleStrategy(BaseStrategy):
                 signal = self._create_straddle_signal(strategy_type, current_price, market_data)
                 if signal:
                     signals.append(signal)
-                    self.logger.info(f"Generated {strategy_type.name} signal")
+                    self.logger.info("Generated %s signal", strategy_type.name)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -534,7 +534,7 @@ class StraddleStrategy(BaseStrategy):
 
         # Check IV rank
         if not (self.min_iv_rank <= self.volatility_analysis.iv_rank <= self.max_iv_rank):
-            self.logger.debug(f"IV rank out of range: {self.volatility_analysis.iv_rank}")
+            self.logger.debug("IV rank out of range: %s", self.volatility_analysis.iv_rank)
             return False
 
         # Check expected move
@@ -897,7 +897,7 @@ class StraddleStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Opened {position.strategy_type.name}: {position.position_id}")
+            self.logger.info("Opened %s: %s", position.strategy_type.name, position.position_id)
             return position
 
         except Exception as e:

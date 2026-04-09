@@ -14,8 +14,8 @@ Module Description:
     monitoring, drift detection, prediction accuracy tracking, feature importance
     analysis, and statistical validation. Features real-time model health monitoring,
     ensemble management, A/B testing capabilities, and seamless integration with
-    SpyderF12 backtesting engine and SpyderE risk management modules for complete
-    institutional-grade model governance and validation framework.
+    SpyderE risk management modules for complete institutional-grade model governance
+    and validation framework.
 """
 
 # ==============================================================================
@@ -326,7 +326,7 @@ class ModelValidationEngine:
     This class provides comprehensive model performance validation including
     accuracy monitoring, drift detection, feature analysis, statistical
     validation, ensemble management, and real-time model health monitoring
-    with seamless integration to backtesting and risk management systems.
+    with seamless integration to risk management systems.
 
     Attributes:
         logger: Module logger instance
@@ -335,7 +335,6 @@ class ModelValidationEngine:
         validation_history: Historical validation results
         alerts: Active model alerts
         drift_detectors: Drift detection instances
-        backtesting_engine: Integration with F12 backtesting
 
     Example:
         >>> validator = ModelValidationEngine()
@@ -372,7 +371,6 @@ class ModelValidationEngine:
         )
 
         # Integration components
-        self.backtesting_engine: Any | None = None
         self.math_utils = MathUtils()
         self.thread_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_VALIDATIONS)
 
@@ -386,12 +384,9 @@ class ModelValidationEngine:
     # ==========================================================================
     # PUBLIC METHODS - Initialization and Setup
     # ==========================================================================
-    def initialize(self, enable_backtesting_integration: bool = True) -> bool:
+    def initialize(self) -> bool:
         """
         Initialize the model validation engine.
-
-        Args:
-            enable_backtesting_integration: Enable F12 backtesting integration
 
         Returns:
             bool: True if initialization successful
@@ -446,7 +441,7 @@ class ModelValidationEngine:
             self.performance_trackers[model_id] = defaultdict(lambda: deque(maxlen=10000))
             self._last_monitoring_time[model_id] = datetime.now()
 
-            self.logger.info(f"Model registered: {model_id} ({metadata.model_name})")
+            self.logger.info("Model registered: %s (%s)", model_id, metadata.model_name)
             return True
 
         except Exception as e:
@@ -525,7 +520,7 @@ class ModelValidationEngine:
             model = self.models[model_id]
             metadata = self.model_metadata[model_id]
 
-            self.logger.info(f"Starting validation for model: {model_id}")
+            self.logger.info("Starting validation for model: %s", model_id)
             start_time = time.time()
 
             # Generate validation ID
@@ -591,7 +586,7 @@ class ModelValidationEngine:
             # Update performance tracking
             self._update_performance_tracking(model_id, result)
 
-            self.logger.info(f"Model validation completed: {model_id} - Status: {result.status.value}")
+            self.logger.info("Model validation completed: %s - Status: %s", model_id, result.status.value)
             return result
 
         except Exception as e:
@@ -622,7 +617,7 @@ class ModelValidationEngine:
             if model_id not in self.models:
                 raise ValueError(f"Model {model_id} not registered")
 
-            self.logger.debug(f"Detecting data drift for model: {model_id}")
+            self.logger.debug("Detecting data drift for model: %s", model_id)
 
             drift_results = []
 
@@ -647,7 +642,7 @@ class ModelValidationEngine:
             # Check for drift alerts
             await self._check_drift_alerts(model_id, drift_results)
 
-            self.logger.debug(f"Drift detection completed: {len(drift_results)} results")
+            self.logger.debug("Drift detection completed: %s results", len(drift_results))
             return drift_results
 
         except Exception as e:
@@ -676,7 +671,7 @@ class ModelValidationEngine:
 
             model = self.models[model_id]
 
-            self.logger.debug(f"Analyzing features for model: {model_id}")
+            self.logger.debug("Analyzing features for model: %s", model_id)
 
             analysis_id = f"feat_{model_id}_{int(time.time())}"
 
@@ -723,7 +718,7 @@ class ModelValidationEngine:
             # Store analysis
             self.feature_analyzers[model_id] = analysis
 
-            self.logger.debug(f"Feature analysis completed for model: {model_id}")
+            self.logger.debug("Feature analysis completed for model: %s", model_id)
             return analysis
 
         except Exception as e:
@@ -1016,7 +1011,7 @@ class ModelValidationEngine:
 
         for method in required_methods:
             if not hasattr(model, method):
-                self.logger.warning(f"Model missing required method: {method}")
+                self.logger.warning("Model missing required method: %s", method)
                 return False
 
         return True
@@ -1071,7 +1066,7 @@ class ModelValidationEngine:
                         probabilities = model.predict_proba(X)[:, 1]
                         result.metrics['auc_roc'] = roc_auc_score(y, probabilities)
                     except Exception as e:
-                        self.logger.debug(f"AUC-ROC calculation skipped: {e}")
+                        self.logger.debug("AUC-ROC calculation skipped: %s", e)
             else:
                 predictions = model.predict(X)
 
@@ -1086,7 +1081,7 @@ class ModelValidationEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in cross-validation: {e}", exc_info=True)
+            self.logger.error("Error in cross-validation: %s", e, exc_info=True)
             result.errors.append(f"Cross-validation error: {e}")
             return result
 
@@ -1118,7 +1113,7 @@ class ModelValidationEngine:
                         probabilities = model.predict_proba(X_test)[:, 1]
                         result.metrics['auc_roc'] = roc_auc_score(y_test, probabilities)
                     except Exception as e:
-                        self.logger.debug(f"AUC-ROC calculation skipped for fold: {e}")
+                        self.logger.debug("AUC-ROC calculation skipped for fold: %s", e)
             else:
                 result.metrics = {
                     'mse': mean_squared_error(y_test, predictions),
@@ -1129,7 +1124,7 @@ class ModelValidationEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in holdout validation: {e}", exc_info=True)
+            self.logger.error("Error in holdout validation: %s", e, exc_info=True)
             result.errors.append(f"Holdout validation error: {e}")
             return result
 
@@ -1162,7 +1157,7 @@ class ModelValidationEngine:
                     break
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
+                self.logger.error("Error in monitoring loop: %s", e, exc_info=True)
                 if self._stop_event.wait(timeout=60):
                     break
 
@@ -1191,7 +1186,7 @@ class ModelValidationEngine:
             self.logger.info("Model validation engine cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}", exc_info=True)
+            self.logger.error("Error during cleanup: %s", e, exc_info=True)
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1259,20 +1254,16 @@ async def main():
         validator = ModelValidationEngine()
         logging.info("✅ Model Validation Engine initialized")
 
-        # Initialize engine with backtesting integration
-        if not validator.initialize(enable_backtesting_integration=True):
+        if not validator.initialize():
             logging.info("❌ Failed to initialize model validation engine")
             return False
-
-        logging.info("🔗 F12 Backtesting integration: " +
-              ("✅ ENABLED" if validator.backtesting_engine else "❌ Not available"))
 
         # Create sample validation scenario
         logging.info("\n📊 Creating sample validation scenario...")
         scenario = create_sample_validation_scenario()
-        logging.info(f"   Features: {scenario['n_features']}")
-        logging.info(f"   Samples: {scenario['n_samples']}")
-        logging.info(f"   Model: {scenario['model'].__class__.__name__}")
+        logging.info("   Features: %s", scenario['n_features'])
+        logging.info("   Samples: %s", scenario['n_samples'])
+        logging.info("   Model: %s", scenario['model'].__class__.__name__)
 
         # Create model metadata
         metadata = ModelMetadata(
@@ -1291,14 +1282,14 @@ async def main():
         # Register model
         logging.info("\n🔧 Registering model...")
         registration_success = validator.register_model(scenario['model'], metadata)
-        logging.info(f"   Registration: {'✅ Success' if registration_success else '❌ Failed'}")
+        logging.info("   Registration: %s", '✅ Success' if registration_success else '❌ Failed')
 
         if not registration_success:
             return False
 
         # Run comprehensive validation
         logging.info("\n🧪 Running comprehensive model validation...")
-        logging.info(f"   Method: Cross-Validation ({CROSS_VALIDATION_FOLDS}-fold)")
+        logging.info("   Method: Cross-Validation (%s-fold)", CROSS_VALIDATION_FOLDS)
 
         validation_result = await validator.validate_model(
             metadata.model_id,
@@ -1308,8 +1299,8 @@ async def main():
         )
 
         logging.info("   ✅ Validation completed!")
-        logging.info(f"   Status: {validation_result.status.value.upper()}")
-        logging.info(f"   Passed: {'✅' if validation_result.passed_validation else '❌'}")
+        logging.info("   Status: %s", validation_result.status.value.upper())
+        logging.info("   Passed: %s", '✅' if validation_result.passed_validation else '❌')
         logging.info(f"   Validation Time: {validation_result.validation_time:.2f}s")
 
         # Display key metrics
@@ -1347,7 +1338,7 @@ async def main():
         )
 
         drift_detected = any(result.drift_detected for result in drift_results)
-        logging.info(f"   Drift Detection: {'🔴 DETECTED' if drift_detected else '🟢 None detected'}")
+        logging.info("   Drift Detection: %s", '🔴 DETECTED' if drift_detected else '🟢 None detected')
 
         if drift_detected:
             for result in drift_results:
@@ -1357,21 +1348,21 @@ async def main():
         # Get model health status
         logging.info("\n💊 Checking model health...")
         health_status = validator.get_model_health_status(metadata.model_id)
-        logging.info(f"   Overall Status: {health_status['overall_status'].upper()}")
+        logging.info("   Overall Status: %s", health_status['overall_status'].upper())
         logging.info(f"   Health Score: {health_status['health_score']:.1f}/100")
-        logging.info(f"   Active Alerts: {health_status['active_alerts']}")
-        logging.info(f"   Critical Alerts: {health_status['critical_alerts']}")
+        logging.info("   Active Alerts: %s", health_status['active_alerts'])
+        logging.info("   Critical Alerts: %s", health_status['critical_alerts'])
 
         # Test monitoring
         logging.info("\n📡 Testing model monitoring...")
         monitoring_started = validator.start_monitoring()
-        logging.info(f"   Monitoring: {'✅ Started' if monitoring_started else '❌ Failed'}")
+        logging.info("   Monitoring: %s", '✅ Started' if monitoring_started else '❌ Failed')
 
         # Wait a moment for monitoring
         await asyncio.sleep(2)
 
         monitoring_stopped = validator.stop_monitoring()
-        logging.info(f"   Monitoring: {'✅ Stopped' if monitoring_stopped else '❌ Failed to stop'}")
+        logging.info("   Monitoring: %s", '✅ Stopped' if monitoring_stopped else '❌ Failed to stop')
 
         # Generate comprehensive health report
         logging.info("\n📋 Generating model health report...")
@@ -1393,7 +1384,7 @@ async def main():
         ]
 
         for method in validation_methods:
-            logging.info(f"   Testing {method.value}...")
+            logging.info("   Testing %s...", method.value)
             try:
                 method_result = await validator.validate_model(
                     metadata.model_id,
@@ -1404,18 +1395,18 @@ async def main():
                 accuracy = method_result.metrics.get('accuracy', 0)
                 logging.info(f"     {method.value}: Accuracy {accuracy:.3f}")
             except Exception as e:
-                logging.info(f"     {method.value}: ❌ Error - {e}")
+                logging.info("     %s: ❌ Error - %s", method.value, e)
 
         # Display validation engine statistics
         total_models = len(validator.models)
         total_validations = sum(len(hist) for hist in validator.validation_history.values())
 
         logging.info("\n⚡ VALIDATION ENGINE STATISTICS:")
-        logging.info(f"   Registered Models: {total_models}")
-        logging.info(f"   Total Validations: {total_validations}")
-        logging.info(f"   Validation Methods: {len(ValidationMethod)}")
-        logging.info(f"   Drift Detection Methods: {len(validator.drift_detection_methods)}")
-        logging.info(f"   Feature Analysis Methods: {len(validator.feature_analysis_methods)}")
+        logging.info("   Registered Models: %s", total_models)
+        logging.info("   Total Validations: %s", total_validations)
+        logging.info("   Validation Methods: %s", len(ValidationMethod))
+        logging.info("   Drift Detection Methods: %s", len(validator.drift_detection_methods))
+        logging.info("   Feature Analysis Methods: %s", len(validator.feature_analysis_methods))
 
         # Cleanup
         validator.cleanup()
@@ -1431,7 +1422,6 @@ async def main():
         logging.info("   • Alert System with Multiple Severity Levels")
         logging.info("   • Ensemble Model Analysis")
         logging.info("   • Professional Health Reporting")
-        logging.info("   • F12 Backtesting Integration")
         logging.info("   • 25+ Performance Metrics")
         logging.info("   • Automated Recommendation System")
         logging.info("   • Institutional-Grade Model Governance")
@@ -1439,7 +1429,7 @@ async def main():
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
 if __name__ == "__main__":

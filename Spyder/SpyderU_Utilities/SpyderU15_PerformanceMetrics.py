@@ -171,7 +171,7 @@ class PerformanceCalculator:
         self.error_handler = SpyderErrorHandler()
         self.risk_free_rate = risk_free_rate
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # CORE PERFORMANCE METRICS
@@ -196,7 +196,7 @@ class PerformanceCalculator:
             return float(total_return)
 
         except Exception as e:
-            self.logger.error(f"Total return calculation failed: {e}")
+            self.logger.error("Total return calculation failed: %s", e)
             return 0.0
 
     def calculate_annualized_return(
@@ -227,7 +227,7 @@ class PerformanceCalculator:
             return float(annualized_return)
 
         except Exception as e:
-            self.logger.error(f"Annualized return calculation failed: {e}")
+            self.logger.error("Annualized return calculation failed: %s", e)
             return 0.0
 
     def calculate_volatility(
@@ -252,7 +252,7 @@ class PerformanceCalculator:
             return float(volatility)
 
         except Exception as e:
-            self.logger.error(f"Volatility calculation failed: {e}")
+            self.logger.error("Volatility calculation failed: %s", e)
             return 0.0
 
     # ==========================================================================
@@ -285,7 +285,7 @@ class PerformanceCalculator:
             return float(sharpe_ratio)
 
         except Exception as e:
-            self.logger.error(f"Sharpe ratio calculation failed: {e}")
+            self.logger.error("Sharpe ratio calculation failed: %s", e)
             return 0.0
 
     def calculate_sortino_ratio(
@@ -317,7 +317,7 @@ class PerformanceCalculator:
             return float(sortino_ratio)
 
         except Exception as e:
-            self.logger.error(f"Sortino ratio calculation failed: {e}")
+            self.logger.error("Sortino ratio calculation failed: %s", e)
             return 0.0
 
     def calculate_calmar_ratio(self, returns: pd.Series) -> float:
@@ -345,7 +345,7 @@ class PerformanceCalculator:
             return float(calmar_ratio)
 
         except Exception as e:
-            self.logger.error(f"Calmar ratio calculation failed: {e}")
+            self.logger.error("Calmar ratio calculation failed: %s", e)
             return 0.0
 
     # ==========================================================================
@@ -377,7 +377,7 @@ class PerformanceCalculator:
             return float(max_drawdown)
 
         except Exception as e:
-            self.logger.error(f"Max drawdown calculation failed: {e}")
+            self.logger.error("Max drawdown calculation failed: %s", e)
             return 0.0
 
     def analyze_drawdowns(self, cumulative_returns: pd.Series) -> DrawdownInfo:
@@ -444,7 +444,7 @@ class PerformanceCalculator:
             )
 
         except Exception as e:
-            self.logger.error(f"Drawdown analysis failed: {e}")
+            self.logger.error("Drawdown analysis failed: %s", e)
             return DrawdownInfo(0.0, 0, 0, [])
 
     # ==========================================================================
@@ -472,7 +472,7 @@ class PerformanceCalculator:
             return float(win_rate)
 
         except Exception as e:
-            self.logger.error(f"Win rate calculation failed: {e}")
+            self.logger.error("Win rate calculation failed: %s", e)
             return 0.0
 
     def calculate_profit_factor(self, returns: pd.Series) -> float:
@@ -500,7 +500,7 @@ class PerformanceCalculator:
             return float(profit_factor)
 
         except Exception as e:
-            self.logger.error(f"Profit factor calculation failed: {e}")
+            self.logger.error("Profit factor calculation failed: %s", e)
             return 0.0
 
     def calculate_trade_statistics(self, returns: pd.Series) -> dict[str, float]:
@@ -541,7 +541,7 @@ class PerformanceCalculator:
             return stats
 
         except Exception as e:
-            self.logger.error(f"Trade statistics calculation failed: {e}")
+            self.logger.error("Trade statistics calculation failed: %s", e)
             return {}
 
     # ==========================================================================
@@ -601,7 +601,7 @@ class PerformanceCalculator:
                 return PerformanceRating.VERY_POOR
 
         except Exception as e:
-            self.logger.error(f"Performance rating failed: {e}")
+            self.logger.error("Performance rating failed: %s", e)
             return PerformanceRating.AVERAGE
 
     # ==========================================================================
@@ -664,7 +664,7 @@ class PerformanceCalculator:
             return report
 
         except Exception as e:
-            self.logger.error(f"Performance report generation failed: {e}")
+            self.logger.error("Performance report generation failed: %s", e)
             # Return default report on error
             return PerformanceReport(
                 total_return=0.0,

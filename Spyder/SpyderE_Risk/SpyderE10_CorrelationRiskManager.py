@@ -440,7 +440,7 @@ class CorrelationRiskManager:
             Comprehensive correlation metrics
         """
         try:
-            self.logger.debug(f"Analyzing portfolio correlation with {len(returns_data.columns)} assets")
+            self.logger.debug("Analyzing portfolio correlation with %s assets", len(returns_data.columns))
 
             # Validate and prepare data
             if not self._validate_returns_data(returns_data):
@@ -538,7 +538,7 @@ class CorrelationRiskManager:
             # Detect correlation breakdowns
             self._detect_correlation_breakdowns(metrics, correlation_matrix)
 
-            self.logger.debug(f"Correlation analysis completed: {metrics.diversification_health.value} health")
+            self.logger.debug("Correlation analysis completed: %s health", metrics.diversification_health.value)
             return metrics
 
         except Exception as e:
@@ -582,7 +582,7 @@ class CorrelationRiskManager:
         """
         try:
             if len(returns_data) < window:
-                self.logger.warning(f"Insufficient data for rolling correlation (need {window}, got {len(returns_data)})")
+                self.logger.warning("Insufficient data for rolling correlation (need %s, got %s)", window, len(returns_data))
                 return pd.DataFrame()
 
             rolling_stats = []
@@ -628,7 +628,7 @@ class CorrelationRiskManager:
             rolling_df = pd.DataFrame(rolling_stats)
             rolling_df.set_index('timestamp', inplace=True)
 
-            self.logger.debug(f"Calculated rolling correlations: {len(rolling_df)} periods")
+            self.logger.debug("Calculated rolling correlations: %s periods", len(rolling_df))
             return rolling_df
 
         except Exception as e:
@@ -798,7 +798,7 @@ class CorrelationRiskManager:
             # Store clusters
             self.correlation_clusters = clusters
 
-            self.logger.debug(f"Created {len(clusters)} correlation clusters")
+            self.logger.debug("Created %s correlation clusters", len(clusters))
             return clusters
 
         except Exception as e:
@@ -914,10 +914,10 @@ class CorrelationRiskManager:
         for alert in self.alerts:
             if alert.alert_id == alert_id:
                 alert.acknowledged = True
-                self.logger.info(f"Acknowledged correlation alert: {alert_id}")
+                self.logger.info("Acknowledged correlation alert: %s", alert_id)
                 return True
 
-        self.logger.warning(f"Alert not found for acknowledgment: {alert_id}")
+        self.logger.warning("Alert not found for acknowledgment: %s", alert_id)
         return False
 
     def generate_correlation_report(self) -> str:
@@ -1078,7 +1078,7 @@ class CorrelationRiskManager:
             self.logger.debug("Correlation models initialized")
 
         except Exception as e:
-            self.logger.error(f"Error initializing correlation models: {e}")
+            self.logger.error("Error initializing correlation models: %s", e)
 
     def _initialize_clustering(self) -> None:
         """Initialize clustering algorithms."""
@@ -1117,7 +1117,7 @@ class CorrelationRiskManager:
                 self._check_alert_auto_resolution()
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                self.logger.error("Error in monitoring loop: %s", e)
                 self._stop_event.wait(60)  # Wait longer on error
 
         self.logger.info("Correlation risk monitoring loop stopped")
@@ -1156,7 +1156,7 @@ class CorrelationRiskManager:
                 return returns_data.corr(method='pearson').values
 
         except Exception as e:
-            self.logger.error(f"Error calculating correlation matrix: {e}")
+            self.logger.error("Error calculating correlation matrix: %s", e)
             # Return identity matrix as fallback
             n_assets = len(returns_data.columns)
             return np.eye(n_assets)
@@ -1179,7 +1179,7 @@ class CorrelationRiskManager:
             return corr_matrix
 
         except Exception as e:
-            self.logger.error(f"Error in EWMA correlation calculation: {e}")
+            self.logger.error("Error in EWMA correlation calculation: %s", e)
             return np.eye(len(returns_data.columns))
 
     def _validate_returns_data(self, returns_data: pd.DataFrame) -> bool:
@@ -1189,7 +1189,7 @@ class CorrelationRiskManager:
             return False
 
         if len(returns_data) < MIN_CORRELATION_WINDOW:
-            self.logger.error(f"Insufficient data points (need {MIN_CORRELATION_WINDOW}, got {len(returns_data)})")
+            self.logger.error("Insufficient data points (need %s, got %s)", MIN_CORRELATION_WINDOW, len(returns_data))
             return False
 
         if len(returns_data.columns) < 2:
@@ -1237,7 +1237,7 @@ class CorrelationRiskManager:
             return diversification_metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating diversification metrics: {e}")
+            self.logger.error("Error calculating diversification metrics: %s", e)
             return {
                 'diversification_ratio': 0.5,
                 'effective_assets': len(weights),
@@ -1258,7 +1258,7 @@ class CorrelationRiskManager:
             }
 
         except Exception as e:
-            self.logger.error(f"Error detecting correlation regime: {e}")
+            self.logger.error("Error detecting correlation regime: %s", e)
             return {
                 'regime': CorrelationRegime.NORMAL_CORRELATION,
                 'probability': 0.5,
@@ -1312,7 +1312,7 @@ class CorrelationRiskManager:
             }
 
         except Exception as e:
-            self.logger.error(f"Error calculating tail correlations: {e}")
+            self.logger.error("Error calculating tail correlations: %s", e)
             return {
                 'tail_5pct': 0.7,
                 'tail_1pct': 0.8,
@@ -1355,7 +1355,7 @@ class CorrelationRiskManager:
             }
 
         except Exception as e:
-            self.logger.error(f"Error calculating correlation changes: {e}")
+            self.logger.error("Error calculating correlation changes: %s", e)
             return {'trend': 0.0, 'volatility': 0.0}
 
     def _assess_diversification_health(self, basic_stats: dict[str, float],
@@ -1472,7 +1472,7 @@ class CorrelationRiskManager:
         """Add correlation alert with suppression tracking."""
         self.alerts.append(alert)
         self.alert_suppression[alert_key] = datetime.now()
-        self.logger.warning(f"Correlation alert: {alert.message}")
+        self.logger.warning("Correlation alert: %s", alert.message)
 
     def _detect_correlation_breakdowns(self, metrics: CorrelationMetrics,
                                      correlation_matrix: np.ndarray) -> None:
@@ -1503,7 +1503,7 @@ class CorrelationRiskManager:
                     self.logger.warning(f"Correlation breakdown detected: {correlation_change:.1%} spike")
 
         except Exception as e:
-            self.logger.error(f"Error detecting correlation breakdowns: {e}")
+            self.logger.error("Error detecting correlation breakdowns: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - Utilities
@@ -1545,7 +1545,7 @@ class CorrelationRiskManager:
                 self.asset_profiles[asset_name] = profile
 
         except Exception as e:
-            self.logger.error(f"Error updating asset profiles: {e}")
+            self.logger.error("Error updating asset profiles: %s", e)
 
     async def _perform_correlation_clustering(self, correlation_matrix: np.ndarray,
                                             weights: np.ndarray) -> None:
@@ -1564,7 +1564,7 @@ class CorrelationRiskManager:
                         self.asset_profiles[asset_name].correlation_cluster = cluster_id
 
         except Exception as e:
-            self.logger.error(f"Error performing correlation clustering: {e}")
+            self.logger.error("Error performing correlation clustering: %s", e)
 
     def _calculate_regime_duration(self, correlation_series: pd.Series, current_regime: CorrelationRegime) -> int:
         """Calculate how long current regime has persisted."""
@@ -1574,7 +1574,7 @@ class CorrelationRiskManager:
             return min(len(correlation_series), 30)  # Max 30 days lookback
 
         except Exception as e:
-            self.logger.error(f"Error calculating regime duration: {e}")
+            self.logger.error("Error calculating regime duration: %s", e)
             return 0
 
     def _detect_regime_change_probability(self, correlation_series: pd.Series) -> float:
@@ -1593,7 +1593,7 @@ class CorrelationRiskManager:
             return change_prob
 
         except Exception as e:
-            self.logger.error(f"Error detecting regime change probability: {e}")
+            self.logger.error("Error detecting regime change probability: %s", e)
             return 0.0
 
     def _cleanup_old_alerts(self) -> None:
@@ -1631,7 +1631,7 @@ class CorrelationRiskManager:
                 # Auto-resolve if condition improved
                 if alert.alert_type == "High Correlation" and current_metrics.average_correlation < MODERATE_CORRELATION_THRESHOLD or alert.alert_type == "Poor Diversification" and current_metrics.diversification_health in [DiversificationHealth.GOOD, DiversificationHealth.EXCELLENT]:
                     alert.auto_resolved = True
-                    self.logger.info(f"Auto-resolved alert: {alert.alert_id}")
+                    self.logger.info("Auto-resolved alert: %s", alert.alert_id)
 
     # ==========================================================================
     # LIFECYCLE METHODS
@@ -1655,7 +1655,7 @@ class CorrelationRiskManager:
             self.logger.info("Correlation risk manager cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
     # --------------------------------------------------------------------------
     # RISKFOLIO-LIB: ROBUST CORRELATION FOR BREAKDOWN DETECTION
@@ -1822,7 +1822,7 @@ async def main():
         # Create sample data
         logging.info("\n📊 Creating sample portfolio returns...")
         returns_data = create_sample_returns_data(n_assets=8, n_periods=150)
-        logging.info(f"   Created data: {len(returns_data)} periods, {len(returns_data.columns)} assets")
+        logging.info("   Created data: %s periods, %s assets", len(returns_data), len(returns_data.columns))
 
         # Analyze portfolio correlation
         logging.info("\n🔍 Analyzing portfolio correlation...")
@@ -1832,14 +1832,14 @@ async def main():
         logging.info(f"   Max Correlation: {metrics.max_correlation:.3f}")
         logging.info(f"   Diversification Ratio: {metrics.diversification_ratio:.3f}")
         logging.info(f"   Effective Assets: {metrics.effective_assets:.1f}")
-        logging.info(f"   Current Regime: {metrics.current_regime.value}")
+        logging.info("   Current Regime: %s", metrics.current_regime.value)
         logging.info(f"   Health Score: {metrics.health_score:.1f}/100")
-        logging.info(f"   Diversification Health: {metrics.diversification_health.value}")
+        logging.info("   Diversification Health: %s", metrics.diversification_health.value)
 
         # Test rolling correlation
         logging.info("\n📈 Calculating rolling correlations...")
         rolling_corr = corr_manager.calculate_rolling_correlation(returns_data, window=30)
-        logging.info(f"   Rolling periods calculated: {len(rolling_corr)}")
+        logging.info("   Rolling periods calculated: %s", len(rolling_corr))
         if not rolling_corr.empty:
             logging.info(f"   Latest avg correlation: {rolling_corr['avg_correlation'].iloc[-1]:.3f}")
             logging.info(f"   Correlation trend: {rolling_corr['avg_correlation'].iloc[-5:].mean() - rolling_corr['avg_correlation'].iloc[:5].mean():.3f}")
@@ -1847,7 +1847,7 @@ async def main():
         # Test regime detection
         logging.info("\n🎛️ Testing regime detection...")
         regime_info = corr_manager.detect_correlation_regimes(returns_data)
-        logging.info(f"   Current Regime: {regime_info['current_regime'].value}")
+        logging.info("   Current Regime: %s", regime_info['current_regime'].value)
         logging.info(f"   Regime Confidence: {regime_info.get('confidence', 0):.1%}")
         logging.info(f"   Z-Score: {regime_info.get('z_score', 0):.2f}")
 
@@ -1858,7 +1858,7 @@ async def main():
             clusters = await corr_manager.perform_correlation_clustering(
                 matrix, returns_data.columns.tolist()
             )
-            logging.info(f"   Created clusters: {len(clusters)}")
+            logging.info("   Created clusters: %s", len(clusters))
             for cluster_id, cluster in clusters.items():
                 logging.info(f"     {cluster_id}: {cluster.cluster_size} assets, {cluster.internal_correlation:.3f} internal corr")
 
@@ -1876,9 +1876,9 @@ async def main():
         # Test alert system
         logging.info("\n⚠️ Testing alert system...")
         active_alerts = corr_manager.get_active_alerts()
-        logging.info(f"   Active alerts: {len(active_alerts)}")
+        logging.info("   Active alerts: %s", len(active_alerts))
         for alert in active_alerts[:3]:  # Show first 3 alerts
-            logging.info(f"     {alert.alert_type} ({alert.severity.value}): {alert.message}")
+            logging.info("     %s (%s): %s", alert.alert_type, alert.severity.value, alert.message)
 
         # Generate report
         logging.info("\n📋 Generating correlation risk report...")
@@ -1900,19 +1900,19 @@ async def main():
         if 'error' not in breakdown_analysis:
             logging.info(f"   Correlation Change: {breakdown_analysis['correlation_change']:.3f}")
             logging.info(f"   Breakdown Magnitude: {breakdown_analysis['breakdown_magnitude']:.1%}")
-            logging.info(f"   Affected Pairs: {breakdown_analysis['affected_pairs']}/{breakdown_analysis['total_pairs']}")
+            logging.info("   Affected Pairs: %s/%s", breakdown_analysis['affected_pairs'], breakdown_analysis['total_pairs'])
 
         # Get summary
         summary = corr_manager.get_correlation_summary()
         logging.info("\n📈 CORRELATION MANAGER SUMMARY:")
-        logging.info(f"   Status: {summary['manager_status']['status'].upper()}")
-        logging.info(f"   Assets Monitored: {summary['manager_status']['assets_monitored']}")
-        logging.info(f"   Total Alerts: {summary['alert_summary']['total_alerts']}")
-        logging.info(f"   Correlation Clusters: {summary['cluster_summary']['total_clusters']}")
+        logging.info("   Status: %s", summary['manager_status']['status'].upper())
+        logging.info("   Assets Monitored: %s", summary['manager_status']['assets_monitored'])
+        logging.info("   Total Alerts: %s", summary['alert_summary']['total_alerts'])
+        logging.info("   Correlation Clusters: %s", summary['cluster_summary']['total_clusters'])
         if summary.get('current_metrics'):
             metrics_summary = summary['current_metrics']
             logging.info(f"   Health Score: {metrics_summary['health_score']:.1f}/100")
-            logging.info(f"   Diversification Health: {metrics_summary['diversification_health'].upper()}")
+            logging.info("   Diversification Health: %s", metrics_summary['diversification_health'].upper())
 
         # Cleanup
         corr_manager.cleanup()
@@ -1932,7 +1932,7 @@ async def main():
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
 if __name__ == "__main__":

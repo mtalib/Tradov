@@ -27,13 +27,12 @@ import asyncio
 import time
 import sys
 import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -166,7 +165,7 @@ class ComprehensiveSystemTest:
             try:
                 test_method()
             except Exception as e:
-                self.logger.error(f"Test category {category_name} failed: {e}")
+                self.logger.error("Test category %s failed: %s", category_name, e)
                 self._add_result(
                     f"{category_name}_error",
                     TestCategory.SYSTEM,
@@ -1257,7 +1256,7 @@ class ComprehensiveSystemTest:
             print(f"\nResults saved to: {filename}")
 
         except Exception as e:
-            self.logger.error(f"Failed to save test results: {e}")
+            self.logger.error("Failed to save test results: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS

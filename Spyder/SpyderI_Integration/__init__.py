@@ -53,7 +53,7 @@ try:
 
     INTEGRATION_HUB_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderI01_IntegrationHub not available: {e}")
+    logging.info("⚠️ SpyderI01_IntegrationHub not available: %s", e)
     INTEGRATION_HUB_AVAILABLE = False
 
 # Event Router
@@ -65,7 +65,7 @@ try:
 
     EVENT_ROUTER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderI02_EventRouter not available: {e}")
+    logging.info("⚠️ SpyderI02_EventRouter not available: %s", e)
     EVENT_ROUTER_AVAILABLE = False
 
 # Config Manager
@@ -77,7 +77,7 @@ try:
 
     CONFIG_MANAGER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderI03_ConfigManager not available: {e}")
+    logging.info("⚠️ SpyderI03_ConfigManager not available: %s", e)
     CONFIG_MANAGER_AVAILABLE = False
 
 # Diagnostics Engine
@@ -89,7 +89,7 @@ try:
 
     DIAGNOSTICS_ENGINE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderI04_DiagnosticsEngine not available: {e}")
+    logging.info("⚠️ SpyderI04_DiagnosticsEngine not available: %s", e)
     DIAGNOSTICS_ENGINE_AVAILABLE = False
 
 # Agent Message Bus
@@ -101,7 +101,7 @@ try:
 
     AGENT_MESSAGE_BUS_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderI06_AgentMessageBus not available: {e}")
+    logging.info("⚠️ SpyderI06_AgentMessageBus not available: %s", e)
     AGENT_MESSAGE_BUS_AVAILABLE = False
 
 # ==============================================================================
@@ -179,9 +179,9 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        logging.info(f"🔌 {info['package_name']} v{info['version']}")
+        logging.info("🔌 %s v%s", info['package_name'], info['version'])
         logging.info(
-            f"✅ {info['available_modules']}/{info['total_modules']} modules available"
+            "✅ %s/%s modules available", info['available_modules'], info['total_modules']
         )
 
         if info["available_modules"] == info["total_modules"]:
@@ -191,11 +191,11 @@ def validate_package():
             logging.info("⚠️ Some integration modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                logging.info(f"   {status_icon} {module}")
+                logging.info("   %s %s", status_icon, module)
             return False
 
     except Exception as e:
-        logging.info(f"❌ Integration package validation failed: {e}")
+        logging.info("❌ Integration package validation failed: %s", e)
         return False
 
 
@@ -229,8 +229,62 @@ if CONFIG_MANAGER_AVAILABLE:
 if DIAGNOSTICS_ENGINE_AVAILABLE:
     __all__.extend(["DiagnosticsEngine"])
 
+try:
+    from .SpyderI05_DiagnosticsEngine_Analyzers import AnalysisManager
+    __all__.extend(["AnalysisManager"])
+except ImportError as e:
+    logging.info("Warning: SpyderI05_DiagnosticsEngine_Analyzers not available: %s", e)
+
 if AGENT_MESSAGE_BUS_AVAILABLE:
     __all__.extend(["AgentMessageBus"])
+
+# I07–I11 — diagnostics engine sub-modules
+try:
+    from .SpyderI07_SyntaxValidator import SyntaxValidator
+    __all__.extend(["SyntaxValidator"])
+except ImportError as e:
+    logging.info("Warning: SpyderI07_SyntaxValidator not available: %s", e)
+
+try:
+    from .SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
+    __all__.extend(["DataCollector"])
+except ImportError as e:
+    logging.info("Warning: SpyderI08_DiagnosticsEngine_DataCollector not available: %s", e)
+
+try:
+    from .SpyderI09_DiagnosticsEngine_HealthChecks import DependencyHealthChecker
+    __all__.extend(["DependencyHealthChecker"])
+except ImportError as e:
+    logging.info("Warning: SpyderI09_DiagnosticsEngine_HealthChecks not available: %s", e)
+
+try:
+    from .SpyderI10_DiagnosticsEngine_Types import DiagnosticConfig
+    __all__.extend(["DiagnosticConfig"])
+except ImportError as e:
+    logging.info("Warning: SpyderI10_DiagnosticsEngine_Types not available: %s", e)
+
+try:
+    from .SpyderI11_DiagnosticsEngine_Utils import DiagnosticUtils
+    __all__.extend(["DiagnosticUtils"])
+except ImportError as e:
+    logging.info("Warning: SpyderI11_DiagnosticsEngine_Utils not available: %s", e)
+
+try:
+    from .SpyderI12_ModuleRegistry import (
+        ModuleRegistry, ModuleRecord, REGISTERED_MODULES,
+        get_module_registry, register_module,
+    )
+    __all__.extend([
+        "ModuleRegistry", "ModuleRecord", "REGISTERED_MODULES",
+        "get_module_registry", "register_module",
+    ])
+except ImportError as e:
+    logging.info("Warning: SpyderI12_ModuleRegistry not available: %s", e)
+    ModuleRegistry = None  # type: ignore
+    ModuleRecord = None  # type: ignore
+    REGISTERED_MODULES = {}  # type: ignore
+    get_module_registry = None  # type: ignore
+    register_module = None  # type: ignore
 
 # ==============================================================================
 # INITIALIZATION
@@ -249,4 +303,4 @@ else:
     logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            logging.info(f"  {key}: {value}")
+            logging.info("  %s: %s", key, value)

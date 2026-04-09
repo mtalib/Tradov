@@ -389,7 +389,7 @@ class GreeksAgent:
                     temperature=0.7,
                 )
             except Exception as e:
-                self.logger.warning(f"NLP pipeline initialization failed: {e}")
+                self.logger.warning("NLP pipeline initialization failed: %s", e)
 
         # Threading and async
         self._shutdown_event = ThreadEvent()
@@ -429,7 +429,7 @@ class GreeksAgent:
             return True
 
         except Exception as e:
-            self.logger.error(f"AI Greeks Agent initialization failed: {e}")
+            self.logger.error("AI Greeks Agent initialization failed: %s", e)
             self.error_handler.handle_ai_error(e, "GreeksAgent", "initialize")
             return False
 
@@ -457,7 +457,7 @@ class GreeksAgent:
             return True
 
         except Exception as e:
-            self.logger.error(f"AI Greeks Agent shutdown failed: {e}")
+            self.logger.error("AI Greeks Agent shutdown failed: %s", e)
             return False
 
     # ==========================================================================
@@ -482,7 +482,7 @@ class GreeksAgent:
             Comprehensive AI Greeks analysis
         """
         try:
-            self.logger.info(f"Analyzing position Greeks for {greeks_data.symbol}")
+            self.logger.info("Analyzing position Greeks for %s", greeks_data.symbol)
 
             # Use provided context or current context
             context = market_context or self.market_context
@@ -564,11 +564,11 @@ class GreeksAgent:
             # Update model performance tracking
             await self._update_performance_tracking(analysis)
 
-            self.logger.info(f"Greeks analysis completed for {greeks_data.symbol}")
+            self.logger.info("Greeks analysis completed for %s", greeks_data.symbol)
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Greeks analysis failed: {e}")
+            self.logger.error("Greeks analysis failed: %s", e)
             self.error_handler.handle_ai_error(
                 e, "GreeksAgent", "analyze_position_greeks"
             )
@@ -591,7 +591,7 @@ class GreeksAgent:
         """
         try:
             self.logger.info(
-                f"Analyzing portfolio Greeks for {len(positions)} positions"
+                "Analyzing portfolio Greeks for %s positions", len(positions)
             )
 
             portfolio_id = portfolio_id or str(uuid.uuid4())
@@ -662,7 +662,7 @@ class GreeksAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Portfolio Greeks analysis failed: {e}")
+            self.logger.error("Portfolio Greeks analysis failed: %s", e)
             self.error_handler.handle_ai_error(
                 e, "GreeksAgent", "analyze_portfolio_greeks"
             )
@@ -706,7 +706,7 @@ class GreeksAgent:
             self.logger.info("ML models initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"ML model initialization failed: {e}")
+            self.logger.error("ML model initialization failed: %s", e)
 
     async def _load_or_train_models(self):
         """Load existing models or train new ones."""
@@ -720,17 +720,17 @@ class GreeksAgent:
                 if os.path.exists(model_path):
                     # Load existing model
                     self.ml_models[model_name] = joblib.load(model_path)
-                    self.logger.info(f"Loaded existing model: {model_name}")
+                    self.logger.info("Loaded existing model: %s", model_name)
                 else:
                     # Train new model with synthetic data
                     await self._train_model_with_synthetic_data(model_name)
 
                     # Save the model
                     joblib.dump(self.ml_models[model_name], model_path)
-                    self.logger.info(f"Trained and saved new model: {model_name}")
+                    self.logger.info("Trained and saved new model: %s", model_name)
 
         except Exception as e:
-            self.logger.error(f"Model loading/training failed: {e}")
+            self.logger.error("Model loading/training failed: %s", e)
 
     async def _train_model_with_synthetic_data(self, model_name: str):
         """Train model with synthetic data for initial setup."""
@@ -774,7 +774,7 @@ class GreeksAgent:
                 )
 
         except Exception as e:
-            self.logger.error(f"Synthetic training failed for {model_name}: {e}")
+            self.logger.error("Synthetic training failed for %s: %s", model_name, e)
 
     def _generate_synthetic_training_data(
         self, model_name: str, n_samples: int
@@ -834,7 +834,7 @@ class GreeksAgent:
             return X, y
 
         except Exception as e:
-            self.logger.error(f"Synthetic data generation failed: {e}")
+            self.logger.error("Synthetic data generation failed: %s", e)
             return None, None
 
     # ==========================================================================
@@ -912,7 +912,7 @@ class GreeksAgent:
             return {**standard_greeks, **enhanced_metrics}
 
         except Exception as e:
-            self.logger.error(f"Enhanced Greeks calculation failed: {e}")
+            self.logger.error("Enhanced Greeks calculation failed: %s", e)
             return {
                 "delta": greeks_data.delta,
                 "gamma": greeks_data.gamma,
@@ -938,7 +938,7 @@ class GreeksAgent:
                 return self._heuristic_risk_assessment(risk_factors)
 
         except Exception as e:
-            self.logger.error(f"Risk assessment failed: {e}")
+            self.logger.error("Risk assessment failed: %s", e)
             return {"score": 50.0, "confidence": 0.5}
 
     def _extract_risk_factors(
@@ -989,7 +989,7 @@ class GreeksAgent:
             return factors
 
         except Exception as e:
-            self.logger.error(f"Risk factor extraction failed: {e}")
+            self.logger.error("Risk factor extraction failed: %s", e)
             return {}
 
     async def _ml_risk_assessment(
@@ -1013,7 +1013,7 @@ class GreeksAgent:
             return {"score": np.clip(risk_score, 0, 100), "confidence": confidence}
 
         except Exception as e:
-            self.logger.warning(f"AI risk scoring failed: {e}")
+            self.logger.warning("AI risk scoring failed: %s", e)
             return self._heuristic_risk_assessment(risk_factors)
 
     def _heuristic_risk_assessment(
@@ -1050,7 +1050,7 @@ class GreeksAgent:
             }
 
         except Exception as e:
-            self.logger.error(f"Heuristic risk assessment failed: {e}")
+            self.logger.error("Heuristic risk assessment failed: %s", e)
             return {"score": 50.0, "confidence": 0.5}
 
     def _extract_risk_features(
@@ -1074,7 +1074,7 @@ class GreeksAgent:
             return features
 
         except Exception as e:
-            self.logger.error(f"Feature extraction failed: {e}")
+            self.logger.error("Feature extraction failed: %s", e)
             return [0.0] * 8
 
     def _calculate_prediction_confidence(
@@ -1095,7 +1095,7 @@ class GreeksAgent:
                 return 0.5
 
         except Exception as e:
-            self.logger.error(f"Confidence calculation failed: {e}")
+            self.logger.error("Confidence calculation failed: %s", e)
             return 0.5
 
     # ==========================================================================
@@ -1180,7 +1180,7 @@ class GreeksAgent:
             return " ".join(summary_parts)
 
         except Exception as e:
-            self.logger.error(f"Natural language summary generation failed: {e}")
+            self.logger.error("Natural language summary generation failed: %s", e)
             return f"Analysis of {greeks_data.symbol} position shows {risk_assessment['score']:.0f}% risk score."
 
     async def _extract_key_insights(
@@ -1249,7 +1249,7 @@ class GreeksAgent:
             return insights[:5]  # Limit to top 5 insights
 
         except Exception as e:
-            self.logger.error(f"Key insights extraction failed: {e}")
+            self.logger.error("Key insights extraction failed: %s", e)
             return ["Analysis completed with basic risk assessment"]
 
     async def _generate_risk_explanation(
@@ -1313,7 +1313,7 @@ class GreeksAgent:
             return " ".join(explanations)
 
         except Exception as e:
-            self.logger.error(f"Risk explanation generation failed: {e}")
+            self.logger.error("Risk explanation generation failed: %s", e)
             return f"Position carries {risk_assessment['score']:.0f}% risk score based on current Greeks values."
 
     # ==========================================================================
@@ -1372,7 +1372,7 @@ class GreeksAgent:
             return scenarios
 
         except Exception as e:
-            self.logger.error(f"P&L scenario generation failed: {e}")
+            self.logger.error("P&L scenario generation failed: %s", e)
             return {}
 
     async def _perform_sensitivity_analysis(
@@ -1408,7 +1408,7 @@ class GreeksAgent:
             return sensitivity
 
         except Exception as e:
-            self.logger.error(f"Sensitivity analysis failed: {e}")
+            self.logger.error("Sensitivity analysis failed: %s", e)
             return {}
 
     async def _generate_probability_distributions(
@@ -1451,7 +1451,7 @@ class GreeksAgent:
             return distributions
 
         except Exception as e:
-            self.logger.error(f"Probability distribution generation failed: {e}")
+            self.logger.error("Probability distribution generation failed: %s", e)
             return {}
 
     # ==========================================================================
@@ -1537,7 +1537,7 @@ class GreeksAgent:
             return recommendations[:MAX_HEDGE_SUGGESTIONS]
 
         except Exception as e:
-            self.logger.error(f"Hedge recommendation generation failed: {e}")
+            self.logger.error("Hedge recommendation generation failed: %s", e)
             return []
 
     async def _calculate_optimal_hedge_ratio(self, greeks_data: GreeksData) -> float:
@@ -1558,7 +1558,7 @@ class GreeksAgent:
             return min(optimal_ratio, 1.0)
 
         except Exception as e:
-            self.logger.error(f"Optimal hedge ratio calculation failed: {e}")
+            self.logger.error("Optimal hedge ratio calculation failed: %s", e)
             return 0.5
 
     async def _estimate_hedge_cost(
@@ -1572,7 +1572,7 @@ class GreeksAgent:
             return total_cost
 
         except Exception as e:
-            self.logger.error(f"Hedge cost estimation failed: {e}")
+            self.logger.error("Hedge cost estimation failed: %s", e)
             return 0.0
 
     # ==========================================================================
@@ -1643,7 +1643,7 @@ class GreeksAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Market context analysis failed: {e}")
+            self.logger.error("Market context analysis failed: %s", e)
             return "Market context analysis unavailable"
 
     async def _assess_correlation_risks(
@@ -1666,7 +1666,7 @@ class GreeksAgent:
             return risks
 
         except Exception as e:
-            self.logger.error(f"Correlation risk assessment failed: {e}")
+            self.logger.error("Correlation risk assessment failed: %s", e)
             return {}
 
     def _calculate_model_confidence(self) -> float:
@@ -1681,7 +1681,7 @@ class GreeksAgent:
             return statistics.mean(confidences) if confidences else 0.5
 
         except Exception as e:
-            self.logger.error(f"Model confidence calculation failed: {e}")
+            self.logger.error("Model confidence calculation failed: %s", e)
             return 0.5
 
     def _get_recent_prediction_accuracy(self) -> float:
@@ -1713,7 +1713,7 @@ class GreeksAgent:
                 }
 
         except Exception as e:
-            self.logger.error(f"Feature importance analysis failed: {e}")
+            self.logger.error("Feature importance analysis failed: %s", e)
             return {}
 
     # ==========================================================================
@@ -1756,7 +1756,7 @@ class GreeksAgent:
             return aggregated
 
         except Exception as e:
-            self.logger.error(f"Portfolio Greeks aggregation failed: {e}")
+            self.logger.error("Portfolio Greeks aggregation failed: %s", e)
             return {}
 
     async def _assess_portfolio_risk(
@@ -1774,7 +1774,7 @@ class GreeksAgent:
 
             return {"score": base_risk, "confidence": 0.7}
         except Exception as e:
-            self.logger.error(f"Portfolio risk assessment failed: {e}")
+            self.logger.error("Portfolio risk assessment failed: %s", e)
             return {"score": 50.0, "confidence": 0.5}
 
     async def _calculate_diversification_score(
@@ -1981,7 +1981,7 @@ class GreeksAgent:
             self.logger.debug("Background workers started")
 
         except Exception as e:
-            self.logger.error(f"Background workers startup failed: {e}")
+            self.logger.error("Background workers startup failed: %s", e)
 
     def _stop_background_workers(self):
         """Stop background worker threads."""
@@ -1995,7 +1995,7 @@ class GreeksAgent:
             self.logger.debug("Background workers stopped")
 
         except Exception as e:
-            self.logger.error(f"Background workers shutdown failed: {e}")
+            self.logger.error("Background workers shutdown failed: %s", e)
 
     def _market_context_worker(self):
         """Background worker to update market context."""
@@ -2006,11 +2006,11 @@ class GreeksAgent:
                     asyncio.run(self._update_market_context())
                     self._shutdown_event.wait(300)  # 5 minutes
                 except Exception as e:
-                    self.logger.error(f"Market context update failed: {e}")
+                    self.logger.error("Market context update failed: %s", e)
                     self._shutdown_event.wait(60)  # Retry in 1 minute
 
         except Exception as e:
-            self.logger.error(f"Market context worker failed: {e}")
+            self.logger.error("Market context worker failed: %s", e)
 
     def _performance_monitor_worker(self):
         """Background worker to monitor model performance."""
@@ -2021,11 +2021,11 @@ class GreeksAgent:
                     self._monitor_model_performance()
                     self._shutdown_event.wait(600)  # 10 minutes
                 except Exception as e:
-                    self.logger.error(f"Performance monitoring failed: {e}")
+                    self.logger.error("Performance monitoring failed: %s", e)
                     self._shutdown_event.wait(60)  # Retry in 1 minute
 
         except Exception as e:
-            self.logger.error(f"Performance monitor worker failed: {e}")
+            self.logger.error("Performance monitor worker failed: %s", e)
 
     async def _update_market_context(self):
         """Update market context with current data."""
@@ -2058,7 +2058,7 @@ class GreeksAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Market context update failed: {e}")
+            self.logger.error("Market context update failed: %s", e)
 
     def _monitor_model_performance(self):
         """Monitor ML model performance and detect drift."""
@@ -2092,7 +2092,7 @@ class GreeksAgent:
                             )
 
         except Exception as e:
-            self.logger.error(f"Model performance monitoring failed: {e}")
+            self.logger.error("Model performance monitoring failed: %s", e)
 
     async def _update_performance_tracking(self, analysis: AIGreeksAnalysis):
         """Update performance tracking metrics."""
@@ -2111,7 +2111,7 @@ class GreeksAgent:
             self.model_performance_metrics["overall_accuracy"] = avg_accuracy
 
         except Exception as e:
-            self.logger.error(f"Performance tracking update failed: {e}")
+            self.logger.error("Performance tracking update failed: %s", e)
 
     # ==========================================================================
     # FALLBACK METHODS
@@ -2163,7 +2163,7 @@ class GreeksAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Fallback analysis generation failed: {e}")
+            self.logger.error("Fallback analysis generation failed: %s", e)
             # Return minimal analysis
             return AIGreeksAnalysis(
                 position_id=str(uuid.uuid4()),
@@ -2227,7 +2227,7 @@ class GreeksAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Fallback portfolio analysis failed: {e}")
+            self.logger.error("Fallback portfolio analysis failed: %s", e)
             return PortfolioGreeksAnalysis(
                 portfolio_id=portfolio_id or str(uuid.uuid4()),
                 total_positions=0,
@@ -2278,7 +2278,7 @@ class GreeksAgent:
             self.logger.info("ML models and metrics saved successfully")
 
         except Exception as e:
-            self.logger.error(f"ML models saving failed: {e}")
+            self.logger.error("ML models saving failed: %s", e)
 
 
 # ==============================================================================

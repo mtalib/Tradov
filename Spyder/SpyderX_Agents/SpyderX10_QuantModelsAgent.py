@@ -25,6 +25,8 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
+import os
 from datetime import datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
@@ -99,7 +101,7 @@ DEFAULT_CONFIG = {
 }
 
 # Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_MODEL = os.getenv("OLLAMA_PRIMARY_MODEL", "gemma4:26b")
 DEFAULT_TEMPERATURE = 0.2  # Lower temperature for quantitative analysis
 
 # ==============================================================================
@@ -191,7 +193,7 @@ class SpyderX10_QuantModelsAgent:
                 self.ollama_client = ollama
                 self.logger.info("Ollama connection established")
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}", exc_info=True)
+                self.logger.error("Failed to connect to Ollama: %s", e, exc_info=True)
 
         # Model cache
         self.model_cache = {}
@@ -293,7 +295,7 @@ class SpyderX10_QuantModelsAgent:
             return output
 
         except Exception as e:
-            self.logger.error(f"Option pricing failed: {e}", exc_info=True)
+            self.logger.error("Option pricing failed: %s", e, exc_info=True)
             # Return basic output
             return ModelOutput(
                 model_type=ModelType.BLACK_SCHOLES,
@@ -319,7 +321,7 @@ class SpyderX10_QuantModelsAgent:
         Returns:
             VolatilityForecast object
         """
-        self.logger.info(f"Forecasting volatility for {symbol}")
+        self.logger.info("Forecasting volatility for %s", symbol)
 
         try:
             # Calculate current volatility using multiple methods
@@ -365,7 +367,7 @@ class SpyderX10_QuantModelsAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Volatility forecast failed: {e}", exc_info=True)
+            self.logger.error("Volatility forecast failed: %s", e, exc_info=True)
             return VolatilityForecast(
                 current_volatility=0.2,  # Default 20% volatility
                 forecast_1d=0.2,
@@ -390,7 +392,7 @@ class SpyderX10_QuantModelsAgent:
         Returns:
             ModelValidation results
         """
-        self.logger.info(f"Validating {model_type.value} model")
+        self.logger.info("Validating %s model", model_type.value)
 
         try:
             # Perform backtesting
@@ -426,7 +428,7 @@ class SpyderX10_QuantModelsAgent:
             )
 
         except Exception as e:
-            self.logger.error(f"Model validation failed: {e}", exc_info=True)
+            self.logger.error("Model validation failed: %s", e, exc_info=True)
             return ModelValidation(
                 model_type=model_type,
                 validation_metrics={},
@@ -701,7 +703,7 @@ Provide a JSON response:
                 return ModelType.BLACK_SCHOLES
 
         except Exception as e:
-            self.logger.error(f"AI model selection failed: {e}", exc_info=True)
+            self.logger.error("AI model selection failed: %s", e, exc_info=True)
             return ModelType.BLACK_SCHOLES
 
     async def _get_ai_pricing_insights(self, contract: OptionContract,
@@ -756,7 +758,7 @@ Provide a JSON response:
                 return {'source': 'failed_parsing'}
 
         except Exception as e:
-            self.logger.error(f"AI pricing insights failed: {e}", exc_info=True)
+            self.logger.error("AI pricing insights failed: %s", e, exc_info=True)
             return {'error': str(e)}
 
     async def _get_ai_volatility_forecast(self, prices: list[float],
@@ -829,7 +831,7 @@ Provide a JSON response:
                 }
 
         except Exception as e:
-            self.logger.error(f"AI volatility forecast failed: {e}", exc_info=True)
+            self.logger.error("AI volatility forecast failed: %s", e, exc_info=True)
             return {
                 '1d': current_vol,
                 '5d': current_vol,
@@ -891,7 +893,7 @@ Provide a JSON response:
                 return {'evaluation': 'Failed to parse'}
 
         except Exception as e:
-            self.logger.error(f"AI model evaluation failed: {e}", exc_info=True)
+            self.logger.error("AI model evaluation failed: %s", e, exc_info=True)
             return {'error': str(e)}
 
     # ==========================================================================
@@ -1419,12 +1421,16 @@ def create_quant_models_agent(model_name: str = DEFAULT_MODEL,
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX10_QuantModelsAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_quant_models_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_quant_models_agent()
     return _module_instance
 
 # ==============================================================================
@@ -1457,7 +1463,7 @@ async def test_quant_models():
 
     pricing_result = await agent.price_option(contract)
 
-    logging.info(f"Model Type: {pricing_result.model_type.value}")
+    logging.info("Model Type: %s", pricing_result.model_type.value)
     logging.info(f"Theoretical Price: ${pricing_result.theoretical_price:.2f}")
     logging.info(f"Market Price: ${contract.market_price:.2f}")
     logging.info(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")
@@ -1483,7 +1489,7 @@ async def test_quant_models():
     vol_forecast = await agent.forecast_volatility("SPY", prices, 30)
 
     logging.info(f"Current Volatility: {vol_forecast.current_volatility:.1%}")
-    logging.info(f"Volatility Regime: {vol_forecast.volatility_regime}")
+    logging.info("Volatility Regime: %s", vol_forecast.volatility_regime)
     logging.info("\nForecasts:")
     logging.info(f"  1-day: {vol_forecast.forecast_1d:.1%}")
     logging.info(f"  5-day: {vol_forecast.forecast_5d:.1%}")
@@ -1505,14 +1511,14 @@ async def test_quant_models():
 
     validation = await agent.validate_model(ModelType.BLACK_SCHOLES, historical_data)
 
-    logging.info(f"Model: {validation.model_type.value}")
+    logging.info("Model: %s", validation.model_type.value)
     logging.info(f"Overall Score: {validation.overall_score:.2f}/1.00")
     logging.info("\nValidation Metrics:")
     for metric, value in list(validation.validation_metrics.items())[:5]:
         logging.info(f"  {metric}: {value:.4f}")
     logging.info("\nRecommendations:")
     for i, rec in enumerate(validation.recommendations[:3], 1):
-        logging.info(f"  {i}. {rec}")
+        logging.info("  %s. %s", i, rec)
 
 # ==============================================================================
 # MAIN EXECUTION

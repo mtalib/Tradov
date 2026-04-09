@@ -299,9 +299,9 @@ class PortfolioVaR:
             if not history_file.exists():
                 legacy = history_file.with_suffix('.pkl')
                 if legacy.exists():
-                    import pickle as _pickle
+                    import joblib as _joblib
                     with open(legacy, 'rb') as _f:
-                        _data = _pickle.load(_f)
+                        _data = _joblib.load(_f)
                     history_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
@@ -310,9 +310,9 @@ class PortfolioVaR:
                     data = json.load(f)
                     self.backtest_history = deque(data['backtests'], maxlen=252)
                     self.var_breach_history = deque(data['breaches'], maxlen=100)
-                    self.logger.info(f"Loaded {len(self.backtest_history)} historical VaR records")
+                    self.logger.info("Loaded %s historical VaR records", len(self.backtest_history))
         except Exception as e:
-            self.logger.warning(f"Could not load VaR history: {e}")
+            self.logger.warning("Could not load VaR history: %s", e)
 
     def update_position(
         self,
@@ -436,7 +436,7 @@ class PortfolioVaR:
                 return result
 
             except Exception as e:
-                self.logger.error(f"VaR calculation failed: {e}")
+                self.logger.error("VaR calculation failed: %s", e)
                 self.error_handler.handle_error(e, {"method": method.value})
                 return self._create_default_var_result(method, confidence_level)
 
@@ -679,7 +679,7 @@ class PortfolioVaR:
                 return component_vars
 
             except Exception as e:
-                self.logger.error(f"Component VaR calculation failed: {e}")
+                self.logger.error("Component VaR calculation failed: %s", e)
                 return []
 
     def _update_correlation_matrix(self):
@@ -705,7 +705,7 @@ class PortfolioVaR:
                 self.last_matrix_update = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Matrix update failed: {e}")
+            self.logger.error("Matrix update failed: %s", e)
 
     def run_stress_tests(
         self,
@@ -726,7 +726,7 @@ class PortfolioVaR:
                 results = []
 
                 for scenario_name, scenario_params in scenarios.items():
-                    self.logger.info(f"Running stress test: {scenario_name}")
+                    self.logger.info("Running stress test: %s", scenario_name)
 
                     # Calculate scenario impact
                     impact = self._calculate_scenario_impact(scenario_params)
@@ -765,7 +765,7 @@ class PortfolioVaR:
                 return results
 
             except Exception as e:
-                self.logger.error(f"Stress testing failed: {e}")
+                self.logger.error("Stress testing failed: %s", e)
                 return []
 
     def _calculate_scenario_impact(self, scenario: dict) -> float:
@@ -936,7 +936,7 @@ class PortfolioVaR:
             return report
 
         except Exception as e:
-            self.logger.error(f"Backtesting failed: {e}")
+            self.logger.error("Backtesting failed: %s", e)
             return self._create_default_backtest_report(method, confidence_level)
 
     def _kupiec_test(
@@ -1150,7 +1150,7 @@ class PortfolioVaR:
 
             self.logger.info("VaR history saved")
         except Exception as e:
-            self.logger.error(f"Failed to save VaR history: {e}")
+            self.logger.error("Failed to save VaR history: %s", e)
 
         self.logger.info("Portfolio VaR shutdown complete")
 
@@ -1226,7 +1226,7 @@ class PortfolioVaR:
 
             return sims.tolist()
 
-        self.logger.info(f"Ray VaR: {n_simulations} simulations across {n_workers} workers")
+        self.logger.info("Ray VaR: %s simulations across %s workers", n_simulations, n_workers)
         import time
         start_time = time.time()
 
@@ -1335,14 +1335,14 @@ class PortfolioVaR:
                         for col in opt_weights.index
                     }
             except Exception as e:
-                self.logger.debug(f"Risk measure {rm} failed: {e}")
+                self.logger.debug("Risk measure %s failed: %s", rm, e)
                 risk_measures[f'{measure_names[rm]}_optimal_weights'] = None
 
         risk_measures['confidence'] = confidence
         risk_measures['n_assets'] = n
         risk_measures['_backend'] = 'riskfolio'
 
-        self.logger.info(f"Extended risk measures: {len(measures)} computed")
+        self.logger.info("Extended risk measures: %s computed", len(measures))
         return risk_measures
 
 

@@ -86,7 +86,8 @@ import json
 import time
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 import logging
@@ -263,7 +264,6 @@ class BlackSwanScheduler:
             self.logger = SpyderLogger.get_logger(__name__)
             self.error_handler = SpyderErrorHandler()
         else:
-            logging.basicConfig(level=logging.INFO)
             self.logger = logging.getLogger(__name__)
             self.error_handler = None
 
@@ -342,7 +342,7 @@ class BlackSwanScheduler:
         else:
             schedule.every().day.at(time_str).do(check_callback).tag(task_id)
 
-        self.logger.info(f"Added daily check at {time_str}")
+        self.logger.info("Added daily check at %s", time_str)
         return task_id
 
     def add_interval_check(self, minutes: int, enabled: bool = True) -> str:
@@ -377,7 +377,7 @@ class BlackSwanScheduler:
         # Schedule
         schedule.every(minutes).minutes.do(check_callback).tag(task_id)
 
-        self.logger.info(f"Added interval check every {minutes} minutes")
+        self.logger.info("Added interval check every %s minutes", minutes)
         return task_id
 
     def add_daily_report(self, time_str: str = "17:00", enabled: bool = True) -> str:
@@ -411,7 +411,7 @@ class BlackSwanScheduler:
         # Schedule
         schedule.every().day.at(time_str).do(report_callback).tag(task_id)
 
-        self.logger.info(f"Added daily report at {time_str}")
+        self.logger.info("Added daily report at %s", time_str)
         return task_id
 
     def remove_task(self, task_id: str) -> bool:
@@ -433,10 +433,10 @@ class BlackSwanScheduler:
                 try:
                     self.spyder_scheduler.remove_task(task_id)
                 except Exception as e:
-                    self.logger.debug(f"Failed to remove task {task_id} from Spyder scheduler: {e}")
+                    self.logger.debug("Failed to remove task %s from Spyder scheduler: %s", task_id, e)
 
             del self.scheduled_tasks[task_id]
-            self.logger.info(f"Removed task: {task_id}")
+            self.logger.info("Removed task: %s", task_id)
             return True
 
         return False
@@ -513,7 +513,7 @@ class BlackSwanScheduler:
                     task.last_run = datetime.now()
                     return True
                 except Exception as e:
-                    self.logger.error(f"Error running task {task_id}: {e}")
+                    self.logger.error("Error running task %s: %s", task_id, e)
                     if self.error_handler:
                         self.error_handler.handle_error(e)
 
@@ -539,7 +539,7 @@ class BlackSwanScheduler:
             if 'email' not in self.alert_recipients:
                 self.logger.warning("Email channel enabled but no recipients configured")
 
-        self.logger.info(f"Alert channels configured: {[c.value for c in channels]}")
+        self.logger.info("Alert channels configured: %s", [c.value for c in channels])
 
     def test_alerts(self) -> dict[str, bool]:
         """
@@ -557,7 +557,7 @@ class BlackSwanScheduler:
                 if channel == NotificationChannel.EMAIL:
                     success = self._send_email_alert("TEST", test_message, test=True)
                 elif channel == NotificationChannel.LOG:
-                    self.logger.info(f"TEST ALERT: {test_message}")
+                    self.logger.info("TEST ALERT: %s", test_message)
                     success = True
                 else:
                     success = False
@@ -565,7 +565,7 @@ class BlackSwanScheduler:
                 results[channel.value] = success
 
             except Exception as e:
-                self.logger.error(f"Alert test failed for {channel.value}: {e}")
+                self.logger.error("Alert test failed for %s: %s", channel.value, e)
                 results[channel.value] = False
 
         return results
@@ -601,7 +601,7 @@ class BlackSwanScheduler:
                            f"Score: {result.overall_score:.2f}")
 
         except Exception as e:
-            self.logger.error(f"Error in market check: {e}")
+            self.logger.error("Error in market check: %s", e)
             if self.error_handler:
                 self.error_handler.handle_error(e)
 
@@ -671,7 +671,7 @@ class BlackSwanScheduler:
                     self._send_email_alert(result.status.value, message)
 
                 elif channel == NotificationChannel.LOG:
-                    self.logger.warning(f"BLACK SWAN ALERT: {message}")
+                    self.logger.warning("BLACK SWAN ALERT: %s", message)
 
                 elif channel == NotificationChannel.SLACK:
                     self._send_slack_alert(message)
@@ -682,7 +682,7 @@ class BlackSwanScheduler:
                 # Add other channels as needed
 
             except Exception as e:
-                self.logger.error(f"Failed to send alert via {channel.value}: {e}")
+                self.logger.error("Failed to send alert via %s: %s", channel.value, e)
 
     def _build_alert_message(self, result: BlackSwanIndicatorResult, reason: str) -> str:
         """Build detailed alert message."""
@@ -736,7 +736,7 @@ Please review market conditions and adjust positions accordingly.
                     recipients=self.alert_recipients.get('email', [])
                 )
             except Exception as e:
-                self.logger.error(f"Spyder email notifier failed: {e}")
+                self.logger.error("Spyder email notifier failed: %s", e)
 
         # Fallback to direct SMTP
         try:
@@ -769,11 +769,11 @@ Please review market conditions and adjust positions accordingly.
                 smtp.login(username, password)
                 smtp.send_message(msg)
 
-            self.logger.info(f"Email alert sent to {len(recipients)} recipients")
+            self.logger.info("Email alert sent to %s recipients", len(recipients))
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to send email: {e}")
+            self.logger.error("Failed to send email: %s", e)
             return False
 
     def _send_slack_alert(self, message: str):
@@ -807,13 +807,13 @@ Please review market conditions and adjust positions accordingly.
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 if resp.status == 200:
                     self.logger.info("Slack alert sent via direct webhook")
                 else:
-                    self.logger.warning(f"Slack webhook returned status {resp.status}")
+                    self.logger.warning("Slack webhook returned status %s", resp.status)
         except Exception as e:
-            self.logger.error(f"Failed to send Slack alert: {e}", exc_info=True)
+            self.logger.error("Failed to send Slack alert: %s", e, exc_info=True)
 
     def _send_telegram_alert(self, message: str):
         """Send Telegram alert via SpyderJ05_TelegramBot.
@@ -832,7 +832,7 @@ Please review market conditions and adjust positions accordingly.
             self.logger.info("Telegram alert dispatched via SpyderJ05_TelegramBot")
             return
         except Exception as e:
-            self.logger.debug(f"SpyderJ05_TelegramBot unavailable, using fallback: {e}")
+            self.logger.debug("SpyderJ05_TelegramBot unavailable, using fallback: %s", e)
 
         # ── Fallback: direct Bot API call ─────────────────────────────────────
         import os
@@ -846,11 +846,11 @@ Please review market conditions and adjust positions accordingly.
         try:
             params = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode()
             url = f"https://api.telegram.org/bot{token}/sendMessage"
-            req = urllib.request.Request(url, data=params, method="POST")  # noqa: S310
-            with urllib.request.urlopen(req, timeout=10):  # noqa: S310
+            req = urllib.request.Request(url, data=params, method="POST")
+            with urllib.request.urlopen(req, timeout=10):
                 self.logger.info("Telegram alert sent via direct Bot API")
         except Exception as e:
-            self.logger.error(f"Failed to send Telegram alert: {e}")
+            self.logger.error("Failed to send Telegram alert: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - Report Generation
@@ -914,7 +914,7 @@ Please review market conditions and adjust positions accordingly.
             self.logger.info("Daily report generated successfully")
 
         except Exception as e:
-            self.logger.error(f"Error generating daily report: {e}")
+            self.logger.error("Error generating daily report: %s", e)
             if self.error_handler:
                 self.error_handler.handle_error(e)
 
@@ -1095,7 +1095,7 @@ Status Distribution:
             self.logger.info("Daily report emailed successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to email report: {e}")
+            self.logger.error("Failed to email report: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - Utilities
@@ -1125,7 +1125,7 @@ Status Distribution:
                 self.spyder_scheduler = SpyderScheduler.get_instance()
                 self.logger.info("Integrated with Spyder scheduler")
             except Exception as e:
-                self.logger.warning(f"Could not integrate with Spyder scheduler: {e}")
+                self.logger.warning("Could not integrate with Spyder scheduler: %s", e)
 
         # Alert manager integration
         if SpyderAlertManager:
@@ -1133,7 +1133,7 @@ Status Distribution:
                 self.alert_manager = SpyderAlertManager.get_instance()
                 self.logger.info("Integrated with Spyder alert manager")
             except Exception as e:
-                self.logger.warning(f"Could not integrate with alert manager: {e}")
+                self.logger.warning("Could not integrate with alert manager: %s", e)
 
         # Email notifier
         if SpyderEmailNotifier:
@@ -1141,7 +1141,7 @@ Status Distribution:
                 self.email_notifier = SpyderEmailNotifier()
                 self.logger.info("Integrated with Spyder email notifier")
             except Exception as e:
-                self.logger.warning(f"Could not integrate with email notifier: {e}")
+                self.logger.warning("Could not integrate with email notifier: %s", e)
 
         # Trading calendar
         if SpyderTradingCalendar:
@@ -1149,7 +1149,7 @@ Status Distribution:
                 self.trading_calendar = SpyderTradingCalendar()
                 self.logger.info("Integrated with trading calendar")
             except Exception as e:
-                self.logger.warning(f"Could not integrate with trading calendar: {e}")
+                self.logger.warning("Could not integrate with trading calendar: %s", e)
 
         # Data access
         if SpyderDataAccess:
@@ -1157,7 +1157,7 @@ Status Distribution:
                 self.data_access = SpyderDataAccess()
                 self.logger.info("Integrated with data access layer")
             except Exception as e:
-                self.logger.warning(f"Could not integrate with data access: {e}")
+                self.logger.warning("Could not integrate with data access: %s", e)
 
     def _setup_default_tasks(self):
         """Setup default scheduled tasks."""
@@ -1202,10 +1202,10 @@ Status Distribution:
                     file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
                     if file_time < cutoff_date:
                         file_path.unlink()
-                        self.logger.info(f"Deleted old file: {file_path.name}")
+                        self.logger.info("Deleted old file: %s", file_path.name)
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
     def _is_market_hours(self) -> bool:
         """Check if current time is during market hours."""
@@ -1287,7 +1287,7 @@ Status Distribution:
             self.logger.debug(f"Black Swan result logged to DB: score={result.overall_score:.2f}")
 
         except Exception as e:
-            self.logger.error(f"Failed to log Black Swan result to database: {e}")
+            self.logger.error("Failed to log Black Swan result to database: %s", e)
 
     def _run_scheduler(self):
         """Main scheduler loop."""
@@ -1309,7 +1309,7 @@ Status Distribution:
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Scheduler error: {e}")
+                self.logger.error("Scheduler error: %s", e)
                 if self.error_handler:
                     self.error_handler.handle_error(e)
 
@@ -1317,7 +1317,7 @@ Status Distribution:
 
     def _signal_handler(self, signum, frame):
         """Handle system signals."""
-        self.logger.info(f"Received signal {signum}")
+        self.logger.info("Received signal %s", signum)
         self.stop()
 
     # ==========================================================================
@@ -1421,28 +1421,28 @@ if __name__ == "__main__":
     scheduler = BlackSwanScheduler(test_config)
 
     # Test alert channels
-    print("Testing alert channels...")
+    print("Testing alert channels...")  # noqa: T201
     test_results = scheduler.test_alerts()
     for channel, success in test_results.items():
         icon = "\u2705" if success else "\u274c"
-        print(f"  {icon} {channel}")
+        print(f"  {icon} {channel}")  # noqa: T201
 
     # Show scheduled tasks
     status = scheduler.get_status()
-    print(f"\nScheduled tasks ({len(status['tasks'])})")
+    print(f"\nScheduled tasks ({len(status['tasks'])})")  # noqa: T201
     for task_id, task_info in status['tasks'].items():
         enabled = "enabled" if task_info['enabled'] else "disabled"
-        print(f"  {task_id:<30} {task_info['schedule']:<25} [{enabled}]")
+        print(f"  {task_id:<30} {task_info['schedule']:<25} [{enabled}]")  # noqa: T201
 
     # Run a manual check
-    print("\nRunning manual check...")
+    print("\nRunning manual check...")  # noqa: T201
     scheduler.run_now('daily_check_0900')
 
     # Show status
     status = scheduler.get_status()
     if status['last_result']:
         lr = status['last_result']
-        print(f"Last result: {lr['status']}  score={lr['score']:.2f}  at {lr['timestamp']}")
+        print(f"Last result: {lr['status']}  score={lr['score']:.2f}  at {lr['timestamp']}")  # noqa: T201
     else:
-        print("No check result available yet.")
+        print("No check result available yet.")  # noqa: T201
 

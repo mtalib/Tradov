@@ -34,7 +34,6 @@ from datetime import datetime, timedelta
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from collections import OrderedDict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -42,7 +41,6 @@ from collections import OrderedDict
 import sqlite3
 import json
 import gzip
-import heapq
 import pandas as pd
 
 try:
@@ -255,7 +253,7 @@ class MarketDataCache:
             self.redis_client.ping()
             self.logger.info("Redis cache connected")
         except Exception as e:
-            self.logger.warning(f"Redis connection failed: {e}", exc_info=True)
+            self.logger.warning("Redis connection failed: %s", e, exc_info=True)
             self.redis_client = None
 
     def _init_database(self):
@@ -298,7 +296,7 @@ class MarketDataCache:
                 self.logger.info("SQLite database initialized")
 
         except Exception as e:
-            self.logger.error(f"Database initialization failed: {e}", exc_info=True)
+            self.logger.error("Database initialization failed: %s", e, exc_info=True)
             raise
 
     # ==========================================================================
@@ -391,7 +389,7 @@ class MarketDataCache:
             return True
 
         except Exception as e:
-            self.logger.error(f"Cache put failed for {symbol}: {e}", exc_info=True)
+            self.logger.error("Cache put failed for %s: %s", symbol, e, exc_info=True)
             return False
 
     def get(self, symbol: str, max_age: float | None = None) -> dict[str, Any] | None:
@@ -495,7 +493,7 @@ class MarketDataCache:
                     return self._aggregate_tick_data(symbol, start_time, end_time, granularity)
 
         except Exception as e:
-            self.logger.error(f"Failed to get range data: {e}", exc_info=True)
+            self.logger.error("Failed to get range data: %s", e, exc_info=True)
             return pd.DataFrame()
 
     def invalidate(self, symbol: str | None = None):
@@ -509,7 +507,7 @@ class MarketDataCache:
             if symbol:
                 if symbol in self._l1_cache:
                     self._l1_cache.invalidate(symbol)
-                    self.logger.debug(f"Invalidated cache for {symbol}")
+                    self.logger.debug("Invalidated cache for %s", symbol)
             else:
                 self._l1_cache.clear()
                 self.logger.info("Invalidated all cache entries")
@@ -603,7 +601,7 @@ class MarketDataCache:
             self.redis_client.setex(key, int(ttl), data)
 
         except Exception as e:
-            self.logger.error(f"Redis store failed: {e}", exc_info=True)
+            self.logger.error("Redis store failed: %s", e, exc_info=True)
 
     def _get_redis(self, symbol: str) -> CachedMarketData | None:
         """Get entry from Redis cache"""
@@ -622,7 +620,7 @@ class MarketDataCache:
                 return CachedMarketData.from_dict(entry_dict)
 
         except Exception as e:
-            self.logger.error(f"Redis get failed: {e}", exc_info=True)
+            self.logger.error("Redis get failed: %s", e, exc_info=True)
 
         return None
 
@@ -650,7 +648,7 @@ class MarketDataCache:
                 ))
 
         except Exception as e:
-            self.logger.error(f"Failed to store tick data: {e}", exc_info=True)
+            self.logger.error("Failed to store tick data: %s", e, exc_info=True)
 
     def _get_disk(self, symbol: str, max_age: float | None) -> CachedMarketData | None:
         """Get latest entry from disk"""
@@ -688,7 +686,7 @@ class MarketDataCache:
                     )
 
         except Exception as e:
-            self.logger.error(f"Failed to get disk data: {e}", exc_info=True)
+            self.logger.error("Failed to get disk data: %s", e, exc_info=True)
 
         return None
 
@@ -710,7 +708,7 @@ class MarketDataCache:
                 self._update_stats()
 
             except Exception as e:
-                self.logger.error(f"Cleanup error: {e}", exc_info=True)
+                self.logger.error("Cleanup error: %s", e, exc_info=True)
 
             # Wait for next cleanup
             time.sleep(self.config['memory']['cleanup_interval'])  # thread-safe: time.sleep() intentional
@@ -742,7 +740,7 @@ class MarketDataCache:
                 conn.execute('VACUUM')
 
         except Exception as e:
-            self.logger.error(f"Disk cleanup failed: {e}", exc_info=True)
+            self.logger.error("Disk cleanup failed: %s", e, exc_info=True)
 
     # ==========================================================================
     # CACHE WARMING
@@ -765,10 +763,10 @@ class MarketDataCache:
                     latest = df.iloc[-1].to_dict()
                     self.put(symbol, latest, priority=CACHE_PRIORITY['HIGH'])
 
-                    self.logger.info(f"Preloaded {symbol} with {len(df)} data points")
+                    self.logger.info("Preloaded %s with %s data points", symbol, len(df))
 
             except Exception as e:
-                self.logger.error(f"Failed to preload {symbol}: {e}", exc_info=True)
+                self.logger.error("Failed to preload %s: %s", symbol, e, exc_info=True)
 
     def _persist_critical_data(self):
         """Persist critical data before shutdown"""
@@ -801,7 +799,7 @@ class MarketDataCache:
                 conn.commit()
 
         except Exception as e:
-            self.logger.error(f"Failed to persist critical data: {e}", exc_info=True)
+            self.logger.error("Failed to persist critical data: %s", e, exc_info=True)
 
     # ==========================================================================
     # UTILITY METHODS

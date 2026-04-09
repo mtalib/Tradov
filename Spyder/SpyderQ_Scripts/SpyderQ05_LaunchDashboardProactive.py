@@ -151,7 +151,7 @@ class ConnectionStatusWidget(QWidget):
                 border: none;
                 border-radius: 5px;
                 padding: 5px 10px;
-                font-weight: bold;
+                font-weight: normal;
                 font-size: 10px;
             }}
             QPushButton:hover {{

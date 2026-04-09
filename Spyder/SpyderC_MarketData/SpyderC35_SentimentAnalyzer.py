@@ -32,13 +32,14 @@ References:
 import os
 import re
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from enum import Enum
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -47,12 +48,10 @@ import pandas as pd
 import requests
 
 # NLP Libraries (optional - graceful degradation)
-try:
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-    import torch
-    HAS_TRANSFORMERS = True
-except ImportError:
-    HAS_TRANSFORMERS = False
+# NOTE: transformers and torch are NOT imported at module level — they take
+# 1.1+ seconds to import. They are deferred to FinBERTModel.__init__() so that
+# importing this module does not slow down system startup.
+HAS_TRANSFORMERS: bool | None = None  # None = not yet probed; True/False after first check
 
 try:
     from textblob import TextBlob
@@ -291,19 +290,41 @@ class FinBERTModel(BaseSentimentModel):
     """FinBERT sentiment model for financial text."""
 
     def __init__(self):
+        # Lazy-load transformers and torch on first instantiation.
+        global HAS_TRANSFORMERS
+        if HAS_TRANSFORMERS is None:
+            try:
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                import torch
+                # Store on module so FinBERTModel.analyze() can access them
+                import sys as _sys
+                _mod = _sys.modules[__name__]
+                _mod.AutoTokenizer = AutoTokenizer  # type: ignore[attr-defined]
+                _mod.AutoModelForSequenceClassification = AutoModelForSequenceClassification  # type: ignore[attr-defined]
+                _mod.torch = torch  # type: ignore[attr-defined]
+                HAS_TRANSFORMERS = True
+            except ImportError:
+                HAS_TRANSFORMERS = False
+
         if not HAS_TRANSFORMERS:
             raise ImportError("transformers library required for FinBERT")
 
+        import sys as _sys
+        _mod = _sys.modules[__name__]
+        _AutoTokenizer = _mod.AutoTokenizer  # type: ignore[attr-defined]
+        _AutoModelForSequenceClassification = _mod.AutoModelForSequenceClassification  # type: ignore[attr-defined]
+        _torch = _mod.torch  # type: ignore[attr-defined]
+
         logger.info("Loading FinBERT model...")
-        self.tokenizer = AutoTokenizer.from_pretrained(FINBERT_MODEL)
-        self.model = AutoModelForSequenceClassification.from_pretrained(FINBERT_MODEL)
+        self.tokenizer = _AutoTokenizer.from_pretrained(FINBERT_MODEL)
+        self.model = _AutoModelForSequenceClassification.from_pretrained(FINBERT_MODEL)
         self.model.eval()
 
         # Move to GPU if available
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-        logger.info(f"FinBERT loaded on {self.device}")
+        logger.info("FinBERT loaded on %s", self.device)
 
     def analyze(self, text: str) -> tuple[float, float]:
         """Analyze text using FinBERT."""
@@ -318,9 +339,11 @@ class FinBERTModel(BaseSentimentModel):
             ).to(self.device)
 
             # Get prediction
-            with torch.no_grad():
+            import sys as _sys
+            _torch = _sys.modules[__name__].torch  # type: ignore[attr-defined]
+            with _torch.no_grad():
                 outputs = self.model(**inputs)
-                probabilities = torch.softmax(outputs.logits, dim=1)
+                probabilities = _torch.softmax(outputs.logits, dim=1)
 
             # FinBERT outputs: [negative, neutral, positive]
             probs = probabilities.cpu().numpy()[0]
@@ -334,7 +357,7 @@ class FinBERTModel(BaseSentimentModel):
             return score, confidence
 
         except Exception as e:
-            logger.error(f"FinBERT analysis error: {e}")
+            logger.error("FinBERT analysis error: %s", e)
             return 0.0, 0.0
 
 
@@ -362,7 +385,7 @@ class VADERModel(BaseSentimentModel):
             return score, confidence
 
         except Exception as e:
-            logger.error(f"VADER analysis error: {e}")
+            logger.error("VADER analysis error: %s", e)
             return 0.0, 0.0
 
 
@@ -389,7 +412,7 @@ class TextBlobModel(BaseSentimentModel):
             return score, confidence
 
         except Exception as e:
-            logger.error(f"TextBlob analysis error: {e}")
+            logger.error("TextBlob analysis error: %s", e)
             return 0.0, 0.0
 
 
@@ -410,7 +433,7 @@ class EnsembleSentimentModel(BaseSentimentModel):
             try:
                 self.models.append((FinBERTModel(), 0.5))
             except Exception as e:
-                logger.warning(f"Could not load FinBERT: {e}")
+                logger.warning("Could not load FinBERT: %s", e)
 
         if not self.models:
             raise ImportError("No sentiment models available")
@@ -419,7 +442,7 @@ class EnsembleSentimentModel(BaseSentimentModel):
         total_weight = sum(w for _, w in self.models)
         self.models = [(m, w / total_weight) for m, w in self.models]
 
-        logger.info(f"Ensemble model initialized with {len(self.models)} models")
+        logger.info("Ensemble model initialized with %s models", len(self.models))
 
     def analyze(self, text: str) -> tuple[float, float]:
         """Analyze using weighted ensemble."""
@@ -509,7 +532,7 @@ class AlphaVantageNewsSource(BaseNewsSource):
             )
             if response.status_code != 200:
                 logger.warning(
-                    f"AlphaVantage news HTTP {response.status_code} for {ticker}"
+                    "AlphaVantage news HTTP %s for %s", response.status_code, ticker
                 )
                 return []
 
@@ -537,7 +560,7 @@ class AlphaVantageNewsSource(BaseNewsSource):
             return items
 
         except Exception as exc:
-            logger.error(f"AlphaVantageNewsSource.fetch error: {exc}")
+            logger.error("AlphaVantageNewsSource.fetch error: %s", exc)
             return []
 
 
@@ -582,7 +605,7 @@ class FinnhubNewsSource(BaseNewsSource):
             )
             if response.status_code != 200:
                 logger.warning(
-                    f"Finnhub news HTTP {response.status_code} for {ticker}"
+                    "Finnhub news HTTP %s for %s", response.status_code, ticker
                 )
                 return []
 
@@ -608,7 +631,7 @@ class FinnhubNewsSource(BaseNewsSource):
             return items
 
         except Exception as exc:
-            logger.error(f"FinnhubNewsSource.fetch error: {exc}")
+            logger.error("FinnhubNewsSource.fetch error: %s", exc)
             return []
 
 
@@ -646,7 +669,7 @@ class YahooFinanceRSSNewsSource(BaseNewsSource):
             )
             if response.status_code != 200:
                 logger.warning(
-                    f"YahooRSS HTTP {response.status_code} for {ticker}"
+                    "YahooRSS HTTP %s for %s", response.status_code, ticker
                 )
                 return []
 
@@ -680,7 +703,7 @@ class YahooFinanceRSSNewsSource(BaseNewsSource):
             return items
 
         except Exception as exc:
-            logger.error(f"YahooFinanceRSSNewsSource.fetch error: {exc}")
+            logger.error("YahooFinanceRSSNewsSource.fetch error: %s", exc)
             return []
 
 
@@ -746,7 +769,7 @@ class SentimentAnalyzer:
             self._news_sources.append(YahooFinanceRSSNewsSource())
 
         source_names = [s.source_name for s in self._news_sources]
-        logger.info(f"SentimentAnalyzer news sources: {source_names}")
+        logger.info("SentimentAnalyzer news sources: %s", source_names)
 
         # Initialize sentiment model
         self.model_type = model_type
@@ -762,7 +785,7 @@ class SentimentAnalyzer:
         # Callbacks
         self._sentiment_callbacks: list[Callable[[SentimentScore], None]] = []
 
-        logger.info(f"SentimentAnalyzer initialized with {model_type.value} model")
+        logger.info("SentimentAnalyzer initialized with %s model", model_type.value)
 
     def _init_sentiment_model(self, model_type: SentimentModel, use_finbert: bool):
         """Initialize the sentiment model."""
@@ -783,7 +806,7 @@ class SentimentAnalyzer:
                 self.sentiment_model = EnsembleSentimentModel(use_finbert)
 
         except ImportError as e:
-            logger.warning(f"Could not load {model_type.value}: {e}")
+            logger.warning("Could not load %s: %s", model_type.value, e)
             # Fallback to simplest available
             if HAS_VADER:
                 self.sentiment_model = VADERModel()
@@ -838,10 +861,10 @@ class SentimentAnalyzer:
                 fetched = source.fetch(ticker, remaining)
                 news_items.extend(fetched)
                 logger.debug(
-                    f"News: {len(fetched)} items from {source.source_name} for {ticker}"
+                    "News: %s items from %s for %s", len(fetched), source.source_name, ticker
                 )
             except Exception as exc:  # pragma: no cover  — source.fetch should not raise
-                logger.error(f"News source {source.source_name} raised unexpectedly: {exc}")
+                logger.error("News source %s raised unexpectedly: %s", source.source_name, exc)
 
         # Analyze sentiment for each item
         for item in news_items:
@@ -854,7 +877,7 @@ class SentimentAnalyzer:
         # Cache results
         self._news_cache[ticker] = (news_items[:limit], datetime.now())
 
-        logger.info(f"Analyzed {len(news_items)} news items for {ticker}")
+        logger.info("Analyzed %s news items for %s", len(news_items), ticker)
         return news_items[:limit]
 
     def _fetch_alpha_vantage_news(self, ticker: str, limit: int) -> list[NewsItem]:
@@ -1000,7 +1023,7 @@ class SentimentAnalyzer:
                 time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                logger.error(f"Reddit fetch error for r/{subreddit}: {e}")
+                logger.error("Reddit fetch error for r/%s: %s", subreddit, e)
 
         return posts
 
@@ -1010,10 +1033,64 @@ class SentimentAnalyzer:
         subreddits: list[str],
         limit: int
     ) -> list[SocialPost]:
-        """Fetch Reddit posts via OAuth API."""
-        # This would use proper Reddit OAuth authentication
-        # For now, fallback to public endpoint
-        return self._fetch_reddit_public(ticker, subreddits, limit)
+        """Fetch Reddit posts via client-credentials OAuth (read-only app grant)."""
+        creds = self.reddit_credentials
+        if not creds or not creds.get("client_id") or not creds.get("client_secret"):
+            return self._fetch_reddit_public(ticker, subreddits, limit)
+
+        # Obtain bearer token using client-credentials grant (no user login required)
+        try:
+            token_resp = requests.post(
+                "https://www.reddit.com/api/v1/access_token",
+                auth=(creds["client_id"], creds["client_secret"]),
+                data={"grant_type": "client_credentials"},
+                headers={"User-Agent": REDDIT_USER_AGENT},
+                timeout=10,
+            )
+            token_resp.raise_for_status()
+            access_token = token_resp.json().get("access_token")
+        except Exception as exc:
+            self.logger.warning("Reddit token request failed: %s; falling back to public feed", exc)
+            return self._fetch_reddit_public(ticker, subreddits, limit)
+
+        if not access_token:
+            self.logger.warning("Reddit returned no access_token; falling back to public feed")
+            return self._fetch_reddit_public(ticker, subreddits, limit)
+
+        auth_headers = {
+            "Authorization": f"bearer {access_token}",
+            "User-Agent": REDDIT_USER_AGENT,
+        }
+        posts: list[SocialPost] = []
+        per_sub = max(1, limit // len(subreddits)) if subreddits else limit
+        for subreddit in subreddits:
+            try:
+                resp = requests.get(
+                    f"https://oauth.reddit.com/r/{subreddit}/search",
+                    headers=auth_headers,
+                    params={"q": ticker, "restrict_sr": "true", "sort": "new", "limit": per_sub},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for child in data.get("data", {}).get("children", []):
+                    post_data = child.get("data", {})
+                    title = post_data.get("title", "")
+                    selftext = post_data.get("selftext", "")
+                    content = f"{title} {selftext}".strip()
+                    if content:
+                        posts.append(SocialPost(
+                            platform="reddit",
+                            content=content,
+                            author=post_data.get("author", "unknown"),
+                            timestamp=datetime.fromtimestamp(post_data.get("created_utc", 0)),
+                            engagement_score=float(post_data.get("score", 0)),
+                            url=f"https://reddit.com{post_data.get('permalink', '')}",
+                            subreddit=subreddit,
+                        ))
+            except Exception as exc:
+                self.logger.debug("Reddit /r/%s search failed: %s", subreddit, exc)
+        return posts
 
     # ==========================================================================
     # CORE ANALYSIS
@@ -1077,7 +1154,7 @@ class SentimentAnalyzer:
             try:
                 callback(result)
             except Exception as e:
-                logger.error(f"Sentiment callback error: {e}")
+                logger.error("Sentiment callback error: %s", e)
 
         return result
 
@@ -1298,7 +1375,7 @@ class SentimentAnalyzer:
 
         # This would integrate with SEC EDGAR API
         # For now, return placeholder
-        logger.info(f"SEC filing analysis for {ticker} (not yet implemented)")
+        logger.info("SEC filing analysis for %s (not yet implemented)", ticker)
         return []
 
     # ==========================================================================
@@ -1376,8 +1453,6 @@ def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
     * ``FINNHUB_API_KEY``       — Finnhub news key (free tier)
     * ``REDDIT_CLIENT_ID``      — Reddit OAuth app client ID
     * ``REDDIT_CLIENT_SECRET``  — Reddit OAuth app secret
-    * ``REDDIT_USERNAME``       — Reddit username
-    * ``REDDIT_PASSWORD``       — Reddit password
     * ``SENTIMENT_MODEL``       — ``ensemble`` (default), ``finbert``, ``vader``, ``textblob``
     * ``USE_FINBERT``           — ``true`` / ``false`` (default ``true``)
 
@@ -1386,14 +1461,12 @@ def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
     alpha_vantage_key = os.getenv("ALPHA_VANTAGE_API_KEY")
     finnhub_key = os.getenv("FINNHUB_API_KEY")
 
-    # Reddit credentials
+    # Reddit credentials (client-credentials grant, no user login required)
     reddit_creds = None
     if os.getenv("REDDIT_CLIENT_ID"):
         reddit_creds = {
             "client_id": os.getenv("REDDIT_CLIENT_ID"),
-            "client_secret": os.getenv("REDDIT_CLIENT_SECRET"),
-            "username": os.getenv("REDDIT_USERNAME"),
-            "password": os.getenv("REDDIT_PASSWORD"),
+            "client_secret": os.getenv("REDDIT_CLIENT_SECRET", ""),
         }
 
     # Model selection

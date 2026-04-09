@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -16,7 +15,7 @@ Module Description:
     trading decisions. Records strategy signals, risk check results,
     execution details, outcomes, and lessons learned. Provides analysis
     and review capabilities for continuous improvement.
-    
+
 Features:
     - Automatic journaling of all trades
     - Signal and decision metadata tracking
@@ -32,21 +31,11 @@ Features:
 # ==============================================================================
 import json
 import sqlite3
-from collections import defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-try:
-    import pandas as pd
-    HAS_PANDAS = True
-except ImportError:
-    HAS_PANDAS = False
+from typing import Any
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -81,7 +70,7 @@ class SignalQuality(Enum):
 class TradeJournalEntry:
     """
     Complete trade journal entry capturing all decision context.
-    
+
     Attributes:
         entry_id: Unique journal entry identifier
         order_id: Associated order ID
@@ -121,47 +110,47 @@ class TradeJournalEntry:
     order_id: str
     timestamp: datetime
     symbol: str
-    
+
     # Strategy Context
     strategy_name: str
     signal_source: str
     signal_strength: float
     signal_quality: SignalQuality
     entry_reason: str
-    
+
     # Market Context
     market_regime: str
     volatility_regime: str
-    
+
     # Risk Management
     risk_check_result: str
     position_size: int
     intended_size: int
-    size_adjustment_reason: Optional[str] = None
-    
+    size_adjustment_reason: str | None = None
+
     # Pricing
     entry_price: float = 0.0
-    target_price: Optional[float] = None
-    stop_loss: Optional[float] = None
-    
+    target_price: float | None = None
+    stop_loss: float | None = None
+
     # Options Specific
     greeks_at_entry: dict[str, float] = field(default_factory=dict)
     portfolio_impact: dict[str, float] = field(default_factory=dict)
-    
+
     # Decision Making
     confidence_level: float = 0.5
     manual_override: bool = False
-    override_reason: Optional[str] = None
-    
+    override_reason: str | None = None
+
     # Outcome
     outcome: TradeOutcome = TradeOutcome.PENDING
-    exit_price: Optional[float] = None
-    exit_timestamp: Optional[datetime] = None
+    exit_price: float | None = None
+    exit_timestamp: datetime | None = None
     realized_pnl: float = 0.0
     realized_pnl_pct: float = 0.0
-    exit_reason: Optional[str] = None
-    lesson_learned: Optional[str] = None
-    
+    exit_reason: str | None = None
+    lesson_learned: str | None = None
+
     # Metadata
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -173,7 +162,7 @@ class TradeJournalEntry:
 class TradeJournal:
     """
     Trade journaling system for comprehensive decision tracking.
-    
+
     Example:
         >>> journal = TradeJournal()
         >>> entry = TradeJournalEntry(
@@ -203,33 +192,33 @@ class TradeJournal:
         ...     lesson_learned="IV crush worked as expected"
         ... )
     """
-    
-    def __init__(self, db_path: Optional[str] = None):
+
+    def __init__(self, db_path: str | None = None):
         """
         Initialize the trade journal.
-        
+
         Args:
             db_path: Path to SQLite database (default: data/trade_journal.db)
         """
         self.logger = SpyderLogger.get_logger(__name__)
-        
+
         # Database path
         if db_path is None:
             db_path = "data/trade_journal.db"
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize database
         self._initialize_database()
-        
-        self.logger.info(f"TradeJournal initialized with database: {self.db_path}")
-    
+
+        self.logger.info("TradeJournal initialized with database: %s", self.db_path)
+
     def _initialize_database(self) -> None:
         """Initialize the SQLite database schema."""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.cursor()
-                
+
                 # Create trade journal table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS trade_journal (
@@ -267,34 +256,34 @@ class TradeJournal:
                         metadata TEXT
                     )
                 """)
-                
+
                 # Create indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON trade_journal(timestamp)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbol ON trade_journal(symbol)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_strategy ON trade_journal(strategy_name)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_outcome ON trade_journal(outcome)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_id ON trade_journal(order_id)")
-                
+
                 conn.commit()
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Database initialization error: {e}", exc_info=True)
+            self.logger.error("Database initialization error: %s", e, exc_info=True)
             raise
-    
+
     def add_entry(self, entry: TradeJournalEntry) -> bool:
         """
         Add a new trade journal entry.
-        
+
         Args:
             entry: TradeJournalEntry to add
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.cursor()
-                
+
                 cursor.execute("""
                     INSERT INTO trade_journal VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -334,28 +323,28 @@ class TradeJournal:
                     json.dumps(entry.tags),
                     json.dumps(entry.metadata)
                 ))
-                
+
                 conn.commit()
-                self.logger.info(f"Journal entry added: {entry.entry_id}")
+                self.logger.info("Journal entry added: %s", entry.entry_id)
                 return True
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Error adding journal entry: {e}", exc_info=True)
+            self.logger.error("Error adding journal entry: %s", e, exc_info=True)
             return False
-    
+
     def update_outcome(
         self,
         entry_id: str,
         outcome: TradeOutcome,
-        exit_price: Optional[float] = None,
+        exit_price: float | None = None,
         realized_pnl: float = 0.0,
         realized_pnl_pct: float = 0.0,
-        exit_reason: Optional[str] = None,
-        lesson_learned: Optional[str] = None
+        exit_reason: str | None = None,
+        lesson_learned: str | None = None
     ) -> bool:
         """
         Update the outcome of a trade journal entry.
-        
+
         Args:
             entry_id: Journal entry ID to update
             outcome: Final trade outcome
@@ -364,14 +353,14 @@ class TradeJournal:
             realized_pnl_pct: Realized P&L percentage
             exit_reason: Reason for exit
             lesson_learned: Post-trade lesson
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.cursor()
-                
+
                 cursor.execute("""
                     UPDATE trade_journal
                     SET outcome = ?,
@@ -392,66 +381,66 @@ class TradeJournal:
                     lesson_learned,
                     entry_id
                 ))
-                
+
                 conn.commit()
-                self.logger.info(f"Journal entry updated: {entry_id}")
+                self.logger.info("Journal entry updated: %s", entry_id)
                 return True
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Error updating journal entry: {e}", exc_info=True)
+            self.logger.error("Error updating journal entry: %s", e, exc_info=True)
             return False
-    
-    def get_entry(self, entry_id: str) -> Optional[TradeJournalEntry]:
+
+    def get_entry(self, entry_id: str) -> TradeJournalEntry | None:
         """Get a specific journal entry by ID."""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                
+
                 cursor.execute("SELECT * FROM trade_journal WHERE entry_id = ?", (entry_id,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     return self._row_to_entry(row)
                 return None
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Error retrieving journal entry: {e}", exc_info=True)
+            self.logger.error("Error retrieving journal entry: %s", e, exc_info=True)
             return None
-    
+
     def get_recent_entries(self, limit: int = 100) -> list[TradeJournalEntry]:
         """Get recent journal entries."""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                
+
                 cursor.execute("""
                     SELECT * FROM trade_journal
                     ORDER BY timestamp DESC
                     LIMIT ?
                 """, (limit,))
-                
+
                 return [self._row_to_entry(row) for row in cursor.fetchall()]
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Error retrieving recent entries: {e}", exc_info=True)
+            self.logger.error("Error retrieving recent entries: %s", e, exc_info=True)
             return []
-    
+
     def get_statistics(self) -> dict[str, Any]:
         """
         Get journal statistics.
-        
+
         Returns:
             Dictionary with win rate, average P&L, etc.
         """
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.cursor()
-                
+
                 # Win rate
                 cursor.execute("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_trades,
                         SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) as wins,
                         SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses,
@@ -462,13 +451,13 @@ class TradeJournal:
                     FROM trade_journal
                     WHERE outcome IN ('win', 'loss')
                 """)
-                
+
                 row = cursor.fetchone()
-                
+
                 if row:
                     total, wins, losses, avg_pnl, total_pnl, best, worst = row
                     win_rate = (wins / total * 100) if total > 0 else 0.0
-                    
+
                     return {
                         'total_trades': total or 0,
                         'wins': wins or 0,
@@ -479,13 +468,13 @@ class TradeJournal:
                         'best_trade': best or 0.0,
                         'worst_trade': worst or 0.0
                     }
-                    
+
                 return {}
-                
+
         except sqlite3.Error as e:
-            self.logger.error(f"Error calculating statistics: {e}", exc_info=True)
+            self.logger.error("Error calculating statistics: %s", e, exc_info=True)
             return {}
-    
+
     def _row_to_entry(self, row: sqlite3.Row) -> TradeJournalEntry:
         """Convert SQLite row to TradeJournalEntry."""
         return TradeJournalEntry(
@@ -527,7 +516,7 @@ class TradeJournal:
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-_journal_instance: Optional[TradeJournal] = None
+_journal_instance: TradeJournal | None = None
 
 
 def get_trade_journal() -> TradeJournal:
@@ -544,7 +533,7 @@ def get_trade_journal() -> TradeJournal:
 if __name__ == "__main__":
     # Demo usage
     journal = TradeJournal()
-    
+
     # Create a journal entry
     entry = TradeJournalEntry(
         entry_id="TJ_DEMO_001",
@@ -564,9 +553,9 @@ if __name__ == "__main__":
         entry_price=2.50,
         confidence_level=0.85
     )
-    
+
     journal.add_entry(entry)
-    
+
     # Update outcome
     journal.update_outcome(
         entry_id="TJ_DEMO_001",
@@ -577,10 +566,10 @@ if __name__ == "__main__":
         exit_reason="Target profit reached after 2 days",
         lesson_learned="IV crush worked as expected, could have held longer"
     )
-    
+
     # Get statistics
     stats = journal.get_statistics()
-    print(f"\nJournal Statistics:")
-    print(f"Total Trades: {stats.get('total_trades', 0)}")
-    print(f"Win Rate: {stats.get('win_rate', 0):.1f}%")
-    print(f"Average P&L: ${stats.get('average_pnl', 0):.2f}")
+    print("\nJournal Statistics:")  # noqa: T201
+    print(f"Total Trades: {stats.get('total_trades', 0)}")  # noqa: T201
+    print(f"Win Rate: {stats.get('win_rate', 0):.1f}%")  # noqa: T201
+    print(f"Average P&L: ${stats.get('average_pnl', 0):.2f}")  # noqa: T201

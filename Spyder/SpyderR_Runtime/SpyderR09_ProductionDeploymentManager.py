@@ -14,7 +14,7 @@ Module Description:
     for the complete Spyder autonomous SPY options trading platform. Manages
     live system deployment, health monitoring, automated recovery, performance
     optimization, and production operations. Provides comprehensive oversight
-    of F12-F16 analytics, C21-C24 data infrastructure, A08 orchestration,
+    of F13-F16 analytics, C21-C24 data infrastructure, A08 orchestration,
     and E18 risk management in live trading environments.
 
 Key Features:
@@ -59,7 +59,8 @@ import psutil
 import socket
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import deque
@@ -69,6 +70,15 @@ import json
 
 # Add Spyder modules to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# Load I12_ModuleRegistry for deployment readiness validation.
+# Graceful fallback: if unavailable, validation is skipped (non-fatal).
+try:
+    from Spyder.SpyderI_Integration.SpyderI12_ModuleRegistry import (
+        REGISTERED_MODULES as _I12_REGISTRY,
+    )
+except Exception:
+    _I12_REGISTRY = {}
 
 # ==============================================================================
 # ENUMS AND DATA CLASSES
@@ -295,11 +305,11 @@ class ProductionDeploymentManager:
 
             self.logger.info("Signal handlers configured for graceful shutdown")
         except Exception as e:
-            self.logger.error(f"Signal handler setup failed: {e}")
+            self.logger.error("Signal handler setup failed: %s", e)
 
     def _signal_handler(self, signum, frame):
         """Handle system signals for graceful shutdown"""
-        self.logger.warning(f"Received signal {signum}, initiating graceful shutdown")
+        self.logger.warning("Received signal %s, initiating graceful shutdown", signum)
         asyncio.create_task(self.shutdown_system())
 
     def _initialize_production_components(self) -> None:
@@ -342,15 +352,9 @@ class ProductionDeploymentManager:
         }
 
         # C-Series Data Infrastructure Components
+        # Note: SpyderC21_FSeriesIntegrationHub was removed in v2.
+        # F-Series integration is now handled via SpyderA08_FSeriesOrchestrator directly.
         c_series_components = {
-            "C21_FSeriesIntegrationHub": ComponentConfig(
-                component_id="C21_FSeriesIntegrationHub",
-                component_type=ComponentType.DATA_PIPELINE,
-                module_path="SpyderC_MarketData/SpyderC21_FSeriesIntegrationHub.py",
-                startup_command="python -m SpyderC_MarketData.SpyderC21_FSeriesIntegrationHub",
-                priority=1,
-                resource_limits={"memory_mb": 1024, "cpu_cores": 2}
-            ),
             "C22_FactorDataProvider": ComponentConfig(
                 component_id="C22_FactorDataProvider",
                 component_type=ComponentType.DATA_PIPELINE,
@@ -386,7 +390,7 @@ class ProductionDeploymentManager:
                 startup_command="python -m SpyderA_Core.SpyderA08_FSeriesOrchestrator",
                 priority=1,
                 resource_limits={"memory_mb": 1024, "cpu_cores": 2},
-                dependencies=["C21_FSeriesIntegrationHub"]
+                dependencies=[]
             ),
             "E18_FSeriesRiskIntegrator": ComponentConfig(
                 component_id="E18_FSeriesRiskIntegrator",
@@ -417,7 +421,36 @@ class ProductionDeploymentManager:
         for component_id in self.components:
             self.component_health[component_id] = ComponentHealth(component_id=component_id)
 
-        self.logger.info(f"Initialized {len(self.components)} production components")
+        self.logger.info("Initialized %s production components", len(self.components))
+
+        # ── I12 Registry cross-check ──────────────────────────────────────────
+        # Validate each component's module_path against the authoritative module
+        # registry.  Warnings are logged but never block startup so that tests
+        # and paper mode are not affected by a partially-populated registry.
+        if _I12_REGISTRY:
+            filename_to_record = {rec.filename: rec for rec in _I12_REGISTRY.values()}
+            for comp_id, cfg in self.components.items():
+                # Extract the filename stem from "SpyderX_Pkg/SpyderXNN_Name.py"
+                stem = Path(cfg.module_path).stem
+                record = filename_to_record.get(stem)
+                if record is None:
+                    self.logger.warning(
+                        "Component %s (%s) is not registered in I12_ModuleRegistry — "
+                        "consider adding it so diagnostics tools can track it",
+                        comp_id, stem,
+                    )
+                elif record.status == "deprecated":
+                    self.logger.warning(
+                        "Component %s (%s) is marked DEPRECATED in I12_ModuleRegistry — "
+                        "replace with the recommended successor before next release",
+                        comp_id, stem,
+                    )
+                else:
+                    self.logger.debug(
+                        "Component %s (%s) registry status: %s", comp_id, stem, record.status
+                    )
+        else:
+            self.logger.debug("I12_ModuleRegistry not available — skipping registry cross-check")
 
     # ==========================================================================
     # PRODUCTION DEPLOYMENT PROCESS
@@ -429,7 +462,7 @@ class ProductionDeploymentManager:
             deployment_id = f"deploy_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             self.deployment_status = DeploymentStatus(deployment_id=deployment_id)
 
-            self.logger.info(f"Starting production deployment: {deployment_id}")
+            self.logger.info("Starting production deployment: %s", deployment_id)
 
             # Deployment stages in order
             deployment_stages = [
@@ -450,7 +483,7 @@ class ProductionDeploymentManager:
                     self.deployment_status.stage = stage
                     self.deployment_status.current_stage_start = datetime.now()
 
-                    self.logger.info(f"Executing deployment stage: {stage.value} ({stage_num}/{total_stages})")
+                    self.logger.info("Executing deployment stage: %s (%s/%s)", stage.value, stage_num, total_stages)
 
                     # Execute stage
                     success = await stage_function()
@@ -458,11 +491,11 @@ class ProductionDeploymentManager:
                     if success:
                         self.deployment_status.completed_stages.append(stage)
                         self.deployment_status.overall_progress_percent = (stage_num / total_stages) * 100
-                        self.logger.info(f"Stage completed: {stage.value}")
+                        self.logger.info("Stage completed: %s", stage.value)
                     else:
                         self.deployment_status.failed_stages.append(stage)
                         self.deployment_status.error_messages.append(f"Stage {stage.value} failed")
-                        self.logger.error(f"Stage failed: {stage.value}")
+                        self.logger.error("Stage failed: %s", stage.value)
                         return False
 
                 except Exception as e:
@@ -479,7 +512,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Production deployment failed: {e}")
+            self.logger.error("Production deployment failed: %s", e)
             return False
 
     async def _pre_flight_checks(self) -> bool:
@@ -507,7 +540,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Pre-flight checks failed: {e}")
+            self.logger.error("Pre-flight checks failed: %s", e)
             return False
 
     async def _deploy_infrastructure(self) -> bool:
@@ -537,7 +570,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Infrastructure deployment failed: {e}")
+            self.logger.error("Infrastructure deployment failed: %s", e)
             return False
 
     async def _deploy_core_services(self) -> bool:
@@ -546,8 +579,8 @@ class ProductionDeploymentManager:
             self.logger.info("Deploying core services...")
 
             # Deploy in dependency order
+            # Note: C21_FSeriesIntegrationHub removed in v2; A08 covers that role.
             core_services = [
-                "C21_FSeriesIntegrationHub",
                 "A08_FSeriesOrchestrator",
                 "E18_FSeriesRiskIntegrator",
                 "R05_IBGatewayBridge"
@@ -555,19 +588,19 @@ class ProductionDeploymentManager:
 
             for service in core_services:
                 if not await self._deploy_component(service):
-                    self.logger.error(f"Core service deployment failed: {service}")
+                    self.logger.error("Core service deployment failed: %s", service)
                     return False
 
                 # Wait for service to become healthy
                 if not await self._wait_for_component_health(service, timeout_s=60):
-                    self.logger.error(f"Core service health check failed: {service}")
+                    self.logger.error("Core service health check failed: %s", service)
                     return False
 
             self.logger.info("Core services deployment completed")
             return True
 
         except Exception as e:
-            self.logger.error(f"Core services deployment failed: {e}")
+            self.logger.error("Core services deployment failed: %s", e)
             return False
 
     async def _deploy_analytics_modules(self) -> bool:
@@ -580,13 +613,12 @@ class ProductionDeploymentManager:
                 "F16_RealTimeAnalytics",    # Highest priority
                 "F14_MarketMicrostructure",
                 "F15_PerformanceAttribution",
-                "F13_ModelValidation",
-                "F12_AdvancedBacktesting"   # Lowest priority
+                "F13_ModelValidation"
             ]
 
             for module in analytics_modules:
                 if not await self._deploy_component(module):
-                    self.logger.error(f"Analytics module deployment failed: {module}")
+                    self.logger.error("Analytics module deployment failed: %s", module)
                     return False
 
             # Deploy C-series data pipeline modules
@@ -598,14 +630,14 @@ class ProductionDeploymentManager:
 
             for module in data_modules:
                 if not await self._deploy_component(module):
-                    self.logger.error(f"Data module deployment failed: {module}")
+                    self.logger.error("Data module deployment failed: %s", module)
                     return False
 
             self.logger.info("Analytics modules deployment completed")
             return True
 
         except Exception as e:
-            self.logger.error(f"Analytics modules deployment failed: {e}")
+            self.logger.error("Analytics modules deployment failed: %s", e)
             return False
 
     async def _deploy_integration_layer(self) -> bool:
@@ -625,7 +657,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Integration layer deployment failed: {e}")
+            self.logger.error("Integration layer deployment failed: %s", e)
             return False
 
     async def _validate_deployment(self) -> bool:
@@ -649,7 +681,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Deployment validation failed: {e}")
+            self.logger.error("Deployment validation failed: %s", e)
             return False
 
     async def _go_live(self) -> bool:
@@ -674,7 +706,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Go-live failed: {e}")
+            self.logger.error("Go-live failed: %s", e)
             return False
 
     async def _post_deployment_tasks(self) -> bool:
@@ -698,7 +730,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Post-deployment tasks failed: {e}")
+            self.logger.error("Post-deployment tasks failed: %s", e)
             return False
 
     # ==========================================================================
@@ -709,16 +741,16 @@ class ProductionDeploymentManager:
         """Deploy individual system component"""
         try:
             if component_id not in self.components:
-                self.logger.error(f"Unknown component: {component_id}")
+                self.logger.error("Unknown component: %s", component_id)
                 return False
 
             component = self.components[component_id]
-            self.logger.info(f"Deploying component: {component_id}")
+            self.logger.info("Deploying component: %s", component_id)
 
             # Check dependencies
             for dep_id in component.dependencies:
                 if dep_id not in self.deployment_status.deployed_components:
-                    self.logger.error(f"Dependency not met for {component_id}: {dep_id}")
+                    self.logger.error("Dependency not met for %s: %s", component_id, dep_id)
                     return False
 
             # Start component process
@@ -726,15 +758,15 @@ class ProductionDeploymentManager:
 
             if success:
                 self.deployment_status.deployed_components.append(component_id)
-                self.logger.info(f"Component deployed successfully: {component_id}")
+                self.logger.info("Component deployed successfully: %s", component_id)
                 return True
             else:
                 self.deployment_status.failed_components.append(component_id)
-                self.logger.error(f"Component deployment failed: {component_id}")
+                self.logger.error("Component deployment failed: %s", component_id)
                 return False
 
         except Exception as e:
-            self.logger.error(f"Component deployment error {component_id}: {e}")
+            self.logger.error("Component deployment error %s: %s", component_id, e)
             return False
 
     async def _start_component_process(self, component: ComponentConfig) -> bool:
@@ -765,27 +797,27 @@ class ProductionDeploymentManager:
                     # Process exited
                     stdout, stderr = process.communicate()
                     if process.returncode != 0:
-                        self.logger.error(f"Component {component.component_id} exited with code {process.returncode}")
-                        self.logger.error(f"STDERR: {stderr.decode()}")
+                        self.logger.error("Component %s exited with code %s", component.component_id, process.returncode)
+                        self.logger.error("STDERR: %s", stderr.decode())
                         return False
 
                 # Check if component is responding (if health check URL provided)
                 if component.health_check_url and await self._component_health_check(component.component_id):
-                    self.logger.info(f"Component {component.component_id} started successfully")
+                    self.logger.info("Component %s started successfully", component.component_id)
                     return True
 
                 await asyncio.sleep(1)
 
             # If no health check URL, assume success if process is still running
             if not component.health_check_url and process.poll() is None:
-                self.logger.info(f"Component {component.component_id} process started")
+                self.logger.info("Component %s process started", component.component_id)
                 return True
 
-            self.logger.error(f"Component {component.component_id} startup timeout")
+            self.logger.error("Component %s startup timeout", component.component_id)
             return False
 
         except Exception as e:
-            self.logger.error(f"Failed to start component {component.component_id}: {e}")
+            self.logger.error("Failed to start component %s: %s", component.component_id, e)
             return False
 
     async def _wait_for_component_health(self, component_id: str, timeout_s: int = 60) -> bool:
@@ -798,11 +830,11 @@ class ProductionDeploymentManager:
                     return True
                 await asyncio.sleep(2)
 
-            self.logger.error(f"Component health check timeout: {component_id}")
+            self.logger.error("Component health check timeout: %s", component_id)
             return False
 
         except Exception as e:
-            self.logger.error(f"Component health wait failed {component_id}: {e}")
+            self.logger.error("Component health wait failed %s: %s", component_id, e)
             return False
 
     async def _component_health_check(self, component_id: str) -> bool:
@@ -834,7 +866,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Component health check failed {component_id}: {e}")
+            self.logger.error("Component health check failed %s: %s", component_id, e)
             return False
 
     # ==========================================================================
@@ -898,7 +930,7 @@ class ProductionDeploymentManager:
                 await asyncio.sleep(self.config.monitoring_intervals["metrics_collection_s"])
 
             except Exception as e:
-                self.logger.error(f"System metrics monitoring error: {e}")
+                self.logger.error("System metrics monitoring error: %s", e)
                 await asyncio.sleep(10)
 
     async def _component_health_monitor(self) -> None:
@@ -918,7 +950,7 @@ class ProductionDeploymentManager:
                 await asyncio.sleep(self.config.monitoring_intervals["health_check_s"])
 
             except Exception as e:
-                self.logger.error(f"Component health monitoring error: {e}")
+                self.logger.error("Component health monitoring error: %s", e)
                 await asyncio.sleep(15)
 
     async def _performance_analysis_monitor(self) -> None:
@@ -940,7 +972,7 @@ class ProductionDeploymentManager:
                 await asyncio.sleep(self.config.monitoring_intervals["performance_analysis_s"])
 
             except Exception as e:
-                self.logger.error(f"Performance analysis error: {e}")
+                self.logger.error("Performance analysis error: %s", e)
                 await asyncio.sleep(30)
 
     async def _log_analysis_monitor(self) -> None:
@@ -959,7 +991,7 @@ class ProductionDeploymentManager:
                 await asyncio.sleep(self.config.monitoring_intervals["log_rotation_s"])
 
             except Exception as e:
-                self.logger.error(f"Log analysis error: {e}")
+                self.logger.error("Log analysis error: %s", e)
                 await asyncio.sleep(60)
 
     async def _alert_processing_monitor(self) -> None:
@@ -978,7 +1010,7 @@ class ProductionDeploymentManager:
                 await asyncio.sleep(30)
 
             except Exception as e:
-                self.logger.error(f"Alert processing error: {e}")
+                self.logger.error("Alert processing error: %s", e)
                 await asyncio.sleep(15)
 
     def _collect_system_metrics(self) -> SystemMetrics:
@@ -1017,7 +1049,7 @@ class ProductionDeploymentManager:
             )
 
         except Exception as e:
-            self.logger.error(f"System metrics collection failed: {e}")
+            self.logger.error("System metrics collection failed: %s", e)
             return SystemMetrics()
 
     # ==========================================================================
@@ -1030,7 +1062,7 @@ class ProductionDeploymentManager:
             # CPU check
             cpu_count = psutil.cpu_count()
             if cpu_count < 4:
-                self.logger.error(f"Insufficient CPU cores: {cpu_count} (minimum: 4)")
+                self.logger.error("Insufficient CPU cores: %s (minimum: 4)", cpu_count)
                 return False
 
             # Memory check
@@ -1051,7 +1083,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"System resource check failed: {e}")
+            self.logger.error("System resource check failed: %s", e)
             return False
 
     def _check_network_connectivity(self) -> bool:
@@ -1072,7 +1104,7 @@ class ProductionDeploymentManager:
             return False
 
         except Exception as e:
-            self.logger.error(f"Network connectivity check error: {e}")
+            self.logger.error("Network connectivity check error: %s", e)
             return False
 
     def _check_database_availability(self) -> bool:
@@ -1084,7 +1116,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Database availability check failed: {e}")
+            self.logger.error("Database availability check failed: %s", e)
             return False
 
     def _validate_production_configuration(self) -> bool:
@@ -1100,7 +1132,7 @@ class ProductionDeploymentManager:
 
             for setting in required_settings:
                 if not hasattr(self.config, setting):
-                    self.logger.error(f"Missing configuration setting: {setting}")
+                    self.logger.error("Missing configuration setting: %s", setting)
                     return False
 
             # Validate resource limits
@@ -1116,7 +1148,7 @@ class ProductionDeploymentManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Configuration validation failed: {e}")
+            self.logger.error("Configuration validation failed: %s", e)
             return False
 
     # ==========================================================================
@@ -1127,7 +1159,7 @@ class ProductionDeploymentManager:
         """Emergency shutdown of production system"""
         try:
             self.emergency_stop_triggered = True
-            self.logger.critical(f"EMERGENCY SHUTDOWN INITIATED: {reason}")
+            self.logger.critical("EMERGENCY SHUTDOWN INITIATED: %s", reason)
 
             # Stop all trading operations immediately
             self._halt_trading_operations()
@@ -1148,7 +1180,7 @@ class ProductionDeploymentManager:
             self.logger.critical("Emergency shutdown completed")
 
         except Exception as e:
-            self.logger.critical(f"Emergency shutdown failed: {e}")
+            self.logger.critical("Emergency shutdown failed: %s", e)
 
     async def shutdown_system(self) -> None:
         """Graceful system shutdown"""
@@ -1169,7 +1201,7 @@ class ProductionDeploymentManager:
             self.logger.info("System shutdown completed")
 
         except Exception as e:
-            self.logger.error(f"System shutdown failed: {e}")
+            self.logger.error("System shutdown failed: %s", e)
 
     async def _emergency_component_shutdown(self) -> None:
         """Emergency shutdown of all components"""
@@ -1184,14 +1216,14 @@ class ProductionDeploymentManager:
                             process.wait(timeout=5)
                         except subprocess.TimeoutExpired:
                             process.kill()
-                        self.logger.info(f"Emergency stopped component: {component_id}")
+                        self.logger.info("Emergency stopped component: %s", component_id)
                 except Exception as e:
-                    self.logger.error(f"Failed to stop component {component_id}: {e}")
+                    self.logger.error("Failed to stop component %s: %s", component_id, e)
 
             self.component_processes.clear()
 
         except Exception as e:
-            self.logger.error(f"Emergency component shutdown failed: {e}")
+            self.logger.error("Emergency component shutdown failed: %s", e)
 
     async def _graceful_component_shutdown(self) -> None:
         """Graceful shutdown of all components"""
@@ -1212,17 +1244,17 @@ class ProductionDeploymentManager:
                             process.terminate()
                             try:
                                 process.wait(timeout=30)
-                                self.logger.info(f"Gracefully stopped component: {component_id}")
+                                self.logger.info("Gracefully stopped component: %s", component_id)
                             except subprocess.TimeoutExpired:
                                 process.kill()
-                                self.logger.warning(f"Force killed component: {component_id}")
+                                self.logger.warning("Force killed component: %s", component_id)
                 except Exception as e:
-                    self.logger.error(f"Failed to shutdown component {component_id}: {e}")
+                    self.logger.error("Failed to shutdown component %s: %s", component_id, e)
 
             self.component_processes.clear()
 
         except Exception as e:
-            self.logger.error(f"Graceful component shutdown failed: {e}")
+            self.logger.error("Graceful component shutdown failed: %s", e)
 
     # ==========================================================================
     # UTILITY AND HELPER METHODS
@@ -1238,7 +1270,7 @@ class ProductionDeploymentManager:
             self.config.trading_enabled = False
 
         except Exception as e:
-            self.logger.error(f"Trading halt failed: {e}")
+            self.logger.error("Trading halt failed: %s", e)
 
     def _setup_production_logging(self) -> None:
         """Setup production-grade logging infrastructure"""
@@ -1254,7 +1286,7 @@ class ProductionDeploymentManager:
             self.logger.info("Production logging infrastructure setup completed")
 
         except Exception as e:
-            self.logger.error(f"Production logging setup failed: {e}")
+            self.logger.error("Production logging setup failed: %s", e)
 
     def _setup_monitoring_infrastructure(self) -> None:
         """Setup monitoring infrastructure"""
@@ -1277,7 +1309,7 @@ class ProductionDeploymentManager:
             self.logger.info("Monitoring infrastructure setup completed")
 
         except Exception as e:
-            self.logger.error(f"Monitoring infrastructure setup failed: {e}")
+            self.logger.error("Monitoring infrastructure setup failed: %s", e)
 
     def _send_operational_notification(self, notification_type: str, message: str) -> None:
         """Send operational notification"""
@@ -1290,10 +1322,10 @@ class ProductionDeploymentManager:
             }
 
             self.operational_alerts.append(notification)
-            self.logger.info(f"Operational notification: {notification_type} - {message}")
+            self.logger.info("Operational notification: %s - %s", notification_type, message)
 
         except Exception as e:
-            self.logger.error(f"Operational notification failed: {e}")
+            self.logger.error("Operational notification failed: %s", e)
 
     def _send_critical_alert(self, alert_type: str, message: str) -> None:
         """Send critical system alert"""
@@ -1307,13 +1339,13 @@ class ProductionDeploymentManager:
             }
 
             self.operational_alerts.append(alert)
-            self.logger.critical(f"CRITICAL ALERT: {alert_type} - {message}")
+            self.logger.critical("CRITICAL ALERT: %s - %s", alert_type, message)
 
             # This would integrate with external alerting systems
             # (email, SMS, Slack, PagerDuty, etc.)
 
         except Exception as e:
-            self.logger.error(f"Critical alert failed: {e}")
+            self.logger.error("Critical alert failed: %s", e)
 
     # Mock methods for deployment stages (implement with actual functionality)
     async def _initialize_module_integrations(self) -> None:
@@ -1391,10 +1423,10 @@ class ProductionDeploymentManager:
             with open(report_file, 'w') as f:
                 json.dump(report, f, indent=2)
 
-            self.logger.info(f"Deployment report created: {report_file}")
+            self.logger.info("Deployment report created: %s", report_file)
 
         except Exception as e:
-            self.logger.error(f"Deployment report creation failed: {e}")
+            self.logger.error("Deployment report creation failed: %s", e)
 
     async def _create_emergency_report(self, reason: str) -> None:
         """Create emergency shutdown report"""
@@ -1412,10 +1444,10 @@ class ProductionDeploymentManager:
             with open(report_file, 'w') as f:
                 json.dump(report, f, indent=2)
 
-            self.logger.critical(f"Emergency report created: {report_file}")
+            self.logger.critical("Emergency report created: %s", report_file)
 
         except Exception as e:
-            self.logger.error(f"Emergency report creation failed: {e}")
+            self.logger.error("Emergency report creation failed: %s", e)
 
     async def _create_shutdown_report(self) -> None:
         """Create graceful shutdown report"""
@@ -1432,10 +1464,10 @@ class ProductionDeploymentManager:
             with open(report_file, 'w') as f:
                 json.dump(report, f, indent=2)
 
-            self.logger.info(f"Shutdown report created: {report_file}")
+            self.logger.info("Shutdown report created: %s", report_file)
 
         except Exception as e:
-            self.logger.error(f"Shutdown report creation failed: {e}")
+            self.logger.error("Shutdown report creation failed: %s", e)
 
     # Additional monitoring methods (simplified implementations)
     def _check_system_alerts(self, metrics: SystemMetrics) -> None:
@@ -1536,7 +1568,7 @@ class ProductionDeploymentManager:
             }
 
         except Exception as e:
-            self.logger.error(f"System status retrieval failed: {e}")
+            self.logger.error("System status retrieval failed: %s", e)
             return {"error": str(e)}
 
     def export_system_report(self, output_file: str | None = None) -> str:
@@ -1577,11 +1609,11 @@ class ProductionDeploymentManager:
             with open(output_path, 'w') as f:
                 json.dump(system_report, f, indent=2, default=str)
 
-            self.logger.info(f"System report exported: {output_path}")
+            self.logger.info("System report exported: %s", output_path)
             return str(output_path)
 
         except Exception as e:
-            self.logger.error(f"System report export failed: {e}")
+            self.logger.error("System report export failed: %s", e)
             raise
 
     # ==========================================================================
@@ -1643,10 +1675,10 @@ class ProductionDeploymentManager:
                 'endpoints': endpoints,
                 'n_models': len(model_configs),
             }
-            self.logger.info(f"Ray Serve ML models: {len(endpoints)} endpoints deployed")
+            self.logger.info("Ray Serve ML models: %s endpoints deployed", len(endpoints))
             return info
         except Exception as e:
-            self.logger.error(f"Ray Serve ML deployment failed: {e}")
+            self.logger.error("Ray Serve ML deployment failed: %s", e)
             return {'status': 'failed', 'reason': str(e)}
 
     def run_distributed_health_checks(
@@ -1741,11 +1773,11 @@ async def main():
             for i in range(120):
                 if i % 30 == 0:  # Status every 30 seconds
                     status = deployment_manager.get_system_status()
-                    logging.info(f"System Status: {status['system_status']}")
+                    logging.info("System Status: %s", status['system_status'])
                     logging.info(f"Uptime: {status['uptime_hours']:.1f} hours")
                     logging.info(f"CPU: {status['system_metrics']['cpu_usage_percent']:.1f}%")
                     logging.info(f"Memory: {status['system_metrics']['memory_usage_percent']:.1f}%")
-                    logging.info(f"Active Components: {len([c for c, s in status['component_statuses'].items() if s['status'] == 'healthy'])}")
+                    logging.info("Active Components: %s", len([c for c, s in status['component_statuses'].items() if s['status'] == 'healthy']))
                     logging.info("---")
 
                 await asyncio.sleep(1)
@@ -1753,7 +1785,7 @@ async def main():
             # Generate final system report
             logging.info("\n📈 Generating System Report...")
             report_file = deployment_manager.export_system_report()
-            logging.info(f"System report exported: {report_file}")
+            logging.info("System report exported: %s", report_file)
 
         else:
             logging.info("❌ Production deployment failed!")
@@ -1761,7 +1793,7 @@ async def main():
     except KeyboardInterrupt:
         logging.info("\n⚠️ Shutdown signal received")
     except Exception as e:
-        logging.info(f"❌ Production deployment error: {e}")
+        logging.info("❌ Production deployment error: %s", e)
         traceback.print_exc()
 
     finally:

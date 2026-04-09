@@ -292,6 +292,7 @@ class RealTimeStressTesting:
         # Alert management
         self._alert_cooldown = {}
         self._running = False
+        self._stop_event = threading.Event()
 
         self.logger.info("RealTimeStressTesting engine initialized")
 
@@ -316,7 +317,7 @@ class RealTimeStressTesting:
             self._initialize_computation_engine()
 
             self.status = TestingStatus.STOPPED
-            self.logger.info(f"Stress testing engine initialized with {len(self.scenarios)} scenarios")
+            self.logger.info("Stress testing engine initialized with %s scenarios", len(self.scenarios))
             return True
 
         except Exception as e:
@@ -336,6 +337,7 @@ class RealTimeStressTesting:
             return True
 
         try:
+            self._stop_event.clear()
             self._running = True
             self.status = TestingStatus.RUNNING
 
@@ -359,6 +361,7 @@ class RealTimeStressTesting:
             bool: True if monitoring stopped successfully
         """
         try:
+            self._stop_event.set()
             self._running = False
             self.status = TestingStatus.STOPPED
 
@@ -393,7 +396,7 @@ class RealTimeStressTesting:
             self.scenarios[scenario.scenario_id] = scenario
             self.results[scenario.scenario_id] = []
 
-            self.logger.info(f"Added stress scenario: {scenario.name}")
+            self.logger.info("Added stress scenario: %s", scenario.name)
             return True
 
         except Exception as e:
@@ -412,14 +415,14 @@ class RealTimeStressTesting:
         """
         try:
             if scenario_id not in self.scenarios:
-                self.logger.warning(f"Scenario not found: {scenario_id}")
+                self.logger.warning("Scenario not found: %s", scenario_id)
                 return False
 
             scenario_name = self.scenarios[scenario_id].name
             del self.scenarios[scenario_id]
             del self.results[scenario_id]
 
-            self.logger.info(f"Removed stress scenario: {scenario_name}")
+            self.logger.info("Removed stress scenario: %s", scenario_name)
             return True
 
         except Exception as e:
@@ -463,7 +466,7 @@ class RealTimeStressTesting:
             Stress test result or None if error
         """
         if scenario_id not in self.scenarios:
-            self.logger.error(f"Scenario not found: {scenario_id}")
+            self.logger.error("Scenario not found: %s", scenario_id)
             return None
 
         try:
@@ -516,7 +519,7 @@ class RealTimeStressTesting:
                 self.logger.warning("No enabled scenarios to run")
                 return results
 
-            self.logger.info(f"Running {len(enabled_scenarios)} stress scenarios")
+            self.logger.info("Running %s stress scenarios", len(enabled_scenarios))
 
             # Run scenarios in parallel
             tasks = []
@@ -531,12 +534,12 @@ class RealTimeStressTesting:
                     if result:
                         results[scenario_id] = result
                 except Exception as e:
-                    self.logger.error(f"Error in scenario {scenario_id}: {e}")
+                    self.logger.error("Error in scenario %s: %s", scenario_id, e)
 
             self.last_test_time = datetime.now()
             self.computation_stats['total_tests'] += len(results)
 
-            self.logger.info(f"Completed stress testing: {len(results)} scenarios")
+            self.logger.info("Completed stress testing: %s scenarios", len(results))
             return results
 
         except Exception as e:
@@ -558,7 +561,7 @@ class RealTimeStressTesting:
             Dictionary with simulation results and statistics
         """
         try:
-            self.logger.info(f"Starting Monte Carlo simulation: {iterations} iterations")
+            self.logger.info("Starting Monte Carlo simulation: %s iterations", iterations)
             start_time = time.time()
 
             # Generate random market scenarios
@@ -845,7 +848,7 @@ class RealTimeStressTesting:
             try:
                 # This would integrate with portfolio management system
                 # For now, we just sleep and could trigger alerts
-                time.sleep(REFRESH_INTERVAL)  # thread-safe: time.sleep() intentional
+                self._stop_event.wait(timeout=REFRESH_INTERVAL)
 
                 # Clean up old cache entries
                 self._cleanup_cache()
@@ -854,8 +857,8 @@ class RealTimeStressTesting:
                 self._process_alerts()
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(1.0)  # thread-safe: time.sleep() intentional
+                self.logger.error("Error in monitoring loop: %s", e)
+                self._stop_event.wait(timeout=1.0)
 
         self.logger.info("Stress testing monitoring loop stopped")
 
@@ -1033,7 +1036,7 @@ class RealTimeStressTesting:
             return False
 
         if scenario.scenario_id in self.scenarios:
-            self.logger.error(f"Scenario ID already exists: {scenario.scenario_id}")
+            self.logger.error("Scenario ID already exists: %s", scenario.scenario_id)
             return False
 
         # Validate shock parameters are within reasonable bounds
@@ -1112,7 +1115,7 @@ class RealTimeStressTesting:
         self._alert_cooldown[alert_key] = current_time
         self.alerts.append(alert)
 
-        self.logger.warning(f"Stress alert: {alert.message}")
+        self.logger.warning("Stress alert: %s", alert.message)
 
     def _process_alerts(self) -> None:
         """Process pending alerts."""
@@ -1125,7 +1128,7 @@ class RealTimeStressTesting:
                            if not a.acknowledged and a.priority in [AlertPriority.CRITICAL, AlertPriority.EMERGENCY])
 
         if critical_count > 0:
-            self.logger.warning(f"{critical_count} unacknowledged critical stress alerts")
+            self.logger.warning("%s unacknowledged critical stress alerts", critical_count)
 
     # ==========================================================================
     # PRIVATE METHODS - Caching and Performance
@@ -1200,7 +1203,7 @@ class RealTimeStressTesting:
             self.logger.info("Stress testing engine cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
     # ==========================================================================
     # RAY DISTRIBUTED COMPUTING (Phase 3)
@@ -1276,7 +1279,7 @@ class RealTimeStressTesting:
 
             return pnl_results
 
-        self.logger.info(f"Ray Monte Carlo: {iterations} iterations across {n_workers} workers")
+        self.logger.info("Ray Monte Carlo: %s iterations across %s workers", iterations, n_workers)
         start_time = time.time()
 
         futures = []
@@ -1384,7 +1387,7 @@ class RealTimeStressTesting:
         futures = [_evaluate_scenario.remote(portfolio_ref, s) for s in scenario_data]
         results = ray.get(futures)
 
-        self.logger.info(f"Ray stress scenarios: {len(results)} completed")
+        self.logger.info("Ray stress scenarios: %s completed", len(results))
         return results
 
 # ==============================================================================
@@ -1466,13 +1469,13 @@ async def main():
         if black_monday_result:
             logging.info(f"   P&L Impact: {black_monday_result.pnl_percentage:.2%}")
             logging.info(f"   Portfolio P&L: ${black_monday_result.portfolio_pnl:,.2f}")
-            logging.info(f"   Severity: {black_monday_result.severity.value}")
+            logging.info("   Severity: %s", black_monday_result.severity.value)
             logging.info(f"   Computation Time: {black_monday_result.computation_time:.3f}s")
 
         # Test all scenarios
         logging.info("\n🚀 Running all stress scenarios...")
         all_results = await stress_engine.run_all_scenarios(portfolio)
-        logging.info(f"✅ Completed {len(all_results)} stress scenarios")
+        logging.info("✅ Completed %s stress scenarios", len(all_results))
 
         # Show worst case scenarios
         worst_cases = stress_engine.get_worst_case_scenarios(3)
@@ -1506,7 +1509,7 @@ async def main():
         summary = stress_engine.get_stress_summary()
         perf_metrics = summary.get('performance_metrics', {})
         logging.info("\n⚡ PERFORMANCE METRICS:")
-        logging.info(f"   Total Tests: {perf_metrics.get('total_tests', 0)}")
+        logging.info("   Total Tests: %s", perf_metrics.get('total_tests', 0))
         logging.info(f"   Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")
         logging.info(f"   Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")
 
@@ -1515,7 +1518,7 @@ async def main():
         logging.info("\n✅ Real-Time Stress Testing Engine test completed successfully!")
 
         logging.info("\n🎯 STRESS TESTING CAPABILITIES:")
-        logging.info(f"   • {len(stress_engine.scenarios)} Built-in Scenarios")
+        logging.info("   • %s Built-in Scenarios", len(stress_engine.scenarios))
         logging.info("   • Monte Carlo Simulation (10,000 iterations)")
         logging.info("   • Real-time Portfolio Monitoring")
         logging.info("   • Multi-severity Risk Assessment")
@@ -1527,7 +1530,7 @@ async def main():
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
 if __name__ == "__main__":

@@ -244,7 +244,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             "worst_trade": 0.0,
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # IV AND TERM STRUCTURE ANALYSIS
@@ -287,7 +287,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error analyzing IV environment: {e}")
+            self.logger.error("Error analyzing IV environment: %s", e)
             return {}
 
     def _get_current_iv(self, market_data: pd.DataFrame) -> float:
@@ -602,7 +602,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating calendar setup: {e}")
+            self.logger.error("Error creating calendar setup: %s", e)
             return None
 
     def _select_call_strike(self, current_price: float) -> float:
@@ -772,11 +772,11 @@ class CalendarSpreadStrategy(BaseStrategy):
                 },
             )
 
-            self.logger.info(f"Generated {setup.calendar_type.value} signal")
+            self.logger.info("Generated %s signal", setup.calendar_type.value)
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating trading signal: {e}")
+            self.logger.error("Error creating trading signal: %s", e)
             return None
 
     # ==========================================================================
@@ -852,7 +852,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             position.unrealized_pnl = position.current_value + position.setup.net_debit
 
         except Exception as e:
-            self.logger.error(f"Error updating position value: {e}")
+            self.logger.error("Error updating position value: %s", e)
 
     def _check_roll_opportunity(
         self, position: CalendarPosition, market_data: pd.DataFrame
@@ -894,7 +894,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             {"time": datetime.now(), "type": "roll", "pnl_at_roll": position.unrealized_pnl}
         )
 
-        self.logger.info(f"Rolling calendar position {position.position_id}")
+        self.logger.info("Rolling calendar position %s", position.position_id)
         return signal
 
     def _check_exit_conditions(
@@ -945,9 +945,10 @@ class CalendarSpreadStrategy(BaseStrategy):
         )
 
         self.logger.info(
-            f"Exit signal for {
-                position.position_id}: {reason}, P&L: ${
-                position.unrealized_pnl:.2f}"
+            "Exit signal for %s: %s, P&L: $%.2f",
+            position.position_id,
+            reason,
+            position.unrealized_pnl,
         )
         return signal
 
@@ -998,7 +999,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         )
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added calendar position {position_id}")
+        self.logger.info("Added calendar position %s", position_id)
 
         return position_id
 
@@ -1071,8 +1072,8 @@ def test_calendar_spread():
     # Create strategy
     strategy = CalendarSpreadStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
-    logging.info(f"Max Positions: {strategy.max_positions}")
+    logging.info("Strategy: %s", strategy.name)
+    logging.info("Max Positions: %s", strategy.max_positions)
 
     # Create sample market data with IV
     dates = pd.date_range(end=datetime.now(), periods=252, freq="D")
@@ -1102,33 +1103,33 @@ def test_calendar_spread():
     iv_analysis = strategy._analyze_iv_environment(market_data)
     logging.info(f"Current IV: {iv_analysis.get('current_iv', 0):.1%}")
     logging.info(f"IV Rank: {iv_analysis.get('iv_rank', 0):.1f}")
-    logging.info(f"IV Regime: {iv_analysis.get('iv_regime', IVRegime.NORMAL).value}")
-    logging.info(f"Term Structure: {iv_analysis.get('term_structure', TermStructure.CONTANGO).value}")
-    logging.info(f"Calendar Favorable: {iv_analysis.get('calendar_favorable', False)}")
+    logging.info("IV Regime: %s", iv_analysis.get('iv_regime', IVRegime.NORMAL).value)
+    logging.info("Term Structure: %s", iv_analysis.get('term_structure', TermStructure.CONTANGO).value)
+    logging.info("Calendar Favorable: %s", iv_analysis.get('calendar_favorable', False))
 
     # Test expiry selection
     logging.info("\nTesting Expiry Selection...")
     near_expiry, far_expiry = strategy._select_optimal_expiries(iv_analysis)
     if near_expiry and far_expiry:
         logging.info(
-            f"Near Expiry: {near_expiry.strftime('%Y-%m-%d')} ({(near_expiry - datetime.now()).days} days)"
+            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now()).days
         )
         logging.info(
-            f"Far Expiry: {far_expiry.strftime('%Y-%m-%d')} ({(far_expiry - datetime.now()).days} days)"
+            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now()).days
         )
-        logging.info(f"Time Spread: {(far_expiry - near_expiry).days} days")
+        logging.info("Time Spread: %s days", (far_expiry - near_expiry).days)
 
     # Generate signals
     logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"Generated {len(signals)} signals")
+    logging.info("Generated %s signals", len(signals))
 
     for signal in signals:
-        logging.info(f"\nSignal Type: {signal.metadata['calendar_type']}")
-        logging.info(f"Strike: ${signal.metadata['strike']}")
-        logging.info(f"Near Expiry: {signal.metadata['near_expiry']}")
-        logging.info(f"Far Expiry: {signal.metadata['far_expiry']}")
+        logging.info("\nSignal Type: %s", signal.metadata['calendar_type'])
+        logging.info("Strike: $%s", signal.metadata['strike'])
+        logging.info("Near Expiry: %s", signal.metadata['near_expiry'])
+        logging.info("Far Expiry: %s", signal.metadata['far_expiry'])
         logging.info(f"Net Debit: ${signal.metadata['net_debit']:.2f}")
         logging.info(f"Max Profit: ${signal.metadata['max_profit']:.2f}")
         logging.info(f"IV Skew: {signal.metadata['iv_skew']:.3f}")
@@ -1162,26 +1163,26 @@ def test_calendar_spread():
             if management_signals:
                 for signal in management_signals:
                     if signal.signal_type == SignalType.ADJUST:
-                        logging.info(f"\nRoll Signal Day {i}")
-                        logging.info(f"Action: {signal.metadata['action']}")
+                        logging.info("\nRoll Signal Day %s", i)
+                        logging.info("Action: %s", signal.metadata['action'])
                         logging.info(f"Current P&L: ${signal.metadata['current_pnl']:.2f}")
-                        logging.info(f"Near DTE: {signal.metadata['near_expiry_dte']}")
+                        logging.info("Near DTE: %s", signal.metadata['near_expiry_dte'])
                     elif signal.signal_type == SignalType.EXIT:
-                        logging.info(f"\nExit Signal Day {i}")
-                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
-                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info("\nExit Signal Day %s", i)
+                        logging.info("Reason: %s", signal.metadata['exit_reason'])
+                        logging.info("Days Held: %s", signal.metadata['days_held'])
                         logging.info(f"Final P&L: ${signal.metadata['unrealized_pnl']:.2f}")
 
     # Print final stats
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"Active Positions: {stats['active_positions']}")
-    logging.info(f"Current IV Regime: {stats['current_iv_regime']}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("Active Positions: %s", stats['active_positions'])
+    logging.info("Current IV Regime: %s", stats['current_iv_regime'])
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
     logging.info(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
-    logging.info(f"Total Rolls: {stats['total_rolls']}")
+    logging.info("Total Rolls: %s", stats['total_rolls'])
     logging.info(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
     logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
     logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")

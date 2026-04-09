@@ -445,7 +445,7 @@ class SpyderDataTypes:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # FACTORY METHODS
@@ -475,7 +475,7 @@ class SpyderDataTypes:
                 timestamp=datetime.now()
             )
         except Exception as e:
-            self.logger.error(f"Failed to create MarketData: {e}")
+            self.logger.error("Failed to create MarketData: %s", e)
             raise
 
     def create_option_contract(self, underlying: str, expiry: str, strike: float,
@@ -507,7 +507,7 @@ class SpyderDataTypes:
                 right=option_right
             )
         except Exception as e:
-            self.logger.error(f"Failed to create OptionContract: {e}")
+            self.logger.error("Failed to create OptionContract: %s", e)
             raise
 
     def create_order(self, symbol: str, action: str, order_type: str,
@@ -535,7 +535,7 @@ class SpyderDataTypes:
                 price=price
             )
         except Exception as e:
-            self.logger.error(f"Failed to create OrderData: {e}")
+            self.logger.error("Failed to create OrderData: %s", e)
             raise
 
     # ==========================================================================
@@ -563,7 +563,7 @@ class SpyderDataTypes:
             return not (data.bid > 0 and data.ask > 0 and data.bid >= data.ask)
 
         except Exception as e:
-            self.logger.error(f"MarketData validation failed: {e}")
+            self.logger.error("MarketData validation failed: %s", e)
             return False
 
     def validate_option_contract(self, contract: OptionContract) -> bool:
@@ -586,7 +586,7 @@ class SpyderDataTypes:
             return not contract.expiry <= date.today()
 
         except Exception as e:
-            self.logger.error(f"OptionContract validation failed: {e}")
+            self.logger.error("OptionContract validation failed: %s", e)
             return False
 
 # ==============================================================================

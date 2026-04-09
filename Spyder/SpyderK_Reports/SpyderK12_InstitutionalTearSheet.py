@@ -234,10 +234,10 @@ class InstitutionalTearSheet:
                     metrics['qs_serenity_index'] = float(qs.stats.serenity_index(returns))
                     metrics['qs_kelly_criterion'] = float(qs.stats.kelly_criterion(returns))
                 except Exception as _qs_err:
-                    self.logger.debug(f"quantstats enrichment skipped: {_qs_err}")
+                    self.logger.debug("quantstats enrichment skipped: %s", _qs_err)
 
         except Exception as e:
-            self.logger.error(f"Error computing return metrics: {e}")
+            self.logger.error("Error computing return metrics: %s", e)
             return self._fallback_return_metrics(returns)
 
         return metrics
@@ -424,7 +424,7 @@ class InstitutionalTearSheet:
             Complete tear sheet data including all metrics.
         """
         title = title or self.config.title
-        self.logger.info(f"Generating full tear sheet: {title}")
+        self.logger.info("Generating full tear sheet: %s", title)
 
         result: dict[str, Any] = {
             'title': title,
@@ -467,7 +467,7 @@ class InstitutionalTearSheet:
             ),
         }
 
-        self.logger.info(f"Tear sheet generated: Sharpe={result['return_metrics'].get('sharpe_ratio', 'N/A')}")
+        self.logger.info("Tear sheet generated: Sharpe=%s", result['return_metrics'].get('sharpe_ratio', 'N/A'))
         return result
 
     def generate_risk_tearsheet(
@@ -632,7 +632,7 @@ class InstitutionalTearSheet:
         Returns:
             Comparison table with metrics for each strategy.
         """
-        self.logger.info(f"Comparing {len(strategy_returns)} strategies")
+        self.logger.info("Comparing %s strategies", len(strategy_returns))
 
         comparison: dict[str, dict[str, float]] = {}
         for name, returns in strategy_returns.items():

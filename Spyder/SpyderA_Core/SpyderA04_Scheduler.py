@@ -24,7 +24,8 @@ Change Log:
 # ==============================================================================
 import threading
 from datetime import datetime, time, timedelta, date
-from typing import Callable, Any
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import logging
@@ -401,7 +402,7 @@ class Scheduler:
                 conn.executescript(TASK_HISTORY_SCHEMA)
             self.logger.info("Task history database initialized")
         except Exception as e:
-            self.logger.error(f"Database initialization failed: {e}")
+            self.logger.error("Database initialization failed: %s", e)
 
     def _init_default_windows(self):
         """Initialize default trading windows"""
@@ -524,7 +525,7 @@ class Scheduler:
             with self._task_lock:
                 # Check if task already exists
                 if task_id in self.tasks:
-                    self.logger.warning(f"Task {task_id} already exists")
+                    self.logger.warning("Task %s already exists", task_id)
                     return False
 
                 # Create task
@@ -547,7 +548,7 @@ class Scheduler:
                 # Store task
                 self.tasks[task_id] = task
 
-                self.logger.info(f"Task added: {task_id}")
+                self.logger.info("Task added: %s", task_id)
 
                 # Emit event
                 self.event_manager.emit(
@@ -562,7 +563,7 @@ class Scheduler:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to add task {task_id}: {e}")
+            self.logger.error("Failed to add task %s: %s", task_id, e)
             self.error_handler.handle_error(e, f"add_task.{task_id}")
             return False
 
@@ -579,23 +580,23 @@ class Scheduler:
         try:
             with self._task_lock:
                 if task_id not in self.tasks:
-                    self.logger.warning(f"Task {task_id} not found")
+                    self.logger.warning("Task %s not found", task_id)
                     return False
 
                 # Remove from scheduler
                 try:
                     self.scheduler.remove_job(task_id)
                 except Exception as e:
-                    self.logger.debug(f"Job {task_id} may not exist in scheduler: {e}")
+                    self.logger.debug("Job %s may not exist in scheduler: %s", task_id, e)
 
                 # Remove task
                 del self.tasks[task_id]
 
-                self.logger.info(f"Task removed: {task_id}")
+                self.logger.info("Task removed: %s", task_id)
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to remove task {task_id}: {e}")
+            self.logger.error("Failed to remove task %s: %s", task_id, e)
             return False
 
     def enable_task(self, task_id: str) -> bool:
@@ -630,13 +631,13 @@ class Scheduler:
                     try:
                         self.scheduler.remove_job(task_id)
                     except Exception as e:
-                        self.logger.debug(f"Failed to remove job {task_id} from scheduler: {e}")
+                        self.logger.debug("Failed to remove job %s from scheduler: %s", task_id, e)
 
-                self.logger.info(f"Task {task_id} {'enabled' if enabled else 'disabled'}")
+                self.logger.info("Task %s %s", task_id, 'enabled' if enabled else 'disabled')
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to set task enabled state: {e}")
+            self.logger.error("Failed to set task enabled state: %s", e)
             return False
 
     def get_task_status(self, task_id: str) -> dict[str, Any] | None:
@@ -687,7 +688,7 @@ class Scheduler:
             elif task.schedule_type == ScheduleType.MARKET_BASED:
                 trigger = self._create_market_trigger(task.schedule_params)
             else:
-                self.logger.error(f"Unknown schedule type: {task.schedule_type}")
+                self.logger.error("Unknown schedule type: %s", task.schedule_type)
                 return None
 
             # Add job to scheduler
@@ -704,7 +705,7 @@ class Scheduler:
             return job
 
         except Exception as e:
-            self.logger.error(f"Failed to create job: {e}")
+            self.logger.error("Failed to create job: %s", e)
             return None
 
     def _wrap_task_function(self, task: ScheduledTask) -> Callable:
@@ -744,7 +745,7 @@ class Scheduler:
                 self.metrics['tasks_failed'] += 1
 
                 # Log error
-                self.logger.error(f"Task {task.task_id} failed: {e}")
+                self.logger.error("Task %s failed: %s", task.task_id, e)
                 self.logger.debug(traceback.format_exc())
 
             finally:
@@ -800,10 +801,10 @@ class Scheduler:
                 if job:
                     self.tasks[task_id].next_run = job.next_run_time
 
-            self.logger.debug(f"Job executed successfully: {task_id}")
+            self.logger.debug("Job executed successfully: %s", task_id)
 
         except Exception as e:
-            self.logger.error(f"Error handling job execution event: {e}")
+            self.logger.error("Error handling job execution event: %s", e)
 
     def _on_job_error(self, event: JobEvent):
         """Handle job execution error"""
@@ -811,7 +812,7 @@ class Scheduler:
             task_id = event.job_id
             exception = getattr(event, 'exception', 'Unknown error')
 
-            self.logger.error(f"Job failed: {task_id} - {exception}")
+            self.logger.error("Job failed: %s - %s", task_id, exception)
 
             # Emit error event
             self.event_manager.emit(
@@ -824,14 +825,14 @@ class Scheduler:
             )
 
         except Exception as e:
-            self.logger.error(f"Error handling job error event: {e}")
+            self.logger.error("Error handling job error event: %s", e)
 
     def _on_job_missed(self, event: JobEvent):
         """Handle missed job execution"""
         try:
             task_id = event.job_id
 
-            self.logger.warning(f"Job missed: {task_id}")
+            self.logger.warning("Job missed: %s", task_id)
 
             # Update metrics
             self.metrics['tasks_missed'] += 1
@@ -840,7 +841,7 @@ class Scheduler:
             self._record_task_execution(task_id, TaskStatus.MISSED)
 
         except Exception as e:
-            self.logger.error(f"Error handling job missed event: {e}")
+            self.logger.error("Error handling job missed event: %s", e)
 
     # ==========================================================================
     # DEFAULT TASK HANDLERS
@@ -911,7 +912,7 @@ class Scheduler:
             )
 
         except Exception as e:
-            self.logger.error(f"Daily cleanup failed: {e}")
+            self.logger.error("Daily cleanup failed: %s", e)
 
     # ==========================================================================
     # TRADING WINDOW MANAGEMENT
@@ -932,11 +933,11 @@ class Scheduler:
             # Schedule window events
             self._schedule_window_events(name)
 
-            self.logger.info(f"Trading window added: {name}")
+            self.logger.info("Trading window added: %s", name)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to add trading window: {e}")
+            self.logger.error("Failed to add trading window: %s", e)
             return False
 
     def _schedule_window_events(self, window_name: str):
@@ -969,7 +970,7 @@ class Scheduler:
 
     def _on_window_event(self, window_name: str, event_type: str):
         """Handle trading window event"""
-        self.logger.info(f"Trading window {event_type}: {window_name}")
+        self.logger.info("Trading window %s: %s", event_type, window_name)
 
         window = self.trading_windows.get(window_name)
         if not window:
@@ -1095,7 +1096,7 @@ class Scheduler:
                 ))
 
         except Exception as e:
-            self.logger.error(f"Failed to record task execution: {e}")
+            self.logger.error("Failed to record task execution: %s", e)
 
     def get_task_history(self, task_id: str | None = None,
                         limit: int = 100) -> list[TaskExecution]:
@@ -1135,7 +1136,7 @@ class Scheduler:
                 return history
 
         except Exception as e:
-            self.logger.error(f"Failed to get task history: {e}")
+            self.logger.error("Failed to get task history: %s", e)
             return []
 
     def _clean_old_task_history(self, days_to_keep: int = 30):
@@ -1151,10 +1152,10 @@ class Scheduler:
 
                 deleted = result.rowcount
                 if deleted > 0:
-                    self.logger.info(f"Cleaned {deleted} old task history records")
+                    self.logger.info("Cleaned %s old task history records", deleted)
 
         except Exception as e:
-            self.logger.error(f"Failed to clean task history: {e}")
+            self.logger.error("Failed to clean task history: %s", e)
 
     def get_task_statistics(self, task_id: str | None = None,
                           days: int = 7) -> dict[str, Any]:
@@ -1208,7 +1209,7 @@ class Scheduler:
                 }
 
         except Exception as e:
-            self.logger.error(f"Failed to get task statistics: {e}")
+            self.logger.error("Failed to get task statistics: %s", e)
             return {}
 
     # ==========================================================================
@@ -1237,7 +1238,7 @@ class Scheduler:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start scheduler: {e}")
+            self.logger.error("Failed to start scheduler: %s", e)
             self.error_handler.handle_error(e, "scheduler_start")
             return False
 
@@ -1271,7 +1272,7 @@ class Scheduler:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to stop scheduler: {e}")
+            self.logger.error("Failed to stop scheduler: %s", e)
             return False
 
     def pause(self) -> bool:
@@ -1281,7 +1282,7 @@ class Scheduler:
             self.logger.info("Scheduler paused")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to pause scheduler: {e}")
+            self.logger.error("Failed to pause scheduler: %s", e)
             return False
 
     def resume(self) -> bool:
@@ -1291,7 +1292,7 @@ class Scheduler:
             self.logger.info("Scheduler resumed")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to resume scheduler: {e}")
+            self.logger.error("Failed to resume scheduler: %s", e)
             return False
 
     def is_running(self) -> bool:
@@ -1317,7 +1318,7 @@ class Scheduler:
         }
 
         # Log daily summary
-        self.logger.info(f"Daily task summary: {daily_metrics}")
+        self.logger.info("Daily task summary: %s", daily_metrics)
 
         # Reset counters
         self.metrics = {
@@ -1359,16 +1360,16 @@ class Scheduler:
         for job in jobs:
             task = self.tasks.get(job.id)
             if task:
-                logging.info(f"\nTask: {task.name}")
-                logging.info(f"  ID: {job.id}")
-                logging.info(f"  Type: {task.schedule_type.name}")
-                logging.info(f"  Next Run: {job.next_run_time}")
-                logging.info(f"  Enabled: {task.enabled}")
-                logging.info(f"  Run Count: {task.run_count}")
-                logging.info(f"  Error Count: {task.error_count}")
+                logging.info("\nTask: %s", task.name)
+                logging.info("  ID: %s", job.id)
+                logging.info("  Type: %s", task.schedule_type.name)
+                logging.info("  Next Run: %s", job.next_run_time)
+                logging.info("  Enabled: %s", task.enabled)
+                logging.info("  Run Count: %s", task.run_count)
+                logging.info("  Error Count: %s", task.error_count)
 
                 if task.last_run:
-                    logging.info(f"  Last Run: {task.last_run}")
+                    logging.info("  Last Run: %s", task.last_run)
 
         logging.info("\n" + "="*80)
 
@@ -1402,11 +1403,11 @@ class Scheduler:
             with open(output_path, 'w') as f:
                 json.dump(schedule_data, f, indent=2)
 
-            self.logger.info(f"Schedule exported to: {output_path}")
+            self.logger.info("Schedule exported to: %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to export schedule: {e}")
+            self.logger.error("Failed to export schedule: %s", e)
             return False
 
 # ==============================================================================

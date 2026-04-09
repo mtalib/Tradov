@@ -270,7 +270,7 @@ class MultiStrategyAllocator:
         self._initialize_risk_limits()
         self._load_historical_data()
 
-        self.logger.info(f"MultiStrategyAllocator initialized with {len(STRATEGY_IDS)} strategies")
+        self.logger.info("MultiStrategyAllocator initialized with %s strategies", len(STRATEGY_IDS))
 
     def _initialize_strategies(self):
         """Initialize strategy metrics"""
@@ -308,9 +308,9 @@ class MultiStrategyAllocator:
             if not history_file.exists():
                 legacy = history_file.with_suffix('.pkl')
                 if legacy.exists():
-                    import pickle as _pickle
+                    import joblib as _joblib
                     with open(legacy, 'rb') as _f:
-                        _data = _pickle.load(_f)
+                        _data = _joblib.load(_f)
                     history_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
@@ -323,9 +323,9 @@ class MultiStrategyAllocator:
                     self.rebalance_history = deque(
                         (_ns(item) for item in data['rebalances']), maxlen=100
                     )
-                    self.logger.info(f"Loaded {len(self.allocation_history)} historical allocations")
+                    self.logger.info("Loaded %s historical allocations", len(self.allocation_history))
         except Exception as e:
-            self.logger.warning(f"Could not load historical data: {e}", exc_info=True)
+            self.logger.warning("Could not load historical data: %s", e, exc_info=True)
 
     def update_strategy_performance(
         self,
@@ -345,7 +345,7 @@ class MultiStrategyAllocator:
         """
         with self._lock:
             if strategy_id not in self.strategy_metrics:
-                self.logger.warning(f"Unknown strategy: {strategy_id}")
+                self.logger.warning("Unknown strategy: %s", strategy_id)
                 return
 
             # Update returns history
@@ -439,7 +439,7 @@ class MultiStrategyAllocator:
             self._check_correlation_breaches()
 
         except Exception as e:
-            self.logger.error(f"Failed to update correlation matrix: {e}", exc_info=True)
+            self.logger.error("Failed to update correlation matrix: %s", e, exc_info=True)
 
     def _check_correlation_breaches(self):
         """Check for strategies with excessive correlation"""
@@ -457,7 +457,7 @@ class MultiStrategyAllocator:
                         )
 
         if warnings:
-            self.logger.warning(f"Correlation warnings: {warnings}")
+            self.logger.warning("Correlation warnings: %s", warnings)
             # Could trigger rebalancing
 
     def optimize_allocation(
@@ -483,7 +483,7 @@ class MultiStrategyAllocator:
                 eligible_strategies = self._get_eligible_strategies()
 
                 if len(eligible_strategies) < MIN_ACTIVE_STRATEGIES:
-                    self.logger.warning(f"Insufficient eligible strategies: {len(eligible_strategies)}")
+                    self.logger.warning("Insufficient eligible strategies: %s", len(eligible_strategies))
                     return self._create_default_allocation()
 
                 # Select optimization method
@@ -520,7 +520,7 @@ class MultiStrategyAllocator:
                 return result
 
             except Exception as e:
-                self.logger.error(f"Allocation optimization failed: {e}", exc_info=True)
+                self.logger.error("Allocation optimization failed: %s", e, exc_info=True)
                 self.error_handler.handle_error(e, {"method": method.value})
                 return self._create_default_allocation()
 
@@ -913,7 +913,7 @@ class MultiStrategyAllocator:
 
                 return cov
             except Exception as e:
-                self.logger.debug(f"Primary covariance estimation failed, trying LedoitWolf: {e}")
+                self.logger.debug("Primary covariance estimation failed, trying LedoitWolf: %s", e)
 
         # Sklearn Ledoit-Wolf fallback
         try:
@@ -931,7 +931,7 @@ class MultiStrategyAllocator:
 
             return cov
         except Exception as e:
-            self.logger.warning(f"LedoitWolf covariance estimation failed, using sample covariance: {e}", exc_info=True)
+            self.logger.warning("LedoitWolf covariance estimation failed, using sample covariance: %s", e, exc_info=True)
 
         # Final fallback: sample covariance
         cov = np.cov(returns_array, rowvar=False) * 252
@@ -1283,7 +1283,7 @@ class MultiStrategyAllocator:
 
             self.logger.info("Allocation history saved")
         except Exception as e:
-            self.logger.error(f"Failed to save history: {e}", exc_info=True)
+            self.logger.error("Failed to save history: %s", e, exc_info=True)
 
         self.logger.info("MultiStrategyAllocator shutdown complete")
 

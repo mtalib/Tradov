@@ -196,7 +196,7 @@ class ProbabilisticSharpeCalculator:
             ProbabilisticSharpeResult with all calculations
         """
         if len(returns) < MIN_PERIODS_PSR:
-            self.logger.warning(f"Insufficient data for PSR: {len(returns)} < {MIN_PERIODS_PSR}")
+            self.logger.warning("Insufficient data for PSR: %s < %s", len(returns), MIN_PERIODS_PSR)
             return self._create_empty_psr_result()
 
         # Calculate standard Sharpe ratio

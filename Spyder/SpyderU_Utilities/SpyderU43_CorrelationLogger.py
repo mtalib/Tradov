@@ -43,13 +43,13 @@ Change Log:
 import logging
 import logging.handlers
 import sys
-import traceback
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Generator, Optional
+from typing import Any
+from collections.abc import Generator
 
 # ==============================================================================
 # PYTHON PATH SETUP
@@ -65,7 +65,7 @@ try:
     import orjson  # type: ignore[import]
     _ORJSON_AVAILABLE = True
 except ImportError:
-    import json  # noqa: F401  (used in StructuredFormatter._dumps)
+    import json  # noqa: F401
     _ORJSON_AVAILABLE = False
 
 # ==============================================================================
@@ -162,7 +162,7 @@ def correlation_context(
     strategy_id: str = "",
     session_id: str = "",
     correlation_id: str = "",
-) -> Generator[str, None, None]:
+) -> Generator[str]:
     """
     Context manager that establishes a correlation scope for structured logging.
 
@@ -225,7 +225,7 @@ class CorrelationFilter(logging.Filter):
     >>> handler.addFilter(CorrelationFilter())
     """
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+    def filter(self, record: logging.LogRecord) -> bool:
         record.correlation_id = _correlation_id.get()
         record.trade_id = _trade_id.get()
         record.session_id = _session_id.get()
@@ -298,7 +298,7 @@ class StructuredFormatter(logging.Formatter):
 
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
+                record.created, tz=UTC
             ).isoformat(timespec="microseconds"),
             "level": record.levelname,
             "logger": record.name,
@@ -324,7 +324,7 @@ class StructuredFormatter(logging.Formatter):
 # ==============================================================================
 
 def setup_correlation_logging(
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     level: int = logging.INFO,
 ) -> None:
     """
@@ -476,4 +476,4 @@ if __name__ == "__main__":
     assert get_trade_id() == "", "trade_id leaked out of context"
     demo_logger.info("Context isolation verified — all IDs reset after exit")
 
-    print("\nDemo complete.  Check logs/correlation_demo.log for NDJSON output.")
+    print("\nDemo complete.  Check logs/correlation_demo.log for NDJSON output.")  # noqa: T201

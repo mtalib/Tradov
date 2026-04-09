@@ -61,6 +61,8 @@ try:
 except ImportError:
     HUB_AVAILABLE = False
 
+_module_logger = SpyderLogger.get_logger(__name__)
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -355,7 +357,7 @@ class PortfolioManager:
         """
         try:
             if strategy_id in self.strategy_allocations:
-                self.logger.warning(f"Strategy {strategy_id} already exists")
+                self.logger.warning("Strategy %s already exists", strategy_id)
                 return False
 
             # Validate allocation
@@ -432,7 +434,7 @@ class PortfolioManager:
         """
         try:
             if strategy_id not in self.strategy_allocations:
-                self.logger.warning(f"Strategy {strategy_id} not found")
+                self.logger.warning("Strategy %s not found", strategy_id)
                 return False
 
             allocation = self.strategy_allocations[strategy_id]
@@ -461,7 +463,7 @@ class PortfolioManager:
                 data={'strategy_id': strategy_id}
             ))
 
-            self.logger.info(f"Removed strategy {strategy_id}")
+            self.logger.info("Removed strategy %s", strategy_id)
             return True
 
         except Exception as e:
@@ -481,7 +483,7 @@ class PortfolioManager:
         """
         try:
             if strategy_id not in self.strategy_allocations:
-                self.logger.error(f"Strategy {strategy_id} not found")
+                self.logger.error("Strategy %s not found", strategy_id)
                 return False
 
             if not (MIN_STRATEGY_ALLOCATION <= new_allocation <= MAX_STRATEGY_ALLOCATION):
@@ -978,7 +980,7 @@ class PortfolioManager:
                     data={'violations': violations}
                 ))
 
-                self.logger.warning(f"Portfolio risk violations: {violations}")
+                self.logger.warning("Portfolio risk violations: %s", violations)
 
         except Exception as e:
             self.error_handler.handle_error(e, "_check_portfolio_risk_limits")
@@ -1070,7 +1072,7 @@ class PortfolioManager:
 
             self.pending_rebalances.append(rebalance_event)
 
-            self.logger.info(f"Scheduled rebalance due to: {reason.value}")
+            self.logger.info("Scheduled rebalance due to: %s", reason.value)
 
         except Exception as e:
             self.error_handler.handle_error(e, "_schedule_rebalance")
@@ -1092,7 +1094,7 @@ class PortfolioManager:
                     self.rebalance_history.append(rebalance_event)
                     self.last_rebalance = datetime.now()
                 else:
-                    self.logger.error(f"Rebalance failed: {rebalance_event.rebalance_id}")
+                    self.logger.error("Rebalance failed: %s", rebalance_event.rebalance_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, "_process_pending_rebalances")
@@ -1370,7 +1372,8 @@ class PortfolioManager:
             excess_returns = returns - 0.02/252  # Daily risk-free rate
             return np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252) if np.std(excess_returns) > 0 else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_sharpe_ratio calculation error: %s", e)
             return 0.0
 
     def _calculate_sortino_ratio(self, returns: np.ndarray) -> float:
@@ -1388,7 +1391,8 @@ class PortfolioManager:
             downside_std = np.std(downside_returns)
             return np.mean(excess_returns) / downside_std * np.sqrt(252) if downside_std > 0 else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_sortino_ratio calculation error: %s", e)
             return 0.0
 
     def _calculate_max_drawdown(self) -> float:
@@ -1409,7 +1413,8 @@ class PortfolioManager:
 
             return max_dd
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_max_drawdown calculation error: %s", e)
             return 0.0
 
     def _calculate_current_drawdown(self) -> float:
@@ -1424,7 +1429,8 @@ class PortfolioManager:
 
             return (peak_value - current_value) / peak_value if peak_value > 0 else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_current_drawdown calculation error: %s", e)
             return 0.0
 
     def _calculate_beta(self) -> float:
@@ -1441,7 +1447,8 @@ class PortfolioManager:
 
             return covariance / benchmark_variance if benchmark_variance > 0 else 1.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_beta calculation error: %s", e)
             return 1.0
 
     def _calculate_diversification_score(self) -> float:
@@ -1467,7 +1474,8 @@ class PortfolioManager:
             avg_correlation = total_correlation / total_weight if total_weight > 0 else 0.0
             return 1.0 - avg_correlation  # Higher score = better diversification
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_diversification_score calculation error: %s", e)
             return 0.5
 
     def _calculate_strategy_correlation(self, strategy_id: str) -> float:
@@ -1502,7 +1510,8 @@ class PortfolioManager:
 
             return corr_matrix[0, 1] if not np.isnan(corr_matrix[0, 1]) else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_strategy_correlation calculation error: %s", e)
             return 0.0
 
     def _calculate_strategy_pair_correlation(self, strategy1: str, strategy2: str) -> float:
@@ -1522,7 +1531,8 @@ class PortfolioManager:
             corr_matrix = np.corrcoef(returns1[-min_len:], returns2[-min_len:])
             return corr_matrix[0, 1] if not np.isnan(corr_matrix[0, 1]) else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_strategy_pair_correlation calculation error: %s", e)
             return 0.0
 
     def _calculate_realized_pnl(self) -> float:
@@ -1541,7 +1551,8 @@ class PortfolioManager:
 
             return current_value - previous_value
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_daily_pnl calculation error: %s", e)
             return 0.0
 
     def _calculate_mtd_return(self) -> float:
@@ -1565,7 +1576,8 @@ class PortfolioManager:
 
             return (current_value - month_start_value) / month_start_value if month_start_value > 0 else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_mtd_return calculation error: %s", e)
             return 0.0
 
     def _calculate_ytd_return(self) -> float:
@@ -1589,7 +1601,8 @@ class PortfolioManager:
 
             return (current_value - year_start_value) / year_start_value if year_start_value > 0 else 0.0
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug("_calculate_ytd_return calculation error: %s", e)
             return 0.0
 
     # ==========================================================================
@@ -1667,7 +1680,7 @@ class PortfolioManager:
             signal = event.data.get('signal')
 
             # Log signal for analysis
-            self.logger.info(f"Strategy signal from {strategy_id}: {signal}")
+            self.logger.info("Strategy signal from %s: %s", strategy_id, signal)
 
             # Could implement signal aggregation logic here
 
@@ -1896,7 +1909,8 @@ def calculate_portfolio_correlation(strategy_returns: dict[str, list[float]]) ->
         # Calculate correlation matrix
         return df.corr().values
 
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("calculate_portfolio_correlation error: %s", e)
         # Return identity matrix on error
         n = len(strategy_returns)
         return np.eye(n)
@@ -1962,7 +1976,8 @@ def optimize_portfolio_allocation(expected_returns: np.ndarray,
             # Equal weight fallback
             return np.array([1/n_assets] * n_assets)
 
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("optimize_portfolio_allocation error: %s", e)
         # Equal weight fallback on error
         n_assets = len(expected_returns)
         return np.array([1/n_assets] * n_assets)

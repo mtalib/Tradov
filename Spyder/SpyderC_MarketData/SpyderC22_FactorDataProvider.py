@@ -45,6 +45,13 @@ except ImportError:
     YFINANCE_AVAILABLE = False
 
 try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    _C29_AVAILABLE = True
+except ImportError:
+    _get_c29_provider = None  # type: ignore[assignment]
+    _C29_AVAILABLE = False
+
+try:
     from fredapi import Fred
     FRED_AVAILABLE = True
 except ImportError:
@@ -61,12 +68,11 @@ try:
     from SpyderU03_DateTimeUtils import TradingTimeUtils  # noqa: F401
 except ImportError:
     # Fallback implementations
-    logging.basicConfig(level=logging.INFO)
     SpyderLogger = logging.getLogger
     class ErrorHandler:
         @staticmethod
         def handle_error(error, context=""):
-            logging.error(f"Error in {context}: {error}")
+            logging.error("Error in %s: %s", context, error)
 
 # Spyder integrations
 try:
@@ -75,11 +81,9 @@ try:
 except ImportError:
     C01_AVAILABLE = False
 
-try:
-    from SpyderC21_FSeriesIntegrationHub import get_fseries_integration_hub
-    C21_AVAILABLE = True
-except ImportError:
-    C21_AVAILABLE = False
+# SpyderC21_FSeriesIntegrationHub was removed in v2; integration is via A08_FSeriesOrchestrator.
+C21_AVAILABLE = False
+get_fseries_integration_hub = None  # type: ignore[assignment]
 
 # ==============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -288,7 +292,7 @@ class FactorDataProvider:
             # Bloomberg, Refinitiv, etc. would go here
 
         except Exception as e:
-            self.logger.warning(f"Provider initialization warning: {e}", exc_info=True)
+            self.logger.warning("Provider initialization warning: %s", e, exc_info=True)
 
     def _initialize_factor_models(self) -> None:
         """Initialize factor model structures."""
@@ -298,7 +302,7 @@ class FactorDataProvider:
                 factors={}
             )
 
-        self.logger.debug(f"Initialized {len(self.factor_models)} factor models")
+        self.logger.debug("Initialized %s factor models", len(self.factor_models))
 
     def _initialize_calculation_engines(self) -> None:
         """Initialize factor calculation engines."""
@@ -324,13 +328,13 @@ class FactorDataProvider:
                 self.data_feed_manager = get_data_feed_manager()
                 self.logger.info("Connected to SpyderC01_DataFeed")
 
-            # Connect to C21 Integration Hub
+            # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to SpyderC21_FSeriesIntegrationHub")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
 
         except Exception as e:
-            self.logger.warning(f"External connection initialization failed: {e}", exc_info=True)
+            self.logger.warning("External connection initialization failed: %s", e, exc_info=True)
 
     # ==============================================================================
     # CORE FACTOR DATA METHODS
@@ -356,7 +360,7 @@ class FactorDataProvider:
         """
         try:
             if model_name not in FACTOR_MODELS:
-                self.logger.error(f"Unknown factor model: {model_name}")
+                self.logger.error("Unknown factor model: %s", model_name)
                 return None
 
             # Set default dates
@@ -374,7 +378,7 @@ class FactorDataProvider:
                 if factor is not None:
                     factor_data[factor_name] = factor
                 else:
-                    self.logger.warning(f"Failed to get data for factor: {factor_name}")
+                    self.logger.warning("Failed to get data for factor: %s", factor_name)
 
             if not factor_data:
                 return None
@@ -390,7 +394,7 @@ class FactorDataProvider:
                 self.factor_models[model_name].last_updated = datetime.now()
                 self.factor_models[model_name].correlation_matrix = factor_df.corr()
 
-            self.logger.info(f"Retrieved {model_name} factor data: {len(factor_df)} observations")
+            self.logger.info("Retrieved %s factor data: %s observations", model_name, len(factor_df))
             return factor_df
 
         except Exception as e:
@@ -425,12 +429,12 @@ class FactorDataProvider:
                 cache_age = (datetime.now() - cached_data['timestamp']).total_seconds() / 3600
 
                 if cache_age < CACHE_CONFIG['calculation_cache_hours']:
-                    self.logger.debug(f"Using cached data for {factor_name}")
+                    self.logger.debug("Using cached data for %s", factor_name)
                     return cached_data['data']
 
             # Get factor source configuration
             if factor_name not in FACTOR_SOURCES:
-                self.logger.error(f"Unknown factor: {factor_name}")
+                self.logger.error("Unknown factor: %s", factor_name)
                 return None
 
             source_config = FACTOR_SOURCES[factor_name]
@@ -444,7 +448,7 @@ class FactorDataProvider:
             elif provider == 'custom':
                 factor_data = await self._calculate_custom_factor(factor_name, source_config, start_date, end_date)
             else:
-                self.logger.error(f"Unknown provider for factor {factor_name}: {provider}")
+                self.logger.error("Unknown provider for factor %s: %s", factor_name, provider)
                 return None
 
             if factor_data is not None:
@@ -466,7 +470,7 @@ class FactorDataProvider:
                         'timestamp': datetime.now()
                     }
 
-                self.logger.debug(f"Retrieved {factor_name} data: {len(factor_data)} observations")
+                self.logger.debug("Retrieved %s data: %s observations", factor_name, len(factor_data))
 
             return factor_data
 
@@ -483,19 +487,35 @@ class FactorDataProvider:
     ) -> pd.Series | None:
         """Fetch factor data from Yahoo Finance."""
         try:
-            if not YFINANCE_AVAILABLE:
-                self.logger.error("yfinance not available")
-                return None
-
             symbol = config['symbol']
             transformation = config.get('transformation', 'return')
 
-            # Fetch data from Yahoo
-            ticker = yf.Ticker(symbol)
-            hist_data = ticker.history(start=start_date, end=end_date, interval='1d')
+            # Try C29 / MassiveClient first; fall back to yfinance
+            hist_data: pd.DataFrame | None = None
+            if _C29_AVAILABLE:
+                try:
+                    client = _get_c29_provider()
+                    _df = client.get_historical_bars(
+                        symbol,
+                        start=start_date.strftime("%Y-%m-%d"),
+                        end=end_date.strftime("%Y-%m-%d"),
+                        timespan="day",
+                    )
+                    if not _df.empty:
+                        hist_data = _df.rename(columns={"close": "Close"})
+                except Exception:
+                    pass
 
-            if hist_data.empty:
-                self.logger.warning(f"No data retrieved for {symbol}")
+            if hist_data is None:
+                if not YFINANCE_AVAILABLE:
+                    self.logger.error("yfinance not available and C29 failed for %s", symbol)
+                    return None
+                self.logger.debug("C29 unavailable for %s — using yfinance fallback", symbol)
+                ticker = yf.Ticker(symbol)
+                hist_data = ticker.history(start=start_date, end=end_date, interval='1d')
+
+            if hist_data is None or hist_data.empty:
+                self.logger.warning("No data retrieved for %s", symbol)
                 return None
 
             # Apply transformation
@@ -553,7 +573,7 @@ class FactorDataProvider:
                 return fred_data
 
             except Exception as e:
-                self.logger.warning(f"FRED API error for {series_id}: {e}", exc_info=True)
+                self.logger.warning("FRED API error for %s: %s", series_id, e, exc_info=True)
                 # Generate synthetic factor data for demonstration
                 return self._generate_synthetic_factor_data(factor_name, start_date, end_date)
 
@@ -578,7 +598,7 @@ class FactorDataProvider:
                 )
                 return factor_data
             else:
-                self.logger.error(f"Unknown calculation method: {calculation_method}")
+                self.logger.error("Unknown calculation method: %s", calculation_method)
                 return None
 
         except Exception as e:
@@ -591,18 +611,35 @@ class FactorDataProvider:
     async def _calculate_excess_return(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
         """Calculate market excess return factor."""
         try:
-            # Get SPY data
-            if YFINANCE_AVAILABLE:
-                spy = yf.Ticker('SPY')
-                hist_data = spy.history(start=start_date, end=end_date)
+            # Try C29 / MassiveClient for SPY first; fall back to yfinance
+            hist_data: pd.DataFrame | None = None
+            if _C29_AVAILABLE:
+                try:
+                    client = _get_c29_provider()
+                    _df = client.get_historical_bars(
+                        'SPY',
+                        start=start_date.strftime("%Y-%m-%d"),
+                        end=end_date.strftime("%Y-%m-%d"),
+                        timespan="day",
+                    )
+                    if not _df.empty:
+                        hist_data = _df.rename(columns={"close": "Close"})
+                except Exception:
+                    pass
 
-                if not hist_data.empty:
-                    returns = hist_data['Close'].pct_change()
-                    # Subtract approximate risk-free rate
-                    risk_free_daily = 0.05 / 252
-                    excess_returns = returns - risk_free_daily
-                    excess_returns.name = factor_name
-                    return excess_returns.dropna()
+            if hist_data is None or hist_data.empty:
+                if YFINANCE_AVAILABLE:
+                    self.logger.debug("C29 unavailable for SPY — using yfinance fallback")
+                    spy = yf.Ticker('SPY')
+                    hist_data = spy.history(start=start_date, end=end_date)
+
+            if hist_data is not None and not hist_data.empty:
+                returns = hist_data['Close'].pct_change()
+                # Subtract approximate risk-free rate
+                risk_free_daily = 0.05 / 252
+                excess_returns = returns - risk_free_daily
+                excess_returns.name = factor_name
+                return excess_returns.dropna()
 
             return None
 
@@ -807,7 +844,7 @@ class FactorDataProvider:
         """
         try:
             if factor_model not in FACTOR_MODELS:
-                self.logger.error(f"Unknown factor model: {factor_model}")
+                self.logger.error("Unknown factor model: %s", factor_model)
                 return None
 
             # Get factor data
@@ -1049,11 +1086,11 @@ class FactorDataProvider:
                     try:
                         factor_data = self.get_factor_model_data(model_name)
                         if factor_data is not None:
-                            self.logger.debug(f"Updated {model_name} factor data")
+                            self.logger.debug("Updated %s factor data", model_name)
                         else:
-                            self.logger.warning(f"Failed to update {model_name} factor data")
+                            self.logger.warning("Failed to update %s factor data", model_name)
                     except Exception as e:
-                        self.logger.error(f"Error updating {model_name}: {e}", exc_info=True)
+                        self.logger.error("Error updating %s: %s", model_name, e, exc_info=True)
 
                 self.logger.info("Factor data update completed")
 
@@ -1181,13 +1218,13 @@ async def main():
         available_factors = provider.get_available_factors()
         logging.info("\n📊 Available Factors:")
         for category, factors in available_factors.items():
-            logging.info(f"   • {category}: {', '.join(factors)}")
+            logging.info("   • %s: %s", category, ', '.join(factors))
 
         # Test factor model data retrieval
         logging.info("\n⚡ Testing factor model data retrieval...")
 
         for model_name in ['CAPM', 'FF3', 'OPTIONS_CUSTOM']:
-            logging.info(f"\n📈 Testing {model_name} model:")
+            logging.info("\n📈 Testing %s model:", model_name)
 
             factor_data = provider.get_factor_model_data(
                 model_name=model_name,
@@ -1196,9 +1233,9 @@ async def main():
             )
 
             if factor_data is not None:
-                logging.info(f"   ✅ Retrieved {len(factor_data)} observations")
-                logging.info(f"   Factors: {list(factor_data.columns)}")
-                logging.info(f"   Date range: {factor_data.index.min().strftime('%Y-%m-%d')} to {factor_data.index.max().strftime('%Y-%m-%d')}")
+                logging.info("   ✅ Retrieved %s observations", len(factor_data))
+                logging.info("   Factors: %s", list(factor_data.columns))
+                logging.info("   Date range: %s to %s", factor_data.index.min().strftime('%Y-%m-%d'), factor_data.index.max().strftime('%Y-%m-%d'))
 
                 # Show sample statistics
                 logging.info("   Sample statistics:")
@@ -1226,8 +1263,8 @@ async def main():
         )
 
         if exposure:
-            logging.info(f"   ✅ Factor exposures calculated for {exposure.entity_name}")
-            logging.info(f"   Model: {exposure.factor_model}")
+            logging.info("   ✅ Factor exposures calculated for %s", exposure.entity_name)
+            logging.info("   Model: %s", exposure.factor_model)
             logging.info("   Exposures:")
             for factor, exp in exposure.exposures.items():
                 t_stat = exposure.t_statistics.get(factor, 0)
@@ -1240,29 +1277,29 @@ async def main():
 
         for factor_name in ['MKT', 'VIX_LEVEL']:
             quality_report = provider.validate_factor_data_quality(factor_name)
-            logging.info(f"   📊 {factor_name} Quality Report:")
+            logging.info("   📊 %s Quality Report:", factor_name)
             logging.info(f"     • Overall Quality: {quality_report.overall_quality:.3f}")
             logging.info(f"     • Completeness: {quality_report.completeness_score:.3f}")
             logging.info(f"     • Timeliness: {quality_report.timeliness_score:.3f}")
             logging.info(f"     • Validity: {quality_report.validity_score:.3f}")
 
             if quality_report.issues_found:
-                logging.info(f"     • Issues: {', '.join(quality_report.issues_found)}")
+                logging.info("     • Issues: %s", ', '.join(quality_report.issues_found))
 
         # Get provider status
         status = provider.get_provider_status()
         logging.info("\n🔌 Provider Status:")
-        logging.info(f"   • FRED Available: {'✅' if status['fred_available'] else '❌'}")
-        logging.info(f"   • Yahoo Available: {'✅' if status['yahoo_available'] else '❌'}")
-        logging.info(f"   • Cache Enabled: {'✅' if status['cache_enabled'] else '❌'}")
-        logging.info(f"   • Cache Size: {status['cache_size']} items")
-        logging.info(f"   • Quality Reports: {status['quality_reports']}")
+        logging.info("   • FRED Available: %s", '✅' if status['fred_available'] else '❌')
+        logging.info("   • Yahoo Available: %s", '✅' if status['yahoo_available'] else '❌')
+        logging.info("   • Cache Enabled: %s", '✅' if status['cache_enabled'] else '❌')
+        logging.info("   • Cache Size: %s items", status['cache_size'])
+        logging.info("   • Quality Reports: %s", status['quality_reports'])
 
         logging.info("\n🎊 Factor Data Provider demonstration completed successfully!")
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error in main execution: {e}")
+        logging.info("❌ Error in main execution: %s", e)
         return False
 
     finally:

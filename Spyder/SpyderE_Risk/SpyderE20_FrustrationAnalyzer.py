@@ -1228,7 +1228,7 @@ class FrustrationAnalyzer:
             return regime, current_probability
 
         except Exception as e:
-            self.logger.error(f"HMM prediction error: {e}")
+            self.logger.error("HMM prediction error: %s", e)
             return None, None
 
     # ==========================================================================
@@ -1277,7 +1277,7 @@ class FrustrationAnalyzer:
             return shape, tail_probability
 
         except Exception as e:
-            self.logger.error(f"EVT calculation error: {e}")
+            self.logger.error("EVT calculation error: %s", e)
             return None, None
 
     # ==========================================================================
@@ -1393,7 +1393,7 @@ class FrustrationAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Error computing baselines: {e}")
+            self.logger.error("Error computing baselines: %s", e)
 
     def _update_history(self, analysis: SpinGlassAnalysis) -> None:
         """Update historical tracking."""
@@ -1547,7 +1547,7 @@ async def main():
     # Create sample data
     logging.info("\n2. Creating sample market data...")
     returns_data = create_sample_data(n_assets=15, n_periods=150)
-    logging.info(f"   Created: {len(returns_data)} periods, {len(returns_data.columns)} assets")
+    logging.info("   Created: %s periods, %s assets", len(returns_data), len(returns_data.columns))
 
     # Train HMM if available
     if analyzer.use_hmm:
@@ -1568,8 +1568,8 @@ async def main():
 
     logging.info("\nFRUSTRATION METRICS:")
     logging.info(f"  Frustration Index: {analysis.frustration.frustration_index:.1%}")
-    logging.info(f"  Frustrated Triangles: {analysis.frustration.frustrated_triangle_count}/{analysis.frustration.total_triangle_count}")
-    logging.info(f"  Level: {analysis.frustration.frustration_level.value.upper()}")
+    logging.info("  Frustrated Triangles: %s/%s", analysis.frustration.frustrated_triangle_count, analysis.frustration.total_triangle_count)
+    logging.info("  Level: %s", analysis.frustration.frustration_level.value.upper())
     logging.info(f"  Strong Frustration: {analysis.frustration.strong_frustration:.1%}")
 
     logging.info("\nENERGY METRICS:")
@@ -1579,25 +1579,25 @@ async def main():
     logging.info(f"  Stability Score: {analysis.energy.stability_score:.1f}/100")
 
     logging.info("\nPHASE TRANSITION:")
-    logging.info(f"  Current Phase: {analysis.phase_transition.current_phase.value.upper()}")
+    logging.info("  Current Phase: %s", analysis.phase_transition.current_phase.value.upper())
     logging.info(f"  Warning Score: {analysis.phase_transition.warning_score:.1f}/100")
-    logging.info(f"  Transition Detected: {analysis.phase_transition.transition_detected}")
-    logging.info(f"  Trading Implication: {analysis.phase_transition.trading_implication.value.upper()}")
+    logging.info("  Transition Detected: %s", analysis.phase_transition.transition_detected)
+    logging.info("  Trading Implication: %s", analysis.phase_transition.trading_implication.value.upper())
 
     logging.info("\nREPLICA SYMMETRY:")
-    logging.info(f"  RSB Detected: {analysis.replica_symmetry.rsb_detected}")
+    logging.info("  RSB Detected: %s", analysis.replica_symmetry.rsb_detected)
     logging.info(f"  RSB Strength: {analysis.replica_symmetry.rsb_strength:.3f}")
     logging.info(f"  Order Parameter: {analysis.replica_symmetry.order_parameter:.3f}")
 
     logging.info("\nULTRAMETRIC ANALYSIS:")
     logging.info(f"  MST Length (normalized): {analysis.ultrametric.mst_normalized_length:.3f}")
-    logging.info(f"  Collapse Detected: {analysis.ultrametric.collapse_detected}")
+    logging.info("  Collapse Detected: %s", analysis.ultrametric.collapse_detected)
     logging.info(f"  Ultrametric Score: {analysis.ultrametric.ultrametric_score:.3f}")
-    logging.info(f"  Clusters: {analysis.ultrametric.n_clusters}")
+    logging.info("  Clusters: %s", analysis.ultrametric.n_clusters)
 
     if analysis.hmm_regime:
         logging.info("\nHMM REGIME:")
-        logging.info(f"  Current: {analysis.hmm_regime}")
+        logging.info("  Current: %s", analysis.hmm_regime)
         logging.info(f"  Probability: {analysis.hmm_regime_probability:.1%}")
 
     if analysis.evt_shape_parameter is not None:
@@ -1606,14 +1606,14 @@ async def main():
         logging.info(f"  Tail Probability: {analysis.evt_tail_probability:.4f}")
 
     logging.info("\nOVERALL ASSESSMENT:")
-    logging.info(f"  Market Stability: {analysis.market_stability.upper()}")
+    logging.info("  Market Stability: %s", analysis.market_stability.upper())
     logging.info(f"  Confidence: {analysis.confidence:.1%}")
-    logging.info(f"  Recommendation: {analysis.trading_recommendation.value.upper()}")
+    logging.info("  Recommendation: %s", analysis.trading_recommendation.value.upper())
 
     if analysis.signals:
         logging.info("\nSIGNALS:")
         for signal in analysis.signals:
-            logging.info(f"  - {signal}")
+            logging.info("  - %s", signal)
 
     logging.info("\n" + "=" * 80)
     logging.info("Test completed successfully!")

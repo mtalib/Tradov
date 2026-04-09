@@ -24,7 +24,8 @@ Change Log:
 # ==============================================================================
 import threading
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -249,7 +250,7 @@ class GreeksCalculationEngine:
             return client
 
         except Exception as e:
-            self.logger.warning(f"Redis connection failed, using local cache only: {e}")
+            self.logger.warning("Redis connection failed, using local cache only: %s", e)
             return None
 
     def _init_local_caches(self):
@@ -303,7 +304,7 @@ class GreeksCalculationEngine:
                     self.position_cache[cache_key] = greeks
                     return greeks
             except RedisError as e:
-                self.logger.warning(f"Redis read error: {e}")
+                self.logger.warning("Redis read error: %s", e)
 
         # Calculate Greeks
         greeks = self._calculate_position_greeks_impl(position, market_data)
@@ -321,7 +322,7 @@ class GreeksCalculationEngine:
                     json.dumps(greeks.to_dict())
                 )
             except RedisError as e:
-                self.logger.warning(f"Redis write error: {e}")
+                self.logger.warning("Redis write error: %s", e)
 
         return greeks
 
@@ -365,7 +366,7 @@ class GreeksCalculationEngine:
                     position_greeks = future.result(timeout=5)
                     aggregated.add_position(position_greeks)
                 except Exception as e:
-                    self.logger.error(f"Error calculating position Greeks: {e}")
+                    self.logger.error("Error calculating position Greeks: %s", e)
         else:
             # Sequential calculation for small portfolios
             for position in positions:
@@ -376,7 +377,7 @@ class GreeksCalculationEngine:
                     )
                     aggregated.add_position(position_greeks)
                 except Exception as e:
-                    self.logger.error(f"Error calculating position Greeks: {e}")
+                    self.logger.error("Error calculating position Greeks: %s", e)
 
         # Cache result
         self.aggregate_cache[cache_key] = aggregated
@@ -445,7 +446,7 @@ class GreeksCalculationEngine:
         }
 
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def _generate_portfolio_cache_key(
         self,
@@ -462,7 +463,7 @@ class GreeksCalculationEngine:
         }
 
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def invalidate_cache(self, position_id: str | None = None):
         """Invalidate cache entries."""
@@ -482,7 +483,7 @@ class GreeksCalculationEngine:
                     for key in self.redis_client.scan_iter(pattern):
                         self.redis_client.delete(key)
                 except RedisError as e:
-                    self.logger.warning(f"Redis invalidation error: {e}")
+                    self.logger.warning("Redis invalidation error: %s", e)
         else:
             # Clear all caches
             self.position_cache.clear()
@@ -495,7 +496,7 @@ class GreeksCalculationEngine:
                     for key in self.redis_client.scan_iter(pattern):
                         self.redis_client.delete(key)
                 except RedisError as e:
-                    self.logger.warning(f"Redis clear error: {e}")
+                    self.logger.warning("Redis clear error: %s", e)
 
 # ==============================================================================
 # GREEKS VALIDATOR
@@ -900,7 +901,7 @@ class GreeksAggregator:
                 self._stop_event.wait(interval)
 
             except Exception as e:
-                self.logger.error(f"Error in Greeks update loop: {e}")
+                self.logger.error("Error in Greeks update loop: %s", e)
                 self._stop_event.wait(interval)
 
     def _update_aggregates(self):
@@ -935,7 +936,7 @@ class GreeksAggregator:
                 try:
                     callback('alert', alert)
                 except Exception as e:
-                    self.logger.error(f"Error in alert callback: {e}")
+                    self.logger.error("Error in alert callback: %s", e)
 
     def _notify_callbacks(self):
         """Notify all registered callbacks."""
@@ -943,7 +944,7 @@ class GreeksAggregator:
             try:
                 callback('update', self.portfolio_greeks)
             except Exception as e:
-                self.logger.error(f"Error in update callback: {e}")
+                self.logger.error("Error in update callback: %s", e)
 
     def _get_current_positions(self) -> list[dict[str, Any]]:
         """Get current positions (placeholder)."""

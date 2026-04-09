@@ -115,7 +115,7 @@ class SpyderStrikeRangeSlider(QWidget):
         # Title label
         title_label = QLabel("Strike Price Range")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet(f"color: {SpyderColors.TEXT}; font-weight: bold;")
+        title_label.setStyleSheet(f"color: {SpyderColors.TEXT}; font-weight: normal;")
         layout.addWidget(title_label)
 
         # Value display
@@ -123,11 +123,11 @@ class SpyderStrikeRangeSlider(QWidget):
 
         self.min_label = QLabel(f"${self.current_min:.2f}")
         self.min_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.min_label.setStyleSheet(f"color: {SpyderColors.POSITIVE}; font-weight: bold;")
+        self.min_label.setStyleSheet(f"color: {SpyderColors.POSITIVE}; font-weight: normal;")
 
         self.max_label = QLabel(f"${self.current_max:.2f}")
         self.max_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.max_label.setStyleSheet(f"color: {SpyderColors.NEGATIVE}; font-weight: bold;")
+        self.max_label.setStyleSheet(f"color: {SpyderColors.NEGATIVE}; font-weight: normal;")
 
         value_layout.addWidget(self.min_label)
         value_layout.addStretch()
@@ -303,7 +303,7 @@ class SpyderTradingInput(QWidget):
         # Label
         if self.label_text:
             self.label = QLabel(self.label_text)
-            self.label.setStyleSheet(f"color: {SpyderColors.TEXT}; font-weight: bold;")
+            self.label.setStyleSheet(f"color: {SpyderColors.TEXT}; font-weight: normal;")
             layout.addWidget(self.label)
 
         # Input container
@@ -609,16 +609,16 @@ class SpyderTradingTooltip:
         <div style="background-color: {SpyderColors.PANEL}; color: {SpyderColors.TEXT}; padding: 10px; border: 1px solid {SpyderColors.BORDER};">
             <h3 style="color: {SpyderColors.INFO};">{option_data.get('symbol', 'N/A')}</h3>
             <table style="border-collapse: collapse; width: 100%;">
-                <tr><td><b>Strike:</b></td><td style="color: {SpyderColors.NEUTRAL};">${option_data.get('strike', 0):.2f}</td></tr>
-                <tr><td><b>Bid:</b></td><td style="color: {SpyderColors.POSITIVE};">${option_data.get('bid', 0):.2f}</td></tr>
-                <tr><td><b>Ask:</b></td><td style="color: {SpyderColors.NEGATIVE};">${option_data.get('ask', 0):.2f}</td></tr>
-                <tr><td><b>Last:</b></td><td>${option_data.get('last', 0):.2f}</td></tr>
-                <tr><td><b>Volume:</b></td><td>{option_data.get('volume', 0):,}</td></tr>
-                <tr><td><b>Open Interest:</b></td><td>{option_data.get('open_interest', 0):,}</td></tr>
-                <tr><td><b>IV:</b></td><td>{option_data.get('implied_volatility', 0):.1%}</td></tr>
-                <tr><td><b>Delta:</b></td><td>{option_data.get('delta', 0):.3f}</td></tr>
-                <tr><td><b>Gamma:</b></td><td>{option_data.get('gamma', 0):.3f}</td></tr>
-                <tr><td><b>Theta:</b></td><td>{option_data.get('theta', 0):.3f}</td></tr>
+                <tr><td>Strike:</td><td style="color: {SpyderColors.NEUTRAL};">${option_data.get('strike', 0):.2f}</td></tr>
+                <tr><td>Bid:</td><td style="color: {SpyderColors.POSITIVE};">${option_data.get('bid', 0):.2f}</td></tr>
+                <tr><td>Ask:</td><td style="color: {SpyderColors.NEGATIVE};">${option_data.get('ask', 0):.2f}</td></tr>
+                <tr><td>Last:</td><td>${option_data.get('last', 0):.2f}</td></tr>
+                <tr><td>Volume:</td><td>{option_data.get('volume', 0):,}</td></tr>
+                <tr><td>Open Interest:</td><td>{option_data.get('open_interest', 0):,}</td></tr>
+                <tr><td>IV:</td><td>{option_data.get('implied_volatility', 0):.1%}</td></tr>
+                <tr><td>Delta:</td><td>{option_data.get('delta', 0):.3f}</td></tr>
+                <tr><td>Gamma:</td><td>{option_data.get('gamma', 0):.3f}</td></tr>
+                <tr><td>Theta:</td><td>{option_data.get('theta', 0):.3f}</td></tr>
             </table>
         </div>
         """
@@ -639,13 +639,13 @@ class SpyderTradingTooltip:
         <div style="background-color: {SpyderColors.PANEL}; color: {SpyderColors.TEXT}; padding: 10px; border: 1px solid {SpyderColors.BORDER};">
             <h3 style="color: {SpyderColors.INFO};">Trade Details</h3>
             <table style="border-collapse: collapse; width: 100%;">
-                <tr><td><b>Symbol:</b></td><td>{trade_data.get('symbol', 'N/A')}</td></tr>
-                <tr><td><b>Side:</b></td><td style="color: {SpyderColors.POSITIVE if trade_data.get('side') == 'BUY' else SpyderColors.NEGATIVE};">{trade_data.get('side', 'N/A')}</td></tr>
-                <tr><td><b>Quantity:</b></td><td>{trade_data.get('quantity', 0)}</td></tr>
-                <tr><td><b>Entry Price:</b></td><td>${trade_data.get('entry_price', 0):.2f}</td></tr>
-                <tr><td><b>Current Price:</b></td><td>${trade_data.get('current_price', 0):.2f}</td></tr>
-                <tr><td><b>P&L:</b></td><td style="color: {pnl_color};">${pnl:.2f}</td></tr>
-                <tr><td><b>Entry Time:</b></td><td>{trade_data.get('entry_time', 'N/A')}</td></tr>
+                <tr><td>Symbol:</td><td>{trade_data.get('symbol', 'N/A')}</td></tr>
+                <tr><td>Side:</td><td style="color: {SpyderColors.POSITIVE if trade_data.get('side') == 'BUY' else SpyderColors.NEGATIVE};">{trade_data.get('side', 'N/A')}</td></tr>
+                <tr><td>Quantity:</td><td>{trade_data.get('quantity', 0)}</td></tr>
+                <tr><td>Entry Price:</td><td>${trade_data.get('entry_price', 0):.2f}</td></tr>
+                <tr><td>Current Price:</td><td>${trade_data.get('current_price', 0):.2f}</td></tr>
+                <tr><td>P&amp;L:</td><td style="color: {pnl_color};">${pnl:.2f}</td></tr>
+                <tr><td>Entry Time:</td><td>{trade_data.get('entry_time', 'N/A')}</td></tr>
             </table>
         </div>
         """

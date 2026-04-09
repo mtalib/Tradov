@@ -54,7 +54,7 @@ try:
 
     PORTFOLIO_MANAGER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP01_PortfolioManager not available: {e}")
+    logging.info("⚠️ SpyderP01_PortfolioManager not available: %s", e)
     PORTFOLIO_MANAGER_AVAILABLE = False
 
 # Allocation Optimizer
@@ -66,7 +66,7 @@ try:
 
     ALLOCATION_OPTIMIZER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP02_AllocationOptimizer not available: {e}")
+    logging.info("⚠️ SpyderP02_AllocationOptimizer not available: %s", e)
     ALLOCATION_OPTIMIZER_AVAILABLE = False
 
 # Correlation Analyzer
@@ -78,7 +78,7 @@ try:
 
     CORRELATION_ANALYZER_AVAILABLE = True
 except Exception as e:
-    logging.info(f"⚠️ SpyderP03_CorrelationAnalyzer not available: {e}")
+    logging.info("⚠️ SpyderP03_CorrelationAnalyzer not available: %s", e)
     CORRELATION_ANALYZER_AVAILABLE = False
 
 # Capital Allocator
@@ -90,7 +90,7 @@ try:
 
     CAPITAL_ALLOCATOR_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP04_CapitalAllocator not available: {e}")
+    logging.info("⚠️ SpyderP04_CapitalAllocator not available: %s", e)
     CAPITAL_ALLOCATOR_AVAILABLE = False
 
 # Multi-Strategy Allocator
@@ -102,7 +102,7 @@ try:
 
     MULTI_STRATEGY_ALLOCATOR_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP05_MultiStrategyAllocator not available: {e}")
+    logging.info("⚠️ SpyderP05_MultiStrategyAllocator not available: %s", e)
     MULTI_STRATEGY_ALLOCATOR_AVAILABLE = False
 
 # Strategy Rotation
@@ -114,7 +114,7 @@ try:
 
     STRATEGY_ROTATION_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP06_StrategyRotation not available: {e}")
+    logging.info("⚠️ SpyderP06_StrategyRotation not available: %s", e)
     STRATEGY_ROTATION_AVAILABLE = False
 
 # Renaissance Position Sizer
@@ -130,7 +130,7 @@ try:
 
     RENAISSANCE_POSITION_SIZER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderP07_RenaissancePositionSizer not available: {e}")
+    logging.info("⚠️ SpyderP07_RenaissancePositionSizer not available: %s", e)
     RENAISSANCE_POSITION_SIZER_AVAILABLE = False
 
 # ==============================================================================
@@ -244,9 +244,9 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        logging.info(f"💼 {info['package_name']} v{info['version']}")
+        logging.info("💼 %s v%s", info['package_name'], info['version'])
         logging.info(
-            f"✅ {info['available_modules']}/{info['total_modules']} modules available"
+            "✅ %s/%s modules available", info['available_modules'], info['total_modules']
         )
 
         if info["available_modules"] == info["total_modules"]:
@@ -256,11 +256,11 @@ def validate_package():
             logging.info("⚠️ Some portfolio management modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                logging.info(f"   {status_icon} {module}")
+                logging.info("   %s %s", status_icon, module)
             return False
 
     except Exception as e:
-        logging.info(f"❌ Portfolio management package validation failed: {e}")
+        logging.info("❌ Portfolio management package validation failed: %s", e)
         return False
 
 
@@ -326,4 +326,4 @@ else:
     logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            logging.info(f"  {key}: {value}")
+            logging.info("  %s: %s", key, value)

@@ -448,7 +448,7 @@ class GammaScalperStrategy(BaseStrategy):
         if self._rl_enabled:
             self._load_rl_hedge_model(config.get('rl_model_path'))
 
-        self.logger.info(f"{self.strategy_name} initialized in {self.scalping_mode} mode")
+        self.logger.info("%s initialized in %s mode", self.strategy_name, self.scalping_mode)
 
     def _load_rl_hedge_model(self, model_path: str | None = None) -> None:
         """Load pre-trained RL hedge timing model if available."""
@@ -457,7 +457,7 @@ class GammaScalperStrategy(BaseStrategy):
         try:
             if model_path:
                 self._rl_hedge_model = PPO.load(model_path)
-                self.logger.info(f"RL hedge model loaded from {model_path}")
+                self.logger.info("RL hedge model loaded from %s", model_path)
             else:
                 # Try default path
                 default_path = "models/rl/gamma_hedging/gamma_hedging_PPO_final"
@@ -468,7 +468,7 @@ class GammaScalperStrategy(BaseStrategy):
                 else:
                     self.logger.info("No RL hedge model found — using rule-based hedging")
         except Exception as e:
-            self.logger.warning(f"Failed to load RL hedge model: {e}")
+            self.logger.warning("Failed to load RL hedge model: %s", e)
             self._rl_hedge_model = None
 
     def _get_rl_hedge_observation(self, market_data: dict[str, Any]) -> np.ndarray:
@@ -526,7 +526,7 @@ class GammaScalperStrategy(BaseStrategy):
             return Signal(action="HOLD")
 
         except Exception as e:
-            self.logger.error(f"Error in gamma scalping analysis: {e}")
+            self.logger.error("Error in gamma scalping analysis: %s", e)
             self.error_handler.handle_error(e, {"method": "analyze_market_conditions"})
             return Signal(action="HOLD")
 
@@ -570,7 +570,7 @@ class GammaScalperStrategy(BaseStrategy):
             self._adjust_delta_threshold()
 
         except Exception as e:
-            self.logger.error(f"Error updating market condition: {e}")
+            self.logger.error("Error updating market condition: %s", e)
             self.market_condition = MarketCondition.NORMAL_VOLATILITY
 
     def _adjust_delta_threshold(self):
@@ -705,7 +705,7 @@ class GammaScalperStrategy(BaseStrategy):
             return None
 
         except Exception as e:
-            self.logger.error(f"Error getting option data: {e}")
+            self.logger.error("Error getting option data: %s", e)
             return None
 
     def _should_establish_gamma(self, market_data: dict[str, Any]) -> bool:
@@ -876,7 +876,7 @@ class GammaScalperStrategy(BaseStrategy):
                     return self._create_hedge_signal(delta_to_hedge, market_data)
                 return None  # RL says hold
             except Exception as e:
-                self.logger.warning(f"RL hedge decision failed, falling back to rules: {e}")
+                self.logger.warning("RL hedge decision failed, falling back to rules: %s", e)
 
         # Rule-based fallback
         # Check if delta exceeds threshold

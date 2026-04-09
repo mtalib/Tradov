@@ -246,7 +246,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             }
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # IV ANALYSIS
@@ -299,7 +299,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Error analyzing IV environment: {e}")
+            self.logger.error("Error analyzing IV environment: %s", e)
             return self._create_default_iv_analysis()
 
     def _get_current_iv(self, market_data: pd.DataFrame) -> float:
@@ -552,7 +552,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating double calendar setup: {e}")
+            self.logger.error("Error creating double calendar setup: %s", e)
             return None
 
     def _select_optimal_expiries(self) -> tuple[datetime, datetime]:
@@ -819,7 +819,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating trading signal: {e}")
+            self.logger.error("Error creating trading signal: %s", e)
             return None
 
     def _calculate_signal_confidence(self, setup: DoubleCalendarSetup,
@@ -1046,7 +1046,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating exit signal: {e}")
+            self.logger.error("Error creating exit signal: %s", e)
             return None
 
     def _create_adjustment_signals(self, position: DoubleCalendarPosition,
@@ -1114,7 +1114,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating roll signal: {e}")
+            self.logger.error("Error creating roll signal: %s", e)
             return None
 
     def _create_delta_adjustment_signal(self, position: DoubleCalendarPosition) -> TradingSignal | None:
@@ -1146,7 +1146,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating delta adjustment signal: {e}")
+            self.logger.error("Error creating delta adjustment signal: %s", e)
             return None
 
     def _close_position(self, position: DoubleCalendarPosition) -> None:
@@ -1258,7 +1258,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             return False
 
         except Exception as e:
-            self.logger.error(f"Error executing signal: {e}")
+            self.logger.error("Error executing signal: %s", e)
             return False
 
     def _execute_entry(self, signal: TradingSignal) -> bool:
@@ -1283,11 +1283,11 @@ class DoubleCalendarStrategy(BaseStrategy):
                 'setup': position.setup
             })
 
-            self.logger.info(f"Opened double calendar position {position.position_id}")
+            self.logger.info("Opened double calendar position %s", position.position_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error executing entry: {e}")
+            self.logger.error("Error executing entry: %s", e)
             return False
 
     def _execute_exit(self, signal: TradingSignal) -> bool:
@@ -1317,10 +1317,10 @@ class DoubleCalendarStrategy(BaseStrategy):
 
         if adjustment_type == 'roll_strikes':
             # In production, would execute the roll
-            self.logger.info(f"Rolling strikes for position {position_id}")
+            self.logger.info("Rolling strikes for position %s", position_id)
         elif adjustment_type == 'delta_neutral':
             # In production, would adjust for delta
-            self.logger.info(f"Adjusting delta for position {position_id}")
+            self.logger.info("Adjusting delta for position %s", position_id)
 
         return True
 
@@ -1392,7 +1392,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             self._close_position(position)
 
         # Log final performance
-        self.logger.info(f"Double Calendar Strategy Final Performance: {self.analyze_performance()}")
+        self.logger.info("Double Calendar Strategy Final Performance: %s", self.analyze_performance())
 
         super().cleanup()
 

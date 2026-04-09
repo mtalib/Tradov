@@ -32,7 +32,7 @@ Consolidation Notes:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import warnings
@@ -47,7 +47,7 @@ try:
     from numba import jit
 except ImportError:
     def jit(*args, **kwargs):  # type: ignore[misc]
-        if callable(args[0]):
+        if args and callable(args[0]):
             return args[0]
         return lambda f: f
 
@@ -68,7 +68,6 @@ except ImportError:
 # MODULE CONFIGURATION
 # ==============================================================================
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -401,7 +400,7 @@ class SpyderVolatilityEngine:
 
     async def get_volatility(
         self,
-        horizon: Union[int, VolatilityHorizon] = VolatilityHorizon.SHORT_TERM,
+        horizon: int | VolatilityHorizon = VolatilityHorizon.SHORT_TERM,
         model: VolatilityModel = VolatilityModel.AUTO,
     ) -> float:
         """
@@ -449,7 +448,7 @@ class SpyderVolatilityEngine:
                 return self._get_historical_volatility()
 
         except Exception as e:
-            self.logger.error(f"Error getting volatility: {e}", exc_info=True)
+            self.logger.error("Error getting volatility: %s", e, exc_info=True)
             return 0.20  # Safe default volatility
 
     async def forecast_volatility(
@@ -516,7 +515,7 @@ class SpyderVolatilityEngine:
             return forecast
 
         except Exception as e:
-            self.logger.error(f"Error forecasting volatility: {e}", exc_info=True)
+            self.logger.error("Error forecasting volatility: %s", e, exc_info=True)
 
             # Return safe default forecast
             return VolatilityForecast(
@@ -579,7 +578,7 @@ class SpyderVolatilityEngine:
             return surface
 
         except Exception as e:
-            self.logger.error(f"Error generating volatility surface: {e}", exc_info=True)
+            self.logger.error("Error generating volatility surface: %s", e, exc_info=True)
 
             # Return flat surface as fallback
             strikes_array = np.array(strikes)
@@ -655,7 +654,7 @@ class SpyderVolatilityEngine:
             self.logger.info("Volatility model calibration completed successfully")
 
         except Exception as e:
-            self.logger.error(f"Error calibrating models: {e}", exc_info=True)
+            self.logger.error("Error calibrating models: %s", e, exc_info=True)
             self._set_default_parameters()
 
     async def _calibrate_garch(self) -> GARCHParameters:
@@ -679,7 +678,7 @@ class SpyderVolatilityEngine:
                 if params.validate():
                     return params
             except Exception as e:
-                self.logger.warning(f"arch GARCH(1,1) calibration failed, falling back to scipy: {e}", exc_info=True)
+                self.logger.warning("arch GARCH(1,1) calibration failed, falling back to scipy: %s", e, exc_info=True)
 
         # --- scipy fallback ---
         try:
@@ -698,7 +697,7 @@ class SpyderVolatilityEngine:
                 if params.validate():
                     return params
         except Exception as e:
-            self.logger.warning(f"GARCH calibration failed: {e}", exc_info=True)
+            self.logger.warning("GARCH calibration failed: %s", e, exc_info=True)
 
         return _DEFAULT
 
@@ -724,7 +723,7 @@ class SpyderVolatilityEngine:
                 "bic": float(fit.bic),
             }
         except Exception as e:
-            self.logger.warning(f"EGARCH calibration failed: {e}", exc_info=True)
+            self.logger.warning("EGARCH calibration failed: %s", e, exc_info=True)
             return None
 
     async def _calibrate_heston(self) -> HestonParameters:
@@ -1538,9 +1537,9 @@ async def main():
     # Update engine with market data
     await vol_engine.update_market_data(prices[1:])  # Skip initial price
 
-    logging.info(f"   Generated {len(prices)-1} price observations")
+    logging.info("   Generated %s price observations", len(prices)-1)
     logging.info(f"   Current SPY price: ${prices[-1]:.2f}")
-    logging.info(f"   Data quality: {len(vol_engine.return_history)} returns available")
+    logging.info("   Data quality: %s returns available", len(vol_engine.return_history))
 
     # Test 1: Single Volatility Estimates
     logging.info("\n--- Test 1: Volatility Estimates by Time Horizon ---")
@@ -1574,8 +1573,8 @@ async def main():
             confidence_level=0.95,
         )
 
-        logging.info(f"   Forecast Horizon: {forecast.forecast_horizon} days")
-        logging.info(f"   Model Used: {forecast.model_used.value}")
+        logging.info("   Forecast Horizon: %s days", forecast.forecast_horizon)
+        logging.info("   Model Used: %s", forecast.model_used.value)
         logging.info(f"   Final Volatility: {forecast.volatility_forecast:.1%}")
         logging.info(f"   Model Confidence: {forecast.model_confidence:.1%}")
 
@@ -1590,7 +1589,7 @@ async def main():
         )
 
     except Exception as e:
-        logging.info(f"   ❌ Forecast Error: {e}")
+        logging.info("   ❌ Forecast Error: %s", e)
 
     # Test 3: Volatility Surface Generation
     logging.info("\n--- Test 3: Volatility Surface Generation ---")
@@ -1606,7 +1605,7 @@ async def main():
             model=VolatilityModel.HESTON,
         )
 
-        logging.info(f"   Surface Model: {surface.model_used.value}")
+        logging.info("   Surface Model: %s", surface.model_used.value)
         logging.info(f"   Surface Quality: {surface.surface_quality:.1%}")
         logging.info(f"   Spot Price: ${surface.spot_price:.2f}")
 
@@ -1625,7 +1624,7 @@ async def main():
             logging.info()
 
     except Exception as e:
-        logging.info(f"   ❌ Surface Error: {e}")
+        logging.info("   ❌ Surface Error: %s", e)
 
     # Test 4: Model Comparison
     logging.info("\n--- Test 4: Model Performance Comparison ---")
@@ -1665,7 +1664,7 @@ async def main():
                 logging.info(f"{model.value:<20} ERROR: {str(e)[:25]}")
 
     except Exception as e:
-        logging.info(f"   ❌ Comparison Error: {e}")
+        logging.info("   ❌ Comparison Error: %s", e)
 
     # Test 5: Volatility Metrics Analysis
     logging.info("\n--- Test 5: Volatility Metrics Analysis ---")
@@ -1673,7 +1672,7 @@ async def main():
         metrics = vol_engine.get_volatility_metrics()
 
         logging.info(f"   Current Volatility: {metrics.current_volatility:.1%}")
-        logging.info(f"   Volatility Regime: {metrics.volatility_regime.value}")
+        logging.info("   Volatility Regime: %s", metrics.volatility_regime.value)
         logging.info(f"   Mean Reversion Speed: {metrics.mean_reversion_speed:.3f}")
         logging.info(f"   Volatility Clustering: {metrics.volatility_clustering:.3f}")
         logging.info(f"   Volatility Persistence: {metrics.volatility_persistence:.3f}")
@@ -1682,7 +1681,7 @@ async def main():
         logging.info(f"   Return Kurtosis: {metrics.kurtosis:.3f}")
 
     except Exception as e:
-        logging.info(f"   ❌ Metrics Error: {e}")
+        logging.info("   ❌ Metrics Error: %s", e)
 
     # Test 6: Engine Status
     logging.info("\n--- Test 6: Engine Status ---")
@@ -1691,16 +1690,16 @@ async def main():
 
         logging.info("   Model Calibration Status:")
         for model, calibrated in status["models_calibrated"].items():
-            logging.info(f"     {model}: {'✅' if calibrated else '❌'}")
+            logging.info("     %s: %s", model, '✅' if calibrated else '❌')
 
         logging.info("\n   Data Status:")
-        logging.info(f"     Price Points: {status['data_status']['price_points']}")
-        logging.info(f"     Return Points: {status['data_status']['return_points']}")
-        logging.info(f"     Data Quality: {status['data_status']['data_quality']}")
+        logging.info("     Price Points: %s", status['data_status']['price_points'])
+        logging.info("     Return Points: %s", status['data_status']['return_points'])
+        logging.info("     Data Quality: %s", status['data_status']['data_quality'])
 
         logging.info("\n   Current State:")
         logging.info(f"     Volatility: {status['current_state']['volatility']:.1%}")
-        logging.info(f"     Regime: {status['current_state']['regime']}")
+        logging.info("     Regime: %s", status['current_state']['regime'])
 
         if status["model_parameters"]["garch"]["persistence"]:
             logging.info("\n   GARCH Parameters:")
@@ -1710,7 +1709,7 @@ async def main():
             logging.info(f"     Beta (GARCH): {garch['beta']:.3f}")
 
     except Exception as e:
-        logging.info(f"   ❌ Status Error: {e}")
+        logging.info("   ❌ Status Error: %s", e)
 
     logging.info("\n" + "=" * 80)
     logging.info("✅ CONSOLIDATED VOLATILITY ENGINE FEATURES DEMONSTRATED:")

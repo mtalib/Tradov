@@ -1082,7 +1082,7 @@ class OptionsChainManager:
                 if not self.chains[symbol]:
                     del self.chains[symbol]
         if removed:
-            self.logger.info(f"Pruned {removed} expired option chain buckets")
+            self.logger.info("Pruned %s expired option chain buckets", removed)
         return removed
 
     # ==========================================================================
@@ -1152,7 +1152,7 @@ class OptionsChainManager:
             df = self.get_chain(symbol)
 
             if df.empty:
-                self.logger.warning(f"No data to export for {symbol}")
+                self.logger.warning("No data to export for %s", symbol)
                 return False
 
             if format == "csv":
@@ -1162,14 +1162,14 @@ class OptionsChainManager:
             elif format == "pickle":
                 df.to_pickle(filename)
             else:
-                self.logger.error(f"Unknown export format: {format}")
+                self.logger.error("Unknown export format: %s", format)
                 return False
 
-            self.logger.info(f"Exported {symbol} chain to {filename}")
+            self.logger.info("Exported %s chain to %s", symbol, filename)
             return True
 
         except Exception as e:
-            self.logger.error(f"Export failed: {e}", exc_info=True)
+            self.logger.error("Export failed: %s", e, exc_info=True)
             return False
 
 # ==============================================================================

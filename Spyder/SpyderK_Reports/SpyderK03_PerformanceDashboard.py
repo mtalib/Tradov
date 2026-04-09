@@ -351,7 +351,7 @@ class PerformanceDashboard:
                 return outputs
 
             except Exception as e:
-                self.logger.error(f"Dashboard update failed: {e}")
+                self.logger.error("Dashboard update failed: %s", e)
                 # Return empty/default values
                 return ["--"] * 8 + [go.Figure()] * 5 + [html.Div()] * 2
 
@@ -393,7 +393,7 @@ class PerformanceDashboard:
                 self.data_cache['last_update'] = datetime.now()
 
         except Exception as e:
-            self.logger.error(f"Cache update failed: {e}")
+            self.logger.error("Cache update failed: %s", e)
 
     def _filter_by_period(self, data: dict[str, Any], period: str) -> dict[str, Any]:
         """Filter data by selected time period"""
@@ -849,7 +849,7 @@ class PerformanceDashboard:
     def start(self):
         """Start the dashboard server"""
         try:
-            self.logger.info(f"Starting Performance Dashboard on port {self.port}")
+            self.logger.info("Starting Performance Dashboard on port %s", self.port)
 
             # Start background data updater
             self._stop_event.clear()
@@ -866,7 +866,7 @@ class PerformanceDashboard:
             )
 
         except Exception as e:
-            self.logger.error(f"Failed to start dashboard: {e}")
+            self.logger.error("Failed to start dashboard: %s", e)
             self.error_handler.handle_error(e, "PerformanceDashboard")
 
     def stop(self):
@@ -889,7 +889,7 @@ class PerformanceDashboard:
                     pass
 
             except Exception as e:
-                self.logger.error(f"Background update error: {e}")
+                self.logger.error("Background update error: %s", e)
 
             # Wait before next update
             self._stop_event.wait(5)  # Update every 5 seconds

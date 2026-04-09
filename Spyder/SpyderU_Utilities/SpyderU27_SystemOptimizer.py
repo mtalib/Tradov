@@ -114,7 +114,7 @@ class SystemOptimizer:
         self.optimization_level = optimization_level
         self.applied_optimizations: list[OptimizationResult] = []
 
-        self.logger.info(f"SystemOptimizer initialized with {optimization_level.value} level")
+        self.logger.info("SystemOptimizer initialized with %s level", optimization_level.value)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -172,12 +172,12 @@ class SystemOptimizer:
             )
 
             self.applied_optimizations.append(result)
-            self.logger.info(f"TCP optimization: {message}")
+            self.logger.info("TCP optimization: %s", message)
 
             return result
 
         except Exception as e:
-            self.logger.error(f"TCP optimization failed: {e}", exc_info=True)
+            self.logger.error("TCP optimization failed: %s", e, exc_info=True)
             result = OptimizationResult(
                 component=SystemComponent.NETWORK,
                 success=False,
@@ -224,12 +224,12 @@ class SystemOptimizer:
             )
 
             self.applied_optimizations.append(result)
-            self.logger.info(f"Firewall configuration: {message}")
+            self.logger.info("Firewall configuration: %s", message)
 
             return result
 
         except Exception as e:
-            self.logger.error(f"Firewall configuration failed: {e}", exc_info=True)
+            self.logger.error("Firewall configuration failed: %s", e, exc_info=True)
             result = OptimizationResult(
                 component=SystemComponent.FIREWALL,
                 success=False,
@@ -288,7 +288,7 @@ class SystemOptimizer:
             return diagnostics
 
         except Exception as e:
-            self.logger.error(f"System diagnostics failed: {e}", exc_info=True)
+            self.logger.error("System diagnostics failed: %s", e, exc_info=True)
             return SystemDiagnostics({}, {}, {}, None, None)
 
     def optimize_all(self) -> list[OptimizationResult]:
@@ -300,7 +300,7 @@ class SystemOptimizer:
         """
         results = []
 
-        self.logger.info(f"Starting system optimization (level: {self.optimization_level.value})")
+        self.logger.info("Starting system optimization (level: %s)", self.optimization_level.value)
 
         # Run optimizations based on level
         if self.optimization_level in [OptimizationLevel.STANDARD, OptimizationLevel.AGGRESSIVE, OptimizationLevel.ULTRA]:
@@ -310,7 +310,7 @@ class SystemOptimizer:
         successful = len([r for r in results if r.success])
         total = len(results)
 
-        self.logger.info(f"System optimization completed: {successful}/{total} successful")
+        self.logger.info("System optimization completed: %s/%s successful", successful, total)
 
         return results
 
@@ -342,7 +342,7 @@ class SystemOptimizer:
                 f.write(existing_content + spyder_section)
 
         except Exception as e:
-            self.logger.error(f"Failed to update sysctl.conf: {e}", exc_info=True)
+            self.logger.error("Failed to update sysctl.conf: %s", e, exc_info=True)
 
     def _get_network_config(self) -> dict[str, Any]:
         """Get current network configuration."""

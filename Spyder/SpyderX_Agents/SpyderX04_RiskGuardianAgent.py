@@ -25,6 +25,7 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
@@ -50,6 +51,7 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
+from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import get_finance_model, strip_thinking_block
 from Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor import get_migration_monitor
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from Spyder.SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer
@@ -59,7 +61,7 @@ from Spyder.SpyderE_Risk.SpyderE03_DrawdownControl import DrawdownController
 # CONSTANTS
 # ==============================================================================
 # Model configuration
-DEFAULT_MODEL = "llama3" if OLLAMA_AVAILABLE else None
+DEFAULT_MODEL = get_finance_model() if OLLAMA_AVAILABLE else None
 DEFAULT_TEMPERATURE = 0.2  # Lower temperature for conservative risk decisions
 
 # Risk thresholds
@@ -240,7 +242,7 @@ class SpyderX04_RiskGuardianAgent:
             'max_correlation': CORRELATION_THRESHOLD
         }
 
-        self.logger.info(f"Risk Guardian Agent initialized with model: {model_name}")
+        self.logger.info("Risk Guardian Agent initialized with model: %s", model_name)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN FUNCTIONALITY
@@ -304,7 +306,7 @@ class SpyderX04_RiskGuardianAgent:
             return assessment
 
         except Exception as e:
-            self.logger.error(f"Risk assessment failed: {e}")
+            self.logger.error("Risk assessment failed: %s", e)
             return self._create_emergency_assessment(str(e))
 
     async def calculate_position_limits(
@@ -350,7 +352,7 @@ class SpyderX04_RiskGuardianAgent:
             return limits
 
         except Exception as e:
-            self.logger.error(f"Position limit calculation failed: {e}")
+            self.logger.error("Position limit calculation failed: %s", e)
             return self._create_conservative_limits(str(e))
 
     async def monitor_real_time_risk(
@@ -397,7 +399,7 @@ class SpyderX04_RiskGuardianAgent:
             except TimeoutError:
                 continue
             except Exception as e:
-                self.logger.error(f"Real-time monitoring error: {e}")
+                self.logger.error("Real-time monitoring error: %s", e)
 
     async def execute_risk_action(
         self,
@@ -421,7 +423,7 @@ class SpyderX04_RiskGuardianAgent:
             if is_spyderx_enabled("USE_AI_RISK") and OLLAMA_AVAILABLE:
                 validation = await self._validate_risk_action_ai(action, portfolio, params)
                 if not validation['approved']:
-                    self.logger.warning(f"AI rejected risk action: {validation['reason']}")
+                    self.logger.warning("AI rejected risk action: %s", validation['reason'])
                     return {'success': False, 'reason': validation['reason']}
 
             # Execute action
@@ -434,7 +436,7 @@ class SpyderX04_RiskGuardianAgent:
             return result
 
         except Exception as e:
-            self.logger.error(f"Risk action execution failed: {e}")
+            self.logger.error("Risk action execution failed: %s", e)
             return {'success': False, 'error': str(e)}
 
     # ==========================================================================
@@ -624,7 +626,7 @@ class SpyderX04_RiskGuardianAgent:
             return assessment
 
         except Exception as e:
-            self.logger.error(f"AI risk analysis failed: {e}")
+            self.logger.error("AI risk analysis failed: %s", e)
             # Fallback to rule-based
             return self._create_rule_based_assessment(risk_metrics, stress_results)
 
@@ -647,13 +649,14 @@ class SpyderX04_RiskGuardianAgent:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                options={"temperature": self.temperature}
+                options={"temperature": self.temperature, "think": False}
             )
 
-            return response['message']['content']
+            raw = response['message']['content']
+            return strip_thinking_block(raw)
 
         except Exception as e:
-            self.logger.error(f"AI model query failed: {e}")
+            self.logger.error("AI model query failed: %s", e)
             return ""
 
     def _construct_risk_prompt(self, context: dict[str, Any]) -> str:
@@ -733,7 +736,7 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
         self.performance_metrics['circuit_breaker_triggers'] += 1
 
         self.logger.warning(
-            f"Circuit breaker activated: Level={level}, Triggers={triggers}"
+            "Circuit breaker activated: Level=%s, Triggers=%s", level, triggers
         )
 
     # ==========================================================================
@@ -787,7 +790,7 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
             'volatility': market_conditions.get('volatility', 0)
         }
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def get_performance_metrics(self) -> dict[str, Any]:
         """Get agent performance metrics"""
@@ -818,10 +821,14 @@ def create_risk_guardian_agent(
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX04_RiskGuardianAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_risk_guardian_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_risk_guardian_agent()
     return _module_instance

@@ -174,21 +174,21 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             try:
                 self._x05_agent = SpyderX05_MLResearchAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize X05 MLResearchAgent: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize X05 MLResearchAgent: %s", e)
 
         self._ml_predictor: Any | None = None
         if ML_PREDICTOR_AVAILABLE:
             try:
                 self._ml_predictor = SpyderL01_MLPredictor()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize MLPredictor: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize MLPredictor: %s", e)
 
         self._feature_store: Any | None = None
         if FEATURE_STORE_AVAILABLE:
             try:
                 self._feature_store = SpyderL18_FeatureStore()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize FeatureStore: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize FeatureStore: %s", e)
 
     # ==========================================================================
     # LIFECYCLE
@@ -276,7 +276,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
                     ))
 
         except Exception as e:
-            self.logger.warning(f"Prediction generation failed: {e}", exc_info=True)
+            self.logger.warning("Prediction generation failed: %s", e, exc_info=True)
 
     # ==========================================================================
     # MODEL HEALTH MONITORING

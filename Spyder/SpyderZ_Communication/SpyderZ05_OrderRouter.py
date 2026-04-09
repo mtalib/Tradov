@@ -371,7 +371,7 @@ class OrderRouter:
         # Check circuit breaker
         if self.circuit_breaker.state == CircuitBreakerState.TRIGGERED:
             if self.circuit_breaker.cooldown_until and datetime.now() < self.circuit_breaker.cooldown_until:
-                self.logger.warning(f"Circuit breaker active - order rejected: {order.order_id}")
+                self.logger.warning("Circuit breaker active - order rejected: %s", order.order_id)
                 self._record_event(order.order_id, RoutingEvent.REJECTED,
                                  {'reason': 'circuit_breaker'})
                 return None
@@ -403,10 +403,10 @@ class OrderRouter:
             self._record_event(order.order_id, RoutingEvent.QUEUED,
                              {'queue': order.priority.name})
 
-            self.logger.info(f"Order queued: {order.order_id} ({order.priority.name} priority)")
+            self.logger.info("Order queued: %s (%s priority)", order.order_id, order.priority.name)
 
         except queue.Full:
-            self.logger.error(f"Queue full for priority {order.priority.name}")
+            self.logger.error("Queue full for priority %s", order.priority.name)
             self._record_event(order.order_id, RoutingEvent.REJECTED,
                              {'reason': 'queue_full'})
             return None
@@ -436,7 +436,7 @@ class OrderRouter:
                 time.sleep(0.001)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Router error: {e}")
+                self.logger.error("Router error: %s", e)
 
         self.logger.info("Router thread stopped")
 
@@ -500,7 +500,7 @@ class OrderRouter:
         available_venues = self._get_available_venues(order)
 
         if not available_venues:
-            self.logger.error(f"No available venues for {order.order_id}")
+            self.logger.error("No available venues for %s", order.order_id)
             return decisions
 
         # Score each venue
@@ -819,7 +819,7 @@ class OrderRouter:
         self.venue_availability[venue] = available
 
         if not available:
-            self.logger.warning(f"Venue {venue.value} marked as unavailable")
+            self.logger.warning("Venue %s marked as unavailable", venue.value)
 
     # ==========================================================================
     # EXECUTION AND LIFECYCLE
@@ -983,7 +983,7 @@ class OrderRouter:
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Circuit breaker monitor error: {e}")
+                self.logger.error("Circuit breaker monitor error: %s", e)
 
     def _trigger_circuit_breaker(self):
         """Trigger circuit breaker"""
@@ -1008,7 +1008,7 @@ class OrderRouter:
     def _generate_order_id(self) -> str:
         """Generate unique order ID"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        random_suffix = hashlib.md5(str(random.random()).encode()).hexdigest()[:6]
+        random_suffix = hashlib.md5(str(random.random()).encode(), usedforsecurity=False).hexdigest()[:6]
         return f"ORD_{timestamp}_{random_suffix}"
 
     def _start_router(self):
@@ -1046,7 +1046,7 @@ class OrderRouter:
         if order_id in self.active_orders:
             del self.active_orders[order_id]
 
-        self.logger.info(f"Order cancelled: {order_id}")
+        self.logger.info("Order cancelled: %s", order_id)
         return True
 
     def get_venue_performance(self, venue: ExecutionVenue) -> VenuePerformance | None:

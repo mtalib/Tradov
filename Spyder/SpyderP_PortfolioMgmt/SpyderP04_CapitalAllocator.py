@@ -844,7 +844,7 @@ class CapitalAllocator:
         # Update portfolio state
         self._update_portfolio_state()
 
-        self.logger.info(f"Allocated capital to {len(decisions)} strategies using {method.value}")
+        self.logger.info("Allocated capital to %s strategies using %s", len(decisions), method.value)
 
         return decisions
 
@@ -983,12 +983,12 @@ class CapitalAllocator:
             # Update portfolio state
             self._update_portfolio_state()
 
-            self.logger.info(f"Rebalanced portfolio: {signal.trigger_type} trigger")
+            self.logger.info("Rebalanced portfolio: %s trigger", signal.trigger_type)
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Rebalancing failed: {e}")
+            self.logger.error("Rebalancing failed: %s", e)
             return False
 
     # ==========================================================================
@@ -1028,7 +1028,7 @@ class CapitalAllocator:
 
             return pd.DataFrame(frames).dropna()
         except Exception as e:
-            self.logger.warning(f"Failed to build strategy returns matrix: {e}")
+            self.logger.warning("Failed to build strategy returns matrix: %s", e)
             return None
 
     # ==========================================================================
@@ -1491,7 +1491,7 @@ class CapitalAllocator:
 
         if weights is not None and not weights.empty:
             result = {col: float(weights.loc[col].iloc[0]) for col in weights.index}
-            self.logger.info(f"RiskFolio allocation ({mode}): {len(result)} strategies")
+            self.logger.info("RiskFolio allocation (%s): %s strategies", mode, len(result))
             return result
 
         n = returns_data.shape[1]

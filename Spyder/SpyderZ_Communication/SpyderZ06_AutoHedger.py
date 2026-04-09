@@ -321,7 +321,7 @@ class AutoHedger(SpyderEngineProcess):
         self.last_hedge_analysis = 0.0
         self.last_position_sync = 0.0
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - PROCESS INTERFACE
@@ -356,7 +356,7 @@ class AutoHedger(SpyderEngineProcess):
                 message = self.dealer_socket.recv_json()
                 self._handle_command(message)
             except Exception as e:
-                self.logger.error(f"Command processing error: {e}")
+                self.logger.error("Command processing error: %s", e)
 
         # Check for Greek updates
         self._check_greek_updates()
@@ -444,7 +444,7 @@ class AutoHedger(SpyderEngineProcess):
             last_hedge = self.last_hedge_time.get(greek_type, 0)
 
             if time.time() - last_hedge < self.hedge_params['min_interval']:
-                self.logger.warning(f"Hedge interval not met for {greek_type}")
+                self.logger.warning("Hedge interval not met for %s", greek_type)
                 return False
 
             # Add to active hedges
@@ -466,11 +466,11 @@ class AutoHedger(SpyderEngineProcess):
             # Update performance tracking
             self.performance.total_hedges += 1
 
-            self.logger.info(f"Hedge order executed: {hedge_order.order_id}")
+            self.logger.info("Hedge order executed: %s", hedge_order.order_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"Hedge execution error: {e}")
+            self.logger.error("Hedge execution error: %s", e)
             hedge_order.status = HedgeStatus.FAILED
             self.performance.failed_hedges += 1
             return False
@@ -919,7 +919,7 @@ class AutoHedger(SpyderEngineProcess):
                 confidence *= 0.8
 
         # Reduce confidence for multiple instruments
-        if len(set(o.instrument for o in orders)) > 1:
+        if len({o.instrument for o in orders}) > 1:
             confidence *= 0.9
 
         # Reduce confidence if market is volatile
@@ -971,10 +971,10 @@ class AutoHedger(SpyderEngineProcess):
 
             self.dealer_socket.send_json(event)
 
-            self.logger.info(f"Hedge order sent: {hedge_order.order_id}")
+            self.logger.info("Hedge order sent: %s", hedge_order.order_id)
 
         except Exception as e:
-            self.logger.error(f"Failed to send order: {e}")
+            self.logger.error("Failed to send order: %s", e)
             raise
 
     # ==========================================================================
@@ -1000,7 +1000,7 @@ class AutoHedger(SpyderEngineProcess):
                 time.sleep(0.5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Hedge monitoring error: {e}")
+                self.logger.error("Hedge monitoring error: %s", e)
                 self.error_handler.handle_error(e, {"context": "hedge_monitoring"})
 
     def _order_monitoring_loop(self) -> None:
@@ -1031,7 +1031,7 @@ class AutoHedger(SpyderEngineProcess):
                 time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Order monitoring error: {e}")
+                self.logger.error("Order monitoring error: %s", e)
 
     def _check_greek_updates(self) -> None:
         """Check for Greek updates from volatility engine."""
@@ -1078,9 +1078,9 @@ class AutoHedger(SpyderEngineProcess):
                 config = message.get('data', {})
 
                 if 'strategies' in config:
-                    self.active_strategies = set(
+                    self.active_strategies = {
                         HedgeStrategy[s] for s in config['strategies']
-                    )
+                    }
 
                 if 'risk_limits' in config:
                     self.risk_limits.update(config['risk_limits'])
@@ -1108,7 +1108,7 @@ class AutoHedger(SpyderEngineProcess):
             self.dealer_socket.send_json(response)
 
         except Exception as e:
-            self.logger.error(f"Command handling error: {e}")
+            self.logger.error("Command handling error: %s", e)
             error_response = {
                 'type': 'RESPONSE',
                 'command_id': command_id,
@@ -1141,7 +1141,7 @@ class AutoHedger(SpyderEngineProcess):
         # Cancel any pending orders
         for order_id, hedge_order in self.active_hedges.items():
             if hedge_order.status == HedgeStatus.PENDING:
-                self.logger.info(f"Cancelling pending hedge: {order_id}")
+                self.logger.info("Cancelling pending hedge: %s", order_id)
                 # Would send cancel request in production
 
         # Wait for threads to finish

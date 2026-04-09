@@ -38,6 +38,12 @@ import pandas as pd
 import yfinance as yf
 from scipy import stats
 
+try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: F401
+    _C29_AVAILABLE = True
+except ImportError:
+    _C29_AVAILABLE = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -65,11 +71,11 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventT
 
 VIX_SYMBOLS = {
     'VIX': '^VIX',      # CBOE Volatility Index
-    'VIX9D': '^VIX9D',  # CBOE 9-Day Volatility Index
+    'VIX9D': '^VIX9D',  # CBOE 9-Day Volatility Index (replaced ^VXST in Jan 2020)
     'VVIX': '^VVIX',    # VIX of VIX
     'VXV': '^VXV',      # VIX 3-Month
     'VXMT': '^VXMT',    # VIX 6-Month
-    'VXST': '^VXST',    # VIX 9-Day
+    # ^VXST (VIX Short-Term) was discontinued by CBOE in January 2020; use VIX9D instead.
 }
 
 # VIX Analysis Parameters
@@ -364,7 +370,7 @@ class VIXAnalyzer:
                     hist = ticker.history(start=start_date, end=end_date)
 
                     if hist.empty:
-                        self.logger.warning(f"No historical data for {symbol_key}")
+                        self.logger.warning("No historical data for %s", symbol_key)
                         continue
 
                     # Convert to VIXData objects
@@ -381,10 +387,10 @@ class VIXAnalyzer:
                         )
                         self.historical_data[symbol_key].append(vix_data)
 
-                    self.logger.debug(f"Loaded {len(hist)} data points for {symbol_key}")
+                    self.logger.debug("Loaded %s data points for %s", len(hist), symbol_key)
 
                 except Exception as e:
-                    self.logger.warning(f"Failed to load data for {symbol_key}: {e}")
+                    self.logger.warning("Failed to load data for %s: %s", symbol_key, e)
                     continue
 
             return len(self.historical_data) > 0
@@ -505,8 +511,9 @@ class VIXAnalyzer:
 
         Primary VIX quote is fetched via Tradier when a client is available
         (authenticated real-time data). Extended term-structure symbols
-        (VIX9D, VVIX, VXV, VXMT, VXST) are fetched via yfinance as Tradier
-        does not carry them.
+        (VIX9D, VVIX, VXV, VXMT) are fetched via yfinance as Tradier
+        does not carry them. ^VXST was discontinued by CBOE in January 2020
+        and is no longer included.
         """
         try:
             current_time = datetime.now()
@@ -519,10 +526,16 @@ class VIXAnalyzer:
             vix_from_tradier = self._fetch_vix_from_tradier(current_time)
 
             # --- Extended term structure: yfinance fallback ---
+            # VIX variants (VIX9D, VVIX, VXV, VXMT) are not available
+            # from MassiveClient; yfinance is the only data source for these.
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
                 # Skip VIX itself if Tradier already delivered it
                 if symbol_key == 'VIX' and vix_from_tradier is not None:
                     continue
+                self.logger.debug(
+                    "Fetching %s (%s) via yfinance — not available from MassiveClient",
+                    symbol_key, yahoo_symbol,
+                )
                 try:
                     ticker = yf.Ticker(yahoo_symbol)
                     info = ticker.info
@@ -541,7 +554,7 @@ class VIXAnalyzer:
                             self.rsi_calculator.update(current_price)
                             self.bb_calculator.update(current_price)
                 except Exception as e:
-                    self.logger.debug(f"yfinance update failed for {symbol_key}: {e}")
+                    self.logger.debug("yfinance update failed for %s: %s", symbol_key, e)
                     continue
 
             self.stats['last_data_update'] = current_time
@@ -582,7 +595,7 @@ class VIXAnalyzer:
             self.bb_calculator.update(value)
             return value
         except Exception as e:
-            self.logger.debug(f"Tradier VIX fetch failed, will use yfinance: {e}")
+            self.logger.debug("Tradier VIX fetch failed, will use yfinance: %s", e)
             return None
 
     def _is_update_time(self, current_time: datetime) -> bool:

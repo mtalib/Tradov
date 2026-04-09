@@ -253,7 +253,7 @@ class NewsManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             return False
 
     def start(self) -> None:
@@ -410,12 +410,12 @@ class NewsManager:
                         self._fetch_from_source(source_name, source_url)
                         self.stats['sources_active'] += 1
                     except Exception as e:
-                        self.logger.error(f"Error fetching from {source_name}: {e}")
+                        self.logger.error("Error fetching from %s: %s", source_name, e)
 
                 time.sleep(NEWS_FETCH_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Fetch loop error: {e}")
+                self.logger.error("Fetch loop error: %s", e)
                 self.stats['errors'] += 1
                 time.sleep(NEWS_FETCH_INTERVAL)  # thread-safe: time.sleep() intentional
 
@@ -453,7 +453,7 @@ class NewsManager:
                         self._handle_breaking_news(news_item)
 
         except Exception as e:
-            self.logger.error(f"Error fetching from {source_name}: {e}")
+            self.logger.error("Error fetching from %s: %s", source_name, e)
 
     def _create_news_item(self, source: str, entry: Any) -> NewsItem | None:
         """Create news item from feed entry."""
@@ -475,7 +475,7 @@ class NewsManager:
                 timestamp = datetime.now()
 
             # Generate ID
-            item_id = hashlib.md5(url.encode()).hexdigest()
+            item_id = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
 
             # Categorize
             category = self._categorize_news(title, summary)
@@ -498,7 +498,7 @@ class NewsManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error creating news item: {e}")
+            self.logger.error("Error creating news item: %s", e)
             return None
 
     def _categorize_news(self, title: str, summary: str) -> NewsCategory:
@@ -557,7 +557,7 @@ class NewsManager:
                         try:
                             callback(analysis)
                         except Exception as e:
-                            self.logger.error(f"News callback error: {e}")
+                            self.logger.error("News callback error: %s", e)
 
                     # Publish event
                     event = Event(
@@ -572,7 +572,7 @@ class NewsManager:
                 time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Analysis loop error: {e}")
+                self.logger.error("Analysis loop error: %s", e)
                 time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _analyze_sentiment(self, news_item: NewsItem) -> NewsSentiment | None:
@@ -631,7 +631,7 @@ class NewsManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error analyzing sentiment: {e}")
+            self.logger.error("Error analyzing sentiment: %s", e)
             return None
 
     def _assess_impact(self, news_item: NewsItem,
@@ -693,7 +693,7 @@ class NewsManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error assessing impact: {e}")
+            self.logger.error("Error assessing impact: %s", e)
             return None
 
     def _identify_affected_sectors(self, news_item: NewsItem) -> list[str]:
@@ -812,7 +812,7 @@ class NewsManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error performing analysis: {e}")
+            self.logger.error("Error performing analysis: %s", e)
             return None
 
     def _generate_market_implications(self, sentiment: float,
@@ -943,7 +943,7 @@ class NewsManager:
                 try:
                     callback(news_item)
                 except Exception as e:
-                    self.logger.error(f"Alert callback error: {e}")
+                    self.logger.error("Alert callback error: %s", e)
 
             # Publish breaking news event
             event = Event(
@@ -955,10 +955,10 @@ class NewsManager:
             )
             self.event_bus.publish(event)
 
-            self.logger.warning(f"BREAKING NEWS: {news_item.title}")
+            self.logger.warning("BREAKING NEWS: %s", news_item.title)
 
         except Exception as e:
-            self.logger.error(f"Error handling breaking news: {e}")
+            self.logger.error("Error handling breaking news: %s", e)
 
 # ==============================================================================
 # TEST SECTION

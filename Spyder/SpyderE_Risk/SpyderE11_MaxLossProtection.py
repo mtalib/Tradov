@@ -295,7 +295,7 @@ class MaxLossProtection:
         # Update active limits
         self.protection_status.active_limits = list(self.limits.values())
 
-        self.logger.info(f"Initialized {len(self.limits)} loss limits")
+        self.logger.info("Initialized %s loss limits", len(self.limits))
 
     def _load_history(self):
         """Load historical breach data"""
@@ -305,9 +305,9 @@ class MaxLossProtection:
             if not history_file.exists():
                 legacy = history_file.with_suffix('.pkl')
                 if legacy.exists():
-                    import pickle as _pickle
+                    import joblib as _joblib
                     with open(legacy, 'rb') as _f:
-                        _data = _pickle.load(_f)
+                        _data = _joblib.load(_f)
                     history_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
@@ -315,9 +315,9 @@ class MaxLossProtection:
                 with open(history_file, encoding='utf-8') as f:
                     data = json.load(f)
                     self.breach_history = deque(data['breaches'], maxlen=1000)
-                    self.logger.info(f"Loaded {len(self.breach_history)} historical breaches")
+                    self.logger.info("Loaded %s historical breaches", len(self.breach_history))
         except Exception as e:
-            self.logger.warning(f"Could not load breach history: {e}")
+            self.logger.warning("Could not load breach history: %s", e)
 
     def _save_history(self):
         """Save breach history"""
@@ -331,7 +331,7 @@ class MaxLossProtection:
                     'timestamp': datetime.now()
                 }, f, default=_json_default, indent=2)
         except Exception as e:
-            self.logger.error(f"Could not save breach history: {e}")
+            self.logger.error("Could not save breach history: %s", e)
 
     def update_pnl(
         self,
@@ -383,7 +383,7 @@ class MaxLossProtection:
                 return self.protection_status
 
             except Exception as e:
-                self.logger.error(f"Error updating P&L: {e}")
+                self.logger.error("Error updating P&L: %s", e)
                 self.error_handler.handle_error(e, {"method": "update_pnl"})
                 return self.protection_status
 
@@ -543,7 +543,7 @@ class MaxLossProtection:
         action = breach_event.action_taken
 
         if action == SystemAction.WARN:
-            self.logger.warning(f"WARNING: {breach_event.limit_name} approaching limit")
+            self.logger.warning("WARNING: %s approaching limit", breach_event.limit_name)
 
         elif action == SystemAction.STOP_NEW:
             self.protection_status.new_positions_allowed = False
@@ -632,10 +632,10 @@ class MaxLossProtection:
             with open(emergency_file, 'w') as f:
                 json.dump(state, f, indent=2, default=str)
 
-            self.logger.info(f"Emergency state saved to {emergency_file}")
+            self.logger.info("Emergency state saved to %s", emergency_file)
 
         except Exception as e:
-            self.logger.error(f"Failed to save emergency state: {e}")
+            self.logger.error("Failed to save emergency state: %s", e)
 
     def _get_affected_positions(self, limit: LossLimit) -> list[str]:
         """Get positions affected by limit breach"""
@@ -762,7 +762,7 @@ class MaxLossProtection:
             'current_loss': 0.0,
             'is_active': True
         }
-        self.logger.info(f"Added loss limit for strategy {strategy_name}: ${max_loss}")
+        self.logger.info("Added loss limit for strategy %s: $%s", strategy_name, max_loss)
 
     def add_symbol_limit(self, symbol: str, max_loss: float):
         """Add symbol-specific loss limit"""
@@ -771,7 +771,7 @@ class MaxLossProtection:
             'current_loss': 0.0,
             'is_active': True
         }
-        self.logger.info(f"Added loss limit for symbol {symbol}: ${max_loss}")
+        self.logger.info("Added loss limit for symbol %s: $%s", symbol, max_loss)
 
     def can_open_position(self, strategy: str = None, symbol: str = None) -> tuple[bool, str]:
         """
@@ -810,7 +810,7 @@ class MaxLossProtection:
             if limit_type in self.limits:
                 self.limits[limit_type].current_loss = 0
                 self.limits[limit_type].last_reset = datetime.now()
-                self.logger.info(f"Reset {limit_type} limit")
+                self.logger.info("Reset %s limit", limit_type)
         else:
             # Reset all limits
             for limit in self.limits.values():

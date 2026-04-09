@@ -25,7 +25,8 @@ Change Log:
 import os
 import re
 from datetime import date, datetime, time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS

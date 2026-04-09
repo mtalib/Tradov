@@ -47,6 +47,12 @@ __email__ = "mtalib@spyder-trading.com"
 __status__ = "Production"
 
 # ==============================================================================
+# LOGGING
+# ==============================================================================
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+
+# ==============================================================================
 # PYTHON MODULE IMPORTS
 # ==============================================================================
 
@@ -59,7 +65,7 @@ try:
 
     MAIN_LAUNCHER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderQ14_MainLauncher not available: {e}")
+    _logger.warning("SpyderQ14_MainLauncher not available: %s", e)
     MAIN_LAUNCHER_AVAILABLE = False
 
 # Production Watchdog
@@ -71,7 +77,7 @@ try:
 
     PRODUCTION_WATCHDOG_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderQ24_ProductionWatchdog not available: {e}")
+    _logger.warning("SpyderQ24_ProductionWatchdog not available: %s", e)
     PRODUCTION_WATCHDOG_AVAILABLE = False
 
 # System Monitor
@@ -83,7 +89,7 @@ try:
 
     SYSTEM_MONITOR_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderQ25_SystemMonitor not available: {e}")
+    _logger.warning("SpyderQ25_SystemMonitor not available: %s", e)
     SYSTEM_MONITOR_AVAILABLE = False
 
 # Diagnostics
@@ -95,7 +101,7 @@ try:
 
     DIAGNOSTICS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderQ45_Diagnostics not available: {e}")
+    _logger.warning("SpyderQ45_Diagnostics not available: %s", e)
     DIAGNOSTICS_AVAILABLE = False
 
 # Dashboard Integration Verifier
@@ -107,7 +113,7 @@ try:
 
     DASHBOARD_VERIFIER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderQ80_VerifyDashboardIntegration not available: {e}")
+    _logger.warning("SpyderQ80_VerifyDashboardIntegration not available: %s", e)
     DASHBOARD_VERIFIER_AVAILABLE = False
 
 # ==============================================================================
@@ -230,23 +236,21 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        print(f"📜 {info['package_name']} v{info['version']}")
-        print(
-            f"✅ {info['available_scripts']}/{info['total_scripts']} scripts available"
-        )
+        _logger.info("%s v%s", info['package_name'], info['version'])
+        _logger.info("%d/%d scripts available", info['available_scripts'], info['total_scripts'])
 
         if info["available_scripts"] == info["total_scripts"]:
-            print("🚀 All scripts loaded successfully")
+            _logger.debug("All scripts loaded successfully")
             return True
         else:
-            print("⚠️ Some scripts are missing or not executable")
+            _logger.warning("Some scripts are missing or not executable")
             for script, status in info["script_status"].items():
-                status_icon = "✅" if status else "❌"
-                print(f"   {status_icon} {script}")
+                if not status:
+                    _logger.debug("  MISSING %s", script)
             return False
 
     except Exception as e:
-        print(f"❌ Scripts package validation failed: {e}")
+        _logger.error("Scripts package validation failed: %s", e)
         return False
 
 
@@ -282,21 +286,19 @@ if DIAGNOSTICS_AVAILABLE:
 if DASHBOARD_VERIFIER_AVAILABLE:
     __all__.extend(["DashboardIntegrationVerifier"])
 
+try:
+    from .SpyderQ09_ValidateMissingExports import run_validation as run_missing_exports_validation
+    __all__.extend(["run_missing_exports_validation"])
+except Exception:
+    run_missing_exports_validation = None  # type: ignore
+
 # ==============================================================================
 # INITIALIZATION
 # ==============================================================================
 
-# Perform package validation on import
-if __name__ != "__main__":
-    validate_package()
-else:
-    # If running as main, show detailed package info
-    print("=" * 70)
-    print("SPYDER Q - SCRIPTS PACKAGE")
-    print("=" * 70)
-    validate_package()
+# Package validation runs on demand; not on every import.
+if __name__ == "__main__":
+    # Only when invoked directly — emit to stdout intentionally
     info = get_package_info()
-    print("\nPackage Details:")
-    for key, value in info.items():
-        if key != "script_status":
-            print(f"  {key}: {value}")
+    print(f"{info['package_name']} v{info['version']} — "
+          f"{info['available_scripts']}/{info['total_scripts']} scripts available")

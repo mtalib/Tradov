@@ -24,14 +24,13 @@ Change Log:
 # ==============================================================================
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import json
 import logging
 import sys
 import os
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -59,10 +58,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # LOGGING CONFIGURATION
 # ==================================================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # ==================================================================================
@@ -608,7 +603,7 @@ def generate_test_report(results):
     with open('test_report_risk_suite.json', 'w') as f:
         json.dump(report, f, indent=2)
 
-    logger.info(f"Test Report: {report}")
+    logger.info("Test Report: %s", report)
 
     return report
 

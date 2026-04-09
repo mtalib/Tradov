@@ -296,7 +296,7 @@ class RegulatoryReports:
             # Sort by timestamp
             blotter_entries.sort(key=lambda x: x.timestamp)
 
-            self.logger.info(f"Generated trade blotter with {len(blotter_entries)} entries for {report_date}")
+            self.logger.info("Generated trade blotter with %s entries for %s", len(blotter_entries), report_date)
 
             return blotter_entries
 
@@ -330,7 +330,7 @@ class RegulatoryReports:
             elif format == 'EXCEL':
                 return self._export_blotter_excel(blotter_entries, output_path)
             else:
-                self.logger.error(f"Unsupported format: {format}")
+                self.logger.error("Unsupported format: %s", format)
                 return False
 
         except Exception as e:
@@ -454,7 +454,7 @@ class RegulatoryReports:
             # Log any breaches
             breaches = [c for c in checks if c.status == ComplianceStatus.BREACH]
             if breaches:
-                self.logger.warning(f"Position limit breaches detected: {len(breaches)}")
+                self.logger.warning("Position limit breaches detected: %s", len(breaches))
                 for breach in breaches:
                     self._create_audit_entry(
                         AuditEventType.LIMIT_BREACH,
@@ -670,7 +670,7 @@ class RegulatoryReports:
             elif format.upper() == 'CSV':
                 return self._export_audit_csv(audit_entries, output_path)
             else:
-                self.logger.error(f"Unsupported format: {format}")
+                self.logger.error("Unsupported format: %s", format)
                 return False
 
         except Exception as e:
@@ -871,7 +871,7 @@ class RegulatoryReports:
             elif format.upper() == 'JSON':
                 return self._export_compliance_json(summary, output_path)
             else:
-                self.logger.error(f"Unsupported format: {format}")
+                self.logger.error("Unsupported format: %s", format)
                 return False
 
         except Exception as e:
@@ -952,7 +952,7 @@ class RegulatoryReports:
         for i in range(1, len(entries)):
             expected_hash = entries[i]._calculate_hash()
             if entries[i].hash_current != expected_hash:
-                self.logger.error(f"Audit chain broken at entry {i}")
+                self.logger.error("Audit chain broken at entry %s", i)
                 return False
 
         return True
@@ -1097,11 +1097,11 @@ class RegulatoryReports:
             # Build PDF
             doc.build(elements)
 
-            self.logger.info(f"Trade blotter PDF exported to {output_path}")
+            self.logger.info("Trade blotter PDF exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting PDF: {e}")
+            self.logger.error("Error exporting PDF: %s", e)
             return False
 
     def _export_blotter_csv(self, entries: list[TradeBlotterEntry], output_path: str) -> bool:
@@ -1132,11 +1132,11 @@ class RegulatoryReports:
                         'settlement_date': entry.settlement_date.isoformat() if entry.settlement_date else ''
                     })
 
-            self.logger.info(f"Trade blotter CSV exported to {output_path}")
+            self.logger.info("Trade blotter CSV exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting CSV: {e}")
+            self.logger.error("Error exporting CSV: %s", e)
             return False
 
     def _export_blotter_excel(self, entries: list[TradeBlotterEntry], output_path: str) -> bool:
@@ -1188,11 +1188,11 @@ class RegulatoryReports:
                 for col_num, value in enumerate(df.columns.values):
                     worksheet.write(0, col_num, value, header_format)
 
-            self.logger.info(f"Trade blotter Excel exported to {output_path}")
+            self.logger.info("Trade blotter Excel exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting Excel: {e}")
+            self.logger.error("Error exporting Excel: %s", e)
             return False
 
     def _export_audit_pdf(self, entries: list[AuditTrailEntry], output_path: str) -> bool:
@@ -1234,11 +1234,11 @@ class RegulatoryReports:
 
             doc.build(elements)
 
-            self.logger.info(f"Audit trail PDF exported to {output_path}")
+            self.logger.info("Audit trail PDF exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting audit PDF: {e}")
+            self.logger.error("Error exporting audit PDF: %s", e)
             return False
 
     def _export_audit_csv(self, entries: list[AuditTrailEntry], output_path: str) -> bool:
@@ -1265,11 +1265,11 @@ class RegulatoryReports:
                         'hash_previous': entry.hash_previous or ''
                     })
 
-            self.logger.info(f"Audit trail CSV exported to {output_path}")
+            self.logger.info("Audit trail CSV exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting audit CSV: {e}")
+            self.logger.error("Error exporting audit CSV: %s", e)
             return False
 
     def _export_compliance_pdf(self, summary: ComplianceSummary, output_path: str) -> bool:
@@ -1326,11 +1326,11 @@ class RegulatoryReports:
 
             doc.build(elements)
 
-            self.logger.info(f"Compliance PDF exported to {output_path}")
+            self.logger.info("Compliance PDF exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting compliance PDF: {e}")
+            self.logger.error("Error exporting compliance PDF: %s", e)
             return False
 
     def _export_compliance_json(self, summary: ComplianceSummary, output_path: str) -> bool:
@@ -1354,11 +1354,11 @@ class RegulatoryReports:
             with open(output_path, 'w') as f:
                 json.dump(summary_dict, f, indent=2, default=str)
 
-            self.logger.info(f"Compliance JSON exported to {output_path}")
+            self.logger.info("Compliance JSON exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting compliance JSON: {e}")
+            self.logger.error("Error exporting compliance JSON: %s", e)
             return False
 
 # ==============================================================================

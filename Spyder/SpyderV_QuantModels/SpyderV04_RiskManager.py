@@ -30,7 +30,7 @@ Consolidation Notes:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -53,7 +53,6 @@ from scipy.stats import norm, skew, kurtosis
 # MODULE CONFIGURATION
 # ==============================================================================
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -454,7 +453,7 @@ class SpyderRiskManager:
             return risk_metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating portfolio risk: {e}", exc_info=True)
+            self.logger.error("Error calculating portfolio risk: %s", e, exc_info=True)
             self.error_counts["portfolio_risk"] = (
                 self.error_counts.get("portfolio_risk", 0) + 1
             )
@@ -770,7 +769,7 @@ class SpyderRiskManager:
                 result = await self._run_single_stress_test(scenario)
                 results.append(result)
             except Exception as e:
-                self.logger.error(f"Error in stress test {scenario.name}: {e}", exc_info=True)
+                self.logger.error("Error in stress test %s: %s", scenario.name, e, exc_info=True)
                 continue
 
         self.stress_results = results
@@ -1068,7 +1067,7 @@ class SpyderRiskManager:
 
     def export_risk_report(
         self, format_type: str = "json"
-    ) -> Union[str, dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Export comprehensive risk report."""
         report_data = {
             "timestamp": datetime.now().isoformat(),
@@ -1156,10 +1155,10 @@ async def main():
 
     logging.info("\n✅ Risk Manager Initialized")
     logging.info(
-        f"   Default confidence level: {risk_manager.default_params.confidence_level}"
+        "   Default confidence level: %s", risk_manager.default_params.confidence_level
     )
-    logging.info(f"   Default method: {risk_manager.default_params.method.value}")
-    logging.info(f"   Stress scenarios available: {len(risk_manager.stress_scenarios)}")
+    logging.info("   Default method: %s", risk_manager.default_params.method.value)
+    logging.info("   Stress scenarios available: %s", len(risk_manager.stress_scenarios))
 
     # Create sample options portfolio
     sample_portfolio = [
@@ -1214,7 +1213,7 @@ async def main():
     ]
 
     logging.info("\n📊 Sample Portfolio Created")
-    logging.info(f"   Positions: {len(sample_portfolio)}")
+    logging.info("   Positions: %s", len(sample_portfolio))
     logging.info(
         f"   Total Value: ${sum(pos['market_value'] for pos in sample_portfolio):,.2f}"
     )
@@ -1245,7 +1244,7 @@ async def main():
         risk_manager._last_risk_metrics = risk_metrics
 
     except Exception as e:
-        logging.info(f"   ❌ Error calculating risk metrics: {e}")
+        logging.info("   ❌ Error calculating risk metrics: %s", e)
 
     # Test different VaR methods
     logging.info("\n--- Comparing VaR Methods ---")
@@ -1272,7 +1271,7 @@ async def main():
     try:
         stress_results = await risk_manager.run_stress_tests()
 
-        logging.info(f"   Scenarios tested: {len(stress_results)}")
+        logging.info("   Scenarios tested: %s", len(stress_results))
         logging.info(f"   {'Scenario':<20} {'Loss':<12} {'VaR Breach':<12} {'CVaR Breach'}")
         logging.info("   " + "-" * 60)
 
@@ -1286,17 +1285,17 @@ async def main():
 
         # Show worst scenario
         worst_scenario = max(stress_results, key=lambda x: abs(x.portfolio_loss))
-        logging.info(f"\n   🔥 Worst Scenario: {worst_scenario.scenario.name}")
+        logging.info("\n   🔥 Worst Scenario: %s", worst_scenario.scenario.name)
         logging.info(
             f"      Loss: ${worst_scenario.portfolio_loss:,.2f} ({worst_scenario.loss_percentage:.1%})"
         )
-        logging.info(f"      Recovery Estimate: {worst_scenario.recovery_time_estimate} days")
+        logging.info("      Recovery Estimate: %s days", worst_scenario.recovery_time_estimate)
         logging.info(
-            f"      Recommendations: {', '.join(worst_scenario.hedge_recommendations[:2])}"
+            "      Recommendations: %s", ', '.join(worst_scenario.hedge_recommendations[:2])
         )
 
     except Exception as e:
-        logging.info(f"   ❌ Error in stress testing: {e}")
+        logging.info("   ❌ Error in stress testing: %s", e)
 
     # Show performance metrics
     logging.info("\n--- Performance Metrics ---")
@@ -1310,22 +1309,22 @@ async def main():
                 f"({metrics['calls']} calls)"
             )
 
-    logging.info(f"   Cache entries: {performance.get('cache_size', 0)}")
-    logging.info(f"   Active positions: {performance.get('active_positions', 0)}")
+    logging.info("   Cache entries: %s", performance.get('cache_size', 0))
+    logging.info("   Active positions: %s", performance.get('active_positions', 0))
 
     # Generate risk report
     logging.info("\n--- Risk Report Export ---")
     try:
         report = risk_manager.export_risk_report("dict")
-        logging.info(f"   Report generated with {len(report)} sections")
+        logging.info("   Report generated with %s sections", len(report))
         logging.info(
-            f"   Portfolio positions: {report['portfolio_summary']['total_positions']}"
+            "   Portfolio positions: %s", report['portfolio_summary']['total_positions']
         )
         logging.info("   Risk metrics included: ✅")
-        logging.info(f"   Stress test results: {len(report['stress_test_results'])}")
+        logging.info("   Stress test results: %s", len(report['stress_test_results']))
         logging.info("   Performance data: ✅")
     except Exception as e:
-        logging.info(f"   ❌ Error generating report: {e}")
+        logging.info("   ❌ Error generating report: %s", e)
 
     logging.info("\n" + "=" * 70)
     logging.info("✅ CONSOLIDATED RISK MANAGER FEATURES DEMONSTRATED:")

@@ -562,7 +562,7 @@ class SyntaxValidator:
                 with open(result.file_path, "w") as f:
                     f.write(fixed_content)
 
-                logging.info(f"✅ Fixed: {result.file_path}")
+                logging.info("✅ Fixed: %s", result.file_path)
                 self.stats["files_fixed"] += 1
 
         except SyntaxError:
@@ -719,7 +719,7 @@ class SyntaxValidator:
         if output_file:
             with open(output_file, "w") as f:
                 f.write(report_text)
-            logging.info(f"📄 Report saved to: {output_file}")
+            logging.info("📄 Report saved to: %s", output_file)
 
         return report_text
 
@@ -802,7 +802,7 @@ def main():
         with open(args.script, "w") as f:
             f.write(script)
         os.chmod(args.script, 0o755)
-        logging.info(f"\n📝 Fix script saved to: {args.script}")
+        logging.info("\n📝 Fix script saved to: %s", args.script)
 
     # Exit with appropriate code
     sys.exit(0 if report.files_with_errors == 0 else 1)

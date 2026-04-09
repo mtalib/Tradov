@@ -227,4 +227,4 @@ if __name__ == "__main__":
     hashed = hash_password(pw)
     assert verify_password(pw, hashed), "Password verification failed"
     assert not verify_password("wrong", hashed), "Wrong password should not verify"
-    print("All encryption tests passed.")
+    print("All encryption tests passed.")  # noqa: T201

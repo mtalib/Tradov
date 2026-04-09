@@ -172,7 +172,7 @@ class SpyderStyleManager:
         # Initialize
         self._initialize_style_system()
 
-        self.logger.info(f"Style manager initialized - QDarkStyle: {self.qdarkstyle_enabled}, QtAwesome: {self.qtawesome_enabled}")
+        self.logger.info("Style manager initialized - QDarkStyle: %s, QtAwesome: %s", self.qdarkstyle_enabled, self.qtawesome_enabled)
 
     def _initialize_style_system(self):
         """Initialize the styling system."""
@@ -267,7 +267,7 @@ class SpyderStyleManager:
             border: 1px solid {SpyderColors.BORDER};
             padding: 5px 10px;
             border-radius: 3px;
-            font-weight: bold;
+            font-weight: normal;
         }}
 
         QPushButton#TradingButton:hover {{
@@ -286,7 +286,7 @@ class SpyderStyleManager:
             background-color: {SpyderColors.POSITIVE};
             color: #000000;
             border: 2px solid {SpyderColors.POSITIVE};
-            font-weight: bold;
+            font-weight: normal;
             padding: 8px 15px;
         }}
 
@@ -298,7 +298,7 @@ class SpyderStyleManager:
             background-color: {SpyderColors.NEGATIVE};
             color: #ffffff;
             border: 2px solid {SpyderColors.NEGATIVE};
-            font-weight: bold;
+            font-weight: normal;
             padding: 8px 15px;
         }}
 
@@ -309,35 +309,35 @@ class SpyderStyleManager:
         /* Status Indicators */
         QLabel#StatusConnected {{
             color: {SpyderColors.POSITIVE};
-            font-weight: bold;
+            font-weight: normal;
         }}
 
         QLabel#StatusDisconnected {{
             color: {SpyderColors.NEGATIVE};
-            font-weight: bold;
+            font-weight: normal;
         }}
 
         QLabel#StatusWarning {{
             color: {SpyderColors.WARNING};
-            font-weight: bold;
+            font-weight: normal;
         }}
 
         /* Price Display Labels */
         QLabel#PricePositive {{
             color: {SpyderColors.POSITIVE};
-            font-weight: bold;
+            font-weight: normal;
             font-size: 12pt;
         }}
 
         QLabel#PriceNegative {{
             color: {SpyderColors.NEGATIVE};
-            font-weight: bold;
+            font-weight: normal;
             font-size: 12pt;
         }}
 
         QLabel#PriceNeutral {{
             color: {SpyderColors.NEUTRAL};
-            font-weight: bold;
+            font-weight: normal;
             font-size: 12pt;
         }}
 
@@ -395,7 +395,7 @@ class SpyderStyleManager:
 
         /* Group Boxes */
         QGroupBox {{
-            font-weight: bold;
+            font-weight: normal;
             border: 2px solid {SpyderColors.BORDER};
             border-radius: 5px;
             margin-top: 1ex;
@@ -521,7 +521,7 @@ class SpyderStyleManager:
             self.logger.info("Applied Spyder style to application")
         elif widget:
             widget.setStyleSheet(self._final_stylesheet)
-            self.logger.info(f"Applied Spyder style to {widget.__class__.__name__}")
+            self.logger.info("Applied Spyder style to %s", widget.__class__.__name__)
 
     def get_stylesheet(self) -> str:
         """Get the complete stylesheet."""
@@ -546,7 +546,7 @@ class SpyderStyleManager:
             return qta.icon(icon_code, **options)
 
         except Exception as e:
-            self.logger.error(f"Failed to create icon {icon_name}: {e}")
+            self.logger.error("Failed to create icon %s: %s", icon_name, e)
             return None
 
     def get_color(self, color_name: str) -> str:
@@ -562,7 +562,7 @@ class SpyderStyleManager:
                     background-color: {SpyderColors.POSITIVE};
                     color: #000000;
                     border: 2px solid {SpyderColors.POSITIVE};
-                    font-weight: bold;
+                    font-weight: normal;
                     padding: 8px 15px;
                     border-radius: 5px;
                 }}
@@ -577,7 +577,7 @@ class SpyderStyleManager:
                     background-color: {SpyderColors.NEGATIVE};
                     color: #ffffff;
                     border: 2px solid {SpyderColors.NEGATIVE};
-                    font-weight: bold;
+                    font-weight: normal;
                     padding: 8px 15px;
                     border-radius: 5px;
                 }}
@@ -624,7 +624,7 @@ class SpyderStyleManager:
             self.current_theme = "dark"
             self._initialize_style_system()
         # Future: implement light theme
-        self.logger.info(f"Switched to {theme} theme")
+        self.logger.info("Switched to %s theme", theme)
 
     def refresh_styles(self):
         """Refresh and regenerate all styles."""
@@ -694,13 +694,13 @@ def main():
     info = manager.get_theme_info()
     logging.info("Theme Information:")
     for key, value in info.items():
-        logging.info(f"  {key}: {value}")
+        logging.info("  %s: %s", key, value)
 
     # Test color access
     logging.info("\nColor Examples:")
-    logging.info(f"  Positive: {manager.get_color('positive')}")
-    logging.info(f"  Negative: {manager.get_color('negative')}")
-    logging.info(f"  Neutral: {manager.get_color('neutral')}")
+    logging.info("  Positive: %s", manager.get_color('positive'))
+    logging.info("  Negative: %s", manager.get_color('negative'))
+    logging.info("  Neutral: %s", manager.get_color('neutral'))
 
     # Test icon availability
     if manager.is_qtawesome_available():
@@ -710,7 +710,7 @@ def main():
 
     # Show stylesheet length
     stylesheet = manager.get_stylesheet()
-    logging.info(f"\nStylesheet generated: {len(stylesheet)} characters")
+    logging.info("\nStylesheet generated: %s characters", len(stylesheet))
 
 if __name__ == "__main__":
     main()

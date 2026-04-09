@@ -22,11 +22,12 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 import warnings
 import logging
+import threading
 import os
 
 # ==============================================================================
@@ -270,7 +271,7 @@ class InstitutionalLibraries:
         self._calculation_cache = {}
         self._calculation_cache_maxsize = 512
 
-        self.logger.info(f"Institutional libraries initialized. Available: {sum(self.available_libraries.values())}/{len(self.available_libraries)}")
+        self.logger.info("Institutional libraries initialized. Available: %s/%s", sum(self.available_libraries.values()), len(self.available_libraries))
 
     def _initialize_quantlib(self):
         """Initialize QuantLib with proper configuration."""
@@ -294,7 +295,7 @@ class InstitutionalLibraries:
             self.logger.info("QuantLib initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"QuantLib initialization failed: {e}", exc_info=True)
+            self.logger.error("QuantLib initialization failed: %s", e, exc_info=True)
             self.available_libraries['quantlib'] = False
 
     def _initialize_ray(self):
@@ -311,7 +312,7 @@ class InstitutionalLibraries:
             self.logger.info("Ray distributed computing initialized")
 
         except Exception as e:
-            self.logger.error(f"Ray initialization failed: {e}", exc_info=True)
+            self.logger.error("Ray initialization failed: %s", e, exc_info=True)
             self.available_libraries['ray'] = False
 
     # ==========================================================================
@@ -412,7 +413,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Options pricing failed: {e}", exc_info=True)
+            self.logger.error("Options pricing failed: %s", e, exc_info=True)
             return None
 
     def price_spread(self,
@@ -489,7 +490,7 @@ class InstitutionalLibraries:
             }
 
         except Exception as e:
-            self.logger.error(f"Spread pricing failed: {e}", exc_info=True)
+            self.logger.error("Spread pricing failed: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -497,8 +498,8 @@ class InstitutionalLibraries:
     # ==========================================================================
 
     def calculate_institutional_metrics(self,
-                                      returns: Union[pd.Series, np.ndarray, list[float]],
-                                      benchmark_returns: Union[pd.Series, np.ndarray] | None = None,
+                                      returns: pd.Series | np.ndarray | list[float],
+                                      benchmark_returns: pd.Series | np.ndarray | None = None,
                                       risk_free_rate: float | None = None) -> InstitutionalMetrics | None:
         """
         Calculate comprehensive institutional-grade performance metrics.
@@ -602,7 +603,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Institutional metrics calculation failed: {e}", exc_info=True)
+            self.logger.error("Institutional metrics calculation failed: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -642,7 +643,7 @@ class InstitutionalLibraries:
                 return self._optimize_with_scipy(returns_data, method, constraints, risk_free_rate)
 
         except Exception as e:
-            self.logger.error(f"Portfolio optimization failed: {e}", exc_info=True)
+            self.logger.error("Portfolio optimization failed: %s", e, exc_info=True)
             return None
 
     def _optimize_with_riskfolio(self, returns_data, method, constraints, risk_free_rate):
@@ -686,7 +687,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"RiskFolio optimization failed: {e}", exc_info=True)
+            self.logger.error("RiskFolio optimization failed: %s", e, exc_info=True)
             return None
 
     def _optimize_with_scipy(self, returns_data, method, constraints, risk_free_rate):
@@ -748,7 +749,7 @@ class InstitutionalLibraries:
             )
 
         except Exception as e:
-            self.logger.error(f"Scipy optimization failed: {e}", exc_info=True)
+            self.logger.error("Scipy optimization failed: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -793,6 +794,8 @@ class InstitutionalLibraries:
 
 # Global instance for singleton pattern
 _institutional_libs_instance = None
+_institutional_libs_instance_lock = threading.Lock()
+
 
 def get_institutional_libraries() -> InstitutionalLibraries:
     """
@@ -804,7 +807,9 @@ def get_institutional_libraries() -> InstitutionalLibraries:
     global _institutional_libs_instance
 
     if _institutional_libs_instance is None:
-        _institutional_libs_instance = InstitutionalLibraries()
+        with _institutional_libs_instance_lock:
+            if _institutional_libs_instance is None:
+                _institutional_libs_instance = InstitutionalLibraries()
 
     return _institutional_libs_instance
 
@@ -835,15 +840,15 @@ def test_institutional_libraries():
 
     # Test library availability
     available, total = libs.get_available_libraries_count()
-    logging.info(f"📊 Libraries Available: {available}/{total}")
+    logging.info("📊 Libraries Available: %s/%s", available, total)
 
     # Test OptionType access
     try:
         put_option = libs.OptionType.PUT
         call_option = libs.OptionType.CALL
-        logging.info(f"✅ OptionType access: PUT={put_option.value}, CALL={call_option.value}")
+        logging.info("✅ OptionType access: PUT=%s, CALL=%s", put_option.value, call_option.value)
     except Exception as e:
-        logging.info(f"❌ OptionType access failed: {e}")
+        logging.info("❌ OptionType access failed: %s", e)
 
     # Test options pricing if QuantLib available
     if libs.is_library_available('quantlib'):
@@ -864,7 +869,7 @@ def test_institutional_libraries():
                 logging.info("❌ Options pricing returned None")
 
         except Exception as e:
-            logging.info(f"❌ Options pricing failed: {e}")
+            logging.info("❌ Options pricing failed: %s", e)
     else:
         logging.info("⚠️ QuantLib not available for options pricing test")
 
@@ -885,9 +890,9 @@ def test_institutional_libraries():
             logging.info("❌ Performance metrics calculation failed")
 
     except Exception as e:
-        logging.info(f"❌ Performance metrics test failed: {e}")
+        logging.info("❌ Performance metrics test failed: %s", e)
 
-    logging.info(f"\n🎯 Test Complete: {available}/{total} libraries operational")
+    logging.info("\n🎯 Test Complete: %s/%s libraries operational", available, total)
     return available >= total * 0.6  # Pass if 60%+ libraries work
 
 # ==============================================================================

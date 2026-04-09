@@ -47,7 +47,7 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 # ==============================================================================
@@ -464,7 +464,7 @@ class DrawdownController:
     # ==========================================================================
     def _handle_state_change(self, old_state: DrawdownState, new_state: DrawdownState) -> None:
         """Handle drawdown state change."""
-        self.logger.warning(f"Drawdown state change: {old_state.value} -> {new_state.value}")
+        self.logger.warning("Drawdown state change: %s -> %s", old_state.value, new_state.value)
 
         # Record state change
         self.state_history.append({
@@ -494,7 +494,7 @@ class DrawdownController:
             try:
                 callback(old_state, new_state, self.current_metrics)
             except Exception as e:
-                self.logger.error(f"State change callback error: {e}")
+                self.logger.error("State change callback error: %s", e)
 
     def _determine_actions(self, state: DrawdownState) -> list[DrawdownAction]:
         """Determine actions to take for a state."""
@@ -521,7 +521,7 @@ class DrawdownController:
 
     def _execute_action(self, action: DrawdownAction) -> None:
         """Execute a drawdown action."""
-        self.logger.info(f"Executing drawdown action: {action.value}")
+        self.logger.info("Executing drawdown action: %s", action.value)
 
         # Record action
         self.action_history.append({
@@ -537,7 +537,7 @@ class DrawdownController:
             try:
                 callback(action, self.current_metrics)
             except Exception as e:
-                self.logger.error(f"Action callback error: {e}")
+                self.logger.error("Action callback error: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - DRAWDOWN TRACKING
@@ -774,7 +774,7 @@ class DrawdownController:
             if 'shutdown' in thresholds:
                 self.shutdown_threshold = thresholds['shutdown']
 
-            self.logger.info(f"Drawdown thresholds updated: {thresholds}")
+            self.logger.info("Drawdown thresholds updated: %s", thresholds)
 
     def register_state_change_callback(self, callback: callable) -> None:
         """Register callback for state changes."""
@@ -826,7 +826,7 @@ class DrawdownController:
                 threading.Event().wait(DRAWDOWN_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
                 self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
 
 # ==============================================================================

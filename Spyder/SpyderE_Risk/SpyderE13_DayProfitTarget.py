@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 """
 SPYDER - Autonomous Options Trading System v1.0
@@ -12,8 +13,8 @@ Last Updated: 2025-08-28 Time: 19:00:00
 
 BROKER NOTE:
     Order execution uses SpyderB40_TradierClient (Tradier REST API).
-    Market data sourced from Databento (SpyderC26_DatabentoClient).
-    Legacy broker client references have been removed.
+    Order execution is via SpyderB40_TradierClient (Tradier REST API).
+    Market data is sourced from SpyderC27_MassiveClient (Massive).
 
 Module Description:
     Advanced daily profit targeting system with institutional-grade algorithmic
@@ -47,7 +48,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 import copy
 import numpy as np
 
@@ -61,30 +63,42 @@ Contract = None  # type: ignore[assignment,misc]  # Legacy stub
 Order = None  # type: ignore[assignment,misc]  # Legacy stub
 Fill = None  # type: ignore[assignment,misc]  # Legacy stub
 
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QProgressBar,
-    QGroupBox,
-    QCheckBox,
-    QMessageBox,
-    QListWidget,
-    QListWidgetItem,
-    QComboBox,
-    QSpinBox,
-    QLineEdit,
-    QFormLayout,
-    QGridLayout,
-    QLCDNumber,
-)
-from PySide6.QtCore import (
-    QTimer,
-    Signal,
-)
-from PySide6.QtGui import QColor
+try:
+    from PySide6.QtWidgets import (
+        QWidget,
+        QVBoxLayout,
+        QHBoxLayout,
+        QLabel,
+        QPushButton,
+        QProgressBar,
+        QGroupBox,
+        QCheckBox,
+        QMessageBox,
+        QListWidget,
+        QListWidgetItem,
+        QComboBox,
+        QSpinBox,
+        QLineEdit,
+        QFormLayout,
+        QGridLayout,
+        QLCDNumber,
+    )
+    from PySide6.QtCore import QTimer, Signal
+    from PySide6.QtGui import QColor
+    HAS_QT = True
+except ImportError:
+    HAS_QT = False
+    QWidget = object  # type: ignore[assignment,misc]
+    QVBoxLayout = QHBoxLayout = QLabel = QPushButton = QProgressBar = None  # type: ignore[assignment,misc]
+    QGroupBox = QCheckBox = QMessageBox = QListWidget = QListWidgetItem = None  # type: ignore[assignment,misc]
+    QComboBox = QSpinBox = QLineEdit = QFormLayout = QGridLayout = QLCDNumber = None  # type: ignore[assignment,misc]
+    QTimer = QColor = None  # type: ignore[assignment,misc]
+
+    class Signal:  # type: ignore[no-redef]
+        """Stub Signal class for headless environments."""
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
 import plotly.graph_objects as go
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -113,7 +127,7 @@ try:
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ Some Spyder modules not available: {e}")
+    logging.info("⚠️ Some Spyder modules not available: %s", e)
     SPYDER_MODULES_AVAILABLE = False
 
 # ==============================================================================
@@ -423,12 +437,12 @@ class AlgorithmicSlicingManager:
                 child_order.risk_allocation = risk_allocation / len(child_orders)
 
             self.logger.info(
-                f"✅ Created slicing plan with {len(child_orders)} child orders"
+                "✅ Created slicing plan with %s child orders", len(child_orders)
             )
             return child_orders
 
         except Exception as e:
-            self.logger.error(f"❌ Error creating slicing plan: {e}", exc_info=True)
+            self.logger.error("❌ Error creating slicing plan: %s", e, exc_info=True)
             return []
 
     def _create_twap_plan(
@@ -867,7 +881,7 @@ class DayProfitTargetEngine:
             self.trading_calendar = TradingCalendar() if TradingCalendar else None
         except (ImportError, TypeError, AttributeError) as e:
             # TradingCalendar not available or failed to initialize
-            self.logger.debug(f"TradingCalendar not available: {e}")
+            self.logger.debug("TradingCalendar not available: %s", e)
             self.trading_calendar = None
 
         # Callbacks
@@ -958,7 +972,7 @@ class DayProfitTargetEngine:
             return True, "Target validated successfully", max_achievable_target
 
         except Exception as e:
-            self.logger.error(f"❌ Error validating profit target: {e}", exc_info=True)
+            self.logger.error("❌ Error validating profit target: %s", e, exc_info=True)
             return False, f"Validation error: {str(e)}", 0.0
 
     async def set_profit_target(
@@ -986,7 +1000,7 @@ class DayProfitTargetEngine:
                 target_amount
             )
             if not is_valid:
-                self.logger.error(f"❌ Invalid profit target: {message}")
+                self.logger.error("❌ Invalid profit target: %s", message)
                 return False
 
             # Get account balance for risk calculation
@@ -1039,7 +1053,7 @@ class DayProfitTargetEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error setting profit target: {e}", exc_info=True)
+            self.logger.error("❌ Error setting profit target: %s", e, exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(
                     e, "DayProfitTargetEngine.set_profit_target"
@@ -1103,12 +1117,12 @@ class DayProfitTargetEngine:
             self.execution_thread.start()
 
             self.logger.info(
-                f"✅ Profit targeting started - {len(child_orders)} orders planned"
+                "✅ Profit targeting started - %s orders planned", len(child_orders)
             )
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error starting profit targeting: {e}", exc_info=True)
+            self.logger.error("❌ Error starting profit targeting: %s", e, exc_info=True)
             self.status = ProfitTargetStatus.FAILED
             return False
 
@@ -1130,7 +1144,7 @@ class DayProfitTargetEngine:
                 self.logger.warning("Profit targeting not active")
                 return True
 
-            self.logger.info(f"🛑 Stopping profit targeting - Reason: {reason}")
+            self.logger.info("🛑 Stopping profit targeting - Reason: %s", reason)
 
             # Signal shutdown
             self.shutdown_event.set()
@@ -1166,13 +1180,13 @@ class DayProfitTargetEngine:
                 try:
                     callback(self.status, final_report)
                 except Exception as e:
-                    self.logger.error(f"Completion callback error: {e}", exc_info=True)
+                    self.logger.error("Completion callback error: %s", e, exc_info=True)
 
             self.logger.info("✅ Profit targeting stopped")
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error stopping profit targeting: {e}", exc_info=True)
+            self.logger.error("❌ Error stopping profit targeting: %s", e, exc_info=True)
             return False
 
     def get_current_progress(self) -> ProfitTargetProgress:
@@ -1190,7 +1204,7 @@ class DayProfitTargetEngine:
     def _execute_slicing_plan(self, child_orders: list[ChildOrderSpec]):
         """Execute the slicing plan in a separate thread"""
         try:
-            self.logger.info(f"Executing slicing plan with {len(child_orders)} orders")
+            self.logger.info("Executing slicing plan with %s orders", len(child_orders))
 
             # Sort orders by scheduled time and priority
             sorted_orders = sorted(
@@ -1220,7 +1234,7 @@ class DayProfitTargetEngine:
                     self.current_progress.orders_executed += 1
                 else:
                     self.logger.warning(
-                        f"Failed to execute child order: {child_order.order_id}"
+                        "Failed to execute child order: %s", child_order.order_id
                     )
 
                 # Brief pause between orders
@@ -1230,7 +1244,7 @@ class DayProfitTargetEngine:
             self.logger.info("✅ Slicing plan execution completed")
 
         except Exception as e:
-            self.logger.error(f"❌ Error executing slicing plan: {e}", exc_info=True)
+            self.logger.error("❌ Error executing slicing plan: %s", e, exc_info=True)
             self.status = ProfitTargetStatus.FAILED
 
     def _execute_child_order(self, child_order_spec: ChildOrderSpec) -> bool:
@@ -1263,13 +1277,13 @@ class DayProfitTargetEngine:
             self.active_child_orders[child_order_spec.order_id] = order
 
             self.logger.info(
-                f"📋 Child order placed: {child_order_spec.order_id} - {child_order_spec.quantity} @ {child_order_spec.venue.value}"
+                "📋 Child order placed: %s - %s @ %s", child_order_spec.order_id, child_order_spec.quantity, child_order_spec.venue.value
             )
 
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error executing child order: {e}", exc_info=True)
+            self.logger.error("❌ Error executing child order: %s", e, exc_info=True)
             return False
 
     async def _start_monitoring(self):
@@ -1311,7 +1325,7 @@ class DayProfitTargetEngine:
                 self.shutdown_event.wait(PROGRESS_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in progress monitoring: {e}", exc_info=True)
+                self.logger.error("Error in progress monitoring: %s", e, exc_info=True)
                 self.shutdown_event.wait(5)
 
     def _risk_monitoring_loop(self):
@@ -1349,7 +1363,7 @@ class DayProfitTargetEngine:
                 self.shutdown_event.wait(RISK_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in risk monitoring: {e}", exc_info=True)
+                self.logger.error("Error in risk monitoring: %s", e, exc_info=True)
                 self.shutdown_event.wait(5)
 
     def _update_progress(self):
@@ -1387,7 +1401,7 @@ class DayProfitTargetEngine:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error updating progress: {e}", exc_info=True)
+            self.logger.error("Error updating progress: %s", e, exc_info=True)
 
     # ==========================================================================
     # UTILITY METHODS
@@ -1400,7 +1414,7 @@ class DayProfitTargetEngine:
             # For demo, return a placeholder value
             return 500000.0  # $500K demo balance
         except Exception as e:
-            self.logger.error(f"Error getting account balance: {e}", exc_info=True)
+            self.logger.error("Error getting account balance: %s", e, exc_info=True)
             return 0.0
 
     def _calculate_max_achievable_profit(
@@ -1474,7 +1488,7 @@ class DayProfitTargetEngine:
             try:
                 callback(self.current_progress)
             except Exception as e:
-                self.logger.error(f"Progress callback error: {e}", exc_info=True)
+                self.logger.error("Progress callback error: %s", e, exc_info=True)
 
 
 # ==============================================================================
@@ -1710,7 +1724,7 @@ class DayProfitTargetWidget(QWidget):
         self.start_btn.clicked.connect(self.start_execution)
         self.start_btn.setEnabled(False)
         self.start_btn.setStyleSheet(
-            "background-color: #4CAF50; color: white; font-weight: bold;"
+            "background-color: #4CAF50; color: white; font-weight: normal;"
         )
         control_layout.addWidget(self.start_btn)
 
@@ -1768,7 +1782,7 @@ class DayProfitTargetWidget(QWidget):
         self.emergency_stop_btn = QPushButton("🚨 Emergency Stop")
         self.emergency_stop_btn.clicked.connect(self.emergency_stop)
         self.emergency_stop_btn.setStyleSheet(
-            "background-color: #FF5722; color: white; font-weight: bold;"
+            "background-color: #FF5722; color: white; font-weight: normal;"
         )
         circuit_layout.addWidget(self.emergency_stop_btn)
 
@@ -2005,7 +2019,7 @@ class DayProfitTargetWidget(QWidget):
             self.executionStopped.emit("emergency_stop")
 
             self.validation_label.setText("🚨 EMERGENCY STOP ACTIVATED")
-            self.validation_label.setStyleSheet("color: red; font-weight: bold;")
+            self.validation_label.setStyleSheet("color: red; font-weight: normal;")
 
     def _reset_execution_ui(self):
         """Reset execution UI state"""
@@ -2077,7 +2091,7 @@ class DayProfitTargetWidget(QWidget):
             self.validation_label.setText(
                 "🎯 TARGET ACHIEVED! Execution completed successfully"
             )
-            self.validation_label.setStyleSheet("color: green; font-weight: bold;")
+            self.validation_label.setStyleSheet("color: green; font-weight: normal;")
             QMessageBox.information(
                 self, "Success", "🎯 Profit target achieved successfully!"
             )
@@ -2113,7 +2127,7 @@ class DayProfitTargetWidget(QWidget):
             self.analytics_canvas.draw()
 
         except Exception as e:
-            self.logger.error(f"Error updating analytics chart: {e}", exc_info=True)
+            self.logger.error("Error updating analytics chart: %s", e, exc_info=True)
 
     # ==========================================================================
     # CALLBACK HANDLERS
@@ -2210,16 +2224,16 @@ def main():
                 logging.info(f"    ❌ Too high - Max achievable: ${max_achievable:,.2f}")
 
         logging.info("\n🎯 Test Results:")
-        logging.info(f"  Engine Status: {engine.status.value}")
+        logging.info("  Engine Status: %s", engine.status.value)
         logging.info(
-            f"  Supported Algorithms: {', '.join([a.value for a in SlicingAlgorithm])}"
+            "  Supported Algorithms: %s", ', '.join([a.value for a in SlicingAlgorithm])
         )
-        logging.info(f"  Supported Venues: {len(SUPPORTED_VENUES)} venues")
+        logging.info("  Supported Venues: %s venues", len(SUPPORTED_VENUES))
 
         logging.info("\n✅ Day Profit Target Engine test completed!")
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
     return True

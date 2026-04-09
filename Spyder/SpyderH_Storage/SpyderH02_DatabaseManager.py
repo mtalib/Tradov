@@ -73,6 +73,13 @@ VACUUM_INTERVAL_DAYS = 7
 MAX_BACKUP_FILES = 30
 
 # Table names
+# Columns permitted in update_position() — prevents SQL column-name injection
+_ALLOWED_POSITION_COLUMNS: frozenset[str] = frozenset({
+    "symbol", "strategy", "quantity", "entry_price", "current_price",
+    "unrealized_pnl", "realized_pnl", "status", "opened_at", "closed_at",
+    "delta", "gamma", "theta", "vega",
+})
+
 TABLES = {
     "trades": "trades",
     "positions": "positions",
@@ -199,7 +206,7 @@ class DatabaseManager:
         self._setup_connection_pool()
         self._initialize_database()
 
-        self.logger.info(f"✅ DatabaseManager initialized: {self.db_path}")
+        self.logger.info("✅ DatabaseManager initialized: %s", self.db_path)
 
     # ==========================================================================
     # INITIALIZATION
@@ -445,7 +452,6 @@ class DatabaseManager:
             conn = sqlite3.connect(
                 str(self.db_path),
                 check_same_thread=False,
-                isolation_level=None
             )
             conn.row_factory = sqlite3.Row
             self.connection_pool.put(conn)
@@ -539,6 +545,13 @@ class DatabaseManager:
         """Update position record"""
         with self.lock, self._get_connection() as conn:
             cursor = conn.cursor()
+
+            # Validate column names against allowlist — prevents column-name injection
+            invalid_columns = set(updates.keys()) - _ALLOWED_POSITION_COLUMNS
+            if invalid_columns:
+                raise ValueError(
+                    f"update_position: column(s) not permitted: {sorted(invalid_columns)}"
+                )
 
             # Get old values for audit
             cursor.execute("SELECT * FROM positions WHERE position_id = ?", (position_id,))
@@ -734,7 +747,7 @@ class DatabaseManager:
             backup_file.unlink()  # Remove uncompressed file
 
             self.last_backup = datetime.now()
-            self.logger.info(f"✅ Database backed up: {backup_file}.gz")
+            self.logger.info("✅ Database backed up: %s.gz", backup_file)
 
             # Cleanup old backups
             self._cleanup_old_backups()
@@ -748,7 +761,7 @@ class DatabaseManager:
         if len(backups) > MAX_BACKUP_FILES:
             for old_backup in backups[:-MAX_BACKUP_FILES]:
                 old_backup.unlink()
-                self.logger.info(f"Removed old backup: {old_backup}")
+                self.logger.info("Removed old backup: %s", old_backup)
 
     def vacuum_database(self):
         """Vacuum database to reclaim space and optimize"""

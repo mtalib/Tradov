@@ -214,7 +214,7 @@ class BrokerStatusWidget(QWidget):
         group_box = QGroupBox("Broker Connection")
         group_box.setStyleSheet("""
             QGroupBox {
-                font-weight: bold;
+                font-weight: normal;
                 border: 1px solid #555;
                 border-radius: 5px;
                 margin-top: 1ex;
@@ -446,7 +446,7 @@ class BrokerStatusWidget(QWidget):
             QLabel {{
                 background-color: {color.name()};
                 color: white;
-                font-weight: bold;
+                font-weight: normal;
                 border-radius: 5px;
                 padding: 5px;
             }}
@@ -480,7 +480,7 @@ class BrokerStatusWidget(QWidget):
                 self._update_detailed_metrics()
 
         except Exception as e:
-            self.logger.error(f"Error updating status: {e}")
+            self.logger.error("Error updating status: %s", e)
 
     # --- Connection ---
     def _update_connection_status(self) -> None:
@@ -516,7 +516,7 @@ class BrokerStatusWidget(QWidget):
             self.status_changed.emit("connection", state)
 
         except Exception as e:
-            self.logger.error(f"Error updating connection status: {e}")
+            self.logger.error("Error updating connection status: %s", e)
 
     # --- Broker tab ---
     def _update_broker_tab(self) -> None:
@@ -547,7 +547,7 @@ class BrokerStatusWidget(QWidget):
                     dtc = balance.get("day_trade_count", "--")
                     self.day_trade_count_label.setText(f"Day Trades: {dtc}")
             except Exception as e:
-                self.logger.debug(f"Could not fetch account balance: {e}")
+                self.logger.debug("Could not fetch account balance: %s", e)
 
             # Positions
             try:
@@ -573,10 +573,10 @@ class BrokerStatusWidget(QWidget):
                 else:
                     self.tradier_positions_table.setRowCount(0)
             except Exception as e:
-                self.logger.debug(f"Could not fetch positions: {e}")
+                self.logger.debug("Could not fetch positions: %s", e)
 
         except Exception as e:
-            self.logger.error(f"Error updating broker tab: {e}")
+            self.logger.error("Error updating broker tab: %s", e)
 
     def _refresh_broker_data(self) -> None:
         """Manual refresh button handler."""
@@ -595,7 +595,7 @@ class BrokerStatusWidget(QWidget):
                 try:
                     orders.extend(self.order_manager.get_orders_by_state(state))
                 except Exception as e:
-                    self.logger.debug(f"Failed to get orders for state {state}: {e}")
+                    self.logger.debug("Failed to get orders for state %s: %s", state, e)
 
             if orders:
                 self._apply_status_style(self.order_status_label, "ACTIVE")
@@ -625,7 +625,7 @@ class BrokerStatusWidget(QWidget):
             )
 
         except Exception as e:
-            self.logger.error(f"Error updating order status: {e}")
+            self.logger.error("Error updating order status: %s", e)
 
     # --- Risk ---
     def _update_risk_metrics(self) -> None:
@@ -681,12 +681,12 @@ class BrokerStatusWidget(QWidget):
                         self.risk_positions_table.setItem(
                             i, 4, QTableWidgetItem(f"{pct:.2f}%"))
             except Exception as e:
-                self.logger.debug(f"Failed to render risk positions: {e}")
+                self.logger.debug("Failed to render risk positions: %s", e)
 
             self.status_changed.emit("risk", risk_metrics.risk_level.name)
 
         except Exception as e:
-            self.logger.error(f"Error updating risk metrics: {e}")
+            self.logger.error("Error updating risk metrics: %s", e)
 
     # --- Metrics ---
     def _update_detailed_metrics(self) -> None:
@@ -709,10 +709,10 @@ class BrokerStatusWidget(QWidget):
                         f"Success Rate: {om.get('success_rate', 0):.2f}%"
                     )
                 except Exception as e:
-                    self.logger.debug(f"Failed to get order manager metrics: {e}")
+                    self.logger.debug("Failed to get order manager metrics: %s", e)
 
         except Exception as e:
-            self.logger.error(f"Error updating detailed metrics: {e}")
+            self.logger.error("Error updating detailed metrics: %s", e)
 
     # ------------------------------------------------------------------
     # PUBLIC API
@@ -724,7 +724,7 @@ class BrokerStatusWidget(QWidget):
             self._status_timer.stop()
             self.logger.info("BrokerStatusWidget stopped")
         except Exception as e:
-            self.logger.error(f"Error stopping status widget: {e}")
+            self.logger.error("Error stopping status widget: %s", e)
 
 
 

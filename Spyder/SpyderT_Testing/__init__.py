@@ -61,17 +61,9 @@ except ImportError as e:
     print(f"⚠️ SpyderT01_UnitTestFramework not available: {e}")
     UNIT_TEST_FRAMEWORK_AVAILABLE = False
 
-# Broker Test Suite
-try:
-    from .SpyderT02_BrokerTestSuite import (
-        BrokerTestSuite,
-        # Add main classes from BrokerTestSuite when inspected
-    )
-
-    BROKER_TEST_SUITE_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderT02_BrokerTestSuite not available: {e}")
-    BROKER_TEST_SUITE_AVAILABLE = False
+# SpyderT02_BrokerTestSuite removed — IBKR legacy, file never existed post-migration
+BROKER_TEST_SUITE_AVAILABLE = False
+BrokerTestSuite = None
 
 # Black Swan Validator
 try:
@@ -85,17 +77,9 @@ except ImportError as e:
     print(f"⚠️ SpyderT03_BlackSwanValidator not available: {e}")
     BLACK_SWAN_VALIDATOR_AVAILABLE = False
 
-# Live IB Connection Test
-try:
-    from .SpyderT05_LiveIBConnectionTest import (
-        LiveIBConnectionTest,
-        # Add main classes from LiveIBConnectionTest when inspected
-    )
-
-    LIVE_IB_CONNECTION_TEST_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderT05_LiveIBConnectionTest not available: {e}")
-    LIVE_IB_CONNECTION_TEST_AVAILABLE = False
+# SpyderT05_LiveIBConnectionTest removed — IBKR legacy, file never existed post-migration
+LIVE_IB_CONNECTION_TEST_AVAILABLE = False
+LiveIBConnectionTest = None
 
 # System Integration Test
 try:

@@ -217,7 +217,7 @@ class SkewDataThread(QThread):
                     confidence=0.8 + random.random() * 0.2,
                 )
         except Exception as e:
-            logger.error(f"Error fetching SKEW data: {e}")
+            logger.error("Error fetching SKEW data: %s", e)
             return None
 
     def calculate_change(self, calculator, days: int) -> float:
@@ -357,7 +357,7 @@ class SkewMonitorDialog(QDialog):
 
         self.skew_value_label = QLabel("---.--")
         self.skew_value_label.setAlignment(Qt.AlignCenter)
-        font = QFont("Arial", 36, QFont.Weight.Bold)
+        font = QFont("Arial", 36)
         self.skew_value_label.setFont(font)
 
         self.skew_timestamp_label = QLabel("Last Update: --:--:--")
@@ -419,7 +419,7 @@ class SkewMonitorDialog(QDialog):
 
         self.regime_label = QLabel("ANALYZING...")
         self.regime_label.setAlignment(Qt.AlignCenter)
-        regime_font = QFont("Arial", 16, QFont.Weight.Bold)
+        regime_font = QFont("Arial", 16)
         self.regime_label.setFont(regime_font)
 
         self.regime_description = QTextEdit()
@@ -437,7 +437,7 @@ class SkewMonitorDialog(QDialog):
 
         self.signal_label = QLabel("NEUTRAL")
         self.signal_label.setAlignment(Qt.AlignCenter)
-        signal_font = QFont("Arial", 16, QFont.Weight.Bold)
+        signal_font = QFont("Arial", 16)
         self.signal_label.setFont(signal_font)
 
         self.signal_description = QTextEdit()
@@ -901,7 +901,7 @@ class SkewMonitorDialog(QDialog):
                 self.hist_chart.plot(bins, hist, stepMode=True, fillLevel=0, brush="y")
 
         except Exception as e:
-            logger.error(f"Error updating charts: {e}")
+            logger.error("Error updating charts: %s", e)
 
     # ==========================================================================
     # HELPER METHODS
@@ -1261,7 +1261,7 @@ class SkewMonitorDialog(QDialog):
             border: 1px solid #444;
             border-radius: 5px;
             margin-top: 10px;
-            font-weight: bold;
+            font-weight: normal;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
@@ -1297,7 +1297,7 @@ class SkewMonitorDialog(QDialog):
         """Handle update interval change"""
         intervals = [UPDATE_INTERVAL_FAST, UPDATE_INTERVAL_NORMAL, UPDATE_INTERVAL_SLOW]
         self.data_thread.update_interval = intervals[index]
-        logger.info(f"Update interval changed to {intervals[index]}ms")
+        logger.info("Update interval changed to %sms", intervals[index])
 
     def on_auto_update_toggled(self, checked: bool):
         """Handle auto update toggle"""
@@ -1309,7 +1309,7 @@ class SkewMonitorDialog(QDialog):
     @Slot(str)
     def on_error(self, error_msg: str):
         """Handle errors from data thread"""
-        logger.error(f"Data thread error: {error_msg}")
+        logger.error("Data thread error: %s", error_msg)
         self.connection_label.setText("● Error")
         self.connection_label.setStyleSheet("color: red;")
 

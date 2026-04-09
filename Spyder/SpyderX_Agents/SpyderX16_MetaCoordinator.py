@@ -31,6 +31,7 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
@@ -260,10 +261,10 @@ class MetaCoordinator:
             for agent_id in self.agents:
                 self.agent_performance[agent_id] = AgentPerformance(agent_id=agent_id)
 
-            self.logger.info(f"Initialized {len(self.agents)} agents")
+            self.logger.info("Initialized %s agents", len(self.agents))
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize agents: {e}")
+            self.logger.error("Failed to initialize agents: %s", e)
             self.error_handler.handle_error(e, {"method": "_initialize_agents"})
 
     def _initialize_weights(self):
@@ -372,7 +373,7 @@ class MetaCoordinator:
         decision_id = str(uuid.uuid4())
 
         try:
-            self.logger.info(f"Coordinating {decision_type.value} decision (ID: {decision_id})")
+            self.logger.info("Coordinating %s decision (ID: %s)", decision_type.value, decision_id)
 
             # 1. Determine relevant agents for this decision
             relevant_agents = self._get_relevant_agents(decision_type)
@@ -388,7 +389,7 @@ class MetaCoordinator:
             # 4. Check for conflicts
             conflicts = self._identify_conflicts(recommendations)
             if conflicts:
-                self.logger.warning(f"Found {len(conflicts)} conflicts, resolving...")
+                self.logger.warning("Found %s conflicts, resolving...", len(conflicts))
                 recommendations = await self._resolve_conflicts(
                     recommendations, conflicts, decision_type
                 )
@@ -416,7 +417,7 @@ class MetaCoordinator:
             return final_decision
 
         except Exception as e:
-            self.logger.error(f"Decision coordination failed: {e}")
+            self.logger.error("Decision coordination failed: %s", e)
             self.error_handler.handle_error(e, {
                 "decision_type": decision_type.value,
                 "decision_id": decision_id
@@ -485,7 +486,7 @@ class MetaCoordinator:
                     f"(confidence: {self.regime_confidence:.2%})"
                 )
         except Exception as e:
-            self.logger.warning(f"Failed to update market regime: {e}")
+            self.logger.warning("Failed to update market regime: %s", e)
 
     async def _collect_agent_recommendations(
         self,
@@ -518,10 +519,10 @@ class MetaCoordinator:
                 if isinstance(result, AgentRecommendation):
                     recommendations.append(result)
                 elif isinstance(result, Exception):
-                    self.logger.warning(f"Agent recommendation failed: {result}")
+                    self.logger.warning("Agent recommendation failed: %s", result)
 
-        except builtins.TimeoutError:
-            self.logger.warning(f"Agent collection timed out after {timeout}s")
+        except TimeoutError:
+            self.logger.warning("Agent collection timed out after %ss", timeout)
             # Use whatever recommendations we have
 
         return recommendations
@@ -560,7 +561,7 @@ class MetaCoordinator:
             )
 
         except Exception as e:
-            self.logger.error(f"Agent {agent_id} recommendation failed: {e}")
+            self.logger.error("Agent %s recommendation failed: %s", agent_id, e)
             # Return neutral recommendation
             return AgentRecommendation(
                 agent_id=agent_id,
@@ -753,7 +754,7 @@ class MetaCoordinator:
             if rec.agent_id in conflict.conflicting_agents and rec.action != winning_action:
                 rec.confidence *= 0.5  # Reduce confidence of overruled agents
 
-        self.logger.info(f"Resolved conflict: {winning_action} wins by weighted vote")
+        self.logger.info("Resolved conflict: %s wins by weighted vote", winning_action)
 
         return recommendations
 
@@ -797,11 +798,11 @@ class MetaCoordinator:
         """Resolve conflict by seeking broader consensus"""
         # Request additional analysis from non-participating agents
         all_agents = set(self.agents.keys())
-        participating = set(rec.agent_id for rec in recommendations)
+        participating = {rec.agent_id for rec in recommendations}
         additional_agents = list(all_agents - participating)[:3]  # Get up to 3 more
 
         if additional_agents:
-            self.logger.info(f"Seeking consensus from additional agents: {additional_agents}")
+            self.logger.info("Seeking consensus from additional agents: %s", additional_agents)
             # This would call additional agents for their input
             # For now, we'll adjust existing recommendations
 
@@ -921,7 +922,7 @@ class MetaCoordinator:
         if risk_recs:
             risk_rec = risk_recs[0]
             if risk_rec.action in ['STOP', 'EXIT', 'VETO'] and risk_rec.confidence > 0.8:
-                self.logger.warning(f"Risk Guardian VETO: {risk_rec.reasoning}")
+                self.logger.warning("Risk Guardian VETO: %s", risk_rec.reasoning)
                 decision.final_action = 'HOLD'
                 decision.reasoning = f"VETO by Risk Guardian: {risk_rec.reasoning}"
                 decision.execution_params['veto'] = True
@@ -1038,7 +1039,7 @@ class MetaCoordinator:
 
     async def emergency_override(self, action: str, reason: str) -> CoordinatedDecision:
         """Emergency override for critical situations"""
-        self.logger.critical(f"EMERGENCY OVERRIDE: {action} - {reason}")
+        self.logger.critical("EMERGENCY OVERRIDE: %s - %s", action, reason)
 
         decision = CoordinatedDecision(
             decision_id=str(uuid.uuid4()),
@@ -1133,7 +1134,7 @@ class MetaCoordinator:
                 'status': 'completed',
             }
 
-        self.logger.info(f"Ray agent coordination: {len(agent_ids)} agents")
+        self.logger.info("Ray agent coordination: %s agents", len(agent_ids))
 
         futures = [_run_agent_analysis.remote(market_ref, aid) for aid in agent_ids]
         results = ray.get(futures)

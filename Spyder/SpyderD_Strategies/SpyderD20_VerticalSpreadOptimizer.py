@@ -201,7 +201,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
         self.current_iv_rank = 50
         self.current_iv_percentile = 50
 
-        self.logger.info(f"{self.strategy_name} initialized with mode: {self.optimization_mode}")
+        self.logger.info("%s initialized with mode: %s", self.strategy_name, self.optimization_mode)
 
     def analyze_market_conditions(self, market_data: dict[str, Any]) -> Signal:
         """
@@ -237,7 +237,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             return Signal(action="HOLD")
 
         except Exception as e:
-            self.logger.error(f"Error analyzing market: {e}")
+            self.logger.error("Error analyzing market: %s", e)
             self.error_handler.handle_error(e, {"method": "analyze_market_conditions"})
             return Signal(action="HOLD")
 
@@ -262,7 +262,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
                 self.market_bias = MarketBias.NEUTRAL
 
         except Exception as e:
-            self.logger.warning(f"Could not update market bias: {e}")
+            self.logger.warning("Could not update market bias: %s", e)
             self.market_bias = MarketBias.NEUTRAL
 
     def _update_volatility_metrics(self, market_data: dict[str, Any]):
@@ -279,7 +279,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
                 self.current_iv_percentile = self.current_iv_rank
 
         except Exception as e:
-            self.logger.warning(f"Could not update volatility metrics: {e}")
+            self.logger.warning("Could not update volatility metrics: %s", e)
 
     def _should_enter_position(self, market_data: dict[str, Any]) -> bool:
         """Check if conditions are suitable for new position"""
@@ -344,7 +344,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             return None
 
         except Exception as e:
-            self.logger.error(f"Error finding optimal spread: {e}")
+            self.logger.error("Error finding optimal spread: %s", e)
             return None
 
     def _select_spread_type(self) -> SpreadType:
@@ -486,7 +486,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             )
 
         except Exception as e:
-            self.logger.error(f"Error analyzing spread: {e}")
+            self.logger.error("Error analyzing spread: %s", e)
             return None
 
     def _calculate_probability_of_profit(
@@ -524,7 +524,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             return min(0.99, max(0.01, pop))
 
         except Exception as e:
-            self.logger.error(f"Error calculating PoP: {e}")
+            self.logger.error("Error calculating PoP: %s", e)
             return 0.5
 
     def _calculate_expected_value(
@@ -724,7 +724,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             position.days_in_trade = (datetime.now() - position.entry_date).days
 
         except Exception as e:
-            self.logger.error(f"Error updating position metrics: {e}")
+            self.logger.error("Error updating position metrics: %s", e)
 
     def _check_for_adjustment(
         self,

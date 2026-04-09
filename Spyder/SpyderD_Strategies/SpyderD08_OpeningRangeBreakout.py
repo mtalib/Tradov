@@ -251,7 +251,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             'other_day_trades': 0
         }
 
-        self.logger.info(f"OpeningRangeBreakout strategy initialized with {self.range_minutes}min range")
+        self.logger.info("OpeningRangeBreakout strategy initialized with %smin range", self.range_minutes)
 
     # ==========================================================================
     # REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
@@ -933,7 +933,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Opened {position.breakout_signal.breakout_type.name} breakout: {position.position_id}")
+            self.logger.info("Opened %s breakout: %s", position.breakout_signal.breakout_type.name, position.position_id)
             return position
 
         except Exception as e:

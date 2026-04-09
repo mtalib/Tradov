@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from dataclasses import dataclass
 from collections import deque
@@ -47,8 +47,15 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
+
+try:
+    from SpyderC_MarketData.SpyderC10_VIXAnalyzer import get_vix_analyzer as _get_vix_analyzer
+    HAS_VIX_ANALYZER = True
+except ImportError:
+    HAS_VIX_ANALYZER = False
+    _get_vix_analyzer = None
 
 # ==============================================================================
 # CONSTANTS
@@ -267,13 +274,13 @@ class VolatilityRiskManager:
         self._vol_surface_data: dict[str, Any] = {}
         self._last_surface_update = datetime.now()
 
-        # Mock data for VIX (would come from market data in production)
-        self._mock_vix_data = {
-            'spot': 18.5,
-            '30d': 19.2,
-            '60d': 19.8,
-            '90d': 20.1
-        }
+        # VIX analyzer — provides live VIX data; obtained via singleton if available
+        self._vix_analyzer: Any = None
+        if HAS_VIX_ANALYZER and _get_vix_analyzer is not None:
+            try:
+                self._vix_analyzer = _get_vix_analyzer()
+            except Exception as e:
+                self.logger.warning("VIX analyzer unavailable at init: %s", e)
 
         self.logger.info("VolatilityRiskManager initialized")
 
@@ -339,7 +346,7 @@ class VolatilityRiskManager:
                 return profile
 
             except Exception as e:
-                self.logger.error(f"Volatility risk assessment error: {e}")
+                self.logger.error("Volatility risk assessment error: %s", e)
                 self.error_handler.handle_error(e, {"method": "assess_volatility_risk"})
                 return self._create_default_risk_profile()
 
@@ -378,7 +385,7 @@ class VolatilityRiskManager:
             self.protection_level = level
 
             self.logger.warning(
-                f"Activated {level.value} protection protocol: {protocol.protocol_id}"
+                "Activated %s protection protocol: %s", level.value, protocol.protocol_id
             )
 
             return protocol
@@ -453,42 +460,61 @@ class VolatilityRiskManager:
     # PRIVATE METHODS - CALCULATIONS
     # ==========================================================================
     def _calculate_volatility_metrics(self) -> VolatilityMetrics:
-        """Calculate current volatility metrics."""
-        # In production, would fetch from market data
-        # Using mock data for demonstration
+        """Calculate current volatility metrics from live VIX analyzer data."""
+        # Attempt to source live VIX data from SpyderC10_VIXAnalyzer
+        spot_vix = 20.0  # conservative neutral fallback
+        term_structure = {'30d': 20.0, '60d': 20.5, '90d': 21.0}
 
-        spot_vix = self._mock_vix_data['spot']
+        if self._vix_analyzer is not None:
+            try:
+                c10 = self._vix_analyzer.get_current_metrics()
+                if c10 is not None and c10.vix > 0:
+                    spot_vix = c10.vix
+                    # Map C10 VIX family to E09's term structure buckets
+                    # VIX ≈ 30d implied vol; VXV ≈ 3-month; VXMT ≈ 6-month
+                    term_structure = {
+                        '30d': c10.vix,
+                        '60d': c10.vxv if c10.vxv > 0 else spot_vix * 1.025,
+                        '90d': c10.vxmt if c10.vxmt > 0 else spot_vix * 1.05,
+                    }
+            except Exception as e:
+                self.logger.warning("VIX analyzer data fetch failed: %s", e)
 
-        # Calculate changes
-        vix_change_1d = 0.5  # Mock
-        vix_change_5d = -1.2  # Mock
+        # Record VIX in history (throttled to once per minute to preserve resolution)
+        now = datetime.now()
+        if (not self.vix_history
+                or (now - list(self.vix_history)[-1]['timestamp']).total_seconds() >= 60):
+            self.vix_history.append({'timestamp': now, 'spot': spot_vix})
 
-        # Calculate realized vol (mock)
-        realized_vol_10d = 0.16
-        realized_vol_30d = 0.18
+        # Calculate VIX changes from stored history
+        history_list = list(self.vix_history)
+        vix_change_1d = 0.0
+        vix_change_5d = 0.0
+        if len(history_list) >= 2:
+            vix_change_1d = spot_vix - history_list[-2]['spot']
+        if len(history_list) >= 6:
+            vix_change_5d = spot_vix - history_list[-6]['spot']
 
-        # ATM implied vol (mock)
-        implied_vol_atm = 0.17
+        # Volatility estimates derived from VIX (annualised)
+        realized_vol_10d = spot_vix / 100.0 * 0.90   # HV typically runs below IV
+        realized_vol_30d = spot_vix / 100.0 * 0.95
+        implied_vol_atm = spot_vix / 100.0
+        vol_of_vol = max(0.05, spot_vix / 100.0 * 0.80)
 
-        # Vol of vol
-        vol_of_vol = 0.25
-
-        # Put/call ratio
-        put_call_ratio = 1.2
-
-        # Term structure
-        term_structure = {
-            '30d': self._mock_vix_data['30d'],
-            '60d': self._mock_vix_data['60d'],
-            '90d': self._mock_vix_data['90d']
-        }
+        put_call_ratio = 1.2  # neutral default; wire to market data feed when available
 
         # Determine regime
         regime = self._determine_volatility_regime(spot_vix)
-        regime_confidence = 0.85  # Mock confidence
+
+        # Regime confidence: higher when VIX has been stable in the same zone
+        regime_confidence = 0.70
+        if len(history_list) >= 5:
+            recent_vix = [h['spot'] for h in history_list[-5:]]
+            vix_std = statistics.stdev(recent_vix) if len(recent_vix) >= 2 else 0.0
+            regime_confidence = max(0.50, min(0.95, 1.0 - vix_std / max(spot_vix, 1.0)))
 
         return VolatilityMetrics(
-            timestamp=datetime.now(),
+            timestamp=now,
             spot_vix=spot_vix,
             vix_change_1d=vix_change_1d,
             vix_change_5d=vix_change_5d,
@@ -499,33 +525,42 @@ class VolatilityRiskManager:
             put_call_ratio=put_call_ratio,
             term_structure=term_structure,
             regime=regime,
-            regime_confidence=regime_confidence
+            regime_confidence=regime_confidence,
         )
 
     def _calculate_vol_exposure(self, positions: list[dict[str, Any]] | None) -> VolatilityExposure:
-        """Calculate portfolio volatility exposure."""
-        # Mock calculation - would aggregate from actual positions
+        """Calculate portfolio volatility exposure by aggregating actual position Greeks."""
+        vega_exposure = 0.0
+        volga_exposure = 0.0
+        vanna_exposure = 0.0
+        gamma_exposure = 0.0
+        vega_by_expiry: dict[datetime, float] = {}
+        vega_by_strike: dict[float, float] = {}
+        short_vol = 0.0
+        long_vol = 0.0
 
-        vega_exposure = 250.0  # Mock
-        volga_exposure = 50.0  # Mock
-        vanna_exposure = 75.0  # Mock
-        gamma_exposure = 40.0  # Mock
+        if positions:
+            for pos in positions:
+                qty = float(pos.get('quantity', 1.0))
+                vega = float(pos.get('vega', 0.0)) * qty
+                volga_exposure += float(pos.get('volga', 0.0)) * qty
+                vanna_exposure += float(pos.get('vanna', 0.0)) * qty
+                gamma_exposure += float(pos.get('gamma', 0.0)) * qty
+                vega_exposure += vega
 
-        # Vega by expiry (mock)
-        vega_by_expiry = {
-            datetime.now() + timedelta(days=30): 100.0,
-            datetime.now() + timedelta(days=60): 150.0
-        }
+                # Aggregate vega by expiry and strike
+                expiry = pos.get('expiry')
+                if expiry is not None:
+                    vega_by_expiry[expiry] = vega_by_expiry.get(expiry, 0.0) + vega
+                strike = pos.get('strike')
+                if strike is not None:
+                    s = float(strike)
+                    vega_by_strike[s] = vega_by_strike.get(s, 0.0) + vega
 
-        # Vega by strike (mock)
-        vega_by_strike = {
-            390.0: 50.0,
-            400.0: 150.0,
-            410.0: 50.0
-        }
-
-        short_vol = 100.0
-        long_vol = 350.0
+                if vega < 0:
+                    short_vol += abs(vega)
+                else:
+                    long_vol += vega
 
         return VolatilityExposure(
             vega_exposure=vega_exposure,
@@ -536,7 +571,7 @@ class VolatilityRiskManager:
             vega_by_strike=vega_by_strike,
             short_vol_exposure=short_vol,
             long_vol_exposure=long_vol,
-            net_vol_exposure=long_vol - short_vol
+            net_vol_exposure=long_vol - short_vol,
         )
 
     def _assess_risk_levels(self) -> VolRiskAssessment:
@@ -866,7 +901,7 @@ class VolatilityRiskManager:
             if 'max_vanna' in limits:
                 self.max_vanna = limits['max_vanna']
 
-            self.logger.info(f"Updated volatility limits: {limits}")
+            self.logger.info("Updated volatility limits: %s", limits)
 
     def get_risk_statistics(self) -> dict[str, Any]:
         """Get volatility risk statistics."""
@@ -944,7 +979,7 @@ class VolatilityRiskManager:
                 threading.Event().wait(VOL_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
                 self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
 
     def _update_vol_surface(self) -> None:
@@ -996,8 +1031,8 @@ if __name__ == "__main__":
 
     # Test protection protocol
 
-    # Simulate high VIX
-    vol_mgr._mock_vix_data['spot'] = 35.0  # High VIX
+    # To test high-VIX scenario, provide a VIX analyzer returning elevated data
+    # or inject test positions with large vega exposure into assess_volatility_risk()
 
     # Reassess risk
     high_risk_profile = vol_mgr.assess_volatility_risk()

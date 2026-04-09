@@ -550,7 +550,7 @@ class GapAnalyzer:
                 gap.correlated_news = relevant_news
 
             except Exception as e:
-                self.logger.warning(f"News correlation failed for gap: {e}")
+                self.logger.warning("News correlation failed for gap: %s", e)
 
     def _is_news_driven_gap(self, gap: Gap, news_events: list[NewsEvent]) -> bool:
         """Determine if gap is likely news-driven."""

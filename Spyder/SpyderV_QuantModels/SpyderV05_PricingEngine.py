@@ -54,7 +54,6 @@ from numba import jit
 # MODULE CONFIGURATION
 # ==============================================================================
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -460,7 +459,7 @@ class SpyderPricingEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error pricing option: {e}", exc_info=True)
+            self.logger.error("Error pricing option: %s", e, exc_info=True)
             self.calculation_errors += 1
 
             # Return safe default result
@@ -497,7 +496,7 @@ class SpyderPricingEngine:
             final_results = []
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    self.logger.error(f"Error pricing contract {i}: {result}")
+                    self.logger.error("Error pricing contract %s: %s", i, result)
                     final_results.append(
                         self._create_default_result(contracts[i], result)
                     )
@@ -659,7 +658,7 @@ class SpyderPricingEngine:
 
         except Exception as e:
             # Fallback to European pricing
-            self.logger.warning(f"Barone-Adesi failed, using European: {e}", exc_info=True)
+            self.logger.warning("Barone-Adesi failed, using European: %s", e, exc_info=True)
             return await self._black_scholes_pricing(contract, parameters)
 
     def _barone_adesi_approximation(self, S, K, T, r, q, sigma, is_call):
@@ -1353,10 +1352,10 @@ async def main():
     pricing_engine = create_pricing_engine(config)
 
     logging.info("\n✅ Pricing Engine Initialized")
-    logging.info(f"   Default model: {pricing_engine.default_params.model.value}")
-    logging.info(f"   Binomial steps: {pricing_engine.default_params.binomial_steps}")
-    logging.info(f"   Monte Carlo sims: {pricing_engine.default_params.monte_carlo_sims}")
-    logging.info(f"   Cache enabled: {pricing_engine.default_params.use_cache}")
+    logging.info("   Default model: %s", pricing_engine.default_params.model.value)
+    logging.info("   Binomial steps: %s", pricing_engine.default_params.binomial_steps)
+    logging.info("   Monte Carlo sims: %s", pricing_engine.default_params.monte_carlo_sims)
+    logging.info("   Cache enabled: %s", pricing_engine.default_params.use_cache)
 
     # Create sample option contracts
     test_contracts = [
@@ -1392,7 +1391,7 @@ async def main():
         ),
     ]
 
-    logging.info(f"\n📊 Test Contracts Created: {len(test_contracts)}")
+    logging.info("\n📊 Test Contracts Created: %s", len(test_contracts))
 
     # Test individual pricing with different models
     logging.info("\n--- Model Comparison for SPY Call Option ---")
@@ -1436,7 +1435,7 @@ async def main():
                 f"\nContract {i+1}: {contract.option_type.value.upper()} "
                 f"K=${contract.strike_price} T={contract.time_to_expiry*365:.0f}d"
             )
-            logging.info(f"   Selected Model: {result.model_used.value}")
+            logging.info("   Selected Model: %s", result.model_used.value)
             logging.info(f"   Price: ${result.theoretical_price:.4f}")
             logging.info(
                 f"   Early Exercise Premium: ${result.early_exercise_premium or 0:.4f}"
@@ -1445,7 +1444,7 @@ async def main():
             logging.info(f"   Calculation Time: {result.calculation_time_ms:.1f}ms")
 
         except Exception as e:
-            logging.info(f"Contract {i+1}: ERROR - {e}")
+            logging.info("Contract %s: ERROR - %s", i+1, e)
 
     # Test portfolio pricing
     logging.info("\n--- Portfolio Pricing (Parallel Processing) ---")
@@ -1467,7 +1466,7 @@ async def main():
         logging.info(f"   Average per Option: {total_time/len(test_contracts):.1f}ms")
 
     except Exception as e:
-        logging.info(f"   ERROR: {e}")
+        logging.info("   ERROR: %s", e)
 
     # Test Greeks calculations
     logging.info("\n--- Comprehensive Greeks Analysis ---")
@@ -1500,17 +1499,17 @@ async def main():
         logging.info(f"     Veta:   {greeks.veta:>8.4f}  (Vega-Time sensitivity)")
 
     except Exception as e:
-        logging.info(f"   ERROR: {e}")
+        logging.info("   ERROR: %s", e)
 
     # Performance summary
     logging.info("\n--- Performance Summary ---")
     try:
         performance = pricing_engine.get_performance_summary()
 
-        logging.info(f"   Total Calculations: {performance['total_calculations']}")
+        logging.info("   Total Calculations: %s", performance['total_calculations'])
         logging.info(f"   Cache Hit Rate: {performance['cache_hit_rate']:.1%}")
         logging.info(f"   Error Rate: {performance['error_rate']:.1%}")
-        logging.info(f"   Cache Size: {performance['cache_size']} entries")
+        logging.info("   Cache Size: %s entries", performance['cache_size'])
 
         if performance["models"]:
             logging.info("\n   Model Performance:")
@@ -1522,7 +1521,7 @@ async def main():
                 )
 
     except Exception as e:
-        logging.info(f"   ERROR: {e}")
+        logging.info("   ERROR: %s", e)
 
     # Cleanup
     await pricing_engine.shutdown()

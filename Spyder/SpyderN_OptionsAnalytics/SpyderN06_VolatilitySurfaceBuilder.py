@@ -343,12 +343,12 @@ class VolatilitySurfaceBuilder:
                 if len(self.surface_history[symbol]) > 100:
                     self.surface_history[symbol].pop(0)
 
-                self.logger.info(f"Built volatility surface for {symbol}")
+                self.logger.info("Built volatility surface for %s", symbol)
 
                 return surface
 
             except Exception as e:
-                self.logger.error(f"Failed to build surface: {e}", exc_info=True)
+                self.logger.error("Failed to build surface: %s", e, exc_info=True)
                 raise
 
     def _prepare_surface_data(self, options_data: pd.DataFrame,
@@ -388,8 +388,8 @@ class VolatilitySurfaceBuilder:
                      underlying_price: float) -> tuple[np.ndarray, ...]:
         """Create moneyness and time grids for surface"""
         # Extract unique values
-        strikes = sorted(list(set(p.strike for p in surface_points)))
-        expiries = sorted(list(set(p.expiry for p in surface_points)))
+        strikes = sorted(list({p.strike for p in surface_points}))
+        expiries = sorted(list({p.expiry for p in surface_points}))
 
         # Create moneyness grid
         min_moneyness = min(p.moneyness for p in surface_points)

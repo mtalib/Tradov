@@ -280,7 +280,7 @@ class TelegramBot:
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to queue message: {e}")
+            self.logger.error("Failed to queue message: %s", e)
             return False
 
     def send_trade_opened(
@@ -534,6 +534,133 @@ class TelegramBot:
             message_type=MessageType.MARKET
         )
 
+    def send_confirmation_request(
+        self,
+        order: dict,
+        reason: str,
+        timeout: int = 60,
+    ) -> bool | None:
+        """
+        Send a high-risk order confirmation request via inline keyboard and poll
+        for the operator's response.
+
+        Sends a Telegram message with ✅ APPROVE and ❌ REJECT inline buttons,
+        then polls getUpdates until the operator responds or the timeout expires.
+
+        Args:
+            order:   Order details dict (symbol, side, quantity, type, price).
+            reason:  Human-readable reason the order is flagged as high-risk.
+            timeout: Seconds to wait for a response before giving up (default 60).
+
+        Returns:
+            True  — operator approved.
+            False — operator rejected.
+            None  — timed out; caller should fall back to autonomous decision.
+        """
+        order_id = order.get('id', f"ord_{int(datetime.now().timestamp())}")
+        approve_data = f"spyder_approve_{order_id}"
+        reject_data = f"spyder_reject_{order_id}"
+
+        text = (
+            f"\U0001f6a8 <b>HIGH-RISK ORDER \u2014 APPROVAL REQUIRED</b>\n\n"
+            f"<b>Reason:</b> {reason}\n"
+            f"<b>Symbol:</b> {order.get('symbol', 'N/A')}\n"
+            f"<b>Side:</b> {order.get('side', 'N/A')}\n"
+            f"<b>Quantity:</b> {order.get('quantity', 'N/A')}\n"
+            f"<b>Type:</b> {order.get('type', 'N/A')}\n"
+            f"<b>Price:</b> {order.get('price', 'MARKET')}\n\n"
+            f"\u23f3 <i>Approval window: {timeout}s</i>\n"
+            f"\U0001f550 <i>{datetime.now().strftime('%H:%M:%S ET')}</i>"
+        )
+
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "\u2705 APPROVE", "callback_data": approve_data},
+                {"text": "\u274c REJECT",  "callback_data": reject_data},
+            ]]
+        }
+
+        sent = self.send_message(
+            text,
+            priority=MessagePriority.CRITICAL,
+            message_type=MessageType.ALERT,
+            reply_markup=reply_markup,
+        )
+        if not sent:
+            self.logger.warning("Could not send high-risk confirmation request via Telegram.")
+            return None
+
+        # Poll getUpdates for the callback response
+        poll_timeout = min(10, timeout)
+        gotten_update_id: int | None = None
+        deadline = time.monotonic() + timeout
+
+        try:
+            updates_url = TELEGRAM_API_URL.format(token=self.bot_token, method="getUpdates")
+
+            # Advance offset past stale updates so we only see fresh callbacks
+            init_resp = self.session.get(
+                updates_url, params={"limit": 1, "timeout": 0}, timeout=CONNECTION_TIMEOUT
+            )
+            if init_resp.ok:
+                prior = init_resp.json().get("result", [])
+                if prior:
+                    gotten_update_id = prior[-1]["update_id"] + 1
+
+            while time.monotonic() < deadline:
+                remaining = int(deadline - time.monotonic())
+                params = {
+                    "offset": gotten_update_id,
+                    "timeout": min(poll_timeout, max(1, remaining)),
+                    "allowed_updates": ["callback_query"],
+                }
+                resp = self.session.get(
+                    updates_url, params=params, timeout=poll_timeout + 5
+                )
+                if not resp.ok:
+                    time.sleep(1)
+                    continue
+
+                for update in resp.json().get("result", []):
+                    gotten_update_id = update["update_id"] + 1
+                    cq = update.get("callback_query")
+                    if not cq:
+                        continue
+                    data = cq.get("data", "")
+                    # Acknowledge the button press (cosmetic — non-critical)
+                    try:
+                        ack_url = TELEGRAM_API_URL.format(
+                            token=self.bot_token, method="answerCallbackQuery"
+                        )
+                        self.session.post(
+                            ack_url,
+                            json={"callback_query_id": cq["id"], "text": "Response received"},
+                            timeout=CONNECTION_TIMEOUT,
+                        )
+                    except Exception as _ack_err:
+                        self.logger.debug("Telegram callback ack failed (non-critical): %s", _ack_err)
+
+                    operator = cq.get("from", {}).get("username", "operator")
+                    if data == approve_data:
+                        self.logger.info(
+                            "High-risk order %s APPROVED via Telegram by %s.", order_id, operator
+                        )
+                        return True
+                    if data == reject_data:
+                        self.logger.warning(
+                            "High-risk order %s REJECTED via Telegram by %s.", order_id, operator
+                        )
+                        return False
+
+        except Exception as e:
+            self.logger.error("Error polling Telegram for confirmation: %s", e)
+            return None
+
+        self.logger.warning(
+            "Confirmation request for order %s timed out after %ss.", order_id, timeout
+        )
+        return None
+
     # ==========================================================================
     # PRIVATE METHODS - MESSAGE SENDING
     # ==========================================================================
@@ -577,7 +704,7 @@ class TelegramBot:
             return True
 
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Failed to send message: {e}")
+            self.logger.error("Failed to send message: %s", e)
             self.stats.messages_failed += 1
             self.stats.last_error = str(e)
             self.stats.total_errors += 1
@@ -606,7 +733,7 @@ class TelegramBot:
             except Empty:
                 continue
             except Exception as e:
-                self.logger.error(f"Worker error: {e}")
+                self.logger.error("Worker error: %s", e)
 
     def _split_message(self, text: str) -> list[str]:
         """Split long messages to fit Telegram limits"""
@@ -662,14 +789,14 @@ class TelegramBot:
             data = response.json()
             if data.get('ok'):
                 bot_info = data['result']
-                self.logger.info(f"Bot verified: @{bot_info['username']}")
+                self.logger.info("Bot verified: @%s", bot_info['username'])
                 return True
             else:
-                self.logger.error(f"Bot verification failed: {data}")
+                self.logger.error("Bot verification failed: %s", data)
                 return False
 
         except Exception as e:
-            self.logger.error(f"Bot verification error: {e}")
+            self.logger.error("Bot verification error: %s", e)
             return False
 
     def _load_templates(self) -> dict[str, str]:
@@ -736,7 +863,7 @@ class TelegramBot:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error handling trade event: {e}")
+            self.logger.error("Error handling trade event: %s", e)
 
     def _handle_alert_event(self, event: Event) -> None:
         """Handle alert events"""
@@ -747,7 +874,7 @@ class TelegramBot:
                 severity=event.data.get('severity', 'info')
             )
         except Exception as e:
-            self.logger.error(f"Error handling alert event: {e}")
+            self.logger.error("Error handling alert event: %s", e)
 
     def _handle_system_event(self, event: Event) -> None:
         """Handle system events"""
@@ -759,7 +886,7 @@ class TelegramBot:
                     severity='error'
                 )
         except Exception as e:
-            self.logger.error(f"Error handling system event: {e}")
+            self.logger.error("Error handling system event: %s", e)
 
     # ==========================================================================
     # PUBLIC METHODS - UTILITIES
@@ -789,7 +916,7 @@ class TelegramBot:
         except Empty:
             pass
 
-        self.logger.info(f"Cleared {count} messages from queue")
+        self.logger.info("Cleared %s messages from queue", count)
         return count
 
 # ==============================================================================
@@ -828,7 +955,7 @@ if __name__ == "__main__":
     from SpyderA_Core.SpyderA05_EventManager import EventManager
 
     # Test configuration
-    BOT_TOKEN = "YOUR_BOT_TOKEN"  # Replace with actual token
+    BOT_TOKEN = "YOUR_BOT_TOKEN"  # Replace with actual token  # noqa: S105
     CHAT_ID = "YOUR_CHAT_ID"      # Replace with actual chat ID
 
     # Initialize

@@ -300,7 +300,7 @@ class EnhancedSentimentAnalysisAgent:
             self.logger.info("All NLP models loaded successfully")
 
         except Exception as e:
-            self.logger.error(f"Model initialization error: {e}")
+            self.logger.error("Model initialization error: %s", e)
             self.error_handler.handle_error(e, {"method": "_initialize_models"})
 
     def _initialize_apis(self):
@@ -323,7 +323,7 @@ class EnhancedSentimentAnalysisAgent:
                 self.logger.info("Twitter API initialized")
 
         except Exception as e:
-            self.logger.warning(f"API initialization error: {e}")
+            self.logger.warning("API initialization error: %s", e)
 
     def _download_nltk_data(self):
         """Download required NLTK data"""
@@ -332,7 +332,7 @@ class EnhancedSentimentAnalysisAgent:
             nltk.download("stopwords", quiet=True)
             nltk.download("vader_lexicon", quiet=True)
         except Exception as e:
-            self.logger.warning(f"NLTK download error: {e}")
+            self.logger.warning("NLTK download error: %s", e)
 
     # ==========================================================================
     # EARNINGS CALL ANALYSIS
@@ -353,7 +353,7 @@ class EnhancedSentimentAnalysisAgent:
             Comprehensive analysis results
         """
         try:
-            self.logger.info(f"Analyzing {company} {quarter} earnings call")
+            self.logger.info("Analyzing %s %s earnings call", company, quarter)
 
             # Split transcript into sections
             sections = self._split_earnings_sections(transcript)
@@ -559,7 +559,7 @@ class EnhancedSentimentAnalysisAgent:
             Analysis with policy implications
         """
         try:
-            self.logger.info(f"Analyzing Fed {comm_type}")
+            self.logger.info("Analyzing Fed %s", comm_type)
 
             # Policy stance keywords
             hawkish_keywords = [
@@ -750,7 +750,7 @@ class EnhancedSentimentAnalysisAgent:
 
                 # Translate if not English
                 if lang != "en" and lang in self.supported_languages:
-                    self.logger.info(f"Translating from {lang} to English")
+                    self.logger.info("Translating from %s to English", lang)
                     translated = self.translator.translate(text, src=lang, dest="en")
                     text = translated.text
                     translation_confidence = 0.8  # Reduced confidence for translations
@@ -779,7 +779,7 @@ class EnhancedSentimentAnalysisAgent:
                 )
 
             except Exception as e:
-                self.logger.error(f"Error analyzing article: {e}")
+                self.logger.error("Error analyzing article: %s", e)
                 continue
 
         # Aggregate results
@@ -898,7 +898,7 @@ class EnhancedSentimentAnalysisAgent:
             }
 
         except Exception as e:
-            self.logger.error(f"Reddit analysis error: {e}")
+            self.logger.error("Reddit analysis error: %s", e)
             return {}
 
     async def _analyze_twitter(self) -> dict[str, Any]:
@@ -937,7 +937,7 @@ class EnhancedSentimentAnalysisAgent:
             }
 
         except Exception as e:
-            self.logger.error(f"Twitter analysis error: {e}")
+            self.logger.error("Twitter analysis error: %s", e)
             return {}
 
     # ==========================================================================
@@ -965,7 +965,7 @@ class EnhancedSentimentAnalysisAgent:
             return list(entities)
 
         except Exception as e:
-            self.logger.error(f"Entity extraction error: {e}")
+            self.logger.error("Entity extraction error: %s", e)
             return []
 
     def _update_entity_sentiment(self, entity: str, sentiment: float, source: str):
@@ -1028,7 +1028,7 @@ class EnhancedSentimentAnalysisAgent:
             return sentiment
 
         except Exception as e:
-            self.logger.error(f"Sentiment analysis error: {e}")
+            self.logger.error("Sentiment analysis error: %s", e)
             return SentimentScore(0.0, 0.0, source, "", datetime.now())
 
     async def _finbert_sentiment(self, text: str) -> SentimentScore:
@@ -1139,7 +1139,7 @@ class EnhancedSentimentAnalysisAgent:
             return topics
 
         except Exception as e:
-            self.logger.error(f"Topic extraction error: {e}")
+            self.logger.error("Topic extraction error: %s", e)
             return []
 
     # ==========================================================================
@@ -1183,7 +1183,7 @@ class EnhancedSentimentAnalysisAgent:
             result = self.whisper_model.transcribe(audio_file)
             return result["text"]
         except Exception as e:
-            self.logger.error(f"Transcription error: {e}")
+            self.logger.error("Transcription error: %s", e)
             return ""
 
     # ==========================================================================
@@ -1400,7 +1400,7 @@ async def main():
 
         logging.info(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
         logging.info(f"Guidance Sentiment: {analysis.get('guidance_sentiment', 0):.3f}")
-        logging.info(f"Main Topics: {analysis.get('main_topics', [])}")
+        logging.info("Main Topics: %s", analysis.get('main_topics', []))
         logging.info("\nKey Quotes:")
         for quote in analysis.get("key_quotes", [])[:3]:
             logging.info(f"- {quote['text'][:100]}... (sentiment: {quote['sentiment']:.2f})")
@@ -1424,7 +1424,7 @@ async def main():
                 logging.info(
                     f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"
                 )
-        logging.info(f"\nRate Implications: {analysis.get('rate_implications', {})}")
+        logging.info("\nRate Implications: %s", analysis.get('rate_implications', {}))
 
     if args.social:
         logging.info("\n=== Analyzing Social Media ===")
@@ -1440,7 +1440,7 @@ async def main():
         report = await agent.get_market_sentiment()
 
         logging.info(f"Overall Market Sentiment: {report.overall_sentiment:.3f}")
-        logging.info(f"Sentiment Regime: {report.regime}")
+        logging.info("Sentiment Regime: %s", report.regime)
         logging.info(f"Momentum: {report.sentiment_momentum:.3f}")
         logging.info(f"Confidence: {report.confidence:.2%}")
 
@@ -1457,7 +1457,7 @@ async def main():
         if report.warnings:
             logging.info("\nWarnings:")
             for warning in report.warnings:
-                logging.info(f"⚠️  {warning}")
+                logging.info("⚠️  %s", warning)
 
 
 if __name__ == "__main__":

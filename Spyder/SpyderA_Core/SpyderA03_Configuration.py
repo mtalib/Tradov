@@ -33,7 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -177,7 +178,7 @@ class ConfigFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         if not event.is_directory and Path(event.src_path).suffix in SUPPORTED_FORMATS:
-            self.logger.info(f"Configuration file modified: {event.src_path}")
+            self.logger.info("Configuration file modified: %s", event.src_path)
             self.config_manager._on_config_file_changed(Path(event.src_path))
 
 
@@ -266,7 +267,7 @@ class ConfigManager:
         if self.auto_reload:
             self._start_file_observer()
 
-        self.logger.info(f"ConfigManager initialized for environment: {environment}")
+        self.logger.info("ConfigManager initialized for environment: %s", environment)
 
     def _init_encryption(self):
         """Initialize encryption for sensitive data"""
@@ -298,7 +299,7 @@ class ConfigManager:
             self.logger.info("Encryption initialized")
 
         except Exception as e:
-            self.logger.error(f"Encryption initialization failed: {e}")
+            self.logger.error("Encryption initialization failed: %s", e)
 
     def _load_all_configurations(self):
         """Load configurations from all sources"""
@@ -321,7 +322,7 @@ class ConfigManager:
             self.logger.info("All configurations loaded successfully")
 
         except Exception as e:
-            self.logger.error(f"Configuration loading failed: {e}")
+            self.logger.error("Configuration loading failed: %s", e)
             self.error_handler.handle_error(e, "load_all_configurations")
             # Use defaults on error
             self._load_defaults()
@@ -443,7 +444,7 @@ class ConfigManager:
     def _load_config_file(self, file_path: Path):
         """Load a single configuration file"""
         try:
-            self.logger.info(f"Loading configuration from: {file_path}")
+            self.logger.info("Loading configuration from: %s", file_path)
 
             # Determine file format
             suffix = file_path.suffix.lower()
@@ -459,14 +460,14 @@ class ConfigManager:
             elif suffix == ".env":
                 config_data = self._load_env_file(file_path)
             else:
-                self.logger.warning(f"Unsupported configuration format: {suffix}")
+                self.logger.warning("Unsupported configuration format: %s", suffix)
                 return
 
             if config_data:
                 self._merge_config(config_data, ConfigSource.FILE)
 
         except Exception as e:
-            self.logger.error(f"Failed to load config file {file_path}: {e}")
+            self.logger.error("Failed to load config file %s: %s", file_path, e)
             self.error_handler.handle_error(e, f"load_config_file:{file_path}")
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
@@ -634,7 +635,7 @@ class ConfigManager:
             return encrypted.decode()
 
         except Exception as e:
-            self.logger.error(f"Encryption failed: {e}")
+            self.logger.error("Encryption failed: %s", e)
             return value
 
     def _decrypt_value(self, encrypted_value: str) -> Any:
@@ -656,7 +657,7 @@ class ConfigManager:
                 return value_str
 
         except Exception as e:
-            self.logger.error(f"Decryption failed: {e}")
+            self.logger.error("Decryption failed: %s", e)
             return encrypted_value
 
     # ==========================================================================
@@ -690,7 +691,7 @@ class ConfigManager:
                 return value
 
             except Exception as e:
-                self.logger.error(f"Error getting config value {key}: {e}")
+                self.logger.error("Error getting config value %s: %s", key, e)
                 return default
 
     def get_all(self) -> dict[str, Any]:
@@ -760,11 +761,11 @@ class ConfigManager:
                 # Notify callbacks
                 self._notify_callbacks(key, old_value, value)
 
-                self.logger.info(f"Configuration updated: {key}")
+                self.logger.info("Configuration updated: %s", key)
                 return True
 
             except Exception as e:
-                self.logger.error(f"Error setting config value {key}: {e}")
+                self.logger.error("Error setting config value %s: %s", key, e)
                 return False
 
     def update(self, updates: dict[str, Any], source: str = "runtime") -> bool:
@@ -831,7 +832,7 @@ class ConfigManager:
                 return False
 
             except Exception as e:
-                self.logger.error(f"Error deleting config value {key}: {e}")
+                self.logger.error("Error deleting config value %s: %s", key, e)
                 return False
 
     # ==========================================================================
@@ -852,10 +853,10 @@ class ConfigManager:
             )
 
             self.schemas[schema_path.stem] = schema
-            self.logger.info(f"Loaded configuration schema: {schema_path.stem}")
+            self.logger.info("Loaded configuration schema: %s", schema_path.stem)
 
         except Exception as e:
-            self.logger.error(f"Failed to load schema {schema_path}: {e}")
+            self.logger.error("Failed to load schema %s: %s", schema_path, e)
 
     def validate(self, schema_name: str | None = None) -> list[str]:
         """
@@ -942,7 +943,7 @@ class ConfigManager:
         # Import lazily to avoid triggering load_dotenv() at module-import time
         # (which can change os.environ and affect unrelated test skip conditions).
         try:
-            from config.config import (  # noqa: PLC0415
+            from config.config import (
                 ConfigurationError as _ConfigurationError,
                 validate_startup_config as _validate_startup_config,
             )
@@ -966,9 +967,9 @@ class ConfigManager:
         errors = self.validate()
 
         if errors:
-            self.logger.warning(f"Configuration validation found {len(errors)} issues:")
+            self.logger.warning("Configuration validation found %s issues:", len(errors))
             for error in errors:
-                self.logger.warning(f"  - {error}")
+                self.logger.warning("  - %s", error)
         else:
             self.logger.info("Configuration validation passed")
 
@@ -988,7 +989,7 @@ class ConfigManager:
             self.logger.info("Configuration file monitoring started")
 
         except Exception as e:
-            self.logger.error(f"Failed to start file observer: {e}")
+            self.logger.error("Failed to start file observer: %s", e)
 
     def _stop_file_observer(self):
         """Stop watching configuration files"""
@@ -1000,7 +1001,7 @@ class ConfigManager:
         """Handle configuration file change"""
         try:
             # Reload the specific file
-            self.logger.info(f"Reloading configuration file: {file_path}")
+            self.logger.info("Reloading configuration file: %s", file_path)
 
             # Create backup before reloading
             self._backup_configuration()
@@ -1015,7 +1016,7 @@ class ConfigManager:
             self._notify_all_callbacks()
 
         except Exception as e:
-            self.logger.error(f"Error reloading configuration: {e}")
+            self.logger.error("Error reloading configuration: %s", e)
 
     def reload(self) -> bool:
         """
@@ -1041,7 +1042,7 @@ class ConfigManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Configuration reload failed: {e}")
+            self.logger.error("Configuration reload failed: %s", e)
             return False
 
     # ==========================================================================
@@ -1070,7 +1071,7 @@ class ConfigManager:
                     try:
                         callback(key, old_value, new_value)
                     except Exception as e:
-                        self.logger.error(f"Callback error: {e}")
+                        self.logger.error("Callback error: %s", e)
 
     def _notify_all_callbacks(self):
         """Notify all callbacks (used for reload)"""
@@ -1079,7 +1080,7 @@ class ConfigManager:
                 try:
                     callback("*", None, None)  # Special reload notification
                 except Exception as e:
-                    self.logger.error(f"Callback error: {e}")
+                    self.logger.error("Callback error: %s", e)
 
     def _match_pattern(self, key: str, pattern: str) -> bool:
         """Check if key matches pattern (supports * wildcard)"""
@@ -1114,10 +1115,10 @@ class ConfigManager:
             # Clean old backups
             self._clean_old_backups(backup_dir)
 
-            self.logger.debug(f"Configuration backed up to: {backup_file}")
+            self.logger.debug("Configuration backed up to: %s", backup_file)
 
         except Exception as e:
-            self.logger.error(f"Backup failed: {e}")
+            self.logger.error("Backup failed: %s", e)
 
     def _clean_old_backups(self, backup_dir: Path):
         """Remove old backup files"""
@@ -1130,7 +1131,7 @@ class ConfigManager:
                 oldest.unlink()
 
         except Exception as e:
-            self.logger.error(f"Backup cleanup failed: {e}")
+            self.logger.error("Backup cleanup failed: %s", e)
 
     def restore_backup(self, backup_file: Path) -> bool:
         """
@@ -1143,7 +1144,7 @@ class ConfigManager:
             bool: True if successful
         """
         try:
-            self.logger.info(f"Restoring configuration from: {backup_file}")
+            self.logger.info("Restoring configuration from: %s", backup_file)
 
             with open(backup_file) as f:
                 backup_data = json.load(f)
@@ -1166,7 +1167,7 @@ class ConfigManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Restore failed: {e}")
+            self.logger.error("Restore failed: %s", e)
             return False
 
     # ==========================================================================
@@ -1182,7 +1183,7 @@ class ConfigManager:
             return hashlib.sha256(config_str.encode()).hexdigest()
 
         except Exception as e:
-            self.logger.error(f"Checksum calculation failed: {e}")
+            self.logger.error("Checksum calculation failed: %s", e)
             return ""
 
     def get_change_history(self, limit: int | None = None) -> list[ConfigChange]:
@@ -1240,25 +1241,25 @@ class ConfigManager:
                 with open(output_path, "w") as f:
                     toml.dump(export_data, f)
             else:
-                self.logger.error(f"Unsupported export format: {format}")
+                self.logger.error("Unsupported export format: %s", format)
                 return False
 
-            self.logger.info(f"Configuration exported to: {output_path}")
+            self.logger.info("Configuration exported to: %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Export failed: {e}")
+            self.logger.error("Export failed: %s", e)
             return False
 
     def print_config(self, section: str | None = None):
         """Print configuration to console (for debugging)"""
         config = self.get(section) if section else self.get_all()
 
-        logging.info(f"\n{'='*60}")
-        logging.info(f"Configuration ({self.environment})")
-        logging.info(f"{'='*60}")
+        logging.info("\n%s", '='*60)
+        logging.info("Configuration (%s)", self.environment)
+        logging.info("%s", '='*60)
         logging.info(yaml.dump(config, default_flow_style=False))
-        logging.info(f"{'='*60}\n")
+        logging.info("%s\n", '='*60)
 
     def __del__(self):
         """Cleanup on deletion"""

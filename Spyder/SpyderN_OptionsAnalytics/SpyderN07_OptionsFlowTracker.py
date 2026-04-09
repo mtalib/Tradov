@@ -907,7 +907,7 @@ class OptionsFlowTracker:
         # Log critical alerts
         for alert in alerts_generated:
             if alert.significance >= 0.8:
-                self.logger.info(f"ALERT: {alert.message}")
+                self.logger.info("ALERT: %s", alert.message)
 
     def get_trading_signals(self, symbol: str) -> list[dict[str, Any]]:
         """

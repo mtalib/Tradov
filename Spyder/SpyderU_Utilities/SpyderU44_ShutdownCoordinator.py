@@ -40,7 +40,7 @@ Module Description:
 import atexit
 import threading
 import weakref
-from typing import Callable
+from collections.abc import Callable
 
 # ==============================================================================
 # LOCAL IMPORTS

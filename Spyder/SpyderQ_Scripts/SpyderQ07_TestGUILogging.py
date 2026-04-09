@@ -134,11 +134,11 @@ def test_logging():
 
     def periodic_logs():
         counter[0] += 1
-        system_logger.info(f"System heartbeat #{counter[0]}")
-        strategy_logger.info(f"Strategy evaluation #{counter[0]}")
+        system_logger.info("System heartbeat #%s", counter[0])
+        strategy_logger.info("Strategy evaluation #%s", counter[0])
 
         if counter[0] % 3 == 0:
-            system_logger.warning(f"Periodic warning #{counter[0]}")
+            system_logger.warning("Periodic warning #%s", counter[0])
 
         if counter[0] >= 10:
             timer.stop()

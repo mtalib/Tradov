@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -55,10 +54,10 @@ Module Description:
 import json
 import threading
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -71,6 +70,13 @@ try:
 except ImportError:
     yf = None  # type: ignore[assignment]
     _YFINANCE_AVAILABLE = False
+
+try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    _C29_AVAILABLE = True
+except ImportError:
+    _get_c29_provider = None  # type: ignore[assignment]
+    _C29_AVAILABLE = False
 
 try:
     import pandas as pd
@@ -424,7 +430,7 @@ class ShortSqueezeDetector:
     def update_gex(
         self,
         current_gex: float,
-        flip_level: Optional[float] = None,
+        flip_level: float | None = None,
     ) -> None:
         """
         Update gamma exposure state from SpyderN09_GammaExposure or
@@ -558,7 +564,7 @@ class ShortSqueezeDetector:
             self._latest_signal = signal
 
             if strength not in (SqueezeStrength.NONE, SqueezeStrength.WATCH):
-                self.logger.warning(f"Short squeeze detected: {signal}")
+                self.logger.warning("Short squeeze detected: %s", signal)
             else:
                 self.logger.debug(
                     f"No squeeze (score={composite:.2f}, data={data_count}/6)"
@@ -566,7 +572,7 @@ class ShortSqueezeDetector:
 
             return signal
 
-    def get_latest(self) -> Optional[SqueezeSignal]:
+    def get_latest(self) -> SqueezeSignal | None:
         """Return the most recently computed signal, or None if never run."""
         return self._latest_signal
 
@@ -611,58 +617,103 @@ class ShortSqueezeDetector:
     # ==========================================================================
 
     def _auto_fetch_data(self) -> None:
-        """Populate price bars, VIX, and PCR via yfinance."""
-        # SPY 5-min OHLCV
-        try:
-            spy = yf.download(
-                self.symbol,
-                period="2d",
-                interval="5m",
-                progress=False,
-                auto_adjust=True,
-            )
-            if spy is not None and len(spy) > 0:
-                self._price_bars.clear()
-                for _, row in spy.tail(40).iterrows():
-                    self._price_bars.append({
-                        "open":   float(row["Open"]),
-                        "high":   float(row["High"]),
-                        "low":    float(row["Low"]),
-                        "close":  float(row["Close"]),
-                        "volume": float(row["Volume"]),
-                    })
-        except Exception as exc:
-            self.logger.debug(f"yfinance SPY fetch failed: {exc}")
-
-        # VIX
-        try:
-            vix = yf.download(
-                "^VIX",
-                period="1d",
-                interval="5m",
-                progress=False,
-                auto_adjust=True,
-            )
-            if vix is not None and len(vix) > 0:
-                self._vix_readings.clear()
-                for _, row in vix.tail(10).iterrows():
-                    self._vix_readings.append(float(row["Close"]))
-        except Exception as exc:
-            self.logger.debug(f"yfinance VIX fetch failed: {exc}")
-
-        # Options chain put/call ratio (daily — best proxy without real-time feed)
-        if len(self._pcr_history) < 3:
+        """Populate price bars, VIX, and PCR via C29 (preferred) or yfinance."""
+        # SPY 5-min OHLCV — try C29 first
+        _spy_fetched = False
+        if _C29_AVAILABLE:
             try:
-                ticker = yf.Ticker(self.symbol)
-                exp = ticker.options
-                if exp:
-                    chain = ticker.option_chain(exp[0])
-                    call_vol = chain.calls["volume"].fillna(0).sum()
-                    put_vol = chain.puts["volume"].fillna(0).sum()
-                    if call_vol > 0:
-                        self._pcr_history.append(put_vol / call_vol)
+                from datetime import datetime as _dt, timedelta as _td
+                client = _get_c29_provider()
+                _end = _dt.now().strftime("%Y-%m-%d")
+                _start = (_dt.now() - _td(days=2)).strftime("%Y-%m-%d")
+                spy_df = client.get_historical_bars(
+                    self.symbol, start=_start, end=_end, timespan="minute", multiplier=5
+                )
+                if spy_df is not None and not spy_df.empty:
+                    self._price_bars.clear()
+                    for _, row in spy_df.tail(40).iterrows():
+                        self._price_bars.append({
+                            "open":   float(row.get("open", 0.0)),
+                            "high":   float(row.get("high", 0.0)),
+                            "low":    float(row.get("low", 0.0)),
+                            "close":  float(row.get("close", 0.0)),
+                            "volume": float(row.get("volume", 0.0)),
+                        })
+                    _spy_fetched = True
             except Exception as exc:
-                self.logger.debug(f"yfinance options chain fetch failed: {exc}")
+                self.logger.debug("C29 SPY fetch failed: %s", exc)
+
+        if not _spy_fetched and _YFINANCE_AVAILABLE:
+            try:
+                self.logger.debug("C29 unavailable for SPY bars — using yfinance fallback")
+                spy = yf.download(
+                    self.symbol,
+                    period="2d",
+                    interval="5m",
+                    progress=False,
+                    auto_adjust=True,
+                )
+                if spy is not None and len(spy) > 0:
+                    self._price_bars.clear()
+                    for _, row in spy.tail(40).iterrows():
+                        self._price_bars.append({
+                            "open":   float(row["Open"]),
+                            "high":   float(row["High"]),
+                            "low":    float(row["Low"]),
+                            "close":  float(row["Close"]),
+                            "volume": float(row["Volume"]),
+                        })
+            except Exception as exc:
+                self.logger.debug("yfinance SPY fetch failed: %s", exc)
+
+        # VIX — not available from MassiveClient; yfinance-only
+        if _YFINANCE_AVAILABLE:
+            try:
+                self.logger.debug("Fetching ^VIX via yfinance (not available from MassiveClient)")
+                vix = yf.download(
+                    "^VIX",
+                    period="1d",
+                    interval="5m",
+                    progress=False,
+                    auto_adjust=True,
+                )
+                if vix is not None and len(vix) > 0:
+                    self._vix_readings.clear()
+                    for _, row in vix.tail(10).iterrows():
+                        self._vix_readings.append(float(row["Close"]))
+            except Exception as exc:
+                self.logger.debug("yfinance VIX fetch failed: %s", exc)
+
+        # Options chain put/call ratio — try C29 first
+        if len(self._pcr_history) < 3:
+            _pcr_fetched = False
+            if _C29_AVAILABLE:
+                try:
+                    client = _get_c29_provider()
+                    expirations = client.get_option_expirations(self.symbol)
+                    if expirations:
+                        contracts = client.get_option_chain(self.symbol, expiration=expirations[0])
+                        call_vol = sum(c.get("volume", 0) or 0 for c in contracts if c.get("option_type") == "call")
+                        put_vol = sum(c.get("volume", 0) or 0 for c in contracts if c.get("option_type") == "put")
+                        if call_vol > 0:
+                            self._pcr_history.append(put_vol / call_vol)
+                            _pcr_fetched = True
+                except Exception as exc:
+                    self.logger.debug("C29 options chain fetch failed: %s", exc)
+
+            if not _pcr_fetched and _YFINANCE_AVAILABLE:
+                try:
+                    self.logger.debug("C29 unavailable for options PCR — using yfinance fallback")
+                    ticker = yf.Ticker(self.symbol)
+                    exp = ticker.options
+                    if exp:
+                        chain = ticker.option_chain(exp[0])
+                        call_vol = chain.calls["volume"].fillna(0).sum()
+                        put_vol = chain.puts["volume"].fillna(0).sum()
+                        if call_vol > 0:
+                            self._pcr_history.append(put_vol / call_vol)
+                except Exception as exc:
+                    self.logger.debug("yfinance options chain fetch failed: %s", exc)
 
     # ==========================================================================
     # PRIVATE — COMPONENT SCORERS
@@ -890,7 +941,7 @@ class ShortSqueezeDetector:
             score += 0.3
             detail_parts.append(f"GEX slightly negative (${gex / 1e6:.0f}M)")
         else:
-            detail_parts.append(f"GEX positive — limited dealer amplification")
+            detail_parts.append("GEX positive — limited dealer amplification")
 
         # --- GEX just flipped positive (strongest gamma-squeeze trigger) ---
         if self._prev_gex is not None and self._prev_gex < 0 and gex >= 0:
@@ -1232,7 +1283,7 @@ class ShortSqueezeDetector:
 # MODULE-LEVEL SINGLETON
 # ==============================================================================
 
-_detector_instance: Optional[ShortSqueezeDetector] = None
+_detector_instance: ShortSqueezeDetector | None = None
 _instance_lock = threading.Lock()
 
 
@@ -1267,16 +1318,13 @@ def get_squeeze_detector(
 # ==============================================================================
 
 if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    print("=" * 60)
-    print("ShortSqueezeDetector — standalone test (yfinance)")
-    print("=" * 60)
+    print("=" * 60)  # noqa: T201
+    print("ShortSqueezeDetector — standalone test (yfinance)")  # noqa: T201
+    print("=" * 60)  # noqa: T201
 
     detector = ShortSqueezeDetector(symbol="SPY", auto_fetch=True)
     signal = detector.detect()
-    print(signal)
-    print()
-    print("Full signal dict:")
-    print(json.dumps(signal.to_dict(), indent=2))
+    print(signal)  # noqa: T201
+    print()  # noqa: T201
+    print("Full signal dict:")  # noqa: T201
+    print(json.dumps(signal.to_dict(), indent=2))  # noqa: T201

@@ -47,6 +47,13 @@ import pandas as pd
 from scipy import interpolate, stats
 import yfinance as yf
 
+try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    _C29_AVAILABLE = True
+except ImportError:
+    _get_c29_provider = None  # type: ignore[assignment]
+    _C29_AVAILABLE = False
+
 # Suppress warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
@@ -245,7 +252,7 @@ class SpyderS06_SKEWCalculator:
     def _initialize_storage(self) -> None:
         """Initialize data storage directories"""
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Data directory initialized: {DATA_DIR}")
+        logger.debug("Data directory initialized: %s", DATA_DIR)
 
     def _load_history(self) -> None:
         """Load historical SKEW data if available"""
@@ -268,9 +275,9 @@ class SpyderS06_SKEWCalculator:
                     )
                     self.skew_history.append(calc)
 
-                logger.info(f"Loaded {len(self.skew_history)} historical SKEW records")
+                logger.info("Loaded %s historical SKEW records", len(self.skew_history))
         except Exception as e:
-            logger.error(f"Error loading SKEW history: {e}")
+            logger.error("Error loading SKEW history: %s", e)
 
     # ==========================================================================
     # MAIN CALCULATION METHODS
@@ -302,7 +309,7 @@ class SpyderS06_SKEWCalculator:
             puts = self.option_chain.get('puts', pd.DataFrame())
 
             if len(calls) < 10 or len(puts) < 10:
-                logger.warning(f"Insufficient strikes: {len(calls)} calls, {len(puts)} puts")
+                logger.warning("Insufficient strikes: %s calls, %s puts", len(calls), len(puts))
                 return self._calculate_skew_simulated()
 
             # Regular SKEW calculation would go here
@@ -310,7 +317,7 @@ class SpyderS06_SKEWCalculator:
             return self._calculate_skew_simulated()
 
         except Exception as e:
-            logger.error(f"SKEW calculation error: {e}")
+            logger.error("SKEW calculation error: %s", e)
             return self._calculate_skew_simulated()
 
     def _select_expiry(self) -> tuple[datetime | None, float | None]:
@@ -361,12 +368,12 @@ class SpyderS06_SKEWCalculator:
             # Convert to years for calculations
             dte_years = selected_dte / 365.25
 
-            logger.debug(f"Selected expiry: {selected_expiry.date()} ({selected_dte} days)")
+            logger.debug("Selected expiry: %s (%s days)", selected_expiry.date(), selected_dte)
 
             return selected_expiry, dte_years
 
         except Exception as e:
-            logger.error(f"Error selecting expiry: {e}")
+            logger.error("Error selecting expiry: %s", e)
             return None, None
 
     def _process_options(self, expiry: datetime) -> list[OptionData]:
@@ -404,12 +411,12 @@ class SpyderS06_SKEWCalculator:
             # Sort by strike
             options.sort(key=lambda x: x.strike)
 
-            logger.debug(f"Processed {len(options)} valid options")
+            logger.debug("Processed %s valid options", len(options))
 
             return options
 
         except Exception as e:
-            logger.error(f"Error processing options: {e}")
+            logger.error("Error processing options: %s", e)
             return []
 
     def _create_option_data(self, row: pd.Series, option_type: str, expiry: datetime) -> OptionData | None:
@@ -462,7 +469,7 @@ class SpyderS06_SKEWCalculator:
             )
 
         except Exception as e:
-            logger.error(f"Error creating option data: {e}")
+            logger.error("Error creating option data: %s", e)
             return None
 
     def _is_valid_option(self, option: OptionData) -> bool:
@@ -547,7 +554,7 @@ class SpyderS06_SKEWCalculator:
             )
 
         except Exception as e:
-            logger.error(f"Error calculating SKEW components: {e}")
+            logger.error("Error calculating SKEW components: %s", e)
             return None
 
     def _calculate_forward_price(self, options: list[OptionData], dte: float) -> float:
@@ -576,7 +583,7 @@ class SpyderS06_SKEWCalculator:
                 return self.spot_price * np.exp(self.risk_free_rate * dte)
 
         except Exception as e:
-            logger.error(f"Error calculating forward price: {e}")
+            logger.error("Error calculating forward price: %s", e)
             return self.spot_price
 
     def _calculate_atm_volatility(self, options: list[OptionData], forward: float) -> float:
@@ -609,7 +616,7 @@ class SpyderS06_SKEWCalculator:
             return weighted_vol / total_weight if total_weight > 0 else 0.20
 
         except Exception as e:
-            logger.error(f"Error calculating ATM volatility: {e}")
+            logger.error("Error calculating ATM volatility: %s", e)
             return 0.20  # Default 20% volatility
 
     def _build_volatility_interpolators(self, put_wing: list[tuple[float, float]],
@@ -649,7 +656,7 @@ class SpyderS06_SKEWCalculator:
                 self.interpolators['volatility'] = lambda k: self._sabr_volatility(k, forward, atm_vol)
 
         except Exception as e:
-            logger.error(f"Error building interpolators: {e}")
+            logger.error("Error building interpolators: %s", e)
             self.interpolators['volatility'] = lambda k: atm_vol
 
     def _sabr_volatility(self, strike: float, forward: float, atm_vol: float) -> float:
@@ -698,7 +705,7 @@ class SpyderS06_SKEWCalculator:
             return third_moment
 
         except Exception as e:
-            logger.error(f"Error calculating third moment: {e}")
+            logger.error("Error calculating third moment: %s", e)
             return 0.0
 
     def _calculate_fourth_moment(self, forward: float, dte: float) -> float:
@@ -733,7 +740,7 @@ class SpyderS06_SKEWCalculator:
             return fourth_moment
 
         except Exception as e:
-            logger.error(f"Error calculating fourth moment: {e}")
+            logger.error("Error calculating fourth moment: %s", e)
             return 3.0
 
     def _calculate_variance(self, forward: float, dte: float) -> float:
@@ -776,7 +783,7 @@ class SpyderS06_SKEWCalculator:
             return max(variance, 0.01)  # Floor at 1% variance
 
         except Exception as e:
-            logger.error(f"Error calculating variance: {e}")
+            logger.error("Error calculating variance: %s", e)
             return 0.04  # Default 20% annualized volatility squared
 
     def _compute_skew_index(self, components: SKEWComponents) -> float:
@@ -818,7 +825,7 @@ class SpyderS06_SKEWCalculator:
             return round(skew_index, 2)
 
         except Exception as e:
-            logger.error(f"Error computing SKEW index: {e}")
+            logger.error("Error computing SKEW index: %s", e)
             return SKEW_BASE  # Return base value on error
 
     # ==========================================================================
@@ -853,7 +860,7 @@ class SpyderS06_SKEWCalculator:
             return iv
 
         except Exception as e:
-            logger.error(f"Error calculating IV: {e}")
+            logger.error("Error calculating IV: %s", e)
             return 0.20
 
     def _calculate_delta(self, strike: float, dte: float, iv: float, option_type: str) -> float:
@@ -868,7 +875,7 @@ class SpyderS06_SKEWCalculator:
                 return stats.norm.cdf(d1) - 1
 
         except Exception as e:
-            logger.error(f"Error calculating delta: {e}")
+            logger.error("Error calculating delta: %s", e)
             return 0.0
 
     def _black_scholes_price(self, spot: float, strike: float, rate: float,
@@ -886,7 +893,7 @@ class SpyderS06_SKEWCalculator:
             return max(price, 0)
 
         except Exception as e:
-            logger.error(f"Error calculating BS price: {e}")
+            logger.error("Error calculating BS price: %s", e)
             return 0.0
 
     def _black_scholes_vega(self, spot: float, strike: float, rate: float,
@@ -897,7 +904,7 @@ class SpyderS06_SKEWCalculator:
             return spot * stats.norm.pdf(d1) * np.sqrt(dte)
 
         except Exception as e:
-            logger.error(f"Error calculating vega: {e}")
+            logger.error("Error calculating vega: %s", e)
             return 0.01
 
     def _calculate_confidence(self, options: list[OptionData], components: SKEWComponents) -> float:
@@ -927,7 +934,7 @@ class SpyderS06_SKEWCalculator:
             return min(max(confidence, 0.0), 1.0)
 
         except Exception as e:
-            logger.error(f"Error calculating confidence: {e}")
+            logger.error("Error calculating confidence: %s", e)
             return 0.5
 
     def _assess_interpolation_quality(self, put_wing: list[tuple[float, float]],
@@ -954,7 +961,7 @@ class SpyderS06_SKEWCalculator:
             return quality
 
         except Exception as e:
-            logger.error(f"Error assessing interpolation quality: {e}")
+            logger.error("Error assessing interpolation quality: %s", e)
             return 0.7
 
     # ==========================================================================
@@ -963,19 +970,92 @@ class SpyderS06_SKEWCalculator:
 
     def _fetch_spot_price(self) -> float | None:
         """Fetch current SPY spot price"""
+        # Try C29 / MassiveClient first (bid/ask mid-price)
+        if _C29_AVAILABLE:
+            try:
+                client = _get_c29_provider()
+                quote = client.get_quote("SPY")
+                if quote.bid and quote.ask:
+                    return (quote.bid + quote.ask) / 2
+                if quote.bid or quote.ask:
+                    return quote.bid or quote.ask
+            except Exception:
+                pass
+        # Fall back to yfinance
         try:
+            logger.debug("C29 quote unavailable for SPY — using yfinance fallback")
             ticker = yf.Ticker("SPY")
             data = ticker.history(period="1d", interval="1m")
             if not data.empty:
                 return float(data['Close'].iloc[-1])
             return None
         except Exception as e:
-            logger.error(f"Error fetching spot price: {e}")
+            logger.error("Error fetching spot price: %s", e)
             return None
 
     def _fetch_option_chain(self) -> dict[str, pd.DataFrame] | None:
         """Fetch SPY option chain"""
+        # Try C29 / MassiveClient first (returns list of dicts per contract)
+        if _C29_AVAILABLE:
+            try:
+                client = _get_c29_provider()
+                # Get expirations around 30 days out
+                target_date = datetime.now() + timedelta(days=30)
+                expirations = client.get_option_expirations("SPY")
+                selected = [
+                    e for e in expirations
+                    if abs((
+                        datetime.strptime(e, "%Y-%m-%d") - target_date
+                    ).days) <= 7
+                ] or (expirations[:1] if expirations else [])
+                all_calls, all_puts = [], []
+                for expiry in selected:
+                    contracts = client.get_option_chain("SPY", expiration=expiry)
+                    calls = pd.DataFrame(
+                        [
+                            {
+                                "strike": c["strike"],
+                                "lastPrice": c.get("close", 0.0),
+                                "bid": c["bid"],
+                                "ask": c["ask"],
+                                "impliedVolatility": c.get("implied_volatility", 0.0),
+                                "openInterest": c.get("open_interest", 0),
+                                "volume": c.get("volume", 0),
+                                "expiry": expiry,
+                            }
+                            for c in contracts if c.get("option_type") == "call"
+                        ]
+                    )
+                    puts = pd.DataFrame(
+                        [
+                            {
+                                "strike": c["strike"],
+                                "lastPrice": c.get("close", 0.0),
+                                "bid": c["bid"],
+                                "ask": c["ask"],
+                                "impliedVolatility": c.get("implied_volatility", 0.0),
+                                "openInterest": c.get("open_interest", 0),
+                                "volume": c.get("volume", 0),
+                                "expiry": expiry,
+                            }
+                            for c in contracts if c.get("option_type") == "put"
+                        ]
+                    )
+                    if not calls.empty:
+                        all_calls.append(calls)
+                    if not puts.empty:
+                        all_puts.append(puts)
+                if all_calls or all_puts:
+                    return {
+                        'calls': pd.concat(all_calls, ignore_index=True) if all_calls else pd.DataFrame(),
+                        'puts': pd.concat(all_puts, ignore_index=True) if all_puts else pd.DataFrame(),
+                    }
+            except Exception:
+                pass
+
+        # Fall back to yfinance
         try:
+            logger.debug("C29 option chain unavailable for SPY — using yfinance fallback")
             ticker = yf.Ticker("SPY")
 
             # Get available expiries
@@ -1017,7 +1097,7 @@ class SpyderS06_SKEWCalculator:
             }
 
         except Exception as e:
-            logger.error(f"Error fetching option chain: {e}")
+            logger.error("Error fetching option chain: %s", e)
             return None
 
     # ==========================================================================
@@ -1039,7 +1119,7 @@ class SpyderS06_SKEWCalculator:
             return None
 
         except Exception as e:
-            logger.error(f"Error getting cached calculation: {e}")
+            logger.error("Error getting cached calculation: %s", e)
             return None
 
     def _cache_calculation(self, calculation: SKEWCalculation) -> None:
@@ -1057,7 +1137,7 @@ class SpyderS06_SKEWCalculator:
                 del self.cache_timestamps[oldest_key]
 
         except Exception as e:
-            logger.error(f"Error caching calculation: {e}")
+            logger.error("Error caching calculation: %s", e)
 
     def _generate_cache_key(self) -> str:
         """Generate cache key for current data"""
@@ -1066,7 +1146,7 @@ class SpyderS06_SKEWCalculator:
             'timestamp': datetime.now().replace(second=0, microsecond=0).isoformat()
         }
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     # ==========================================================================
     # PUBLIC INTERFACE METHODS
@@ -1141,10 +1221,10 @@ class SpyderS06_SKEWCalculator:
                 ])
 
                 df.to_csv(HISTORY_FILE, index=False)
-                logger.info(f"Saved {len(df)} SKEW records to {HISTORY_FILE}")
+                logger.info("Saved %s SKEW records to %s", len(df), HISTORY_FILE)
 
         except Exception as e:
-            logger.error(f"Error saving history: {e}")
+            logger.error("Error saving history: %s", e)
 
 
     def _calculate_skew_simulated(self):
@@ -1163,7 +1243,7 @@ class SpyderS06_SKEWCalculator:
             self.executor.shutdown(wait=True)
             logger.info("SKEW Calculator cleaned up")
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+            logger.error("Error during cleanup: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS

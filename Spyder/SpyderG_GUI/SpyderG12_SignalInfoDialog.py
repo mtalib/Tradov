@@ -121,7 +121,7 @@ class SignalInfoDialog(QDialog):
             f"""
             color: {COLORS['cyan']};
             font-size: 14px;
-            font-weight: bold;
+            font-weight: normal;
             padding: 5px;
         """
         )
@@ -139,7 +139,7 @@ class SignalInfoDialog(QDialog):
                 color: {COLORS['text_dim']};
                 border: none;
                 font-size: 14px;
-                font-weight: bold;
+                font-weight: normal;
                 padding: 0px;
             }}
             QPushButton:hover {{
@@ -215,21 +215,21 @@ class SignalInfoDialog(QDialog):
         <body style="color: {COLORS['text']};">
 
         <p style="color: {COLORS['cyan']}; font-size: 13px; margin-bottom: 8px;">
-        <b>{content['full_name']}</b><br/>
+        {content['full_name']}<br/>
         <span style="color: {COLORS['text_dim']}; font-size: 11px;">
         {content['description']}
         </span>
         </p>
 
         <p style="margin-top: 10px; margin-bottom: 8px;">
-        <b style="color: {COLORS['warning']};">Concept:</b><br/>
+        <span style="color: {COLORS['warning']};">Concept:</span><br/>
         <span style="color: {COLORS['text']}; font-size: 11px;">
         {content['concept']}
         </span>
         </p>
 
         <p style="margin-top: 10px; margin-bottom: 8px;">
-        <b style="color: {COLORS['warning']};">Signal Colors:</b><br/>
+        <span style="color: {COLORS['warning']};">Signal Colors:</span><br/>
         """
 
         for color_info in content["signal_colors"]:
@@ -244,7 +244,7 @@ class SignalInfoDialog(QDialog):
         </p>
 
         <p style="margin-top: 10px; margin-bottom: 5px;">
-        <b style="color: {COLORS['warning']};">Current Status:</b><br/>
+        <span style="color: {COLORS['warning']};">Current Status:</span><br/>
         <span style="color: {COLORS['text']}; font-size: 11px; line-height: 1.4;">
         {content['current_status']}
         </span>

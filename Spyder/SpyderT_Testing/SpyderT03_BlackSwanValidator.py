@@ -27,11 +27,10 @@ import sys
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 import warnings
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -1089,7 +1088,7 @@ class BlackSwanValidator:
             with open(filename + '.json', 'w') as f:
                 json.dump(report_dict, f, indent=2)
 
-        self.logger.info(f"Validation report saved to {filename}")
+        self.logger.info("Validation report saved to %s", filename)
 
     def _save_text_report(self, report: ValidationReport, filename: str):
         """Save report in text format"""

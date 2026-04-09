@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import json
 from datetime import datetime, date
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
@@ -50,7 +50,7 @@ try:
     from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 # ==============================================================================
@@ -290,12 +290,12 @@ class RiskReportGenerator:
                 return report
 
             except Exception as e:
-                self.logger.error(f"Error generating risk report: {e}")
+                self.logger.error("Error generating risk report: %s", e)
                 raise
 
     def calculate_var(
         self,
-        returns: Union[list[float], np.ndarray, pd.Series],
+        returns: list[float] | np.ndarray | pd.Series,
         confidence: float = 0.95,
         method: str = 'historical'
     ) -> float:
@@ -334,7 +334,7 @@ class RiskReportGenerator:
 
     def calculate_cvar(
         self,
-        returns: Union[list[float], np.ndarray, pd.Series],
+        returns: list[float] | np.ndarray | pd.Series,
         confidence: float = 0.95
     ) -> float:
         """
@@ -698,11 +698,11 @@ class RiskReportGenerator:
             self._export_text(report, output_path)
         else:
             # HTML and PDF require additional dependencies
-            self.logger.warning(f"Format {format.value} not fully implemented, using JSON")
+            self.logger.warning("Format %s not fully implemented, using JSON", format.value)
             output_path = self.output_dir / f"{filename}.json"
             self._export_json(report, output_path)
 
-        self.logger.info(f"Risk report exported to {output_path}")
+        self.logger.info("Risk report exported to %s", output_path)
         return output_path
 
     def _export_json(self, report: RiskReportData, path: Path) -> None:

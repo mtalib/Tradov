@@ -23,43 +23,43 @@ _logger = _logging.getLogger(__name__)
 try:
     from .SpyderL01_MLPredictor import MLPredictor
 except Exception as _e:
-    _logger.warning(f"SpyderL01_MLPredictor not available: {_e}")
+    _logger.warning("SpyderL01_MLPredictor not available: %s", _e)
     MLPredictor = None  # type: ignore
 
 try:
     from .SpyderL07_PaperTradeLearner import PaperTradeLearner
 except Exception as _e:
-    _logger.warning(f"SpyderL07_PaperTradeLearner not available: {_e}")
+    _logger.warning("SpyderL07_PaperTradeLearner not available: %s", _e)
     PaperTradeLearner = None  # type: ignore
 
 try:
     from .SpyderL08_EntryOptimizer import EntryOptimizer
 except Exception as _e:
-    _logger.warning(f"SpyderL08_EntryOptimizer not available: {_e}")
+    _logger.warning("SpyderL08_EntryOptimizer not available: %s", _e)
     EntryOptimizer = None  # type: ignore
 
 try:
     from .SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 except Exception as _e:
-    _logger.warning(f"SpyderL09_UnifiedRegimeEngine not available: {_e}")
+    _logger.warning("SpyderL09_UnifiedRegimeEngine not available: %s", _e)
     RegimeClassifier = None  # type: ignore
 
 try:
     from .SpyderL10_FeatureEngineering import FeatureEngineer
 except Exception as _e:
-    _logger.warning(f"SpyderL10_FeatureEngineering not available: {_e}")
+    _logger.warning("SpyderL10_FeatureEngineering not available: %s", _e)
     FeatureEngineer = None  # type: ignore
 
 try:
     from .SpyderL11_MLModelManager import MLModelManager
 except Exception as _e:
-    _logger.warning(f"SpyderL11_MLModelManager not available: {_e}")
+    _logger.warning("SpyderL11_MLModelManager not available: %s", _e)
     MLModelManager = None  # type: ignore
 
 try:
     from .SpyderL12_RandomForestEnsemble import SpyderRandomForestEnsemble
 except Exception as _e:
-    _logger.warning(f"SpyderL12_RandomForestEnsemble not available: {_e}")
+    _logger.warning("SpyderL12_RandomForestEnsemble not available: %s", _e)
     SpyderRandomForestEnsemble = None  # type: ignore
 
 # SpyderL13_LSTMPricer imports PyTorch which takes 3-5 seconds on cold start.
@@ -70,7 +70,7 @@ SpyderLSTMPricer = None  # type: ignore  — lazy; import SpyderL13 directly whe
 try:
     from .SpyderL14_RealTimePredictor import RealTimePredictor
 except Exception as _e:
-    _logger.warning(f"SpyderL14_RealTimePredictor not available: {_e}")
+    _logger.warning("SpyderL14_RealTimePredictor not available: %s", _e)
     RealTimePredictor = None  # type: ignore
 
 # ==============================================================================
@@ -89,6 +89,44 @@ __all__ = [
 ]
 
 # ==============================================================================
+# L15–L19 — additional ML modules
+try:
+    from .SpyderL15_MomentPredictor import MOmentPredictor as MomentPredictor
+    __all__.extend(["MomentPredictor"])
+except Exception as _e:
+    MomentPredictor = None  # type: ignore
+
+try:
+    from .SpyderL16_OptionsAdjustmentRL import OptionsAdjustmentRL, SPYOptionsEnvironment
+    __all__.extend(["OptionsAdjustmentRL", "SPYOptionsEnvironment"])
+except Exception as _e:
+    OptionsAdjustmentRL = None  # type: ignore
+    SPYOptionsEnvironment = None  # type: ignore
+
+try:
+    from .SpyderL17_FederatedLearning import FederatedLearningManager
+    __all__.extend(["FederatedLearningManager"])
+except Exception as _e:
+    FederatedLearningManager = None  # type: ignore
+
+try:
+    from .SpyderL18_EnhancedMLIntegration import EnhancedMLEngine
+    __all__.extend(["EnhancedMLEngine"])
+except Exception as _e:
+    EnhancedMLEngine = None  # type: ignore
+
+try:
+    from .SpyderL19_RLTrainingPipeline import RLTrainingPipeline
+    __all__.extend(["RLTrainingPipeline"])
+except Exception as _e:
+    RLTrainingPipeline = None  # type: ignore
+
+try:
+    from .SpyderL13_LSTMPricer import SpyderLSTMPricer
+    __all__.extend(["SpyderLSTMPricer"])
+except Exception as _e:
+    SpyderLSTMPricer = None  # type: ignore
+
 # PACKAGE METADATA
 # ==============================================================================
 __package_name__ = "{package_name}"

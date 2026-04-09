@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import json
 from datetime import datetime, date, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
@@ -296,7 +296,7 @@ class PerformanceAnalytics:
 
     def analyze_returns(
         self,
-        returns: Union[pd.Series, list[float]],
+        returns: pd.Series | list[float],
         initial_capital: float | None = None
     ) -> PerformanceMetrics:
         """
@@ -705,7 +705,7 @@ class PerformanceAnalytics:
         if output_path:
             with open(output_path, 'w') as f:
                 f.write(content)
-            self.logger.info(f"Report exported to {output_path}")
+            self.logger.info("Report exported to %s", output_path)
 
         return content
 

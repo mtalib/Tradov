@@ -25,7 +25,8 @@ Change Log:
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -265,8 +266,8 @@ class IntegrationHub:
                     'SpyderG_GUI', 'SpyderH_Storage', 'SpyderI_Integration',
                     'SpyderJ_Alerts', 'SpyderK_Reports', 'SpyderL_ML',
                     'SpyderM_Monitoring', 'SpyderN_OptionsAnalytics',
-                    'SpyderE_Risk', 'SpyderP_Portfolio', 'SpyderR_Runtime',
-                    'SpyderT_ThirdParty', 'SpyderU_Utilities', 'SpyderX_Agents',
+                    'SpyderP_PortfolioMgmt', 'SpyderQ_Scripts', 'SpyderR_Runtime',
+                    'SpyderS_Signals', 'SpyderU_Utilities', 'SpyderX_Agents',
                     'SpyderZ_Communication'
                 ]
 
@@ -278,13 +279,13 @@ class IntegrationHub:
                     discovered_count += modules_found
 
                 except ImportError:
-                    self.logger.debug(f"Module group {scan_path} not found")
+                    self.logger.debug("Module group %s not found", scan_path)
                 except Exception as e:
-                    self.logger.warning(f"Error scanning {scan_path}: {e}", exc_info=True)
+                    self.logger.warning("Error scanning %s: %s", scan_path, e, exc_info=True)
 
             self.stats['modules_discovered'] = len(self.modules)
 
-            self.logger.info(f"📦 Discovered {discovered_count} new modules ({len(self.modules)} total)")
+            self.logger.info("📦 Discovered %s new modules (%s total)", discovered_count, len(self.modules))
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -310,7 +311,7 @@ class IntegrationHub:
                         modules_found += 1
 
         except Exception as e:
-            self.logger.debug(f"Could not scan {group_path}: {e}")
+            self.logger.debug("Could not scan %s: %s", group_path, e)
 
         return modules_found
 
@@ -376,11 +377,11 @@ class IntegrationHub:
                 return module_info
 
             except ImportError as e:
-                self.logger.debug(f"Could not import {module_name}: {e}")
+                self.logger.debug("Could not import %s: %s", module_name, e)
                 return None
 
         except Exception as e:
-            self.logger.debug(f"Error analyzing {module_name}: {e}")
+            self.logger.debug("Error analyzing %s: %s", module_name, e)
             return None
 
     def _find_main_class(self, module: Any) -> type | None:
@@ -422,7 +423,7 @@ class IntegrationHub:
                         dependencies.add(dep.split('.')[-1])  # Get module name
 
         except Exception as e:
-            self.logger.debug(f"Could not analyze dependencies: {e}")
+            self.logger.debug("Could not analyze dependencies: %s", e)
 
         return dependencies
 
@@ -467,7 +468,7 @@ class IntegrationHub:
                         capabilities.append(capability)
 
         except Exception as e:
-            self.logger.debug(f"Could not extract capabilities: {e}")
+            self.logger.debug("Could not extract capabilities: %s", e)
 
         return capabilities
 
@@ -496,7 +497,7 @@ class IntegrationHub:
             # Calculate load order
             self._calculate_load_order()
 
-            self.logger.info(f"📊 Built dependency graph: {len(self.modules)} modules, {self.dependency_graph.number_of_edges()} dependencies")
+            self.logger.info("📊 Built dependency graph: %s modules, %s dependencies", len(self.modules), self.dependency_graph.number_of_edges())
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -512,12 +513,12 @@ class IntegrationHub:
             # Check for cycles
             if not dag.is_directed_acyclic_graph(self.dependency_graph):
                 cycles = list(dag.simple_cycles(self.dependency_graph))
-                self.logger.warning(f"⚠️ Dependency cycles detected: {cycles}")
+                self.logger.warning("⚠️ Dependency cycles detected: %s", cycles)
 
             # Topological sort for load order
             self.load_order = list(dag.topological_sort(self.dependency_graph))
 
-            self.logger.info(f"📋 Calculated module load order: {len(self.load_order)} modules")
+            self.logger.info("📋 Calculated module load order: %s modules", len(self.load_order))
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -615,7 +616,7 @@ class IntegrationHub:
 
             self.stats['modules_loaded'] += 1
 
-            self.logger.info(f"📋 Registered module: {module_id}")
+            self.logger.info("📋 Registered module: %s", module_id)
 
             # Emit event
             self.event_manager.publish(Event(
@@ -661,7 +662,7 @@ class IntegrationHub:
             # Update state to disabled
             self.modules[module_id].state = ModuleState.DISABLED
 
-            self.logger.info(f"📤 Unregistered module: {module_id}")
+            self.logger.info("📤 Unregistered module: %s", module_id)
 
             # Emit event
             self.event_manager.publish(Event(
@@ -730,7 +731,7 @@ class IntegrationHub:
                     capabilities.append(capability)
 
         except Exception as e:
-            self.logger.debug(f"Capability detection failed for module: {e}")
+            self.logger.debug("Capability detection failed for module: %s", e)
 
         return capabilities
 

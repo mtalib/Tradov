@@ -350,7 +350,7 @@ class VIXHedgingStrategy:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}")
+                logger.warning("OptionsDataProvider unavailable: %s", e)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -430,7 +430,7 @@ class VIXHedgingStrategy:
             return snapshot
 
         except Exception as e:
-            logger.error(f"VIX snapshot failed: {e}")
+            logger.error("VIX snapshot failed: %s", e)
             return self._default_snapshot()
 
     def _classify_regime(self, vix: float) -> VIXRegime:
@@ -1004,7 +1004,7 @@ class VIXHedgingStrategy:
     def _fetch_price(self, symbol: str) -> float:
         """Get current price from Tradier API."""
         if self._data_provider is None:
-            logger.warning(f"_fetch_price({symbol}): OptionsDataProvider not available.")
+            logger.warning("_fetch_price(%s): OptionsDataProvider not available.", symbol)
             return 0.0
         try:
             response = self._data_provider.get_quotes([symbol])
@@ -1013,7 +1013,7 @@ class VIXHedgingStrategy:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_fetch_price({symbol}): Tradier error: {e}")
+            logger.error("_fetch_price(%s): Tradier error: %s", symbol, e)
             return 0.0
 
 
@@ -1027,7 +1027,7 @@ def create_vix_strategy_from_env() -> 'VIXHedgingStrategy':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}")
+            logger.warning("Could not create OptionsDataProvider: %s", e)
     return VIXHedgingStrategy(data_provider=data_provider)
 
 

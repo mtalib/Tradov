@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Union, Any
+from typing import Any
 from enum import Enum
 from datetime import datetime, timedelta
 import warnings
@@ -80,7 +80,7 @@ class IndicatorResult:
     def __init__(
         self,
         name: str,
-        value: Union[float, pd.Series],
+        value: float | pd.Series,
         signal: SignalType | None = None,
         confidence: float = 0.0,
     ):
@@ -170,7 +170,7 @@ class TechnicalIndicators:
             )
 
         except Exception as e:
-            self.logger.warning(f"Could not load config, using defaults: {e}")
+            self.logger.warning("Could not load config, using defaults: %s", e)
             self._set_defaults()
 
     def _set_defaults(self):
@@ -723,7 +723,7 @@ class TechnicalIndicators:
             z_scores = np.abs((data - data.mean()) / data.std())
             outliers = (z_scores > self.outlier_threshold).sum()
             if outliers > 0:
-                self.logger.warning(f"Found {outliers} potential outliers in data")
+                self.logger.warning("Found %s potential outliers in data", outliers)
 
     def _validate_dataframe_columns(self, df: pd.DataFrame, required_cols: list[str]):
         """Validate DataFrame has required columns."""

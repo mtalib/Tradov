@@ -1059,7 +1059,7 @@ class OptionsExpirationManager:
             conn.close()
 
         except Exception as e:
-            self.logger.error(f"Database initialization failed: {e}")
+            self.logger.error("Database initialization failed: %s", e)
 
     def save_expiration_action(self, position: ExpiringPosition,
                               action: str, pnl: float, notes: str = "") -> None:
@@ -1079,7 +1079,7 @@ class OptionsExpirationManager:
             conn.close()
 
         except Exception as e:
-            self.logger.error(f"Failed to save expiration action: {e}")
+            self.logger.error("Failed to save expiration action: %s", e)
 
 # ==============================================================================
 # TEST/DEMO CODE

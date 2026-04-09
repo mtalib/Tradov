@@ -37,19 +37,18 @@ from __future__ import annotations
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
 # QT GUARD
 # ==============================================================================
 try:
-    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtCore import QTimer
     from PySide6.QtGui import QColor, QFont
     from PySide6.QtWidgets import (
         QComboBox,
         QFrame,
-        QGridLayout,
         QHBoxLayout,
         QHeaderView,
         QLabel,
@@ -75,8 +74,6 @@ except ImportError:
 try:
     from SpyderU_Utilities.SpyderU12_AgentIntegration import (
         AgentRegistry,
-        AgentSeries,
-        AgentStatus,
         get_registry,
     )
     REGISTRY_AVAILABLE = True
@@ -138,7 +135,6 @@ if HAS_QT:
             header = QHBoxLayout()
             title = QLabel("Agent Health Dashboard")
             title_font = QFont()
-            title_font.setBold(True)
             title_font.setPointSize(12)
             title.setFont(title_font)
             header.addWidget(title)
@@ -249,8 +245,8 @@ if HAS_QT:
                     try:
                         hb_dt = datetime.fromisoformat(hb_raw)
                         if hb_dt.tzinfo is None:
-                            hb_dt = hb_dt.replace(tzinfo=timezone.utc)
-                        age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+                            hb_dt = hb_dt.replace(tzinfo=UTC)
+                        age = (datetime.now(UTC) - hb_dt).total_seconds()
                         hb_text = f"{age:.0f}s ago"
                     except Exception:
                         hb_text = hb_raw
@@ -272,11 +268,8 @@ if HAS_QT:
                 for col, val in enumerate(values):
                     item = QTableWidgetItem(val)
                     item.setBackground(bg)
-                    if col == 2:  # Status column — bold + foreground colour
+                    if col == 2:  # Status column — foreground colour
                         item.setForeground(QColor(colour))
-                        font = QFont()
-                        font.setBold(True)
-                        item.setFont(font)
                     self._table.setItem(row, col, item)
 
         def _show_placeholder(self) -> None:

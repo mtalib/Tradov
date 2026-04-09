@@ -190,7 +190,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
             try:
                 self._x13_agent = SpyderX13_MarketAnalysisAgent()
             except Exception as e:
-                logger.warning(f"Failed to initialize X13 MarketAnalysisAgent: {e}", exc_info=True)
+                logger.warning("Failed to initialize X13 MarketAnalysisAgent: %s", e, exc_info=True)
 
     # ==========================================================================
     # LIFECYCLE HOOKS
@@ -269,7 +269,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                         prediction, "confidence", 0.0
                     )
             except Exception as e:
-                logger.warning(f"HMM regime detection failed: {e}", exc_info=True)
+                logger.warning("HMM regime detection failed: %s", e, exc_info=True)
 
         # Try to get regime from GARCH detector as secondary signal
         if GARCH_AVAILABLE and snapshot.regime == "unknown":
@@ -282,7 +282,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                         result, "confidence", 0.0
                     )
             except Exception as e:
-                logger.warning(f"GARCH regime detection failed: {e}", exc_info=True)
+                logger.warning("GARCH regime detection failed: %s", e, exc_info=True)
 
         # Try to get full analysis from X13
         if self._x13_agent:
@@ -295,7 +295,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                     snapshot.spy_price = getattr(analysis, "current_price", 0.0)
                     snapshot.spy_change_pct = getattr(analysis, "change_pct", 0.0)
             except Exception as e:
-                logger.warning(f"X13 market analysis failed: {e}", exc_info=True)
+                logger.warning("X13 market analysis failed: %s", e, exc_info=True)
 
         return snapshot
 

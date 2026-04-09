@@ -27,7 +27,7 @@ import time
 import threading
 import logging
 import warnings
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -69,19 +69,16 @@ try:
     from SpyderU02_ErrorHandler import ErrorHandler
 except ImportError:
     # Fallback implementations
-    logging.basicConfig(level=logging.INFO)
     SpyderLogger = logging.getLogger
     class ErrorHandler:
         @staticmethod
         def handle_error(error, context=""):
-            logging.error(f"Error in {context}: {error}")
+            logging.error("Error in %s: %s", context, error)
 
 # Spyder integrations
-try:
-    from SpyderC21_FSeriesIntegrationHub import get_fseries_integration_hub
-    C21_AVAILABLE = True
-except ImportError:
-    C21_AVAILABLE = False
+# SpyderC21_FSeriesIntegrationHub was removed in v2; integration is via A08_FSeriesOrchestrator.
+C21_AVAILABLE = False
+get_fseries_integration_hub = None  # type: ignore[assignment]
 
 try:
     from SpyderF16_RealTimeAnalytics import get_realtime_analytics_engine
@@ -321,10 +318,10 @@ class RealTimeDataOptimizer:
                 if hasattr(psutil, 'cpu_count'):
                     self.numa_nodes = 1  # Simplified
 
-                self.logger.info(f"System: {self.cpu_cores} cores, {self.memory_info.total // (1024**3)}GB RAM")
+                self.logger.info("System: %s cores, %sGB RAM", self.cpu_cores, self.memory_info.total // (1024**3))
 
         except Exception as e:
-            self.logger.warning(f"System optimization initialization failed: {e}")
+            self.logger.warning("System optimization initialization failed: %s", e)
 
     def _initialize_memory_buffers(self) -> None:
         """Initialize memory-mapped buffers for zero-copy operations."""
@@ -343,7 +340,7 @@ class RealTimeDataOptimizer:
                     'current_pos': 0
                 }
 
-            self.logger.debug(f"Initialized {len(self.memory_buffers)} memory buffers")
+            self.logger.debug("Initialized %s memory buffers", len(self.memory_buffers))
 
         except Exception as e:
             self.error_handler.handle_error(e, context="_initialize_memory_buffers")
@@ -363,10 +360,10 @@ class RealTimeDataOptimizer:
     def _initialize_integrations(self) -> None:
         """Initialize integrations with other Spyder modules."""
         try:
-            # Connect to C21 Integration Hub
+            # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to SpyderC21_FSeriesIntegrationHub")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
 
             # Connect to F16 Real-time Analytics
             if F16_AVAILABLE:
@@ -374,7 +371,7 @@ class RealTimeDataOptimizer:
                 self.logger.info("Connected to SpyderF16_RealTimeAnalytics")
 
         except Exception as e:
-            self.logger.warning(f"Integration initialization failed: {e}")
+            self.logger.warning("Integration initialization failed: %s", e)
 
     def _apply_system_optimizations(self) -> None:
         """Apply system-level performance optimizations."""
@@ -399,7 +396,7 @@ class RealTimeDataOptimizer:
             self.logger.info("System optimizations applied")
 
         except Exception as e:
-            self.logger.warning(f"System optimization failed: {e}")
+            self.logger.warning("System optimization failed: %s", e)
 
     # ==============================================================================
     # CORE DATA PROCESSING METHODS
@@ -407,7 +404,7 @@ class RealTimeDataOptimizer:
     def ingest_data(
         self,
         data_type: str,
-        data: Union[bytes, dict[str, Any], pd.DataFrame],
+        data: bytes | dict[str, Any] | pd.DataFrame,
         priority: int | None = None
     ) -> bool:
         """
@@ -440,7 +437,7 @@ class RealTimeDataOptimizer:
             if not success:
                 # Queue full - log overflow event
                 self.optimization_stats.queue_overflow_events += 1
-                self.logger.warning(f"Queue overflow for priority {priority}")
+                self.logger.warning("Queue overflow for priority %s", priority)
                 return False
 
             # Update statistics
@@ -457,7 +454,7 @@ class RealTimeDataOptimizer:
     def _create_optimized_packet(
         self,
         data_type: str,
-        data: Union[bytes, dict[str, Any], pd.DataFrame],
+        data: bytes | dict[str, Any] | pd.DataFrame,
         priority: int,
         timestamp_ns: int
     ) -> DataPacket | None:
@@ -557,7 +554,7 @@ class RealTimeDataOptimizer:
             bulk_thread.start()
             self.processing_threads.append(bulk_thread)
 
-            self.logger.info(f"Started {len(self.processing_threads)} processing threads")
+            self.logger.info("Started %s processing threads", len(self.processing_threads))
 
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_processing_threads")
@@ -571,8 +568,8 @@ class RealTimeDataOptimizer:
             if PSUTIL_AVAILABLE and hasattr(psutil.Process(), 'nice'):
                 current_process = psutil.Process()
                 current_process.nice(-20)  # Highest priority
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug("Could not set process priority: %s", e)
 
         critical_queue = self.priority_queues[DataPriority.CRITICAL]
 
@@ -1150,9 +1147,9 @@ async def main():
             return False
 
         logging.info("⚡ System Configuration:")
-        logging.info(f"   • CPU Cores: {optimizer.cpu_cores}")
-        logging.info(f"   • Memory Buffers: {len(optimizer.memory_buffers)}")
-        logging.info(f"   • Processing Threads: {len(optimizer.processing_threads)}")
+        logging.info("   • CPU Cores: %s", optimizer.cpu_cores)
+        logging.info("   • Memory Buffers: %s", len(optimizer.memory_buffers))
+        logging.info("   • Processing Threads: %s", len(optimizer.processing_threads))
         logging.info(f"   • Target Latency: {config['target_latency_ns']/1000:.0f}μs")
 
         # Test data ingestion with different priorities
@@ -1172,11 +1169,11 @@ async def main():
             success = optimizer.ingest_data(data_type, data, priority)
             if success:
                 successful_ingests += 1
-                logging.info(f"   ✅ {data_type}: Priority {priority}")
+                logging.info("   ✅ %s: Priority %s", data_type, priority)
             else:
-                logging.info(f"   ❌ {data_type}: Failed")
+                logging.info("   ❌ %s: Failed", data_type)
 
-        logging.info(f"   Successfully ingested: {successful_ingests}/{len(test_cases)}")
+        logging.info("   Successfully ingested: %s/%s", successful_ingests, len(test_cases))
 
         # Let the system process data
         logging.info("\n⚡ Processing data for 10 seconds...")
@@ -1200,16 +1197,16 @@ async def main():
             logging.info(f"   • {queue_name}: {utilization:.1f}%")
 
         if status['queue_overflow_events'] > 0:
-            logging.info(f"\n⚠️  Queue Overflow Events: {status['queue_overflow_events']}")
+            logging.info("\n⚠️  Queue Overflow Events: %s", status['queue_overflow_events'])
 
         if status['optimization_adjustments'] > 0:
-            logging.info(f"🔧 Optimization Adjustments: {status['optimization_adjustments']}")
+            logging.info("🔧 Optimization Adjustments: %s", status['optimization_adjustments'])
 
         logging.info("\n🎊 Real-Time Data Optimizer demonstration completed successfully!")
         return True
 
     except Exception as e:
-        logging.info(f"❌ Error in main execution: {e}")
+        logging.info("❌ Error in main execution: %s", e)
         return False
 
     finally:

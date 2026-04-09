@@ -350,7 +350,7 @@ class StrategyRotation:
             self.logger.info("ML models initialized")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize models: {e}")
+            self.logger.error("Failed to initialize models: %s", e)
 
     def _load_historical_data(self):
         """Load historical regime and performance data"""
@@ -360,9 +360,9 @@ class StrategyRotation:
             if not history_file.exists():
                 legacy = history_file.with_suffix('.pkl')
                 if legacy.exists():
-                    import pickle as _pickle
+                    import joblib as _joblib
                     with open(legacy, 'rb') as _f:
-                        _data = _pickle.load(_f)
+                        _data = _joblib.load(_f)
                     history_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(history_file, 'w', encoding='utf-8') as _f:
                         json.dump(_data, _f, default=_json_default, indent=2)
@@ -380,9 +380,9 @@ class StrategyRotation:
                     if 'performance' in data:
                         self.strategy_performance = data['performance']
 
-                    self.logger.info(f"Loaded {len(self.regime_history)} historical regimes")
+                    self.logger.info("Loaded %s historical regimes", len(self.regime_history))
         except Exception as e:
-            self.logger.warning(f"Could not load historical data: {e}")
+            self.logger.warning("Could not load historical data: %s", e)
 
     def update_market_data(
         self,
@@ -444,7 +444,7 @@ class StrategyRotation:
                 self.regime_confidence = confidence
 
         except Exception as e:
-            self.logger.error(f"Regime detection failed: {e}")
+            self.logger.error("Regime detection failed: %s", e)
 
     def _calculate_regime_features(self) -> dict[str, float]:
         """Calculate features for regime detection"""
@@ -502,7 +502,7 @@ class StrategyRotation:
             return features
 
         except Exception as e:
-            self.logger.error(f"Feature calculation failed: {e}")
+            self.logger.error("Feature calculation failed: %s", e)
             return {}
 
     def _calculate_trend_consistency(self, prices: np.ndarray) -> float:
@@ -900,7 +900,7 @@ class StrategyRotation:
             )
 
         except Exception as e:
-            self.logger.error(f"Rotation execution failed: {e}")
+            self.logger.error("Rotation execution failed: %s", e)
             self.error_handler.handle_error(e, {"plan": asdict(plan)})
             self.in_transition = False
 
@@ -911,7 +911,7 @@ class StrategyRotation:
             # to update eligible strategies and trigger rebalancing
             pass
         except Exception as e:
-            self.logger.error(f"Allocator update failed: {e}")
+            self.logger.error("Allocator update failed: %s", e)
 
     def _broadcast_regime_change(self, regime: MarketRegime, confidence: float):
         """Broadcast regime change via message bus"""
@@ -1114,7 +1114,7 @@ class StrategyRotation:
         Returns:
             RotationEvent with results
         """
-        self.logger.info(f"Manual rotation initiated: {reason.value}")
+        self.logger.info("Manual rotation initiated: %s", reason.value)
 
         # Create rotation plan
         plan = RotationPlan(
@@ -1246,7 +1246,7 @@ class StrategyRotation:
 
             self.logger.info("Regime history saved")
         except Exception as e:
-            self.logger.error(f"Failed to save history: {e}")
+            self.logger.error("Failed to save history: %s", e)
 
         self.logger.info("Strategy Rotation shutdown complete")
 

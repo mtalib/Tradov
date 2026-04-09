@@ -44,60 +44,54 @@ __status__ = "Production"
 # ==============================================================================
 # CORE MODULE IMPORTS
 # ==============================================================================
-
-# Main Application
-try:
-    from .SpyderA01_Main import SpyderApplication, SpyderMainWindow, SpyderConfig
-except ImportError as e:
-    logging.info(f"Warning: Could not import Main components: {e}")
+# NOTE: SpyderA01_Main is intentionally NOT imported here.
+# It is the application entry point and loads the full GUI (matplotlib, plotly,
+# PySide6) at module level, adding 2+ seconds whenever any A-series module is
+# imported. Import SpyderA01_Main directly only where the application is
+# actually being launched: python SpyderA_Core/SpyderA01_Main.py
 
 # Trading Engine
-try:
-    from .SpyderA02_TradingEngine import TradingEngine, EngineState, StrategyInfo
-except ImportError as e:
-    logging.info(f"Warning: Could not import TradingEngine: {e}")
+# NOTE: SpyderA02_TradingEngine is also deferred from eager loading.
+# It transitively imports SpyderE_Risk → SpyderC_MarketData → transformers
+# which adds 2.5+ seconds to any import of an A-series module.
+# Import SpyderA02_TradingEngine directly where TradingEngine is required.
 
 # Configuration
 try:
     from . import SpyderA03_Configuration
 except ImportError as e:
-    logging.info(f"Warning: Could not import Configuration: {e}")
+    logging.info("Warning: Could not import Configuration: %s", e)
 
 # Scheduler
 try:
     from . import SpyderA04_Scheduler
 except ImportError as e:
-    logging.info(f"Warning: Could not import Scheduler: {e}")
+    logging.info("Warning: Could not import Scheduler: %s", e)
 
 # Event Manager
 try:
     from . import SpyderA05_EventManager
 except ImportError as e:
-    logging.info(f"Warning: Could not import EventManager: {e}")
+    logging.info("Warning: Could not import EventManager: %s", e)
 
 # Master Controller
 try:
     from . import SpyderA06_MasterController
 except ImportError as e:
-    logging.info(f"Warning: Could not import MasterController: {e}")
+    logging.info("Warning: Could not import MasterController: %s", e)
 
 # F-Series Orchestrator
 try:
     from . import SpyderA08_FSeriesOrchestrator
 except ImportError as e:
-    logging.info(f"Warning: Could not import FSeriesOrchestrator: {e}")
+    logging.info("Warning: Could not import FSeriesOrchestrator: %s", e)
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    # Main Classes (actually available)
-    "SpyderApplication",
-    "SpyderMainWindow",
-    "SpyderConfig",
-    "TradingEngine",
-    "EngineState",
-    "StrategyInfo",
+    # Note: SpyderApplication/SpyderMainWindow/SpyderConfig not exported (see A01_Main comment).
+    # Note: TradingEngine/EngineState/StrategyInfo not exported (see A02 comment).
     # Module references
     "SpyderA03_Configuration",
     "SpyderA04_Scheduler",

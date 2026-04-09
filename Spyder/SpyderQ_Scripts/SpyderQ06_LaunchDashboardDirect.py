@@ -61,10 +61,7 @@ except ImportError as e:
 
 # Legacy broker integration removed - Spyder now uses Tradier API
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Logging configured by SpyderU01_Logger
 logger = logging.getLogger(__name__)
 
 
@@ -115,7 +112,7 @@ class DirectConnectionWorker(QThread):
         try:
             self.establish_connections()
         except Exception as e:
-            logger.error(f"Connection worker error: {e}")
+            logger.error("Connection worker error: %s", e)
 
     def establish_connections(self):
         """Establish all 8 client connections"""
@@ -124,66 +121,19 @@ class DirectConnectionWorker(QThread):
         connected_count = 0
         total_clients = len(self.client_configs)
 
-        # Legacy broker code removed - now using Tradier API
-        if False:  # Disabled
-            logger.error(
-                "Legacy code disabled — broker connections unavailable. "
-                "Use SpyderB40_TradierClient for broker connectivity."
-            )
-            return
-
-        for client_id, config in self.client_configs.items():
-            if self.should_stop:
-                break
-
-            try:
-                logger.info(f"Connecting client {client_id}: {config['description']}")
-
-                # Create broker instance (legacy — uses Tradier now)
-                ib = IB()
-
-                # Set reasonable timeout
-                ib.RequestTimeout = 60
-
-                # Connect
-                ib.connect(
-                    host=self.host,
-                    port=self.port,
-                    clientId=client_id,
-                    timeout=20,  # Connection timeout
-                    readonly=False,
-                )
-
-                if ib.isConnected():
-                    self.connections[client_id] = ib
-                    connected_count += 1
-
-                    self.connection_established.emit(client_id, config["description"])
-                    self.progress_updated.emit(connected_count, total_clients)
-
-                    logger.info(f"✅ Client {client_id} connected successfully")
-
-                    # Small delay between connections
-                    time.sleep(1)
-
-                else:
-                    self.connection_failed.emit(client_id, "Connection failed")
-                    logger.error(f"❌ Client {client_id} failed to connect")
-
-            except Exception as e:
-                error_msg = str(e)
-                if "TimeoutError" in error_msg:
-                    error_msg = "API handshake timeout - check Gateway API settings"
-
-                self.connection_failed.emit(client_id, error_msg)
-                logger.error(f"❌ Client {client_id} error: {e}")
+        # IBKR connections removed — broker migrated to Tradier (SpyderB40_TradierClient).
+        logger.warning(
+            "establish_connections: IBKR multi-client connections are no longer supported. "
+            "Use SpyderB40_TradierClient for broker connectivity."
+        )
+        return
 
         if connected_count == total_clients:
             self.all_connected.emit()
             logger.info("🎉 All clients connected successfully")
         else:
             logger.warning(
-                f"⚠️ Only {connected_count}/{total_clients} clients connected"
+                "⚠️ Only %s/%s clients connected", connected_count, total_clients
             )
 
     def disconnect_all(self):
@@ -193,9 +143,9 @@ class DirectConnectionWorker(QThread):
         for client_id, ib in self.connections.items():
             try:
                 ib.disconnect()
-                logger.info(f"Disconnected client {client_id}")
+                logger.info("Disconnected client %s", client_id)
             except Exception as e:
-                logger.error(f"Error disconnecting client {client_id}: {e}")
+                logger.error("Error disconnecting client %s: %s", client_id, e)
 
         self.connections.clear()
 
@@ -258,7 +208,7 @@ class ConnectionStatusWidget(QWidget):
 
         # Client status grid
         clients_group = QGroupBox("Client Status")
-        clients_group.setStyleSheet("QGroupBox { font-weight: bold; color: #4fd1c7; }")
+        clients_group.setStyleSheet("QGroupBox { font-weight: normal; color: #4fd1c7; }")
         clients_layout = QGridLayout(clients_group)
 
         self.client_labels = {}
@@ -281,7 +231,7 @@ class ConnectionStatusWidget(QWidget):
                 border: none;
                 border-radius: 8px;
                 padding: 10px 15px;
-                font-weight: bold;
+                font-weight: normal;
                 font-size: 11px;
             }}
             QPushButton:hover {{
@@ -327,7 +277,7 @@ class ConnectionStatusWidget(QWidget):
         """Set status to all connected"""
         self.status_label.setText("Status: All clients connected successfully!")
         self.status_label.setStyleSheet(
-            "color: #68d391; font-size: 12px; font-weight: bold;"
+            "color: #68d391; font-size: 12px; font-weight: normal;"
         )
         self.connect_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(True)
@@ -450,7 +400,7 @@ class SPYDERDirectDashboard(QMainWindow):
 
         # Configuration display
         config_group = QGroupBox("Configuration")
-        config_group.setStyleSheet("QGroupBox { font-weight: bold; color: #4fd1c7; }")
+        config_group.setStyleSheet("QGroupBox { font-weight: normal; color: #4fd1c7; }")
         config_layout = QVBoxLayout(config_group)
 
         self.config_label = QLabel("""

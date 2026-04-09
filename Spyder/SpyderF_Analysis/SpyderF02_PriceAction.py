@@ -502,7 +502,7 @@ class PriceActionAnalyzer:
                 try:
                     patterns.extend(future.result())
                 except Exception as e:
-                    self.logger.error(f"Pattern detection task failed: {e}")
+                    self.logger.error("Pattern detection task failed: %s", e)
 
         return patterns
 

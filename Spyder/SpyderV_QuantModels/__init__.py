@@ -1,6 +1,4 @@
-import logging
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -8,7 +6,7 @@ Package: SpyderV_QuantModels
 Purpose: Quantitative models and mathematical engines
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-04
+Last Updated: 2026-04-02
 
 Package Description:
     The SpyderV_QuantModels package provides sophisticated quantitative models
@@ -20,24 +18,24 @@ Modules Overview:
     • SpyderV01_QuantEngine: Core quantitative analysis engine
     • SpyderV02_ModelManager: Model management and orchestration
     • SpyderV03_DataInterface: Quantitative data interface and processing
-    • SpyderV04_OptionsModels: Options pricing and Greeks calculations
-    • SpyderV05_RiskModels: Risk modeling and VaR calculations
-    • SpyderV06_VolatilityModels: Volatility surface and smile modeling
-    • SpyderV07_CorrelationModels: Asset correlation and covariance models
-    • SpyderV08_MachineLearning: ML models for trading signal generation
-    • SpyderV09_StatisticalModels: Statistical analysis and testing
-    • SpyderV10_OptimizationEngines: Portfolio and strategy optimization
+    • SpyderV04_RiskManager: Risk modeling and VaR calculations
+    • SpyderV05_PricingEngine: Options pricing and Greeks calculations
+    • SpyderV06_VolatilityEngine: Volatility surface and smile modeling
+    • SpyderV07_AdvancedModels: Advanced models (Merton Jump-Diffusion, crisis detection)
+    • SpyderV08_AIModels: AI models — Transformer pricing + RL trading agent
+    • SpyderV09_IVEngine: BSM pricing, Greeks, volatility analysis and surface building
+      (extracted from Z04_VolatilityEngine; used by Z04 as its pure-computation backend)
 
 Key Features:
     • Advanced options pricing models (Black-Scholes, Heston, etc.)
     • Sophisticated volatility modeling and surface construction
-    • Machine learning integration for predictive analytics
+    • AI/ML integration: Transformer neural network + RL trading agent
     • Risk modeling with VaR, CVaR, and stress testing
-    • Statistical arbitrage and mean reversion models
-    • Portfolio optimization using modern portfolio theory
-    • Real-time model validation and backtesting
+    • IV engine for ZMQ subprocess workers
     • High-performance numerical computation
 """
+
+import logging
 
 # ==============================================================================
 # VERSION INFORMATION
@@ -60,7 +58,7 @@ try:
 
     QUANT_ENGINE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV01_QuantEngine not available: {e}")
+    logging.info("⚠️ SpyderV01_QuantEngine not available: %s", e)
     QUANT_ENGINE_AVAILABLE = False
 
 # Model Manager
@@ -72,7 +70,7 @@ try:
 
     MODEL_MANAGER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV02_ModelManager not available: {e}")
+    logging.info("⚠️ SpyderV02_ModelManager not available: %s", e)
     MODEL_MANAGER_AVAILABLE = False
 
 # Data Interface
@@ -84,7 +82,7 @@ try:
 
     DATA_INTERFACE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV03_DataInterface not available: {e}")
+    logging.info("⚠️ SpyderV03_DataInterface not available: %s", e)
     DATA_INTERFACE_AVAILABLE = False
 
 # Risk Manager
@@ -98,7 +96,7 @@ try:
 
     RISK_MANAGER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV04_RiskManager not available: {e}")
+    logging.info("⚠️ SpyderV04_RiskManager not available: %s", e)
     RISK_MANAGER_AVAILABLE = False
 
 # Pricing Engine
@@ -117,7 +115,7 @@ try:
 
     PRICING_ENGINE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV05_PricingEngine not available: {e}")
+    logging.info("⚠️ SpyderV05_PricingEngine not available: %s", e)
     PRICING_ENGINE_AVAILABLE = False
 
 # Volatility Engine
@@ -131,7 +129,7 @@ try:
 
     VOLATILITY_ENGINE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV06_VolatilityEngine not available: {e}")
+    logging.info("⚠️ SpyderV06_VolatilityEngine not available: %s", e)
     VOLATILITY_ENGINE_AVAILABLE = False
 
 # Advanced Models
@@ -145,56 +143,54 @@ try:
 
     ADVANCED_MODELS_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV07_AdvancedModels not available: {e}")
+    logging.info("⚠️ SpyderV07_AdvancedModels not available: %s", e)
     ADVANCED_MODELS_AVAILABLE = False
 
-# Machine Learning
+# AI Models (Transformer pricing + RL trading agent)
 try:
-    from .SpyderV08_MachineLearning import (
-        MachineLearning,
-        TradingSignalML,
-        PredictiveModels,
-        # Add main classes from MachineLearning when inspected
+    from .SpyderV08_AIModels import (
+        SpyderAIModels,
+        AIModelType,
+        ModelMode,
+        ActionType,
+        TransformerConfig,
+        RLConfig,
+        AIModelsConfig,
+        PricingRequest,
+        PricingResult,
+        TradingSignal,
+        ModelPerformance,
+        create_ai_models_engine,
     )
 
-    MACHINE_LEARNING_AVAILABLE = True
+    AI_MODELS_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV08_MachineLearning not available: {e}")
-    MACHINE_LEARNING_AVAILABLE = False
+    logging.info("⚠️ SpyderV08_AIModels not available: %s", e)
+    AI_MODELS_AVAILABLE = False
 
-# Statistical Models
+# IV Engine (BSM pricing, Greeks, volatility surface — Z04 computation backend)
 try:
-    from .SpyderV09_StatisticalModels import (
-        StatisticalModels,
-        MeanReversionModels,
-        StatisticalArbitrage,
-        # Add main classes from StatisticalModels when inspected
+    from .SpyderV09_IVEngine import (
+        VolatilityModel,
+        GreekType,
+        BlackScholesCalculator,
+        GreeksCalculator,
+        VolatilityAnalyzer,
+        VolatilitySurfaceBuilder,
+        CalculationCache,
     )
 
-    STATISTICAL_MODELS_AVAILABLE = True
+    IV_ENGINE_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderV09_StatisticalModels not available: {e}")
-    STATISTICAL_MODELS_AVAILABLE = False
-
-# Optimization Engines
-try:
-    from .SpyderV10_OptimizationEngines import (
-        OptimizationEngines,
-        PortfolioOptimizer,
-        StrategyOptimizer,
-        # Add main classes from OptimizationEngines when inspected
-    )
-
-    OPTIMIZATION_ENGINES_AVAILABLE = True
-except ImportError as e:
-    logging.info(f"⚠️ SpyderV10_OptimizationEngines not available: {e}")
-    OPTIMIZATION_ENGINES_AVAILABLE = False
+    logging.info("⚠️ SpyderV09_IVEngine not available: %s", e)
+    IV_ENGINE_AVAILABLE = False
 
 # Map legacy/expected variable names to the actual ones defined above
 OPTIONS_MODELS_AVAILABLE = PRICING_ENGINE_AVAILABLE
 RISK_MODELS_AVAILABLE = RISK_MANAGER_AVAILABLE
 VOLATILITY_MODELS_AVAILABLE = VOLATILITY_ENGINE_AVAILABLE
 CORRELATION_MODELS_AVAILABLE = ADVANCED_MODELS_AVAILABLE
+MACHINE_LEARNING_AVAILABLE = AI_MODELS_AVAILABLE
 
 # ==============================================================================
 # CONVENIENCE ALIASES (map legacy/expected names to actual classes)
@@ -232,13 +228,12 @@ def get_available_modules():
         "SpyderV01_QuantEngine": QUANT_ENGINE_AVAILABLE,
         "SpyderV02_ModelManager": MODEL_MANAGER_AVAILABLE,
         "SpyderV03_DataInterface": DATA_INTERFACE_AVAILABLE,
-        "SpyderV04_OptionsModels": OPTIONS_MODELS_AVAILABLE,
-        "SpyderV05_RiskModels": RISK_MODELS_AVAILABLE,
-        "SpyderV06_VolatilityModels": VOLATILITY_MODELS_AVAILABLE,
-        "SpyderV07_CorrelationModels": CORRELATION_MODELS_AVAILABLE,
-        "SpyderV08_MachineLearning": MACHINE_LEARNING_AVAILABLE,
-        "SpyderV09_StatisticalModels": STATISTICAL_MODELS_AVAILABLE,
-        "SpyderV10_OptimizationEngines": OPTIMIZATION_ENGINES_AVAILABLE,
+        "SpyderV04_RiskManager": RISK_MODELS_AVAILABLE,
+        "SpyderV05_PricingEngine": OPTIONS_MODELS_AVAILABLE,
+        "SpyderV06_VolatilityEngine": VOLATILITY_MODELS_AVAILABLE,
+        "SpyderV07_AdvancedModels": CORRELATION_MODELS_AVAILABLE,
+        "SpyderV08_AIModels": AI_MODELS_AVAILABLE,
+        "SpyderV09_IVEngine": IV_ENGINE_AVAILABLE,
     }
 
 
@@ -268,10 +263,9 @@ def get_package_info():
             "options_pricing": OPTIONS_MODELS_AVAILABLE,
             "risk_modeling": RISK_MODELS_AVAILABLE,
             "volatility_modeling": VOLATILITY_MODELS_AVAILABLE,
-            "correlation_modeling": CORRELATION_MODELS_AVAILABLE,
-            "machine_learning": MACHINE_LEARNING_AVAILABLE,
-            "statistical_models": STATISTICAL_MODELS_AVAILABLE,
-            "optimization_engines": OPTIMIZATION_ENGINES_AVAILABLE,
+            "advanced_models": CORRELATION_MODELS_AVAILABLE,
+            "ai_models": AI_MODELS_AVAILABLE,
+            "iv_engine": IV_ENGINE_AVAILABLE,
         },
     }
 
@@ -316,20 +310,13 @@ def create_quantitative_suite():
         suite["correlation_models"] = CorrelationModels()
         suite["covariance_matrix"] = CovarianceMatrix()
 
-    if MACHINE_LEARNING_AVAILABLE:
-        suite["machine_learning"] = MachineLearning()
-        suite["trading_signal_ml"] = TradingSignalML()
-        suite["predictive_models"] = PredictiveModels()
+    if AI_MODELS_AVAILABLE:
+        suite["ai_models"] = SpyderAIModels()
 
-    if STATISTICAL_MODELS_AVAILABLE:
-        suite["statistical_models"] = StatisticalModels()
-        suite["mean_reversion_models"] = MeanReversionModels()
-        suite["statistical_arbitrage"] = StatisticalArbitrage()
-
-    if OPTIMIZATION_ENGINES_AVAILABLE:
-        suite["optimization_engines"] = OptimizationEngines()
-        suite["portfolio_optimizer"] = PortfolioOptimizer()
-        suite["strategy_optimizer"] = StrategyOptimizer()
+    if IV_ENGINE_AVAILABLE:
+        suite["iv_engine"] = BlackScholesCalculator()
+        suite["greeks_calculator"] = GreeksCalculator()
+        suite["volatility_analyzer"] = VolatilityAnalyzer()
 
     if not suite:
         raise ImportError("No quantitative model modules are available")
@@ -387,13 +374,11 @@ def create_ml_engine():
     Raises:
         ImportError: If machine learning models are not available
     """
-    if not MACHINE_LEARNING_AVAILABLE:
-        raise ImportError("Machine learning models are not available")
+    if not AI_MODELS_AVAILABLE:
+        raise ImportError("AI models (SpyderV08_AIModels) are not available")
 
     return {
-        "machine_learning": MachineLearning(),
-        "trading_signal_ml": TradingSignalML(),
-        "predictive_models": PredictiveModels(),
+        "ai_models": SpyderAIModels(),
     }
 
 
@@ -406,9 +391,9 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        logging.info(f"🧮 {info['package_name']} v{info['version']}")
+        logging.info("🧮 %s v%s", info['package_name'], info['version'])
         logging.info(
-            f"✅ {info['available_modules']}/{info['total_modules']} modules available"
+            "✅ %s/%s modules available", info['available_modules'], info['total_modules']
         )
 
         if info["available_modules"] == info["total_modules"]:
@@ -418,11 +403,11 @@ def validate_package():
             logging.info("⚠️ Some quantitative model modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                logging.info(f"   {status_icon} {module}")
+                logging.info("   %s %s", status_icon, module)
             return False
 
     except Exception as e:
-        logging.info(f"❌ Quantitative models package validation failed: {e}")
+        logging.info("❌ Quantitative models package validation failed: %s", e)
         return False
 
 
@@ -455,7 +440,10 @@ if DATA_INTERFACE_AVAILABLE:
     __all__.extend(["DataInterface"])
 
 if OPTIONS_MODELS_AVAILABLE:
-    __all__.extend(["OptionsModels", "BlackScholesModel", "HestonModel"])
+    __all__.extend(["OptionsModels", "BlackScholesModel"])
+
+if ADVANCED_MODELS_AVAILABLE:
+    __all__.extend(["HestonModel"])
 
 if RISK_MODELS_AVAILABLE:
     __all__.extend(["RiskModels", "VaRCalculator", "StressTestEngine"])
@@ -466,14 +454,20 @@ if VOLATILITY_MODELS_AVAILABLE:
 if CORRELATION_MODELS_AVAILABLE:
     __all__.extend(["CorrelationModels", "CovarianceMatrix"])
 
-if MACHINE_LEARNING_AVAILABLE:
-    __all__.extend(["MachineLearning", "TradingSignalML", "PredictiveModels"])
+if AI_MODELS_AVAILABLE:
+    __all__.extend([
+        "SpyderAIModels", "AIModelType", "ModelMode", "ActionType",
+        "TransformerConfig", "RLConfig", "AIModelsConfig",
+        "PricingRequest", "PricingResult", "TradingSignal", "ModelPerformance",
+        "create_ai_models_engine",
+    ])
 
-if STATISTICAL_MODELS_AVAILABLE:
-    __all__.extend(["StatisticalModels", "MeanReversionModels", "StatisticalArbitrage"])
-
-if OPTIMIZATION_ENGINES_AVAILABLE:
-    __all__.extend(["OptimizationEngines", "PortfolioOptimizer", "StrategyOptimizer"])
+if IV_ENGINE_AVAILABLE:
+    __all__.extend([
+        "VolatilityModel", "GreekType", "BlackScholesCalculator",
+        "GreeksCalculator", "VolatilityAnalyzer", "VolatilitySurfaceBuilder",
+        "CalculationCache",
+    ])
 
 # ==============================================================================
 # INITIALIZATION
@@ -492,4 +486,4 @@ else:
     logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            logging.info(f"  {key}: {value}")
+            logging.info("  %s: %s", key, value)

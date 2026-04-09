@@ -48,7 +48,7 @@ INTERNAL_SYMBOLS = {
     "TICK": "$TICK",      # NYSE Tick Index (Tradier)
     "TICKI": "$TICKQ",   # Nasdaq Tick Index (Tradier)
     "ADD": "$ADD",        # NYSE Advance/Decline (Tradier)
-    "VOLD": "NYSE:VOLD",  # NYSE Up/Down Volume (no Tradier symbol — event-bus only)
+    "VOLD": "NYSE:VOLD",  # NYSE Up/Down Volume (Tradier: none; Massive: I:VOLD)
     "TRIN": "$TRIN",      # NYSE Arms Index (Tradier)
     "TRINQ": "$TRINQ",    # Nasdaq Arms Index (Tradier)
     "VIX": "VIX",         # Volatility Index (Tradier)
@@ -75,6 +75,9 @@ TRADIER_FETCHABLE_SYMBOLS = {
 
 # How often (seconds) to poll Tradier for market internals
 TRADIER_FETCH_INTERVAL = 5
+
+# How often (seconds) to poll Massive (Polygon) for VOLD
+MASSIVE_FETCH_INTERVAL = 5
 
 # Thresholds
 TICK_EXTREME_HIGH = 1000
@@ -212,7 +215,7 @@ class MarketInternalsAnalyzer:
         >>> analysis = analyzer.get_current_analysis()
     """
 
-    def __init__(self, tradier_client: Any = None):
+    def __init__(self, tradier_client: Any = None, massive_client: Any = None):
         """Initialize the market internals analyzer.
 
         Args:
@@ -220,11 +223,16 @@ class MarketInternalsAnalyzer:
                 provided, market internals (TICK, TRIN, ADD, etc.) are fetched
                 directly from Tradier every TRADIER_FETCH_INTERVAL seconds
                 instead of relying solely on event-bus broadcasts.
+            massive_client: Optional SpyderC27_MassiveClient instance. When
+                provided, VOLD (NYSE Up/Down Volume) is fetched from Massive
+                (Polygon) every MASSIVE_FETCH_INTERVAL seconds via the
+                Indices API (I:VOLD). Tradier does not carry VOLD.
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_bus = EventBus()
         self.tradier_client = tradier_client
+        self.massive_client = massive_client
 
         # Data storage
         self.internals_data: dict[str, InternalData] = {}
@@ -247,9 +255,16 @@ class MarketInternalsAnalyzer:
 
         # Tradier fetch tracking
         self._last_tradier_fetch: float = 0.0
+        # Massive fetch tracking
+        self._last_massive_fetch: float = 0.0
 
-        source = "Tradier" if tradier_client else "event-bus only"
-        self.logger.info(f"MarketInternalsAnalyzer initialized (data source: {source})")
+        sources: list[str] = []
+        if tradier_client:
+            sources.append("Tradier")
+        if massive_client:
+            sources.append("Massive (VOLD)")
+        source = ", ".join(sources) if sources else "event-bus only"
+        self.logger.info("MarketInternalsAnalyzer initialized (data source: %s)", source)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -280,7 +295,7 @@ class MarketInternalsAnalyzer:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             return False
 
     def start(self) -> None:
@@ -542,14 +557,22 @@ class MarketInternalsAnalyzer:
         """Update loop for fetching internal data."""
         while self.is_running:
             try:
-                # Poll Tradier for live market internals (TICK, TRIN, ADD, VIX, etc.)
                 now = time.monotonic()
+                # Poll Tradier for live market internals (TICK, TRIN, ADD, VIX, etc.)
                 if (
                     self.tradier_client is not None
                     and now - self._last_tradier_fetch >= TRADIER_FETCH_INTERVAL
                 ):
                     self._fetch_from_tradier()
                     self._last_tradier_fetch = now
+
+                # Poll Massive for VOLD (not available from Tradier)
+                if (
+                    self.massive_client is not None
+                    and now - self._last_massive_fetch >= MASSIVE_FETCH_INTERVAL
+                ):
+                    self._fetch_vold_from_massive()
+                    self._last_massive_fetch = now
 
                 # Create snapshot
                 snapshot = self._create_snapshot()
@@ -560,7 +583,7 @@ class MarketInternalsAnalyzer:
                 time.sleep(UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Update loop error: {e}")
+                self.logger.error("Update loop error: %s", e)
                 time.sleep(UPDATE_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _fetch_from_tradier(self) -> None:
@@ -600,7 +623,22 @@ class MarketInternalsAnalyzer:
                     self.update_internal(internal_key, value)
 
         except Exception as e:
-            self.logger.warning(f"Tradier internals fetch failed: {e}")
+            self.logger.warning("Tradier internals fetch failed: %s", e)
+
+    def _fetch_vold_from_massive(self) -> None:
+        """Fetch VOLD (NYSE Up/Down Volume) from Massive (Polygon) Indices API.
+
+        VOLD is not available from Tradier. When a MassiveClient is injected,
+        this method polls ``I:VOLD`` every MASSIVE_FETCH_INTERVAL seconds and
+        pushes the value into the internals store via update_internal().
+        """
+        try:
+            internals = self.massive_client.get_market_internals(["I:VOLD"])
+            for key, value in internals.items():
+                if value != 0.0:
+                    self.update_internal(key, value)
+        except Exception as e:
+            self.logger.warning("Massive VOLD fetch failed: %s", e)
 
     def _analysis_loop(self) -> None:
         """Analysis loop for processing internals."""
@@ -616,7 +654,7 @@ class MarketInternalsAnalyzer:
                         try:
                             callback(analysis)
                         except Exception as e:
-                            self.logger.error(f"Callback error: {e}")
+                            self.logger.error("Callback error: %s", e)
 
                     # Publish event
                     event = Event(
@@ -628,7 +666,7 @@ class MarketInternalsAnalyzer:
                 time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Analysis loop error: {e}")
+                self.logger.error("Analysis loop error: %s", e)
                 time.sleep(ANALYSIS_INTERVAL)  # thread-safe: time.sleep() intentional
 
     def _create_snapshot(self) -> MarketInternalsSnapshot | None:
@@ -655,7 +693,7 @@ class MarketInternalsAnalyzer:
                 return snapshot
 
         except Exception as e:
-            self.logger.error(f"Error creating snapshot: {e}")
+            self.logger.error("Error creating snapshot: %s", e)
             return None
 
     def _perform_analysis(self) -> InternalsAnalysis | None:
@@ -730,7 +768,7 @@ class MarketInternalsAnalyzer:
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Error performing analysis: {e}")
+            self.logger.error("Error performing analysis: %s", e)
             return None
 
     def _handle_market_data(self, event: Event) -> None:
@@ -747,7 +785,7 @@ class MarketInternalsAnalyzer:
                     break
 
         except Exception as e:
-            self.logger.error(f"Error handling market data: {e}")
+            self.logger.error("Error handling market data: %s", e)
 
     # ==========================================================================
     # ADVANCED ANALYSIS

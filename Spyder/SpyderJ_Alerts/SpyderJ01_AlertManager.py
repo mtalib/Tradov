@@ -275,13 +275,13 @@ class AlertManager:
                     if os.path.exists(model_path):
                         model_data = joblib.load(model_path)
                         self.prediction_models[prediction_type] = model_data
-                        self.logger.info(f"📊 Loaded prediction model for {prediction_type.value}")
+                        self.logger.info("📊 Loaded prediction model for %s", prediction_type.value)
                     else:
                         # Create new model
                         self._create_prediction_model(prediction_type)
 
                 except Exception as e:
-                    self.logger.warning(f"Failed to load model for {prediction_type.value}: {e}")
+                    self.logger.warning("Failed to load model for %s: %s", prediction_type.value, e)
                     self._create_prediction_model(prediction_type)
 
         except Exception as e:
@@ -339,7 +339,7 @@ class AlertManager:
 
             self.prediction_models[prediction_type] = prediction_model
 
-            self.logger.info(f"📈 Created new prediction model for {prediction_type.value}")
+            self.logger.info("📈 Created new prediction model for %s", prediction_type.value)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -424,7 +424,7 @@ class AlertManager:
                 )
                 threshold.last_updated = datetime.now()
 
-            self.logger.debug(f"📊 Updated adaptive thresholds for regime: {market_regime}")
+            self.logger.debug("📊 Updated adaptive thresholds for regime: %s", market_regime)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -454,7 +454,7 @@ class AlertManager:
                 'context_callback': prediction_config.get('context_callback')
             }
 
-            self.logger.info(f"📋 Registered strategy {strategy_id} for predictive alerts")
+            self.logger.info("📋 Registered strategy %s for predictive alerts", strategy_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -529,7 +529,7 @@ class AlertManager:
                 })
 
             if filtered_alerts:
-                self.logger.info(f"🔮 Generated {len(filtered_alerts)} predictive alerts")
+                self.logger.info("🔮 Generated %s predictive alerts", len(filtered_alerts))
 
             return filtered_alerts
 
@@ -561,9 +561,9 @@ class AlertManager:
                             alerts.append(prediction)
 
                 except ValueError:
-                    self.logger.warning(f"Unknown prediction type: {pred_type_str}")
+                    self.logger.warning("Unknown prediction type: %s", pred_type_str)
                 except Exception as e:
-                    self.logger.error(f"Error generating {pred_type_str} prediction: {e}")
+                    self.logger.error("Error generating %s prediction: %s", pred_type_str, e)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -781,4 +781,4 @@ class AlertManager:
             if prediction_type == PredictionType.RISK_ZONE_BREACH:
                 pass
         except Exception as e:
-            self.logger.warning(f"Error generating recommendations: {e}")
+            self.logger.warning("Error generating recommendations: %s", e)

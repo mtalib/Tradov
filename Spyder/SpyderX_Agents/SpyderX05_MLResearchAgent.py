@@ -25,6 +25,7 @@ Change Log:
 import json
 import asyncio
 import logging
+import os
 from typing import Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -70,7 +71,7 @@ except ImportError:
 # CONSTANTS
 # ==============================================================================
 # LLM Configuration
-DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_LLM_MODEL = os.getenv("OLLAMA_CODE_MODEL", "gemma4:26b")
 DEFAULT_TEMPERATURE = 0.3
 MAX_TOKENS = 2000
 
@@ -89,7 +90,6 @@ MAX_CORRELATION = 0.7
 # ==============================================================================
 # LOGGING SETUP
 # ==============================================================================
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
@@ -245,9 +245,9 @@ class SpyderX05_MLResearchAgent:
                 # Test if Ollama is running
                 ollama.list()
                 self.ollama_client = ollama
-                self.logger.info(f"Ollama initialized with model: {self.model_name}")
+                self.logger.info("Ollama initialized with model: %s", self.model_name)
             except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}", exc_info=True)
+                self.logger.error("Failed to connect to Ollama: %s", e, exc_info=True)
                 self.logger.info("Agent will work with reduced AI capabilities")
 
         # Model storage
@@ -276,7 +276,7 @@ class SpyderX05_MLResearchAgent:
         self.prediction_accuracy: dict[PredictionTask, deque] = defaultdict(lambda: deque(maxlen=1000))
         self.model_selection_history: deque = deque(maxlen=1000)
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -375,10 +375,10 @@ class SpyderX05_MLResearchAgent:
             Research results with insights and recommendations
         """
         experiment_id = hashlib.md5(
-            f"{hypothesis}_{datetime.now()}".encode()
+            f"{hypothesis}_{datetime.now()}".encode(), usedforsecurity=False
         ).hexdigest()[:8]
 
-        self.logger.info(f"Starting research experiment {experiment_id}: {hypothesis}")
+        self.logger.info("Starting research experiment %s: %s", experiment_id, hypothesis)
 
         # Use training data if no data provided
         if data is None:
@@ -418,7 +418,7 @@ class SpyderX05_MLResearchAgent:
                 )
                 results[model_type.value] = performance
             except Exception as e:
-                self.logger.error(f"Error testing {model_type.value}: {e}", exc_info=True)
+                self.logger.error("Error testing %s: %s", model_type.value, e, exc_info=True)
 
         # Find best model
         best_model = max(results.items(), key=lambda x: x[1]['score'])[0]
@@ -474,7 +474,7 @@ class SpyderX05_MLResearchAgent:
 
             # Check if model needs retraining
             if self._should_retrain(model_id):
-                self.logger.info(f"Retraining model {model_id}")
+                self.logger.info("Retraining model %s", model_id)
 
                 # Get recent data
                 recent_data = self._get_recent_training_data(config.training_window)
@@ -804,11 +804,11 @@ class SpyderX05_MLResearchAgent:
                 last_updated=datetime.now()
             )
 
-            self.logger.info(f"Trained new model {model_id}")
+            self.logger.info("Trained new model %s", model_id)
             return model_id
 
         except Exception as e:
-            self.logger.error(f"Error training model: {e}", exc_info=True)
+            self.logger.error("Error training model: %s", e, exc_info=True)
             return None
 
     def _create_model(self, model_type: ModelType) -> Any:
@@ -869,7 +869,7 @@ class SpyderX05_MLResearchAgent:
             return prediction, probability
 
         except Exception as e:
-            self.logger.error(f"Error making prediction: {e}", exc_info=True)
+            self.logger.error("Error making prediction: %s", e, exc_info=True)
             return 0, None
 
     def _calculate_confidence(
@@ -999,7 +999,7 @@ class SpyderX05_MLResearchAgent:
             return {'accuracy': accuracy}
 
         except Exception as e:
-            self.logger.error(f"Error retraining model {model_id}: {e}", exc_info=True)
+            self.logger.error("Error retraining model %s: %s", model_id, e, exc_info=True)
             return {}
 
     def _update_model_performance(self, model_id: str):
@@ -1035,7 +1035,7 @@ class SpyderX05_MLResearchAgent:
         if model_id in self.model_performance:
             del self.model_performance[model_id]
 
-        self.logger.info(f"Removed model {model_id}")
+        self.logger.info("Removed model %s", model_id)
 
     # ==========================================================================
     # PRIVATE METHODS - RESEARCH
@@ -1075,7 +1075,7 @@ class SpyderX05_MLResearchAgent:
             }
 
         except Exception as e:
-            self.logger.error(f"Error testing {model_type.value}: {e}", exc_info=True)
+            self.logger.error("Error testing %s: %s", model_type.value, e, exc_info=True)
             return {'score': 0.0, 'std': 0.0, 'scores': []}
 
     def _generate_research_insights(
@@ -1177,7 +1177,7 @@ Provide a brief, clear explanation of what this prediction means for a trader.""
             return response['response'].strip()
 
         except Exception as e:
-            self.logger.error(f"Error getting prediction explanation: {e}", exc_info=True)
+            self.logger.error("Error getting prediction explanation: %s", e, exc_info=True)
             return f"{task.value} prediction: {prediction}"
 
     async def _get_ai_research_plan(
@@ -1210,7 +1210,7 @@ Suggest which ML models and features to test. Format as JSON:
             return self._parse_json_response(response['response'])
 
         except Exception as e:
-            self.logger.error(f"Error getting AI research plan: {e}", exc_info=True)
+            self.logger.error("Error getting AI research plan: %s", e, exc_info=True)
             return {'models': list(ModelType), 'features': []}
 
     async def _get_ai_model_recommendation(
@@ -1252,7 +1252,7 @@ Respond with just the model type name."""
             return ModelType.RANDOM_FOREST  # Default
 
         except Exception as e:
-            self.logger.error(f"Error getting AI model recommendation: {e}", exc_info=True)
+            self.logger.error("Error getting AI model recommendation: %s", e, exc_info=True)
             return ModelType.RANDOM_FOREST
 
     async def _get_ai_research_recommendations(
@@ -1307,7 +1307,7 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
             return recommendations[:5]  # Max 5 recommendations
 
         except Exception as e:
-            self.logger.error(f"Error getting AI research recommendations: {e}", exc_info=True)
+            self.logger.error("Error getting AI research recommendations: %s", e, exc_info=True)
             return self._get_basic_recommendations(results)
 
     def _parse_json_response(self, response: str) -> dict[str, Any]:
@@ -1319,7 +1319,7 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
                 json_str = response[start:end]
                 return json.loads(json_str)
         except Exception as e:
-            self.logger.debug(f"Failed to parse JSON from LLM response: {e}")
+            self.logger.debug("Failed to parse JSON from LLM response: %s", e)
 
         return {}
 
@@ -1339,7 +1339,7 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
         for model_id, model in self.active_models.items():
             model_path = self.model_dir / f"{model_id}.pkl"
             joblib.dump(model, model_path)
-            self.logger.info(f"Saved model {model_id}")
+            self.logger.info("Saved model %s", model_id)
 
     def load_models(self):
         """Load models from disk."""
@@ -1348,9 +1348,9 @@ Provide 3-5 actionable recommendations for implementing these findings in produc
                 model_id = model_path.stem
                 model = joblib.load(model_path)
                 self.active_models[model_id] = model
-                self.logger.info(f"Loaded model {model_id}")
+                self.logger.info("Loaded model %s", model_id)
             except Exception as e:
-                self.logger.error(f"Error loading model {model_path}: {e}", exc_info=True)
+                self.logger.error("Error loading model %s: %s", model_path, e, exc_info=True)
 
     def clear_history(self):
         """Clear experiment history."""

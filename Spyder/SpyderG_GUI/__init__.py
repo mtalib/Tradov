@@ -1,6 +1,4 @@
-import logging
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -8,7 +6,7 @@ Package: SpyderG_GUI
 Purpose: Graphical user interface components and dashboard
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-29
+Last Updated: 2026-04-02
 
 Package Description:
     The SpyderG_GUI package provides comprehensive graphical user interface
@@ -23,12 +21,15 @@ Modules Overview:
     • SpyderG03_OptionChainWidget: Options chain display widget
     • SpyderG04_ChartWidget: Trading chart visualization
     • SpyderG05_TradingDashboard: Main trading dashboard
-    • SpyderG06_ClientMonitorPanel: Client connection monitoring
-    • SpyderG07_PrometheusMetricsDisplay: Metrics visualization
+    • SpyderG06_DashboardData: Shared data models and dark-theme constants
+    • SpyderG09_RiskParametersDialog: Interactive risk parameter configuration
     • SpyderG13_EnhancedWidgets: Custom enhanced UI widgets
+    • SpyderG15_ConnectAPIStatus: Real-time broker/data feed connection status
+    • SpyderG16_CircuitBreakerMonitor: Circuit breaker state monitoring
     • SpyderG29_ChartWidgetPlotly: Plotly-based chart widget
     • SpyderG30_PlotlyDataBridge: Data bridge for Plotly charts
     • SpyderG31_PlotlyTemplates: Templates for Plotly charts
+    • SpyderG32_AgentHealthDashboard: Real-time X/Y-series agent health panel
 
 Key Features:
     • Modern PySide6-based interface
@@ -38,7 +39,9 @@ Key Features:
     • System monitoring dashboard
 """
 
-__version__ = "3.0.0"
+import logging
+
+__version__ = "3.0.1"
 __all__ = []
 
 # Import application manager first
@@ -70,7 +73,7 @@ try:
     )
     logging.info("✅ SpyderG_GUI: Application Manager loaded successfully")
 except Exception as e:
-    logging.info(f"⚠️ SpyderG_GUI: Application Manager not available: {e}")
+    logging.info("⚠️ SpyderG_GUI: Application Manager not available: %s", e)
 
 # Import GUI modules with error handling and proper initialization
 modules_to_import = [
@@ -81,7 +84,7 @@ modules_to_import = [
     # G05_TradingDashboard imported lazily to avoid circular imports
     # Use create_trading_dashboard() or import directly when needed
     (
-        "SpyderG06_RiskParametersDialog",
+        "SpyderG09_RiskParametersDialog",
         ["RiskParametersDialog", "show_risk_parameters_dialog"],
     ),
 ]
@@ -115,12 +118,12 @@ for module_info in modules_to_import:
             globals()[items_to_import] = getattr(module, items_to_import)
             __all__.append(items_to_import)
 
-        logging.info(f"✅ SpyderG_GUI: {module_name} loaded successfully")
+        logging.info("✅ SpyderG_GUI: %s loaded successfully", module_name)
         successful_imports += 1
     except Exception as e:
-        logging.info(f"⚠️ SpyderG_GUI: {module_name} not available: {e}")
+        logging.info("⚠️ SpyderG_GUI: %s not available: %s", module_name, e)
 
-logging.info(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
+logging.info("✅ SpyderG_GUI: %s components loaded successfully", successful_imports)
 
 # Import broker status widget (Tradier + Databento)
 try:
@@ -136,7 +139,7 @@ try:
     ])
     logging.info("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
 except Exception as e:
-    logging.info(f"⚠️ SpyderG_GUI: BrokerStatusWidget not available: {e}")
+    logging.info("⚠️ SpyderG_GUI: BrokerStatusWidget not available: %s", e)
 
 # Import circuit breaker monitor
 try:
@@ -147,7 +150,16 @@ try:
     __all__.extend(["CircuitBreakerMonitor", "create_circuit_breaker_monitor"])
     logging.info("✅ SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
 except Exception as e:
-    logging.info(f"⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: {e}")
+    logging.info("⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: %s", e)
+
+
+# Import agent health dashboard (v2 addition)
+try:
+    from .SpyderG32_AgentHealthDashboard import AgentHealthDashboard
+    __all__.extend(["AgentHealthDashboard"])
+    logging.info("✅ SpyderG_GUI: AgentHealthDashboard loaded successfully")
+except Exception as e:
+    logging.info("⚠️ SpyderG_GUI: AgentHealthDashboard not available: %s", e)
 
 
 # Add convenience functions for safe widget creation
@@ -164,7 +176,7 @@ def create_trading_dashboard(*args, **kwargs):
 
         return create_safe_widget(SpyderTradingDashboard, *args, **kwargs)
     except Exception as e:
-        logging.info(f"Failed to create trading dashboard: {e}")
+        logging.info("Failed to create trading dashboard: %s", e)
         return None
 
 
@@ -181,7 +193,7 @@ def create_chart_widget(*args, **kwargs):
 
         return create_safe_widget(ChartWidget, *args, **kwargs)
     except Exception as e:
-        logging.info(f"Failed to create chart widget: {e}")
+        logging.info("Failed to create chart widget: %s", e)
         return None
 
 
@@ -198,7 +210,7 @@ def create_main_window(*args, **kwargs):
 
         return create_safe_widget(SpyderMainWindow, *args, **kwargs)
     except Exception as e:
-        logging.info(f"Failed to create main window: {e}")
+        logging.info("Failed to create main window: %s", e)
         return None
 
 
@@ -228,15 +240,15 @@ def check_optional_dependencies():
     if missing:
         logging.info("Warning: Optional dependencies not available:")
         for dep in missing:
-            logging.info(f"  - {dep}")
+            logging.info("  - %s", dep)
         logging.info("Install with: pip install [package_name]")
 
 
 # Run dependency check
 try:
     check_optional_dependencies()
-except Exception:
-    pass
+except Exception as e:
+    logging.debug("Optional dependency check failed: %s", e)
 
 # Initialize application manager for headless testing by default
 try:
@@ -252,10 +264,72 @@ try:
     else:
         # GUI mode available
         pass  # Don't auto-initialize GUI mode, let user choose
-except Exception:
-    pass
+except Exception as e:
+    logging.debug("Optional GUI init failed: %s", e)
 
-logging.info(f"✅ SpyderG_GUI package initialized (v{__version__})")
+# G11, G12, G99 — additional GUI modules
+try:
+    from .SpyderG11_SkewMonitorDialog import SkewMonitorDialog
+    __all__.extend(["SkewMonitorDialog"])
+except ImportError as e:
+    logging.info("Warning: SpyderG11_SkewMonitorDialog not available: %s", e)
+
+try:
+    from .SpyderG12_SignalInfoDialog import SignalInfoDialog
+    __all__.extend(["SignalInfoDialog"])
+except ImportError as e:
+    logging.info("Warning: SpyderG12_SignalInfoDialog not available: %s", e)
+
+try:
+    from .SpyderG99_GUILogHandler import GUILogHandler, FilteredGUILogHandler
+    __all__.extend(["GUILogHandler", "FilteredGUILogHandler"])
+except ImportError as e:
+    logging.info("Warning: SpyderG99_GUILogHandler not available: %s", e)
+
+try:
+    from .SpyderG06_DashboardData import MarketData, SignalData
+    __all__.extend(["MarketData", "SignalData"])
+except ImportError as e:
+    logging.info("Warning: SpyderG06_DashboardData not available: %s", e)
+
+try:
+    from .SpyderG13_EnhancedWidgets import (
+        SpyderStrikeRangeSlider, SpyderTradingInput,
+        SpyderSearchableCombo, SpyderCollapsibleGroup,
+    )
+    __all__.extend(["SpyderStrikeRangeSlider", "SpyderTradingInput",
+                    "SpyderSearchableCombo", "SpyderCollapsibleGroup"])
+except ImportError as e:
+    logging.info("Warning: SpyderG13_EnhancedWidgets not available: %s", e)
+
+try:
+    from .SpyderG14_Dashboard import main as g14_dashboard_main
+    __all__.extend(["g14_dashboard_main"])
+except ImportError as e:
+    logging.info("Warning: SpyderG14_Dashboard not available: %s", e)
+
+try:
+    from .SpyderG29_ChartWidgetPlotly import PlotlyChartWidget
+    __all__.extend(["PlotlyChartWidget"])
+except ImportError as e:
+    logging.info("Warning: SpyderG29_ChartWidgetPlotly not available: %s", e)
+
+try:
+    from .SpyderG30_PlotlyDataBridge import PlotlyDataBridge, SpyderToPlotlyConverter
+    __all__.extend(["PlotlyDataBridge", "SpyderToPlotlyConverter"])
+except ImportError as e:
+    logging.info("Warning: SpyderG30_PlotlyDataBridge not available: %s", e)
+
+try:
+    from .SpyderG31_PlotlyTemplates import (
+        CandlestickChartTemplate, OptionsChartTemplate, VolatilityChartTemplate,
+    )
+    __all__.extend(["CandlestickChartTemplate", "OptionsChartTemplate",
+                    "VolatilityChartTemplate"])
+except ImportError as e:
+    logging.info("Warning: SpyderG31_PlotlyTemplates not available: %s", e)
+
+logging.info("✅ SpyderG_GUI package initialized (v%s)", __version__)
 
 # Export version
 __all__.append("__version__")

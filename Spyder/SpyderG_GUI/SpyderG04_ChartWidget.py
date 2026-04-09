@@ -61,7 +61,7 @@ try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderA_Core.SpyderA05_EventManager import Event, EventType
 except ImportError as e:
-    logging.info(f"Warning: Cannot import Spyder modules: {e}")
+    logging.info("Warning: Cannot import Spyder modules: %s", e)
     logging.info("Creating fallback logger...")
 
     # Create fallback logger
@@ -382,7 +382,7 @@ class ChartWidget(QWidget):
             self.main_plot.addItem(self.info_label, ignoreBounds=True)
 
         except Exception as e:
-            self.logger.error(f"Failed to setup crosshair: {str(e)}")
+            self.logger.error("Failed to setup crosshair: %s", str(e))
 
     def _create_indicators_menu(self):
         """Create indicators selection menu"""
@@ -600,7 +600,7 @@ class ChartWidget(QWidget):
                 self._auto_range_visible()
 
         except Exception as e:
-            self.logger.error(f"Error updating charts: {e}")
+            self.logger.error("Error updating charts: %s", e)
 
     def _draw_price_chart(self):
         """Draw price candles/bars"""
@@ -1163,7 +1163,7 @@ class ChartWidget(QWidget):
         if PYQTGRAPH_AVAILABLE:
             self.price_widget.setCursor(Qt.CursorShape.CrossCursor)
 
-        self.logger.info(f"Selected drawing tool: {tool_type}")
+        self.logger.info("Selected drawing tool: %s", tool_type)
 
     def _on_mouse_clicked(self, event):
         """Handle mouse click for drawing"""
@@ -1443,7 +1443,7 @@ class ChartWidget(QWidget):
                 self.add_price_data(timestamp, price, price, price, price, 0)
 
         except Exception as e:
-            self.logger.error(f"Error handling market data: {e}")
+            self.logger.error("Error handling market data: %s", e)
 
     def _handle_price_update(self, event: Event):
         """Handle price update events"""
@@ -1483,7 +1483,7 @@ class ChartWidget(QWidget):
             self.logger.debug("Mouse events setup completed")
 
         except Exception as e:
-            self.logger.error(f"Failed to setup mouse events: {str(e)}")
+            self.logger.error("Failed to setup mouse events: %s", str(e))
 
     def _on_mouse_moved(self, pos):
         """Handle mouse move events."""
@@ -1505,33 +1505,33 @@ class ChartWidget(QWidget):
                 self.crosshair_price_label.setText(f"${mouse_point.y():.2f}")
 
         except Exception as e:
-            self.logger.error(f"Error in mouse move handler: {str(e)}")
+            self.logger.error("Error in mouse move handler: %s", str(e))
 
     def _on_timeframe_changed(self, timeframe: str):
         """Handle timeframe change from combo box."""
         try:
             self.timeframe = timeframe
             self.timeframe_changed.emit(timeframe)
-            self.logger.info(f"Timeframe changed to: {timeframe}")
+            self.logger.info("Timeframe changed to: %s", timeframe)
         except Exception as e:
-            self.logger.error(f"Error changing timeframe: {str(e)}")
+            self.logger.error("Error changing timeframe: %s", str(e))
 
     def _on_chart_type_changed(self, chart_type: str):
         """Handle chart type change."""
         try:
             self.update_charts()
-            self.logger.info(f"Chart type changed to: {chart_type}")
+            self.logger.info("Chart type changed to: %s", chart_type)
         except Exception as e:
-            self.logger.error(f"Error changing chart type: {str(e)}")
+            self.logger.error("Error changing chart type: %s", str(e))
 
     def _toggle_extended_hours(self, enabled: bool):
         """Toggle extended hours display."""
         try:
             self.show_extended_hours = enabled
             self.update_charts()
-            self.logger.info(f"Extended hours: {enabled}")
+            self.logger.info("Extended hours: %s", enabled)
         except Exception as e:
-            self.logger.error(f"Error toggling extended hours: {str(e)}")
+            self.logger.error("Error toggling extended hours: %s", str(e))
 
     def _toggle_ma(self, ma_name: str, enabled: bool, period: int):
         """Toggle moving average display."""
@@ -1544,9 +1544,9 @@ class ChartWidget(QWidget):
             self._update_indicators()
             self.update_charts()
             self.indicator_toggled.emit(ma_name, enabled)
-            self.logger.info(f"Moving average {ma_name}: {enabled}")
+            self.logger.info("Moving average %s: %s", ma_name, enabled)
         except Exception as e:
-            self.logger.error(f"Error toggling MA {ma_name}: {str(e)}")
+            self.logger.error("Error toggling MA %s: %s", ma_name, str(e))
 
     def _toggle_indicator(self, indicator_name: str, enabled: bool):
         """Toggle indicator display."""
@@ -1559,9 +1559,9 @@ class ChartWidget(QWidget):
             self._update_indicators()
             self.update_charts()
             self.indicator_toggled.emit(indicator_name, enabled)
-            self.logger.info(f"Indicator {indicator_name}: {enabled}")
+            self.logger.info("Indicator %s: %s", indicator_name, enabled)
         except Exception as e:
-            self.logger.error(f"Error toggling indicator {indicator_name}: {str(e)}")
+            self.logger.error("Error toggling indicator %s: %s", indicator_name, str(e))
 
     def _save_chart(self):
         """Save chart as image."""
@@ -1571,7 +1571,7 @@ class ChartWidget(QWidget):
                 exporter.export("chart.png")
                 self.logger.info("Chart saved as chart.png")
         except Exception as e:
-            self.logger.error(f"Error saving chart: {str(e)}")
+            self.logger.error("Error saving chart: %s", str(e))
 
     def _reset_view(self):
         """Reset chart view to default."""
@@ -1580,7 +1580,7 @@ class ChartWidget(QWidget):
                 self.price_widget.autoRange()
             self.logger.info("Chart view reset")
         except Exception as e:
-            self.logger.error(f"Error resetting view: {str(e)}")
+            self.logger.error("Error resetting view: %s", str(e))
 
     def _setup_plot(self, plot_widget, title: str, y_label: str):
         """Setup common plot properties."""
@@ -1591,7 +1591,7 @@ class ChartWidget(QWidget):
             plot_widget.setLabel("bottom", "Time")
             plot_widget.setTitle(title)
         except Exception as e:
-            self.logger.error(f"Error setting up plot: {str(e)}")
+            self.logger.error("Error setting up plot: %s", str(e))
 
     def _auto_range_visible(self):
         """Auto-range to show visible data."""
@@ -1599,7 +1599,7 @@ class ChartWidget(QWidget):
             if hasattr(self, "price_widget") and self.price_widget:
                 self.price_widget.autoRange()
         except Exception as e:
-            self.logger.error(f"Error auto-ranging: {str(e)}")
+            self.logger.error("Error auto-ranging: %s", str(e))
 
 
 # ==============================================================================

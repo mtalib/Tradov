@@ -27,7 +27,8 @@ import threading
 import datetime
 import os
 import sys
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
@@ -306,7 +307,7 @@ class SystemMonitor:
                     break
 
             except Exception as e:
-                self.logger.error(f"Error in monitor loop: {e}", exc_info=True)
+                self.logger.error("Error in monitor loop: %s", e, exc_info=True)
                 self.error_tracker.append({
                     'timestamp': datetime.datetime.now(),
                     'error': str(e),
@@ -569,7 +570,7 @@ class SystemMonitor:
             if alert_key in self.alert_cooldowns:
                 del self.alert_cooldowns[alert_key]
 
-            self.logger.info(f"Alert resolved: {metric_type.value}")
+            self.logger.info("Alert resolved: %s", metric_type.value)
 
     # ==========================================================================
     # HEALTH CHECKS
@@ -607,7 +608,7 @@ class SystemMonitor:
                     )
 
             except Exception as e:
-                self.logger.error(f"Error running health check for {component}: {e}", exc_info=True)
+                self.logger.error("Error running health check for %s: %s", component, e, exc_info=True)
 
                 self.health_checks[component] = HealthCheck(
                     component=component,
@@ -630,7 +631,7 @@ class SystemMonitor:
             check_func: Function that returns (status, message, details)
         """
         self.component_monitors[component] = check_func
-        self.logger.info(f"Registered health monitor for {component}")
+        self.logger.info("Registered health monitor for %s", component)
 
     # ==========================================================================
     # PUBLIC API
@@ -897,7 +898,7 @@ class SystemMonitor:
             )
 
         except Exception as e:
-            self.logger.warning(f"Could not register event handlers: {e}", exc_info=True)
+            self.logger.warning("Could not register event handlers: %s", e, exc_info=True)
 
     def _emit_alert_event(self, alert: SystemAlert) -> None:
         """Emit alert event to event manager"""
@@ -918,7 +919,7 @@ class SystemMonitor:
                     }
                 )
             except Exception as e:
-                self.logger.error(f"Failed to emit alert event: {e}", exc_info=True)
+                self.logger.error("Failed to emit alert event: %s", e, exc_info=True)
 
 # ==============================================================================
 # MODULE INITIALIZATION

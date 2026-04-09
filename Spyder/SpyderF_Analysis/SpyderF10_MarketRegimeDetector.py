@@ -23,7 +23,8 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime
-from typing import Callable, Any
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from collections import deque
@@ -1205,7 +1206,7 @@ class MarketRegimeDetector:
                 try:
                     callback(transition)
                 except Exception as e:
-                    self.logger.error(f"Error in regime change callback: {e}")
+                    self.logger.error("Error in regime change callback: %s", e)
 
             # Update strategy recommendations
             self._update_strategy_recommendations(transition)
@@ -1225,7 +1226,7 @@ class MarketRegimeDetector:
                 try:
                     callback(stress_indicators)
                 except Exception as e:
-                    self.logger.error(f"Error in stress alert callback: {e}")
+                    self.logger.error("Error in stress alert callback: %s", e)
 
         except Exception as e:
             self.error_handler.handle_error(e, "_handle_stress_alert")

@@ -28,3 +28,10 @@ deap>=1.4.1
 
 # ML experiment tracking & model versioning
 mlflow>=2.11.0
+
+# Local LLM inference — Ollama Python SDK
+ollama>=0.6.0
+
+# Intel OpenVINO inference backend (CPU / iGPU / NPU on Intel hardware)
+openvino-genai>=2026.0.0
+optimum[openvino]>=2.1.0

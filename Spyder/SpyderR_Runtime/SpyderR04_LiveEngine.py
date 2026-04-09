@@ -57,6 +57,7 @@ REQUIRE_LIVE_ORDER_CONFIRMATION = os.environ.get('REQUIRE_LIVE_ORDER_CONFIRMATIO
 HIGH_RISK_ORDER_CONFIRMATION = os.environ.get('HIGH_RISK_ORDER_CONFIRMATION', 'true').lower() == 'true'
 HIGH_RISK_ORDER_THRESHOLD_USD = float(os.environ.get('HIGH_RISK_ORDER_THRESHOLD_USD', 50000))  # $50k
 HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_PCT', 0.25))  # 25% of portfolio
+CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'true').lower() == 'true'
 
 # Execution parameters
 ORDER_RETRY_LIMIT = 3
@@ -119,7 +120,7 @@ class LiveTradingConfig:
     use_limit_orders_only: bool = False
     slippage_tolerance: float = 0.01  # 1%
     partial_fill_timeout: int = 60  # seconds
-    close_positions_on_emergency: bool = False  # If True, flatten all on emergency stop
+    close_positions_on_emergency: bool = CLOSE_POSITIONS_ON_EMERGENCY  # Env: CLOSE_POSITIONS_ON_EMERGENCY (default true)
 
 
 @dataclass
@@ -188,13 +189,14 @@ class LiveEngine:
         >>> engine.start_trading()
     """
 
-    def __init__(self, broker_interface, risk_manager, config: LiveTradingConfig):
+    def __init__(self, broker_interface, risk_manager, config: LiveTradingConfig, telegram_bot=None):
         """Initialize the live engine."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config
         self.broker = broker_interface
         self.risk_manager = risk_manager
+        self.telegram_bot = telegram_bot  # Optional SpyderJ05_TelegramBot for high-risk alerts
 
         # State management
         self.state = ExecutionState.INITIALIZED
@@ -226,7 +228,7 @@ class LiveEngine:
         self.last_heartbeat = datetime.now()
         self.broker_connected = False
 
-        self.logger.info(f"LiveEngine initialized for account {config.account_id}")
+        self.logger.info("LiveEngine initialized for account %s", config.account_id)
 
     # ==========================================================================
     # PUBLIC METHODS - LIFECYCLE
@@ -265,7 +267,7 @@ class LiveEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             self.state = ExecutionState.ERROR
             return False
 
@@ -278,7 +280,7 @@ class LiveEngine:
         """
         try:
             if self.state != ExecutionState.CONNECTED:
-                self.logger.error(f"Cannot start trading from state {self.state}")
+                self.logger.error("Cannot start trading from state %s", self.state)
                 return False
 
             # Perform pre-trading checks
@@ -295,7 +297,7 @@ class LiveEngine:
             self.state = ExecutionState.TRADING
 
             # Log trading start
-            self.logger.info(f"Live trading started - Session: {self.current_session.session_id}")
+            self.logger.info("Live trading started - Session: %s", self.current_session.session_id)
 
             # Emit trading started event
             self._emit_event(
@@ -310,7 +312,7 @@ class LiveEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start trading: {e}")
+            self.logger.error("Failed to start trading: %s", e)
             return False
 
     def stop_trading(self, reason: str = "User requested") -> bool:
@@ -324,10 +326,10 @@ class LiveEngine:
             bool: True if stopped successfully
         """
         try:
-            self.logger.info(f"Stopping live trading: {reason}")
+            self.logger.info("Stopping live trading: %s", reason)
 
             if self.state not in [ExecutionState.TRADING, ExecutionState.PAUSED]:
-                self.logger.warning(f"Not in trading state: {self.state}")
+                self.logger.warning("Not in trading state: %s", self.state)
                 return False
 
             # Set closing state
@@ -358,7 +360,7 @@ class LiveEngine:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping trading: {e}")
+            self.logger.error("Error stopping trading: %s", e)
             return False
 
     def pause_trading(self) -> bool:
@@ -402,7 +404,7 @@ class LiveEngine:
             self.logger.info("Live engine cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.error("Error during cleanup: %s", e)
 
     # ==========================================================================
     # PUBLIC METHODS - ORDER EXECUTION
@@ -430,14 +432,14 @@ class LiveEngine:
                     "reason": safety_result.message,
                     "safety_check": safety_result,
                 }
-            
+
             # Smart confirmation: only for development mode or high-risk orders
             if self.mode == TradingMode.LIVE:
                 confirmation_result = self._check_order_confirmation_required(order)
                 if confirmation_result['requires_confirmation']:
                     confirmed = self._request_order_confirmation(order, confirmation_result['reason'])
                     if not confirmed:
-                        self.logger.warning(f"Order {order.get('symbol')} rejected: {confirmation_result['reason']}")
+                        self.logger.warning("Order %s rejected: %s", order.get('symbol'), confirmation_result['reason'])
                         return {
                             "status": "rejected",
                             "reason": f"Order requires confirmation: {confirmation_result['reason']}",
@@ -446,7 +448,7 @@ class LiveEngine:
                         }
                 else:
                     # Autonomous mode - log and proceed
-                    self.logger.info(f"Order {order.get('symbol')} proceeding autonomously (confirmation not required)")
+                    self.logger.info("Order %s proceeding autonomously (confirmation not required)", order.get('symbol'))
 
             # Add to order queue
             order["timestamp"] = datetime.now()
@@ -462,7 +464,7 @@ class LiveEngine:
             return result
 
         except Exception as e:
-            self.logger.error(f"Order execution error: {e}")
+            self.logger.error("Order execution error: %s", e)
             return {"status": "error", "reason": str(e)}
 
     def cancel_order(self, order_id: str) -> bool:
@@ -482,14 +484,14 @@ class LiveEngine:
 
                 if result:
                     del self.pending_orders[order_id]
-                    self.logger.info(f"Order {order_id} cancelled")
+                    self.logger.info("Order %s cancelled", order_id)
 
                 return result
 
             return False
 
         except Exception as e:
-            self.logger.error(f"Error cancelling order {order_id}: {e}")
+            self.logger.error("Error cancelling order %s: %s", order_id, e)
             return False
 
     def get_execution_status(self) -> dict[str, Any]:
@@ -537,7 +539,7 @@ class LiveEngine:
             bool: True if stopped successfully
         """
         try:
-            self.logger.critical(f"EMERGENCY STOP INITIATED: {reason}")
+            self.logger.critical("EMERGENCY STOP INITIATED: %s", reason)
 
             # Set emergency stop flag
             self.emergency_stop = True
@@ -559,7 +561,7 @@ class LiveEngine:
             return True
 
         except Exception as e:
-            self.logger.critical(f"Emergency stop failed: {e}")
+            self.logger.critical("Emergency stop failed: %s", e)
             return False
 
     # ==========================================================================
@@ -589,9 +591,9 @@ class LiveEngine:
         try:
             positions = self.broker.get_positions()
             self.active_positions = {p["symbol"]: p for p in positions}
-            self.logger.info(f"Loaded {len(self.active_positions)} active positions")
+            self.logger.info("Loaded %s active positions", len(self.active_positions))
         except Exception as e:
-            self.logger.error(f"Failed to load positions: {e}")
+            self.logger.error("Failed to load positions: %s", e)
 
     def _initialize_safety_systems(self):
         """Initialize all safety systems."""
@@ -642,7 +644,7 @@ class LiveEngine:
                 self.stop_event.wait(1)
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
 
     def _process_order_queue(self):
         """Process orders from queue."""
@@ -653,7 +655,7 @@ class LiveEngine:
             except queue.Empty:
                 break
             except Exception as e:
-                self.logger.error(f"Error processing order: {e}")
+                self.logger.error("Error processing order: %s", e)
 
     def _monitor_positions(self):
         """Monitor active positions."""
@@ -673,7 +675,7 @@ class LiveEngine:
                 self.active_positions[symbol] = position
 
         except Exception as e:
-            self.logger.error(f"Position monitoring error: {e}")
+            self.logger.error("Position monitoring error: %s", e)
 
     def _check_heartbeat(self):
         """Check broker connection heartbeat."""
@@ -768,14 +770,14 @@ class LiveEngine:
     def _check_order_confirmation_required(self, order: dict[str, Any]) -> dict[str, Any]:
         """
         Determine if an order requires user confirmation.
-        
+
         Confirmation is required in two scenarios:
         1. Development mode: REQUIRE_LIVE_ORDER_CONFIRMATION=true (all orders)
         2. High-risk orders: Exceeds $ threshold or % of portfolio (selective)
-        
+
         Args:
             order: Order details
-            
+
         Returns:
             Dict with:
                 - requires_confirmation: bool
@@ -790,7 +792,7 @@ class LiveEngine:
                     'reason': 'Development mode - all orders require confirmation',
                     'risk_level': 'development'
                 }
-            
+
             # Production autonomous mode: selective confirmation for high-risk only
             if not self.config.high_risk_confirmation:
                 # Fully autonomous - no confirmation ever
@@ -799,27 +801,27 @@ class LiveEngine:
                     'reason': 'Fully autonomous mode',
                     'risk_level': 'normal'
                 }
-            
+
             # Check if order meets high-risk criteria
             order_value = self._calculate_order_value(order)
-            
+
             # Get portfolio value for percentage check
             portfolio_value = self._get_portfolio_value()
             order_pct = order_value / portfolio_value if portfolio_value > 0 else 0
-            
+
             reasons = []
             risk_level = 'normal'
-            
+
             # Check absolute dollar threshold
             if order_value > self.config.high_risk_threshold_usd:
                 reasons.append(f"Order value ${order_value:,.2f} exceeds threshold ${self.config.high_risk_threshold_usd:,.2f}")
                 risk_level = 'high'
-            
+
             # Check portfolio percentage threshold
             if order_pct > self.config.high_risk_portfolio_pct:
                 reasons.append(f"Order represents {order_pct*100:.1f}% of portfolio (limit: {self.config.high_risk_portfolio_pct*100:.1f}%)")
                 risk_level = 'critical' if order_pct > 0.5 else 'high'
-            
+
             if reasons:
                 return {
                     'requires_confirmation': True,
@@ -828,7 +830,7 @@ class LiveEngine:
                     'order_value': order_value,
                     'portfolio_pct': order_pct
                 }
-            
+
             # Normal order - proceed autonomously
             return {
                 'requires_confirmation': False,
@@ -837,31 +839,31 @@ class LiveEngine:
                 'order_value': order_value,
                 'portfolio_pct': order_pct
             }
-            
+
         except Exception as e:
-            self.logger.error(f"Error checking confirmation requirement: {e}", exc_info=True)
+            self.logger.error("Error checking confirmation requirement: %s", e, exc_info=True)
             # Fail safe: require confirmation on error
             return {
                 'requires_confirmation': True,
                 'reason': f'Error evaluating risk: {str(e)}',
                 'risk_level': 'error'
             }
-    
+
     def _request_order_confirmation(self, order: dict[str, Any], reason: str) -> bool:
         """
         Request explicit user confirmation before executing a high-risk order.
-        
+
         This method is ONLY called for:
         - Development mode (all orders)
         - High-risk orders exceeding thresholds
-        
+
         Args:
             order: Order details to confirm
             reason: Why confirmation is required
-            
+
         Returns:
             bool: True if confirmed, False if declined
-            
+
         Note:
             In production autonomous mode, this should rarely be called.
             When called, it integrates with GUI/monitoring systems for approval.
@@ -871,66 +873,132 @@ class LiveEngine:
             self.logger.warning("="*60)
             self.logger.warning("HIGH-RISK ORDER CONFIRMATION REQUIRED")
             self.logger.warning("="*60)
-            self.logger.warning(f"Reason: {reason}")
-            self.logger.warning(f"Symbol: {order.get('symbol', 'N/A')}")
-            self.logger.warning(f"Side: {order.get('side', 'N/A')}")
-            self.logger.warning(f"Quantity: {order.get('quantity', 'N/A')}")
-            self.logger.warning(f"Order Type: {order.get('type', 'N/A')}")
-            self.logger.warning(f"Price: {order.get('price', 'MARKET')}")
+            self.logger.warning("Reason: %s", reason)
+            self.logger.warning("Symbol: %s", order.get('symbol', 'N/A'))
+            self.logger.warning("Side: %s", order.get('side', 'N/A'))
+            self.logger.warning("Quantity: %s", order.get('quantity', 'N/A'))
+            self.logger.warning("Order Type: %s", order.get('type', 'N/A'))
+            self.logger.warning("Price: %s", order.get('price', 'MARKET'))
             self.logger.warning(f"Estimated Value: ${self._calculate_order_value(order):,.2f}")
             self.logger.warning("="*60)
-            
+
             # Emit event for GUI/monitoring to display confirmation dialog
             self._emit_event('high_risk_order_confirmation_requested', {
                 'order': order,
                 'reason': reason,
                 'timestamp': datetime.now().isoformat()
             })
-            
+
             # Integration points:
-            # 1. SpyderG05_TradingDashboard - GUI confirmation dialog
-            # 2. SpyderJ05_TelegramBot - Mobile push notification with approve/reject
-            # 3. Web interface - Browser notification
-            # 4. Email alert with auto-generated approval link
-            
-            # For now: check environment variable for testing
-            # In production: this would wait for actual user response via queue/event
+            # 1. SpyderJ05_TelegramBot — mobile push notification with APPROVE/REJECT inline keyboard
+            # 2. SpyderG09_RiskParametersDialog — GUI dialog (not applicable in headless/backend mode)
+            confirm_timeout = int(os.environ.get('HIGH_RISK_CONFIRM_TIMEOUT_SECS', '60'))
+            if self.telegram_bot is not None:
+                try:
+                    result = self.telegram_bot.send_confirmation_request(
+                        order=order, reason=reason, timeout=confirm_timeout
+                    )
+                    if result is True:
+                        self.logger.warning("High-risk order APPROVED by operator via Telegram.")
+                        return True
+                    if result is False:
+                        self.logger.critical("High-risk order REJECTED by operator via Telegram.")
+                        return False
+                    # result is None → timed out; fall through to autonomous decision
+                    self.logger.warning(
+                        f"Telegram confirmation timed out after {confirm_timeout}s "
+                        "— falling back to autonomous risk decision."
+                    )
+                except Exception as _tg_err:
+                    self.logger.error(
+                        "Telegram confirmation error: %s — falling back to autonomous decision.", _tg_err
+                    )
+
+            # Testing override (sandbox/paper only)
             if os.environ.get('AUTO_CONFIRM_HIGH_RISK_ORDERS', 'false').lower() == 'true':
-                self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled - order auto-approved (TESTING ONLY)")
+                self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled — auto-approved (TESTING ONLY)")
                 return True
-           
-            # TODO: Implement actual confirmation mechanism:
-            # - Wait on confirmation_queue with timeout (e.g., 60 seconds)
-            # - Check SpyderG05 dashboard for user clicks
-            # - Check Telegram bot for approval message
-            # If no response within timeout, default to rejection for safety
-            
-            self.logger.critical(
-                "High-risk order blocked pending confirmation. "
-                "Set AUTO_CONFIRM_HIGH_RISK_ORDERS=true for testing, "
-                "or integrate with GUI/Telegram for production approval workflow."
-            )
-            
-            return False  # Default to rejection for safety
-            
+
+            # Autonomous decision: delegate to the E-series risk engine
+            approved = self._autonomous_risk_decision(order, reason)
+            if approved:
+                self.logger.warning("Autonomous risk assessment: APPROVED")
+            else:
+                self.logger.critical("Autonomous risk assessment: REJECTED — order blocked by risk engine")
+            return approved
+
         except Exception as e:
-            self.logger.error(f"Error requesting order confirmation: {e}", exc_info=True)
+            self.logger.error("Error requesting order confirmation: %s", e, exc_info=True)
             return False  # Fail safe: reject on error
-    
+
+    def _autonomous_risk_decision(self, order: dict[str, Any], reason: str) -> bool:
+        """
+        Make an autonomous approve/reject decision for a high-risk order using
+        the E-series risk engine. Called instead of human/Telegram confirmation.
+
+        Args:
+            order:  Order details dict.
+            reason: The trigger reason (e.g. "position size limit").
+
+        Returns:
+            True  — risk engine approves the order.
+            False — risk engine rejects; order must not be submitted.
+        """
+        try:
+            # --- 1. Check circuit breaker / daily limits via risk_manager ---
+            if hasattr(self.risk_manager, 'check_daily_limits'):
+                if not self.risk_manager.check_daily_limits():
+                    self.logger.warning("Autonomous rejection: daily risk limits already exceeded.")
+                    return False
+
+            # --- 2. Check current risk metrics for drawdown / exposure ---
+            if hasattr(self.risk_manager, 'get_risk_metrics'):
+                metrics = self.risk_manager.get_risk_metrics()
+                if metrics is not None:
+                    # Reject if daily P&L loss exceeds 75 % of the configured maximum
+                    max_daily = getattr(self.config, 'max_daily_loss', None)
+                    if max_daily and hasattr(metrics, 'daily_pnl'):
+                        if metrics.daily_pnl < -(abs(max_daily) * 0.75):
+                            self.logger.warning(
+                                f"Autonomous rejection: daily P&L {metrics.daily_pnl:.2f} "
+                                f"approaching limit {max_daily:.2f}."
+                            )
+                            return False
+
+            # --- 3. Favour rejection for explicit position-size violations ---
+            trigger_lower = reason.lower()
+            hard_blocks = ("position size", "daily loss", "exposure limit", "drawdown")
+            if any(kw in trigger_lower for kw in hard_blocks):
+                self.logger.warning(
+                    "Autonomous rejection: hard-block trigger in reason: '%s'.", reason
+                )
+                return False
+
+            # --- 4. All checks passed — approve ---
+            self.logger.info(
+                "Autonomous approval: no hard-block conditions triggered for reason '%s'.", reason
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error("Autonomous risk decision error: %s", e, exc_info=True)
+            return False  # Fail safe: reject on error
+
     def _calculate_order_value(self, order: dict[str, Any]) -> float:
         """
         Calculate the dollar value of an order.
-        
+
         Args:
             order: Order details
-            
+
         Returns:
             Estimated order value in USD
         """
         try:
             quantity = order.get('quantity', 0)
             price = order.get('price', 0)
-            
+            symbol = order.get('symbol', '')
+
             # For market orders, estimate using current market price
             if price == 0 or order.get('type', '').lower() == 'market':
                 # Fetch current market price from broker
@@ -941,25 +1009,24 @@ class LiveEngine:
                         quote = quote[0]
                     price = float(quote.get('last', 0) or quote.get('close', 0) or 0)
                 except Exception:
-                    self.logger.warning(f"Could not fetch live price for {symbol}, using order price")
+                    self.logger.warning("Could not fetch live price for %s, using order price", symbol)
                 if price == 0:
-                    self.logger.warning(f"No price available for order value calculation on {symbol}")
+                    self.logger.warning("No price available for order value calculation on %s", symbol)
                     return 0.0
-            
+
             # For options, multiply by contract multiplier (usually 100)
-            symbol = order.get('symbol', '')
             multiplier = 100 if self._is_option_symbol(symbol) else 1
-            
+
             return abs(quantity * price * multiplier)
-            
+
         except Exception as e:
-            self.logger.error(f"Error calculating order value: {e}")
+            self.logger.error("Error calculating order value: %s", e)
             return 0.0
-    
+
     def _get_portfolio_value(self) -> float:
         """
         Get current portfolio value.
-        
+
         Returns:
             Portfolio value in USD
         """
@@ -968,22 +1035,22 @@ class LiveEngine:
             account_info = self.broker.get_account_info()
             return account_info.get('total_equity', 0.0)
         except Exception as e:
-            self.logger.error(f"Error getting portfolio value: {e}")
+            self.logger.error("Error getting portfolio value: %s", e)
             return 0.0
-    
+
     def _is_option_symbol(self, symbol: str) -> bool:
         """
         Check if symbol is an option.
-        
+
         Args:
             symbol: Symbol to check
-            
+
         Returns:
             True if option symbol
         """
         # Options typically have format: SPY240315C00450000
         return len(symbol) > 10 and any(c in symbol for c in ['C', 'P'])
-    
+
     def _generate_session_id(self) -> str:
         """Generate unique session ID."""
         return f"LIVE_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -1014,13 +1081,13 @@ class LiveEngine:
     def _emit_event(self, event_type: str, data: dict[str, Any]):
         """Emit event through event manager."""
         # Would integrate with SpyderA05_EventManager
-        self.logger.debug(f"Event: {event_type} - {data}")
+        self.logger.debug("Event: %s - %s", event_type, data)
 
     def _save_session_data(self):
         """Save trading session data."""
         if self.current_session:
             # Would save to database
-            self.logger.info(f"Session {self.current_session.session_id} saved")
+            self.logger.info("Session %s saved", self.current_session.session_id)
 
     # ==========================================================================
     # PRIVATE METHODS - SAFETY CHECK REGISTRY
@@ -1101,7 +1168,7 @@ class LiveEngine:
                 self.metrics.failed_executions += 1
             self.pending_orders[order_id] = {"order": order, "result": result}
         except Exception as exc:
-            self.logger.error(f"Internal order execution failed for {order_id}: {exc}")
+            self.logger.error("Internal order execution failed for %s: %s", order_id, exc)
             self.metrics.failed_executions += 1
             self.pending_orders[order_id] = {"order": order, "result": {"status": "error", "reason": str(exc)}}
         finally:
@@ -1152,11 +1219,11 @@ class LiveEngine:
     def _execute_stop_loss(self, position: dict[str, Any]) -> None:
         """Close a position that has breached its stop-loss level."""
         symbol = position.get("symbol", "UNKNOWN")
-        self.logger.warning(f"Stop-loss triggered for {symbol} — closing position")
+        self.logger.warning("Stop-loss triggered for %s — closing position", symbol)
         try:
             self.broker.close_position(position.get("id"), urgency="IMMEDIATE", reason="stop_loss")
         except Exception as exc:
-            self.logger.error(f"Stop-loss close failed for {symbol}: {exc}")
+            self.logger.error("Stop-loss close failed for %s: %s", symbol, exc)
 
     # ==========================================================================
     # PRIVATE METHODS - EMERGENCY CONTROLS
@@ -1169,9 +1236,9 @@ class LiveEngine:
             try:
                 self.broker.cancel_order(order_id)
                 del self.pending_orders[order_id]
-                self.logger.info(f"Cancelled pending order {order_id}")
+                self.logger.info("Cancelled pending order %s", order_id)
             except Exception as exc:
-                self.logger.error(f"Failed to cancel order {order_id}: {exc}")
+                self.logger.error("Failed to cancel order %s: %s", order_id, exc)
 
     def _emergency_cancel_all_orders(self) -> None:
         """Emergency cancellation — drain the queue then cancel all pending orders."""
@@ -1199,13 +1266,13 @@ class LiveEngine:
                     force=True,
                 )
                 del self.active_positions[symbol]
-                self.logger.info(f"Emergency-closed position: {symbol}")
+                self.logger.info("Emergency-closed position: %s", symbol)
             except Exception as exc:
-                self.logger.error(f"Failed to emergency-close {symbol}: {exc}")
+                self.logger.error("Failed to emergency-close %s: %s", symbol, exc)
 
     def _send_emergency_alerts(self, reason: str) -> None:
         """Log a critical alert and emit an emergency event."""
-        self.logger.critical(f"EMERGENCY ALERT — trading halted: {reason}")
+        self.logger.critical("EMERGENCY ALERT — trading halted: %s", reason)
         self._emit_event(
             "emergency_stop",
             {
@@ -1223,7 +1290,12 @@ class LiveEngine:
 # ==============================================================================
 
 
-def create_live_engine(broker, risk_manager, config: dict[str, Any]) -> LiveEngine:
+def create_live_engine(
+    broker,
+    risk_manager,
+    config: dict[str, Any],
+    telegram_bot: Any = None,
+) -> LiveEngine:
     """
     Factory function to create live engine.
 
@@ -1231,6 +1303,10 @@ def create_live_engine(broker, risk_manager, config: dict[str, Any]) -> LiveEngi
         broker: Broker interface
         risk_manager: Risk manager interface
         config: Configuration dictionary
+        telegram_bot: Optional SpyderJ05 TelegramBot for high-risk order confirmation.
+            When provided, high-risk orders block on an inline-keyboard Approve/Reject
+            message before execution.  When None the autonomous risk-decision fallback
+            is used instead.
 
     Returns:
         Configured LiveEngine instance
@@ -1244,7 +1320,7 @@ def create_live_engine(broker, risk_manager, config: dict[str, Any]) -> LiveEngi
         require_confirmation=config.get("require_confirmation", True),
     )
 
-    return LiveEngine(broker, risk_manager, live_config)
+    return LiveEngine(broker, risk_manager, live_config, telegram_bot=telegram_bot)
 
 
 # ==============================================================================

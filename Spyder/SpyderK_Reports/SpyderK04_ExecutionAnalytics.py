@@ -487,7 +487,7 @@ class ExecutionAnalytics:
                 'generated_at': datetime.now().isoformat()
             }
 
-            self.logger.info(f"Generated execution report for {report_date}")
+            self.logger.info("Generated execution report for %s", report_date)
             return report
 
         except Exception as e:
@@ -518,7 +518,7 @@ class ExecutionAnalytics:
             elif format == 'json':
                 return self._export_json_report(report, output_path)
             else:
-                self.logger.error(f"Unsupported export format: {format}")
+                self.logger.error("Unsupported export format: %s", format)
                 return False
 
         except Exception as e:
@@ -883,7 +883,7 @@ class ExecutionAnalytics:
             charts['quality_distribution'] = fig_quality.to_json()
 
         except Exception as e:
-            self.logger.error(f"Error generating charts: {e}")
+            self.logger.error("Error generating charts: %s", e)
 
         return charts
 
@@ -994,11 +994,11 @@ class ExecutionAnalytics:
             with open(output_path, 'w') as f:
                 f.write(html_content)
 
-            self.logger.info(f"HTML report exported to {output_path}")
+            self.logger.info("HTML report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting HTML report: {e}")
+            self.logger.error("Error exporting HTML report: %s", e)
             return False
 
     def _export_pdf_report(self, report: dict[str, Any], output_path: str) -> bool:
@@ -1012,11 +1012,11 @@ class ExecutionAnalytics:
             with open(output_path, 'w') as f:
                 json.dump(report, f, indent=2, default=str)
 
-            self.logger.info(f"JSON report exported to {output_path}")
+            self.logger.info("JSON report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting JSON report: {e}")
+            self.logger.error("Error exporting JSON report: %s", e)
             return False
 
     def _format_time_table(self, time_data: list[tuple[str, dict]]) -> str:

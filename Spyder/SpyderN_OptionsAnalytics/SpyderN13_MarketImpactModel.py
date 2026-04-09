@@ -253,7 +253,7 @@ class MarketImpactModel:
         self.total_estimates = 0
         self.avg_prediction_error = 0.0
 
-        self.logger.info(f"✅ MarketImpactModel initialized with {model_type.value}")
+        self.logger.info("✅ MarketImpactModel initialized with %s", model_type.value)
 
     # ==========================================================================
     # MAIN IMPACT ESTIMATION
@@ -859,7 +859,7 @@ class MarketImpactModel:
 
             self.ml_models[symbol] = rf  # Use RF as primary
 
-        self.logger.info(f"✅ ML models initialized for {len(self.ml_models)} symbols")
+        self.logger.info("✅ ML models initialized for %s symbols", len(self.ml_models))
 
     def _prepare_ml_features(self,
                             order: OrderCharacteristics,
@@ -913,7 +913,7 @@ class MarketImpactModel:
 
         self.ml_models[symbol].fit(X, y)
 
-        self.logger.info(f"✅ ML model trained for {symbol} with {len(training_data)} samples")
+        self.logger.info("✅ ML model trained for %s with %s samples", symbol, len(training_data))
 
     # ==========================================================================
     # CALIBRATION
@@ -940,7 +940,7 @@ class MarketImpactModel:
             if ML_AVAILABLE:
                 self.train_ml_model(symbol, data_points)
 
-        self.logger.info(f"✅ Model calibrated with {len(historical_data)} data points")
+        self.logger.info("✅ Model calibrated with %s data points", len(historical_data))
 
     def _calibrate_symbol_parameters(self, symbol: str, data_points: list[CalibrationData]):
         """Calibrate parameters for specific symbol"""
@@ -1154,7 +1154,7 @@ class MarketImpactModel:
             model = SAC('MlpPolicy', env, verbose=0,
                        learning_rate=3e-4, buffer_size=100000)
             model.learn(total_timesteps=total_timesteps)
-            self.logger.info(f"Impact RL policy trained (SAC): {total_timesteps} steps")
+            self.logger.info("Impact RL policy trained (SAC): %s steps", total_timesteps)
             return model
         except ImportError:
             self.logger.warning("stable-baselines3 not installed")

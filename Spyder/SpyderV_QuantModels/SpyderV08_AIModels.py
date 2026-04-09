@@ -64,7 +64,6 @@ from gym import spaces
 # MODULE CONFIGURATION
 # ==============================================================================
 warnings.filterwarnings('ignore')
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
@@ -571,7 +570,7 @@ class SpyderAIModels:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error in AI option pricing: {e}", exc_info=True)
+            self.logger.error("Error in AI option pricing: %s", e, exc_info=True)
             raise
 
     async def generate_trading_signal(self, market_state: dict[str, Any]) -> TradingSignal:
@@ -620,7 +619,7 @@ class SpyderAIModels:
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error generating trading signal: {e}", exc_info=True)
+            self.logger.error("Error generating trading signal: %s", e, exc_info=True)
             return self._generate_fallback_signal(market_state)
 
     async def train_models(self,
@@ -654,7 +653,7 @@ class SpyderAIModels:
             return results
 
         except Exception as e:
-            self.logger.error(f"Error training AI models: {e}", exc_info=True)
+            self.logger.error("Error training AI models: %s", e, exc_info=True)
             return {model: False for model in model_types}
 
     def get_model_performance(self) -> dict[str, ModelPerformance]:
@@ -786,7 +785,7 @@ class SpyderAIModels:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error training transformer: {e}", exc_info=True)
+            self.logger.error("Error training transformer: %s", e, exc_info=True)
             return False
 
     async def _train_rl_agent(self, data: pd.DataFrame) -> bool:
@@ -859,7 +858,7 @@ class SpyderAIModels:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error training RL agent: {e}", exc_info=True)
+            self.logger.error("Error training RL agent: %s", e, exc_info=True)
             return False
 
     # ==========================================================================
@@ -1099,8 +1098,8 @@ async def main():
         'volume': np.random.lognormal(10, 1, n_samples)
     })
 
-    logging.info(f"   Generated {len(training_data)} training samples")
-    logging.info(f"   Features: {list(training_data.columns)}")
+    logging.info("   Generated %s training samples", len(training_data))
+    logging.info("   Features: %s", list(training_data.columns))
 
     # Test 1: AI Option Pricing
     logging.info("\n--- Test 1: AI Option Pricing ---")
@@ -1126,7 +1125,7 @@ async def main():
         logging.info("   Pricing request prepared successfully")
         logging.info(f"   Request: SPY ${pricing_request.spot_price} -> ${pricing_request.strike_price} call, {pricing_request.time_to_expiry:.2f}Y")
     except Exception as e:
-        logging.info(f"   Expected error (models not trained): {type(e).__name__}")
+        logging.info("   Expected error (models not trained): %s", type(e).__name__)
 
     # Test 2: Trading Signal Generation
     logging.info("\n--- Test 2: RL Trading Signal Generation ---")
@@ -1145,11 +1144,11 @@ async def main():
     logging.info("   Generating trading signal...")
     signal = await ai_engine.generate_trading_signal(market_state)
 
-    logging.info(f"   Action: {signal.action.name}")
+    logging.info("   Action: %s", signal.action.name)
     logging.info(f"   Confidence: {signal.confidence:.1%}")
     logging.info(f"   Expected Return: {signal.expected_return:.2%}")
     logging.info(f"   Risk Score: {signal.risk_score:.2f}")
-    logging.info(f"   Reasoning: {signal.reasoning}")
+    logging.info("   Reasoning: %s", signal.reasoning)
     if signal.portfolio_allocation:
         logging.info("   Portfolio Allocation:")
         for asset, weight in signal.portfolio_allocation.items():
@@ -1162,14 +1161,14 @@ async def main():
 
     logging.info("Model Performance Summary:")
     for model_name, perf in performance.items():
-        logging.info(f"\n{model_name.upper()} Model:")
+        logging.info("\n%s Model:", model_name.upper())
         logging.info(f"   Accuracy: {perf.accuracy:.1%}")
         logging.info(f"   MSE: {perf.mse:.6f}")
         logging.info(f"   Sharpe Ratio: {perf.sharpe_ratio:.2f}")
         logging.info(f"   Max Drawdown: {perf.max_drawdown:.1%}")
         logging.info(f"   Win Rate: {perf.win_rate:.1%}")
         logging.info(f"   Avg Return: {perf.avg_return:.2%}")
-        logging.info(f"   Last Updated: {perf.last_updated}")
+        logging.info("   Last Updated: %s", perf.last_updated)
 
     # Test 4: Training Demonstration (Simulated)
     logging.info("\n--- Test 4: AI Model Training (Simulated) ---")
@@ -1183,22 +1182,22 @@ async def main():
     # Show configuration
     logging.info("\n--- AI Models Configuration ---")
     logging.info("Transformer Config:")
-    logging.info(f"   Model Dimension: {config.transformer_config.d_model}")
-    logging.info(f"   Attention Heads: {config.transformer_config.nhead}")
-    logging.info(f"   Layers: {config.transformer_config.num_layers}")
-    logging.info(f"   Sequence Length: {config.transformer_config.max_seq_length}")
+    logging.info("   Model Dimension: %s", config.transformer_config.d_model)
+    logging.info("   Attention Heads: %s", config.transformer_config.nhead)
+    logging.info("   Layers: %s", config.transformer_config.num_layers)
+    logging.info("   Sequence Length: %s", config.transformer_config.max_seq_length)
 
     logging.info("\nRL Agent Config:")
-    logging.info(f"   State Dimension: {config.rl_config.state_dim}")
-    logging.info(f"   Action Dimension: {config.rl_config.action_dim}")
-    logging.info(f"   Hidden Dimension: {config.rl_config.hidden_dim}")
-    logging.info(f"   Learning Rate: {config.rl_config.learning_rate}")
+    logging.info("   State Dimension: %s", config.rl_config.state_dim)
+    logging.info("   Action Dimension: %s", config.rl_config.action_dim)
+    logging.info("   Hidden Dimension: %s", config.rl_config.hidden_dim)
+    logging.info("   Learning Rate: %s", config.rl_config.learning_rate)
 
     logging.info("\nTrading Environment:")
     logging.info(f"   Initial Capital: ${config.trading_env_config.initial_capital:,.0f}")
     logging.info(f"   Max Position Size: {config.trading_env_config.max_position_size:.1%}")
     logging.info(f"   Transaction Cost: {config.trading_env_config.transaction_cost:.1%}")
-    logging.info(f"   Max Steps: {config.trading_env_config.max_steps}")
+    logging.info("   Max Steps: %s", config.trading_env_config.max_steps)
 
 if __name__ == "__main__":
     import asyncio

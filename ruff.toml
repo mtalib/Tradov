@@ -47,7 +47,6 @@ ignore = [
     "SIM105", # use contextlib.suppress — style preference
     "SIM108", # ternary operator — readability preference
     "UP007",  # use X | Y instead of Optional[X] — not ready project-wide
-    "UP035",  # deprecated imports — requires careful migration
     "ANN",    # type annotations — enabled selectively, not globally yet
 ]
 
@@ -66,3 +65,37 @@ ignore = [
 # Legacy demo/standalone scripts embedded in modules:
 # These are in __main__ blocks and are acceptable for now.
 # Use noqa: T201 in those blocks if needed.
+
+# G05 Trading Dashboard — large GUI module with specific patterns
+"Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py" = [
+    # Docstring style — not enforced in GUI modules
+    "D",
+    # Boolean positional args — ubiquitous in Qt API calls (setVisible, setEnabled, etc.)
+    "FBT",
+    # f-string logging — deferred cleanup (Opp-5); suppressed project-wide via G004 eventually
+    "G004",
+    # random.* — intentional for simulation/fallback data display
+    "S311",
+    # Magic values — GUI has many literal thresholds and Qt dimension constants
+    "PLR2004",
+    # Qt private member access — standard PySide6 pattern (e.g. _q_animate)
+    "SLF001",
+    # type: ignore without specific code — required by Qt/PySide6 type stubs
+    "PGH003",
+    # Function complexity — large GUI event handlers by design
+    "PLR0915", "PLR0912", "PLR0911", "C901",
+    # Naming — Qt overrides (paintEvent, etc.) and project file-naming convention
+    "N802", "N814", "N999",
+    # Shebang — intentional for standalone execution
+    "EXE001",
+    # Exception style — acceptable variation in GUI error paths
+    "TRY003", "TRY300", "TRY301",
+    # logger.exception(f"...: {e}") — keeping {e} inline aids log grep-ability
+    "TRY401",
+    # Exception messages — f-strings acceptable in GUI exception handlers
+    "EM102",
+    # Unused Qt callback args — required by Qt signal signature
+    "ARG002", "ARG005",
+    # Import alias convention — Qt imports use conventional aliases
+    "ICN001",
+]

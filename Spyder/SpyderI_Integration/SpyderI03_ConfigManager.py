@@ -27,7 +27,8 @@ import threading
 import time
 import copy
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum
@@ -290,7 +291,7 @@ class ConfigManager:
             if hub:
                 hub.register_module(self, dependencies=['SpyderU04_Encryption'])
 
-        self.logger.info(f"ConfigManager initialized for environment: {environment}")
+        self.logger.info("ConfigManager initialized for environment: %s", environment)
 
     # ==========================================================================
     # PUBLIC METHODS - CONFIGURATION REGISTRATION
@@ -365,7 +366,7 @@ class ConfigManager:
                 # Update performance metrics
                 self.performance_metrics['config_saves'] += 1
 
-                self.logger.info(f"Registered configuration: {name}")
+                self.logger.info("Registered configuration: %s", name)
                 return True
 
         except Exception as e:
@@ -386,7 +387,7 @@ class ConfigManager:
         try:
             with self.sync_lock:
                 if name not in self.configs:
-                    self.logger.warning(f"Configuration not found: {name}")
+                    self.logger.warning("Configuration not found: %s", name)
                     return False
 
                 # Get old config for change tracking
@@ -424,7 +425,7 @@ class ConfigManager:
                 # Notify subscribers
                 self._notify_subscribers(name, None, ConfigEvent.DELETED)
 
-                self.logger.info(f"Unregistered configuration: {name}")
+                self.logger.info("Unregistered configuration: %s", name)
                 return True
 
         except Exception as e:
@@ -448,7 +449,7 @@ class ConfigManager:
         """
         try:
             if name not in self.configs:
-                self.logger.warning(f"Configuration not found: {name}")
+                self.logger.warning("Configuration not found: %s", name)
                 return None
 
             config_data = copy.deepcopy(self.configs[name])
@@ -515,7 +516,7 @@ class ConfigManager:
         try:
             with self.sync_lock:
                 if name not in self.configs:
-                    self.logger.error(f"Configuration not found: {name}")
+                    self.logger.error("Configuration not found: %s", name)
                     return False
 
                 # Get current config
@@ -569,7 +570,7 @@ class ConfigManager:
                 if notify:
                     self._notify_subscribers(name, config, ConfigEvent.UPDATED, key_path)
 
-                self.logger.debug(f"Updated config {name}.{key_path} = {value}")
+                self.logger.debug("Updated config %s.%s = %s", name, key_path, value)
                 return True
 
         except Exception as e:
@@ -615,7 +616,7 @@ class ConfigManager:
                 except Exception as e:
                     self.error_handler.handle_error(e, f"immediate_notify: {module_id}")
 
-            self.logger.info(f"Module {module_id} subscribed to {config_name}")
+            self.logger.info("Module %s subscribed to %s", module_id, config_name)
             return True
 
         except Exception as e:
@@ -655,7 +656,7 @@ class ConfigManager:
                     ]
                     removed_count += original_len - len(config_subs)
 
-            self.logger.info(f"Removed {removed_count} subscriptions for {module_id}")
+            self.logger.info("Removed %s subscriptions for %s", removed_count, module_id)
             return True
 
         except Exception as e:
@@ -678,12 +679,12 @@ class ConfigManager:
         """
         try:
             if name not in self.metadata:
-                self.logger.error(f"Configuration metadata not found: {name}")
+                self.logger.error("Configuration metadata not found: %s", name)
                 return False
 
             metadata = self.metadata[name]
             if not metadata.file_path or not metadata.file_path.exists():
-                self.logger.error(f"Configuration file not found: {metadata.file_path}")
+                self.logger.error("Configuration file not found: %s", metadata.file_path)
                 return False
 
             # Load from file
@@ -718,7 +719,7 @@ class ConfigManager:
             # Notify subscribers
             self._notify_subscribers(name, new_config, ConfigEvent.RELOADED)
 
-            self.logger.info(f"Reloaded configuration: {name}")
+            self.logger.info("Reloaded configuration: %s", name)
             return True
 
         except Exception as e:
@@ -948,18 +949,18 @@ class ConfigManager:
         try:
             # Basic validation
             if not isinstance(config_data, dict):
-                self.logger.error(f"Configuration must be a dictionary: {name}")
+                self.logger.error("Configuration must be a dictionary: %s", name)
                 return False
 
             # Size check
             config_str = json.dumps(config_data, default=str)
             if len(config_str.encode()) > MAX_CONFIG_SIZE:
-                self.logger.error(f"Configuration too large: {name}")
+                self.logger.error("Configuration too large: %s", name)
                 return False
 
             # Depth check
             if self._get_nesting_depth(config_data) > MAX_NESTING_DEPTH:
-                self.logger.error(f"Configuration nesting too deep: {name}")
+                self.logger.error("Configuration nesting too deep: %s", name)
                 return False
 
             # Schema validation
@@ -967,7 +968,7 @@ class ConfigManager:
                 try:
                     validate(instance=config_data, schema=schema)
                 except ValidationError as e:
-                    self.logger.error(f"Schema validation failed for {name}: {e}")
+                    self.logger.error("Schema validation failed for %s: %s", name, e)
                     return False
 
             # Custom validation rules
@@ -1208,7 +1209,7 @@ class ConfigFileHandler(FileSystemEventHandler):
                         self.config_manager.reload_config(name)
                         break
         except Exception as e:
-            self.logger.error(f"Error handling file modification: {e}")
+            self.logger.error("Error handling file modification: %s", e)
 
     def _is_config_file(self, file_path: str) -> bool:
         """Check if file is a configuration file"""

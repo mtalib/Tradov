@@ -49,7 +49,6 @@ def test_latest_evolved_strategy():
 
     # Create the evolved strategy (based on your results)
     from dataclasses import dataclass
-    from typing import List
 
     import numpy as np
     import pandas as pd

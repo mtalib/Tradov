@@ -209,7 +209,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             'divergence_success_rate': 0.0
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # RSI CALCULATION AND ANALYSIS
@@ -239,7 +239,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             return rsi
 
         except Exception as e:
-            self.logger.error(f"Error calculating RSI: {e}")
+            self.logger.error("Error calculating RSI: %s", e)
             return pd.Series([50] * len(prices))
 
     def _determine_rsi_state(self, rsi_value: float) -> RSIState:
@@ -304,7 +304,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             return None
 
         except Exception as e:
-            self.logger.error(f"Error detecting divergence: {e}")
+            self.logger.error("Error detecting divergence: %s", e)
             return None
 
     def _find_peaks(self, series: pd.Series) -> list[tuple[int, float]]:
@@ -364,7 +364,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             )
 
         except Exception as e:
-            self.logger.error(f"Error creating divergence: {e}")
+            self.logger.error("Error creating divergence: %s", e)
             return None
 
     # ==========================================================================
@@ -492,7 +492,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating oversold signal: {e}")
+            self.logger.error("Error creating oversold signal: %s", e)
             return None
 
     def _create_overbought_signal(self, market_data: pd.DataFrame,
@@ -559,7 +559,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating overbought signal: {e}")
+            self.logger.error("Error creating overbought signal: %s", e)
             return None
 
     def _calculate_atr(self, market_data: pd.DataFrame, period: int = 14) -> float:
@@ -833,7 +833,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         )
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added RSI position {position_id}")
+        self.logger.info("Added RSI position %s", position_id)
 
         return position_id
 
@@ -941,17 +941,17 @@ def test_rsi_mean_reversion():
 
         if signals:
             all_signals.extend(signals)
-            logging.info(f"\nTime: {dates[i].strftime('%H:%M')}")
+            logging.info("\nTime: %s", dates[i].strftime('%H:%M'))
             logging.info(f"Price: ${prices[i]:.2f}")
             logging.info(f"RSI: {strategy.current_rsi:.1f}")
             for signal in signals:
                 rsi_signal = signal.metadata['rsi_signal']
-                logging.info(f"Signal: Buy {rsi_signal['option_type']}")
-                logging.info(f"RSI State: {rsi_signal['rsi_state']}")
-                logging.info(f"Strike: ${rsi_signal['strike']}")
+                logging.info("Signal: Buy %s", rsi_signal['option_type'])
+                logging.info("RSI State: %s", rsi_signal['rsi_state'])
+                logging.info("Strike: $%s", rsi_signal['strike'])
                 logging.info(f"Target: ${rsi_signal['target_price']:.2f}")
                 logging.info(f"Stop: ${rsi_signal['stop_price']:.2f}")
-                logging.info(f"Quality: {signal.metadata['signal_quality']}")
+                logging.info("Quality: %s", signal.metadata['signal_quality'])
                 logging.info(f"Confidence: {signal.confidence:.1%}")
 
                 # Add position
@@ -960,7 +960,7 @@ def test_rsi_mean_reversion():
                 # Check for divergence
                 if signal.metadata.get('divergence'):
                     div = signal.metadata['divergence']
-                    logging.info(f"Divergence: {div['divergence_type']}")
+                    logging.info("Divergence: %s", div['divergence_type'])
                     logging.info(f"Divergence Strength: {div['strength']:.2f}")
 
     # Simulate position management
@@ -975,11 +975,11 @@ def test_rsi_mean_reversion():
 
             if exit_signals:
                 for signal in exit_signals:
-                    logging.info(f"\nExit Signal at {dates[i].strftime('%H:%M')}")
-                    logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                    logging.info("\nExit Signal at %s", dates[i].strftime('%H:%M'))
+                    logging.info("Reason: %s", signal.metadata['exit_reason'])
                     logging.info(f"Entry RSI: {signal.metadata['entry_rsi']:.1f}")
                     logging.info(f"Exit RSI: {signal.metadata['exit_rsi']:.1f}")
-                    logging.info(f"Bars Held: {signal.metadata['bars_held']}")
+                    logging.info("Bars Held: %s", signal.metadata['bars_held'])
                     logging.info(f"P&L: ${signal.metadata['pnl']:.2f}")
                     logging.info(f"P&L %: {signal.metadata['pnl_percent']:.1%}")
 
@@ -988,8 +988,8 @@ def test_rsi_mean_reversion():
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
     logging.info(f"Current RSI: {stats['current_rsi']:.1f}")
-    logging.info(f"RSI State: {stats['rsi_state']}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("RSI State: %s", stats['rsi_state'])
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
     logging.info(f"Avg Reversion Time: {stats['avg_reversion_time_bars']:.1f} bars")
     logging.info(f"Best Trade: ${stats['best_trade_pnl']:.2f}")

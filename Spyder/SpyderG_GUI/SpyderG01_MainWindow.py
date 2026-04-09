@@ -28,14 +28,14 @@ try:
     logging.info("✅ SpyderG01_MainWindow: Successfully bridged to SpyderG05_TradingDashboard")
     BRIDGE_SUCCESSFUL = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: {e}")
+    logging.info("⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: %s", e)
     # Try alternative import path
     try:
         from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
         logging.info("✅ SpyderG01_MainWindow: Successfully bridged via alternative path")
         BRIDGE_SUCCESSFUL = True
     except ImportError as e2:
-        logging.info(f"❌ SpyderG01_MainWindow: Failed to bridge to SpyderG05: {e2}")
+        logging.info("❌ SpyderG01_MainWindow: Failed to bridge to SpyderG05: %s", e2)
         BRIDGE_SUCCESSFUL = False
 
         # Create a minimal fallback class

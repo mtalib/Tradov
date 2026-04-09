@@ -309,7 +309,7 @@ class PaperTradingMonitor:
                 threading.Event().wait(UPDATE_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in monitor loop: {e}")
+                self.logger.error("Error in monitor loop: %s", e)
                 self.error_handler.handle_error(e)
 
     # ==========================================================================
@@ -581,7 +581,7 @@ class PaperTradingMonitor:
                 }
             ))
 
-            self.logger.warning(f"Paper trading alert: {alert['message']}")
+            self.logger.warning("Paper trading alert: %s", alert['message'])
 
     # ==========================================================================
     # STATUS AND REPORTING
@@ -842,7 +842,7 @@ class PaperTradingMonitor:
         with open(filename, 'w') as f:
             json.dump(metrics_data, f, indent=2)
 
-        self.logger.info(f"Metrics exported to {filename}")
+        self.logger.info("Metrics exported to %s", filename)
 
 # ==============================================================================
 # MODULE INITIALIZATION

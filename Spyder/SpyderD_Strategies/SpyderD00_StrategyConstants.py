@@ -327,4 +327,4 @@ __all__ = [
 ]
 
 # Log module initialization
-logging.info(f"✅ Strategy Constants Module Loaded - {len(__all__)} exports available")
+logging.info("✅ Strategy Constants Module Loaded - %s exports available", len(__all__))

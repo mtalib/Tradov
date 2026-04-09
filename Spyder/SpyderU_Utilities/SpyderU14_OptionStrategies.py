@@ -25,7 +25,6 @@ Change Log:
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -194,9 +193,9 @@ class OptionStrategies:
         position_type: str,
         strike: float,
         premium: float,
-        spot_price: Union[float, np.ndarray],
+        spot_price: float | np.ndarray,
         quantity: int = 1,
-    ) -> Union[float, np.ndarray]:
+    ) -> float | np.ndarray:
         """
         Calculate option payoff at expiration.
 
@@ -237,12 +236,12 @@ class OptionStrategies:
             return payoff
 
         except Exception as e:
-            self.logger.error(f"Error calculating option payoff: {str(e)}")
+            self.logger.error("Error calculating option payoff: %s", str(e))
             return 0.0
 
     def calculate_strategy_payoff(
-        self, strategy: OptionStrategy, spot_prices: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+        self, strategy: OptionStrategy, spot_prices: float | np.ndarray
+    ) -> float | np.ndarray:
         """
         Calculate total payoff for a multi-leg strategy.
 
@@ -270,7 +269,7 @@ class OptionStrategies:
             return total_payoff
 
         except Exception as e:
-            self.logger.error(f"Error calculating strategy payoff: {str(e)}")
+            self.logger.error("Error calculating strategy payoff: %s", str(e))
             return 0.0
 
     def get_payoff_diagram(
@@ -324,7 +323,7 @@ class OptionStrategies:
             )
 
         except Exception as e:
-            self.logger.error(f"Error generating payoff diagram: {str(e)}")
+            self.logger.error("Error generating payoff diagram: %s", str(e))
             return PayoffResult(
                 spot_prices=np.array([]),
                 payoffs=np.array([]),
@@ -589,7 +588,7 @@ class OptionStrategies:
             payoff_result = self.get_payoff_diagram(strategy)
             return payoff_result.max_profit
         except Exception as e:
-            self.logger.error(f"Error calculating max profit: {str(e)}")
+            self.logger.error("Error calculating max profit: %s", str(e))
             return 0.0
 
     def calculate_max_loss(self, strategy: OptionStrategy) -> float:
@@ -598,7 +597,7 @@ class OptionStrategies:
             payoff_result = self.get_payoff_diagram(strategy)
             return payoff_result.max_loss
         except Exception as e:
-            self.logger.error(f"Error calculating max loss: {str(e)}")
+            self.logger.error("Error calculating max loss: %s", str(e))
             return 0.0
 
     def calculate_breakeven_points(self, strategy: OptionStrategy) -> list[float]:
@@ -607,7 +606,7 @@ class OptionStrategies:
             payoff_result = self.get_payoff_diagram(strategy)
             return payoff_result.breakeven_points
         except Exception as e:
-            self.logger.error(f"Error calculating breakeven points: {str(e)}")
+            self.logger.error("Error calculating breakeven points: %s", str(e))
             return []
 
     def calculate_profit_probability(
@@ -665,7 +664,7 @@ class OptionStrategies:
             return max(0.0, min(1.0, prob))
 
         except Exception as e:
-            self.logger.error(f"Error calculating profit probability: {str(e)}")
+            self.logger.error("Error calculating profit probability: %s", str(e))
             return 0.0
 
     # ==========================================================================
@@ -752,9 +751,9 @@ def calculate_option_payoff(
     position_type: str,
     strike: float,
     premium: float,
-    spot_price: Union[float, np.ndarray],
+    spot_price: float | np.ndarray,
     quantity: int = 1,
-) -> Union[float, np.ndarray]:
+) -> float | np.ndarray:
     """
     Quick option payoff calculation.
 

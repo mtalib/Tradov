@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from functools import lru_cache
-from typing import Callable, Union
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -609,8 +609,8 @@ def linear_interpolation(x: float, x1: float, y1: float, x2: float, y2: float) -
 
 
 def cubic_spline_interpolation(
-    x_points: list[float], y_points: list[float], x_new: Union[float, list[float]]
-) -> Union[float, list[float]]:
+    x_points: list[float], y_points: list[float], x_new: float | list[float]
+) -> float | list[float]:
     """
     Cubic spline interpolation.
 
@@ -752,11 +752,75 @@ class MathUtils:
 
 
 # ==============================================================================
+# FINANCIAL DECIMAL BOUNDARY HELPERS
+# ==============================================================================
+# Use these helpers at every point where a float crosses a system boundary
+# (API response → internal, internal → order submission, internal → display).
+# Working with Decimal throughout prevents the accumulation of floating-point
+# rounding errors that can distort P&L calculations and position sizing.
+
+_PLACES_CACHE: dict[int, Decimal] = {}
+
+
+def _places(n: int) -> Decimal:
+    """Return a Decimal quantum string for *n* decimal places (cached)."""
+    if n not in _PLACES_CACHE:
+        _PLACES_CACHE[n] = Decimal("0." + "0" * n) if n > 0 else Decimal("1")
+    return _PLACES_CACHE[n]
+
+
+def to_decimal(value: float | int | str | Decimal) -> Decimal:
+    """
+    Convert an external value to a ``Decimal`` at the system boundary.
+
+    Args:
+        value: Numeric value from an API response, config file, or user input.
+
+    Returns:
+        ``Decimal`` representation with full precision.
+
+    Raises:
+        ValueError: If *value* cannot be converted.
+    """
+    if isinstance(value, Decimal):
+        return value
+    try:
+        # str(float) avoids floating-point artefacts (e.g. 0.1 + 0.2 ≠ 0.3)
+        return Decimal(str(value))
+    except Exception as exc:
+        raise ValueError(f"Cannot convert {value!r} to Decimal: {exc}") from exc
+
+
+def round_financial(value: float | int | str | Decimal, places: int = 2) -> Decimal:
+    """
+    Round a financial value to *places* decimal places using ROUND_HALF_UP.
+
+    Suitable for P&L figures, premiums, strike prices, and any monetary amount
+    that must be presented or stored with a fixed precision.
+
+    Args:
+        value:  The value to round.  Accepts float, int, str, or Decimal.
+        places: Number of decimal places (default 2 for USD).
+
+    Returns:
+        Rounded ``Decimal``.
+
+    Example::
+
+        >>> round_financial(1.2350001)
+        Decimal('1.24')
+        >>> round_financial(0.005, places=2)
+        Decimal('0.01')
+    """
+    return to_decimal(value).quantize(_places(places), rounding=ROUND_HALF_UP)
+
+
+# ==============================================================================
 # UPDATE MODULE EXPORTS
 # ==============================================================================
 
 
-__all__ = ["MathUtils"]
+__all__ = ["MathUtils", "to_decimal", "round_financial"]
 if __name__ == "__main__":
     # Test mathematical utilities
 

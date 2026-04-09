@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Union
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -102,7 +102,7 @@ class IndicatorResult:
     """Technical indicator result structure."""
 
     name: str
-    value: Union[float, dict[str, float]]
+    value: float | dict[str, float]
     signal: SignalType
     timestamp: pd.Timestamp
     parameters: dict[str, Any]
@@ -160,7 +160,7 @@ class TechnicalIndicators:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # OSCILLATORS
@@ -185,7 +185,7 @@ class TechnicalIndicators:
         try:
             if len(prices) < period + 1:
                 self.logger.warning(
-                    f"Insufficient data for RSI calculation: {len(prices)} < {period + 1}"
+                    "Insufficient data for RSI calculation: %s < %s", len(prices), period + 1
                 )
                 return pd.Series(dtype=float, index=prices.index)
 
@@ -212,7 +212,7 @@ class TechnicalIndicators:
             return rsi.fillna(50)  # Fill NaN with neutral value
 
         except Exception as e:
-            self.logger.error(f"RSI calculation failed: {e}")
+            self.logger.error("RSI calculation failed: %s", e)
             return pd.Series(dtype=float, index=prices.index)
 
     def calculate_stochastic(
@@ -249,7 +249,7 @@ class TechnicalIndicators:
             return {"%K": k_percent.fillna(50), "%D": d_percent.fillna(50)}
 
         except Exception as e:
-            self.logger.error(f"Stochastic calculation failed: {e}")
+            self.logger.error("Stochastic calculation failed: %s", e)
             return {
                 "%K": pd.Series(dtype=float, index=close.index),
                 "%D": pd.Series(dtype=float, index=close.index),
@@ -279,7 +279,7 @@ class TechnicalIndicators:
             return williams_r.fillna(-50)
 
         except Exception as e:
-            self.logger.error(f"Williams %R calculation failed: {e}")
+            self.logger.error("Williams %%R calculation failed: %s", e)
             return pd.Series(dtype=float, index=close.index)
 
     # ==========================================================================
@@ -321,7 +321,7 @@ class TechnicalIndicators:
             return {"MACD": macd_line, "Signal": signal_line, "Histogram": histogram}
 
         except Exception as e:
-            self.logger.error(f"MACD calculation failed: {e}")
+            self.logger.error("MACD calculation failed: %s", e)
             return {
                 "MACD": pd.Series(dtype=float, index=prices.index),
                 "Signal": pd.Series(dtype=float, index=prices.index),
@@ -369,7 +369,7 @@ class TechnicalIndicators:
             return {"ADX": adx, "+DI": plus_di, "-DI": minus_di}
 
         except Exception as e:
-            self.logger.error(f"ADX calculation failed: {e}")
+            self.logger.error("ADX calculation failed: %s", e)
             return {
                 "ADX": pd.Series(dtype=float, index=close.index),
                 "+DI": pd.Series(dtype=float, index=close.index),
@@ -407,7 +407,7 @@ class TechnicalIndicators:
             return {"Upper": upper_band, "Middle": middle_band, "Lower": lower_band}
 
         except Exception as e:
-            self.logger.error(f"Bollinger Bands calculation failed: {e}")
+            self.logger.error("Bollinger Bands calculation failed: %s", e)
             return {
                 "Upper": pd.Series(dtype=float, index=prices.index),
                 "Middle": pd.Series(dtype=float, index=prices.index),
@@ -436,7 +436,7 @@ class TechnicalIndicators:
             return atr
 
         except Exception as e:
-            self.logger.error(f"ATR calculation failed: {e}")
+            self.logger.error("ATR calculation failed: %s", e)
             return pd.Series(dtype=float, index=close.index)
 
     def calculate_true_range(self, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
@@ -463,7 +463,7 @@ class TechnicalIndicators:
             return true_range
 
         except Exception as e:
-            self.logger.error(f"True Range calculation failed: {e}")
+            self.logger.error("True Range calculation failed: %s", e)
             return pd.Series(dtype=float, index=close.index)
 
     # ==========================================================================
@@ -483,7 +483,7 @@ class TechnicalIndicators:
         try:
             return prices.rolling(window=period, min_periods=period).mean()
         except Exception as e:
-            self.logger.error(f"SMA calculation failed: {e}")
+            self.logger.error("SMA calculation failed: %s", e)
             return pd.Series(dtype=float, index=prices.index)
 
     def calculate_ema(self, prices: pd.Series, period: int) -> pd.Series:
@@ -500,7 +500,7 @@ class TechnicalIndicators:
         try:
             return prices.ewm(span=period, adjust=False).mean()
         except Exception as e:
-            self.logger.error(f"EMA calculation failed: {e}")
+            self.logger.error("EMA calculation failed: %s", e)
             return pd.Series(dtype=float, index=prices.index)
 
     def calculate_wma(self, prices: pd.Series, period: int) -> pd.Series:
@@ -521,7 +521,7 @@ class TechnicalIndicators:
             )
             return wma
         except Exception as e:
-            self.logger.error(f"WMA calculation failed: {e}")
+            self.logger.error("WMA calculation failed: %s", e)
             return pd.Series(dtype=float, index=prices.index)
 
     def calculate_hull_ma(self, prices: pd.Series, period: int) -> pd.Series:
@@ -546,7 +546,7 @@ class TechnicalIndicators:
 
             return hull_ma
         except Exception as e:
-            self.logger.error(f"Hull MA calculation failed: {e}")
+            self.logger.error("Hull MA calculation failed: %s", e)
             return pd.Series(dtype=float, index=prices.index)
 
     # ==========================================================================
@@ -576,7 +576,7 @@ class TechnicalIndicators:
 
             return vwap
         except Exception as e:
-            self.logger.error(f"VWAP calculation failed: {e}")
+            self.logger.error("VWAP calculation failed: %s", e)
             return pd.Series(dtype=float, index=close.index)
 
     def calculate_obv(self, close: pd.Series, volume: pd.Series) -> pd.Series:
@@ -601,7 +601,7 @@ class TechnicalIndicators:
 
             return obv
         except Exception as e:
-            self.logger.error(f"OBV calculation failed: {e}")
+            self.logger.error("OBV calculation failed: %s", e)
             return pd.Series(dtype=float, index=close.index)
 
     # ==========================================================================
@@ -632,7 +632,7 @@ class TechnicalIndicators:
                 return SignalType.NEUTRAL
 
         except Exception as e:
-            self.logger.error(f"RSI signal generation failed: {e}")
+            self.logger.error("RSI signal generation failed: %s", e)
             return SignalType.NEUTRAL
 
     def generate_macd_signal(self, macd_data: dict[str, pd.Series]) -> SignalType:
@@ -665,7 +665,7 @@ class TechnicalIndicators:
                 return SignalType.NEUTRAL
 
         except Exception as e:
-            self.logger.error(f"MACD signal generation failed: {e}")
+            self.logger.error("MACD signal generation failed: %s", e)
             return SignalType.NEUTRAL
 
 

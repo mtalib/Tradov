@@ -50,7 +50,7 @@ try:
     from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 # ==============================================================================
@@ -296,13 +296,13 @@ class StrategyComparisonAnalyzer:
                 comparison.recommendations = self._generate_recommendations(comparison)
 
                 self.logger.info(
-                    f"Strategy comparison complete: {len(strategies)} strategies analyzed"
+                    "Strategy comparison complete: %s strategies analyzed", len(strategies)
                 )
 
                 return comparison
 
             except Exception as e:
-                self.logger.error(f"Error comparing strategies: {e}")
+                self.logger.error("Error comparing strategies: %s", e)
                 raise
 
     def _align_returns(
@@ -494,7 +494,7 @@ class StrategyComparisonAnalyzer:
         except ImportError:
             self.logger.warning("scipy not available for statistical tests")
         except Exception as e:
-            self.logger.warning(f"Statistical test failed: {e}")
+            self.logger.warning("Statistical test failed: %s", e)
 
         return results
 
@@ -819,7 +819,7 @@ class StrategyComparisonAnalyzer:
         with open(output_path, 'w') as f:
             f.write(report_content)
 
-        self.logger.info(f"Comparison report exported to {output_path}")
+        self.logger.info("Comparison report exported to %s", output_path)
         return output_path
 
     # --------------------------------------------------------------------------

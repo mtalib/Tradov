@@ -177,7 +177,7 @@ class DarkPoolFlowAnalyzer:
 
         # Initialize
         self._load_historical_dix()
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - REAL-TIME ANALYSIS
@@ -703,13 +703,13 @@ class DarkPoolFlowAnalyzer:
                 # Check for sweep patterns
                 sweeps = self.detect_sweep_components()
                 if sweeps:
-                    self.logger.info(f"Detected {len(sweeps)} potential sweep patterns")
+                    self.logger.info("Detected %s potential sweep patterns", len(sweeps))
 
                 # Sleep interval
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                self.logger.error("Error in monitoring loop: %s", e)
 
     def cleanup(self) -> None:
         """Clean up resources."""

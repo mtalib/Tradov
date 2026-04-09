@@ -255,7 +255,7 @@ class AIAgentMonitor:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start monitoring: {e}")
+            self.logger.error("Failed to start monitoring: %s", e)
             return False
 
     def stop_monitoring(self) -> bool:
@@ -281,7 +281,7 @@ class AIAgentMonitor:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping monitoring: {e}")
+            self.logger.error("Error stopping monitoring: %s", e)
             return False
 
     # ==========================================================================
@@ -403,7 +403,7 @@ class AIAgentMonitor:
             if alert.alert_id == alert_id and not alert.resolved:
                 alert.resolved = True
                 alert.resolution_time = datetime.now()
-                self.logger.info(f"Alert {alert_id} acknowledged")
+                self.logger.info("Alert %s acknowledged", alert_id)
                 return True
         return False
 
@@ -423,7 +423,7 @@ class AIAgentMonitor:
             baselines: Baseline values for each metric type
         """
         self.performance_baselines[agent_name] = baselines
-        self.logger.info(f"Set baselines for {agent_name}: {baselines}")
+        self.logger.info("Set baselines for %s: %s", agent_name, baselines)
 
     def update_thresholds(self, thresholds: dict[str, float]):
         """
@@ -436,7 +436,7 @@ class AIAgentMonitor:
         valid_keys = set(self.thresholds)
         updated = {k: v for k, v in thresholds.items() if k in valid_keys}
         self.thresholds.update(updated)
-        self.logger.info(f"Updated monitoring thresholds: {updated}")
+        self.logger.info("Updated monitoring thresholds: %s", updated)
 
     # ==========================================================================
     # PRIVATE METHODS - INITIALIZATION
@@ -503,7 +503,7 @@ class AIAgentMonitor:
                 self._check_all_agents_health()
                 self.stop_event.wait(AGENT_CHECK_INTERVAL)
             except Exception as e:
-                self.logger.error(f"Health monitoring error: {e}")
+                self.logger.error("Health monitoring error: %s", e)
 
     def _metrics_collection_loop(self):
         """Metrics collection loop."""
@@ -512,7 +512,7 @@ class AIAgentMonitor:
                 self._collect_all_metrics()
                 self.stop_event.wait(METRICS_COLLECTION_INTERVAL)
             except Exception as e:
-                self.logger.error(f"Metrics collection error: {e}")
+                self.logger.error("Metrics collection error: %s", e)
 
     def _alert_checking_loop(self):
         """Alert checking loop."""
@@ -521,7 +521,7 @@ class AIAgentMonitor:
                 self._check_for_alerts()
                 self.stop_event.wait(ALERT_CHECK_INTERVAL)
             except Exception as e:
-                self.logger.error(f"Alert checking error: {e}")
+                self.logger.error("Alert checking error: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - HEALTH CHECKING
@@ -753,13 +753,13 @@ class AIAgentMonitor:
 
         # Log alert
         if level == AlertLevel.CRITICAL:
-            self.logger.critical(f"AI Agent Alert: {agent_name} - {message}")
+            self.logger.critical("AI Agent Alert: %s - %s", agent_name, message)
         elif level == AlertLevel.ERROR:
-            self.logger.error(f"AI Agent Alert: {agent_name} - {message}")
+            self.logger.error("AI Agent Alert: %s - %s", agent_name, message)
         elif level == AlertLevel.WARNING:
-            self.logger.warning(f"AI Agent Alert: {agent_name} - {message}")
+            self.logger.warning("AI Agent Alert: %s - %s", agent_name, message)
         else:
-            self.logger.info(f"AI Agent Alert: {agent_name} - {message}")
+            self.logger.info("AI Agent Alert: %s - %s", agent_name, message)
 
         # Emit event
         self._emit_alert_event(alert)
@@ -780,7 +780,7 @@ class AIAgentMonitor:
     def _emit_alert_event(self, alert: PerformanceAlert):
         """Emit alert event through event manager."""
         # Would integrate with event manager
-        self.logger.debug(f"Alert event: {alert.alert_id}")
+        self.logger.debug("Alert event: %s", alert.alert_id)
 
     # ==========================================================================
     # PRIVATE METHODS - RECOMMENDATIONS

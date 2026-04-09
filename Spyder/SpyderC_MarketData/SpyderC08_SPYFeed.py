@@ -316,7 +316,7 @@ class SPYFeedProcessor:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             return False
 
     def start(self) -> None:
@@ -371,7 +371,7 @@ class SPYFeedProcessor:
                 try:
                     callback(tick)
                 except Exception as e:
-                    self.logger.error(f"Tick callback error: {e}")
+                    self.logger.error("Tick callback error: %s", e)
 
     def process_level2(self, level2: Level2Data) -> None:
         """
@@ -473,7 +473,7 @@ class SPYFeedProcessor:
             self.flow_analyzer.add_trade(trade)
 
         except Exception as e:
-            self.logger.error(f"Error processing trade: {e}")
+            self.logger.error("Error processing trade: %s", e)
             self.stats['errors'] += 1
 
     def _classify_trade_direction(self, price: float, bid: float, ask: float) -> TradeDirection:
@@ -542,7 +542,7 @@ class SPYFeedProcessor:
                         try:
                             callback(analysis)
                         except Exception as e:
-                            self.logger.error(f"Analysis callback error: {e}")
+                            self.logger.error("Analysis callback error: %s", e)
 
                     # Publish event
                     event = Event(
@@ -557,7 +557,7 @@ class SPYFeedProcessor:
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Analysis loop error: {e}")
+                self.logger.error("Analysis loop error: %s", e)
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
     def _perform_analysis(self) -> SPYAnalysis | None:
@@ -618,7 +618,7 @@ class SPYFeedProcessor:
                 return analysis
 
         except Exception as e:
-            self.logger.error(f"Error performing analysis: {e}")
+            self.logger.error("Error performing analysis: %s", e)
             return None
 
     def _analyze_microstructure(self) -> MarketMicrostructure | None:
@@ -669,7 +669,7 @@ class SPYFeedProcessor:
             )
 
         except Exception as e:
-            self.logger.error(f"Error analyzing microstructure: {e}")
+            self.logger.error("Error analyzing microstructure: %s", e)
             return None
 
     def _calculate_tick_volatility(self) -> float:
@@ -690,7 +690,7 @@ class SPYFeedProcessor:
                 return 0.0
 
         except Exception as e:
-            self.logger.error(f"Error calculating volatility: {e}")
+            self.logger.error("Error calculating volatility: %s", e)
             return 0.0
 
     def _calculate_momentum_score(self) -> float:
@@ -719,7 +719,7 @@ class SPYFeedProcessor:
             return np.clip(momentum * 100, -1, 1)
 
         except Exception as e:
-            self.logger.error(f"Error calculating momentum: {e}")
+            self.logger.error("Error calculating momentum: %s", e)
             return 0.0
 
     def _determine_trend(self) -> str:
@@ -748,7 +748,7 @@ class SPYFeedProcessor:
                 return "neutral"
 
         except Exception as e:
-            self.logger.error(f"Error determining trend: {e}")
+            self.logger.error("Error determining trend: %s", e)
             return "neutral"
 
     def _determine_volatility_regime(self) -> str:
@@ -766,7 +766,7 @@ class SPYFeedProcessor:
                 return "extreme"
 
         except Exception as e:
-            self.logger.error(f"Error determining volatility: {e}")
+            self.logger.error("Error determining volatility: %s", e)
             return "normal"
 
     def _generate_signals(self, microstructure: MarketMicrostructure,
@@ -824,7 +824,7 @@ class SPYFeedProcessor:
                 })
 
         except Exception as e:
-            self.logger.error(f"Error generating signals: {e}")
+            self.logger.error("Error generating signals: %s", e)
 
         return signals
 
@@ -855,7 +855,7 @@ class SPYFeedProcessor:
                 self.process_tick(tick)
 
         except Exception as e:
-            self.logger.error(f"Error handling market data: {e}")
+            self.logger.error("Error handling market data: %s", e)
 
     def _handle_level2_data(self, event: Event) -> None:
         """Handle Level 2 data events."""
@@ -873,4 +873,4 @@ class SPYFeedProcessor:
                 self.process_level2(level2)
 
         except Exception as e:
-            self.logger.error(f"Error handling Level 2: {e}")
+            self.logger.error("Error handling Level 2: %s", e)

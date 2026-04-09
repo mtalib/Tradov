@@ -69,6 +69,12 @@ try:
 except ImportError:
     ORDER_MGR_AVAILABLE = False
 
+try:
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger as _SpyderLogger
+    logger = _SpyderLogger.get_logger(__name__)
+except ImportError:
+    logger = logging.getLogger(__name__)
+
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -175,21 +181,21 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
             try:
                 self._x07_agent = SpyderX07_ExecutionStrategyAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize X07 ExecutionStrategyAgent: {e}")
+                logger.warning("Failed to initialize X07 ExecutionStrategyAgent: %s", e)  # noqa: T201
 
         self._tradier: Any | None = None
         if TRADIER_AVAILABLE:
             try:
                 self._tradier = SpyderB40_TradierClient()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize TradierClient: {e}")
+                logger.warning("Failed to initialize TradierClient: %s", e)  # noqa: T201
 
         self._order_mgr: Any | None = None
         if ORDER_MGR_AVAILABLE:
             try:
                 self._order_mgr = SpyderB02_OrderManager()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize OrderManager: {e}")
+                logger.warning("Failed to initialize OrderManager: %s", e)  # noqa: T201
 
     # ==========================================================================
     # LIFECYCLE
@@ -400,7 +406,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
 
         except Exception as e:
             plan.status = "failed"
-            self.logger.error(f"Order submission failed: {e}", exc_info=True)
+            self.logger.error("Order submission failed: %s", e, exc_info=True)
 
     def _monitor_active_orders(self) -> None:
         """Check status of active orders."""
@@ -422,7 +428,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                             )
                         filled_orders.append(order_id)
                 except Exception as e:
-                    self.logger.error(f"Failed to poll order status for {order_id}: {e}", exc_info=True)
+                    self.logger.error("Failed to poll order status for %s: %s", order_id, e, exc_info=True)
 
         # Remove filled orders from active tracking
         for order_id in filled_orders:
@@ -497,7 +503,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                         account, "total_equity", 0.0
                     )
             except Exception as e:
-                self.logger.warning(f"Failed to fetch account balance: {e}", exc_info=True)
+                self.logger.warning("Failed to fetch account balance: %s", e, exc_info=True)
 
     # ==========================================================================
     # MESSAGE HANDLER

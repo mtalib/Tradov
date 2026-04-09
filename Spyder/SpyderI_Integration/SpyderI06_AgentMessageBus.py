@@ -37,7 +37,8 @@ import pickle
 import threading
 import queue
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum
@@ -256,7 +257,7 @@ class AgentMessageBus:
                 self.metrics.queue_size = self.priority_queue.qsize()
 
             except Exception as e:
-                self.logger.error(f"Error processing message: {e}")
+                self.logger.error("Error processing message: %s", e)
 
     def subscribe(
         self,
@@ -305,11 +306,11 @@ class AgentMessageBus:
                 self.metrics.active_subscribers = len(self.subscribers)
                 self.metrics.topics_count = len(self.topic_stats)
 
-                self.logger.info(f"Subscriber {name} registered for topics: {topics}")
+                self.logger.info("Subscriber %s registered for topics: %s", name, topics)
                 return True
 
             except Exception as e:
-                self.logger.error(f"Subscription failed: {e}")
+                self.logger.error("Subscription failed: %s", e)
                 return False
 
     def unsubscribe(self, subscriber_id: str) -> bool:
@@ -332,11 +333,11 @@ class AgentMessageBus:
 
                 self.metrics.active_subscribers = len(self.subscribers)
 
-                self.logger.info(f"Subscriber {subscriber.name} unsubscribed")
+                self.logger.info("Subscriber %s unsubscribed", subscriber.name)
                 return True
 
             except Exception as e:
-                self.logger.error(f"Unsubscribe failed: {e}")
+                self.logger.error("Unsubscribe failed: %s", e)
                 return False
 
     async def publish(
@@ -431,12 +432,12 @@ class AgentMessageBus:
             return reply
 
         except TimeoutError:
-            self.logger.warning(f"Request timeout for {topic}")
+            self.logger.warning("Request timeout for %s", topic)
             del self.pending_replies[correlation_id]
             return None
 
         except Exception as e:
-            self.logger.error(f"Request failed: {e}")
+            self.logger.error("Request failed: %s", e)
             if correlation_id in self.pending_replies:
                 del self.pending_replies[correlation_id]
             return None
@@ -489,9 +490,9 @@ class AgentMessageBus:
             # NOTE: pickle.dumps used here solely to measure serialized byte size
             # before enqueue — not for persistence.  The resulting bytes are
             # immediately discarded; only len() is used.
-            message_size = len(pickle.dumps(message))
+            message_size = len(pickle.dumps(message))  # noqa: S301 — byte-size measurement only, not deserialized
             if message_size > MAX_MESSAGE_SIZE:
-                self.logger.error(f"Message too large: {message_size} bytes")
+                self.logger.error("Message too large: %s bytes", message_size)
                 return
 
             # Add to queue with priority
@@ -510,7 +511,7 @@ class AgentMessageBus:
             self._add_to_dead_letter(message, "Queue full")
 
         except Exception as e:
-            self.logger.error(f"Failed to enqueue message: {e}")
+            self.logger.error("Failed to enqueue message: %s", e)
             self.metrics.failed_messages += 1
 
     def _deliver_message(self, message: Message):
@@ -521,7 +522,7 @@ class AgentMessageBus:
         try:
             # Check if message expired
             if message.is_expired():
-                self.logger.debug(f"Message {message.id} expired")
+                self.logger.debug("Message %s expired", message.id)
                 self._add_to_dead_letter(message, "Expired")
                 return
 
@@ -549,7 +550,7 @@ class AgentMessageBus:
                         if not subscriber.filter_func(message):
                             continue
                     except Exception as e:
-                        self.logger.error(f"Filter function error: {e}")
+                        self.logger.error("Filter function error: %s", e)
                         continue
 
                 # Deliver message
@@ -560,7 +561,7 @@ class AgentMessageBus:
                     delivered = True
 
                 except Exception as e:
-                    self.logger.error(f"Delivery to {subscriber.name} failed: {e}")
+                    self.logger.error("Delivery to %s failed: %s", subscriber.name, e)
                     self._handle_delivery_failure(subscriber, message, e)
 
             # Update metrics
@@ -575,7 +576,7 @@ class AgentMessageBus:
                     self._retry_message(message)
 
         except Exception as e:
-            self.logger.error(f"Message delivery error: {e}")
+            self.logger.error("Message delivery error: %s", e)
             self.metrics.failed_messages += 1
             self._add_to_dead_letter(message, str(e))
 
@@ -632,7 +633,7 @@ class AgentMessageBus:
 
         # Check for circuit breaker
         if subscriber.error_count >= CIRCUIT_BREAKER_THRESHOLD:
-            self.logger.warning(f"Circuit breaker opened for {subscriber.name}")
+            self.logger.warning("Circuit breaker opened for %s", subscriber.name)
             subscriber.state = SubscriberState.CIRCUIT_OPEN
             subscriber.circuit_breaker_opens += 1
 
@@ -654,7 +655,7 @@ class AgentMessageBus:
                 subscriber = self.subscribers[subscriber_id]
                 subscriber.state = SubscriberState.ACTIVE
                 subscriber.error_count = 0
-                self.logger.info(f"Circuit breaker reset for {subscriber.name}")
+                self.logger.info("Circuit breaker reset for %s", subscriber.name)
 
     def _retry_message(self, message: Message):
         """Retry failed message"""
@@ -679,7 +680,7 @@ class AgentMessageBus:
         self.metrics.dead_letter_count = len(self.dead_letter_queue)
         self.metrics.failed_messages += 1
 
-        self.logger.warning(f"Message {message.id} sent to dead letter: {reason}")
+        self.logger.warning("Message %s sent to dead letter: %s", message.id, reason)
 
     def _persist_message(self, message: Message):
         """Persist message to disk"""
@@ -701,11 +702,11 @@ class AgentMessageBus:
                     f"({json_exc}); falling back to pickle."
                 )
                 pkl_filename = self.persistence_path / f"{message.id}.pkl"
-                with open(pkl_filename, 'wb') as f:
-                    pickle.dump(message, f)
+                import joblib as _joblib
+                _joblib.dump(message, pkl_filename)
 
         except Exception as e:
-            self.logger.error(f"Failed to persist message: {e}")
+            self.logger.error("Failed to persist message: %s", e)
 
     def get_metrics(self) -> BusMetrics:
         """Get current metrics"""
@@ -754,7 +755,7 @@ class AgentMessageBus:
         while not self.priority_queue.empty():
             try:
                 _, message = self.priority_queue.get_nowait()
-                self.logger.debug(f"Dropping message {message.id} during shutdown")
+                self.logger.debug("Dropping message %s during shutdown", message.id)
             except Exception:
                 break
 

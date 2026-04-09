@@ -54,7 +54,6 @@ from typing import Any
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    import numpy as np
     import pandas as pd
     HAS_PANDAS = True
 except ImportError:
@@ -70,19 +69,17 @@ except ImportError:
     _log = logging.getLogger(__name__)
 
 try:
-    from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
     D31_AVAILABLE = True
-except ImportError:
+except (ImportError, NameError):
     D31_AVAILABLE = False
     _log.debug("D31 StrategyOrchestrator not available — K13 will return empty ladder")
 
 try:
     from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import (
-        UnifiedPerformanceEngine,
         get_unified_performance_engine,
     )
     F17_AVAILABLE = True
-except ImportError:
+except (ImportError, NameError):
     F17_AVAILABLE = False
     _log.debug("F17 UnifiedPerformanceEngine not available — K13 will omit portfolio metrics")
 
@@ -150,7 +147,7 @@ class PnLLadderSnapshot:
             "rows":               [r.to_dict() for r in self.rows],
         }
 
-    def to_dataframe(self) -> "pd.DataFrame":
+    def to_dataframe(self) -> pd.DataFrame:
         if not HAS_PANDAS:
             raise ImportError("pandas is required for to_dataframe()")
         if not self.rows:
@@ -279,14 +276,6 @@ class StrategyPnLLadder:
             return self._orchestrator
         if not D31_AVAILABLE:
             return None
-        # Attempt to find a running orchestrator instance via module singleton
-        try:
-            from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import (
-                create_strategy_orchestrator,
-            )
-            # Don't create a new one — if none exists, return None
-        except ImportError:
-            pass
         return None   # caller must inject orchestrator explicitly
 
     def _build_from_d31(self, orchestrator: Any) -> PnLLadderSnapshot:
@@ -311,7 +300,6 @@ class StrategyPnLLadder:
                 )
 
             # Build rows
-            total_abs_pnl = sum(abs(float(r.get("strategy_pnl", 0))) for r in _iter_df(df))
             for i, row_data in enumerate(_iter_df(df)):
                 pnl  = float(row_data.get("strategy_pnl", 0.0))
                 alloc = float(row_data.get("allocation", 0.0))

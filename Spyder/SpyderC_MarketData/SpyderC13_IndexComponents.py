@@ -201,7 +201,7 @@ class IndexComponentAnalyzer:
         # Initialize components
         self._load_sp500_components()
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - MARKET INTERNALS
@@ -553,7 +553,7 @@ class IndexComponentAnalyzer:
 
                 self.sector_components[sector].append(symbol)
 
-        self.logger.info(f"Loaded {len(self.components)} S&P 500 components")
+        self.logger.info("Loaded %s S&P 500 components", len(self.components))
 
     def _calculate_percent_above_ma(self, period: int) -> float:
         """Calculate percentage of stocks above moving average."""
@@ -939,7 +939,7 @@ class IndexComponentAnalyzer:
                 time.sleep(BREADTH_CALC_INTERVAL)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                self.logger.error("Error in monitoring loop: %s", e)
 
     def _update_all_prices(self) -> None:
         """Update prices for all components."""

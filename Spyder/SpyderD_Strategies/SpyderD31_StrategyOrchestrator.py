@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 """
 SPYDER - Autonomous Options Trading System v1.0
@@ -64,7 +65,8 @@ except ImportError:
     # Headless stubs so the orchestrator's strategy logic works without a display
     QWidget = object
     QTimer = None
-    Signal = lambda *a, **kw: property()  # noqa: E731
+    def Signal(*a, **kw):  # noqa: N807
+        return property()
     FigureCanvas = object
 
 # ==============================================================================
@@ -93,7 +95,7 @@ try:
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ Some Spyder modules not available: {e}")
+    logging.info("⚠️ Some Spyder modules not available: %s", e)
     SPYDER_MODULES_AVAILABLE = False
 
     # Fallback enums
@@ -356,7 +358,7 @@ class StrategyOrchestrator:
             self.trading_calendar = TradingCalendar() if TradingCalendar else None
         except (ImportError, TypeError, AttributeError) as e:
             # TradingCalendar not available or failed to initialize
-            self.logger.debug(f"TradingCalendar not available: {e}")
+            self.logger.debug("TradingCalendar not available: %s", e)
             self.trading_calendar = None
 
         # Initialize available strategies
@@ -415,7 +417,7 @@ class StrategyOrchestrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to start strategy orchestration: {e}", exc_info=True)
+            self.logger.error("❌ Failed to start strategy orchestration: %s", e, exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(e, "StrategyOrchestrator.start_orchestration")
             return False
@@ -444,11 +446,11 @@ class StrategyOrchestrator:
             # Stop all strategies
             if graceful:
                 for strategy_id, strategy in self.active_strategies.items():
-                    self.logger.info(f"Stopping strategy: {strategy_id}")
+                    self.logger.info("Stopping strategy: %s", strategy_id)
                     try:
                         strategy.stop()
                     except Exception as e:
-                        self.logger.error(f"Error stopping strategy {strategy_id}: {e}", exc_info=True)
+                        self.logger.error("Error stopping strategy %s: %s", strategy_id, e, exc_info=True)
 
             # Wait for threads to complete
             if self.orchestration_thread:
@@ -463,7 +465,7 @@ class StrategyOrchestrator:
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error stopping orchestration: {e}", exc_info=True)
+            self.logger.error("❌ Error stopping orchestration: %s", e, exc_info=True)
             return False
 
     def add_strategy(self, strategy_class: type, config: dict[str, Any],
@@ -529,7 +531,7 @@ class StrategyOrchestrator:
             return strategy_id
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to add strategy: {e}", exc_info=True)
+            self.logger.error("❌ Failed to add strategy: %s", e, exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(e, "StrategyOrchestrator.add_strategy")
             raise
@@ -547,7 +549,7 @@ class StrategyOrchestrator:
         """
         try:
             if strategy_id not in self.active_strategies:
-                self.logger.warning(f"Strategy {strategy_id} not found")
+                self.logger.warning("Strategy %s not found", strategy_id)
                 return False
 
             strategy = self.active_strategies[strategy_id]
@@ -571,11 +573,11 @@ class StrategyOrchestrator:
             # Update portfolio metrics
             self._update_portfolio_metrics()
 
-            self.logger.info(f"✅ Removed strategy: {strategy_id}")
+            self.logger.info("✅ Removed strategy: %s", strategy_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error removing strategy {strategy_id}: {e}", exc_info=True)
+            self.logger.error("❌ Error removing strategy %s: %s", strategy_id, e, exc_info=True)
             return False
 
     def pause_strategy(self, strategy_id: str) -> bool:
@@ -587,11 +589,11 @@ class StrategyOrchestrator:
             self.active_strategies[strategy_id].pause()
             self.paused_strategies.add(strategy_id)
 
-            self.logger.info(f"⏸️ Paused strategy: {strategy_id}")
+            self.logger.info("⏸️ Paused strategy: %s", strategy_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error pausing strategy {strategy_id}: {e}", exc_info=True)
+            self.logger.error("Error pausing strategy %s: %s", strategy_id, e, exc_info=True)
             return False
 
     def resume_strategy(self, strategy_id: str) -> bool:
@@ -603,11 +605,11 @@ class StrategyOrchestrator:
             self.active_strategies[strategy_id].resume()
             self.paused_strategies.discard(strategy_id)
 
-            self.logger.info(f"▶️ Resumed strategy: {strategy_id}")
+            self.logger.info("▶️ Resumed strategy: %s", strategy_id)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error resuming strategy {strategy_id}: {e}", exc_info=True)
+            self.logger.error("Error resuming strategy %s: %s", strategy_id, e, exc_info=True)
             return False
 
     def rebalance_portfolio(self, reason: RebalanceReason = RebalanceReason.SCHEDULED) -> bool:
@@ -621,11 +623,11 @@ class StrategyOrchestrator:
             bool: True if rebalancing was successful
         """
         try:
-            self.logger.info(f"🔄 Manual portfolio rebalancing triggered - Reason: {reason.value}")
+            self.logger.info("🔄 Manual portfolio rebalancing triggered - Reason: %s", reason.value)
             return self._execute_rebalancing(reason)
 
         except Exception as e:
-            self.logger.error(f"❌ Manual rebalancing failed: {e}", exc_info=True)
+            self.logger.error("❌ Manual rebalancing failed: %s", e, exc_info=True)
             return False
 
     # ==========================================================================
@@ -662,7 +664,7 @@ class StrategyOrchestrator:
             }
 
         except Exception as e:
-            self.logger.error(f"Error getting portfolio status: {e}", exc_info=True)
+            self.logger.error("Error getting portfolio status: %s", e, exc_info=True)
             return {}
 
     def get_strategy_performance_attribution(self) -> pd.DataFrame:
@@ -699,7 +701,7 @@ class StrategyOrchestrator:
             return pd.DataFrame(data)
 
         except Exception as e:
-            self.logger.error(f"Error generating performance attribution: {e}", exc_info=True)
+            self.logger.error("Error generating performance attribution: %s", e, exc_info=True)
             return pd.DataFrame()
 
     def detect_strategy_conflicts(self) -> list[StrategyConflict]:
@@ -725,7 +727,7 @@ class StrategyOrchestrator:
             return conflicts
 
         except Exception as e:
-            self.logger.error(f"Error detecting strategy conflicts: {e}", exc_info=True)
+            self.logger.error("Error detecting strategy conflicts: %s", e, exc_info=True)
             return []
 
     def get_correlation_matrix(self) -> pd.DataFrame | None:
@@ -751,7 +753,7 @@ class StrategyOrchestrator:
             return correlation_matrix
 
         except Exception as e:
-            self.logger.error(f"Error calculating correlation matrix: {e}", exc_info=True)
+            self.logger.error("Error calculating correlation matrix: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -783,7 +785,7 @@ class StrategyOrchestrator:
                 self.shutdown_event.wait(REBALANCE_FREQUENCY_MINUTES * 60)
 
             except Exception as e:
-                self.logger.error(f"Error in orchestration loop: {e}", exc_info=True)
+                self.logger.error("Error in orchestration loop: %s", e, exc_info=True)
                 self.shutdown_event.wait(60)  # Wait 1 minute on error
 
     def _monitoring_loop(self):
@@ -806,7 +808,7 @@ class StrategyOrchestrator:
                 self.shutdown_event.wait(STRATEGY_HEALTH_CHECK_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
+                self.logger.error("Error in monitoring loop: %s", e, exc_info=True)
                 self.shutdown_event.wait(30)  # Short wait on error
 
     # ==========================================================================
@@ -816,7 +818,7 @@ class StrategyOrchestrator:
     def _execute_rebalancing(self, reason: RebalanceReason) -> bool:
         """Execute portfolio rebalancing"""
         try:
-            self.logger.info(f"🔄 Executing portfolio rebalancing - Reason: {reason.value}")
+            self.logger.info("🔄 Executing portfolio rebalancing - Reason: %s", reason.value)
 
             # Calculate new allocations
             new_allocations = self._calculate_optimal_allocations()
@@ -849,7 +851,7 @@ class StrategyOrchestrator:
                     success = self._adjust_strategy_capital(strategy_id, capital_change)
                     if not success:
                         rebalance_successful = False
-                        self.logger.error(f"Failed to adjust capital for strategy {strategy_id}")
+                        self.logger.error("Failed to adjust capital for strategy %s", strategy_id)
 
             # Update allocations if successful
             if rebalance_successful:
@@ -879,12 +881,12 @@ class StrategyOrchestrator:
             self._update_portfolio_metrics()
 
             status = "✅ completed" if rebalance_successful else "❌ failed"
-            self.logger.info(f"Portfolio rebalancing {status}")
+            self.logger.info("Portfolio rebalancing %s", status)
 
             return rebalance_successful
 
         except Exception as e:
-            self.logger.error(f"❌ Rebalancing execution failed: {e}", exc_info=True)
+            self.logger.error("❌ Rebalancing execution failed: %s", e, exc_info=True)
             return False
 
     def _calculate_optimal_allocations(self) -> dict[str, float]:
@@ -908,7 +910,7 @@ class StrategyOrchestrator:
                 return self._calculate_adaptive_ml_allocations()
 
         except Exception as e:
-            self.logger.error(f"Error calculating optimal allocations: {e}", exc_info=True)
+            self.logger.error("Error calculating optimal allocations: %s", e, exc_info=True)
             return {}
 
     def _calculate_performance_based_allocations(self) -> dict[str, float]:
@@ -957,7 +959,7 @@ class StrategyOrchestrator:
             return allocations
 
         except Exception as e:
-            self.logger.error(f"Error calculating performance-based allocations: {e}", exc_info=True)
+            self.logger.error("Error calculating performance-based allocations: %s", e, exc_info=True)
             return {}
 
     def _calculate_equal_weight_allocations(self) -> dict[str, float]:
@@ -1000,7 +1002,7 @@ class StrategyOrchestrator:
             return allocations
 
         except Exception as e:
-            self.logger.error(f"Error calculating risk parity allocations: {e}", exc_info=True)
+            self.logger.error("Error calculating risk parity allocations: %s", e, exc_info=True)
             return {}
 
     def _calculate_kelly_allocations(self) -> dict[str, float]:
@@ -1040,7 +1042,7 @@ class StrategyOrchestrator:
             return allocations
 
         except Exception as e:
-            self.logger.error(f"Error calculating Kelly allocations: {e}", exc_info=True)
+            self.logger.error("Error calculating Kelly allocations: %s", e, exc_info=True)
             return {}
 
     def _calculate_regime_based_allocations(self) -> dict[str, float]:
@@ -1086,7 +1088,7 @@ class StrategyOrchestrator:
             return allocations
 
         except Exception as e:
-            self.logger.error(f"Error calculating regime-based allocations: {e}", exc_info=True)
+            self.logger.error("Error calculating regime-based allocations: %s", e, exc_info=True)
             return {}
 
     # ==========================================================================
@@ -1130,10 +1132,10 @@ class StrategyOrchestrator:
             self.market_regime.regime_confidence = min(1.0, self.market_regime.regime_duration_days / 5.0)
 
             if regime_changed:
-                self.logger.info(f"📊 Market regime changed to: {new_regime.value}")
+                self.logger.info("📊 Market regime changed to: %s", new_regime.value)
 
         except Exception as e:
-            self.logger.error(f"Error updating market regime: {e}", exc_info=True)
+            self.logger.error("Error updating market regime: %s", e, exc_info=True)
 
     def _classify_market_regime(self, vix_level: float, vix_percentile: float, trend_strength: float) -> MarketRegime:
         """Classify current market regime"""
@@ -1219,7 +1221,7 @@ class StrategyOrchestrator:
         else:
             self.available_strategies = {}
 
-        self.logger.info(f"📋 Registered {len(self.available_strategies)} strategy types")
+        self.logger.info("📋 Registered %s strategy types", len(self.available_strategies))
 
     def _setup_event_subscriptions(self):
         """Setup event system subscriptions"""
@@ -1231,7 +1233,7 @@ class StrategyOrchestrator:
                 self.event_manager.subscribe(EventType.RISK_ALERT, self._on_risk_alert)
 
         except Exception as e:
-            self.logger.error(f"Error setting up event subscriptions: {e}", exc_info=True)
+            self.logger.error("Error setting up event subscriptions: %s", e, exc_info=True)
 
     def _on_market_data_event(self, event: Event):
         """Handle market data events"""
@@ -1247,7 +1249,7 @@ class StrategyOrchestrator:
         """Handle risk alert events"""
         if event.data.get('severity') == 'critical':
             # Implement emergency procedures
-            self.logger.warning(f"🚨 Critical risk alert: {event.data}")
+            self.logger.warning("🚨 Critical risk alert: %s", event.data)
 
     def _should_rebalance(self) -> bool:
         """Check if portfolio rebalancing is needed"""
@@ -1294,7 +1296,7 @@ class StrategyOrchestrator:
                     self.portfolio_metrics.max_drawdown = self._calculate_max_drawdown(returns)
 
         except Exception as e:
-            self.logger.error(f"Error updating portfolio metrics: {e}", exc_info=True)
+            self.logger.error("Error updating portfolio metrics: %s", e, exc_info=True)
 
     def _calculate_sharpe_ratio(self, returns: list[float]) -> float:
         """Calculate portfolio Sharpe ratio"""
@@ -1312,7 +1314,7 @@ class StrategyOrchestrator:
             return (mean_return * 252) / (std_return * np.sqrt(252))
 
         except Exception as e:
-            self.logger.error(f"Error calculating Sharpe ratio: {e}", exc_info=True)
+            self.logger.error("Error calculating Sharpe ratio: %s", e, exc_info=True)
             return 0.0
 
     def _calculate_max_drawdown(self, returns: list[float]) -> float:
@@ -1328,7 +1330,7 @@ class StrategyOrchestrator:
             return abs(np.min(drawdown))
 
         except Exception as e:
-            self.logger.error(f"Error calculating max drawdown: {e}", exc_info=True)
+            self.logger.error("Error calculating max drawdown: %s", e, exc_info=True)
             return 0.0
 
     # ==========================================================================
@@ -1403,7 +1405,7 @@ class StrategyOrchestrator:
                 'status': 'completed',
             }
 
-        self.logger.info(f"Ray strategy execution: {len(strategy_configs)} strategies")
+        self.logger.info("Ray strategy execution: %s strategies", len(strategy_configs))
 
         futures = [_execute_strategy.remote(market_ref, cfg) for cfg in strategy_configs]
         results = ray.get(futures)
@@ -1545,7 +1547,6 @@ class StrategyOrchestratorDashboard(QWidget):
         # Title
         title_label = QLabel("🎯 SPYDER Strategy Orchestrator")
         title_font = QFont()
-        title_font.setBold(True)
         title_font.setPointSize(16)
         title_label.setFont(title_font)
 
@@ -1869,10 +1870,10 @@ class StrategyOrchestratorDashboard(QWidget):
             # Update status indicator
             if status.get('orchestration_active'):
                 self.status_label.setText("✅ Running")
-                self.status_label.setStyleSheet("color: green; font-weight: bold;")
+                self.status_label.setStyleSheet("color: green; font-weight: normal;")
             else:
                 self.status_label.setText("⏸️ Stopped")
-                self.status_label.setStyleSheet("color: red; font-weight: bold;")
+                self.status_label.setStyleSheet("color: red; font-weight: normal;")
 
             # Update portfolio metrics
             self.update_portfolio_metrics(status)
@@ -1890,7 +1891,7 @@ class StrategyOrchestratorDashboard(QWidget):
             self.last_update_label.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
 
         except Exception as e:
-            self.logger.error(f"Error updating dashboard: {e}", exc_info=True)
+            self.logger.error("Error updating dashboard: %s", e, exc_info=True)
 
     def update_portfolio_metrics(self, status: dict[str, Any]):
         """Update portfolio metrics display"""
@@ -1905,7 +1906,7 @@ class StrategyOrchestratorDashboard(QWidget):
             self.active_strategies_label.setText(f"Active Strategies: {status.get('active_strategies', 0)}")
 
         except Exception as e:
-            self.logger.error(f"Error updating portfolio metrics: {e}", exc_info=True)
+            self.logger.error("Error updating portfolio metrics: %s", e, exc_info=True)
 
     def update_strategy_table(self):
         """Update strategy performance table"""
@@ -1932,7 +1933,7 @@ class StrategyOrchestratorDashboard(QWidget):
                 self.strategies_table.setItem(row, 7, QTableWidgetItem("Active"))
 
         except Exception as e:
-            self.logger.error(f"Error updating strategy table: {e}", exc_info=True)
+            self.logger.error("Error updating strategy table: %s", e, exc_info=True)
 
     def update_market_regime_display(self):
         """Update market regime information"""
@@ -1948,7 +1949,7 @@ class StrategyOrchestratorDashboard(QWidget):
             self.trend_strength_label.setText(f"Trend: {regime_data.trend_strength:.2f}")
 
         except Exception as e:
-            self.logger.error(f"Error updating market regime display: {e}", exc_info=True)
+            self.logger.error("Error updating market regime display: %s", e, exc_info=True)
 
     def update_allocation_chart(self):
         """Update allocation pie chart"""
@@ -1976,7 +1977,7 @@ class StrategyOrchestratorDashboard(QWidget):
             self.allocation_canvas.draw()
 
         except Exception as e:
-            self.logger.error(f"Error updating allocation chart: {e}", exc_info=True)
+            self.logger.error("Error updating allocation chart: %s", e, exc_info=True)
 
     def start_orchestration(self):
         """Start orchestration"""
@@ -2040,22 +2041,22 @@ def main():
         logging.info("✅ Strategy Orchestrator initialized")
         logging.info("📊 Configuration:")
         logging.info(f"  Base Capital: ${orchestrator.base_capital:,.2f}")
-        logging.info(f"  Orchestration Mode: {orchestrator.orchestration_mode.value}")
-        logging.info(f"  Allocation Method: {orchestrator.allocation_method.value}")
-        logging.info(f"  Available Strategies: {len(orchestrator.available_strategies)}")
+        logging.info("  Orchestration Mode: %s", orchestrator.orchestration_mode.value)
+        logging.info("  Allocation Method: %s", orchestrator.allocation_method.value)
+        logging.info("  Available Strategies: %s", len(orchestrator.available_strategies))
 
         # Test portfolio status
         status = orchestrator.get_portfolio_status()
         logging.info("\n📈 Portfolio Status:")
         logging.info(f"  Total Capital: ${status['total_capital']:,.2f}")
         logging.info(f"  Available Capital: ${status['available_capital']:,.2f}")
-        logging.info(f"  Active Strategies: {status['active_strategies']}")
-        logging.info(f"  Market Regime: {status['market_regime']}")
+        logging.info("  Active Strategies: %s", status['active_strategies'])
+        logging.info("  Market Regime: %s", status['market_regime'])
 
         logging.info("\n✅ Strategy Orchestrator test completed!")
 
     except Exception as e:
-        logging.info(f"❌ Error during testing: {e}")
+        logging.info("❌ Error during testing: %s", e)
         return False
 
     return True

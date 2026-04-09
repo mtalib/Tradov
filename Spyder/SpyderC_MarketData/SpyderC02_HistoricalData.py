@@ -25,7 +25,8 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import pickle
+import logging
+import joblib
 import time
 from datetime import datetime
 import queue
@@ -52,7 +53,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from Spyder.SpyderH_Storage.SpyderH03_MarketDataCache import MarketDataCache
 
 # B01_SpyderClient removed (legacy broker) — Tradier via SpyderB40_TradierClient
 SpyderClient = None  # type: ignore
@@ -344,7 +344,7 @@ class HistoricalDataManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start Historical Data Manager: {e}", exc_info=True)
+            self.logger.error("Failed to start Historical Data Manager: %s", e, exc_info=True)
             return False
 
     def stop(self):
@@ -367,7 +367,7 @@ class HistoricalDataManager:
             self.logger.info("Historical Data Manager stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping Historical Data Manager: {e}", exc_info=True)
+            self.logger.error("Error stopping Historical Data Manager: %s", e, exc_info=True)
 
     def request_historical_data(
         self,
@@ -448,12 +448,12 @@ class HistoricalDataManager:
                 self.active_requests[request_id] = request
 
             self.logger.info(
-                f"Queued historical data request {request_id} for {contract.symbol}"
+                "Queued historical data request %s for %s", request_id, contract.symbol
             )
             return request_id
 
         except Exception as e:
-            self.logger.error(f"Error requesting historical data: {e}", exc_info=True)
+            self.logger.error("Error requesting historical data: %s", e, exc_info=True)
             return -1
 
     def get_response(self, request_id: int) -> HistoricalDataResponse | None:
@@ -501,16 +501,16 @@ class HistoricalDataManager:
                     # Clean up
                     del self.active_requests[request_id]
 
-                    self.logger.info(f"Cancelled historical data request {request_id}")
+                    self.logger.info("Cancelled historical data request %s", request_id)
                     return True
                 else:
                     self.logger.warning(
-                        f"Request {request_id} not found or already completed"
+                        "Request %s not found or already completed", request_id
                     )
                     return False
 
         except Exception as e:
-            self.logger.error(f"Error cancelling request {request_id}: {e}", exc_info=True)
+            self.logger.error("Error cancelling request %s: %s", request_id, e, exc_info=True)
             return False
 
     def get_cached_data(
@@ -550,7 +550,7 @@ class HistoricalDataManager:
             for cache_file in cached_files:
                 try:
                     with open(cache_file, "rb") as f:
-                        data = pickle.load(f)
+                        data = joblib.load(f)
 
                     # Filter by date range
                     df = pd.DataFrame([bar.to_dict() for bar in data])
@@ -564,7 +564,7 @@ class HistoricalDataManager:
                             all_data.append(filtered_df)
 
                 except Exception as e:
-                    self.logger.warning(f"Error loading cache file {cache_file}: {e}", exc_info=True)
+                    self.logger.warning("Error loading cache file %s: %s", cache_file, e, exc_info=True)
                     continue
 
             if all_data:
@@ -577,7 +577,7 @@ class HistoricalDataManager:
             return None
 
         except Exception as e:
-            self.logger.error(f"Error getting cached data: {e}", exc_info=True)
+            self.logger.error("Error getting cached data: %s", e, exc_info=True)
             return None
 
     # ==========================================================================
@@ -605,7 +605,7 @@ class HistoricalDataManager:
                 self._process_request(request)
 
             except Exception as e:
-                self.logger.error(f"Worker loop error: {e}", exc_info=True)
+                self.logger.error("Worker loop error: %s", e, exc_info=True)
                 time.sleep(1.0)  # thread-safe: time.sleep() intentional
 
         self.logger.info("Historical data worker stopped")
@@ -647,7 +647,7 @@ class HistoricalDataManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error processing request {request.request_id}: {e}", exc_info=True)
+            self.logger.error("Error processing request %s: %s", request.request_id, e, exc_info=True)
 
             # Create error response
             response = HistoricalDataResponse(
@@ -732,12 +732,12 @@ class HistoricalDataManager:
 
             # Load cached data
             with open(cache_file, "rb") as f:
-                data = pickle.load(f)
+                data = joblib.load(f)
 
             return data
 
         except Exception as e:
-            self.logger.warning(f"Error loading cached data for {cache_key}: {e}", exc_info=True)
+            self.logger.warning("Error loading cached data for %s: %s", cache_key, e, exc_info=True)
             return None
 
     def _cache_data(self, cache_key: str, data: list[HistoricalBarData]):
@@ -749,12 +749,12 @@ class HistoricalDataManager:
             cache_file = self.cache_dir / f"{cache_key}.pkl"
 
             with open(cache_file, "wb") as f:
-                pickle.dump(data, f)
+                joblib.dump(data, f)
 
-            self.logger.debug(f"Cached data for {cache_key}")
+            self.logger.debug("Cached data for %s", cache_key)
 
         except Exception as e:
-            self.logger.warning(f"Error caching data for {cache_key}: {e}", exc_info=True)
+            self.logger.warning("Error caching data for %s: %s", cache_key, e, exc_info=True)
 
     def _create_cached_response(
         self, data: list[HistoricalBarData], cache_key: str
@@ -778,7 +778,7 @@ class HistoricalDataManager:
 
         self.responses[request_id] = response
 
-        self.logger.info(f"Served {len(data)} bars from cache for {symbol}")
+        self.logger.info("Served %s bars from cache for %s", len(data), symbol)
         return request_id
 
     # ==========================================================================
@@ -824,7 +824,7 @@ class HistoricalDataManager:
                 self.responses[req_id].bars.append(bar_data)
 
         except Exception as e:
-            self.logger.error(f"Error processing historical data for {req_id}: {e}", exc_info=True)
+            self.logger.error("Error processing historical data for %s: %s", req_id, e, exc_info=True)
 
     def _on_historical_data_end(self, req_id: int, start: str, end: str):
         """Handle end of historical data"""
@@ -854,20 +854,20 @@ class HistoricalDataManager:
                     self._publish_completion_event(response)
 
                     self.logger.info(
-                        f"Historical data completed for {req_id}: {response.total_bars} bars"
+                        "Historical data completed for %s: %s bars", req_id, response.total_bars
                     )
 
                 # Clean up
                 del self.active_requests[req_id]
 
         except Exception as e:
-            self.logger.error(f"Error completing historical data for {req_id}: {e}", exc_info=True)
+            self.logger.error("Error completing historical data for %s: %s", req_id, e, exc_info=True)
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
         """Handle data provider errors"""
         if req_id in self.active_requests:
             self.logger.error(
-                f"Historical data error [{req_id}]: {error_code} - {error_string}"
+                "Historical data error [%s]: %s - %s", req_id, error_code, error_string
             )
 
             # Create error response
@@ -911,7 +911,7 @@ class HistoricalDataManager:
             self.event_manager.publish(event)
 
         except Exception as e:
-            self.logger.error(f"Error publishing completion event: {e}", exc_info=True)
+            self.logger.error("Error publishing completion event: %s", e, exc_info=True)
 
 
 # ==============================================================================
@@ -937,5 +937,4 @@ def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
 # ==============================================================================
 if __name__ == "__main__":
     # Legacy standalone test — use SpyderC26_DatabentoClient for historical data
-    logging.basicConfig(level=logging.INFO)
     logging.info("HistoricalDataManager: Use SpyderC26_DatabentoClient for historical data retrieval")

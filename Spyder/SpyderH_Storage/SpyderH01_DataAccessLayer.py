@@ -41,7 +41,8 @@ import json
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -163,7 +164,7 @@ class DataAccessLayer:
                     return True
 
                 self.connection_state = ConnectionState.CONNECTING
-                self.logger.info(f"Connecting to database: {self.db_path}")
+                self.logger.info("Connecting to database: %s", self.db_path)
 
                 # Ensure directory exists
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +198,7 @@ class DataAccessLayer:
 
         except Exception as e:
             self.connection_state = ConnectionState.ERROR
-            self.logger.error(f"Failed to connect to database: {e}")
+            self.logger.error("Failed to connect to database: %s", e)
             return False
 
     def disconnect(self):
@@ -215,7 +216,7 @@ class DataAccessLayer:
                 self.logger.info("Database connection closed")
 
         except Exception as e:
-            self.logger.error(f"Error disconnecting from database: {e}")
+            self.logger.error("Error disconnecting from database: %s", e)
 
     def test_connection(self) -> bool:
         """
@@ -243,7 +244,7 @@ class DataAccessLayer:
                 return False
 
         except Exception as e:
-            self.logger.error(f"Database connection test error: {e}")
+            self.logger.error("Database connection test error: %s", e)
             # Try to reconnect
             return self.connect()
 
@@ -278,7 +279,7 @@ class DataAccessLayer:
             self.logger.info("Database initialized successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize database: {e}")
+            self.logger.error("Failed to initialize database: %s", e)
 
     def _configure_connection(self):
         """Configure database connection settings."""
@@ -306,7 +307,7 @@ class DataAccessLayer:
             self.logger.debug("Database connection configured")
 
         except Exception as e:
-            self.logger.error(f"Failed to configure connection: {e}")
+            self.logger.error("Failed to configure connection: %s", e)
 
     def run_migrations(self) -> bool:
         """
@@ -334,7 +335,7 @@ class DataAccessLayer:
             applied_count = 0
             for migration in migrations:
                 if not self._is_migration_applied(migration.version):
-                    self.logger.info(f"Applying migration {migration.version}: {migration.description}")
+                    self.logger.info("Applying migration %s: %s", migration.version, migration.description)
 
                     try:
                         # Run migration
@@ -344,30 +345,30 @@ class DataAccessLayer:
                         self._mark_migration_applied(migration.version, migration.description)
                         applied_count += 1
 
-                        self.logger.info(f"Migration {migration.version} applied successfully")
+                        self.logger.info("Migration %s applied successfully", migration.version)
 
                     except Exception as e:
-                        self.logger.error(f"Migration {migration.version} failed: {e}")
+                        self.logger.error("Migration %s failed: %s", migration.version, e)
 
                         # Try rollback if available
                         if migration.rollback_func:
                             try:
-                                self.logger.info(f"Rolling back migration {migration.version}")
+                                self.logger.info("Rolling back migration %s", migration.version)
                                 migration.rollback_func()
                             except Exception as rollback_error:
-                                self.logger.error(f"Rollback failed: {rollback_error}")
+                                self.logger.error("Rollback failed: %s", rollback_error)
 
                         return False
 
             if applied_count > 0:
-                self.logger.info(f"Applied {applied_count} migrations successfully")
+                self.logger.info("Applied %s migrations successfully", applied_count)
             else:
                 self.logger.debug("No pending migrations")
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Migration process failed: {e}")
+            self.logger.error("Migration process failed: %s", e)
             return False
 
     def _create_migrations_table(self):
@@ -387,7 +388,7 @@ class DataAccessLayer:
             cursor.close()
 
         except Exception as e:
-            self.logger.error(f"Failed to create migrations table: {e}")
+            self.logger.error("Failed to create migrations table: %s", e)
             raise
 
     def _get_migrations(self) -> list[Migration]:
@@ -439,7 +440,7 @@ class DataAccessLayer:
             return result[0] > 0 if result else False
 
         except Exception as e:
-            self.logger.error(f"Failed to check migration status: {e}")
+            self.logger.error("Failed to check migration status: %s", e)
             return False
 
     def _mark_migration_applied(self, version: str, description: str):
@@ -460,7 +461,7 @@ class DataAccessLayer:
             cursor.close()
 
         except Exception as e:
-            self.logger.error(f"Failed to mark migration {version} as applied: {e}")
+            self.logger.error("Failed to mark migration %s as applied: %s", version, e)
             raise
 
     # ==========================================================================
@@ -623,7 +624,7 @@ class DataAccessLayer:
             self.logger.debug("Database tables created/verified")
 
         except Exception as e:
-            self.logger.error(f"Failed to create tables: {e}")
+            self.logger.error("Failed to create tables: %s", e)
             raise
 
     def initialize(self) -> bool:
@@ -637,7 +638,7 @@ class DataAccessLayer:
             self._initialize_database()
             return self.test_connection()
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             return False
 
     # ==========================================================================
@@ -690,7 +691,7 @@ class DataAccessLayer:
 
         except Exception as e:
             self.error_count += 1
-            self.logger.error(f"Query execution failed: {e}")
+            self.logger.error("Query execution failed: %s", e)
             return None
 
     def execute_write(self, query: str, params: tuple | None = None) -> bool:
@@ -719,7 +720,7 @@ class DataAccessLayer:
 
         except Exception as e:
             self.error_count += 1
-            self.logger.error(f"Write operation failed: {e}")
+            self.logger.error("Write operation failed: %s", e)
             if self.connection:
                 self.connection.rollback()
             return False
@@ -758,7 +759,7 @@ class DataAccessLayer:
             return self.execute_write(query, params)
 
         except Exception as e:
-            self.logger.error(f"Failed to save trade: {e}")
+            self.logger.error("Failed to save trade: %s", e)
             return False
 
     def get_trades(self, symbol: str | None = None,
@@ -800,7 +801,7 @@ class DataAccessLayer:
             return []
 
         except Exception as e:
-            self.logger.error(f"Failed to get trades: {e}")
+            self.logger.error("Failed to get trades: %s", e)
             return []
 
     def save_market_data(self, market_data: dict[str, Any]) -> bool:
@@ -832,7 +833,7 @@ class DataAccessLayer:
             return self.execute_write(query, params)
 
         except Exception as e:
-            self.logger.error(f"Failed to save market data: {e}")
+            self.logger.error("Failed to save market data: %s", e)
             return False
 
     def save_state(self, key: str, value: Any) -> bool:
@@ -856,7 +857,7 @@ class DataAccessLayer:
             return self.execute_write(query, params)
 
         except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
+            self.logger.error("Failed to save state: %s", e)
             return False
 
     def get_state(self, key: str) -> Any | None:
@@ -878,7 +879,7 @@ class DataAccessLayer:
             return None
 
         except Exception as e:
-            self.logger.error(f"Failed to get state: {e}")
+            self.logger.error("Failed to get state: %s", e)
             return None
 
     # ==========================================================================
@@ -921,7 +922,8 @@ class DataAccessLayer:
                             cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
                             result = cursor.fetchone()
                             stats[f'{table}_count'] = result['count'] if result else 0
-                        except Exception:
+                        except Exception as e:
+                            self.logger.debug("get_statistics table '%s' query error: %s", table, e)
                             stats[f'{table}_count'] = 0
 
                     # Get applied migrations count
@@ -929,13 +931,14 @@ class DataAccessLayer:
                         cursor.execute("SELECT COUNT(*) as count FROM migrations")
                         result = cursor.fetchone()
                         stats['migrations_applied'] = result['count'] if result else 0
-                    except Exception:
+                    except Exception as e:
+                        self.logger.debug("get_statistics migrations query error: %s", e)
                         stats['migrations_applied'] = 0
 
             return stats
 
         except Exception as e:
-            self.logger.error(f"Failed to get statistics: {e}")
+            self.logger.error("Failed to get statistics: %s", e)
             return {'error': str(e)}
 
     def cleanup_old_data(self, days_to_keep: int = 30) -> bool:
@@ -966,11 +969,11 @@ class DataAccessLayer:
             # Vacuum database to reclaim space
             self.connection.execute("VACUUM")
 
-            self.logger.info(f"Cleaned up data older than {days_to_keep} days")
+            self.logger.info("Cleaned up data older than %s days", days_to_keep)
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to cleanup old data: {e}")
+            self.logger.error("Failed to cleanup old data: %s", e)
             return False
 
     # ==========================================================================

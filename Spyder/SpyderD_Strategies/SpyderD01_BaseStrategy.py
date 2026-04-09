@@ -30,7 +30,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -371,7 +372,7 @@ class EventManager:
                 try:
                     callback(event)
                 except Exception as e:
-                    logging.info(f"Error in event callback: {e}")
+                    logging.info("Error in event callback: %s", e)
 
     def get_recent_events(
         self, event_type: EventType | None = None, limit: int = 100
@@ -451,7 +452,7 @@ class BaseStrategy(ABC):
         # Subscribe to relevant events
         self._setup_event_subscriptions()
 
-        self.logger.info(f"Strategy {name} initialized with ID {self.strategy_id}")
+        self.logger.info("Strategy %s initialized with ID %s", name, self.strategy_id)
 
     # ==========================================================================
     # ABSTRACT METHODS (Must be implemented by subclasses)
@@ -520,7 +521,7 @@ class BaseStrategy(ABC):
         """Start the strategy"""
         try:
             if self.state != STRATEGY_INACTIVE:
-                self.logger.warning(f"Cannot start strategy in state {self.state}")
+                self.logger.warning("Cannot start strategy in state %s", self.state)
                 return False
 
             self.state = STRATEGY_INITIALIZING
@@ -530,7 +531,7 @@ class BaseStrategy(ABC):
             self._initialize_strategy()
 
             self.state = STRATEGY_ACTIVE
-            self.logger.info(f"Strategy {self.name} started successfully")
+            self.logger.info("Strategy %s started successfully", self.name)
 
             # Publish status event
             self._publish_status_event("Strategy started")
@@ -546,7 +547,7 @@ class BaseStrategy(ABC):
         """Stop the strategy"""
         try:
             if self.state not in [STRATEGY_ACTIVE, STRATEGY_PAUSED]:
-                self.logger.warning(f"Cannot stop strategy in state {self.state}")
+                self.logger.warning("Cannot stop strategy in state %s", self.state)
                 return False
 
             self.state = STRATEGY_CLOSING
@@ -559,7 +560,7 @@ class BaseStrategy(ABC):
             self.executor.shutdown(wait=True)
 
             self.state = STRATEGY_INACTIVE
-            self.logger.info(f"Strategy {self.name} stopped successfully")
+            self.logger.info("Strategy %s stopped successfully", self.name)
 
             # Publish status event
             self._publish_status_event("Strategy stopped")
@@ -574,7 +575,7 @@ class BaseStrategy(ABC):
         """Pause the strategy"""
         if self.state == STRATEGY_ACTIVE:
             self.state = STRATEGY_PAUSED
-            self.logger.info(f"Strategy {self.name} paused")
+            self.logger.info("Strategy %s paused", self.name)
             self._publish_status_event("Strategy paused")
             return True
         return False
@@ -583,7 +584,7 @@ class BaseStrategy(ABC):
         """Resume the strategy"""
         if self.state == STRATEGY_PAUSED:
             self.state = STRATEGY_ACTIVE
-            self.logger.info(f"Strategy {self.name} resumed")
+            self.logger.info("Strategy %s resumed", self.name)
             self._publish_status_event("Strategy resumed")
             return True
         return False
@@ -638,7 +639,7 @@ class BaseStrategy(ABC):
         try:
             # Validate signal
             if not self.validate_signal(signal):
-                self.logger.warning(f"Invalid signal: {signal.signal_id}")
+                self.logger.warning("Invalid signal: %s", signal.signal_id)
                 return None
 
             # Check position limits
@@ -673,7 +674,7 @@ class BaseStrategy(ABC):
                 Event.create(EventType.POSITION_OPENED, self.name, position.__dict__)
             )
 
-            self.logger.info(f"Position opened: {position.position_id}")
+            self.logger.info("Position opened: %s", position.position_id)
             return position
 
         except Exception as e:
@@ -697,7 +698,7 @@ class BaseStrategy(ABC):
         try:
             position = self.positions.get(position_id)
             if not position:
-                self.logger.warning(f"Position not found: {position_id}")
+                self.logger.warning("Position not found: %s", position_id)
                 return False
 
             # Close position
@@ -715,7 +716,7 @@ class BaseStrategy(ABC):
                 Event.create(EventType.POSITION_CLOSED, self.name, position.__dict__)
             )
 
-            self.logger.info(f"Position closed: {position_id}, PnL: {position.realized_pnl}")
+            self.logger.info("Position closed: %s, PnL: %s", position_id, position.realized_pnl)
             return True
 
         except Exception as e:
@@ -888,7 +889,7 @@ class BaseStrategy(ABC):
     def _handle_risk_alert(self, event: Event) -> None:
         """Handle risk alert events"""
         if event.data.get("severity") == "critical":
-            self.logger.warning(f"Critical risk alert received: {event.data.get('message')}")
+            self.logger.warning("Critical risk alert received: %s", event.data.get('message'))
             # Potentially pause strategy or close positions
             if self.config.get("pause_on_critical_risk", True):
                 self.pause()

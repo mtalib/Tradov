@@ -29,7 +29,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 # ==============================================================================
@@ -223,6 +223,7 @@ class SpyderSystemTest(QObject):
 
         # Test Connection Manager
         try:
+            from SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
             conn_mgr = ConnectionManager()
             # Note: This will fail if broker API is not configured
             is_connected = conn_mgr.test_connection(

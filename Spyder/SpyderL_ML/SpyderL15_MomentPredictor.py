@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import asyncio
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -35,7 +35,7 @@ import warnings
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import pickle
+import joblib
 
 warnings.filterwarnings("ignore")
 
@@ -202,11 +202,10 @@ class MOmentPredictor:
         weights_path = Path(ENSEMBLE_WEIGHTS_PATH)
         if weights_path.exists():
             try:
-                with open(weights_path, "rb") as f:
-                    self.ensemble_weights = pickle.load(f)
-                self.logger.info(f"Loaded ensemble weights: {self.ensemble_weights}")
+                self.ensemble_weights = joblib.load(weights_path)
+                self.logger.info("Loaded ensemble weights: %s", self.ensemble_weights)
             except Exception as e:
-                self.logger.warning(f"Could not load ensemble weights: {e}")
+                self.logger.warning("Could not load ensemble weights: %s", e)
 
     def _warmup_models(self) -> None:
         """Warm up models with dummy data."""
@@ -224,7 +223,7 @@ class MOmentPredictor:
             _ = asyncio.run(self.predict_dummy(dummy_data))
 
         except Exception as e:
-            self.logger.warning(f"Model warmup failed: {e}")
+            self.logger.warning("Model warmup failed: %s", e)
 
     # ==========================================================================
     # MULTI-TASK PREDICTION METHODS
@@ -620,7 +619,7 @@ class MOmentPredictor:
         options_data: pd.DataFrame | None = None,
         external_features: dict[str, Any] | None = None,
         use_ensemble: bool = True,
-    ) -> Union[MultiTaskResult, EnsemblePrediction]:
+    ) -> MultiTaskResult | EnsemblePrediction:
         """
         Main prediction interface.
 
@@ -646,13 +645,12 @@ class MOmentPredictor:
             weights_path = Path(ENSEMBLE_WEIGHTS_PATH)
             weights_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(weights_path, "wb") as f:
-                pickle.dump(self.ensemble_weights, f)
+            joblib.dump(self.ensemble_weights, weights_path)
 
-            self.logger.info(f"Saved ensemble weights: {self.ensemble_weights}")
+            self.logger.info("Saved ensemble weights: %s", self.ensemble_weights)
 
         except Exception as e:
-            self.logger.error(f"Failed to save weights: {e}")
+            self.logger.error("Failed to save weights: %s", e)
 
     def get_model_info(self) -> dict[str, Any]:
         """Get information about loaded models."""
@@ -713,7 +711,7 @@ async def main():
         info = predictor.get_model_info()
         logging.info("\n=== MOMENT Predictor Information ===")
         for key, value in info.items():
-            logging.info(f"{key}: {value}")
+            logging.info("%s: %s", key, value)
 
     if args.test:
         logging.info("\n=== Running Test Predictions ===")
@@ -742,12 +740,12 @@ async def main():
         )
 
         if isinstance(result, EnsemblePrediction):
-            logging.info(f"\nPrice Direction: {result.price_direction}")
+            logging.info("\nPrice Direction: %s", result.price_direction)
             logging.info(f"Price Magnitude: {result.price_magnitude:.2f}")
-            logging.info(f"Regime State: {result.regime_state}")
+            logging.info("Regime State: %s", result.regime_state)
             logging.info(f"Confidence Score: {result.confidence_score:.2%}")
-            logging.info(f"External Risks: {result.external_risks}")
-            logging.info(f"Ensemble Weights: {result.ensemble_weights}")
+            logging.info("External Risks: %s", result.external_risks)
+            logging.info("Ensemble Weights: %s", result.ensemble_weights)
             logging.info(f"Processing Time: {result.moment_result.processing_time_ms:.1f}ms")
 
 

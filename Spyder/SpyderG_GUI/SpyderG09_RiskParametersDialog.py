@@ -856,7 +856,7 @@ class RiskParametersDialog(QDialog):
 
         except Exception as e:
             # If comparison fails, don't change the current state
-            logging.info(f"Change detection error: {e}")  # Debug info
+            logging.info("Change detection error: %s", e)  # Debug info
 
     def update_save_status(self):
         """Update the save status display"""

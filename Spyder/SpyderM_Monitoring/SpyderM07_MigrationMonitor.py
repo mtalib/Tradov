@@ -139,7 +139,7 @@ class MigrationMonitor:
             comparison.execution_time_f = time.time() - start_time
             comparison.spyderf_result = spyderf_result
         except Exception as e:
-            self.logger.error(f"SpyderF error in {module_name}: {e}")
+            self.logger.error("SpyderF error in %s: %s", module_name, e)
             self.performance_buffer[module_name]['errors_f'] += 1
             return None, comparison
 
@@ -163,7 +163,7 @@ class MigrationMonitor:
                     )
 
             except Exception as e:
-                self.logger.error(f"SpyderX error in {module_name}: {e}")
+                self.logger.error("SpyderX error in %s: %s", module_name, e)
                 self.performance_buffer[module_name]['errors_x'] += 1
 
         # Store comparison
@@ -208,7 +208,7 @@ class MigrationMonitor:
                 return 0.0 if result_f == result_x else 1.0
 
         except Exception as e:
-            self.logger.error(f"Error calculating divergence: {e}")
+            self.logger.error("Error calculating divergence: %s", e)
             return 1.0
 
     def _store_comparison(self, comparison: ComparisonResult):
@@ -338,25 +338,25 @@ class MigrationMonitor:
         logging.info("\n" + "=" * 60)
         logging.info("SPYDERX MIGRATION STATUS REPORT")
         logging.info("=" * 60)
-        logging.info(f"Generated: {report['timestamp']}")
-        logging.info(f"Total Modules Monitored: {report['summary']['total_modules']}")
+        logging.info("Generated: %s", report['timestamp'])
+        logging.info("Total Modules Monitored: %s", report['summary']['total_modules'])
 
         logging.info("\n📊 Module Status:")
         for module, data in report['modules'].items():
-            logging.info(f"\n{module}:")
-            logging.info(f"  Status: {data['status']}")
-            logging.info(f"  Comparisons: {data['comparisons']}")
-            logging.info(f"  Avg Divergence: {data['avg_divergence']}")
-            logging.info(f"  Speedup: {data['avg_speedup']}")
-            logging.info(f"  Confidence: {data['confidence']}")
+            logging.info("\n%s:", module)
+            logging.info("  Status: %s", data['status'])
+            logging.info("  Comparisons: %s", data['comparisons'])
+            logging.info("  Avg Divergence: %s", data['avg_divergence'])
+            logging.info("  Speedup: %s", data['avg_speedup'])
+            logging.info("  Confidence: %s", data['confidence'])
 
         logging.info("\n📈 Migration Readiness:")
-        logging.info(f"  ✅ Ready: {len(report['summary']['ready_for_migration'])}")
-        logging.info(f"  ⚠️  Needs Work: {len(report['summary']['needs_work'])}")
-        logging.info(f"  🚫 Critical Issues: {len(report['summary']['critical_issues'])}")
+        logging.info("  ✅ Ready: %s", len(report['summary']['ready_for_migration']))
+        logging.info("  ⚠️  Needs Work: %s", len(report['summary']['needs_work']))
+        logging.info("  🚫 Critical Issues: %s", len(report['summary']['critical_issues']))
 
         if report['summary']['ready_for_migration']:
-            logging.info(f"\n🚀 Ready for migration: {', '.join(report['summary']['ready_for_migration'])}")
+            logging.info("\n🚀 Ready for migration: %s", ', '.join(report['summary']['ready_for_migration']))
 
 
 # ==============================================================================

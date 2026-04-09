@@ -60,7 +60,7 @@ try:
 
     CORE_INDICATORS_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderO01_CoreTechnicalIndicators not available: {e}")
+    logging.info("⚠️ SpyderO01_CoreTechnicalIndicators not available: %s", e)
     CORE_INDICATORS_AVAILABLE = False
 
 # Trading Opportunity Scanner
@@ -80,7 +80,7 @@ try:
 
     OPPORTUNITY_SCANNER_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderO02_TradingOpportunityScanner not available: {e}")
+    logging.info("⚠️ SpyderO02_TradingOpportunityScanner not available: %s", e)
     OPPORTUNITY_SCANNER_AVAILABLE = False
 
 # Strategy Optimizers
@@ -103,7 +103,7 @@ try:
 
     STRATEGY_OPTIMIZERS_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"⚠️ SpyderO03_StrategyOptimizers not available: {e}")
+    logging.info("⚠️ SpyderO03_StrategyOptimizers not available: %s", e)
     STRATEGY_OPTIMIZERS_AVAILABLE = False
 
 # ==============================================================================
@@ -218,9 +218,9 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        logging.info(f"📊 {info['package_name']} v{info['version']}")
+        logging.info("📊 %s v%s", info['package_name'], info['version'])
         logging.info(
-            f"✅ {info['available_modules']}/{info['total_modules']} modules available"
+            "✅ %s/%s modules available", info['available_modules'], info['total_modules']
         )
 
         if info["available_modules"] == info["total_modules"]:
@@ -230,11 +230,11 @@ def validate_package():
             logging.info("⚠️ Some modules are missing - package partially functional")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                logging.info(f"   {status_icon} {module}")
+                logging.info("   %s %s", status_icon, module)
             return False
 
     except Exception as e:
-        logging.info(f"❌ Package validation failed: {e}")
+        logging.info("❌ Package validation failed: %s", e)
         return False
 
 
@@ -346,4 +346,4 @@ else:
     logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            logging.info(f"  {key}: {value}")
+            logging.info("  %s: %s", key, value)

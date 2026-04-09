@@ -249,7 +249,7 @@ class StateManager:
                 conn.commit()
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize database: {e}")
+            self.logger.error("Failed to initialize database: %s", e)
 
     def save_state(self,
                    state: CoordinatorState,
@@ -300,7 +300,7 @@ class StateManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
+            self.logger.error("Failed to save state: %s", e)
             return False
 
     def load_state(self) -> dict[str, Any] | None:
@@ -336,7 +336,7 @@ class StateManager:
                 return state_data
 
         except Exception as e:
-            self.logger.error(f"Failed to load state: {e}")
+            self.logger.error("Failed to load state: %s", e)
             return self._load_from_backup()
 
     def _create_backup(self):
@@ -345,7 +345,7 @@ class StateManager:
             import shutil
             shutil.copy2(self.db_path, self.backup_path)
         except Exception as e:
-            self.logger.error(f"Failed to create backup: {e}")
+            self.logger.error("Failed to create backup: %s", e)
 
     def _load_from_backup(self) -> dict[str, Any] | None:
         """Load state from backup database."""
@@ -380,7 +380,7 @@ class StateManager:
                 conn.commit()
 
         except Exception as e:
-            self.logger.error(f"Failed to save command: {e}")
+            self.logger.error("Failed to save command: %s", e)
 
 # ==============================================================================
 # LOAD BALANCER
@@ -546,7 +546,7 @@ class MessageSequencer:
             self.pub_socket.send(data)
 
         except Exception as e:
-            self.logger.error(f"Broadcast failed: {e}")
+            self.logger.error("Broadcast failed: %s", e)
 
     def get_system_status(self) -> dict[str, Any]:
         """Get comprehensive system status."""
@@ -661,9 +661,9 @@ class CoordinatorCluster:
             if coordinator.initialize():
                 coordinator.start()
                 self.coordinators.append(coordinator)
-                self.logger.info(f"Started coordinator {i} (Primary: {is_primary})")
+                self.logger.info("Started coordinator %s (Primary: %s)", i, is_primary)
             else:
-                self.logger.error(f"Failed to start coordinator {i}")
+                self.logger.error("Failed to start coordinator %s", i)
 
     def monitor_health(self):
         """Monitor coordinator health and handle failover."""
@@ -680,7 +680,7 @@ class CoordinatorCluster:
                 time.sleep(5)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Health monitoring error: {e}")
+                self.logger.error("Health monitoring error: %s", e)
 
     def _perform_failover(self):
         """Perform failover to backup coordinator."""
@@ -690,7 +690,7 @@ class CoordinatorCluster:
                 # Promote backup to primary
                 coordinator.promote_to_primary()
                 self.primary_index = i
-                self.logger.info(f"Failover completed to coordinator {i}")
+                self.logger.info("Failover completed to coordinator %s", i)
                 break
 
 # ==============================================================================
@@ -732,9 +732,9 @@ def example_single_coordinator():
         # Print status
         logging.info("\nCoordinator Status:")
         status = coordinator.get_system_status()
-        logging.info(f"  ID: {status['coordinator_id'][:8]}")
-        logging.info(f"  State: {status['state']}")
-        logging.info(f"  Primary: {status['is_primary']}")
+        logging.info("  ID: %s", status['coordinator_id'][:8])
+        logging.info("  State: %s", status['state'])
+        logging.info("  Primary: %s", status['is_primary'])
         logging.info(f"  Uptime: {status['uptime']:.1f}s")
 
         # Create and route a command
@@ -746,7 +746,7 @@ def example_single_coordinator():
             priority=PRIORITY_HIGH
         )
 
-        logging.info(f"\nRouting command: {command.command_id[:8]}")
+        logging.info("\nRouting command: %s", command.command_id[:8])
         cmd_id = coordinator.route_command(command)
 
         if cmd_id:
@@ -778,9 +778,9 @@ def example_coordinator_cluster():
 
     logging.info("\nCluster Status:")
     for i, coordinator in enumerate(cluster.coordinators):
-        logging.info(f"  Coordinator {i}:")
-        logging.info(f"    State: {coordinator.state.name}")
-        logging.info(f"    Primary: {coordinator.is_primary}")
+        logging.info("  Coordinator %s:", i)
+        logging.info("    State: %s", coordinator.state.name)
+        logging.info("    Primary: %s", coordinator.is_primary)
 
     # Simulate failover
     logging.info("\nSimulating primary failure...")
@@ -790,9 +790,9 @@ def example_coordinator_cluster():
 
     logging.info("\nCluster Status After Failover:")
     for i, coordinator in enumerate(cluster.coordinators):
-        logging.info(f"  Coordinator {i}:")
-        logging.info(f"    State: {coordinator.state.name}")
-        logging.info(f"    Primary: {coordinator.is_primary}")
+        logging.info("  Coordinator %s:", i)
+        logging.info("    State: %s", coordinator.state.name)
+        logging.info("    Primary: %s", coordinator.is_primary)
 
     # Stop all coordinators
     for coordinator in cluster.coordinators:
@@ -901,7 +901,7 @@ class TradingCoordinator:
     def initialize(self) -> bool:
         """Initialize coordinator with state recovery."""
         try:
-            self.logger.info(f"Initializing coordinator (Primary: {self.is_primary})")
+            self.logger.info("Initializing coordinator (Primary: %s)", self.is_primary)
 
             # Load previous state if available
             saved_state = self.state_manager.load_state()
@@ -921,7 +921,7 @@ class TradingCoordinator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
+            self.logger.error("Initialization failed: %s", e)
             self.state = CoordinatorState.STOPPED
             return False
 
@@ -960,7 +960,7 @@ class TradingCoordinator:
             return True
 
         except Exception as e:
-            self.logger.error(f"Socket setup failed: {e}")
+            self.logger.error("Socket setup failed: %s", e)
             return False
 
     def start(self):
@@ -980,13 +980,13 @@ class TradingCoordinator:
                 thread = threading.Thread(target=target, name=name, daemon=True)
                 thread.start()
                 self._threads.append(thread)
-                self.logger.info(f"Started {name} thread")
+                self.logger.info("Started %s thread", name)
 
             # Broadcast startup
             self._broadcast_status("COORDINATOR_STARTED")
 
         except Exception as e:
-            self.logger.error(f"Failed to start threads: {e}")
+            self.logger.error("Failed to start threads: %s", e)
             self.stop()
 
     def stop(self):
@@ -1051,9 +1051,9 @@ class TradingCoordinator:
 
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
-                    self.logger.error(f"Router error: {e}")
+                    self.logger.error("Router error: %s", e)
             except Exception as e:
-                self.logger.error(f"Router thread error: {e}")
+                self.logger.error("Router thread error: %s", e)
 
     def _monitor_thread(self):
         """Handle monitoring requests."""
@@ -1083,7 +1083,7 @@ class TradingCoordinator:
                     self.monitor_socket.send_json(response)
 
             except Exception as e:
-                self.logger.error(f"Monitor thread error: {e}")
+                self.logger.error("Monitor thread error: %s", e)
 
     def _health_check_thread(self):
         """Monitor engine health."""
@@ -1096,7 +1096,7 @@ class TradingCoordinator:
                         # Check heartbeat timeout
                         if current_time - info.last_heartbeat > HEARTBEAT_TIMEOUT:
                             if info.status == EngineStatus.ONLINE:
-                                self.logger.warning(f"Engine {engine_id} heartbeat timeout")
+                                self.logger.warning("Engine %s heartbeat timeout", engine_id)
                                 info.status = EngineStatus.UNRESPONSIVE
                                 self._handle_engine_failure(engine_id)
 
@@ -1104,7 +1104,7 @@ class TradingCoordinator:
                     break
 
             except Exception as e:
-                self.logger.error(f"Health check error: {e}")
+                self.logger.error("Health check error: %s", e)
 
     def _state_persistence_thread(self):
         """Periodically save coordinator state."""
@@ -1117,7 +1117,7 @@ class TradingCoordinator:
                     self._save_state()
 
             except Exception as e:
-                self.logger.error(f"State persistence error: {e}")
+                self.logger.error("State persistence error: %s", e)
 
     def _cleanup_thread(self):
         """Clean up old messages and data."""
@@ -1133,14 +1133,14 @@ class TradingCoordinator:
                             old_commands.append(cmd_id)
 
                     for cmd_id in old_commands:
-                        self.logger.warning(f"Removing old command: {cmd_id}")
+                        self.logger.warning("Removing old command: %s", cmd_id)
                         del self.pending_commands[cmd_id]
 
                 if self._stop_event.wait(timeout=60):
                     break
 
             except Exception as e:
-                self.logger.error(f"Cleanup error: {e}")
+                self.logger.error("Cleanup error: %s", e)
 
     def _backup_sync_thread(self):
         """Synchronize with backup coordinator."""
@@ -1167,7 +1167,7 @@ class TradingCoordinator:
                     break
 
             except Exception as e:
-                self.logger.error(f"Backup sync error: {e}")
+                self.logger.error("Backup sync error: %s", e)
 
     # ==========================================================================
     # MESSAGE PROCESSING
@@ -1192,13 +1192,13 @@ class TradingCoordinator:
             elif message.message_type == "STATUS_UPDATE":
                 self._handle_status_update(identity, message)
             else:
-                self.logger.warning(f"Unknown message type: {message.message_type}")
+                self.logger.warning("Unknown message type: %s", message.message_type)
 
             # Update metrics
             self.metrics.total_commands += 1
 
         except Exception as e:
-            self.logger.error(f"Message processing error: {e}")
+            self.logger.error("Message processing error: %s", e)
             self.metrics.failed_commands += 1
 
     def _handle_engine_registration(self, identity: bytes, message: ProtocolMessage):
@@ -1217,7 +1217,7 @@ class TradingCoordinator:
                         capabilities=data.get("capabilities", [])
                     )
                     self.engine_types[engine_type].append(engine_id)
-                    self.logger.info(f"Registered new engine: {engine_id} ({engine_type.value})")
+                    self.logger.info("Registered new engine: %s (%s)", engine_id, engine_type.value)
 
                 # Update status
                 info = self.engines[engine_id]
@@ -1244,7 +1244,7 @@ class TradingCoordinator:
             self._save_state()
 
         except Exception as e:
-            self.logger.error(f"Registration error: {e}")
+            self.logger.error("Registration error: %s", e)
 
     def _handle_heartbeat(self, identity: bytes, message: ProtocolMessage):
         """Handle engine heartbeat."""
@@ -1262,7 +1262,7 @@ class TradingCoordinator:
                     self.load_balancer.update_load(engine_id, info.current_load)
 
         except Exception as e:
-            self.logger.error(f"Heartbeat error: {e}")
+            self.logger.error("Heartbeat error: %s", e)
 
     def _handle_command_response(self, identity: bytes, message: ProtocolMessage):
         """Handle command response from engine."""
@@ -1304,7 +1304,7 @@ class TradingCoordinator:
                             self.engines[message.source].error_count += 1
 
         except Exception as e:
-            self.logger.error(f"Response handling error: {e}")
+            self.logger.error("Response handling error: %s", e)
 
     # ==========================================================================
     # COMMAND ROUTING
@@ -1363,7 +1363,7 @@ class TradingCoordinator:
                     raise ValueError(f"No identity for engine {target}")
 
         except Exception as e:
-            self.logger.error(f"Command routing failed: {e}")
+            self.logger.error("Command routing failed: %s", e)
             self.metrics.failed_commands += 1
             return None
 
@@ -1377,7 +1377,7 @@ class TradingCoordinator:
             self.router_socket.send_multipart([identity, data])
 
         except Exception as e:
-            self.logger.error(f"Send to engine failed: {e}")
+            self.logger.error("Send to engine failed: %s", e)
 
     def _process_pending_commands(self):
         """Process commands that need retry."""
@@ -1391,7 +1391,7 @@ class TradingCoordinator:
                         retry_commands.append(command)
                     else:
                         # Max retries exceeded
-                        self.logger.error(f"Command {cmd_id} failed after max retries")
+                        self.logger.error("Command %s failed after max retries", cmd_id)
                         del self.pending_commands[cmd_id]
                         self.metrics.failed_commands += 1
 
@@ -1427,7 +1427,7 @@ class TradingCoordinator:
                 self.metrics.last_state_save = time.time()
 
         except Exception as e:
-            self.logger.error(f"State save failed: {e}")
+            self.logger.error("State save failed: %s", e)
 
     def _restore_state(self, saved_state: dict[str, Any]):
         """Restore coordinator state from saved data."""
@@ -1445,10 +1445,10 @@ class TradingCoordinator:
                 if hasattr(self.metrics, key):
                     setattr(self.metrics, key, value)
 
-            self.logger.info(f"Restored {len(self.engines)} engines from saved state")
+            self.logger.info("Restored %s engines from saved state", len(self.engines))
 
         except Exception as e:
-            self.logger.error(f"State restore failed: {e}")
+            self.logger.error("State restore failed: %s", e)
 
     def _process_backup_update(self, update: dict[str, Any]):
         """Process state update from primary (backup mode)."""
@@ -1471,7 +1471,7 @@ class TradingCoordinator:
                         setattr(self.metrics, key, value)
 
         except Exception as e:
-            self.logger.error(f"Backup update processing failed: {e}")
+            self.logger.error("Backup update processing failed: %s", e)
 
     # ==========================================================================
     # FAILOVER AND RECOVERY
@@ -1479,13 +1479,13 @@ class TradingCoordinator:
     def _handle_engine_failure(self, engine_id: str):
         """Handle engine failure."""
         try:
-            self.logger.warning(f"Handling engine failure for: {engine_id}")
+            self.logger.warning("Handling engine failure for: %s", engine_id)
 
             # Handle the failure logic here
             with self._lock:
                 if engine_id in self.engines:
                     del self.engines[engine_id]
-                    self.logger.info(f"Removed failed engine: {engine_id}")
+                    self.logger.info("Removed failed engine: %s", engine_id)
 
         except Exception as e:
-            self.logger.error(f"Error handling engine failure: {e}")
+            self.logger.error("Error handling engine failure: %s", e)

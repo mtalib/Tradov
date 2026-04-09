@@ -373,7 +373,7 @@ class PinRiskCalculator:
                 pin_probabilities[strike] = pin_prob
 
         except Exception as e:
-            self.logger.error(f"Error calculating strike pin probabilities: {e}", exc_info=True)
+            self.logger.error("Error calculating strike pin probabilities: %s", e, exc_info=True)
 
         return pin_probabilities
 
@@ -497,7 +497,7 @@ class PinRiskCalculator:
                 recommendations.append("Final expiration day - expect increased pin risk")
 
         except Exception as e:
-            self.logger.error(f"Error generating recommendations: {e}", exc_info=True)
+            self.logger.error("Error generating recommendations: %s", e, exc_info=True)
 
         return recommendations
 
@@ -520,7 +520,7 @@ class PinRiskCalculator:
                 risk_factors.append("Final expiration hours - maximum pin risk")
 
         except Exception as e:
-            self.logger.debug(f"Pin risk factor assessment failed: {e}")
+            self.logger.debug("Pin risk factor assessment failed: %s", e)
 
         return risk_factors
 
@@ -979,7 +979,7 @@ class SkewAnomalyDetector:
             }
 
         except Exception as e:
-            self.logger.error(f"Error calculating historical stats: {e}", exc_info=True)
+            self.logger.error("Error calculating historical stats: %s", e, exc_info=True)
             return {'mean': 0.05, 'std': 0.03, 'min': 0.0, 'max': 0.15, 'percentiles': {}}
 
     def _calculate_skew_percentile(self, current_skew: float,
@@ -1051,7 +1051,7 @@ class SkewAnomalyDetector:
             }
 
         except Exception as e:
-            self.logger.error(f"Error detecting anomaly: {e}", exc_info=True)
+            self.logger.error("Error detecting anomaly: %s", e, exc_info=True)
             return {'type': None, 'magnitude': 0.0, 'confidence': 0.0}
 
     def _identify_mispriced_strikes(self, current_skew_data: dict[str, float],
@@ -1089,7 +1089,7 @@ class SkewAnomalyDetector:
                     ])
 
         except Exception as e:
-            self.logger.error(f"Error identifying mispriced strikes: {e}", exc_info=True)
+            self.logger.error("Error identifying mispriced strikes: %s", e, exc_info=True)
 
         return mispriced_strikes
 
@@ -1122,7 +1122,7 @@ class SkewAnomalyDetector:
                 opportunities.append(opportunity)
 
         except Exception as e:
-            self.logger.error(f"Error identifying arbitrage opportunities: {e}", exc_info=True)
+            self.logger.error("Error identifying arbitrage opportunities: %s", e, exc_info=True)
 
         return opportunities
 
@@ -1343,7 +1343,7 @@ class StrategyEfficiencyOptimizer:
             return best_setup or self._create_default_setup(current_price)
 
         except Exception as e:
-            self.logger.error(f"Error optimizing credit spread: {e}", exc_info=True)
+            self.logger.error("Error optimizing credit spread: %s", e, exc_info=True)
             return self._create_default_setup(current_price)
 
     def _optimize_iron_condor(self, current_price: float, objective: OptimizationObjective,
@@ -1389,7 +1389,7 @@ class StrategyEfficiencyOptimizer:
             return best_setup or self._create_default_setup(current_price)
 
         except Exception as e:
-            self.logger.error(f"Error optimizing iron condor: {e}", exc_info=True)
+            self.logger.error("Error optimizing iron condor: %s", e, exc_info=True)
             return self._create_default_setup(current_price)
 
     def _optimize_straddle(self, market_view: str, current_price: float,
@@ -1424,7 +1424,7 @@ class StrategyEfficiencyOptimizer:
             return best_setup or self._create_default_setup(current_price)
 
         except Exception as e:
-            self.logger.error(f"Error optimizing straddle: {e}", exc_info=True)
+            self.logger.error("Error optimizing straddle: %s", e, exc_info=True)
             return self._create_default_setup(current_price)
 
     def _generic_strategy_optimization(self, strategy_name: str, market_view: str,
@@ -1601,7 +1601,7 @@ class StrategyEfficiencyOptimizer:
             alternatives.append(time_optimized)
 
         except Exception as e:
-            self.logger.error(f"Error generating alternatives: {e}", exc_info=True)
+            self.logger.error("Error generating alternatives: %s", e, exc_info=True)
 
         return alternatives
 
@@ -1640,7 +1640,7 @@ class StrategyEfficiencyOptimizer:
             }
 
         except Exception as e:
-            self.logger.error(f"Error in sensitivity analysis: {e}", exc_info=True)
+            self.logger.error("Error in sensitivity analysis: %s", e, exc_info=True)
             return {}
 
     def _calculate_breakeven_moves(self, setup: dict[str, Any], current_price: float) -> dict[str, float]:

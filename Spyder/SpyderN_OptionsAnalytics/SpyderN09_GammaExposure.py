@@ -248,7 +248,7 @@ class GammaExposureCalculator:
         self.calculation_times: deque = deque(maxlen=100)
         self.last_update_time: datetime | None = None
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN CALCULATIONS
@@ -374,7 +374,7 @@ class GammaExposureCalculator:
             return profile
 
         except Exception as e:
-            self.logger.error(f"Error calculating GEX profile: {e}")
+            self.logger.error("Error calculating GEX profile: %s", e)
             self.error_handler.handle_error(e)
             raise
 
@@ -500,7 +500,7 @@ class GammaExposureCalculator:
             return positioning
 
         except Exception as e:
-            self.logger.error(f"Error analyzing dealer positioning: {e}")
+            self.logger.error("Error analyzing dealer positioning: %s", e)
             self.error_handler.handle_error(e)
             raise
 
@@ -857,7 +857,7 @@ class GammaExposureCalculator:
             return 440.0  # Default
 
         except Exception as e:
-            self.logger.warning(f"Error getting spot price: {e}")
+            self.logger.warning("Error getting spot price: %s", e)
             return 440.0
 
     def _get_active_expiries(self) -> list[date]:
@@ -873,7 +873,7 @@ class GammaExposureCalculator:
             return sorted(active)[:10]  # Max 10 expiries
 
         except Exception as e:
-            self.logger.warning(f"Error getting expiries: {e}")
+            self.logger.warning("Error getting expiries: %s", e)
             # Return some defaults
             today = date.today()
             return [
@@ -898,7 +898,7 @@ class GammaExposureCalculator:
             return None
 
         except Exception as e:
-            self.logger.warning(f"Error getting option chain for {expiry}: {e}")
+            self.logger.warning("Error getting option chain for %s: %s", expiry, e)
             return None
 
     def _get_option_gamma(self,
@@ -935,7 +935,7 @@ class GammaExposureCalculator:
             return 0.0
 
         except Exception as e:
-            self.logger.debug(f"Error getting gamma for {strike}/{expiry}: {e}")
+            self.logger.debug("Error getting gamma for %s/%s: %s", strike, expiry, e)
             return 0.0
 
     def _construct_option_symbol(self,
@@ -1097,7 +1097,7 @@ class GammaExposureCalculator:
                 time.sleep(1)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                self.logger.error("Error in monitoring loop: %s", e)
                 time.sleep(5)  # thread-safe: time.sleep() intentional
 
     def _check_flip_proximity(self) -> None:

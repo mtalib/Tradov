@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 import json
@@ -52,10 +52,7 @@ except ImportError:
 # LOGGING CONFIGURATION
 # ==================================================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+
 logger = logging.getLogger(__name__)
 
 # ==================================================================================
@@ -344,7 +341,7 @@ class PerformanceAnalyticsEngine:
     # ==================================================================================
 
     def generate_performance_report(self, timeframe: TimeFrame = TimeFrame.DAILY,
-                                   format: ReportFormat = ReportFormat.JSON) -> Union[dict, str]:
+                                   format: ReportFormat = ReportFormat.JSON) -> dict | str:
         """Generate comprehensive performance report"""
 
         report_data = {
@@ -566,7 +563,7 @@ class PerformanceAnalyticsEngine:
                 var_5 = empyrical.value_at_risk(returns, cutoff=0.05)
                 return abs(float(var_5))
             except Exception as e:
-                logging.getLogger(__name__).debug(f"VaR calculation failed for {strategy_id}, using fallback: {e}")
+                logging.getLogger(__name__).debug("VaR calculation failed for %s, using fallback: %s", strategy_id, e)
 
         # Fallback: estimate from available data
         if hasattr(perf, 'total_pnl') and hasattr(perf, 'capital_allocated'):
@@ -1050,7 +1047,7 @@ class RealTimePerformanceMonitor:
                 await asyncio.sleep(self.update_interval)
 
             except Exception as e:
-                logger.error(f"Error in performance monitoring: {e}", exc_info=True)
+                logger.error("Error in performance monitoring: %s", e, exc_info=True)
 
     async def _update_metrics(self):
         """Update performance metrics"""

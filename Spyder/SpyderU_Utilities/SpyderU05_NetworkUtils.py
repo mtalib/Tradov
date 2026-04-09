@@ -155,7 +155,7 @@ class NetworkUtils:
             timestamp=time.time()
         )
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - CONNECTIVITY CHECKING
@@ -179,14 +179,14 @@ class NetworkUtils:
             # Test multiple hosts for reliability
             for host in INTERNET_TEST_HOSTS:
                 if self._test_host_connection(host, 53, timeout):
-                    self.logger.debug(f"Internet connection confirmed via {host}")
+                    self.logger.debug("Internet connection confirmed via %s", host)
                     return True
 
             # Fallback to HTTP test
             return self._test_http_connection(timeout)
 
         except Exception as e:
-            self.logger.error(f"Internet connection check failed: {e}", exc_info=True)
+            self.logger.error("Internet connection check failed: %s", e, exc_info=True)
             return False
 
     # ==========================================================================
@@ -215,7 +215,7 @@ class NetworkUtils:
                             latencies.append(latency * 1000)  # Convert to ms
                     except (OSError, TimeoutError) as e:
                         # Ping failed, continue to next attempt
-                        self.logger.debug(f"Ping attempt failed: {e}")
+                        self.logger.debug("Ping attempt failed: %s", e)
                         continue
             else:
                 # Fallback to socket connection timing
@@ -227,7 +227,7 @@ class NetworkUtils:
                         latencies.append(latency)
                     except (OSError, TimeoutError) as e:
                         # Connection attempt failed, continue to next attempt
-                        self.logger.debug(f"Socket connection failed: {e}")
+                        self.logger.debug("Socket connection failed: %s", e)
                         continue
 
             if latencies:
@@ -235,11 +235,11 @@ class NetworkUtils:
                 self.logger.debug(f"Average latency to {host}: {avg_latency:.2f}ms")
                 return round(avg_latency, 2)
             else:
-                self.logger.warning(f"Could not measure latency to {host}")
+                self.logger.warning("Could not measure latency to %s", host)
                 return -1.0
 
         except Exception as e:
-            self.logger.error(f"Latency measurement failed: {e}", exc_info=True)
+            self.logger.error("Latency measurement failed: %s", e, exc_info=True)
             return -1.0
 
     def test_multiple_connections(self, endpoints: list[tuple[str, int]]) -> list[ConnectionTest]:
@@ -278,7 +278,7 @@ class NetworkUtils:
             return results
 
         except Exception as e:
-            self.logger.error(f"Multiple connection test failed: {e}", exc_info=True)
+            self.logger.error("Multiple connection test failed: %s", e, exc_info=True)
             return []
 
     # ==========================================================================
@@ -311,7 +311,7 @@ class NetworkUtils:
             return status
 
         except Exception as e:
-            self.logger.error(f"Network status check failed: {e}", exc_info=True)
+            self.logger.error("Network status check failed: %s", e, exc_info=True)
             return {
                 "internet_connected": False,
                 "latency_ms": -1.0,
@@ -342,12 +342,12 @@ class NetworkUtils:
                     time.sleep(interval)  # thread-safe: time.sleep() intentional
 
                 except Exception as e:
-                    self.logger.error(f"Network monitoring error: {e}", exc_info=True)
+                    self.logger.error("Network monitoring error: %s", e, exc_info=True)
                     time.sleep(interval)  # thread-safe: time.sleep() intentional
 
         monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         monitor_thread.start()
-        self.logger.info(f"Network monitoring started (interval: {interval}s)")
+        self.logger.info("Network monitoring started (interval: %ss)", interval)
 
     # ==========================================================================
     # PRIVATE METHODS
@@ -400,11 +400,11 @@ class NetworkUtils:
                         return True
                 except (requests.RequestException, OSError, TimeoutError) as e:
                     # URL check failed, try next URL
-                    self.logger.debug(f"HTTP check failed for {url}: {e}")
+                    self.logger.debug("HTTP check failed for %s: %s", url, e)
                     continue
             return False
         except (requests.RequestException, OSError) as e:
-            self.logger.warning(f"Internet connectivity check failed: {e}", exc_info=True)
+            self.logger.warning("Internet connectivity check failed: %s", e, exc_info=True)
             return False
 
 # ==============================================================================

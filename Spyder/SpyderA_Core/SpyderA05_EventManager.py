@@ -33,7 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -442,7 +443,7 @@ class EventManager:
                 self.logger.info("Event database initialized")
 
         except Exception as e:
-            self.logger.error(f"Database initialization error: {e}")
+            self.logger.error("Database initialization error: %s", e)
 
     # ==========================================================================
     # LIFECYCLE MANAGEMENT
@@ -506,7 +507,7 @@ class EventManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start EventManager: {e}")
+            self.logger.error("Failed to start EventManager: %s", e)
             self.error_handler.handle_error(e, "event_manager_start")
             return False
 
@@ -547,7 +548,7 @@ class EventManager:
                     self._persist_queue.join()
             except (RuntimeError, AttributeError) as e:
                 # Queue join may fail if queue already closed or in invalid state
-                self.logger.warning(f"Error waiting for queues during shutdown: {e}")
+                self.logger.warning("Error waiting for queues during shutdown: %s", e)
 
             # Stop worker threads
             for thread in self.worker_threads:
@@ -570,7 +571,7 @@ class EventManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping EventManager: {e}")
+            self.logger.error("Error stopping EventManager: %s", e)
             self.error_handler.handle_error(e, "event_manager_stop")
             return False
 
@@ -603,7 +604,7 @@ class EventManager:
                     continue
 
             except Exception as e:
-                self.logger.error(f"Event processing error: {e}")
+                self.logger.error("Event processing error: %s", e)
                 self.error_handler.handle_error(e, "event_processing")
 
     def _process_single_event(self, event: Event):
@@ -637,7 +638,7 @@ class EventManager:
         except Exception as e:
             with self._metrics_lock:
                 self.metrics.events_failed += 1
-            self.logger.error(f"Event processing failed: {e}")
+            self.logger.error("Event processing failed: %s", e)
             self.dead_letter_queue.append(event)
 
     def _execute_handler(self, handler: HandlerInfo, event: Event):
@@ -669,7 +670,7 @@ class EventManager:
         except Exception as e:
             handler.error_count += 1
             handler.last_error = str(e)
-            self.logger.error(f"Handler {handler.name} error: {e}")
+            self.logger.error("Handler %s error: %s", handler.name, e)
 
     # ==========================================================================
     # BACKGROUND LOOPS
@@ -698,7 +699,7 @@ class EventManager:
                     last_persist = current_time
 
             except Exception as e:
-                self.logger.error(f"Persistence loop error: {e}")
+                self.logger.error("Persistence loop error: %s", e)
 
     def _persist_batch(self, events: list[Event]):
         """Persist batch of events to database"""
@@ -723,10 +724,10 @@ class EventManager:
                     ))
 
                 conn.commit()
-                self.logger.debug(f"Persisted {len(events)} events")
+                self.logger.debug("Persisted %s events", len(events))
 
         except Exception as e:
-            self.logger.error(f"Batch persistence error: {e}")
+            self.logger.error("Batch persistence error: %s", e)
 
     def _metrics_loop(self):
         """Metrics calculation loop"""
@@ -751,7 +752,7 @@ class EventManager:
                         )
 
             except Exception as e:
-                self.logger.error(f"Metrics loop error: {e}")
+                self.logger.error("Metrics loop error: %s", e)
 
     # ==========================================================================
     # PUBLIC METHODS - SUBSCRIPTION
@@ -794,7 +795,7 @@ class EventManager:
         with self._metrics_lock:
             self.metrics.handlers_registered += 1
 
-        self.logger.info(f"Handler {handler_name} subscribed to {event_type.value}")
+        self.logger.info("Handler %s subscribed to %s", handler_name, event_type.value)
         return handler_id
 
     def subscribe_all(self, handler: Callable, name: str | None = None,
@@ -817,7 +818,7 @@ class EventManager:
         with self._metrics_lock:
             self.metrics.handlers_registered += 1
 
-        self.logger.info(f"Handler {handler_name} subscribed to all events")
+        self.logger.info("Handler %s subscribed to all events", handler_name)
         return handler_id
 
     def unsubscribe(self, handler_id: str) -> bool:
@@ -836,7 +837,7 @@ class EventManager:
                 for i, handler in enumerate(handlers):
                     if handler.handler_id == handler_id:
                         removed = handlers.pop(i)
-                        self.logger.info(f"Handler {removed.name} unsubscribed")
+                        self.logger.info("Handler %s unsubscribed", removed.name)
 
                         with self._metrics_lock:
                             self.metrics.handlers_registered -= 1
@@ -847,7 +848,7 @@ class EventManager:
             for i, handler in enumerate(self.global_handlers):
                 if handler.handler_id == handler_id:
                     removed = self.global_handlers.pop(i)
-                    self.logger.info(f"Global handler {removed.name} unsubscribed")
+                    self.logger.info("Global handler %s unsubscribed", removed.name)
 
                     with self._metrics_lock:
                         self.metrics.handlers_registered -= 1
@@ -902,7 +903,7 @@ class EventManager:
             self.logger.error("Event queue full")
             return False
         except Exception as e:
-            self.logger.error(f"Event publish error: {e}")
+            self.logger.error("Event publish error: %s", e)
             return False
 
     def emit(self, event_type: EventType, data: dict[str, Any],
@@ -1015,7 +1016,7 @@ class EventManager:
         with self.handler_lock:
             if event_type:
                 self.handlers[event_type].clear()
-                self.logger.debug(f"Cleared handlers for {event_type.value}")
+                self.logger.debug("Cleared handlers for %s", event_type.value)
             else:
                 self.handlers.clear()
                 self.global_handlers.clear()
@@ -1110,7 +1111,7 @@ if __name__ == "__main__":
 
         filtered_handler_id = em.subscribe(
             EventType.RISK,
-            lambda e: logging.debug(f"High priority: {e.data}"),
+            lambda e: logging.debug("High priority: %s", e.data),
             filter_func=priority_filter,
             name="FilteredHandler"
         )
@@ -1163,7 +1164,7 @@ class EventBus:
                     callback(data)
                 except Exception as e:
                     logging.getLogger(__name__).warning(
-                        f"EventBus subscriber callback for '{event_type}' failed: {e}"
+                        "EventBus subscriber callback for '%s' failed: %s", event_type, e
                     )
 
     def unsubscribe(self, event_type, callback=None):

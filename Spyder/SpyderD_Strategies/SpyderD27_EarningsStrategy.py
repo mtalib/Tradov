@@ -352,7 +352,7 @@ class EarningsStrategyHandler:
             try:
                 self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"OptionsDataProvider unavailable: {e}", exc_info=True)
+                logger.warning("OptionsDataProvider unavailable: %s", e, exc_info=True)
                 self._data_provider = None
         else:
             self._data_provider = None
@@ -396,7 +396,7 @@ class EarningsStrategyHandler:
             return [e for e in events if e.is_upcoming]
 
         except Exception as e:
-            logger.error(f"Earnings fetch failed: {e}", exc_info=True)
+            logger.error("Earnings fetch failed: %s", e, exc_info=True)
             return []
 
     def get_next_earnings(self, symbol: str) -> EarningsEvent | None:
@@ -459,7 +459,7 @@ class EarningsStrategyHandler:
             return events
 
         except Exception as e:
-            logger.error(f"Earnings calendar fetch error: {e}", exc_info=True)
+            logger.error("Earnings calendar fetch error: %s", e, exc_info=True)
             return []
 
     # ==========================================================================
@@ -555,7 +555,7 @@ class EarningsStrategyHandler:
             )
 
         except Exception as e:
-            logger.error(f"Expected move calculation failed: {e}", exc_info=True)
+            logger.error("Expected move calculation failed: %s", e, exc_info=True)
             return self._empty_expected_move(symbol)
 
     def _empty_expected_move(self, symbol: str) -> ExpectedMove:
@@ -648,7 +648,7 @@ class EarningsStrategyHandler:
             )
 
         except Exception as e:
-            logger.error(f"IV crush analysis failed: {e}", exc_info=True)
+            logger.error("IV crush analysis failed: %s", e, exc_info=True)
             return IVCrushAnalysis(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1119,7 +1119,7 @@ class EarningsStrategyHandler:
         )
 
     # DATA FETCHING (Databento — stub implementations)
-    # TODO: Implement using SpyderC26_DatabentoClient for live options chain data
+    # Options chain data is sourced via SpyderC27_MassiveClient or SpyderC03_OptionChain
     # ==========================================================================
 
     @staticmethod
@@ -1153,23 +1153,23 @@ class EarningsStrategyHandler:
     def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
         """Fetch option chain from market data provider."""
         if self._data_provider is None:
-            logger.warning(f"_fetch_option_chain({symbol}): OptionsDataProvider not available.")
+            logger.warning("_fetch_option_chain(%s): OptionsDataProvider not available.", symbol)
             return pd.DataFrame()
         try:
             expiry_str = expiry.strftime('%Y-%m-%d') if hasattr(expiry, 'strftime') else str(expiry)
             greek_data = self._data_provider.get_option_chain_with_greeks(symbol, expiry_str)
             df = self._greek_data_to_df(greek_data)
             if df.empty:
-                logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
+                logger.warning("Empty option chain from Tradier for %s %s", symbol, expiry_str)
             return df
         except Exception as e:
-            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}", exc_info=True)
+            logger.error("_fetch_option_chain(%s): Tradier error: %s", symbol, e, exc_info=True)
             return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
         """Get current stock price from market data provider."""
         if self._data_provider is None:
-            logger.warning(f"_get_current_price({symbol}): OptionsDataProvider not available.")
+            logger.warning("_get_current_price(%s): OptionsDataProvider not available.", symbol)
             return 0.0
         try:
             response = self._data_provider.get_quotes([symbol])
@@ -1178,7 +1178,7 @@ class EarningsStrategyHandler:
                 quote = quote[0]
             return float(quote.get('last', 0.0) or 0.0)
         except Exception as e:
-            logger.error(f"_get_current_price({symbol}): Tradier error: {e}", exc_info=True)
+            logger.error("_get_current_price(%s): Tradier error: %s", symbol, e, exc_info=True)
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
@@ -1194,7 +1194,7 @@ class EarningsStrategyHandler:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}", exc_info=True)
+                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1211,7 +1211,7 @@ class EarningsStrategyHandler:
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning(f"_get_expiry_after_earnings: Tradier error: {e}", exc_info=True)
+                logger.warning("_get_expiry_after_earnings: Tradier error: %s", e, exc_info=True)
         days_until_friday = (4 - earnings_date.weekday()) % 7 or 7
         return earnings_date + timedelta(days=days_until_friday)
 
@@ -1226,7 +1226,7 @@ def create_earnings_handler_from_env() -> 'EarningsStrategyHandler':
         try:
             data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create OptionsDataProvider: {e}", exc_info=True)
+            logger.warning("Could not create OptionsDataProvider: %s", e, exc_info=True)
     return EarningsStrategyHandler(data_provider=data_provider)
 
 

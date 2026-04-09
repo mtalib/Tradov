@@ -256,7 +256,7 @@ class MLPerformanceReport:
             model_info = self.ml_framework.get_model(model_id)
 
             if not model_info:
-                self.logger.error(f"Model {model_id} not found")
+                self.logger.error("Model %s not found", model_id)
                 return None
 
             # Get evaluation data if not provided
@@ -264,7 +264,7 @@ class MLPerformanceReport:
                 evaluation_data = self._get_recent_evaluation_data(model_id)
 
             if evaluation_data.empty:
-                self.logger.warning(f"No evaluation data available for {model_id}")
+                self.logger.warning("No evaluation data available for %s", model_id)
                 return None
 
             # Make predictions
@@ -432,7 +432,7 @@ class MLPerformanceReport:
             history = self.performance_history.get(model_id, [])
 
             if len(history) < 10:  # Need sufficient history
-                self.logger.warning(f"Insufficient history for drift detection: {model_id}")
+                self.logger.warning("Insufficient history for drift detection: %s", model_id)
                 return None
 
             # Split into reference and recent periods
@@ -608,7 +608,7 @@ class MLPerformanceReport:
             )
 
             self.ab_tests[test_id] = ab_test
-            self.logger.info(f"Started A/B test: {test_id}")
+            self.logger.info("Started A/B test: %s", test_id)
 
             return test_id
 
@@ -632,7 +632,7 @@ class MLPerformanceReport:
         """
         try:
             if test_id not in self.ab_tests:
-                self.logger.error(f"Test {test_id} not found")
+                self.logger.error("Test %s not found", test_id)
                 return None
 
             ab_test = self.ab_tests[test_id]
@@ -869,7 +869,7 @@ class MLPerformanceReport:
             elif format == 'json':
                 return self._export_json_ml_report(report_data, output_path)
             else:
-                self.logger.error(f"Unsupported format: {format}")
+                self.logger.error("Unsupported format: %s", format)
                 return False
 
         except Exception as e:
@@ -897,7 +897,7 @@ class MLPerformanceReport:
         try:
             self.dal.save_ml_performance(asdict(metrics))
         except Exception as e:
-            self.logger.error(f"Error saving metrics: {e}")
+            self.logger.error("Error saving metrics: %s", e)
 
     def _detect_feature_importance_changes(self, model_id: str) -> None:
         """Detect significant changes in feature importance."""
@@ -939,7 +939,7 @@ class MLPerformanceReport:
                         )
 
         except Exception as e:
-            self.logger.error(f"Error detecting feature changes: {e}")
+            self.logger.error("Error detecting feature changes: %s", e)
 
     def _calculate_average_metrics(self, metrics_list: list[ModelPerformanceMetrics]) -> dict[str, float]:
         """Calculate average metrics from a list."""
@@ -1145,10 +1145,10 @@ class MLPerformanceReport:
         avg_accuracy = np.mean(accuracies) if accuracies else 0.0
 
         # Models with drift
-        models_with_drift = list(set(
+        models_with_drift = list({
             report['model_id'] for report in model_reports
             if report.get('drift_reports')
-        ))
+        })
 
         # Recent A/B tests
         all_ab_tests = []
@@ -1235,7 +1235,7 @@ class MLPerformanceReport:
             # This would show line charts of metrics over time
 
         except Exception as e:
-            self.logger.error(f"Error generating comparison charts: {e}")
+            self.logger.error("Error generating comparison charts: %s", e)
 
         return charts
 
@@ -1322,7 +1322,7 @@ class MLPerformanceReport:
                 charts['drift_timeline'] = fig_drift.to_json()
 
         except Exception as e:
-            self.logger.error(f"Error generating ML charts: {e}")
+            self.logger.error("Error generating ML charts: %s", e)
 
         return charts
 
@@ -1441,11 +1441,11 @@ class MLPerformanceReport:
             with open(output_path, 'w') as f:
                 f.write(html_content)
 
-            self.logger.info(f"ML report exported to {output_path}")
+            self.logger.info("ML report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting HTML report: {e}")
+            self.logger.error("Error exporting HTML report: %s", e)
             return False
 
     def _export_pdf_ml_report(self, report_data: dict[str, Any], output_path: str) -> bool:
@@ -1459,11 +1459,11 @@ class MLPerformanceReport:
             with open(output_path, 'w') as f:
                 json.dump(report_data, f, indent=2, default=str)
 
-            self.logger.info(f"JSON report exported to {output_path}")
+            self.logger.info("JSON report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting JSON report: {e}")
+            self.logger.error("Error exporting JSON report: %s", e)
             return False
 
     def _format_model_details_html(self, model_reports: list[dict]) -> str:

@@ -149,7 +149,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             try:
                 self._x03_agent = SpyderX03_StrategyDirectorAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to initialize X03 StrategyDirectorAgent: {e}")
+                logging.getLogger(__name__).warning("Failed to initialize X03 StrategyDirectorAgent: %s", e)
 
     # ==========================================================================
     # LIFECYCLE
@@ -291,7 +291,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
                 if result:
                     base_allocation = getattr(result, "allocation", {})
             except Exception as e:
-                logging.getLogger(__name__).warning(f"X03 strategy selection failed: {e}")
+                logging.getLogger(__name__).warning("X03 strategy selection failed: %s", e)
 
         # LLM enhancement of allocation
         recent_approvals = sum(

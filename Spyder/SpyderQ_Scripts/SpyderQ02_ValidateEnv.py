@@ -4,23 +4,25 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderQ_Scripts
 Module: validate_env.py
-Purpose: SPYDER - Environment Configuration Validator (Tradier + Databento)
+Purpose: SPYDER - Environment Configuration Validator (Tradier + Massive)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-03-03 Time: 00:00:00
+Last Updated: 2026-04-07 Time: 00:00:00
 
 Module Description:
-    Validates .env configuration for the Tradier broker and Databento market
-    data provider.  Run this script before starting Spyder to confirm all
-    required variables are present and correctly formatted.
+    Validates .env configuration for the Tradier broker (testing) and Massive
+    market data provider (live and paper trading).  Run this script before
+    starting Spyder to confirm all required variables are present and correctly
+    formatted.
 
 Change Log:
+    2026-04-07:
+        - Removed stale Databento and Polygon references; only Tradier + Massive
+          are supported providers
     2026-03-03:
         - Removed legacy broker OAuth validation (broker migrated to Tradier)
-        - Removed Polygon.io validation (market data migrated to Databento)
         - Added Tradier API key and account validation
-        - Added Databento API key and dataset validation
     2026-01-16:
         - Applied standard Python formatting
         - Updated module header and structure
@@ -161,35 +163,37 @@ def validate_tradier_config():
 
     return errors, warnings
 
-def validate_databento_config():
-    """Validate Databento market data credentials"""
-    print_header("DATABENTO MARKET DATA CONFIGURATION")
+def validate_massive_config():
+    """Validate Massive market data credentials"""
+    print_header("MASSIVE MARKET DATA CONFIGURATION")
 
     errors = []
     warnings = []
 
-    api_key = os.environ.get("DATABENTO_API_KEY", "")
+    api_key = os.environ.get("MASSIVE_API_KEY", "")
     if not api_key:
-        errors.append("DATABENTO_API_KEY not set")
-        print_error("DATABENTO_API_KEY missing — required for live market data (Databento)")
-    elif api_key == "your_databento_api_key_here":
-        errors.append("DATABENTO_API_KEY is still the placeholder value")
-        print_error("DATABENTO_API_KEY not configured (still using placeholder)")
+        errors.append("MASSIVE_API_KEY not set")
+        print_error("MASSIVE_API_KEY missing — required for live market data (Massive)")
+    elif api_key == "your_massive_api_key_here":
+        errors.append("MASSIVE_API_KEY is still the placeholder value")
+        print_error("MASSIVE_API_KEY not configured (still using placeholder)")
     else:
-        print_success(f"DATABENTO_API_KEY: {api_key[:8]}... (configured)")
+        print_success(f"MASSIVE_API_KEY: {api_key[:8]}... (configured)")
 
-    dataset = os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR")
-    print_info(f"DATABENTO_DATASET: {dataset}")
+    base_url = os.environ.get("MASSIVE_BASE_URL", "")
+    if base_url:
+        print_info(f"MASSIVE_BASE_URL: {base_url}")
+    else:
+        print_info("MASSIVE_BASE_URL: (using default)")
 
-    data_provider = os.environ.get("DATA_PROVIDER", "databento").lower()
-    if data_provider != "databento":
+    data_provider = os.environ.get("DATA_PROVIDER", "massive").lower()
+    if data_provider != "massive":
         warnings.append(
-            f"DATA_PROVIDER='{data_provider}' — only 'databento' is supported; "
-            "Polygon.io has been removed"
+            f"DATA_PROVIDER='{data_provider}' — expected 'massive'"
         )
-        print_warning(f"DATA_PROVIDER='{data_provider}' — expected 'databento'")
+        print_warning(f"DATA_PROVIDER='{data_provider}' — expected 'massive'")
     else:
-        print_success("DATA_PROVIDER: databento")
+        print_success(f"DATA_PROVIDER: {data_provider}")
 
     return errors, warnings
 
@@ -270,7 +274,7 @@ def print_summary(all_errors, all_warnings):
 def main():
     """Main validation function"""
     print_header("SPYDER .ENV CONFIGURATION VALIDATOR")
-    print_info("Broker: Tradier  |  Market Data: Databento\n")
+    print_info("Broker: Tradier  |  Market Data: Massive\n")
 
     if not validate_env_file():
         sys.exit(1)
@@ -288,7 +292,7 @@ def main():
     all_errors.append(errors)
     all_warnings.append(warnings)
 
-    errors, warnings = validate_databento_config()
+    errors, warnings = validate_massive_config()
     all_errors.append(errors)
     all_warnings.append(warnings)
 
@@ -305,7 +309,7 @@ def main():
     if is_valid:
         print(f"{Colors.BOLD}Next Steps:{Colors.END}")
         print("  1. Obtain Tradier API key: https://developer.tradier.com")
-        print("  2. Obtain Databento API key: https://databento.com/signup")
+        print("  2. Obtain Massive API key from your Massive account dashboard")
         print("  3. Set TRADING_MODE=sandbox and TRADIER_ENVIRONMENT=sandbox for initial testing")
         print("  4. Test configuration:")
         print("     $ python config/config.py")

@@ -37,7 +37,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -204,7 +203,7 @@ class SpyderAutomaticRebalancer:
                 # Wait for next monitoring cycle
                 await asyncio.sleep(self.MONITORING_INTERVAL)
             except Exception as e:
-                logger.error(f"Error in Greek monitoring: {str(e)}")
+                logger.error("Error in Greek monitoring: %s", str(e))
                 await asyncio.sleep(self.MONITORING_INTERVAL)
 
     async def _calculate_portfolio_greeks(self) -> PortfolioGreeks:
@@ -459,7 +458,7 @@ class SpyderAutomaticRebalancer:
 
     async def _execute_rebalancing(self, actions: list[RebalanceAction], greeks: PortfolioGreeks):
         """Execute rebalancing actions."""
-        logger.info(f"Executing {len(actions)} rebalancing actions")
+        logger.info("Executing %s rebalancing actions", len(actions))
         # Sort by urgency
         urgency_order = {"IMMEDIATE": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
         actions.sort(key=lambda x: urgency_order.get(x.urgency, 4))
@@ -490,7 +489,7 @@ class SpyderAutomaticRebalancer:
                 if action.urgency != "IMMEDIATE":
                     await asyncio.sleep(0.5)
             except Exception as e:
-                logger.error(f"Failed to execute rebalancing action: {str(e)}")
+                logger.error("Failed to execute rebalancing action: %s", str(e))
 
     async def _execute_delta_hedge(self, action: RebalanceAction):
         """Execute delta hedging trade."""
@@ -528,7 +527,7 @@ class SpyderAutomaticRebalancer:
     async def _execute_gamma_hedge(self, action: RebalanceAction):
         """Execute gamma hedging trade."""
         logger.info(
-            f"Executing gamma hedge: {action.hedge_side} " f"{action.hedge_quantity} ATM options"
+            "Executing gamma hedge: %s %s ATM options", action.hedge_side, action.hedge_quantity
         )
         # Gamma hedging logic would go here
         # Typically involves buying/selling ATM options
@@ -537,7 +536,7 @@ class SpyderAutomaticRebalancer:
     async def _execute_vega_hedge(self, action: RebalanceAction):
         """Execute vega hedging trade."""
         logger.info(
-            f"Executing vega hedge: {action.hedge_side} " f"{action.hedge_quantity} VIX options"
+            "Executing vega hedge: %s %s VIX options", action.hedge_side, action.hedge_quantity
         )
         # Vega hedging logic would go here
         # Typically involves VIX options or variance swaps
@@ -564,9 +563,9 @@ class SpyderAutomaticRebalancer:
         )
         # Determine if any are in warning/action zones
         if any(self._check_rebalance_requirements(greeks)):
-            logger.warning(f"Greeks outside thresholds: {status}")
+            logger.warning("Greeks outside thresholds: %s", status)
         else:
-            logger.debug(f"Greeks within limits: {status}")
+            logger.debug("Greeks within limits: %s", status)
 
     def _record_rebalance(self, action: RebalanceAction, greeks: PortfolioGreeks):
         """Record rebalancing action in history."""
@@ -607,7 +606,7 @@ class SpyderAutomaticRebalancer:
 
     async def emergency_flatten(self, reason: str = "Manual emergency"):
         """Emergency flattening of all Greeks."""
-        logger.critical(f"EMERGENCY GREEK FLATTENING: {reason}")
+        logger.critical("EMERGENCY GREEK FLATTENING: %s", reason)
         self.emergency_mode = True
         # Get current Greeks
         greeks = await self._calculate_portfolio_greeks()
@@ -739,7 +738,7 @@ class SpyderAutomaticRebalancer:
             model = PPO('MlpPolicy', env, verbose=0,
                        learning_rate=3e-4, n_steps=2048)
             model.learn(total_timesteps=total_timesteps)
-            logger.info(f"Rebalancing RL policy trained: {total_timesteps} steps")
+            logger.info("Rebalancing RL policy trained: %s steps", total_timesteps)
             return model
         except ImportError:
             logger.warning("stable-baselines3 not installed")

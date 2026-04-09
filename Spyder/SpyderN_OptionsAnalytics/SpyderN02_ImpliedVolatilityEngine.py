@@ -34,7 +34,7 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import bisect
-import pickle
+import joblib
 import threading
 from datetime import datetime, timedelta
 from typing import Any
@@ -76,7 +76,7 @@ except ImportError:
 
     class SpyderErrorHandler:
         def handle_error(self, error, context):
-            logging.info(f"Error in {context}: {error}")
+            logging.info("Error in %s: %s", context, error)
 
     class OptionType(Enum):
         CALL = "CALL"
@@ -452,7 +452,7 @@ class ImpliedVolatilityEngine:
                     iv_points.append(iv_point)
 
             if not iv_points:
-                self.logger.warning(f"No valid IV points for {underlying}")
+                self.logger.warning("No valid IV points for %s", underlying)
                 return self._create_empty_snapshot(underlying, spot_price)
 
             # Calculate ATM IV
@@ -486,7 +486,7 @@ class ImpliedVolatilityEngine:
             return snapshot
 
         except Exception as e:
-            self.logger.error(f"Error calculating IV snapshot: {e}")
+            self.logger.error("Error calculating IV snapshot: %s", e)
             self.error_handler.handle_error(e, {"underlying": underlying})
             return self._create_empty_snapshot(underlying, spot_price)
 
@@ -695,7 +695,7 @@ class ImpliedVolatilityEngine:
             )
 
         except Exception as e:
-            self.logger.debug(f"Error calculating IV for option: {e}")
+            self.logger.debug("Error calculating IV for option: %s", e)
             return None
 
     def _estimate_iv(self, market_price: float, spot: float, strike: float,
@@ -1150,10 +1150,10 @@ class ImpliedVolatilityEngine:
             for file_path in self.data_dir.glob("*_iv_history.pkl"):
                 underlying = file_path.stem.replace("_iv_history", "")
                 with open(file_path, 'rb') as f:
-                    self.iv_history[underlying] = pickle.load(f)
-                self.logger.info(f"Loaded IV history for {underlying}")
+                    self.iv_history[underlying] = joblib.load(f)
+                self.logger.info("Loaded IV history for %s", underlying)
         except Exception as e:
-            self.logger.error(f"Error loading historical data: {e}")
+            self.logger.error("Error loading historical data: %s", e)
 
     def save_historical_data(self):
         """Save historical IV data to disk"""
@@ -1161,10 +1161,10 @@ class ImpliedVolatilityEngine:
             for underlying, history in self.iv_history.items():
                 file_path = self.data_dir / f"{underlying}_iv_history.pkl"
                 with open(file_path, 'wb') as f:
-                    pickle.dump(history, f)
-                self.logger.info(f"Saved IV history for {underlying}")
+                    joblib.dump(history, f)
+                self.logger.info("Saved IV history for %s", underlying)
         except Exception as e:
-            self.logger.error(f"Error saving historical data: {e}")
+            self.logger.error("Error saving historical data: %s", e)
 
 # ==============================================================================
 # MODULE FUNCTIONS

@@ -26,7 +26,8 @@ import time
 import threading
 import queue
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import field
 from enum import Enum, auto
 from pathlib import Path
@@ -211,7 +212,7 @@ class DesktopNotifier:
             'quiet_hours_blocked': 0
         }
 
-        self.logger.info(f"DesktopNotifier initialized on {PLATFORM}")
+        self.logger.info("DesktopNotifier initialized on %s", PLATFORM)
 
     # ==========================================================================
     # LIFECYCLE METHODS
@@ -511,7 +512,7 @@ class DesktopNotifier:
                     self.stats['failed'] += 1
 
             except Exception as e:
-                self.logger.error(f"Error in notification loop: {e}")
+                self.logger.error("Error in notification loop: %s", e)
                 self.error_handler.handle_error(e, "_notification_loop")
 
     def _send_notification(self, notification: DesktopNotification) -> bool:
@@ -554,7 +555,7 @@ class DesktopNotifier:
                 return self._send_system_notification(notification)
 
         except Exception as e:
-            self.logger.error(f"Failed to send notification: {e}")
+            self.logger.error("Failed to send notification: %s", e)
             return False
 
     def _send_system_notification(self, notification: DesktopNotification) -> bool:
@@ -584,7 +585,7 @@ class DesktopNotifier:
                 return False
 
         except Exception as e:
-            self.logger.error(f"System notification failed: {e}")
+            self.logger.error("System notification failed: %s", e)
             return False
 
     # ==========================================================================
@@ -621,7 +622,7 @@ class DesktopNotifier:
                 subprocess.run(['paplay', '/usr/share/sounds/freedesktop/stereo/complete.oga'])
 
         except Exception as e:
-            self.logger.debug(f"Could not play sound: {e}")
+            self.logger.debug("Could not play sound: %s", e)
 
     # ==========================================================================
     # UTILITY METHODS

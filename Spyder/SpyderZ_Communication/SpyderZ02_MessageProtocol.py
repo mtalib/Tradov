@@ -37,7 +37,7 @@ except ImportError:
     def _json_loads(data) -> Any:  # type: ignore[misc]
         return _json_std.loads(data)
 import time
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import uuid
@@ -787,7 +787,7 @@ class ProtocolManager:
         self.stats = defaultdict(int)
 
     def create_message(self,
-                      category: Union[str, MessageCategory],
+                      category: str | MessageCategory,
                       message_type: str,
                       source: str,
                       data: dict[str, Any],
@@ -824,7 +824,7 @@ class ProtocolManager:
             return serialized
         except Exception as e:
             self.stats["serialization_errors"] += 1
-            self.logger.error(f"Serialization error: {e}")
+            self.logger.error("Serialization error: %s", e)
             raise
 
     def deserialize_message(self,
@@ -850,7 +850,7 @@ class ProtocolManager:
             return message
         except Exception as e:
             self.stats["deserialization_errors"] += 1
-            self.logger.error(f"Deserialization error: {e}")
+            self.logger.error("Deserialization error: %s", e)
             raise
 
     def get_stats(self) -> dict[str, int]:
@@ -921,7 +921,7 @@ def example_usage():
             bid_size=100,
             ask_size=150
         )
-        logging.info(f"✅ Market data message created: {market_msg.message_id}")
+        logging.info("✅ Market data message created: %s", market_msg.message_id)
 
         # Create order message
         order_msg = manager.factory.create_order(
@@ -932,7 +932,7 @@ def example_usage():
             price=450.00,
             source="StrategyEngine"
         )
-        logging.info(f"✅ Order message created: {order_msg.message_id}")
+        logging.info("✅ Order message created: %s", order_msg.message_id)
 
         # Create risk update
         risk_msg = manager.factory.create_risk_update(
@@ -943,10 +943,10 @@ def example_usage():
             portfolio_vega=-523.1,
             portfolio_value=1000000.0
         )
-        logging.info(f"✅ Risk update created: {risk_msg.message_id}")
+        logging.info("✅ Risk update created: %s", risk_msg.message_id)
 
     except ValueError as e:
-        logging.info(f"❌ Validation error: {e}")
+        logging.info("❌ Validation error: %s", e)
 
     logging.info("\n2. Message Serialization")
     logging.info("-" * 40)
@@ -965,7 +965,7 @@ def example_usage():
 
     for format in formats:
         serialized = manager.serialize_message(market_msg, format)
-        logging.info(f"   {format.value}: {len(serialized)} bytes")
+        logging.info("   %s: %s bytes", format.value, len(serialized))
 
     logging.info("\n3. Message Priorities")
     logging.info("-" * 40)
@@ -977,7 +977,7 @@ def example_usage():
         source="RiskMonitor",
         severity="CRITICAL"
     )
-    logging.info(f"   Critical alert priority: {critical_alert.priority}")
+    logging.info("   Critical alert priority: %s", critical_alert.priority)
 
     info_alert = manager.factory.create_alert(
         alert_type="SYSTEM_INFO",
@@ -985,7 +985,7 @@ def example_usage():
         source="SystemMonitor",
         severity="INFO"
     )
-    logging.info(f"   Info alert priority: {info_alert.priority}")
+    logging.info("   Info alert priority: %s", info_alert.priority)
 
     logging.info("\n4. Version Migration")
     logging.info("-" * 40)
@@ -1001,8 +1001,8 @@ def example_usage():
     }
 
     migrated = manager.version_manager.migrate_message(old_message)
-    logging.info(f"   Migrated from v{old_message['version']} to v{migrated['version']}")
-    logging.info(f"   Added fields: {set(migrated.keys()) - set(old_message.keys())}")
+    logging.info("   Migrated from v%s to v%s", old_message['version'], migrated['version'])
+    logging.info("   Added fields: %s", set(migrated.keys()) - set(old_message.keys()))
 
     logging.info("\n5. Protocol Statistics")
     logging.info("-" * 40)
@@ -1010,7 +1010,7 @@ def example_usage():
     stats = manager.get_stats()
     for key, value in stats.items():
         if value > 0:
-            logging.info(f"   {key}: {value}")
+            logging.info("   %s: %s", key, value)
 
     logging.info("\n✅ Enhanced Protocol Features:")
     logging.info("   • Strict JSON Schema validation")

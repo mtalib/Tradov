@@ -478,7 +478,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             # Check for duplicate position
             for pos in self.positions.values():
                 if pos.symbol == signal.symbol:
-                    self.logger.debug(f"Signal rejected: position already exists for {signal.symbol}")
+                    self.logger.debug("Signal rejected: position already exists for %s", signal.symbol)
                     return False
 
             # Check entry price validity
@@ -582,7 +582,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             option_chain: List of available option contracts
         """
         self.option_chain = option_chain
-        self.logger.debug(f"Option chain updated: {len(option_chain)} contracts")
+        self.logger.debug("Option chain updated: %s contracts", len(option_chain))
 
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy-specific statistics."""

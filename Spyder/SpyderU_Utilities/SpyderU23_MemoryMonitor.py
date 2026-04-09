@@ -25,7 +25,8 @@ import gc
 import time
 import threading
 import datetime
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -291,7 +292,7 @@ class SpyderMemoryMonitor:
                 try:
                     callback(snapshot)
                 except Exception as e:
-                    self.logger.error(f"Stats callback error: {e}", exc_info=True)
+                    self.logger.error("Stats callback error: %s", e, exc_info=True)
 
         except Exception as e:
             self.error_handler.handle_error(e, "Memory check failed")
@@ -333,13 +334,13 @@ class SpyderMemoryMonitor:
 
     def _notify_alert(self, alert: MemoryAlert):
         """Notify all registered alert callbacks."""
-        self.logger.warning(f"Memory Alert: {alert.message}")
+        self.logger.warning("Memory Alert: %s", alert.message)
 
         for callback in self.alert_callbacks:
             try:
                 callback(alert)
             except Exception as e:
-                self.logger.error(f"Alert callback error: {e}", exc_info=True)
+                self.logger.error("Alert callback error: %s", e, exc_info=True)
 
     # ==========================================================================
     # GARBAGE COLLECTION MANAGEMENT
@@ -434,7 +435,7 @@ class SpyderMemoryMonitor:
                     self.logger.info(f"Memory trend: {direction} by {abs(trend_change):.1f}%")
 
         except Exception as e:
-            self.logger.error(f"Trend analysis failed: {e}", exc_info=True)
+            self.logger.error("Trend analysis failed: %s", e, exc_info=True)
 
     def _detect_memory_leaks(self) -> bool:
         """Detect potential memory leaks."""
@@ -463,7 +464,7 @@ class SpyderMemoryMonitor:
                     return True
 
         except Exception as e:
-            self.logger.error(f"Leak detection failed: {e}", exc_info=True)
+            self.logger.error("Leak detection failed: %s", e, exc_info=True)
 
         return False
 
@@ -605,7 +606,7 @@ def main():
 
     # Add callbacks
     def alert_handler(alert):
-        logging.info(f"ALERT [{alert.level.upper()}]: {alert.message}")
+        logging.info("ALERT [%s]: %s", alert.level.upper(), alert.message)
 
     def stats_handler(snapshot):
         logging.info(f"Memory: {snapshot.rss/1e6:.1f}MB ({snapshot.percent:.1f}%)")
@@ -624,13 +625,13 @@ def main():
             stats = monitor.get_current_stats()
             logging.info("\nCurrent Statistics:")
             for key, value in stats.items():
-                logging.info(f"  {key}: {value}")
+                logging.info("  %s: %s", key, value)
 
             # Test garbage collection
             logging.info("\nTesting garbage collection...")
             gc_results = monitor.force_garbage_collection()
             for key, value in gc_results.items():
-                logging.info(f"  {key}: {value}")
+                logging.info("  %s: %s", key, value)
 
         except KeyboardInterrupt:
             logging.info("\nShutting down...")

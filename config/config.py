@@ -58,8 +58,29 @@ load_dotenv()
 # TRADIER API CONFIGURATION
 # ==============================================================================
 TRADIER_CONFIG = {
+    # Legacy single-pair fallback (used when environment-specific vars are absent)
     "api_key": os.environ.get("TRADIER_API_KEY", ""),
     "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
+
+    # Sandbox / paper-trading credentials (sandbox.tradier.com)
+    "sandbox_api_key": (
+        os.environ.get("TRADIER_SANDBOX_API_KEY")
+        or os.environ.get("TRADIER_API_KEY", "")
+    ),
+    "sandbox_account_id": (
+        os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID")
+        or os.environ.get("TRADIER_ACCOUNT_ID", "")
+    ),
+
+    # Live / production credentials (api.tradier.com)
+    "live_api_key": (
+        os.environ.get("TRADIER_LIVE_API_KEY")
+        or os.environ.get("TRADIER_API_KEY", "")
+    ),
+    "live_account_id": (
+        os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+        or os.environ.get("TRADIER_ACCOUNT_ID", "")
+    ),
 
     # Environment URLs
     "live_url": os.environ.get("TRADIER_LIVE_URL", "https://api.tradier.com/v1"),
@@ -134,7 +155,8 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento | tradier | massive
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "massive")  # massive | polygon | tradier
+ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # overrides DATA_PROVIDER
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
 # Tradier API environment — controls which Tradier endpoint is used for BOTH
@@ -337,17 +359,14 @@ def validate_config():
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
     # Check market data configuration
-    if DATA_PROVIDER == "databento":
-        if not DATABENTO_CONFIG["api_key"]:
-            errors.append("DATABENTO_API_KEY not set in .env")
-    elif DATA_PROVIDER == "massive":
+    if ACTIVE_DATA_PROVIDER in ("massive", "polygon"):
         if not MASSIVE_CONFIG["api_key"]:
             errors.append("MASSIVE_API_KEY not set in .env")
-    elif DATA_PROVIDER == "tradier":
+    elif ACTIVE_DATA_PROVIDER == "tradier":
         pass  # Tradier credentials already checked above
     else:
         errors.append(
-            f"Invalid DATA_PROVIDER: {DATA_PROVIDER}. Must be 'databento', 'massive', or 'tradier'"
+            f"Invalid ACTIVE_DATA_PROVIDER: {ACTIVE_DATA_PROVIDER}. Must be 'massive', 'polygon', or 'tradier'"
         )
 
     # Check trading mode
@@ -400,18 +419,15 @@ def validate_startup_config() -> None:
         )
 
     # --- Data-provider credentials -------------------------------------------
-    provider = DATA_PROVIDER.lower()
-    if provider == "databento":
-        if not DATABENTO_CONFIG["api_key"]:
-            problems.append("DATABENTO_API_KEY is not set (required when DATA_PROVIDER=databento)")
-    elif provider == "massive":
+    provider = ACTIVE_DATA_PROVIDER.lower()
+    if provider in ("massive", "polygon"):
         if not MASSIVE_CONFIG["api_key"]:
-            problems.append("MASSIVE_API_KEY is not set (required when DATA_PROVIDER=massive)")
+            problems.append("MASSIVE_API_KEY is not set (required when ACTIVE_DATA_PROVIDER=massive/polygon)")
     elif provider == "tradier":
         pass  # Tradier credentials already validated above
     else:
         problems.append(
-            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento', 'massive', or 'tradier'"
+            f"ACTIVE_DATA_PROVIDER='{ACTIVE_DATA_PROVIDER}' is invalid; must be 'massive', 'polygon', or 'tradier'"
         )
 
     # --- Live-trading safety gate --------------------------------------------

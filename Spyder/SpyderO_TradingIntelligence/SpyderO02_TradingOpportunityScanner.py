@@ -378,7 +378,7 @@ class TradingOpportunityScanner:
                 self.logger.info("Connected to signals modules")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize analytics connections: {e}")
+            self.logger.error("Failed to initialize analytics connections: %s", e)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN INTERFACE
@@ -439,7 +439,7 @@ class TradingOpportunityScanner:
                     avg_confidence = sum(opp.confidence_score for opp in ranked_opportunities) / len(ranked_opportunities)
                     self.scanner_metrics['average_confidence_score'] = avg_confidence
 
-            self.logger.info(f"Opportunity scan completed: {len(ranked_opportunities)} opportunities found")
+            self.logger.info("Opportunity scan completed: %s opportunities found", len(ranked_opportunities))
             return ranked_opportunities
 
         except Exception as e:
@@ -1059,7 +1059,7 @@ class TradingOpportunityScanner:
                     'transition_prob': 0.15
                 }
             except Exception as e:
-                self.logger.error(f"Failed to get regime context: {e}")
+                self.logger.error("Failed to get regime context: %s", e)
 
         return {'regime': 'unknown', 'confidence': 0.5, 'transition_prob': 0.2}
 

@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
@@ -190,7 +190,7 @@ class InteractionMatrix:
         self._analysis_cache: dict[str, MatrixAnalysis] = {}
         self._cache_timestamp = datetime.now()
 
-        self.logger.info(f"InteractionMatrix initialized (max_modules: {max_modules})")
+        self.logger.info("InteractionMatrix initialized (max_modules: %s)", max_modules)
 
     # ==========================================================================
     # PUBLIC METHODS - INTERACTION RECORDING
@@ -251,7 +251,7 @@ class InteractionMatrix:
                 self._invalidate_cache()
 
         except Exception as e:
-            self.logger.error(f"Error recording interaction: {str(e)}")
+            self.logger.error("Error recording interaction: %s", str(e))
 
     def start_interaction(self, source: str, target: str,
                          interaction_type: InteractionType,
@@ -283,7 +283,7 @@ class InteractionMatrix:
             return interaction_id
 
         except Exception as e:
-            self.logger.error(f"Error starting interaction: {str(e)}")
+            self.logger.error("Error starting interaction: %s", str(e))
             return ""
 
     def complete_interaction(self, interaction_id: str,
@@ -304,10 +304,10 @@ class InteractionMatrix:
         try:
             # For simplicity, just record the completion
             # In a full implementation, you'd track pending interactions
-            self.logger.debug(f"Completed interaction {interaction_id} with status {status.value}")
+            self.logger.debug("Completed interaction %s with status %s", interaction_id, status.value)
 
         except Exception as e:
-            self.logger.error(f"Error completing interaction: {str(e)}")
+            self.logger.error("Error completing interaction: %s", str(e))
 
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS
@@ -363,14 +363,14 @@ class InteractionMatrix:
                 return analysis
 
         except Exception as e:
-            self.logger.error(f"Error analyzing matrix: {str(e)}")
+            self.logger.error("Error analyzing matrix: %s", str(e))
             return MatrixAnalysis(
                 matrix_data=np.zeros((1, 1)),
                 module_names=[],
                 metric_type=metric
             )
 
-    def get_module_statistics(self, module_name: str | None = None) -> Union[ModuleStats, dict[str, ModuleStats]]:
+    def get_module_statistics(self, module_name: str | None = None) -> ModuleStats | dict[str, ModuleStats]:
         """
         Get statistics for a module or all modules.
 
@@ -388,7 +388,7 @@ class InteractionMatrix:
                     return self.module_stats.copy()
 
         except Exception as e:
-            self.logger.error(f"Error getting module statistics: {str(e)}")
+            self.logger.error("Error getting module statistics: %s", str(e))
             if module_name:
                 return ModuleStats(module_name)
             else:
@@ -423,7 +423,7 @@ class InteractionMatrix:
                 return filtered[:limit]
 
         except Exception as e:
-            self.logger.error(f"Error getting interaction history: {str(e)}")
+            self.logger.error("Error getting interaction history: %s", str(e))
             return []
 
     def identify_hotspots(self, metric: MatrixMetric = MatrixMetric.FREQUENCY,
@@ -443,7 +443,7 @@ class InteractionMatrix:
             return analysis.hotspots[:top_n]
 
         except Exception as e:
-            self.logger.error(f"Error identifying hotspots: {str(e)}")
+            self.logger.error("Error identifying hotspots: %s", str(e))
             return []
 
     def detect_bottlenecks(self) -> list[str]:
@@ -466,7 +466,7 @@ class InteractionMatrix:
             return bottlenecks
 
         except Exception as e:
-            self.logger.error(f"Error detecting bottlenecks: {str(e)}")
+            self.logger.error("Error detecting bottlenecks: %s", str(e))
             return []
 
     # ==========================================================================
@@ -492,10 +492,10 @@ class InteractionMatrix:
             )
             self._monitor_thread.start()
 
-            self.logger.info(f"Interaction monitoring started (interval: {update_interval}s)")
+            self.logger.info("Interaction monitoring started (interval: %ss)", update_interval)
 
         except Exception as e:
-            self.logger.error(f"Error starting monitoring: {str(e)}")
+            self.logger.error("Error starting monitoring: %s", str(e))
 
     def stop_monitoring(self) -> None:
         """Stop continuous monitoring."""
@@ -504,7 +504,7 @@ class InteractionMatrix:
             self.logger.info("Interaction monitoring stopped")
 
         except Exception as e:
-            self.logger.error(f"Error stopping monitoring: {str(e)}")
+            self.logger.error("Error stopping monitoring: %s", str(e))
 
     def get_system_health(self) -> dict[str, Any]:
         """
@@ -562,7 +562,7 @@ class InteractionMatrix:
                 }
 
         except Exception as e:
-            self.logger.error(f"Error getting system health: {str(e)}")
+            self.logger.error("Error getting system health: %s", str(e))
             return {'health_score': 0.0, 'status': 'error'}
 
     # ==========================================================================
@@ -572,7 +572,7 @@ class InteractionMatrix:
         """Register a module in the matrix"""
         if module_name not in self.modules:
             if len(self.module_names) >= self.max_modules:
-                self.logger.warning(f"Maximum modules reached ({self.max_modules})")
+                self.logger.warning("Maximum modules reached (%s)", self.max_modules)
                 return
 
             index = len(self.module_names)
@@ -580,7 +580,7 @@ class InteractionMatrix:
             self.module_names.append(module_name)
             self.module_stats[module_name] = ModuleStats(module_name)
 
-            self.logger.debug(f"Registered module: {module_name} (index: {index})")
+            self.logger.debug("Registered module: %s (index: %s)", module_name, index)
 
     def _update_matrices(self, interaction: Interaction) -> None:
         """Update the interaction matrices"""
@@ -618,7 +618,7 @@ class InteractionMatrix:
                 self.data_volume_matrix[source_idx, target_idx] += interaction.data_size
 
         except Exception as e:
-            self.logger.error(f"Error updating matrices: {str(e)}")
+            self.logger.error("Error updating matrices: %s", str(e))
 
     def _update_module_stats(self, interaction: Interaction) -> None:
         """Update module statistics"""
@@ -650,7 +650,7 @@ class InteractionMatrix:
             target_stats.last_activity = interaction.timestamp
 
         except Exception as e:
-            self.logger.error(f"Error updating module stats: {str(e)}")
+            self.logger.error("Error updating module stats: %s", str(e))
 
     def _calculate_frequency_matrix(self, interactions: list[Interaction]) -> np.ndarray:
         """Calculate frequency matrix from interactions"""
@@ -780,7 +780,7 @@ class InteractionMatrix:
             )
 
         except Exception as e:
-            self.logger.error(f"Error performing matrix analysis: {str(e)}")
+            self.logger.error("Error performing matrix analysis: %s", str(e))
             return MatrixAnalysis(
                 matrix_data=matrix_data,
                 module_names=self.module_names.copy(),
@@ -815,7 +815,7 @@ class InteractionMatrix:
                     recommendations.append(f"Improve reliability for {len(low_success)} error-prone interactions")
 
         except Exception as e:
-            self.logger.error(f"Error generating recommendations: {str(e)}")
+            self.logger.error("Error generating recommendations: %s", str(e))
 
         return recommendations
 
@@ -840,7 +840,7 @@ class InteractionMatrix:
                 time.sleep(update_interval)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {str(e)}")
+                self.logger.error("Error in monitoring loop: %s", str(e))
                 time.sleep(update_interval)  # thread-safe: time.sleep() intentional
 
     def _invalidate_cache(self) -> None:

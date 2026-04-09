@@ -42,7 +42,8 @@ from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from threading import Event as ThreadEvent, Lock, RLock
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # ORJSON WITH FALLBACK TO STDLIB JSON
@@ -152,7 +153,7 @@ except ImportError:
             self.logger = logger or logging.getLogger(__name__)
 
         def handle_error(self, error, context="Unknown", operation="Unknown"):
-            self.logger.error(f"Error in {context}.{operation}: {error}", exc_info=True)
+            self.logger.error("Error in %s.%s: %s", context, operation, error, exc_info=True)
             return False
 
 # Event Manager - SAFE IMPORT (optional dependency)
@@ -192,7 +193,7 @@ except ImportError:
                 try:
                     handler(event)
                 except Exception as e:
-                    logging.getLogger(__name__).error(f"Event handler error: {e}")
+                    logging.getLogger(__name__).error("Event handler error: %s", e)
 
 # SpyderClient (B01_SpyderClient removed — legacy broker) — use Tradier via SpyderB40_TradierClient
 HAS_SPYDER_CLIENT = False
@@ -432,7 +433,7 @@ class AccountManager:
             try:
                 self.spyder_client = SpyderClient()
             except Exception as e:
-                self.logger.warning(f"Could not create SpyderClient: {e}", exc_info=True)
+                self.logger.warning("Could not create SpyderClient: %s", e, exc_info=True)
                 self.spyder_client = SpyderClient()  # Use fallback
         else:
             self.spyder_client = SpyderClient()  # Use fallback
@@ -525,7 +526,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}", exc_info=True)
+            self.logger.error("Initialization failed: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "AccountManager", "initialize")
             return False
 
@@ -560,7 +561,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start AccountManager: {e}", exc_info=True)
+            self.logger.error("Failed to start AccountManager: %s", e, exc_info=True)
             self._is_running = False
             return False
 
@@ -587,7 +588,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping AccountManager: {e}", exc_info=True)
+            self.logger.error("Error stopping AccountManager: %s", e, exc_info=True)
             return False
 
     def _start_background_threads(self):
@@ -628,7 +629,7 @@ class AccountManager:
             self.logger.debug("Background threads started")
 
         except Exception as e:
-            self.logger.error(f"Error starting background threads: {e}", exc_info=True)
+            self.logger.error("Error starting background threads: %s", e, exc_info=True)
 
     def _stop_background_threads(self):
         """Stop background threads"""
@@ -654,7 +655,7 @@ class AccountManager:
                     if account_id not in self.accounts:
                         # Create new account info
                         self.accounts[account_id] = AccountInfo(account_id=account_id)
-                        self.logger.info(f"Added new account: {account_id}")
+                        self.logger.info("Added new account: %s", account_id)
 
                     # Update account data
                     self._update_account_data(account_id)
@@ -662,10 +663,10 @@ class AccountManager:
                 # Set primary account if not set
                 if not self.primary_account_id and accounts:
                     self.primary_account_id = accounts[0]
-                    self.logger.info(f"Set primary account: {self.primary_account_id}")
+                    self.logger.info("Set primary account: %s", self.primary_account_id)
 
         except Exception as e:
-            self.logger.error(f"Error syncing accounts: {e}", exc_info=True)
+            self.logger.error("Error syncing accounts: %s", e, exc_info=True)
 
     def _update_account_data(self, account_id: str):
         """Update data for a specific account"""
@@ -674,7 +675,7 @@ class AccountManager:
             account_values = self.spyder_client.get_account_values(account_id)
 
             if not account_values:
-                self.logger.debug(f"No account values for {account_id}")
+                self.logger.debug("No account values for %s", account_id)
                 return
 
             with self._account_lock:
@@ -713,7 +714,7 @@ class AccountManager:
                 # Update timestamp
                 account.last_updated = datetime.now()
 
-                self.logger.debug(f"Updated account data for {account_id}")
+                self.logger.debug("Updated account data for %s", account_id)
 
                 # Emit balance change event if significant change
                 if abs(account.daily_pnl) > 100:  # $100 threshold
@@ -725,7 +726,7 @@ class AccountManager:
                     })
 
         except Exception as e:
-            self.logger.error(f"Error updating account data for {account_id}: {e}", exc_info=True)
+            self.logger.error("Error updating account data for %s: %s", account_id, e, exc_info=True)
 
     # ==========================================================================
     # ACCOUNT QUERIES
@@ -844,11 +845,11 @@ class AccountManager:
                 })
 
         except Exception as e:
-            self.logger.error(f"Error assessing risk for {account_id}: {e}", exc_info=True)
+            self.logger.error("Error assessing risk for %s: %s", account_id, e, exc_info=True)
 
     def _emit_risk_alert(self, account_id: str, message: str, risk_level: RiskLevel):
         """Emit a risk alert event"""
-        self.logger.warning(f"Risk alert for {account_id}: {message} (Level: {risk_level.value})")
+        self.logger.warning("Risk alert for %s: %s (Level: %s)", account_id, message, risk_level.value)
 
         # Notify callbacks
         for callback in self._risk_callbacks:
@@ -860,7 +861,7 @@ class AccountManager:
                     'timestamp': datetime.now()
                 })
             except Exception as e:
-                self.logger.error(f"Risk callback error: {e}", exc_info=True)
+                self.logger.error("Risk callback error: %s", e, exc_info=True)
 
         # Emit event
         self._emit_event(EventType.RISK_ALERT, {
@@ -883,7 +884,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Account update worker error: {e}", exc_info=True)
+                self.logger.error("Account update worker error: %s", e, exc_info=True)
 
     def _balance_history_worker(self):
         """Background worker for balance history"""
@@ -895,7 +896,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Balance history worker error: {e}", exc_info=True)
+                self.logger.error("Balance history worker error: %s", e, exc_info=True)
 
     def _risk_monitoring_worker(self):
         """Background worker for risk monitoring"""
@@ -907,7 +908,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Risk monitoring worker error: {e}", exc_info=True)
+                self.logger.error("Risk monitoring worker error: %s", e, exc_info=True)
 
     def _performance_worker(self):
         """Background worker for performance calculations"""
@@ -919,7 +920,7 @@ class AccountManager:
                     break
 
             except Exception as e:
-                self.logger.error(f"Performance worker error: {e}", exc_info=True)
+                self.logger.error("Performance worker error: %s", e, exc_info=True)
 
     # ==========================================================================
     # HISTORICAL DATA MANAGEMENT
@@ -944,7 +945,7 @@ class AccountManager:
                     self.daily_balances.append(snapshot)
 
         except Exception as e:
-            self.logger.error(f"Error saving balance snapshots: {e}", exc_info=True)
+            self.logger.error("Error saving balance snapshots: %s", e, exc_info=True)
 
     def _save_account_snapshot(self):
         """Save current account state to disk as JSON."""
@@ -995,7 +996,7 @@ class AccountManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error saving account snapshot: {e}", exc_info=True)
+            self.logger.error("Error saving account snapshot: %s", e, exc_info=True)
 
     def _load_historical_data(self):
         """Load historical account data from the JSON cache on disk."""
@@ -1006,7 +1007,7 @@ class AccountManager:
 
             if not cache_path.exists():
                 self.logger.debug(
-                    f"No account cache found at {cache_path} - starting fresh"
+                    "No account cache found at %s - starting fresh", cache_path
                 )
                 return
 
@@ -1021,7 +1022,7 @@ class AccountManager:
                 return
 
             saved_at = payload.get("saved_at", "unknown")
-            self.logger.info(f"Loading account cache saved at {saved_at}")
+            self.logger.info("Loading account cache saved at %s", saved_at)
 
             # Restore accounts
             with self._account_lock:
@@ -1064,7 +1065,7 @@ class AccountManager:
                         self.accounts[account_id] = account
                     except Exception as acct_err:
                         self.logger.warning(
-                            f"Skipping cached account {account_id}: {acct_err}"
+                            "Skipping cached account %s: %s", account_id, acct_err
                         )
 
                 if payload.get("primary_account_id") and not self.primary_account_id:
@@ -1086,7 +1087,7 @@ class AccountManager:
                         )
                         self.daily_balances.append(snap)
                     except Exception as snap_err:
-                        self.logger.warning(f"Skipping corrupt balance snapshot: {snap_err}")
+                        self.logger.warning("Skipping corrupt balance snapshot: %s", snap_err)
 
             self.logger.debug(
                 f"Historical data loaded: {len(self.accounts)} accounts, "
@@ -1094,7 +1095,7 @@ class AccountManager:
             )
 
         except Exception as e:
-            self.logger.error(f"Error loading historical data: {e}", exc_info=True)
+            self.logger.error("Error loading historical data: %s", e, exc_info=True)
 
     # ==========================================================================
     # PERFORMANCE CALCULATIONS
@@ -1108,7 +1109,7 @@ class AccountManager:
                     self._calculate_account_performance(account_id)
 
         except Exception as e:
-            self.logger.error(f"Error calculating performance metrics: {e}", exc_info=True)
+            self.logger.error("Error calculating performance metrics: %s", e, exc_info=True)
 
     def _calculate_account_performance(self, account_id: str):
         """Calculate performance metrics for a specific account"""
@@ -1185,7 +1186,7 @@ class AccountManager:
                             f"Return: {total_return:.2%}, Sharpe: {sharpe_ratio:.2f}")
 
         except Exception as e:
-            self.logger.error(f"Error calculating performance for {account_id}: {e}", exc_info=True)
+            self.logger.error("Error calculating performance for %s: %s", account_id, e, exc_info=True)
 
     # ==========================================================================
     # EVENT HANDLING
@@ -1197,7 +1198,7 @@ class AccountManager:
             # This would subscribe to real broker events if available
             self.logger.debug("Subscribed to broker events")
         except Exception as e:
-            self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
+            self.logger.error("Error subscribing to events: %s", e, exc_info=True)
 
     def _emit_event(self, event_type: EventType, data: dict[str, Any]):
         """Emit event through event manager"""
@@ -1206,7 +1207,7 @@ class AccountManager:
                 event = Event(event_type, data)
                 self.event_manager.emit(event)
         except Exception as e:
-            self.logger.error(f"Error emitting event: {e}", exc_info=True)
+            self.logger.error("Error emitting event: %s", e, exc_info=True)
 
     # ==========================================================================
     # CALLBACK MANAGEMENT
@@ -1340,4 +1341,4 @@ if __name__ == "__main__":
             pass
 
     except Exception as e:
-        logging.getLogger(__name__).error(f"Demo __main__ failed: {e}")
+        logging.getLogger(__name__).error("Demo __main__ failed: %s", e)

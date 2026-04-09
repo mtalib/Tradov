@@ -27,7 +27,7 @@ import logging
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -50,7 +50,6 @@ from sklearn.preprocessing import PolynomialFeatures
 # MODULE IMPLEMENTATION
 # ==============================================================================
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -229,7 +228,7 @@ class SpyderRandomForestEnsemble:
         Returns:
             Model performance metrics
         """
-        logger.info(f"Training Random Forest for {strategy_type} strategy")
+        logger.info("Training Random Forest for %s strategy", strategy_type)
         # Engineer features
         features_df = self.engineer_features(training_data, strategy_type)
         # Prepare training data
@@ -267,7 +266,7 @@ class SpyderRandomForestEnsemble:
                 random_state=self.config.random_state,
             )
         # Train model
-        logger.info(f"Training with {model.n_estimators} trees")
+        logger.info("Training with %s trees", model.n_estimators)
         model.fit(X, y)
         # Train quantile forest for uncertainty
         quantile_forest = QuantileRandomForest(
@@ -307,7 +306,7 @@ class SpyderRandomForestEnsemble:
         option_data: pd.DataFrame,
         strategy_type: str = "vanilla",
         return_intervals: bool = False,
-    ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Predict option prices.
         Args:
@@ -372,7 +371,7 @@ class SpyderRandomForestEnsemble:
             verbose=1,
         )
         search.fit(X, y)
-        logger.info(f"Best parameters: {search.best_params_}")
+        logger.info("Best parameters: %s", search.best_params_)
         logger.info(f"Best CV score: {-search.best_score_:.3f}")
         return search.best_params_
 
@@ -502,7 +501,7 @@ class SpyderRandomForestEnsemble:
             "performance_history": self.performance_history,
         }
         joblib.dump(model_data, filepath)
-        logger.info(f"Model saved to {filepath}")
+        logger.info("Model saved to %s", filepath)
 
     def load_model(self, filepath: str, strategy_type: str = "vanilla"):
         """Load model from disk."""
@@ -512,7 +511,7 @@ class SpyderRandomForestEnsemble:
         self.config = model_data["config"]
         self.performance_history = model_data["performance_history"]
         self.is_trained = True
-        logger.info(f"Model loaded from {filepath}")
+        logger.info("Model loaded from %s", filepath)
 
     def get_feature_importance_report(
         self, strategy_type: str = "vanilla", top_n: int = 20
@@ -624,7 +623,7 @@ class SpyderRandomForestEnsemble:
 
             return {'params': params, 'rmse': rmse, 'cv_std': float(scores.std()), 'status': 'completed'}
 
-        self.logger.info(f"Ray RF HP search: {len(combos)} configurations")
+        self.logger.info("Ray RF HP search: %s configurations", len(combos))
         futures = [
             _evaluate_rf_config.remote(data_ref, dict(zip(param_names, combo, strict=False)))
             for combo in combos
@@ -681,7 +680,7 @@ async def main():
         prices.append(max(0.01, price))
     vanilla_data["option_price"] = prices
     logging.info("=== Random Forest Options Pricer ===")
-    logging.info(f"Training samples: {len(vanilla_data)}")
+    logging.info("Training samples: %s", len(vanilla_data))
     # Train model
     logging.info("\n=== Training Vanilla Model ===")
     performance = await rf_ensemble.train(
@@ -695,9 +694,9 @@ async def main():
     if performance.oob_score:
         logging.info(f"OOB Score: {performance.oob_score:.3f}")
     logging.info(
-        f"CV Scores: {
-            performance.cross_val_scores.mean():.3f} ± {
-            performance.cross_val_scores.std():.3f}"
+        "CV Scores: %.3f \u00b1 %.3f",
+        performance.cross_val_scores.mean(),
+        performance.cross_val_scores.std(),
     )
     # Feature importance
     logging.info("\n=== Top 10 Feature Importance ===")

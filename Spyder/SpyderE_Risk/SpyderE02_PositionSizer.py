@@ -47,7 +47,7 @@ try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 # ==============================================================================
@@ -299,7 +299,7 @@ class PositionSizer:
                 return recommendation
 
         except Exception as e:
-            self.logger.error(f"Position sizing error: {e}")
+            self.logger.error("Position sizing error: %s", e)
             self.error_handler.handle_error(e, {"method": "calculate_position_size"})
             return self._create_rejected_recommendation(str(e))
 
@@ -332,7 +332,7 @@ class PositionSizer:
             # Update strategy statistics
             self._update_strategy_stats(strategy_name)
 
-            self.logger.info(f"Trade result recorded for {strategy_name}")
+            self.logger.info("Trade result recorded for %s", strategy_name)
 
     # ==========================================================================
     # PRIVATE METHODS - VALIDATION

@@ -289,7 +289,7 @@ class RiskManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start risk manager: {e}", exc_info=True)
+            self.logger.error("Failed to start risk manager: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "start")
             return False
 
@@ -314,7 +314,7 @@ class RiskManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to stop risk manager: {e}", exc_info=True)
+            self.logger.error("Failed to stop risk manager: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "stop")
             return False
 
@@ -432,7 +432,7 @@ class RiskManager:
                 )
 
         except Exception as e:
-            self.logger.error(f"Error checking order risk: {e}", exc_info=True)
+            self.logger.error("Error checking order risk: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "check_order_risk")
             return RiskCheckResponse(
                 result=RiskCheckResult.BLOCKED,
@@ -493,7 +493,7 @@ class RiskManager:
         }
 
         await self.connect_api.send_message(message)
-        self.logger.debug(f"Requested position updates for account {account_id}")
+        self.logger.debug("Requested position updates for account %s", account_id)
 
     async def _request_account_summary(self):
         """Request account summary updates"""
@@ -511,7 +511,7 @@ class RiskManager:
         }
 
         await self.connect_api.send_message(message)
-        self.logger.debug(f"Requested account summary updates for account {account_id}")
+        self.logger.debug("Requested account summary updates for account %s", account_id)
 
     async def _handle_position_update(self, data: dict[str, Any]):
         """
@@ -551,10 +551,10 @@ class RiskManager:
                 self._risk_metrics = self._calculate_risk_metrics()
 
                 # Log position update
-                self.logger.debug(f"Position updated: {symbol} - {position.quantity} @ {position.market_price}")
+                self.logger.debug("Position updated: %s - %s @ %s", symbol, position.quantity, position.market_price)
 
         except Exception as e:
-            self.logger.error(f"Error handling position update: {e}", exc_info=True)
+            self.logger.error("Error handling position update: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_handle_position_update")
 
     async def _handle_account_summary_update(self, data: dict[str, Any]):
@@ -574,7 +574,7 @@ class RiskManager:
                 self.logger.debug("Account summary updated")
 
         except Exception as e:
-            self.logger.error(f"Error handling account summary update: {e}", exc_info=True)
+            self.logger.error("Error handling account summary update: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_handle_account_summary_update")
 
     def _calculate_risk_metrics(self) -> RiskMetrics:
@@ -652,7 +652,7 @@ class RiskManager:
                         margin_used_val = getattr(account_info, 'margin_used', 0.0)
                         margin_avail = getattr(account_info, 'margin_available', 0.0)
             except (ImportError, AttributeError) as e:
-                self.logger.debug(f"Could not retrieve account data: {e}")
+                self.logger.debug("Could not retrieve account data: %s", e)
 
             # Create risk metrics
             risk_metrics = RiskMetrics(
@@ -673,7 +673,7 @@ class RiskManager:
             return risk_metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating risk metrics: {e}", exc_info=True)
+            self.logger.error("Error calculating risk metrics: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_calculate_risk_metrics")
 
             # Return default risk metrics
@@ -720,7 +720,7 @@ class RiskManager:
 
                 # Check if risk level exceeds notification threshold
                 if self._risk_metrics and self._risk_metrics.risk_level.value >= self.config.notification_threshold.value:
-                    self.logger.warning(f"Risk level {self._risk_metrics.risk_level.name} exceeded threshold")
+                    self.logger.warning("Risk level %s exceeded threshold", self._risk_metrics.risk_level.name)
 
                     # Send notifications
                     self._send_risk_notifications(self._risk_metrics)
@@ -729,7 +729,7 @@ class RiskManager:
                 self._shutdown_event.wait(self.config.risk_check_interval)
 
             except Exception as e:
-                self.logger.error(f"Error in risk monitoring loop: {e}", exc_info=True)
+                self.logger.error("Error in risk monitoring loop: %s", e, exc_info=True)
                 self.error_handler.handle_error(e, "_risk_monitoring_loop")
                 self._shutdown_event.wait(1.0)  # Wait before retry
 
@@ -762,7 +762,7 @@ class RiskManager:
                 self._shutdown_event.wait(self.config.position_update_interval)
 
             except Exception as e:
-                self.logger.error(f"Error in position monitoring loop: {e}", exc_info=True)
+                self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
                 self.error_handler.handle_error(e, "_position_monitoring_loop")
                 self._shutdown_event.wait(1.0)  # Wait before retry
 
@@ -776,7 +776,7 @@ class RiskManager:
         try:
             # Log warnings
             for warning in risk_metrics.warnings:
-                self.logger.warning(f"Risk warning: {warning}")
+                self.logger.warning("Risk warning: %s", warning)
 
             # Send structured notifications when breach threshold is met
             if risk_metrics.risk_level.value >= self.config.notification_threshold.value:
@@ -825,11 +825,11 @@ class RiskManager:
                         breach_details,
                     )
                     self.logger.debug(
-                        f"AlertManager unavailable for risk breach notification: {alert_exc}"
+                        "AlertManager unavailable for risk breach notification: %s", alert_exc
                     )
 
         except Exception as e:
-            self.logger.error(f"Error sending risk notifications: {e}", exc_info=True)
+            self.logger.error("Error sending risk notifications: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_send_risk_notifications")
 
     # ==========================================================================

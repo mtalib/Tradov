@@ -434,8 +434,8 @@ for _bare in [
 def _load_d_module(filename: str, module_name: str):
     """Load a D-series module by filename, registering it in sys.modules."""
     from enum import auto as _enum_auto
-    from typing import (Union, Optional, Any,
-                        Callable, ClassVar)
+    from typing import (Union, Optional, Any)
+    from collections.abc import Callable
     filepath = os.path.join(_D_PKG_PATH, filename)
     spec = _ilu.spec_from_file_location(module_name, filepath)
     mod = _ilu.module_from_spec(spec)
@@ -677,7 +677,8 @@ _d31_path = os.path.join(_D_PKG_PATH, "SpyderD31_StrategyOrchestrator.py")
 _d31_spec = _ilu.spec_from_file_location(_d31_name, _d31_path)
 _d31 = _ilu.module_from_spec(_d31_spec)
 _d31.__package__ = "Spyder.SpyderD_Strategies"
-from typing import (Union, Optional, List, Dict, Tuple, Any, Set, Callable, Type, ClassVar, FrozenSet)
+from typing import Union, Any, ClassVar, Optional
+from collections.abc import Callable
 from enum import auto as _enum_auto2
 _d31.auto = _enum_auto2
 _d31.Union = Union

@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import uuid
@@ -171,7 +171,7 @@ class JadeLizardSetup:
 class RatioPosition:
     """Active ratio spread position"""
     position_id: str
-    setup: Union[RatioSetup, JadeLizardSetup]
+    setup: RatioSetup | JadeLizardSetup
     entry_time: datetime
     entry_price: float
     current_value: float = 0.0
@@ -236,7 +236,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             'avg_credit': 0.0
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # MARGIN CALCULATIONS
@@ -408,7 +408,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error analyzing market conditions: {e}")
+            self.logger.error("Error analyzing market conditions: %s", e)
             return {}
 
     def _calculate_iv_rank(self, market_data: pd.DataFrame) -> float:
@@ -541,7 +541,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating ratio setup: {e}")
+            self.logger.error("Error creating ratio setup: %s", e)
             return None
 
     def _select_ratio_strikes(self, strategy: RatioStrategy,
@@ -902,7 +902,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating Jade Lizard setup: {e}")
+            self.logger.error("Error creating Jade Lizard setup: %s", e)
             return None
 
     def _find_strike_by_delta(self, spot: float, target_delta: float,
@@ -941,7 +941,7 @@ class RatioSpreadsStrategy(BaseStrategy):
     # SETUP VALIDATION
     # ==========================================================================
 
-    def _validate_setup(self, setup: Union[RatioSetup, JadeLizardSetup],
+    def _validate_setup(self, setup: RatioSetup | JadeLizardSetup,
                        market_data: pd.DataFrame) -> bool:
         """Validate ratio spread or Jade Lizard setup"""
         # Check margin requirement
@@ -967,7 +967,7 @@ class RatioSpreadsStrategy(BaseStrategy):
 
         return True
 
-    def _create_trading_signal(self, setup: Union[RatioSetup, JadeLizardSetup],
+    def _create_trading_signal(self, setup: RatioSetup | JadeLizardSetup,
                              market_data: pd.DataFrame) -> TradingSignal | None:
         """Convert setup to trading signal"""
         try:
@@ -1000,11 +1000,11 @@ class RatioSpreadsStrategy(BaseStrategy):
                 }
             )
 
-            self.logger.info(f"Generated {strategy_name} signal")
+            self.logger.info("Generated %s signal", strategy_name)
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating signal: {e}")
+            self.logger.error("Error creating signal: %s", e)
             return None
 
     # ==========================================================================
@@ -1053,7 +1053,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             position.current_risk_zone = self._assess_risk_zone(position, current_price)
 
         except Exception as e:
-            self.logger.error(f"Error updating position metrics: {e}")
+            self.logger.error("Error updating position metrics: %s", e)
 
     def _update_jade_lizard_value(self, position: RatioPosition, current_price: float):
         """Update Jade Lizard position value"""
@@ -1271,7 +1271,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             self.available_margin = self._calculate_available_margin()
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added ratio position {position_id}")
+        self.logger.info("Added ratio position %s", position_id)
 
         return position_id
 
@@ -1329,7 +1329,7 @@ def test_ratio_spreads():
     # Create strategy
     strategy = RatioSpreadsStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
+    logging.info("Strategy: %s", strategy.name)
     logging.info(f"Available Margin: ${strategy.available_margin:,.2f}")
 
     # Create sample market data
@@ -1358,19 +1358,19 @@ def test_ratio_spreads():
     conditions = strategy._analyze_market_conditions(market_data)
     logging.info(f"Current Price: ${conditions.get('current_price', 0):.2f}")
     logging.info(f"IV Rank: {conditions.get('iv_rank', 0):.1f}")
-    logging.info(f"Trend: {conditions.get('trend', 'unknown')}")
+    logging.info("Trend: %s", conditions.get('trend', 'unknown'))
     logging.info(f"Expected Move: ${conditions.get('expected_move', 0):.2f}")
-    logging.info(f"Suitable for Ratios: {conditions.get('suitable_for_ratios', False)}")
+    logging.info("Suitable for Ratios: %s", conditions.get('suitable_for_ratios', False))
 
     # Generate signals
     logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"Generated {len(signals)} signals")
+    logging.info("Generated %s signals", len(signals))
 
     for signal in signals:
         setup = signal.metadata
-        logging.info(f"\nStrategy Type: {setup['strategy_type']}")
+        logging.info("\nStrategy Type: %s", setup['strategy_type'])
 
         # Add position
         strategy.add_position(signal)
@@ -1414,25 +1414,25 @@ def test_ratio_spreads():
             if management_signals:
                 for signal in management_signals:
                     if signal.signal_type == SignalType.ADJUST:
-                        logging.info(f"\nAdjustment Signal Day {i}")
-                        logging.info(f"Action: {signal.metadata['action']}")
-                        logging.info(f"Risk Zone: {signal.metadata['current_risk_zone']}")
+                        logging.info("\nAdjustment Signal Day %s", i)
+                        logging.info("Action: %s", signal.metadata['action'])
+                        logging.info("Risk Zone: %s", signal.metadata['current_risk_zone'])
                     elif signal.signal_type == SignalType.EXIT:
-                        logging.info(f"\nExit Signal Day {i}")
-                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
-                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info("\nExit Signal Day %s", i)
+                        logging.info("Reason: %s", signal.metadata['exit_reason'])
+                        logging.info("Days Held: %s", signal.metadata['days_held'])
                         logging.info(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
 
     # Print final statistics
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"Active Positions: {stats['active_positions']}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("Active Positions: %s", stats['active_positions'])
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
-    logging.info(f"Jade Lizard Trades: {stats['jade_lizard_trades']}")
+    logging.info("Jade Lizard Trades: %s", stats['jade_lizard_trades'])
     logging.info(f"Jade Lizard Win Rate: {stats['jade_lizard_win_rate']:.1%}")
-    logging.info(f"Total Adjustments: {stats['total_adjustments']}")
+    logging.info("Total Adjustments: %s", stats['total_adjustments'])
     logging.info(f"Average Credit: ${stats['avg_credit']:.2f}")
     logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
     logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")

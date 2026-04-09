@@ -454,7 +454,7 @@ class UnifiedSharpeDashboard:
             )
 
             self.alert_history.append(alert)
-            self.logger.warning(f"Sharpe degradation alert: {alert.message}")
+            self.logger.warning("Sharpe degradation alert: %s", alert.message)
 
         # Check for low probabilistic Sharpe
         if current_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio < 0.70:
@@ -471,7 +471,7 @@ class UnifiedSharpeDashboard:
             )
 
             self.alert_history.append(alert)
-            self.logger.warning(f"Low PSR alert: {alert.message}")
+            self.logger.warning("Low PSR alert: %s", alert.message)
 
         # Check if Sharpe suggests >5% (estimation error indicator)
         if current_sharpe > 5.0:
@@ -488,7 +488,7 @@ class UnifiedSharpeDashboard:
             )
 
             self.alert_history.append(alert)
-            self.logger.warning(f"Unrealistic Sharpe alert: {alert.message}")
+            self.logger.warning("Unrealistic Sharpe alert: %s", alert.message)
 
     def _get_active_alerts(self, hours: int = 24) -> list[SharpeAlert]:
         """Get active alerts from last N hours."""
@@ -769,7 +769,7 @@ class UnifiedSharpeDashboard:
         if output_path:
             with open(output_path, 'w') as f:
                 f.write(content)
-            self.logger.info(f"Report exported to {output_path}")
+            self.logger.info("Report exported to %s", output_path)
 
         return content
 

@@ -555,7 +555,7 @@ class MicrostructureAnalyzer:
             avg_price = total_value / total_size
 
             exchanges = list(
-                set(t.get("exchange", "") for t in trades if t.get("exchange"))
+                {t.get("exchange", "") for t in trades if t.get("exchange")}
             )
             time_span = max(t["timestamp"] for t in trades) - min(
                 t["timestamp"] for t in trades
@@ -1275,11 +1275,14 @@ class MicrostructureAnalyzer:
 # ==============================================================================
 # Global instance
 _analyzer_instance = None
+_analyzer_instance_lock = threading.Lock()
 
 
 def get_microstructure_analyzer() -> MicrostructureAnalyzer:
     """Get or create the global MicrostructureAnalyzer instance."""
     global _analyzer_instance
     if _analyzer_instance is None:
-        _analyzer_instance = MicrostructureAnalyzer()
+        with _analyzer_instance_lock:
+            if _analyzer_instance is None:
+                _analyzer_instance = MicrostructureAnalyzer()
     return _analyzer_instance

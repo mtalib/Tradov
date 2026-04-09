@@ -25,9 +25,11 @@ Change Log:
 import asyncio
 import json
 import logging
+import threading
 import time
 import warnings
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from collections import deque
@@ -71,12 +73,11 @@ try:
     from SpyderU02_ErrorHandler import ErrorHandler
 except ImportError:
     # Fallback implementations
-    logging.basicConfig(level=logging.INFO)
     SpyderLogger = logging.getLogger
     class ErrorHandler:
         @staticmethod
         def handle_error(error, context=""):
-            logging.error(f"Error in {context}: {error}")
+            logging.error("Error in %s: %s", context, error)
 
 # F-series integrations
 try:
@@ -364,7 +365,7 @@ class RealTimeAnalyticsEngine:
             self.logger.info("Redis connection established")
 
         except Exception as e:
-            self.logger.warning(f"Redis initialization failed: {e}")
+            self.logger.warning("Redis initialization failed: %s", e)
             self.redis_client = None
 
     async def _initialize_zmq(self) -> None:
@@ -376,10 +377,10 @@ class RealTimeAnalyticsEngine:
             zmq_port = self.config.get('zmq_port', 5555)
             self.zmq_publisher.bind(f"tcp://*:{zmq_port}")
 
-            self.logger.info(f"ZeroMQ publisher started on port {zmq_port}")
+            self.logger.info("ZeroMQ publisher started on port %s", zmq_port)
 
         except Exception as e:
-            self.logger.warning(f"ZeroMQ initialization failed: {e}")
+            self.logger.warning("ZeroMQ initialization failed: %s", e)
             self.zmq_publisher = None
 
     async def _initialize_f_series_integrations(self) -> None:
@@ -401,7 +402,7 @@ class RealTimeAnalyticsEngine:
                 self.logger.info("F15 performance attribution integration initialized")
 
         except Exception as e:
-            self.logger.warning(f"F-series integration failed: {e}")
+            self.logger.warning("F-series integration failed: %s", e)
 
     async def _start_processing_tasks(self) -> None:
         """Start background processing tasks."""
@@ -431,7 +432,7 @@ class RealTimeAnalyticsEngine:
                 asyncio.create_task(self._cleanup_loop())
             )
 
-            self.logger.info(f"Started {len(self.processing_tasks)} processing tasks")
+            self.logger.info("Started %s processing tasks", len(self.processing_tasks))
 
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_processing_tasks")
@@ -448,7 +449,7 @@ class RealTimeAnalyticsEngine:
                 compression=None  # Disable compression for lower latency
             )
 
-            self.logger.info(f"WebSocket server started on port {self.websocket_port}")
+            self.logger.info("WebSocket server started on port %s", self.websocket_port)
 
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_websocket_server")
@@ -475,7 +476,7 @@ class RealTimeAnalyticsEngine:
             site = web.TCPSite(runner, '0.0.0.0', self.http_port)
             await site.start()
 
-            self.logger.info(f"HTTP server started on port {self.http_port}")
+            self.logger.info("HTTP server started on port %s", self.http_port)
 
         except Exception as e:
             self.error_handler.handle_error(e, context="_start_http_server")
@@ -521,7 +522,7 @@ class RealTimeAnalyticsEngine:
                 await self.processing_queue.put(metric)
                 return True
             else:
-                self.logger.warning(f"Processing queue full, dropping metric: {metric_name}")
+                self.logger.warning("Processing queue full, dropping metric: %s", metric_name)
                 return False
 
         except Exception as e:
@@ -563,7 +564,7 @@ class RealTimeAnalyticsEngine:
 
             self.active_subscriptions[subscription_id] = subscription
 
-            self.logger.debug(f"Created subscription {subscription_id} for stream {stream_type}")
+            self.logger.debug("Created subscription %s for stream %s", subscription_id, stream_type)
             return subscription_id
 
         except Exception as e:
@@ -584,7 +585,7 @@ class RealTimeAnalyticsEngine:
             if subscription_id in self.active_subscriptions:
                 self.active_subscriptions[subscription_id].active = False
                 del self.active_subscriptions[subscription_id]
-                self.logger.debug(f"Removed subscription {subscription_id}")
+                self.logger.debug("Removed subscription %s", subscription_id)
                 return True
             return False
 
@@ -1003,7 +1004,7 @@ class RealTimeAnalyticsEngine:
                             try:
                                 await subscription.callback(stream_data)
                             except Exception as e:
-                                self.logger.warning(f"Callback failed for subscription {subscription_id}: {e}")
+                                self.logger.warning("Callback failed for subscription %s: %s", subscription_id, e)
 
                         subscription.last_update = current_time
 
@@ -1049,7 +1050,7 @@ class RealTimeAnalyticsEngine:
         """Handle incoming WebSocket connections."""
         try:
             self.websocket_connections.add(websocket)
-            self.logger.debug(f"WebSocket connection established: {websocket.remote_address}")
+            self.logger.debug("WebSocket connection established: %s", websocket.remote_address)
 
             # Send welcome message
             welcome_msg = {
@@ -1066,7 +1067,7 @@ class RealTimeAnalyticsEngine:
                 await self._process_websocket_message(websocket, message)
 
         except websockets.exceptions.ConnectionClosed:
-            self.logger.debug(f"WebSocket connection closed: {websocket.remote_address}")
+            self.logger.debug("WebSocket connection closed: %s", websocket.remote_address)
         except Exception as e:
             self.error_handler.handle_error(e, context="_handle_websocket_connection")
         finally:
@@ -1572,10 +1573,12 @@ async def create_sample_realtime_data(engine: RealTimeAnalyticsEngine, duration_
             await asyncio.sleep(0.1)  # 100ms intervals
 
     except Exception as e:
-        logging.error(f"Error generating sample data: {e}")
+        logging.error("Error generating sample data: %s", e)
 
 # Global instance for singleton pattern
 _realtime_engine_instance = None
+_realtime_engine_instance_lock = threading.Lock()
+
 
 def get_realtime_analytics_engine(config: dict[str, Any] | None = None) -> RealTimeAnalyticsEngine:
     """
@@ -1589,7 +1592,9 @@ def get_realtime_analytics_engine(config: dict[str, Any] | None = None) -> RealT
     """
     global _realtime_engine_instance
     if _realtime_engine_instance is None:
-        _realtime_engine_instance = RealTimeAnalyticsEngine(config)
+        with _realtime_engine_instance_lock:
+            if _realtime_engine_instance is None:
+                _realtime_engine_instance = RealTimeAnalyticsEngine(config)
     return _realtime_engine_instance
 
 # ==============================================================================
@@ -1619,16 +1624,16 @@ async def main():
             return False
 
         logging.info("Integration status:")
-        logging.info(f"   F13 Validation: {'Connected' if getattr(engine, 'model_validator', None) else 'Not available'}")
-        logging.info(f"   F13 Model Validation: {'Connected' if engine.model_validator else 'Not available'}")
-        logging.info(f"   F14 Market Microstructure: {'Connected' if engine.microstructure_engine else 'Not available'}")
-        logging.info(f"   F15 Performance Attribution: {'Connected' if engine.attribution_engine else 'Not available'}")
+        logging.info("   F13 Validation: %s", 'Connected' if getattr(engine, 'model_validator', None) else 'Not available')
+        logging.info("   F13 Model Validation: %s", 'Connected' if engine.model_validator else 'Not available')
+        logging.info("   F14 Market Microstructure: %s", 'Connected' if engine.microstructure_engine else 'Not available')
+        logging.info("   F15 Performance Attribution: %s", 'Connected' if engine.attribution_engine else 'Not available')
 
-        logging.info(f"\nWebSocket server: ws://localhost:{config['websocket_port']}")
-        logging.info(f"HTTP server: http://localhost:{config['http_port']}")
+        logging.info("\nWebSocket server: ws://localhost:%s", config['websocket_port'])
+        logging.info("HTTP server: http://localhost:%s", config['http_port'])
         logging.info("\nAvailable streams:")
         for stream in STREAM_TYPES:
-            logging.info(f"   • {stream}")
+            logging.info("   • %s", stream)
 
         # Generate sample data
         logging.info("\nGenerating sample real-time data...")
@@ -1645,11 +1650,11 @@ async def main():
         status = await engine._get_system_status()
         logging.info("\nFinal Statistics:")
         logging.info(f"   Messages Processed: {engine.performance_stats['messages_processed']:,}")
-        logging.info(f"   Alerts Generated: {engine.performance_stats['alerts_generated']}")
+        logging.info("   Alerts Generated: %s", engine.performance_stats['alerts_generated'])
         logging.info(f"   WebSocket Messages Sent: {engine.performance_stats['websocket_messages_sent']:,}")
-        logging.info(f"   Active Connections: {status.active_connections}")
-        logging.info(f"   Active Subscriptions: {status.streams_active}")
-        logging.info(f"   Active Alerts: {status.alerts_active}")
+        logging.info("   Active Connections: %s", status.active_connections)
+        logging.info("   Active Subscriptions: %s", status.streams_active)
+        logging.info("   Active Alerts: %s", status.alerts_active)
 
         if engine.performance_stats['processing_latency']:
             avg_latency = np.mean(list(engine.performance_stats['processing_latency']))
@@ -1659,17 +1664,17 @@ async def main():
 
         # Demonstrate API endpoints
         logging.info("\nAPI Endpoints:")
-        logging.info(f"   Health: GET http://localhost:{config['http_port']}/health")
-        logging.info(f"   Status: GET http://localhost:{config['http_port']}/status")
-        logging.info(f"   Metrics: GET http://localhost:{config['http_port']}/metrics")
-        logging.info(f"   Alerts: GET http://localhost:{config['http_port']}/alerts")
-        logging.info(f"   Subscribe: POST http://localhost:{config['http_port']}/subscribe")
+        logging.info("   Health: GET http://localhost:%s/health", config['http_port'])
+        logging.info("   Status: GET http://localhost:%s/status", config['http_port'])
+        logging.info("   Metrics: GET http://localhost:%s/metrics", config['http_port'])
+        logging.info("   Alerts: GET http://localhost:%s/alerts", config['http_port'])
+        logging.info("   Subscribe: POST http://localhost:%s/subscribe", config['http_port'])
 
         logging.info("\nSpyder F16 Real-Time Analytics Engine demonstration completed successfully!")
         return True
 
     except Exception as e:
-        logging.info(f"Error in main execution: {e}")
+        logging.info("Error in main execution: %s", e)
         traceback.print_exc()
         return False
 

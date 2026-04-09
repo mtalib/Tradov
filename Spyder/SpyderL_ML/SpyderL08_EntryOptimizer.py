@@ -35,7 +35,7 @@ from collections import deque
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import pickle
+import joblib
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
@@ -400,7 +400,7 @@ class EntryOptimizer:
         try:
             if model_path:
                 self._rl_entry_model = PPO.load(model_path)
-                self.logger.info(f"RL entry timing model loaded from {model_path}")
+                self.logger.info("RL entry timing model loaded from %s", model_path)
             else:
                 import os
                 default_path = "models/rl/entry_timing/entry_timing_PPO_final"
@@ -411,7 +411,7 @@ class EntryOptimizer:
                     self._rl_entry_enabled = False
         except Exception as e:
             self._rl_entry_enabled = False
-            self.logger.warning(f"Failed to load RL entry model: {e}")
+            self.logger.warning("Failed to load RL entry model: %s", e)
 
     def _get_rl_entry_adjustment(
         self,
@@ -460,7 +460,7 @@ class EntryOptimizer:
                 return confidence, size_mult
 
         except Exception as e:
-            self.logger.warning(f"RL entry adjustment failed: {e}")
+            self.logger.warning("RL entry adjustment failed: %s", e)
             return confidence, 1.0
 
     # ==========================================================================
@@ -597,7 +597,7 @@ class EntryOptimizer:
             return opportunity
 
         except Exception as e:
-            self.logger.error(f"Error predicting entry: {e}")
+            self.logger.error("Error predicting entry: %s", e)
             self.error_handler.handle_error(e, "predict_entry")
             return self._get_neutral_opportunity(current_features.timestamp)
 
@@ -684,11 +684,11 @@ class EntryOptimizer:
             return result
 
         except ValueError as e:
-            self.logger.error(f"Data error during parameter optimization: {e}")
+            self.logger.error("Data error during parameter optimization: %s", e)
             self.error_handler.handle_error(e, "optimize_parameters")
             return self._get_default_optimization_result()
         except (MemoryError, RuntimeError) as e:
-            self.logger.error(f"Resource error during parameter optimization: {e}")
+            self.logger.error("Resource error during parameter optimization: %s", e)
             self.error_handler.handle_error(e, "optimize_parameters")
             return self._get_default_optimization_result()
         except Exception:
@@ -760,7 +760,7 @@ class EntryOptimizer:
             metrics = {}
 
             for model_name, model in self.models.items():
-                self.logger.info(f"Training {model_name}...")
+                self.logger.info("Training %s...", model_name)
 
                 # Cross-validation (on uncalibrated model for AUC scoring)
                 scores = cross_val_score(
@@ -803,11 +803,11 @@ class EntryOptimizer:
             return metrics
 
         except ValueError as e:
-            self.logger.error(f"Data error during model training: {e}")
+            self.logger.error("Data error during model training: %s", e)
             self.error_handler.handle_error(e, "train")
             return {}
         except (MemoryError, RuntimeError) as e:
-            self.logger.error(f"Resource error during model training: {e}")
+            self.logger.error("Resource error during model training: %s", e)
             self.error_handler.handle_error(e, "train")
             return {}
         except Exception:
@@ -875,7 +875,7 @@ class EntryOptimizer:
            }
 
        except Exception as e:
-           self.logger.error(f"Error analyzing entry patterns: {e}")
+           self.logger.error("Error analyzing entry patterns: %s", e)
            return {}
 
     def get_feature_importance(self) -> dict[str, float]:
@@ -1203,7 +1203,7 @@ class EntryOptimizer:
        if len(self.selected_features) < 20:
            self.selected_features = importances.head(20).index.tolist()
 
-       self.logger.info(f"Selected {len(self.selected_features)} features")
+       self.logger.info("Selected %s features", len(self.selected_features))
 
     def _train_regime_models(
        self,
@@ -1257,7 +1257,7 @@ class EntryOptimizer:
 
                self.regime_models[regime] = regime_model
 
-               self.logger.info(f"Trained model for {regime.value} regime ({len(X_regime)} samples)")
+               self.logger.info("Trained model for %s regime (%s samples)", regime.value, len(X_regime))
 
     def _calculate_feature_importance(self, X: np.ndarray, y: np.ndarray) -> None:
        """Calculate and store feature importance"""
@@ -1669,8 +1669,7 @@ class EntryOptimizer:
                'feature_scaler': self.feature_scaler,
                'target_scaler': self.target_scaler
            }
-           with open(filepath.with_suffix('.pkl'), 'wb') as f:
-               pickle.dump(model_dict, f)
+           joblib.dump(model_dict, filepath.with_suffix('.pkl'))
 
     def load_model(self, filepath: Path) -> None:
        """Load trained models and configuration"""
@@ -1686,8 +1685,7 @@ class EntryOptimizer:
 
        # Load models
        if self.fitted:
-           with open(filepath.with_suffix('.pkl'), 'rb') as f:
-               model_dict = pickle.load(f)
+           model_dict = joblib.load(filepath.with_suffix('.pkl'))
 
            self.models = model_dict['models']
            self.regime_models = model_dict.get('regime_models', {})

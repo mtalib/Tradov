@@ -25,6 +25,8 @@ Change Log:
 import asyncio
 import json
 import logging
+import os
+import threading
 from datetime import datetime
 from typing import Any
 from dataclasses import dataclass, field
@@ -50,6 +52,7 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
+from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
 from Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor import get_migration_monitor
 from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import OptionsFlowAnalyzer
 try:
@@ -67,7 +70,7 @@ except ImportError:
 # CONSTANTS
 # ==============================================================================
 # Model configuration
-DEFAULT_MODEL = "llama3" if OLLAMA_AVAILABLE else None
+DEFAULT_MODEL = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b") if OLLAMA_AVAILABLE else None
 DEFAULT_TEMPERATURE = 0.4  # Balanced for pattern recognition
 
 # Flow detection thresholds
@@ -118,8 +121,8 @@ class InstitutionalType(Enum):
     RETAIL_AGGREGATOR = "retail_aggregator"
     UNKNOWN = "unknown"
 
-class FlowPattern(Enum):
-    """Detected flow patterns"""
+class FlowPatternType(Enum):
+    """Detected flow pattern types"""
     ACCUMULATION = "accumulation"
     DISTRIBUTION = "distribution"
     SHORT_SQUEEZE = "short_squeeze"
@@ -179,7 +182,7 @@ class InstitutionalActivity:
     confidence: float
 
 @dataclass
-class FlowPattern:  # noqa: F811
+class FlowPattern:
     """Detected flow pattern"""
     pattern_type: str
     flows: list[OptionsFlow]
@@ -260,11 +263,11 @@ class SpyderX02_FlowAgent:
         self.average_sizes = defaultdict(float)
 
         # Short-squeeze detector (one instance, reused across calls)
-        self._squeeze_detector: 'ShortSqueezeDetector | None' = (
+        self._squeeze_detector: ShortSqueezeDetector | None = (
             ShortSqueezeDetector() if _SQUEEZE_DETECTOR_AVAILABLE else None
         )
 
-        self.logger.info(f"Flow Agent initialized with model: {model_name}")
+        self.logger.info("Flow Agent initialized with model: %s", model_name)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN FUNCTIONALITY
@@ -327,7 +330,7 @@ class SpyderX02_FlowAgent:
             return analysis
 
         except Exception as e:
-            self.logger.error(f"Flow analysis failed: {e}", exc_info=True)
+            self.logger.error("Flow analysis failed: %s", e, exc_info=True)
             return self._create_error_analysis(str(e))
 
     async def detect_smart_money(
@@ -369,7 +372,7 @@ class SpyderX02_FlowAgent:
             return smart_money_analysis
 
         except Exception as e:
-            self.logger.error(f"Smart money detection failed: {e}", exc_info=True)
+            self.logger.error("Smart money detection failed: %s", e, exc_info=True)
             return {'error': str(e), 'confidence': 0.0}
 
     async def generate_trade_ideas(
@@ -431,7 +434,7 @@ class SpyderX02_FlowAgent:
             return ranked_ideas[:5]  # Return top 5 ideas
 
         except Exception as e:
-            self.logger.error(f"Trade idea generation failed: {e}", exc_info=True)
+            self.logger.error("Trade idea generation failed: %s", e, exc_info=True)
             return []
 
     async def monitor_real_time_flow(
@@ -475,7 +478,7 @@ class SpyderX02_FlowAgent:
             except TimeoutError:
                 continue
             except Exception as e:
-                self.logger.error(f"Real-time flow monitoring error: {e}", exc_info=True)
+                self.logger.error("Real-time flow monitoring error: %s", e, exc_info=True)
 
     # ==========================================================================
     # PRIVATE METHODS - FLOW ANALYSIS
@@ -640,7 +643,7 @@ class SpyderX02_FlowAgent:
                 'timestamp': signal.timestamp.isoformat(),
             }]
         except Exception as exc:
-            self.logger.error(f"Short squeeze detection error: {exc}", exc_info=True)
+            self.logger.error("Short squeeze detection error: %s", exc, exc_info=True)
             return []
 
     # ==========================================================================
@@ -701,7 +704,7 @@ class SpyderX02_FlowAgent:
             return analysis
 
         except Exception as e:
-            self.logger.error(f"AI flow analysis failed: {e}", exc_info=True)
+            self.logger.error("AI flow analysis failed: %s", e, exc_info=True)
             # Fallback to rule-based
             return self._create_rule_based_analysis(
                 flows, flow_metrics, self._detect_unusual_flows(flows),
@@ -727,13 +730,13 @@ class SpyderX02_FlowAgent:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                options={"temperature": self.temperature}
+                options={"temperature": self.temperature, "think": False}
             )
 
-            return response['message']['content']
+            return strip_thinking_block(response['message']['content'])
 
         except Exception as e:
-            self.logger.error(f"AI model query failed: {e}", exc_info=True)
+            self.logger.error("AI model query failed: %s", e, exc_info=True)
             return ""
 
     def _construct_flow_prompt(self, context: dict[str, Any]) -> str:
@@ -1004,7 +1007,7 @@ key_observations, trade_setups, risk_assessment, confidence"""
                 json_str = response[json_start:json_end]
                 return json.loads(json_str)
         except Exception as e:
-            self.logger.debug(f"Failed to parse flow AI response as JSON: {e}")
+            self.logger.debug("Failed to parse flow AI response as JSON: %s", e)
 
         # Fallback parsing
         return {
@@ -1225,7 +1228,7 @@ key_observations, trade_setups, risk_assessment, confidence"""
                     comparison_data
                 )
             except Exception as e:
-                self.logger.error(f"Shadow logging failed: {e}", exc_info=True)
+                self.logger.error("Shadow logging failed: %s", e, exc_info=True)
 
     def _create_empty_analysis(self) -> FlowAnalysis:
         """Create empty analysis result"""
@@ -1290,11 +1293,15 @@ def create_flow_agent(
 
 # Singleton instance
 _module_instance = None
+_module_instance_lock = threading.Lock()
+
 
 def get_module_instance() -> SpyderX02_FlowAgent:
     """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_flow_agent()
+        with _module_instance_lock:
+            if _module_instance is None:
+                _module_instance = create_flow_agent()
     return _module_instance
 

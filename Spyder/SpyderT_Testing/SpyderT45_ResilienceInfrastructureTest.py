@@ -23,8 +23,7 @@ import asyncio
 import time
 import unittest
 from unittest.mock import Mock, patch, AsyncMock
-from typing import Dict, Any
-
+from typing import Any
 # Import resilience utilities
 import sys
 sys.path.insert(0, '/home/user/Spyder')

@@ -58,7 +58,7 @@ except ImportError:
         CRITICAL = "critical"
 
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.warning(f"Error in {context}: {e}")
+        'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 try:
@@ -686,7 +686,7 @@ class PositionGroupValidator:
                 return report
 
             except Exception as e:
-                self.logger.error(f"Validation error: {e}")
+                self.logger.error("Validation error: %s", e)
                 self.error_handler.handle_error(e, {"method": "validate_position_group"})
 
                 report.overall_result = ValidationResult.INVALID
@@ -940,14 +940,14 @@ class PositionGroupValidator:
         """Add custom validation rule."""
         with self._lock:
             self.validation_rules[category].append(rule)
-            self.logger.info(f"Added validation rule for {category.value}")
+            self.logger.info("Added validation rule for %s", category.value)
 
     def update_constraints(self, strategy_type: StrategyType,
                          constraints: StrategyConstraints) -> None:
         """Update strategy constraints."""
         with self._lock:
             self.strategy_constraints[strategy_type] = constraints
-            self.logger.info(f"Updated constraints for {strategy_type.value}")
+            self.logger.info("Updated constraints for %s", strategy_type.value)
 
     def get_validation_statistics(self) -> dict[str, dict[str, Any]]:
         """Get validation statistics."""

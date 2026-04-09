@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-import pickle
+import joblib
 from datetime import datetime, date, timedelta
 from typing import Any
 from dataclasses import dataclass, field, asdict
@@ -222,7 +222,7 @@ class DailyTradingReport:
         try:
             # Set report date
             report_date = report_date or date.today()
-            self.logger.info(f"Generating daily report for {report_date}")
+            self.logger.info("Generating daily report for %s", report_date)
 
             # Collect report data
             report_data = self._collect_report_data(report_date)
@@ -252,7 +252,7 @@ class DailyTradingReport:
             # Archive report
             self._archive_report(report_date, report_data, output_files)
 
-            self.logger.info(f"Daily report generated successfully: {output_files}")
+            self.logger.info("Daily report generated successfully: %s", output_files)
 
             return {
                 'status': 'success',
@@ -262,7 +262,7 @@ class DailyTradingReport:
             }
 
         except Exception as e:
-            self.logger.error(f"Report generation failed: {e}")
+            self.logger.error("Report generation failed: %s", e)
             self.error_handler.handle_error(e, "DailyTradingReport")
             return {
                 'status': 'error',
@@ -400,7 +400,7 @@ class DailyTradingReport:
                 metrics['qs_payoff_ratio'] = float(qs.stats.payoff_ratio(ret_series))
                 metrics['qs_profit_factor'] = float(qs.stats.profit_factor(ret_series))
             except Exception as _qs_err:
-                self.logger.debug(f"quantstats daily metrics skipped: {_qs_err}")
+                self.logger.debug("quantstats daily metrics skipped: %s", _qs_err)
 
         return metrics
 
@@ -517,7 +517,7 @@ class DailyTradingReport:
             self.logger.info(f"Institutional metrics generated: Sharpe={metrics['sharpe_ratio']:.3f}")
 
         except Exception as e:
-            self.logger.error(f"Error generating institutional metrics: {e}")
+            self.logger.error("Error generating institutional metrics: %s", e)
             metrics['error'] = str(e)
 
         return metrics
@@ -1407,10 +1407,10 @@ Please find detailed reports attached.
                 attachments=list(output_files.values())
             )
 
-            self.logger.info(f"Report emailed to {len(self.email_recipients)} recipients")
+            self.logger.info("Report emailed to %s recipients", len(self.email_recipients))
 
         except Exception as e:
-            self.logger.error(f"Failed to send email report: {e}")
+            self.logger.error("Failed to send email report: %s", e)
 
     def _archive_report(self, report_date: date, report_data: DailyReportData,
                        output_files: dict[str, str]) -> None:
@@ -1438,15 +1438,14 @@ Please find detailed reports attached.
 
                 with open(json_file, 'w', encoding='utf-8') as f:
                     json.dump(asdict(report_data), f, default=_json_default, indent=2)
-                self.logger.debug(f"Report data archived as JSON: {json_file}")
+                self.logger.debug("Report data archived as JSON: %s", json_file)
             except (TypeError, ValueError) as json_exc:
                 self.logger.warning(
                     f"JSON serialisation failed for report {report_date} "
                     f"({json_exc}); falling back to pickle."
                 )
                 pkl_file = archive_dir / f"report_data_{report_date}.pkl"
-                with open(pkl_file, 'wb') as f:
-                    pickle.dump(report_data, f)
+                joblib.dump(report_data, pkl_file)
 
             # Copy output files to archive
             for _format_type, filepath in output_files.items():
@@ -1454,10 +1453,10 @@ Please find detailed reports attached.
                 dst = archive_dir / src.name
                 dst.write_bytes(src.read_bytes())
 
-            self.logger.info(f"Report archived to {archive_dir}")
+            self.logger.info("Report archived to %s", archive_dir)
 
         except Exception as e:
-            self.logger.error(f"Failed to archive report: {e}")
+            self.logger.error("Failed to archive report: %s", e)
 
     # ==========================================================================
     # SCHEDULED REPORT GENERATION
@@ -1480,7 +1479,7 @@ Please find detailed reports attached.
         # Schedule the job
         schedule.every().day.at(generation_time).do(generate_report_job)
 
-        self.logger.info(f"Daily report generation scheduled for {generation_time}")
+        self.logger.info("Daily report generation scheduled for %s", generation_time)
 
     def generate_intraday_snapshot(self) -> dict[str, Any]:
         """Generate quick intraday performance snapshot"""
@@ -1510,7 +1509,7 @@ Please find detailed reports attached.
             return snapshot
 
         except Exception as e:
-            self.logger.error(f"Failed to generate intraday snapshot: {e}")
+            self.logger.error("Failed to generate intraday snapshot: %s", e)
             return {}
 
 

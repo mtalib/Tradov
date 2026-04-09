@@ -28,7 +28,7 @@ from enum import Enum
 import json
 from collections import deque
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -279,7 +279,7 @@ class Prediction:
     timestamp: datetime
     model_type: ModelType
     target: PredictionTarget
-    value: Union[float, int, str]
+    value: float | int | str
     confidence: float
     feature_importance: dict[str, float] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -495,7 +495,7 @@ class MLPredictor:
             return pred
 
         except Exception as e:
-            self.logger.error(f"Prediction failed for {model_name}: {str(e)}")
+            self.logger.error("Prediction failed for %s: %s", model_name, str(e))
             raise
 
     def predict_ensemble(
@@ -520,7 +520,7 @@ class MLPredictor:
                 predictions.append(pred.value)
                 weights.append(pred.confidence)
             except Exception as e:
-                self.logger.warning(f"Failed to get prediction from {model_name}: {str(e)}")
+                self.logger.warning("Failed to get prediction from %s: %s", model_name, str(e))
 
         if not predictions:
             raise ValueError("No successful predictions from ensemble")
@@ -565,7 +565,7 @@ class MLPredictor:
             if not config:
                 raise ValueError(f"No configuration for model {model_name}")
 
-            self.logger.info(f"Training model: {model_name}")
+            self.logger.info("Training model: %s", model_name)
 
             # Prepare features and target
             X, y = self._prepare_training_data(data, config)
@@ -631,7 +631,7 @@ class MLPredictor:
             return performance
 
         except Exception as e:
-            self.logger.error(f"Failed to train model {model_name}: {str(e)}")
+            self.logger.error("Failed to train model %s: %s", model_name, str(e))
             raise
 
     def retrain_all_models(self, data: pd.DataFrame) -> dict[str, ModelPerformance]:
@@ -651,7 +651,7 @@ class MLPredictor:
                 performance = self.train_model(model_name, data)
                 results[model_name] = performance
             except Exception as e:
-                self.logger.error(f"Failed to retrain {model_name}: {str(e)}")
+                self.logger.error("Failed to retrain %s: %s", model_name, str(e))
 
         return results
 
@@ -1015,10 +1015,10 @@ class MLPredictor:
             with open(config_path, "w") as f:
                 json.dump(config_dict, f, indent=2)
 
-            self.logger.info(f"Model {model_name} saved successfully")
+            self.logger.info("Model %s saved successfully", model_name)
 
         except Exception as e:
-            self.logger.error(f"Failed to save model {model_name}: {str(e)}")
+            self.logger.error("Failed to save model %s: %s", model_name, str(e))
 
     def _load_models(self) -> None:
         """Load models from disk."""
@@ -1061,10 +1061,10 @@ class MLPredictor:
                 if scaler_path.exists():
                     self.scalers[model_name] = joblib.load(scaler_path)
 
-                self.logger.info(f"Loaded model: {model_name}")
+                self.logger.info("Loaded model: %s", model_name)
 
             except Exception as e:
-                self.logger.error(f"Failed to load model {model_file}: {str(e)}")
+                self.logger.error("Failed to load model %s: %s", model_file, str(e))
 
     # =========================================================================
     # Event Handlers
@@ -1091,10 +1091,10 @@ class MLPredictor:
                             "ML_PREDICTION_UPDATE", {"model": model_name, "prediction": prediction}
                         )
                     except Exception as e:
-                        self.logger.error(f"Prediction failed for {model_name}: {str(e)}")
+                        self.logger.error("Prediction failed for %s: %s", model_name, str(e))
 
         except Exception as e:
-            self.logger.error(f"Failed to process market update: {str(e)}")
+            self.logger.error("Failed to process market update: %s", str(e))
 
     def _on_retrain_request(self, event_data: dict[str, Any]) -> None:
         """Handle model retrain request."""
@@ -1109,7 +1109,7 @@ class MLPredictor:
                     "MODEL_RETRAINED", {"model": model_name, "performance": performance}
                 )
             except Exception as e:
-                self.logger.error(f"Failed to retrain {model_name}: {str(e)}")
+                self.logger.error("Failed to retrain %s: %s", model_name, str(e))
 
 
 # =============================================================================
@@ -1158,7 +1158,7 @@ def generate_trading_signals(data: pd.DataFrame) -> pd.DataFrame:
 
         except Exception as e:
             logger = SpyderLogger.get_logger(__name__)
-            logger.error(f"Failed to generate signals from {model_name}: {str(e)}")
+            logger.error("Failed to generate signals from %s: %s", model_name, str(e))
 
     return signals
 

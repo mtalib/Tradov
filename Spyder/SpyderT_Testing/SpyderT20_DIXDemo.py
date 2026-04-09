@@ -24,14 +24,13 @@ Change Log:
 # ==============================================================================
 import os
 import sys
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
 import time
 import warnings
 import logging
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -55,7 +54,7 @@ except ImportError:
 
     class SpyderErrorHandler:
         def handle_error(self, error, code):
-            logging.error(f"{code}: {error}")
+            logging.error("%s: %s", code, error)
 
     # Import from local if running standalone
     from SpyderS01_DIXCalculator import (
@@ -154,7 +153,7 @@ class SpyderDIXDemo:
         # Suppress warnings
         warnings.filterwarnings('ignore')
 
-        self.logger.info(f"{self.__class__.__name__} initialized with {len(self.demo_symbols)} symbols")
+        self.logger.info("%s initialized with %s symbols", self.__class__.__name__, len(self.demo_symbols))
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -173,11 +172,11 @@ class SpyderDIXDemo:
             if not self.demo_symbols:
                 raise ValueError("No demo symbols configured")
 
-            self.logger.info(f"Demo mode initialized with {len(self.demo_symbols)} stocks")
+            self.logger.info("Demo mode initialized with %s stocks", len(self.demo_symbols))
             return True
 
         except Exception as e:
-            self.logger.error(f"Demo initialization failed: {e}")
+            self.logger.error("Demo initialization failed: %s", e)
             self.error_handler.handle_error(e, "DIX_DEMO_INIT_ERROR")
             return False
 
@@ -199,7 +198,7 @@ class SpyderDIXDemo:
             if date is None:
                 date = self._get_latest_trading_date()
 
-            self.logger.info(f"Starting demo DIX calculation for {date}")
+            self.logger.info("Starting demo DIX calculation for %s", date)
 
             # Step 1: Get market cap data
             self._fetch_market_caps()
@@ -239,7 +238,7 @@ class SpyderDIXDemo:
 
         except Exception as e:
             self.status = CalculationStatus.FAILED
-            self.logger.error(f"Demo DIX calculation failed: {e}")
+            self.logger.error("Demo DIX calculation failed: %s", e)
             self.error_handler.handle_error(e, "DIX_DEMO_CALC_ERROR")
             return None
 
@@ -275,7 +274,7 @@ class SpyderDIXDemo:
     # ==========================================================================
     def _fetch_market_caps(self) -> None:
         """Fetch market cap data for demo symbols."""
-        self.logger.info(f"Fetching market cap data for {len(self.demo_symbols)} demo stocks...")
+        self.logger.info("Fetching market cap data for %s demo stocks...", len(self.demo_symbols))
 
         # Check cache if enabled
         if self.config.use_cache and self._is_cache_valid():
@@ -289,7 +288,7 @@ class SpyderDIXDemo:
         for i, symbol in enumerate(self.demo_symbols):
             try:
                 if self.config.verbose:
-                    self.logger.info(f"Processing {symbol} ({i+1}/{len(self.demo_symbols)})")
+                    self.logger.info("Processing %s (%s/%s)", symbol, i+1, len(self.demo_symbols))
 
                 ticker = yf.Ticker(symbol)
                 info = ticker.info
@@ -305,7 +304,7 @@ class SpyderDIXDemo:
 
             except Exception as e:
                 failed_symbols.append(symbol)
-                self.logger.warning(f"Error fetching {symbol}: {e}")
+                self.logger.warning("Error fetching %s: %s", symbol, e)
 
             # Rate limiting
             if self.config.mode != DemoMode.FAST:
@@ -316,9 +315,9 @@ class SpyderDIXDemo:
             self._market_cap_cache = self.market_caps.copy()
             self._cache_timestamp = datetime.now()
 
-        self.logger.info(f"Fetched market cap for {len(self.market_caps)} symbols")
+        self.logger.info("Fetched market cap for %s symbols", len(self.market_caps))
         if failed_symbols:
-            self.logger.warning(f"Failed: {failed_symbols}")
+            self.logger.warning("Failed: %s", failed_symbols)
 
     def _download_finra_data(self, date: str) -> None:
         """
@@ -327,7 +326,7 @@ class SpyderDIXDemo:
         Args:
             date: Date in YYYYMMDD format
         """
-        self.logger.info(f"Downloading FINRA data for {date}...")
+        self.logger.info("Downloading FINRA data for %s...", date)
 
         url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
 
@@ -337,11 +336,11 @@ class SpyderDIXDemo:
 
             # Parse data
             self.finra_data = pd.read_csv(StringIO(response.text), sep='|')
-            self.logger.info(f"Downloaded FINRA data: {len(self.finra_data)} records")
+            self.logger.info("Downloaded FINRA data: %s records", len(self.finra_data))
 
         except Exception:
             # Try previous day
-            self.logger.warning(f"FINRA data not available for {date}, trying previous day")
+            self.logger.warning("FINRA data not available for %s, trying previous day", date)
             prev_date = (datetime.strptime(date, FINRA_DATE_FORMAT) -
                         timedelta(days=1)).strftime(FINRA_DATE_FORMAT)
 
@@ -350,7 +349,7 @@ class SpyderDIXDemo:
             response.raise_for_status()
 
             self.finra_data = pd.read_csv(StringIO(response.text), sep='|')
-            self.logger.info(f"Downloaded FINRA data for {prev_date}: {len(self.finra_data)} records")
+            self.logger.info("Downloaded FINRA data for %s: %s records", prev_date, len(self.finra_data))
 
     # ==========================================================================
     # PRIVATE METHODS - CALCULATION
@@ -371,7 +370,7 @@ class SpyderDIXDemo:
             self.finra_data['Symbol'].isin(self.demo_symbols)
         ].copy()
 
-        self.logger.info(f"Found FINRA data for {len(demo_finra)} demo symbols")
+        self.logger.info("Found FINRA data for %s demo symbols", len(demo_finra))
 
         for _, row in demo_finra.iterrows():
             symbol = row['Symbol']
@@ -398,7 +397,7 @@ class SpyderDIXDemo:
                     if self.config.verbose:
                         self.logger.info(f"{symbol}: DPI={dpi:.4f} ({short_volume:,}/{total_volume:,})")
 
-        self.logger.info(f"Calculated DPI for {len(dpi_data)} symbols")
+        self.logger.info("Calculated DPI for %s symbols", len(dpi_data))
         return dpi_data
 
     def _calculate_weighted_dix(self, dpi_data: dict[str, StockDPI]) -> tuple[float, dict[str, StockDPI]]:
@@ -432,7 +431,7 @@ class SpyderDIXDemo:
         dix = weighted_dpi_sum / total_market_cap
 
         self.logger.info(f"Demo DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
-        self.logger.info(f"Based on {len(dpi_data)} demo components")
+        self.logger.info("Based on %s demo components", len(dpi_data))
 
         return dix, dpi_data
 
@@ -523,7 +522,7 @@ def quick_dix_demo() -> float | None:
         result = demo.calculate_dix()
         return result.dix_percentage if result else None
     except Exception as e:
-        logging.error(f"Quick demo failed: {e}")
+        logging.error("Quick demo failed: %s", e)
         return None
 
 # ==============================================================================

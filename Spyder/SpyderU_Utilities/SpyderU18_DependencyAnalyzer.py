@@ -192,7 +192,7 @@ class DependencyAnalyzer:
         self.circular_dependencies: list[CircularDependency] = []
         self.missing_modules: set[str] = set()
 
-        self.logger.info(f"{self.__class__.__name__} initialized for {project_root}")
+        self.logger.info("%s initialized for %s", self.__class__.__name__, project_root)
 
     # ==========================================================================
     # PUBLIC METHODS - ANALYSIS
@@ -220,14 +220,14 @@ class DependencyAnalyzer:
 
             # Find all Python files
             python_files = self._find_python_files()
-            self.logger.info(f"Found {len(python_files)} Python files to analyze")
+            self.logger.info("Found %s Python files to analyze", len(python_files))
 
             # Analyze each file
             for file_path in python_files:
                 try:
                     self._analyze_file(file_path)
                 except Exception as e:
-                    self.logger.warning(f"Failed to analyze {file_path}: {e}")
+                    self.logger.warning("Failed to analyze %s: %s", file_path, e)
 
             # Build dependency graph
             self._build_dependency_graph()
@@ -238,10 +238,10 @@ class DependencyAnalyzer:
             # Group modules by category
             self._group_modules()
 
-            self.logger.info(f"Analysis complete: {len(self.modules)} modules analyzed")
+            self.logger.info("Analysis complete: %s modules analyzed", len(self.modules))
 
         except Exception as e:
-            self.logger.error(f"Dependency analysis failed: {e}")
+            self.logger.error("Dependency analysis failed: %s", e)
             raise
 
     def find_circular_dependencies(self) -> list[CircularDependency]:
@@ -292,7 +292,7 @@ class DependencyAnalyzer:
             }
 
         except Exception as e:
-            self.logger.error(f"Failed to get dependencies for {module_name}: {e}")
+            self.logger.error("Failed to get dependencies for %s: %s", module_name, e)
             return {"error": str(e)}
 
     def generate_dependency_graph(self) -> DependencyGraph:
@@ -320,7 +320,7 @@ class DependencyAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"Failed to generate dependency graph: {e}")
+            self.logger.error("Failed to generate dependency graph: %s", e)
             return DependencyGraph([], [], [], [])
 
     # ==========================================================================
@@ -397,7 +397,7 @@ class DependencyAnalyzer:
             return "\n".join(report)
 
         except Exception as e:
-            self.logger.error(f"Failed to generate dependency report: {e}")
+            self.logger.error("Failed to generate dependency report: %s", e)
             return f"Error generating report: {e}"
 
     def export_graph_data(self, format: str = "json") -> str:
@@ -444,7 +444,7 @@ class DependencyAnalyzer:
                 return "Unsupported format. Use 'json' or 'csv'."
 
         except Exception as e:
-            self.logger.error(f"Failed to export graph data: {e}")
+            self.logger.error("Failed to export graph data: %s", e)
             return f"Error exporting data: {e}"
 
     # ==========================================================================
@@ -511,7 +511,7 @@ class DependencyAnalyzer:
             self.modules[module_name] = module_info
 
         except Exception as e:
-            self.logger.warning(f"Failed to analyze {file_path}: {e}")
+            self.logger.warning("Failed to analyze %s: %s", file_path, e)
 
     def _extract_imports(self, tree: ast.AST) -> list[str]:
         """Extract import statements from AST."""
@@ -602,7 +602,7 @@ class DependencyAnalyzer:
                     self.circular_dependencies.append(circular_dep)
 
         except Exception as e:
-            self.logger.error(f"Failed to find circular dependencies: {e}")
+            self.logger.error("Failed to find circular dependencies: %s", e)
 
     def _assess_circular_severity(self, modules: list[str]) -> SeverityLevel:
         """Assess the severity of a circular dependency."""

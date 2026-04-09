@@ -587,7 +587,7 @@ class MLPredictionEngine:
             random_state=42
         )
 
-        logger.info(f"MLPredictionEngine initialized with {model_type.value} model")
+        logger.info("MLPredictionEngine initialized with %s model", model_type.value)
 
     # ==========================================================================
     # TRAINING METHODS
@@ -614,7 +614,7 @@ class MLPredictionEngine:
         Returns:
             ModelMetrics with training results
         """
-        logger.info(f"Training {self.model_type.value} model for {symbol}...")
+        logger.info("Training %s model for %s...", self.model_type.value, symbol)
 
         # Feature engineering
         features = self.feature_engineer.create_features(data)
@@ -794,7 +794,7 @@ class MLPredictionEngine:
         Returns:
             ModelMetrics for volatility model
         """
-        logger.info(f"Training volatility model for {symbol}...")
+        logger.info("Training volatility model for %s...", symbol)
 
         # Prepare features
         features = self.feature_engineer.create_features(data, include_options=True)
@@ -917,7 +917,7 @@ class MLPredictionEngine:
             )
 
         except Exception as e:
-            logger.error(f"Direction prediction failed: {e}")
+            logger.error("Direction prediction failed: %s", e)
             return PredictionResult(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1062,7 +1062,7 @@ class MLPredictionEngine:
             )
 
         except Exception as e:
-            logger.error(f"Volatility prediction failed: {e}")
+            logger.error("Volatility prediction failed: %s", e)
             return VolatilityPrediction(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1167,7 +1167,7 @@ class MLPredictionEngine:
             )
 
         except Exception as e:
-            logger.error(f"Strike recommendation failed: {e}")
+            logger.error("Strike recommendation failed: %s", e)
             return StrikeRecommendation(
                 symbol=symbol,
                 timestamp=datetime.now(),
@@ -1235,10 +1235,10 @@ class MLPredictionEngine:
             with open(f"{model_path}_features.json", 'w') as f:
                 json.dump(self.feature_engineer.feature_names, f)
 
-            logger.info(f"Model saved to {model_path}")
+            logger.info("Model saved to %s", model_path)
 
         except Exception as e:
-            logger.error(f"Model save failed: {e}")
+            logger.error("Model save failed: %s", e)
 
     def load_model(self, symbol: str) -> bool:
         """Load trained model from disk."""
@@ -1277,11 +1277,11 @@ class MLPredictionEngine:
                     self.direction_model.load_state_dict(torch.load(pt_path))
                     self.direction_model.to(self.device)
 
-            logger.info(f"Model loaded from {model_path}")
+            logger.info("Model loaded from %s", model_path)
             return True
 
         except Exception as e:
-            logger.error(f"Model load failed: {e}")
+            logger.error("Model load failed: %s", e)
             return False
 
     # ==========================================================================

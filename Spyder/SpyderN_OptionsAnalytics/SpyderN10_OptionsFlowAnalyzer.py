@@ -39,7 +39,9 @@ from enum import Enum
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderC_MarketData.SpyderC07_OPRAFeed import OPRAFeedHandler
+# SpyderC07_OPRAFeed is not yet implemented; OPRA path is disabled
+OPRAFeedHandler = None  # type: ignore[assignment,misc]
+_OPRA_AVAILABLE = False
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
 
@@ -249,7 +251,7 @@ class AdvancedOptionsFlowAnalyzer:
     """
 
     def __init__(self,
-                 opra_feed: OPRAFeedHandler | None = None,
+                 opra_feed: "OPRAFeedHandler | None" = None,
                  option_chain_mgr: OptionChainManager | None = None):
         """
         Initialize flow analyzer.
@@ -262,7 +264,13 @@ class AdvancedOptionsFlowAnalyzer:
         self.error_handler = SpyderErrorHandler()
 
         # Data sources
-        self.opra_feed = opra_feed or OPRAFeedHandler()
+        if opra_feed is not None:
+            self.opra_feed = opra_feed
+        elif _OPRA_AVAILABLE and OPRAFeedHandler is not None:
+            self.opra_feed = OPRAFeedHandler()
+        else:
+            self.opra_feed = None
+            self.logger.warning("SpyderC07_OPRAFeed unavailable — flow analyzer running without OPRA feed")
         self.option_chain_mgr = option_chain_mgr or OptionChainManager()
         self.event_manager = get_event_manager()
 
@@ -296,7 +304,7 @@ class AdvancedOptionsFlowAnalyzer:
         # Initialize baselines
         self._load_historical_baselines()
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - FLOW PROCESSING
@@ -358,7 +366,7 @@ class AdvancedOptionsFlowAnalyzer:
             return flow
 
         except Exception as e:
-            self.logger.error(f"Error processing trade: {e}")
+            self.logger.error("Error processing trade: %s", e)
             self.error_handler.handle_error(e)
             return None
 
@@ -391,7 +399,7 @@ class AdvancedOptionsFlowAnalyzer:
                 continue
 
             # Check sweep criteria
-            exchanges = set(f.exchange for f in flows)
+            exchanges = {f.exchange for f in flows}
             if len(exchanges) < 2:  # Must hit multiple exchanges
                 continue
 
@@ -619,6 +627,6 @@ class AdvancedOptionsFlowAnalyzer:
                            f"from {len(recent_flows)} recent flows")
 
         except Exception as e:
-            self.logger.error(f"Error identifying smart money flows: {e}")
+            self.logger.error("Error identifying smart money flows: %s", e)
 
         return smart_flows

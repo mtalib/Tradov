@@ -77,7 +77,7 @@ except ImportError:
     import logging
     SpyderLogger = logging.getLogger
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
-        'handle_error': lambda self, e, context: logging.error(f"[{context}] {e}")
+        'handle_error': lambda self, e, context: logging.error("[%s] %s", context, e)
     })
 
 # ==============================================================================

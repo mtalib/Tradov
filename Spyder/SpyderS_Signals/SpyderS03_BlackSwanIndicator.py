@@ -86,6 +86,7 @@ Output (BlackSwanResult dataclass):
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -103,6 +104,13 @@ try:
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
+
+try:
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    _C29_AVAILABLE = True
+except ImportError:
+    _get_c29_provider = None  # type: ignore[assignment]
+    _C29_AVAILABLE = False
 
 
 # ==============================================================================
@@ -320,7 +328,7 @@ class BlackSwanIndicator:
             return result
 
         except Exception as e:
-            self.logger.error(f"Error calculating SWAN score: {e}", exc_info=True)
+            self.logger.error("Error calculating SWAN score: %s", e, exc_info=True)
             if self.error_handler:
                 self.error_handler.handle_error(e)
             return self._create_error_result()
@@ -385,13 +393,28 @@ class BlackSwanIndicator:
             return data
 
         except Exception as e:
-            self.logger.error(f"Error collecting market data: {e}", exc_info=True)
+            self.logger.error("Error collecting market data: %s", e, exc_info=True)
             return data
 
     def _fetch_quote(self, symbol: str) -> float | None:
         """Fetch single quote from data source"""
+        # Try C29 / MassiveClient first (mid-price from bid/ask)
+        if _C29_AVAILABLE:
+            try:
+                client = _get_c29_provider()
+                quote = client.get_quote(symbol)
+                if quote.bid and quote.ask:
+                    return (quote.bid + quote.ask) / 2
+                if quote.bid:
+                    return quote.bid
+                if quote.ask:
+                    return quote.ask
+            except Exception:
+                pass
+        # Fall back to yfinance
         try:
             if YFINANCE_AVAILABLE:
+                self.logger.debug("C29 quote unavailable for %s — using yfinance fallback", symbol)
                 ticker = yf.Ticker(symbol)
                 info = ticker.info
                 return info.get("regularMarketPrice") or info.get("price")
@@ -669,13 +692,16 @@ class BlackSwanIndicator:
 # MODULE FUNCTIONS
 # ==============================================================================
 _indicator_instance = None
+_indicator_instance_lock = threading.Lock()
 
 
 def get_black_swan_indicator() -> BlackSwanIndicator:
     """Get singleton instance of Black Swan Indicator"""
     global _indicator_instance
     if _indicator_instance is None:
-        _indicator_instance = BlackSwanIndicator()
+        with _indicator_instance_lock:
+            if _indicator_instance is None:
+                _indicator_instance = BlackSwanIndicator()
     return _indicator_instance
 
 
@@ -690,12 +716,12 @@ if __name__ == "__main__":
     # Calculate score
     result = indicator.calculate_swan_score()
 
-    print(f"SWAN Score : {result.overall_score:.2f}")
-    print(f"Status     : {result.status.value}")
-    print(f"Data Quality: {result.data_quality.value}")
-    print(f"Calc Time  : {result.calculation_time_ms:.1f} ms")
-    print()
-    print("Component Breakdown:")
+    print(f"SWAN Score : {result.overall_score:.2f}")  # noqa: T201
+    print(f"Status     : {result.status.value}")  # noqa: T201
+    print(f"Data Quality: {result.data_quality.value}")  # noqa: T201
+    print(f"Calc Time  : {result.calculation_time_ms:.1f} ms")  # noqa: T201
+    print()  # noqa: T201
+    print("Component Breakdown:")  # noqa: T201
     for name, score in result.component_scores.items():
-        print(f"  {name:<20} raw={score.raw_score:.2f}  weighted={score.weighted_score:.3f}  — {score.description}")
+        print(f"  {name:<20} raw={score.raw_score:.2f}  weighted={score.weighted_score:.3f}  — {score.description}")  # noqa: T201
 

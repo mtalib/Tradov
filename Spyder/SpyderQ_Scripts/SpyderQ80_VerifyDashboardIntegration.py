@@ -36,17 +36,28 @@ _DEFAULT_SPYDER_HOME = str(Path(__file__).resolve().parents[2])
 SPYDER_HOME = os.environ.get("SPYDER_HOME", _DEFAULT_SPYDER_HOME)
 sys.path.insert(0, SPYDER_HOME)
 
+# Load I12_ModuleRegistry for authoritative module metadata.
+# Falls back gracefully if the registry is unavailable at import time.
+try:
+    from Spyder.SpyderI_Integration.SpyderI12_ModuleRegistry import (
+        REGISTERED_MODULES as _I12_REGISTRY,
+    )
+except Exception:
+    _I12_REGISTRY = {}
+
 # ===============================================================================
 # CONFIGURATION
 # ===============================================================================
 
 # Dashboard components to verify
+# Note: SpyderG07_PrometheusMetricsDisplay and SpyderG08_DashboardDataBridge were
+# removed in v2 (Tradier migration). B15_PrometheusMetrics now exposes metrics.
 DASHBOARD_MODULES = {
     "Main Dashboard": "SpyderG05_TradingDashboard",
-    "Client Monitor": "SpyderG06_ClientMonitorPanel",
-    "Prometheus Metrics": "SpyderG07_PrometheusMetricsDisplay",
-    "Data Bridge": "SpyderG08_DashboardDataBridge",
+    "Dashboard Data": "SpyderG06_DashboardData",
     "Risk Parameters": "SpyderG09_RiskParametersDialog",
+    "Custom Metrics": "SpyderG10_CustomMetricsIntegration",
+    "Skew Monitor": "SpyderG11_SkewMonitorDialog",
 }
 
 # Q-Series scripts that interact with dashboard
@@ -295,6 +306,47 @@ class DashboardIntegrationVerifier:
             self.print_warning("Risk parameters module not loaded")
             return False
 
+    def verify_registry_health(self) -> bool:
+        """Cross-check dashboard modules against I12_ModuleRegistry.
+
+        For every module that Q80 successfully loaded, this method queries
+        ``I12_ModuleRegistry`` to confirm:
+        - The module is known to the registry (not a ghost import).
+        - Its status is not ``"deprecated"``.
+
+        Results are appended to ``self.results["warnings"]`` and printed to
+        stdout; the method never returns False so it cannot block the overall
+        verification pass.
+        """
+        self.print_section("Registry Cross-Check (I12_ModuleRegistry)")
+
+        if not _I12_REGISTRY:
+            self.print_warning("I12_ModuleRegistry unavailable — skipping cross-check")
+            return True
+
+        # Build a quick lookup: filename stem → record
+        filename_to_record = {rec.filename: rec for rec in _I12_REGISTRY.values()}
+
+        all_ok = True
+        for name, module_name in DASHBOARD_MODULES.items():
+            record = filename_to_record.get(module_name)
+            if record is None:
+                self.print_warning(
+                    f"{name} ({module_name}) is not registered in I12_ModuleRegistry"
+                )
+                all_ok = False
+            elif record.status == "deprecated":
+                self.print_warning(
+                    f"{name} ({module_name}) is marked DEPRECATED in I12_ModuleRegistry"
+                )
+                all_ok = False
+            else:
+                self.print_ok(
+                    f"{name} ({module_name}) — I12 status: {record.status}"
+                )
+
+        return all_ok
+
     def verify_data_flow(self) -> bool:
         """Verify data flow between components"""
         self.print_section("Data Flow Verification")
@@ -395,6 +447,7 @@ class DashboardIntegrationVerifier:
         self.verify_prometheus_integration()
         self.verify_multi_client_setup()
         self.verify_risk_parameters_integration()
+        self.verify_registry_health()
         self.verify_data_flow()
 
         # Generate outputs

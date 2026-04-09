@@ -247,7 +247,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         # Time zone
         self.eastern_tz = pytz.timezone("US/Eastern")
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # FED AND ECONOMIC CALENDAR
@@ -391,7 +391,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return conditions
 
         except Exception as e:
-            self.logger.error(f"Error analyzing market conditions: {e}")
+            self.logger.error("Error analyzing market conditions: %s", e)
             return {}
 
     def _validate_market_conditions(self, conditions: dict[str, Any]) -> bool:
@@ -409,7 +409,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         # Check VIX levels
         vix = conditions.get("vix", 20)
         if vix < MIN_VIX_LEVEL or vix > MAX_VIX_LEVEL:
-            self.logger.info(f"VIX {vix} outside acceptable range for 0DTE")
+            self.logger.info("VIX %s outside acceptable range for 0DTE", vix)
             return False
 
         # Check volatility regime
@@ -565,7 +565,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return zero_dte_setup
 
         except Exception as e:
-            self.logger.error(f"Error creating 0DTE setup: {e}")
+            self.logger.error("Error creating 0DTE setup: %s", e)
             return None
 
     def _setup_iron_butterfly(
@@ -605,7 +605,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error setting up Iron Butterfly: {e}")
+            self.logger.error("Error setting up Iron Butterfly: %s", e)
             return None
 
     def _setup_iron_condor(
@@ -647,7 +647,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error setting up Iron Condor: {e}")
+            self.logger.error("Error setting up Iron Condor: %s", e)
             return None
 
     def _setup_credit_spread(
@@ -685,7 +685,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error setting up Credit Spread: {e}")
+            self.logger.error("Error setting up Credit Spread: %s", e)
             return None
 
     def _setup_broken_wing_butterfly(
@@ -727,7 +727,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error setting up Broken Wing Butterfly: {e}")
+            self.logger.error("Error setting up Broken Wing Butterfly: %s", e)
             return None
 
     def _setup_short_strangle(
@@ -757,7 +757,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error setting up Short Strangle: {e}")
+            self.logger.error("Error setting up Short Strangle: %s", e)
             return None
 
     def _calculate_base_contracts(self, market_data: pd.DataFrame) -> int:
@@ -813,7 +813,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             return max(0.0, min(1.0, prob_profit))
 
         except Exception as e:
-            self.logger.error(f"Error calculating win probability: {e}")
+            self.logger.error("Error calculating win probability: %s", e)
             return 0.5
 
     def _calculate_expected_value(self, setup: dict, conditions: dict[str, Any]) -> float:
@@ -852,7 +852,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             },
         )
 
-        self.logger.info(f"Generated 0DTE signal: {setup.strategy_type.value}")
+        self.logger.info("Generated 0DTE signal: %s", setup.strategy_type.value)
         return signal
 
     # ==========================================================================
@@ -962,7 +962,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             )
 
         except Exception as e:
-            self.logger.error(f"Error calculating position metrics: {e}")
+            self.logger.error("Error calculating position metrics: %s", e)
             # Return default metrics
             return ZeroDTEMetrics(
                 current_value=0,
@@ -1087,9 +1087,10 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         self.strategy_stats["total_pnl"] += metrics.pnl
 
         self.logger.info(
-            f"Exit 0DTE position {
-                position.position_id}: {reason}, P&L: ${
-                metrics.pnl:.2f}"
+            "Exit 0DTE position %s: %s, P&L: $%.2f",
+            position.position_id,
+            reason,
+            metrics.pnl,
         )
 
         return signal
@@ -1194,25 +1195,25 @@ def test_specialized_zero_dte():
         }
     )
 
-    logging.info(f"Current Time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logging.info("Current Time: %s", current_time.strftime('%Y-%m-%d %H:%M:%S %Z'))
     logging.info(f"Current Price: ${prices[-1]:.2f}")
     logging.info(f"VIX: {market_data['vix'].iloc[-1]:.2f}")
 
     # Test Fed day check
-    logging.info(f"\nFed Day Check: {strategy._is_fed_day(current_time)}")
+    logging.info("\nFed Day Check: %s", strategy._is_fed_day(current_time))
 
     # Generate signals
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"\nGenerated {len(signals)} signals")
+    logging.info("\nGenerated %s signals", len(signals))
 
     if signals:
         signal = signals[0]
         setup = signal.metadata["setup"]
 
         logging.info("\n0DTE Setup Details:")
-        logging.info(f"Strategy: {setup['strategy_type']}")
-        logging.info(f"Contracts: {setup['contracts']}")
+        logging.info("Strategy: %s", setup['strategy_type'])
+        logging.info("Contracts: %s", setup['contracts'])
         logging.info(f"Credit: ${setup['credit_received']:.2f}")
         logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
         logging.info(f"Max Loss: ${setup['max_loss']:.2f}")
@@ -1251,23 +1252,25 @@ def test_specialized_zero_dte():
         management_signals = strategy.manage_positions(market_data)
 
         logging.info("\nPosition Management:")
-        logging.info(f"Management signals: {len(management_signals)}")
+        logging.info("Management signals: %s", len(management_signals))
 
         if management_signals:
             exit_signal = management_signals[0]
-            logging.info(f"Exit Reason: {exit_signal.metadata['exit_reason']}")
+            logging.info("Exit Reason: %s", exit_signal.metadata['exit_reason'])
             logging.info(f"P&L: ${exit_signal.metadata['pnl']:.2f}")
             logging.info(f"Hold Time: {exit_signal.metadata['hold_time']:.1f} minutes")
 
     # Get daily summary
     summary = strategy.get_daily_summary()
     logging.info("\nDaily Summary:")
-    logging.info(f"Total Trades: {summary['total_trades']}")
+    logging.info("Total Trades: %s", summary['total_trades'])
     logging.info(f"Daily P&L: ${summary['daily_pnl']:.2f}")
-    logging.info(
-        f"Win Rate: {summary['strategy_stats']['winning_trades'] / max(1,
-                                                                         summary['strategy_stats']['total_trades']) * 100:.1f}%"
+    _win_rate = (
+        summary['strategy_stats']['winning_trades']
+        / max(1, summary['strategy_stats']['total_trades'])
+        * 100
     )
+    logging.info("Win Rate: %.1f%%", _win_rate)
 
     logging.info("\n✅ Specialized Zero DTE Strategy Test Complete!")
     logging.info("\nKey Features Tested:")

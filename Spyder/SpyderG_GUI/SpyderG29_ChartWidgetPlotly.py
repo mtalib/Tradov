@@ -92,7 +92,7 @@ try:
 except ImportError as e:
     WEBENGINE_AVAILABLE = False
     WEBENGINE_ERROR = str(e)
-    logging.info(f"⚠️ QWebEngineView not available: {e}")
+    logging.info("⚠️ QWebEngineView not available: %s", e)
     logging.info("   Solutions for Ubuntu/Wayland:")
     logging.info("   1. sudo apt install python3-pyside6.qtwebengine")
     logging.info("   2. sudo apt install libqt6webengine6-data")
@@ -294,7 +294,7 @@ class PlotlyChartWidget(QWidget):
 
         # Symbol label
         symbol_label = QLabel(f"{self.symbol} Chart")
-        symbol_label.setStyleSheet(f"color: {COLOR_CYAN}; font-weight: bold;")
+        symbol_label.setStyleSheet(f"color: {COLOR_CYAN}; font-weight: normal;")
         layout.addWidget(symbol_label)
 
         layout.addStretch()
@@ -791,7 +791,7 @@ class PlotlyChartWidget(QWidget):
             QLabel {{
                 color: {COLOR_WARNING};
                 font-size: 16px;
-                font-weight: bold;
+                font-weight: normal;
                 padding: 20px;
                 background-color: {COLOR_PANEL};
                 border: 2px dashed {COLOR_BORDER};
@@ -825,7 +825,7 @@ class PlotlyChartWidget(QWidget):
     ):
         """Add trade marker to chart (placeholder for compatibility)."""
         # This would require JavaScript bridge to add annotations to Plotly chart
-        logging.info(f"Trade marker: {trade_type} {size} @ {price} at {timestamp}")
+        logging.info("Trade marker: %s %s @ %s at %s", trade_type, size, price, timestamp)
 
     def clear_chart(self):
         """Clear chart data."""

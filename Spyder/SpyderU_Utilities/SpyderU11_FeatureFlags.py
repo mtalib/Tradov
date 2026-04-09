@@ -163,7 +163,7 @@ class FeatureFlag:
         elif self.rollout_strategy == RolloutStrategy.PERCENTAGE:
             # Use hash of user_id + feature name for consistent rollout
             hash_input = f"{user_id}:{self.name}"
-            hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
+            hash_value = int(hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest(), 16)
             percentage = (hash_value % 100) + 1
             return percentage <= self.rollout_percentage
 
@@ -233,7 +233,7 @@ class FeatureFlags:
         self._load_configuration()
 
         self.logger.info(
-            f"{self.__class__.__name__} initialized with {len(self.features)} features"
+            "%s initialized with %s features", self.__class__.__name__, len(self.features)
         )
 
     # ==========================================================================
@@ -259,7 +259,7 @@ class FeatureFlags:
             self._refresh_cache_if_needed()
 
             if feature_name not in self.features:
-                self.logger.warning(f"Unknown feature flag: {feature_name}")
+                self.logger.warning("Unknown feature flag: %s", feature_name)
                 return False
 
             feature = self.features[feature_name]
@@ -279,7 +279,7 @@ class FeatureFlags:
             return feature.is_enabled_for_user(current_user)
 
         except Exception as e:
-            self.logger.error(f"Error checking feature {feature_name}: {e}")
+            self.logger.error("Error checking feature %s: %s", feature_name, e)
             return False
 
     def check_feature_enabled(self, feature_name: str, user_id: str | None = None) -> bool:
@@ -345,11 +345,11 @@ class FeatureFlags:
                 if save:
                     self._save_configuration()
 
-                self.logger.info(f"Feature {feature_name} enabled")
+                self.logger.info("Feature %s enabled", feature_name)
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to enable feature {feature_name}: {e}")
+            self.logger.error("Failed to enable feature %s: %s", feature_name, e)
             return False
 
     def disable_feature(self, feature_name: str, save: bool = True) -> bool:
@@ -372,14 +372,14 @@ class FeatureFlags:
                     if save:
                         self._save_configuration()
 
-                    self.logger.info(f"Feature {feature_name} disabled")
+                    self.logger.info("Feature %s disabled", feature_name)
                     return True
                 else:
-                    self.logger.warning(f"Feature {feature_name} not found")
+                    self.logger.warning("Feature %s not found", feature_name)
                     return False
 
         except Exception as e:
-            self.logger.error(f"Failed to disable feature {feature_name}: {e}")
+            self.logger.error("Failed to disable feature %s: %s", feature_name, e)
             return False
 
     def set_rollout_percentage(
@@ -409,14 +409,14 @@ class FeatureFlags:
                     if save:
                         self._save_configuration()
 
-                    self.logger.info(f"Feature {feature_name} rollout set to {percentage}%")
+                    self.logger.info("Feature %s rollout set to %s%%", feature_name, percentage)
                     return True
                 else:
-                    self.logger.warning(f"Feature {feature_name} not found")
+                    self.logger.warning("Feature %s not found", feature_name)
                     return False
 
         except Exception as e:
-            self.logger.error(f"Failed to set rollout for {feature_name}: {e}")
+            self.logger.error("Failed to set rollout for %s: %s", feature_name, e)
             return False
 
     # ==========================================================================
@@ -444,7 +444,7 @@ class FeatureFlags:
         try:
             with self.lock:
                 if name in self.features:
-                    self.logger.warning(f"Feature {name} already exists")
+                    self.logger.warning("Feature %s already exists", name)
                     return False
 
                 self.features[name] = FeatureFlag(
@@ -456,11 +456,11 @@ class FeatureFlags:
                 )
 
                 self._save_configuration()
-                self.logger.info(f"Created feature flag: {name}")
+                self.logger.info("Created feature flag: %s", name)
                 return True
 
         except Exception as e:
-            self.logger.error(f"Failed to create feature {name}: {e}")
+            self.logger.error("Failed to create feature %s: %s", name, e)
             return False
 
     def get_feature_info(self, feature_name: str) -> dict[str, Any] | None:
@@ -521,7 +521,7 @@ class FeatureFlags:
                             metadata=data.get("metadata", {}),
                         )
                     except Exception as e:
-                        self.logger.warning(f"Failed to load feature {name}: {e}")
+                        self.logger.warning("Failed to load feature %s: %s", name, e)
             else:
                 # Create default configuration
                 self._create_default_configuration()
@@ -532,7 +532,7 @@ class FeatureFlags:
             self.cache_timestamp = time.time()
 
         except Exception as e:
-            self.logger.error(f"Failed to load configuration: {e}")
+            self.logger.error("Failed to load configuration: %s", e)
             self._create_default_configuration()
 
     def _create_default_configuration(self) -> None:
@@ -552,7 +552,7 @@ class FeatureFlags:
             self._save_configuration()
 
         except Exception as e:
-            self.logger.error(f"Failed to create default configuration: {e}")
+            self.logger.error("Failed to create default configuration: %s", e)
 
     def _apply_environment_overrides(self) -> None:
         """Apply environment-specific overrides."""
@@ -574,7 +574,7 @@ class FeatureFlags:
                         self.features[feature_name].enabled = enabled
 
         except Exception as e:
-            self.logger.error(f"Failed to apply environment overrides: {e}")
+            self.logger.error("Failed to apply environment overrides: %s", e)
 
     def _save_configuration(self) -> None:
         """Save feature flags to configuration file."""
@@ -590,7 +590,7 @@ class FeatureFlags:
                 json.dump(config_data, f, indent=2, default=str)
 
         except Exception as e:
-            self.logger.error(f"Failed to save configuration: {e}")
+            self.logger.error("Failed to save configuration: %s", e)
 
     def _refresh_cache_if_needed(self) -> None:
         """Refresh cache if needed based on age."""

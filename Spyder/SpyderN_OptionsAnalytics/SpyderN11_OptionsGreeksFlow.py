@@ -233,7 +233,7 @@ class OptionsGreeksFlowAnalyzer:
         self._monitoring_thread: threading.Thread | None = None
         self._running = False
 
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - GREEKS FLOW ANALYSIS
@@ -681,7 +681,7 @@ class OptionsGreeksFlowAnalyzer:
             return False
 
         # Get nearest expiry
-        expiries = sorted(set(opt.expiry for opt in chain))
+        expiries = sorted({opt.expiry for opt in chain})
         if expiries:
             nearest_expiry = expiries[0]
             days_to_expiry = (nearest_expiry - date.today()).days
@@ -780,7 +780,7 @@ class OptionsGreeksFlowAnalyzer:
             return dollar_gamma
 
         except Exception as e:
-            self.logger.error(f"Error calculating gamma: {e}")
+            self.logger.error("Error calculating gamma: %s", e)
             return 0.0
 
     def _get_spot_price(self) -> float:
@@ -1048,7 +1048,7 @@ class OptionsGreeksFlowAnalyzer:
         # High vanna strikes near expiry
         if abs(profile["vanna"]) > LARGE_VANNA_FLOW / 10:
             chain = self.option_chain_mgr.get_option_chain("SPY")
-            expiries = sorted(set(opt.expiry for opt in chain if opt.strike == strike))
+            expiries = sorted({opt.expiry for opt in chain if opt.strike == strike})
             if expiries:
                 days_to_expiry = (expiries[0] - date.today()).days
                 if days_to_expiry <= EXPIRY_DAYS_THRESHOLD:
@@ -1091,7 +1091,7 @@ class OptionsGreeksFlowAnalyzer:
                 # Check for regime changes
                 regime_changes = self.detect_greek_regime_change()
                 if regime_changes["action_required"]:
-                    self.logger.warning(f"Greek regime change detected: {regime_changes}")
+                    self.logger.warning("Greek regime change detected: %s", regime_changes)
 
                 # Emit significant flows
                 if abs(profile.total_expected_flow) > LARGE_GAMMA_FLOW:
@@ -1100,7 +1100,7 @@ class OptionsGreeksFlowAnalyzer:
                 time.sleep(30)  # thread-safe: time.sleep() intentional
 
             except Exception as e:
-                self.logger.error(f"Error in Greek flow monitoring: {e}")
+                self.logger.error("Error in Greek flow monitoring: %s", e)
 
     def _emit_greek_flow_event(self, profile: GreeksFlowProfile) -> None:
         """Emit event for significant Greek flow."""

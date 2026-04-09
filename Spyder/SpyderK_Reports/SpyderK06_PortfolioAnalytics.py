@@ -750,7 +750,7 @@ class PortfolioAnalytics:
             elif format == 'json':
                 return self._export_json_portfolio_report(report_data, output_path)
             else:
-                self.logger.error(f"Unsupported format: {format}")
+                self.logger.error("Unsupported format: %s", format)
                 return False
 
         except Exception as e:
@@ -945,7 +945,7 @@ class PortfolioAnalytics:
             return metrics
 
         except Exception as e:
-            self.logger.error(f"Error calculating metrics: {e}")
+            self.logger.error("Error calculating metrics: %s", e)
             return {}
 
     def _generate_portfolio_charts(self, positions: list[PortfolioPosition],
@@ -1080,7 +1080,7 @@ class PortfolioAnalytics:
                 charts['greeks_exposure'] = fig_greeks.to_json()
 
         except Exception as e:
-            self.logger.error(f"Error generating charts: {e}")
+            self.logger.error("Error generating charts: %s", e)
 
         return charts
 
@@ -1237,11 +1237,11 @@ class PortfolioAnalytics:
             with open(output_path, 'w') as f:
                 f.write(html_content)
 
-            self.logger.info(f"Portfolio report exported to {output_path}")
+            self.logger.info("Portfolio report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting HTML report: {e}")
+            self.logger.error("Error exporting HTML report: %s", e)
             return False
 
     def _export_pdf_portfolio_report(self, report_data: dict[str, Any],
@@ -1257,11 +1257,11 @@ class PortfolioAnalytics:
             with open(output_path, 'w') as f:
                 json.dump(report_data, f, indent=2, default=str)
 
-            self.logger.info(f"JSON report exported to {output_path}")
+            self.logger.info("JSON report exported to %s", output_path)
             return True
 
         except Exception as e:
-            self.logger.error(f"Error exporting JSON report: {e}")
+            self.logger.error("Error exporting JSON report: %s", e)
             return False
 
     def _format_stress_tests_html(self, stress_tests: list[dict]) -> str:

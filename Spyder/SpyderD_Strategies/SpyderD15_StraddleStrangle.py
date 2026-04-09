@@ -232,7 +232,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             'avg_iv_expansion': 0.0
         }
 
-        self.logger.info(f"Initialized {self.name}")
+        self.logger.info("Initialized %s", self.name)
 
     # ==========================================================================
     # EVENT DETECTION
@@ -289,7 +289,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                     })
 
         except Exception as e:
-            self.logger.error(f"Error detecting events: {e}")
+            self.logger.error("Error detecting events: %s", e)
 
         self.upcoming_events = events
         return events
@@ -416,7 +416,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             }
 
         except Exception as e:
-            self.logger.error(f"Error analyzing volatility surface: {e}")
+            self.logger.error("Error analyzing volatility surface: %s", e)
             return {}
 
     def _construct_volatility_surface(self, spot_price: float) -> pd.DataFrame:
@@ -669,7 +669,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             return setup
 
         except Exception as e:
-            self.logger.error(f"Error creating volatility setup: {e}")
+            self.logger.error("Error creating volatility setup: %s", e)
             return None
 
     def _select_strangle_strikes(self, current_price: float,
@@ -863,11 +863,11 @@ class StraddleStrangleStrategy(BaseStrategy):
                 }
             )
 
-            self.logger.info(f"Generated {setup.strategy.value} signal")
+            self.logger.info("Generated %s signal", setup.strategy.value)
             return signal
 
         except Exception as e:
-            self.logger.error(f"Error creating signal: {e}")
+            self.logger.error("Error creating signal: %s", e)
             return None
 
     def _calculate_signal_confidence(self, setup: VolatilitySetup) -> float:
@@ -982,7 +982,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             position.greeks_history.append(greeks)
 
         except Exception as e:
-            self.logger.error(f"Error updating Greeks: {e}")
+            self.logger.error("Error updating Greeks: %s", e)
 
     def _update_position_value(self, position: VolatilityPosition,
                              spot: float, current_iv: float):
@@ -1017,7 +1017,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             position.unrealized_pnl = current_value - position.setup.net_debit
 
         except Exception as e:
-            self.logger.error(f"Error updating position value: {e}")
+            self.logger.error("Error updating position value: %s", e)
 
     def _check_gamma_scalp(self, position: VolatilityPosition,
                           current_price: float) -> TradingSignal | None:
@@ -1053,7 +1053,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             position.gamma_scalp_count += 1
             position.state = PositionState.GAMMA_SCALPING
 
-            self.logger.info(f"Gamma scalp opportunity for {position.position_id}")
+            self.logger.info("Gamma scalp opportunity for %s", position.position_id)
             return signal
 
         return None
@@ -1170,7 +1170,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         )
 
         self.active_positions[position_id] = position
-        self.logger.info(f"Added volatility position {position_id}")
+        self.logger.info("Added volatility position %s", position_id)
 
         return position_id
 
@@ -1242,9 +1242,9 @@ def test_straddle_strangle():
     # Create strategy
     strategy = StraddleStrangleStrategy(event_manager, risk_profile, config)
 
-    logging.info(f"Strategy: {strategy.name}")
-    logging.info(f"Allow Short: {strategy.allow_short}")
-    logging.info(f"Gamma Scalping: {strategy.enable_gamma_scalping}")
+    logging.info("Strategy: %s", strategy.name)
+    logging.info("Allow Short: %s", strategy.allow_short)
+    logging.info("Gamma Scalping: %s", strategy.enable_gamma_scalping)
 
     # Create sample market data
     dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
@@ -1275,9 +1275,9 @@ def test_straddle_strangle():
     # Test event detection
     logging.info("\nDetecting Events...")
     events = strategy._detect_upcoming_events(market_data)
-    logging.info(f"Found {len(events)} upcoming events")
+    logging.info("Found %s upcoming events", len(events))
     for event in events:
-        logging.info(f"- {event['type'].value}: {event.get('date', 'N/A')}, Impact: {event['impact']}")
+        logging.info("- %s: %s, Impact: %s", event['type'].value, event.get('date', 'N/A'), event['impact'])
 
     # Test volatility surface analysis
     logging.info("\nAnalyzing Volatility Surface...")
@@ -1285,23 +1285,23 @@ def test_straddle_strangle():
     logging.info(f"ATM IV: {vol_analysis.get('atm_iv', 0):.1%}")
     logging.info(f"Put Skew: {vol_analysis.get('put_skew', 1):.2f}")
     logging.info(f"Call Skew: {vol_analysis.get('call_skew', 1):.2f}")
-    logging.info(f"Smile Type: {vol_analysis.get('smile_type', 'unknown')}")
-    logging.info(f"Term Structure: {vol_analysis.get('term_structure', 'unknown')}")
+    logging.info("Smile Type: %s", vol_analysis.get('smile_type', 'unknown'))
+    logging.info("Term Structure: %s", vol_analysis.get('term_structure', 'unknown'))
 
     # Generate signals
     logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    logging.info(f"Generated {len(signals)} signals")
+    logging.info("Generated %s signals", len(signals))
 
     for signal in signals:
         setup = signal.metadata
-        logging.info(f"\nStrategy: {setup['strategy_type']}")
-        logging.info(f"Strikes: Call ${setup['strikes']['call']}, Put ${setup['strikes']['put']}")
-        logging.info(f"Expiry: {setup['expiry']}")
+        logging.info("\nStrategy: %s", setup['strategy_type'])
+        logging.info("Strikes: Call $%s, Put $%s", setup['strikes']['call'], setup['strikes']['put'])
+        logging.info("Expiry: %s", setup['expiry'])
         logging.info(f"Net Debit: ${setup['net_debit']:.2f}")
         logging.info(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")
-        logging.info(f"Event: {setup.get('event', 'None')}")
+        logging.info("Event: %s", setup.get('event', 'None'))
         logging.info(f"Confidence: {signal.confidence:.1%}")
 
         # Add position
@@ -1339,24 +1339,24 @@ def test_straddle_strangle():
             if management_signals:
                 for mgmt_signal in management_signals:
                     if mgmt_signal.signal_type == SignalType.ADJUST:
-                        logging.info(f"\nGamma Scalp at iteration {i}")
+                        logging.info("\nGamma Scalp at iteration %s", i)
                         logging.info(f"Gamma: {mgmt_signal.metadata['gamma']:.1f}")
                         logging.info(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")
                     elif mgmt_signal.signal_type == SignalType.EXIT:
-                        logging.info(f"\nExit at iteration {i}")
-                        logging.info(f"Reason: {mgmt_signal.metadata['exit_reason']}")
+                        logging.info("\nExit at iteration %s", i)
+                        logging.info("Reason: %s", mgmt_signal.metadata['exit_reason'])
                         logging.info(f"Total P&L: ${mgmt_signal.metadata['total_pnl']:.2f}")
-                        logging.info(f"Gamma Scalps: {mgmt_signal.metadata['gamma_scalps']}")
+                        logging.info("Gamma Scalps: %s", mgmt_signal.metadata['gamma_scalps'])
 
     # Print final statistics
     stats = strategy.get_strategy_stats()
     logging.info("\n" + "=" * 40)
     logging.info("Strategy Statistics:")
-    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info("Active Positions: %s", stats['active_positions'])
     logging.info(f"Current IV Rank: {stats['current_iv_rank']:.1f}")
-    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info("Total Trades: %s", stats['total_trades'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")
-    logging.info(f"Total Gamma Scalps: {stats['total_gamma_scalps']}")
+    logging.info("Total Gamma Scalps: %s", stats['total_gamma_scalps'])
     logging.info(f"Gamma Scalp P&L: ${stats['gamma_scalp_pnl']:.2f}")
     logging.info(f"Avg IV Expansion: {stats['avg_iv_expansion']:.1%}")
     logging.info(f"Best Trade: ${stats['best_trade']:.2f}")

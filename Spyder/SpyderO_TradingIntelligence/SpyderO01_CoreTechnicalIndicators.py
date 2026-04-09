@@ -31,7 +31,7 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 import numpy as np
@@ -207,7 +207,7 @@ class CoreTechnicalIndicators:
     # TREND INDICATORS
     # ==========================================================================
 
-    def sma(self, data: Union[pd.Series, np.ndarray], period: int) -> np.ndarray:
+    def sma(self, data: pd.Series | np.ndarray, period: int) -> np.ndarray:
         """Simple Moving Average with validation"""
         try:
             if len(data) < period:
@@ -219,7 +219,7 @@ class CoreTechnicalIndicators:
             self.error_handler.handle_error(e, {'method': 'sma', 'period': period})
             return np.full(len(data), np.nan)
 
-    def ema(self, data: Union[pd.Series, np.ndarray], period: int,
+    def ema(self, data: pd.Series | np.ndarray, period: int,
             alpha: float | None = None) -> np.ndarray:
         """Exponential Moving Average with custom alpha"""
         try:
@@ -233,7 +233,7 @@ class CoreTechnicalIndicators:
             self.error_handler.handle_error(e, {'method': 'ema', 'period': period})
             return np.full(len(data), np.nan)
 
-    def hull_ma(self, data: Union[pd.Series, np.ndarray], period: int) -> np.ndarray:
+    def hull_ma(self, data: pd.Series | np.ndarray, period: int) -> np.ndarray:
         """Hull Moving Average - reduced lag moving average"""
         try:
             half_period = int(period / 2)
@@ -252,7 +252,7 @@ class CoreTechnicalIndicators:
             self.error_handler.handle_error(e, {'method': 'hull_ma', 'period': period})
             return np.full(len(data), np.nan)
 
-    def wma(self, data: Union[pd.Series, np.ndarray], period: int) -> np.ndarray:
+    def wma(self, data: pd.Series | np.ndarray, period: int) -> np.ndarray:
         """Weighted Moving Average"""
         try:
             data_series = pd.Series(data)
@@ -269,7 +269,7 @@ class CoreTechnicalIndicators:
             self.error_handler.handle_error(e, {'method': 'wma', 'period': period})
             return np.full(len(data), np.nan)
 
-    def macd(self, data: Union[pd.Series, np.ndarray], fast: int = 12,
+    def macd(self, data: pd.Series | np.ndarray, fast: int = 12,
              slow: int = 26, signal: int = 9) -> dict[str, np.ndarray]:
         """MACD with signal generation"""
         try:
@@ -350,7 +350,7 @@ class CoreTechnicalIndicators:
     # MOMENTUM INDICATORS
     # ==========================================================================
 
-    def rsi(self, data: Union[pd.Series, np.ndarray], period: int = 14) -> np.ndarray:
+    def rsi(self, data: pd.Series | np.ndarray, period: int = 14) -> np.ndarray:
         """Relative Strength Index with proper handling"""
         try:
             data_series = pd.Series(data)
@@ -435,7 +435,7 @@ class CoreTechnicalIndicators:
     # VOLATILITY INDICATORS
     # ==========================================================================
 
-    def bollinger_bands(self, data: Union[pd.Series, np.ndarray], period: int = 20,
+    def bollinger_bands(self, data: pd.Series | np.ndarray, period: int = 20,
                        std_multiplier: float = 2.0) -> dict[str, np.ndarray]:
         """Bollinger Bands with squeeze detection"""
         try:

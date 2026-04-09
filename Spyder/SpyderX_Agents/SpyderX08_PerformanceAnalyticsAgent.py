@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -28,7 +27,8 @@ Change Log:
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+import os
+from datetime import datetime
 from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -36,7 +36,6 @@ from enum import Enum
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
 
 try:
     import ollama
@@ -57,10 +56,17 @@ try:
 except ImportError:
     SpyderErrorHandler = None
 
+try:
+    from SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
+except ImportError:
+    import re as _re
+    def strip_thinking_block(content: str) -> str:  # type: ignore[misc]
+        return _re.sub(r"<\|channel>thought\n.*?<channel\|>", "", content, flags=_re.DOTALL).strip()
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-DEFAULT_MODEL = "llama3.1:8b"
+DEFAULT_MODEL = os.getenv("OLLAMA_PRIMARY_MODEL", "gemma4:26b")
 DEFAULT_TEMPERATURE = 0.3
 ANALYSIS_LOOKBACK_DAYS = 30
 MIN_TRADES_FOR_ANALYSIS = 5
@@ -102,7 +108,7 @@ class PerformanceSnapshot:
 class PerformanceAnalysis:
     """Result of AI-enhanced performance analysis."""
     timestamp: datetime = field(default_factory=datetime.now)
-    snapshot: Optional[PerformanceSnapshot] = None
+    snapshot: PerformanceSnapshot | None = None
     natural_language_summary: str = ""
     strengths: list[str] = field(default_factory=list)
     weaknesses: list[str] = field(default_factory=list)
@@ -139,7 +145,7 @@ class PerformanceAnalyticsAgent:
         self,
         model_name: str = DEFAULT_MODEL,
         temperature: float = DEFAULT_TEMPERATURE,
-        config: Optional[dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         Initialize the Performance Analytics Agent.
@@ -180,7 +186,7 @@ class PerformanceAnalyticsAgent:
         try:
             if OLLAMA_AVAILABLE:
                 self.logger.info(
-                    f"PerformanceAnalyticsAgent initialized with model={self.model_name}"
+                    "PerformanceAnalyticsAgent initialized with model=%s", self.model_name
                 )
             else:
                 self.logger.warning(
@@ -189,7 +195,7 @@ class PerformanceAnalyticsAgent:
             self._initialized = True
             return True
         except Exception as e:
-            self.logger.error(f"Failed to initialize PerformanceAnalyticsAgent: {e}")
+            self.logger.error("Failed to initialize PerformanceAnalyticsAgent: %s", e)
             return False
 
     # ==========================================================================
@@ -199,7 +205,7 @@ class PerformanceAnalyticsAgent:
     async def analyze_performance(
         self,
         snapshot: PerformanceSnapshot,
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> PerformanceAnalysis:
         """
         Perform AI-enhanced performance analysis on a snapshot.
@@ -235,7 +241,7 @@ class PerformanceAnalyticsAgent:
             self.analysis_history.append(analysis)
 
         except Exception as e:
-            self.logger.error(f"Performance analysis failed: {e}")
+            self.logger.error("Performance analysis failed: %s", e)
             analysis.natural_language_summary = (
                 f"Analysis incomplete due to error: {e}"
             )
@@ -365,7 +371,7 @@ class PerformanceAnalyticsAgent:
     async def _generate_ai_summary(
         self,
         snapshot: PerformanceSnapshot,
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """Generate AI-enhanced natural-language performance summary."""
         prompt = self._build_analysis_prompt(snapshot, context)
@@ -385,17 +391,17 @@ class PerformanceAnalyticsAgent:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                options={"temperature": self.temperature},
+                options={"temperature": self.temperature, "think": False},
             )
-            return response["message"]["content"]
+            return strip_thinking_block(response["message"]["content"])
         except Exception as e:
-            self.logger.warning(f"AI summary generation failed: {e}")
+            self.logger.warning("AI summary generation failed: %s", e)
             return self._generate_rule_summary(snapshot)
 
     def _build_analysis_prompt(
         self,
         snapshot: PerformanceSnapshot,
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """Build the prompt for AI performance analysis."""
         data = {
@@ -447,7 +453,7 @@ SpyderX08_PerformanceAnalyticsAgent = PerformanceAnalyticsAgent
 def create_performance_analytics_agent(
     model_name: str = DEFAULT_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
-    config: Optional[dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> PerformanceAnalyticsAgent:
     """
     Factory function to create a Performance Analytics Agent instance.
@@ -466,7 +472,7 @@ def create_performance_analytics_agent(
 
 
 # Singleton instance
-_module_instance: Optional[PerformanceAnalyticsAgent] = None
+_module_instance: PerformanceAnalyticsAgent | None = None
 
 
 def get_module_instance() -> PerformanceAnalyticsAgent:
@@ -496,6 +502,6 @@ if __name__ == "__main__":
             losing_trades=17,
         )
         analysis = await agent.analyze_performance(snapshot)
-        print(analysis.natural_language_summary)
+        print(analysis.natural_language_summary)  # noqa: T201
 
     asyncio.run(_demo())

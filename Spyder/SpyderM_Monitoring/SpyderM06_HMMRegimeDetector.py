@@ -24,7 +24,7 @@ Description:
 
 # Standard library imports
 import logging
-import pickle
+import joblib
 import warnings
 from datetime import datetime
 from typing import Any
@@ -100,17 +100,19 @@ REGIME_RISK_LIMITS = {
 # ==============================================================================
 # LOGGER SETUP
 # ==============================================================================
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+try:
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger as _SpyderLogger
+    logger = _SpyderLogger.get_logger(__name__)
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
 # ==============================================================================
 # DATA CLASSES
@@ -255,7 +257,7 @@ class SpyderM06_HMMRegimeDetector:
             )
             logger.info("HMM model initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize HMM model: {e}", exc_info=True)
+            logger.error("Failed to initialize HMM model: %s", e, exc_info=True)
             self.hmm_model = None
 
     # ==========================================================================
@@ -288,7 +290,7 @@ class SpyderM06_HMMRegimeDetector:
                     self._detect_regime()
 
             except Exception as e:
-                logger.error(f"Error updating market data: {e}", exc_info=True)
+                logger.error("Error updating market data: %s", e, exc_info=True)
 
     def _engineer_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -335,7 +337,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error engineering features: {e}", exc_info=True)
+            logger.error("Error engineering features: %s", e, exc_info=True)
             return pd.DataFrame()
 
     def _add_technical_indicators(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -370,7 +372,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding technical indicators: {e}", exc_info=True)
+            logger.error("Error adding technical indicators: %s", e, exc_info=True)
             return features
 
     def _add_microstructure_features(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -396,7 +398,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding microstructure features: {e}", exc_info=True)
+            logger.error("Error adding microstructure features: %s", e, exc_info=True)
             return features
 
     def _add_statistical_features(self, features: pd.DataFrame) -> pd.DataFrame:
@@ -423,7 +425,7 @@ class SpyderM06_HMMRegimeDetector:
             return features
 
         except Exception as e:
-            logger.error(f"Error adding statistical features: {e}", exc_info=True)
+            logger.error("Error adding statistical features: %s", e, exc_info=True)
             return features
 
     def _calculate_hurst(self, series: pd.Series) -> float:
@@ -498,7 +500,7 @@ class SpyderM06_HMMRegimeDetector:
                 self._update_metrics(regime_data)
 
         except Exception as e:
-            logger.error(f"Error in regime detection: {e}", exc_info=True)
+            logger.error("Error in regime detection: %s", e, exc_info=True)
 
     def _prepare_hmm_features(self) -> np.ndarray | None:
         """Prepare features for HMM model"""
@@ -535,7 +537,7 @@ class SpyderM06_HMMRegimeDetector:
             return features.values
 
         except Exception as e:
-            logger.error(f"Error preparing HMM features: {e}", exc_info=True)
+            logger.error("Error preparing HMM features: %s", e, exc_info=True)
             return None
 
     def _ensure_stationarity(self, features: pd.DataFrame) -> pd.DataFrame:
@@ -560,7 +562,7 @@ class SpyderM06_HMMRegimeDetector:
             return stationary_features.fillna(method='ffill').fillna(0)
 
         except Exception as e:
-            logger.error(f"Error ensuring stationarity: {e}", exc_info=True)
+            logger.error("Error ensuring stationarity: %s", e, exc_info=True)
             return features
 
     def _should_retrain(self) -> bool:
@@ -602,7 +604,7 @@ class SpyderM06_HMMRegimeDetector:
         the most recent ~3 months of data.
         """
         if len(features) > ROLLING_WINDOW_DAYS:
-            logger.debug(f"Applying rolling window: using last {ROLLING_WINDOW_DAYS} of {len(features)} samples")
+            logger.debug("Applying rolling window: using last %s of %s samples", ROLLING_WINDOW_DAYS, len(features))
             return features[-ROLLING_WINDOW_DAYS:]
         return features
 
@@ -634,7 +636,7 @@ class SpyderM06_HMMRegimeDetector:
                        f"(rolling window from {len(features)} total)")
 
         except Exception as e:
-            logger.error(f"Error training model: {e}", exc_info=True)
+            logger.error("Error training model: %s", e, exc_info=True)
 
     def _train_regime_models(self, features: np.ndarray) -> None:
         """Train regime-specific ML models"""
@@ -670,10 +672,10 @@ class SpyderM06_HMMRegimeDetector:
                 regime = self._map_state_to_regime(state, features[mask])
                 self.regime_models[regime] = model
 
-                logger.debug(f"Trained model for {regime.value} with {len(X)} samples")
+                logger.debug("Trained model for %s with %s samples", regime.value, len(X))
 
         except Exception as e:
-            logger.error(f"Error training regime models: {e}", exc_info=True)
+            logger.error("Error training regime models: %s", e, exc_info=True)
 
     def _predict_regime(self, features: np.ndarray) -> RegimeData | None:
         """Predict current market regime"""
@@ -716,7 +718,7 @@ class SpyderM06_HMMRegimeDetector:
             return regime_data
 
         except Exception as e:
-            logger.error(f"Error predicting regime: {e}", exc_info=True)
+            logger.error("Error predicting regime: %s", e, exc_info=True)
             return None
 
     def _map_state_to_regime(self, state: int, features: np.ndarray) -> MarketRegime:
@@ -743,7 +745,7 @@ class SpyderM06_HMMRegimeDetector:
                 return MarketRegime.TRANSITIONAL_NEUTRAL
 
         except Exception as e:
-            logger.error(f"Error mapping state to regime: {e}", exc_info=True)
+            logger.error("Error mapping state to regime: %s", e, exc_info=True)
             return MarketRegime.TRANSITIONAL_NEUTRAL
 
     def _calculate_transition_probability(self, states: np.ndarray) -> float:
@@ -767,7 +769,7 @@ class SpyderM06_HMMRegimeDetector:
             return float(trans_prob)
 
         except Exception as e:
-            logger.error(f"Error calculating transition probability: {e}", exc_info=True)
+            logger.error("Error calculating transition probability: %s", e, exc_info=True)
             return 0.0
 
     def _extract_current_features(self) -> dict[str, float]:
@@ -792,7 +794,7 @@ class SpyderM06_HMMRegimeDetector:
             return current_features
 
         except Exception as e:
-            logger.error(f"Error extracting features: {e}", exc_info=True)
+            logger.error("Error extracting features: %s", e, exc_info=True)
             return {}
 
     # ==========================================================================
@@ -839,7 +841,7 @@ class SpyderM06_HMMRegimeDetector:
             self.regime_history.append(regime_data)
 
         except Exception as e:
-            logger.error(f"Error updating regime state: {e}", exc_info=True)
+            logger.error("Error updating regime state: %s", e, exc_info=True)
 
     # ==========================================================================
     # SIGNAL GENERATION METHODS
@@ -867,7 +869,7 @@ class SpyderM06_HMMRegimeDetector:
                 signals.extend(self._generate_neutral_signals(regime_data))
 
         except Exception as e:
-            logger.error(f"Error generating signals: {e}", exc_info=True)
+            logger.error("Error generating signals: %s", e, exc_info=True)
 
         return signals
 
@@ -902,7 +904,7 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating trending signals: {e}", exc_info=True)
+            logger.error("Error generating trending signals: %s", e, exc_info=True)
 
         return signals
 
@@ -937,7 +939,7 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating mean reversion signals: {e}", exc_info=True)
+            logger.error("Error generating mean reversion signals: %s", e, exc_info=True)
 
         return signals
 
@@ -963,7 +965,7 @@ class SpyderM06_HMMRegimeDetector:
             signals.append(signal)
 
         except Exception as e:
-            logger.error(f"Error generating neutral signals: {e}", exc_info=True)
+            logger.error("Error generating neutral signals: %s", e, exc_info=True)
 
         return signals
 
@@ -1013,7 +1015,7 @@ class SpyderM06_HMMRegimeDetector:
                 cls._L09_TO_M06_REGIME_MAP = {}
         return cls._L09_TO_M06_REGIME_MAP
 
-    def update_from_unified_engine(self, consensus: 'L09RegimeConsensus') -> None:
+    def update_from_unified_engine(self, consensus: Any) -> None:
         """
         Update regime state from L09 UnifiedRegimeEngine consensus.
 
@@ -1060,7 +1062,7 @@ class SpyderM06_HMMRegimeDetector:
                 )
 
             except Exception as e:
-                logger.error(f"Error updating from unified engine: {e}", exc_info=True)
+                logger.error("Error updating from unified engine: %s", e, exc_info=True)
 
     def get_regime_context(self) -> dict[str, Any]:
         """
@@ -1198,7 +1200,7 @@ class SpyderM06_HMMRegimeDetector:
                 )
 
         except Exception as e:
-            logger.error(f"Error updating metrics: {e}", exc_info=True)
+            logger.error("Error updating metrics: %s", e, exc_info=True)
 
     def get_performance_metrics(self) -> dict[str, Any]:
         """Get performance metrics"""
@@ -1372,19 +1374,17 @@ class SpyderM06_HMMRegimeDetector:
                 'metrics': self.metrics
             }
 
-            with open(filepath, 'wb') as f:
-                pickle.dump(model_data, f)
+            joblib.dump(model_data, filepath)
 
-            logger.info(f"Model saved to {filepath}")
+            logger.info("Model saved to %s", filepath)
 
         except Exception as e:
-            logger.error(f"Error saving model: {e}", exc_info=True)
+            logger.error("Error saving model: %s", e, exc_info=True)
 
     def load_model(self, filepath: str) -> None:
         """Load model from disk"""
         try:
-            with open(filepath, 'rb') as f:
-                model_data = pickle.load(f)
+            model_data = joblib.load(filepath)
 
             self.hmm_model = model_data['hmm_model']
             self.scaler = model_data['scaler']
@@ -1392,10 +1392,10 @@ class SpyderM06_HMMRegimeDetector:
             self.config.update(model_data['config'])
             self.metrics = model_data['metrics']
 
-            logger.info(f"Model loaded from {filepath}")
+            logger.info("Model loaded from %s", filepath)
 
         except Exception as e:
-            logger.error(f"Error loading model: {e}", exc_info=True)
+            logger.error("Error loading model: %s", e, exc_info=True)
 
     def cleanup(self) -> None:
         """Cleanup resources"""
@@ -1403,7 +1403,7 @@ class SpyderM06_HMMRegimeDetector:
             self.executor.shutdown(wait=True)
             logger.info("HMM Regime Detector cleaned up")
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}", exc_info=True)
+            logger.error("Error during cleanup: %s", e, exc_info=True)
 
 # ==============================================================================
 # MODULE FUNCTIONS

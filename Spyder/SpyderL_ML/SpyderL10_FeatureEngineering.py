@@ -270,7 +270,7 @@ class FeatureEngineer:
             return feature_set
 
         except Exception as e:
-            self.logger.error(f"Error extracting features: {e}")
+            self.logger.error("Error extracting features: %s", e)
             self.error_handler.handle_error(e, "extract_features")
             return self._get_empty_feature_set(timestamp)
 
@@ -322,7 +322,7 @@ class FeatureEngineer:
             return features_df
 
         except Exception as e:
-            self.logger.error(f"Error in batch feature extraction: {e}")
+            self.logger.error("Error in batch feature extraction: %s", e)
             return pd.DataFrame()
 
     # ==========================================================================
@@ -431,7 +431,7 @@ class FeatureEngineer:
                     features['distance_to_support'] = (price - nearest_support) / price
 
         except Exception as e:
-            self.logger.error(f"Error extracting price features: {e}")
+            self.logger.error("Error extracting price features: %s", e)
 
         return features
 
@@ -526,7 +526,7 @@ class FeatureEngineer:
                     features['obv_trend'] = slope
 
         except Exception as e:
-            self.logger.error(f"Error extracting volume features: {e}")
+            self.logger.error("Error extracting volume features: %s", e)
 
         return features
 
@@ -626,7 +626,7 @@ class FeatureEngineer:
                     features['iv_percentile'] = stats.percentileofscore(historical_ivs, current_iv) / 100
 
         except Exception as e:
-            self.logger.error(f"Error extracting Greeks features: {e}")
+            self.logger.error("Error extracting Greeks features: %s", e)
 
         return features
 
@@ -683,7 +683,7 @@ class FeatureEngineer:
             features['volume_thrust'] = market_internals.get('volume_thrust', 0)
 
         except Exception as e:
-            self.logger.error(f"Error extracting market features: {e}")
+            self.logger.error("Error extracting market features: %s", e)
 
         return features
 
@@ -764,7 +764,7 @@ class FeatureEngineer:
                     features['kyle_lambda'] = kyle_lambda
 
         except Exception as e:
-            self.logger.error(f"Error extracting microstructure features: {e}")
+            self.logger.error("Error extracting microstructure features: %s", e)
 
         return features
 
@@ -825,7 +825,7 @@ class FeatureEngineer:
             features['is_month_end'] = 1 if timestamp.day >= 25 else 0
 
         except Exception as e:
-            self.logger.error(f"Error extracting time features: {e}")
+            self.logger.error("Error extracting time features: %s", e)
 
         return features
 
@@ -912,7 +912,7 @@ class FeatureEngineer:
                     features['flag_pattern'] = 0
 
         except Exception as e:
-            self.logger.error(f"Error extracting pattern features: {e}")
+            self.logger.error("Error extracting pattern features: %s", e)
 
         return features
 
@@ -977,7 +977,7 @@ class FeatureEngineer:
                     features['correlation_regime_normal'] = 1 if correlation < -0.5 else 0
 
         except Exception as e:
-            self.logger.error(f"Error extracting regime features: {e}")
+            self.logger.error("Error extracting regime features: %s", e)
 
         return features
 
@@ -1026,7 +1026,7 @@ class FeatureEngineer:
                 features['correlation_stability'] = 1 - abs(corr_5 - corr_10)
 
         except Exception as e:
-            self.logger.error(f"Error extracting correlation features: {e}")
+            self.logger.error("Error extracting correlation features: %s", e)
 
         return features
 

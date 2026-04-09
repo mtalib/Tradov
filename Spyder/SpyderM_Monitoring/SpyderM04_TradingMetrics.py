@@ -267,7 +267,7 @@ class TradingMetrics:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start monitoring: {e}")
+            self.logger.error("Failed to start monitoring: %s", e)
             return False
 
     def stop_monitoring(self) -> bool:
@@ -293,7 +293,7 @@ class TradingMetrics:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error stopping monitoring: {e}")
+            self.logger.error("Error stopping monitoring: %s", e)
             return False
 
     # ==========================================================================
@@ -307,7 +307,7 @@ class TradingMetrics:
             trade: Trade metrics object
         """
         self.current_trades[trade.trade_id] = trade
-        self.logger.debug(f"Opened trade: {trade.trade_id}")
+        self.logger.debug("Opened trade: %s", trade.trade_id)
 
     def close_trade(
         self,
@@ -327,7 +327,7 @@ class TradingMetrics:
             Completed trade metrics or None
         """
         if trade_id not in self.current_trades:
-            self.logger.error(f"Trade {trade_id} not found")
+            self.logger.error("Trade %s not found", trade_id)
             return None
 
         trade = self.current_trades.pop(trade_id)
@@ -609,12 +609,12 @@ class TradingMetrics:
                 alerts = self.check_performance_alerts()
                 if alerts:
                     for alert in alerts:
-                        self.logger.warning(f"Performance Alert: {alert}")
+                        self.logger.warning("Performance Alert: %s", alert)
 
                 self.stop_event.wait(METRICS_UPDATE_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Monitoring error: {e}")
+                self.logger.error("Monitoring error: %s", e)
 
     def _aggregation_loop(self):
         """Metrics aggregation loop."""
@@ -629,7 +629,7 @@ class TradingMetrics:
                 self.stop_event.wait(AGGREGATE_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Aggregation error: {e}")
+                self.logger.error("Aggregation error: %s", e)
 
     # ==========================================================================
     # PRIVATE METHODS - METRICS CALCULATION

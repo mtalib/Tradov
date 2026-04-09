@@ -265,7 +265,7 @@ class CircuitBreakerMonitor(QWidget):
             self.reset_requested.emit(breaker_id)
             self.update_display()
         except Exception as e:
-            logging.info(f"❌ Error resetting {breaker_id} circuit breaker: {e}")
+            logging.info("❌ Error resetting %s circuit breaker: %s", breaker_id, e)
 
 # ==============================================================================
 # FACTORY FUNCTION

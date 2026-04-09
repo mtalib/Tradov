@@ -37,7 +37,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Callable, Any
+from typing import Any
+from collections.abc import Callable
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS WITH FALLBACKS
@@ -80,7 +81,7 @@ except ImportError:
     logging.info("WARNING: SpyderErrorHandler not available - using basic error handling")
     class SpyderErrorHandler:
         def handle_error(self, error, context=""):
-            logging.info(f"ERROR in {context}: {error}")
+            logging.info("ERROR in %s: %s", context, error)
 
 try:
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
@@ -754,7 +755,7 @@ class TradingMetrics:
         if trade.status == TradeStatus.EXECUTED:
             self._update_from_trade(trade)
 
-        self.logger.debug(f"Recorded trade: {trade.trade_id}")
+        self.logger.debug("Recorded trade: %s", trade.trade_id)
 
     def update_portfolio_value(self, total_value: float, cash_balance: float):
         """Update portfolio value metrics."""
@@ -967,7 +968,7 @@ class PrometheusMetricsCollector:
         self._last_system_update = datetime.now()
         self._system_metrics_interval = 30.0  # seconds
 
-        self.logger.info(f"PrometheusMetricsCollector initialized on port {self.config.port}")
+        self.logger.info("PrometheusMetricsCollector initialized on port %s", self.config.port)
 
     def start(self) -> bool:
         """Start the metrics collection and HTTP server."""
@@ -989,9 +990,9 @@ class PrometheusMetricsCollector:
                     addr=self.config.host,
                     registry=self.registry
                 )
-                self.logger.info(f"Metrics HTTP server started on {self.config.host}:{self.config.port}")
+                self.logger.info("Metrics HTTP server started on %s:%s", self.config.host, self.config.port)
             except Exception as e:
-                self.logger.error(f"Failed to start HTTP server: {e}")
+                self.logger.error("Failed to start HTTP server: %s", e)
                 return False
 
             # Start trading metrics
@@ -1083,7 +1084,7 @@ class PrometheusMetricsCollector:
                 'architecture': platform.architecture()[0]
             })
         except Exception as e:
-            self.logger.debug(f"Failed to update system info: {e}")
+            self.logger.debug("Failed to update system info: %s", e)
 
     def _update_system_metrics(self):
         """Update system performance metrics."""
@@ -1113,7 +1114,7 @@ class PrometheusMetricsCollector:
             self._last_system_update = datetime.now()
 
         except Exception as e:
-            self.logger.debug(f"Failed to update system metrics: {e}")
+            self.logger.debug("Failed to update system metrics: %s", e)
 
     def _update_trading_metrics(self):
         """Update trading-related metrics."""
@@ -1144,7 +1145,7 @@ class PrometheusMetricsCollector:
                 self.metrics.strategy_win_rate.labels(strategy=strategy_name).set(strategy.win_rate)
 
         except Exception as e:
-            self.logger.debug(f"Failed to update trading metrics: {e}")
+            self.logger.debug("Failed to update trading metrics: %s", e)
 
     def _update_gateway_metrics(self):
         """Update gateway connection metrics."""
@@ -1165,7 +1166,7 @@ class PrometheusMetricsCollector:
                 ).set(1 if is_connected else 0)
 
         except Exception as e:
-            self.logger.debug(f"Failed to update gateway metrics: {e}")
+            self.logger.debug("Failed to update gateway metrics: %s", e)
 
     def _check_client_connection(self, client_id: int) -> bool:
         """Check if a client is connected (placeholder)."""
@@ -1418,5 +1419,5 @@ try:
         class PrometheusMetrics:
             def __init__(self): pass
 except Exception:
-        pass
+    pass
 

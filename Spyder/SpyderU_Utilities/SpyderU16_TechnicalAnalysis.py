@@ -60,7 +60,7 @@ try:
 
     TA_AVAILABLE = True
 except ImportError as e:
-    logging.info(f"Warning: TA library not fully available: {e}")
+    logging.info("Warning: TA library not fully available: %s", e)
     TA_AVAILABLE = False
 
 # ==============================================================================
@@ -187,7 +187,7 @@ class TechnicalAnalysis:
         self._cache_maxsize: int = 256
 
         if self.logger:
-            self.logger.info(f"{self.__class__.__name__} initialized")
+            self.logger.info("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # TREND INDICATORS

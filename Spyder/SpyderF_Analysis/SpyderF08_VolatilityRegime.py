@@ -34,7 +34,7 @@ from collections import defaultdict
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import pickle
+import joblib
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from scipy import stats
@@ -273,7 +273,7 @@ class VolatilityRegimeAnalyzer:
             self._retrain_model(training_data)
             return True
         except Exception as e:
-            self.logger.error(f"Force retrain failed: {e}")
+            self.logger.error("Force retrain failed: %s", e)
             return False
 
     def get_regime_recommendations(self, current_regime: VolatilityRegime) -> dict[str, Any]:
@@ -409,10 +409,10 @@ class VolatilityRegimeAnalyzer:
                         performance_metrics={'log_likelihood': self.regime_model.score(X_scaled)}
                     )
 
-                self.logger.info(f"Model retrained successfully (version {self.model_version})")
+                self.logger.info("Model retrained successfully (version %s)", self.model_version)
 
         except Exception as e:
-            self.logger.error(f"Model retraining failed: {e}")
+            self.logger.error("Model retraining failed: %s", e)
 
     def _initialize_model(self):
         """Initialize or load existing model."""
@@ -424,22 +424,21 @@ class VolatilityRegimeAnalyzer:
                     self.regime_model = model_data['model']
                     self.model_version = int(model_data.get('version', 0))
                     self.last_retrain_date = model_data.get('trained_at')
-                    self.logger.info(f"Loaded model version {self.model_version}")
+                    self.logger.info("Loaded model version %s", self.model_version)
                     return
 
             # Try to load from file
             import os
             if os.path.exists(self.model_save_path):
-                with open(self.model_save_path, 'rb') as f:
-                    model_data = pickle.load(f)
-                    self.regime_model = model_data['model']
-                    self.scaler = model_data['scaler']
-                    self.model_version = model_data.get('version', 0)
-                    self.last_retrain_date = model_data.get('last_retrain_date')
-                    self.logger.info(f"Loaded model from file (version {self.model_version})")
+                model_data = joblib.load(self.model_save_path)
+                self.regime_model = model_data['model']
+                self.scaler = model_data['scaler']
+                self.model_version = model_data.get('version', 0)
+                self.last_retrain_date = model_data.get('last_retrain_date')
+                self.logger.info("Loaded model from file (version %s)", self.model_version)
 
         except Exception as e:
-            self.logger.warning(f"Could not load existing model: {e}")
+            self.logger.warning("Could not load existing model: %s", e)
 
     def _save_model(self):
         """Save model to file."""
@@ -458,11 +457,10 @@ class VolatilityRegimeAnalyzer:
                 }
             }
 
-            with open(self.model_save_path, 'wb') as f:
-                pickle.dump(model_data, f)
+            joblib.dump(model_data, self.model_save_path)
 
         except Exception as e:
-            self.logger.error(f"Failed to save model: {e}")
+            self.logger.error("Failed to save model: %s", e)
 
     # ==========================================================================
     # FEATURE EXTRACTION
@@ -598,7 +596,7 @@ class VolatilityRegimeAnalyzer:
             )
 
         except Exception as e:
-            self.logger.error(f"ML regime detection failed: {e}")
+            self.logger.error("ML regime detection failed: %s", e)
             return self._statistical_regime_detection(features)
 
     def _statistical_regime_detection(self, features: pd.Series) -> RegimeState:
@@ -768,7 +766,7 @@ class VolatilityRegimeAnalyzer:
             return prediction
 
         except Exception as e:
-            self.logger.error(f"Regime prediction failed: {e}")
+            self.logger.error("Regime prediction failed: %s", e)
             return None
 
     # ==========================================================================

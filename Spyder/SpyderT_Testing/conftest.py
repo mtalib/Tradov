@@ -235,8 +235,14 @@ def sample_multileg_order():
 # ==============================================================================
 
 @pytest.fixture
+def massive_env(monkeypatch):
+    """Set Massive environment variables."""
+    monkeypatch.setenv("MASSIVE_API_KEY", "test_massive_key_12345678")
+
+
+@pytest.fixture
 def databento_env(monkeypatch):
-    """Set Databento environment variables."""
+    """Set Databento environment variables (legacy — kept for backward compatibility)."""
     monkeypatch.setenv("DATABENTO_API_KEY", "test_databento_key_12345678")
 
 

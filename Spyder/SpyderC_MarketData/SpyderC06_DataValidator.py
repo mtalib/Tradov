@@ -25,7 +25,7 @@ Change Log:
 import time
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum
@@ -470,7 +470,7 @@ class DataValidator:
                     n_estimators=100
                 )
             except Exception as e:
-                self.logger.warning(f"Failed to initialize anomaly detection: {e}")
+                self.logger.warning("Failed to initialize anomaly detection: %s", e)
                 self.enable_anomaly_detection = False
 
     def _register_event_callbacks(self) -> None:
@@ -529,7 +529,7 @@ class DataValidator:
     # ==========================================================================
     # VALIDATION METHODS
     # ==========================================================================
-    def validate_data(self, data: Union[DataPoint, dict]) -> ValidationResult:
+    def validate_data(self, data: DataPoint | dict) -> ValidationResult:
         """
         Validate data point against all rules.
 
@@ -666,7 +666,7 @@ class DataValidator:
                         anomalies.append(AnomalyType.VOLUME_SPIKE)
 
         except Exception as e:
-            self.logger.debug(f"Anomaly detection error: {e}")
+            self.logger.debug("Anomaly detection error: %s", e)
 
         return anomalies
 
@@ -821,7 +821,7 @@ class DataValidator:
                 self.anomaly_detector.fit(scaled_features)
 
         except Exception as e:
-            self.logger.debug(f"Anomaly model update failed: {e}")
+            self.logger.debug("Anomaly model update failed: %s", e)
 
     # ==========================================================================
     # UTILITY METHODS
@@ -1016,7 +1016,7 @@ class DataValidator:
             rule: ValidationRule to add
         """
         self.validation_rules.append(rule)
-        self.logger.info(f"Added validation rule: {rule.name}")
+        self.logger.info("Added validation rule: %s", rule.name)
 
     def enable_rule(self, rule_name: str) -> bool:
         """

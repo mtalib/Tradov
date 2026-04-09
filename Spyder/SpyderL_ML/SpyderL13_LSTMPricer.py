@@ -43,10 +43,9 @@ from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"Using device: {device}")
+logger.info("Using device: %s", device)
 
 
 @dataclass
@@ -381,7 +380,7 @@ class SpyderLSTMPricer:
             else:
                 patience_counter += 1
             if patience_counter >= self.config.early_stopping_patience:
-                logger.info(f"Early stopping at epoch {epoch}")
+                logger.info("Early stopping at epoch %s", epoch)
                 break
             # Log progress
             if epoch % 10 == 0:
@@ -642,7 +641,7 @@ class SpyderLSTMPricer:
         Args:
             new_data: New option data for updating
         """
-        logger.info(f"Incremental update with {len(new_data)} new samples")
+        logger.info("Incremental update with %s new samples", len(new_data))
         # Simple fine-tuning approach
         # In production, would use more sophisticated online learning
         # Reduce learning rate for fine-tuning
@@ -699,8 +698,8 @@ async def main():
         option_prices.append(max(0.01, price + noise))
     training_data["option_price"] = option_prices
     logging.info("=== LSTM Options Pricer ===")
-    logging.info(f"Training samples: {len(training_data)}")
-    logging.info(f"Device: {device}")
+    logging.info("Training samples: %s", len(training_data))
+    logging.info("Device: %s", device)
     # Train model
     logging.info("\n=== Training Model ===")
     metrics = await lstm_pricer.train(training_data, validation_split=0.2)
@@ -739,7 +738,7 @@ async def main():
     # Get model diagnostics
     logging.info("\n=== Model Diagnostics ===")
     diagnostics = lstm_pricer.get_model_diagnostics()
-    logging.info(f"Model Version: {diagnostics['model_info']['version']}")
+    logging.info("Model Version: %s", diagnostics['model_info']['version'])
     logging.info(f"Total Parameters: {diagnostics['model_info']['total_parameters']:,}")
     logging.info(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")
     if "training" in diagnostics:

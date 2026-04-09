@@ -78,7 +78,7 @@ Change Log:
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum, auto
 
 # ==============================================================================
@@ -126,7 +126,7 @@ class StrategyFailureRecord:
     failure_count: int = 0
     consecutive_failures: int = 0
     last_failure_time: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     last_failure_reason: str = ""
     total_loss: float = 0.0
@@ -213,7 +213,7 @@ class StrategyCircuitBreaker:
             self._records[strategy_id] = StrategyFailureRecord(
                 strategy_id=strategy_id
             )
-            logger.debug(f"Registered new strategy in circuit breaker: {strategy_id!r}")
+            logger.debug("Registered new strategy in circuit breaker: %r", strategy_id)
         return self._records[strategy_id]
 
     def _check_auto_transition(self, record: StrategyFailureRecord) -> None:
@@ -226,7 +226,7 @@ class StrategyCircuitBreaker:
             and record.tripped_at is not None
         ):
             elapsed = (
-                datetime.now(timezone.utc) - record.tripped_at
+                datetime.now(UTC) - record.tripped_at
             ).total_seconds()
             if elapsed >= self._config.recovery_timeout:
                 record.state = StrategyCircuitBreakerState.HALF_OPEN
@@ -251,7 +251,7 @@ class StrategyCircuitBreaker:
         if record.consecutive_failures == 0 and record.total_loss >= 0.0:
             return  # Nothing to reset
         elapsed = (
-            datetime.now(timezone.utc) - record.last_failure_time
+            datetime.now(UTC) - record.last_failure_time
         ).total_seconds()
         if elapsed >= self._config.reset_timeout:
             record.consecutive_failures = 0
@@ -267,7 +267,7 @@ class StrategyCircuitBreaker:
         Must be called with ``self._lock`` held.
         """
         record.state = StrategyCircuitBreakerState.OPEN
-        record.tripped_at = datetime.now(timezone.utc)
+        record.tripped_at = datetime.now(UTC)
         logger.warning(
             f"CIRCUIT TRIPPED for strategy {record.strategy_id!r} – {reason}. "
             f"consecutive_failures={record.consecutive_failures}, "
@@ -299,7 +299,7 @@ class StrategyCircuitBreaker:
             allowed = record.state != StrategyCircuitBreakerState.OPEN
             if not allowed:
                 tripped_secs = (
-                    (datetime.now(timezone.utc) - record.tripped_at).total_seconds()
+                    (datetime.now(UTC) - record.tripped_at).total_seconds()
                     if record.tripped_at
                     else 0.0
                 )
@@ -338,7 +338,7 @@ class StrategyCircuitBreaker:
             elif prev_state == StrategyCircuitBreakerState.CLOSED:
                 self._check_reset_timeout(record)
                 logger.debug(
-                    f"Strategy {strategy_id!r} recorded success (circuit CLOSED)"
+                    "Strategy %r recorded success (circuit CLOSED)", strategy_id
                 )
 
     def record_failure(
@@ -366,7 +366,7 @@ class StrategyCircuitBreaker:
 
             record.failure_count += 1
             record.consecutive_failures += 1
-            record.last_failure_time = datetime.now(timezone.utc)
+            record.last_failure_time = datetime.now(UTC)
             record.last_failure_reason = reason
 
             if pnl_impact != 0.0:
@@ -524,7 +524,7 @@ class StrategyCircuitBreaker:
                 tripped_info = ""
                 if record.tripped_at is not None:
                     elapsed = (
-                        datetime.now(timezone.utc) - record.tripped_at
+                        datetime.now(UTC) - record.tripped_at
                     ).total_seconds()
                     if record.state == StrategyCircuitBreakerState.OPEN:
                         remaining = max(
@@ -622,14 +622,14 @@ if __name__ == "__main__":
     STRATEGY = "iron_condor_SPY"
 
     # ------------------------------------------------------------------ normal operation
-    print("\n--- Normal operation ---")
+    print("\n--- Normal operation ---")  # noqa: T201
     for i in range(2):
         if scb.is_allowed(STRATEGY):
-            print(f"  Trade {i + 1}: allowed")
+            print(f"  Trade {i + 1}: allowed")  # noqa: T201
             scb.record_success(STRATEGY)
 
     # ------------------------------------------------------------------ trip via consecutive failures
-    print("\n--- Injecting 3 consecutive failures (threshold=3) ---")
+    print("\n--- Injecting 3 consecutive failures (threshold=3) ---")  # noqa: T201
     for i in range(3):
         if scb.is_allowed(STRATEGY):
             scb.record_failure(
@@ -638,36 +638,36 @@ if __name__ == "__main__":
                 pnl_impact=-30.0,
             )
         else:
-            print(f"  Trade {i + 1}: BLOCKED (circuit open)")
+            print(f"  Trade {i + 1}: BLOCKED (circuit open)")  # noqa: T201
 
-    print(f"\n  State after failures: {scb.get_state(STRATEGY).name}")
-    print(f"\n  is_allowed now: {scb.is_allowed(STRATEGY)}")
+    print(f"\n  State after failures: {scb.get_state(STRATEGY).name}")  # noqa: T201
+    print(f"\n  is_allowed now: {scb.is_allowed(STRATEGY)}")  # noqa: T201
 
     # ------------------------------------------------------------------ wait for recovery
-    print(f"\n--- Waiting {config.recovery_timeout + 1:.0f}s for HALF_OPEN transition ---")
+    print(f"\n--- Waiting {config.recovery_timeout + 1:.0f}s for HALF_OPEN transition ---")  # noqa: T201
     time.sleep(config.recovery_timeout + 1)
 
-    print(f"  State after timeout: {scb.get_state(STRATEGY).name}")
-    print(f"  is_allowed (HALF_OPEN probe): {scb.is_allowed(STRATEGY)}")
+    print(f"  State after timeout: {scb.get_state(STRATEGY).name}")  # noqa: T201
+    print(f"  is_allowed (HALF_OPEN probe): {scb.is_allowed(STRATEGY)}")  # noqa: T201
 
     # ------------------------------------------------------------------ successful probe closes circuit
-    print("\n--- Recording success in HALF_OPEN ---")
+    print("\n--- Recording success in HALF_OPEN ---")  # noqa: T201
     scb.record_success(STRATEGY)
-    print(f"  State after success: {scb.get_state(STRATEGY).name}")
+    print(f"  State after success: {scb.get_state(STRATEGY).name}")  # noqa: T201
 
     # ------------------------------------------------------------------ trip via P&L loss
     LOSS_STRATEGY = "put_spread_QQQ"
-    print(f"\n--- Tripping {LOSS_STRATEGY!r} via P&L loss (threshold=-200) ---")
+    print(f"\n--- Tripping {LOSS_STRATEGY!r} via P&L loss (threshold=-200) ---")  # noqa: T201
     scb.record_pnl(LOSS_STRATEGY, pnl=-150.0)
-    print(f"  After -150: {scb.get_state(LOSS_STRATEGY).name}")
+    print(f"  After -150: {scb.get_state(LOSS_STRATEGY).name}")  # noqa: T201
     scb.record_pnl(LOSS_STRATEGY, pnl=-80.0)
-    print(f"  After -80 more: {scb.get_state(LOSS_STRATEGY).name}")
+    print(f"  After -80 more: {scb.get_state(LOSS_STRATEGY).name}")  # noqa: T201
 
     # ------------------------------------------------------------------ manual reset
-    print(f"\n--- Manually resetting {LOSS_STRATEGY!r} ---")
+    print(f"\n--- Manually resetting {LOSS_STRATEGY!r} ---")  # noqa: T201
     scb.manually_reset(LOSS_STRATEGY)
-    print(f"  State after reset: {scb.get_state(LOSS_STRATEGY).name}")
+    print(f"  State after reset: {scb.get_state(LOSS_STRATEGY).name}")  # noqa: T201
 
     # ------------------------------------------------------------------ status report
-    print("\n--- Full status report ---")
-    print(scb.get_status_report())
+    print("\n--- Full status report ---")  # noqa: T201
+    print(scb.get_status_report())  # noqa: T201

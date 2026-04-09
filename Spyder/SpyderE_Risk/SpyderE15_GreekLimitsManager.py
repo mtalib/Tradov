@@ -344,7 +344,7 @@ class GreekLimitsManager:
             # Initialize exposure tracking
             self.current_exposures[strategy_id] = GreekExposure(strategy_id=strategy_id)
 
-            self.logger.info(f"📋 Registered strategy {strategy_id} for Greek limits monitoring")
+            self.logger.info("📋 Registered strategy %s for Greek limits monitoring", strategy_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -370,7 +370,7 @@ class GreekLimitsManager:
 
             strategy_limits.last_updated = datetime.now()
 
-            self.logger.info(f"📊 Updated limits for strategy {strategy_id}")
+            self.logger.info("📊 Updated limits for strategy %s", strategy_id)
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -921,7 +921,7 @@ class GreekLimitsManager:
                 self._stop_event.wait(MONITORING_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
+                self.logger.error("Error in monitoring loop: %s", e)
                 self._stop_event.wait(MONITORING_INTERVAL * 2)  # Longer sleep on error
 
     def _regime_monitoring_loop(self) -> None:
@@ -949,7 +949,7 @@ class GreekLimitsManager:
                 self._stop_event.wait(REGIME_UPDATE_INTERVAL)
 
             except Exception as e:
-                self.logger.error(f"Error in regime monitoring: {e}")
+                self.logger.error("Error in regime monitoring: %s", e)
                 self._stop_event.wait(REGIME_UPDATE_INTERVAL * 2)
 
     def _detect_regime_change(self) -> MarketRegime:
@@ -1119,7 +1119,7 @@ class GreekLimitsManager:
             model = PPO('MlpPolicy', env, verbose=0,
                        learning_rate=3e-4, n_steps=2048)
             model.learn(total_timesteps=total_timesteps)
-            self.logger.info(f"Greek limits RL policy trained: {total_timesteps} steps")
+            self.logger.info("Greek limits RL policy trained: %s steps", total_timesteps)
             return model
         except ImportError:
             self.logger.warning("stable-baselines3 not installed")
