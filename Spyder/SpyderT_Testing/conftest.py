@@ -4,7 +4,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
 Module: conftest.py
-Purpose: Shared pytest fixtures for Tradier + Databento test suites
+Purpose: Shared pytest fixtures for Tradier + Massive test suites
 
 Author: GitHub Copilot
 Year Created: 2026
@@ -14,7 +14,7 @@ Description:
     Module-level conftest providing reusable fixtures for:
     - TradierClient (mocked Session)
     - OrderManager (mocked TradierClient)
-    - DatabentoClient (mocked databento SDK)
+    - Legacy C26 market-data shim (Massive-backed compatibility path)
     - Common API response payloads
 """
 
@@ -231,42 +231,13 @@ def sample_multileg_order():
 
 
 # ==============================================================================
-# DATABENTO FIXTURES
+# MASSIVE / LEGACY SHIM FIXTURES
 # ==============================================================================
 
 @pytest.fixture
 def massive_env(monkeypatch):
     """Set Massive environment variables."""
     monkeypatch.setenv("MASSIVE_API_KEY", "test_massive_key_12345678")
-
-
-@pytest.fixture
-def databento_env(monkeypatch):
-    """Set Databento environment variables (legacy — kept for backward compatibility)."""
-    monkeypatch.setenv("DATABENTO_API_KEY", "test_databento_key_12345678")
-
-
-@pytest.fixture
-def mock_databento_historical():
-    """Mocked databento.Historical client."""
-    hist = MagicMock()
-    # Simulate timeseries.get_range returning a data object with .to_df()
-    mock_data = MagicMock()
-    mock_df = MagicMock()
-    mock_df.__len__ = Mock(return_value=100)
-    mock_data.to_df.return_value = mock_df
-    hist.timeseries.get_range.return_value = mock_data
-    return hist
-
-
-@pytest.fixture
-def databento_client(databento_env):
-    """Create a DatabentoClient with mocked databento SDK."""
-    with patch.dict("sys.modules", {"databento": MagicMock()}):
-        from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import DatabentoClient
-
-        client = DatabentoClient(api_key="test_databento_key_12345678")
-        return client
 
 
 # ==============================================================================

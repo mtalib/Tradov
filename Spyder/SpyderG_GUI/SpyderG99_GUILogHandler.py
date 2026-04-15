@@ -125,6 +125,11 @@ class GUILogHandler(QObject, logging.Handler):
         """
         Handle log message in GUI thread (connected to log_signal).
 
+        All Python logger messages go to the system log only.
+        The AUTONOMOUS AI ACTIVITY panel is populated exclusively via
+        direct add_automation_log() calls so only real trade-related
+        events appear there — never infrastructure/scheduling noise.
+
         Args:
             level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
             message: Formatted log message
@@ -134,17 +139,8 @@ class GUILogHandler(QObject, logging.Handler):
             return
 
         try:
-            # Determine routing based on logger name and keywords
-            is_automation = self._is_automation_log(logger_name, message)
-
-            # Format message with color coding based on level
             formatted_message = self._format_message_for_gui(level, message)
-
-            # Route to appropriate log widget
-            if is_automation:
-                self.dashboard.add_automation_log(formatted_message)
-            else:
-                self.dashboard.add_system_log(formatted_message)
+            self.dashboard.add_system_log(formatted_message)
 
         except Exception as e:
             # Fail silently to prevent infinite logging loops

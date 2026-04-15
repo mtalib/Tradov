@@ -19,23 +19,22 @@ Module Description:
         ``MarketDataProvider`` is the abstract base class that any data source
         must implement.  The concrete provider is:
 
-        - **DatabentoProvider** — wraps ``SpyderC26_DatabentoClient``
-          for OPRA options + equities via Databento.
+                - **MassiveProvider** — wraps ``SpyderC27_MassiveClient``
+                    for current live and fallback market data.
 
         The active provider is selected from ``config/config.py``
-        ``DATA_PROVIDER`` setting (default ``"databento"``).
+                ``DATA_PROVIDER`` setting (default ``"massive"`` within this module).
 
     Data flow:
         Provider stream → _on_provider_data() → validate → MarketTick
         → cache → notify subscribers → EventManager publish
 
 Change Log:
-    2026-02-25 (Phase 3 — Tradier+Databento migration):
+        2026-02-25 (Phase 3 — Tradier+Massive provider abstraction):
         - Replaced legacy broker (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
           with provider abstraction layer
-        - Added DataSource.DATABENTO to enum
-        - Added MarketDataProvider ABC with DatabentoProvider
-        - Rewired get_historical_data() to use Databento historical REST
+                - Added MarketDataProvider ABC with MassiveProvider
+                - Rewired get_historical_data() to use provider-backed historical REST
         - Updated singleton factory and __main__ test block
     2026-01-16:
         - Applied standard Python formatting
@@ -71,19 +70,6 @@ from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
-
-# Provider imports (defensive — providers may not be installed)
-try:
-    from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
-        DatabentoClient,
-        MarketDataUpdate as DatabentoMarketUpdate,
-        ConnectionStatus as DatabentoConnectionStatus,  # noqa: F401
-        create_databento_client_from_env,
-    )
-    HAS_DATABENTO = True
-except ImportError:
-    HAS_DATABENTO = False
-    DatabentoClient = None
 
 try:
     from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
@@ -140,7 +126,6 @@ class DataFeedStatus(Enum):
 
 class DataSource(Enum):
     """Available data sources."""
-    DATABENTO = "databento"
     MASSIVE = "massive"
     CACHE = "cache"
     CUSTOM = "custom"
@@ -167,7 +152,7 @@ class MarketTick:
     low: float | None = None
     close: float | None = None
     vwap: float | None = None
-    source: DataSource = DataSource.DATABENTO
+    source: DataSource = DataSource.MASSIVE
     quality: str = "realtime"
 
     def to_dict(self) -> dict[str, Any]:
@@ -195,7 +180,7 @@ class MarketTick:
 @dataclass
 class DataFeedConfig:
     """Enhanced data feed configuration."""
-    provider: str = "databento"
+    provider: str = "massive"
     cache_enabled: bool = True
     validation_enabled: bool = True
     buffer_size: int = 1000
@@ -203,10 +188,9 @@ class DataFeedConfig:
     heartbeat_interval: int = 30
     error_threshold: int = 10
     custom_metrics_config: dict[str, Any] = field(default_factory=dict)
-    # Databento-specific
-    databento_schema: str = "mbp-1"
-    databento_dataset: str = "OPRA.PILLAR"
     # Massive-specific
+    massive_schema: str = "quotes"
+    massive_dataset: str = "massive-live"
     massive_api_key: str = ""
     massive_symbols: list[str] = field(default_factory=lambda: ["SPY"])
 
@@ -279,224 +263,6 @@ class MarketDataProvider(ABC):
 
 
 # ==============================================================================
-# DATABENTO PROVIDER
-# ==============================================================================
-class DatabentoProvider(MarketDataProvider):
-    """
-    Wraps ``SpyderC26_DatabentoClient`` as a ``MarketDataProvider``.
-
-    Databento streams all options for a set of underlyings.  Equities (SPY,
-    VIX, etc.) are subscribed individually via raw_symbol.
-
-    Historical data is served by Databento's REST API.
-    """
-
-    # Symbols that should be streamed as equities (not options underlyings)
-    EQUITY_SYMBOLS: set[str] = {
-        'SPY', 'QQQ', 'IWM', 'DIA', 'TLT', 'LQD', 'GLD',
-        'UVXY', 'VIX', 'VIX9D', 'VXV', 'VXMT', 'VVIX',
-    }
-
-    def __init__(
-        self,
-        schema: str = "mbp-1",
-        dataset: str = "OPRA.PILLAR",
-    ) -> None:
-        super().__init__()
-
-        if not HAS_DATABENTO:
-            raise ImportError(
-                "databento package not installed.  Run: pip install databento"
-            )
-
-        self._logger = SpyderLogger.get_logger(f"{__name__}.DatabentoProvider")
-        self._schema = schema
-        self._dataset = dataset
-        self._client: DatabentoClient | None = None
-        self._subscribed_symbols: set[str] = set()
-        self._started = False
-
-    # ------------------------------------------------------------------
-    @property
-    def is_connected(self) -> bool:
-        return self._client is not None and self._client.is_connected
-
-    @property
-    def active_source(self) -> DataSource:
-        return DataSource.DATABENTO
-
-    def connect(self) -> bool:
-        """Create the Databento client and start live streaming."""
-        try:
-            self._client = create_databento_client_from_env()
-
-            # Wire callbacks
-            self._client.on_quote = self._on_quote
-            self._client.on_trade = self._on_trade
-            self._client.on_ohlcv = self._on_ohlcv
-            self._client.on_status_change = self._on_connection_status
-
-            # Separate equity vs option underlying symbols
-            underlyings: list[str] = []
-            equity_symbols: list[str] = []
-            for sym in self._subscribed_symbols:
-                if sym in self.EQUITY_SYMBOLS:
-                    equity_symbols.append(sym)
-                else:
-                    underlyings.append(sym)
-
-            # Start live stream
-            if underlyings or equity_symbols:
-                self._client.start_live(
-                    underlyings=underlyings or None,
-                    symbols=equity_symbols or None,
-                    schema=self._schema,
-                    dataset=self._dataset,
-                )
-            else:
-                self._client.start_live(
-                    underlyings=["SPY"],
-                    schema=self._schema,
-                    dataset=self._dataset,
-                )
-
-            self._started = True
-            self._logger.info("DatabentoProvider connected")
-            return True
-
-        except Exception as e:
-            self._logger.error("DatabentoProvider connect failed: %s", e)
-            return False
-
-    def disconnect(self) -> None:
-        if self._client:
-            self._client.stop_live()
-            self._client = None
-        self._started = False
-        self._logger.info("DatabentoProvider disconnected")
-
-    def subscribe(self, symbol: str) -> bool:
-        self._subscribed_symbols.add(symbol)
-        return True
-
-    def unsubscribe(self, symbol: str) -> bool:
-        self._subscribed_symbols.discard(symbol)
-        return True
-
-    def get_historical(
-        self,
-        symbol: str,
-        start: datetime,
-        end: datetime,
-        granularity: str = "1min",
-    ) -> pd.DataFrame:
-        """Fetch historical bars from Databento REST API."""
-        if self._client is None:
-            self._client = create_databento_client_from_env()
-
-        schema_map = {
-            'tick': 'trades',
-            '1s': 'ohlcv-1s',
-            '1min': 'ohlcv-1m',
-            '5min': 'ohlcv-1m',  # fetch 1m then resample
-            '1hour': 'ohlcv-1h',
-            'daily': 'ohlcv-1d',
-        }
-        db_schema = schema_map.get(granularity, 'ohlcv-1m')
-
-        try:
-            df = self._client.get_historical_bars(
-                symbols=[symbol],
-                start=start.strftime("%Y-%m-%dT%H:%M:%S"),
-                end=end.strftime("%Y-%m-%dT%H:%M:%S"),
-                schema=db_schema,
-            )
-            if granularity == '5min' and df is not None and not df.empty:
-                df = df.resample('5min').agg({
-                    col: ('sum' if col == 'volume' else 'last')
-                    for col in df.columns
-                }).dropna()
-            return df if df is not None else pd.DataFrame()
-        except Exception as e:
-            self._logger.error("Historical data fetch failed for %s: %s", symbol, e)
-            return pd.DataFrame()
-
-    # ------------------------------------------------------------------
-    # Databento callbacks → MarketTick
-    # ------------------------------------------------------------------
-    def _on_quote(self, update: 'DatabentoMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        bid = data.get('bid_price')
-        ask = data.get('ask_price')
-        price = round((bid + ask) / 2, 4) if bid and ask else (bid or ask or 0.0)
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=price,
-            size=data.get('bid_size', 0),
-            bid=bid,
-            ask=ask,
-            bid_size=data.get('bid_size'),
-            ask_size=data.get('ask_size'),
-            source=DataSource.DATABENTO,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_trade(self, update: 'DatabentoMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=data.get('price', 0.0),
-            size=data.get('size', 0),
-            volume=data.get('volume'),
-            source=DataSource.DATABENTO,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_ohlcv(self, update: 'DatabentoMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=data.get('close', 0.0),
-            size=0,
-            open=data.get('open'),
-            high=data.get('high'),
-            low=data.get('low'),
-            close=data.get('close'),
-            volume=data.get('volume'),
-            vwap=data.get('vwap'),
-            source=DataSource.DATABENTO,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_connection_status(self, status) -> None:
-        if not self.on_status_change:
-            return
-        status_map = {
-            'connected': DataFeedStatus.CONNECTED,
-            'streaming': DataFeedStatus.CONNECTED,
-            'connecting': DataFeedStatus.CONNECTING,
-            'reconnecting': DataFeedStatus.CONNECTING,
-            'disconnected': DataFeedStatus.DISCONNECTED,
-            'stopped': DataFeedStatus.DISCONNECTED,
-            'error': DataFeedStatus.ERROR,
-        }
-        feed_status = status_map.get(status.value, DataFeedStatus.ERROR)
-        self.on_status_change(feed_status)
-
-
-# ==============================================================================
 # MASSIVE PROVIDER
 # ==============================================================================
 class MassiveProvider(MarketDataProvider):
@@ -508,8 +274,7 @@ class MassiveProvider(MarketDataProvider):
     Historical OHLCV bars are served by the Massive REST API.
 
     This is the preferred provider for SPY equity price ticks when pairing
-    Spyder with Tradier for order execution.  Databento (SpyderC26) remains
-    available for OPRA options depth when deeper order book is needed.
+    Spyder with Tradier for order execution.
     """
 
     def __init__(
@@ -684,7 +449,7 @@ def create_provider(
     Create a ``MarketDataProvider`` by name.
 
     Args:
-        provider_name: ``"databento"`` — the only supported provider.
+        provider_name: ``"massive"`` or ``"tradier"``.
         config: Optional feed configuration for provider-specific settings.
 
     Returns:
@@ -696,18 +461,7 @@ def create_provider(
     name = provider_name.lower().strip()
     cfg = config or DataFeedConfig()
 
-    if name == "databento":
-        if not HAS_DATABENTO:
-            raise ValueError(
-                "Databento provider requested but databento package is not "
-                "installed.  Run: pip install databento"
-            )
-        return DatabentoProvider(
-            schema=cfg.databento_schema,
-            dataset=cfg.databento_dataset,
-        )
-
-    elif name == "massive":
+    if name == "massive":
         if not HAS_MASSIVE:
             raise ValueError(
                 "Massive provider requested but massive package is not "
@@ -721,7 +475,7 @@ def create_provider(
     else:
         raise ValueError(
             f"Unknown provider '{provider_name}'.  "
-            f"Supported: 'databento', 'massive'."
+            f"Supported: 'massive'."
         )
 
 # ==============================================================================
@@ -732,7 +486,7 @@ class DataFeedManager:
     Central data feed orchestrator with provider abstraction.
 
     Coordinates between:
-    - A pluggable ``MarketDataProvider`` (Databento)
+    - A pluggable ``MarketDataProvider`` (Massive)
     - ``MarketDataCache`` for efficient storage
     - Custom metric calculators
     - Event-based distribution system
@@ -741,7 +495,7 @@ class DataFeedManager:
 
         from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 
-        feed = DataFeedManager(provider="databento")
+        feed = DataFeedManager(provider="massive")
         feed.subscribe("SPY", my_callback)
         feed.start()
     """
@@ -756,7 +510,7 @@ class DataFeedManager:
         Initialize enhanced data feed manager.
 
         Args:
-            provider: Provider name (``"databento"``) or a
+            provider: Provider name (``"massive"``) or a
                 pre-built ``MarketDataProvider`` instance.  Defaults to the
                 value in ``config/config.py`` → ``DATA_PROVIDER``.
             event_manager: Shared event manager instance.
@@ -834,7 +588,7 @@ class DataFeedManager:
             from config.config import DATA_PROVIDER
             return DATA_PROVIDER
         except Exception:
-            return "databento"
+            return "massive"
 
     # ==========================================================================
     # INITIALIZATION
@@ -1084,7 +838,7 @@ class DataFeedManager:
         """
         Get historical market data.
 
-        First tries the provider's historical API (Databento REST), then
+        First tries the provider's historical API (Massive REST), then
         falls back to cache.
 
         Args:
@@ -1259,9 +1013,7 @@ class DataFeedManager:
 
         self.logger.error("System error from %s: %s", component, error)
 
-        if severity == 'critical' and component in (
-            'DatabentoProvider', 'MarketDataHub'
-        ):
+        if severity == 'critical' and component in ('MassiveProvider', 'MarketDataHub'):
             self.status = DataFeedStatus.ERROR
 
     # ==========================================================================
@@ -1314,238 +1066,3 @@ class DataFeedManager:
                         if symbol in self.current_data:
                             self.current_data[symbol].quality = "stale"
 
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-    def _notify_subscribers(self, symbol: str, tick: MarketTick) -> None:
-        """Notify all subscribers of a symbol update."""
-        if symbol in self.subscribers:
-            for callback in self.subscribers[symbol]:
-                try:
-                    self.executor.submit(callback, tick)
-                except Exception as e:
-                    self.logger.error("Error in subscriber callback: %s", e)
-
-        for group_name, symbols in SYMBOL_GROUPS.items():
-            if symbol in symbols and group_name in self.group_subscribers:
-                group_data = self._get_group_snapshot(group_name)
-                for callback in self.group_subscribers[group_name]:
-                    try:
-                        self.executor.submit(callback, group_data)
-                    except Exception as e:
-                        self.logger.error("Error in group callback: %s", e)
-
-    def _create_group_callback(self, group_name: str) -> Callable:
-        """Create a no-op callback for group symbol subscriptions."""
-        def _noop(tick: MarketTick) -> None:
-            pass
-        return _noop
-
-    def _get_group_snapshot(self, group_name: str) -> dict[str, MarketTick]:
-        """Get snapshot of all symbols in a group."""
-        symbols = SYMBOL_GROUPS.get(group_name, [])
-        with self._lock:
-            return {
-                s: self.current_data[s]
-                for s in symbols
-                if s in self.current_data
-            }
-
-    def _convert_cached_to_tick(
-        self, symbol: str, data: dict[str, Any]
-    ) -> MarketTick:
-        """Convert cached data dict to MarketTick."""
-        return MarketTick(
-            symbol=symbol,
-            timestamp=datetime.fromisoformat(
-                data.get('timestamp', datetime.now().isoformat())
-            ),
-            price=data.get('last', data.get('price', 0.0)),
-            size=data.get('last_size', data.get('size', 0)),
-            bid=data.get('bid'),
-            ask=data.get('ask'),
-            bid_size=data.get('bid_size'),
-            ask_size=data.get('ask_size'),
-            volume=data.get('volume'),
-            open=data.get('open'),
-            high=data.get('high'),
-            low=data.get('low'),
-            close=data.get('close'),
-            vwap=data.get('vwap'),
-            source=DataSource.CACHE,
-            quality="cached",
-        )
-
-    def _get_symbol_tier(self, symbol: str) -> str:
-        """Determine subscription tier for a symbol."""
-        for group, symbols in SYMBOL_GROUPS.items():
-            if symbol in symbols:
-                if group == 'CORE':
-                    return 'CRITICAL'
-                elif group in ('VOLATILITY', 'INTERNALS'):
-                    return 'HIGH'
-                elif group == 'INDICES':
-                    return 'MEDIUM'
-                else:
-                    return 'LOW'
-        return 'MEDIUM'
-
-    def _get_symbol_priority(self, symbol: str) -> int:
-        """Get cache priority for a symbol."""
-        tier = self._get_symbol_tier(symbol)
-        return {'CRITICAL': 1, 'HIGH': 2, 'MEDIUM': 3, 'LOW': 4}.get(tier, 3)
-
-    def _check_component_health(self) -> None:
-        """Check health of all components."""
-        if not self._provider.is_connected:
-            if self.status == DataFeedStatus.CONNECTED:
-                self.status = DataFeedStatus.DEGRADED
-
-        if self.market_cache:
-            cache_stats = self.market_cache.get_stats()
-            hit_rate = cache_stats.get('hit_rate', 1.0)
-            if hit_rate < 0.5:
-                self.logger.warning(f"Low cache hit rate: {hit_rate:.2%}")
-
-        high_error_symbols = [
-            s for s, c in self.error_counts.items()
-            if c > self.config.error_threshold
-        ]
-        if high_error_symbols:
-            self.logger.warning("High error rates for: %s", high_error_symbols)
-
-    def _publish_status_update(self) -> None:
-        """Publish system status update via event manager."""
-        status = self.get_status()
-        self.event_manager.publish(Event(
-            EventType.SYSTEM_STATUS,
-            {
-                'component': 'DataFeedManager',
-                'status': status,
-                'timestamp': datetime.now(),
-            },
-        ))
-
-    def _cleanup_old_data(self) -> None:
-        """Clean up old data from buffers."""
-        cutoff = datetime.now() - timedelta(minutes=30)
-        with self._lock:
-            for _symbol, buffer in self.data_buffers.items():
-                while buffer and buffer[0].timestamp < cutoff:
-                    buffer.popleft()
-
-    # ==========================================================================
-    # LIFECYCLE
-    # ==========================================================================
-    def shutdown(self) -> None:
-        """Shutdown the data feed manager."""
-        try:
-            self.stop()
-            with self._lock:
-                self.data_buffers.clear()
-                self.current_data.clear()
-                self.subscribers.clear()
-                self.group_subscribers.clear()
-            self.logger.info("DataFeedManager shut down")
-        except Exception as e:
-            self.logger.error("Error during shutdown: %s", e)
-
-    def cleanup(self) -> None:
-        """Clean up resources."""
-        self.shutdown()
-
-
-# ==============================================================================
-# MODULE FUNCTIONS
-# ==============================================================================
-_data_feed_instance: DataFeedManager | None = None
-
-
-def get_data_feed_manager(
-    provider: str | MarketDataProvider | None = None,
-    event_manager: EventManager | None = None,
-    config: dict | None = None,
-) -> DataFeedManager:
-    """
-    Get singleton ``DataFeedManager`` instance.
-
-    Args:
-        provider: ``"databento"`` or a pre-built provider.
-        event_manager: Event manager instance.
-        config: Optional configuration dict.
-
-    Returns:
-        DataFeedManager singleton.
-    """
-    global _data_feed_instance
-    if _data_feed_instance is None:
-        _data_feed_instance = DataFeedManager(provider, event_manager, config)
-    return _data_feed_instance
-
-
-# ==============================================================================
-# BACKWARD COMPATIBILITY — alias for consumers importing "DataFeed"
-# ==============================================================================
-DataFeed = DataFeedManager
-
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-if __name__ == "__main__":
-    import sys
-
-    # Quick smoke-test using Databento from env vars
-    event_manager = EventManager()
-
-    # Select provider from CLI arg or default
-    provider_name = sys.argv[1] if len(sys.argv) > 1 else "databento"
-
-    feed_config = {
-        'provider': provider_name,
-        'cache_enabled': True,
-        'validation_enabled': True,
-    }
-
-    feed_manager = DataFeedManager(
-        provider=provider_name,
-        event_manager=event_manager,
-        config=feed_config,
-    )
-
-    # Define test callback
-    def on_update(tick: MarketTick):
-        pass
-
-    # Subscribe
-    feed_manager.subscribe('SPY', on_update, 'CRITICAL')
-    feed_manager.subscribe('VIX', on_update, 'CRITICAL')
-    feed_manager.subscribe('QQQ', on_update, 'HIGH')
-
-    # Group subscription
-    def on_group(group_data: dict[str, MarketTick]):
-        for _sym, _t in group_data.items():
-            pass
-
-    feed_manager.subscribe_group('CORE', on_group)
-
-    # Start
-    if feed_manager.start():
-
-        try:
-            time.sleep(30)  # thread-safe: time.sleep() intentional
-        except KeyboardInterrupt:
-            pass
-
-        status = feed_manager.get_status()
-
-        # Historical test
-        end_time = datetime.now()
-        start_time = end_time - timedelta(minutes=5)
-        hist = feed_manager.get_historical_data('SPY', start_time, end_time)
-        if not hist.empty:
-            pass
-
-        feed_manager.stop()
-    else:
-        pass

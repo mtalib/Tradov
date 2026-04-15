@@ -492,7 +492,8 @@ Broker:
 - Tradier API: {'\u2705 Connected' if self.is_connected else '\u274c Not Connected'}
 
 Market Data:
-- Databento: configured via DATABENTO_API_KEY env var
+- Tradier: primary live data source
+- Massive: optional fallback via MASSIVE_API_KEY env var
 """
         self.system_status.setPlainText(system_info)
 

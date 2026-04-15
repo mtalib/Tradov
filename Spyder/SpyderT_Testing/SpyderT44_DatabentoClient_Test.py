@@ -3,7 +3,7 @@
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
-Module: SpyderT44_DatabentoClient_Test.py
+Module: SpyderT44_MassiveClient_Test.py
 Purpose: Unit tests for SpyderC27_MassiveClient
 
 Author: GitHub Copilot
@@ -22,7 +22,7 @@ Description:
     - MassiveHistoricalDownloader initialization
 
 Usage:
-    pytest Spyder/SpyderT_Testing/SpyderT44_DatabentoClient_Test.py -v
+    pytest Spyder/SpyderT_Testing/SpyderT44_MassiveClient_Test.py -v
 """
 
 import pytest

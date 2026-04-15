@@ -18,7 +18,7 @@ Module Description:
 
 Change Log:
     2026-04-07:
-        - Removed stale Databento and Polygon references; only Tradier + Massive
+                - Removed stale provider-migration references; only Tradier + Massive
           are supported providers
     2026-03-03:
         - Removed legacy broker OAuth validation (broker migrated to Tradier)

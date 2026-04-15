@@ -8,7 +8,11 @@ Group: M (Machine Learning)
 Purpose: Hidden Markov Model for Market Regime Detection
 Author: Mohamed Talib
 Date Created: 2025-08-12
-Last Updated: 2025-08-12 Time: 14:30:00
+Last Updated: 2026-04-14
+
+DEPRECATED (2026-04-14): L09 UnifiedRegimeEngine is the canonical regime
+    detector for Spyder. This module is retained for research / legacy
+    compatibility only. New callers MUST use L09.
 
 Description:
     This module implements a Hidden Markov Model (HMM) for detecting market

@@ -225,7 +225,8 @@ class StrategyPnLLadder:
         self._orchestrator   = orchestrator
         self._perf_engine    = performance_engine
         self._lock           = threading.Lock()
-        self._last_snapshot: PnLLadderSnapshot | None = None
+        # Keep a non-null snapshot so read-only consumers can always render safely.
+        self._last_snapshot: PnLLadderSnapshot = PnLLadderSnapshot(source="empty")
         self._log            = _log
 
     # ------------------------------------------------------------------
@@ -257,8 +258,8 @@ class StrategyPnLLadder:
         )
         return snapshot
 
-    def get_snapshot(self) -> PnLLadderSnapshot | None:
-        """Return the last cached snapshot, or None if build_ladder() has not been called."""
+    def get_snapshot(self) -> PnLLadderSnapshot:
+        """Return the last cached snapshot (always available)."""
         with self._lock:
             return self._last_snapshot
 

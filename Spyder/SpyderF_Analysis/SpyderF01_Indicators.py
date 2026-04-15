@@ -688,6 +688,20 @@ class TechnicalIndicators:
             self.error_handler.handle_error(e, "Signal generation failed")
             return {"composite": SignalType.HOLD}
 
+    # ------------------------------------------------------------------
+    # AnalyticsProviderProtocol stub
+    # F01 is an indicator calculator; regime detection lives in F10/L09.
+    # This stub lets isinstance(calculator, AnalyticsProviderProtocol) pass.
+    # ------------------------------------------------------------------
+
+    def get_current_regime(self, symbol: str = "") -> Any:
+        """Protocol stub — regime detection lives in SpyderF10 / SpyderL09.
+
+        Returns an empty RegimeSnapshot for the requested symbol.
+        """
+        from Spyder.SpyderF_Analysis.SpyderF00_AnalysisProtocol import RegimeSnapshot
+        return RegimeSnapshot(symbol=symbol)
+
     # ==========================================================================
     # VALIDATION METHODS
     # ==========================================================================

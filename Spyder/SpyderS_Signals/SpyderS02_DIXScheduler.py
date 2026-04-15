@@ -84,9 +84,24 @@ try:
         """Thin adapter so S02 can call send_email(subject, body, recipients)."""
 
         def __init__(self):
-            self._notifier = _EmailNotifier()
+            self._logger = logging.getLogger(__name__)
+            self._notifier = None
+            try:
+                # Newer EmailNotifier implementations require explicit config.
+                self._notifier = _EmailNotifier()
+            except TypeError:
+                self._logger.info(
+                    "Email notifier requires config; using no-op email sender for scheduler"
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "Email notifier initialization failed: %s", exc, exc_info=True
+                )
 
         def send_email(self, subject: str, body: str, recipients: list | None = None) -> None:
+            if self._notifier is None:
+                self._logger.info("Email [%s]: %s", subject, body[:120])
+                return
             try:
                 self._notifier.send_custom_notification(
                     recipients=recipients or [],
@@ -94,7 +109,7 @@ try:
                     body=body,
                 )
             except Exception as exc:
-                logging.getLogger(__name__).warning(
+                self._logger.warning(
                     "DIX email send failed: %s", exc, exc_info=True
                 )
 

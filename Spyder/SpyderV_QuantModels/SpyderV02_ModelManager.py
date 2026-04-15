@@ -824,7 +824,12 @@ class ModelSelector:
         return fallback_map.get(primary_engine, [])
 
 class MarketRegimeDetector:
-    """Market regime detection logic."""
+    """Market regime detection logic.
+
+    DEPRECATED (2026-04-14): L09 UnifiedRegimeEngine is the canonical regime
+    detector for Spyder. This stub is retained only to satisfy V02's existing
+    model-manager surface; new callers MUST use L09.
+    """
 
     def __init__(self):
         self.current_regime = MarketRegime.NORMAL

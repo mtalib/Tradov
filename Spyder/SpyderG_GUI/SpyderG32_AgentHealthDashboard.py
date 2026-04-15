@@ -177,6 +177,8 @@ if HAS_QT:
             self._table.setEditTriggers(QTableWidget.NoEditTriggers)
             self._table.setAlternatingRowColors(True)
             self._table.setSelectionBehavior(QTableWidget.SelectRows)
+            # Backward-compatible public alias used by legacy tests/widgets.
+            self.table = self._table
             root.addWidget(self._table)
 
             # ── Status bar ────────────────────────────────────────────────

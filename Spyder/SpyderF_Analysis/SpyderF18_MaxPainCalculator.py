@@ -284,7 +284,7 @@ class MaxPainCalculator:
 
         Args:
             data_provider: OptionsDataProvider instance (e.g. TradierClient or
-                DatabentoMarketDataAdapter). If None, auto-created via
+                Massive market-data adapter). If None, auto-created via
                 create_options_data_provider() using MARKET_DATA_PROVIDER env var.
             cache_ttl: Cache time-to-live in seconds
         """

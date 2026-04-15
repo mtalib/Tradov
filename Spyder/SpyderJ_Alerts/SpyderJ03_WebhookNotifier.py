@@ -207,6 +207,17 @@ class WebhookNotifier:
             self._config.discord_url,
         ])
 
+    def configured_platforms(self) -> list[str]:
+        """Return configured webhook platform names in lowercase."""
+        platforms: list[str] = []
+        if self._config.slack_url:
+            platforms.append("slack")
+        if self._config.teams_url:
+            platforms.append("teams")
+        if self._config.discord_url:
+            platforms.append("discord")
+        return platforms
+
     # --------------------------------------------------------------------------
     # Payload builders
     # --------------------------------------------------------------------------

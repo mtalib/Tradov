@@ -53,6 +53,10 @@ MAX_BID_ASK_SPREAD_PCT = 0.05       # 5% maximum spread
 STALE_DATA_THRESHOLD = 30           # 30 seconds for stale data
 MIN_MARKET_CAP = 1e9                # $1B minimum market cap
 
+# Trading-critical staleness gate (proactive watcher, not reactive validation)
+TRADING_STALE_SECONDS = 5.0                         # block new trades after 5s silence
+_TRADING_WATCH_SYMBOLS: frozenset[str] = frozenset({"SPY", "$TICK", "$ADD"})
+
 # Statistical Validation
 ZSCORE_THRESHOLD = 3.0              # Z-score threshold for outliers
 PERCENTILE_THRESHOLD = 0.99         # 99th percentile threshold
@@ -418,6 +422,14 @@ class DataValidator:
         self._stop_event = threading.Event()
         self.is_monitoring = False
 
+        # Trading-critical staleness watcher
+        self._last_data_time: dict[str, float] = {}
+        self._stale_state: dict[str, bool] = {}
+        self._stale_watch_symbols: frozenset[str] = frozenset()
+        self._stale_threshold: float = TRADING_STALE_SECONDS
+        self._stale_watcher_thread: threading.Thread | None = None
+        self._stale_watcher_stop = threading.Event()
+
         # Event manager integration
         self.event_manager = get_event_manager()
 
@@ -440,6 +452,9 @@ class DataValidator:
             # Start monitoring if configured
             if self.config.get('auto_monitor', True):
                 self.start_monitoring()
+
+            # Start proactive staleness watcher for trading-critical symbols
+            self.register_staleness_watch(_TRADING_WATCH_SYMBOLS, TRADING_STALE_SECONDS)
 
             self.logger.info("Data validator initialized successfully")
             return True
@@ -515,9 +530,13 @@ class DataValidator:
         try:
             self.is_monitoring = False
             self._stop_event.set()
+            self._stale_watcher_stop.set()
 
             if self._monitoring_thread and self._monitoring_thread.is_alive():
                 self._monitoring_thread.join(timeout=5.0)
+
+            if self._stale_watcher_thread and self._stale_watcher_thread.is_alive():
+                self._stale_watcher_thread.join(timeout=3.0)
 
             self.logger.info("Data validator monitoring stopped")
 
@@ -605,6 +624,10 @@ class DataValidator:
                 },
                 timestamp=datetime.now()
             )
+
+            # Record arrival time for proactive staleness watcher
+            if data.symbol in self._stale_watch_symbols:
+                self._last_data_time[data.symbol] = time.monotonic()
 
             # Update statistics and metrics
             self._update_validation_stats(data.symbol, result)
@@ -934,6 +957,87 @@ class DataValidator:
                 timestamp=datetime.now()
             )
             self.event_manager.emit(event)
+
+    # ==========================================================================
+    # STALENESS WATCHER — proactive 5-second gate for trading-critical symbols
+    # ==========================================================================
+    def register_staleness_watch(
+        self,
+        symbols: frozenset[str],
+        threshold_seconds: float = TRADING_STALE_SECONDS,
+    ) -> None:
+        """Start a 1-second background watcher that emits DATA_STALE/DATA_FRESH
+        events when quote silence exceeds *threshold_seconds* for any watched symbol.
+
+        Safe to call multiple times — only one watcher thread is kept alive.
+        """
+        self._stale_watch_symbols = frozenset(symbols)
+        self._stale_threshold = threshold_seconds
+        # Initialise tracking state for each symbol
+        now = time.monotonic()
+        for sym in self._stale_watch_symbols:
+            self._last_data_time.setdefault(sym, now)
+            self._stale_state.setdefault(sym, False)
+
+        # Stop any existing watcher before (re)starting
+        self._stale_watcher_stop.set()
+        if self._stale_watcher_thread and self._stale_watcher_thread.is_alive():
+            self._stale_watcher_thread.join(timeout=3.0)
+
+        self._stale_watcher_stop.clear()
+        self._stale_watcher_thread = threading.Thread(
+            target=self._stale_watcher_loop,
+            name="DataValidatorStalenessWatcher",
+            daemon=True,
+        )
+        self._stale_watcher_thread.start()
+        self.logger.info(
+            "Staleness watcher started — symbols=%s threshold=%.1fs",
+            sorted(self._stale_watch_symbols),
+            threshold_seconds,
+        )
+
+    def _stale_watcher_loop(self) -> None:
+        """1-second polling loop — emits DATA_STALE/DATA_FRESH on transitions."""
+        while not self._stale_watcher_stop.is_set():
+            try:
+                now = time.monotonic()
+                for sym in self._stale_watch_symbols:
+                    last = self._last_data_time.get(sym, now)
+                    age = now - last
+                    currently_stale = age >= self._stale_threshold
+                    was_stale = self._stale_state.get(sym, False)
+                    if currently_stale != was_stale:
+                        self._stale_state[sym] = currently_stale
+                        self._emit_stale_event(sym, age, stale=currently_stale)
+            except Exception as exc:
+                self.logger.debug("Staleness watcher error: %s", exc)
+            self._stale_watcher_stop.wait(timeout=1.0)
+
+    def _emit_stale_event(self, symbol: str, age: float, *, stale: bool) -> None:
+        """Emit DATA_STALE or DATA_FRESH to the event bus."""
+        if not self.event_manager:
+            return
+        event_type = EventType.DATA_STALE if stale else EventType.DATA_FRESH
+        level = "WARNING" if stale else "INFO"
+        self.logger.log(
+            30 if stale else 20,  # WARNING=30, INFO=20
+            "Market data %s for %s (age=%.1fs)",
+            "STALE" if stale else "fresh",
+            symbol,
+            age,
+        )
+        event = Event(
+            event_type=event_type,
+            data={
+                "symbol": symbol,
+                "age_seconds": round(age, 2),
+                "threshold_seconds": self._stale_threshold,
+                "level": level,
+            },
+            timestamp=datetime.now(),
+        )
+        self.event_manager.emit(event)
 
     # ==========================================================================
     # PUBLIC API METHODS

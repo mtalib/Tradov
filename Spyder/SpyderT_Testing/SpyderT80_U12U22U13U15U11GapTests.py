@@ -28,6 +28,8 @@ def _load(rel_path):
     abs_path = os.path.join(_ROOT, rel_path)
     spec = importlib.util.spec_from_file_location(rel_path, abs_path)
     mod = importlib.util.module_from_spec(spec)
+    # Ensure decorators (e.g., @dataclass) can resolve __module__ via sys.modules.
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 

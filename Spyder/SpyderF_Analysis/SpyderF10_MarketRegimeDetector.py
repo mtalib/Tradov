@@ -8,10 +8,13 @@ Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-04-14
 
-Module Description:
-    SPYDER - Automated SPY Options Trading System
+DEPRECATED (2026-04-14): L09 UnifiedRegimeEngine is the canonical regime
+    detector for Spyder. This module is retained for legacy F-series callers
+    only. New callers MUST use L09. See also: this module's F00 protocol
+    implementation of calculate_all_indicators() currently returns empty
+    snapshots — callers should set stub_mode=True explicitly to opt in.
 
 Change Log:
     2026-01-16:
@@ -302,9 +305,36 @@ class MarketRegimeDetector:
             self.monitor_thread.join(timeout=5.0)
         self.logger.info("Market regime monitoring stopped")
 
-    def get_current_regime(self) -> RegimeState | None:
-        """Get current market regime state."""
+    def get_current_regime(self, symbol: str = "") -> RegimeState | None:
+        """Get current market regime state.
+
+        Args:
+            symbol: Ticker symbol (unused — F10 tracks a single global regime).
+                    Accepted for compatibility with AnalyticsProviderProtocol.
+        """
         return self.current_regime
+
+    # ------------------------------------------------------------------
+    # AnalyticsProviderProtocol stubs
+    # F10 is a regime detector; the two indicator-side methods below are
+    # minimal stubs so that isinstance(detector, AnalyticsProviderProtocol)
+    # passes.  Full indicator calculation lives in F01.
+    # ------------------------------------------------------------------
+
+    def calculate_all_indicators(self, symbol: str, data: Any = None) -> Any:
+        """Protocol stub — indicator calculation lives in SpyderF01.
+
+        F10 is a regime detector, not an indicator provider. Returning an
+        empty `IndicatorSnapshot` used to satisfy the structural Protocol
+        check while silently delivering no data — a footgun. Callers must
+        now route indicator requests to F01 (IndicatorEngine). Returning
+        None here makes the mismatch loud instead of silent.
+        """
+        return None
+
+    def get_trading_signals(self, symbol: str = "") -> list:
+        """Protocol stub — trading signal generation lives in SpyderF01."""
+        return []
 
     def detect_regime_change(self) -> RegimeTransition | None:
         """Detect potential regime change."""

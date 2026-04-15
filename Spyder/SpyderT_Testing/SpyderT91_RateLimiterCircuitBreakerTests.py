@@ -312,14 +312,14 @@ class TestU40ConvenienceFunctions:
         # Should succeed without blocking (bucket starts full)
         await asyncio.wait_for(_u40.acquire_tradier(), timeout=2.0)
 
-    async def test_acquire_databento(self):
-        await asyncio.wait_for(_u40.acquire_databento(), timeout=2.0)
+    async def test_acquire_massive(self):
+        await asyncio.wait_for(_u40.acquire_massive(), timeout=2.0)
 
     def test_global_limiters_has_tradier(self):
         assert "tradier" in _u40._global_limiters._defaults
 
-    def test_global_limiters_has_databento(self):
-        assert "databento" in _u40._global_limiters._defaults
+    def test_global_limiters_has_massive(self):
+        assert "massive" in _u40._global_limiters._defaults
 
     def test_all_exports(self):
         for name in _u40.__all__:
@@ -755,14 +755,14 @@ class TestCircuitBreakerFactory:
     def test_tradier_breaker_is_circuit_breaker(self):
         assert isinstance(_u41.tradier_breaker, CircuitBreaker)
 
-    def test_databento_breaker_is_circuit_breaker(self):
-        assert isinstance(_u41.databento_breaker, CircuitBreaker)
+    def test_massive_breaker_is_circuit_breaker(self):
+        assert isinstance(_u41.massive_breaker, CircuitBreaker)
 
     def test_tradier_breaker_name(self):
         assert _u41.tradier_breaker.name == "tradier"
 
-    def test_databento_breaker_name(self):
-        assert _u41.databento_breaker.name == "databento"
+    def test_massive_breaker_name(self):
+        assert _u41.massive_breaker.name == "massive"
 
 
 class TestU41ModuleExports:

@@ -321,6 +321,13 @@ class ApplicationManager(QObject):
             os.environ['QT_QPA_PLATFORM'] = 'minimal'
         elif self.config.display_mode == DisplayMode.OFFSCREEN:
             os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        else:
+            # Force the native Wayland backend when running under a Wayland compositor.
+            # Without this Qt falls back to XWayland which causes rendering glitches and
+            # clipboard issues on Ubuntu 25+ / GNOME Wayland.
+            # Only set if the caller has not already overridden QT_QPA_PLATFORM.
+            if "QT_QPA_PLATFORM" not in os.environ and os.environ.get("WAYLAND_DISPLAY"):
+                os.environ["QT_QPA_PLATFORM"] = "wayland"
 
         # Enable high DPI support
         if self.config.enable_high_dpi:

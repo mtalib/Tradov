@@ -423,7 +423,7 @@ class SpyderApplication:
             ("PySide6",                "GUI Dashboard (PySide6)",          True,  "run: pip install PySide6"),
             ("sklearn",                "ML Regime Detection (scikit-learn)",False, "run: pip install scikit-learn"),
             ("hmmlearn",               "HMM Regime Models (hmmlearn)",     False, "run: pip install hmmlearn"),
-            ("databento",              "Databento Market Data",            True,  "set DATABENTO_API_KEY in .env"),
+            ("requests",               "Massive Market Data (HTTP)",       False, "set MASSIVE_API_KEY in .env when enabling Massive"),
             ("zmq",                    "ZeroMQ Messaging (pyzmq)",         False, "run: pip install pyzmq"),
             ("prometheus_client",      "Prometheus Metrics",               False, "run: pip install prometheus-client"),
             ("QuantLib",               "QuantLib Pricing Engine",          False, "run: pip install QuantLib"),
@@ -712,8 +712,7 @@ class SpyderApplication:
                 self.main_window = SpyderMainWindow(self)
                 self.main_window.show()
 
-            self.logger.info("✅ GUI started successfully - race condition fix PROVEN!")
-            self.logger.info("The GUI appearance proves broker connection is stable.")
+            self.logger.info("✅ GUI started successfully")
 
             return True
 

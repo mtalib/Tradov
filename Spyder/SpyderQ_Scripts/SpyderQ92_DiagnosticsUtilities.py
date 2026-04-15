@@ -109,8 +109,7 @@ REQUIRED_PACKAGES = [
     "numpy",
     "psutil",
     "requests",
-    "PyQt6",
-    "databento",
+    "PySide6",
     "prometheus_client",
     "asyncio",
     "websockets",
@@ -133,7 +132,7 @@ CONFIG_FILES = [
 NETWORK_ENDPOINTS = {
     "Tradier API": ("api.tradier.com", 443),
     "Tradier Sandbox": ("sandbox.tradier.com", 443),
-    "Databento API": ("hist.databento.com", 443),
+    "Massive API": ("api.polygon.io", 443),
     "Prometheus": ("localhost", 9090),
     "Grafana": ("localhost", 3000),
     "Web Dashboard": ("localhost", 8080),

@@ -1241,9 +1241,49 @@ class StrategyOrchestrator:
         self.last_market_update = datetime.now()
 
     def _on_strategy_signal(self, event: Event):
-        """Handle strategy signal events"""
-        # Could implement cross-strategy signal analysis here
-        pass
+        """Handle strategy signal events.
+
+        Routes every strategy-generated signal through the E01 RiskManager
+        validate_signal() gate before it can be acted upon. If validation
+        fails, the signal is dropped and a risk alert event is emitted.
+        """
+        signal = getattr(event, "data", None)
+        if not signal:
+            return
+
+        risk_manager = getattr(self, "risk_manager", None)
+        if risk_manager is None:
+            try:
+                from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
+                risk_manager = get_risk_manager()
+            except Exception:
+                risk_manager = None
+        if risk_manager is None or not hasattr(risk_manager, "validate_signal"):
+            return  # No risk gate wired — leave signal untouched
+
+        try:
+            result = risk_manager.validate_signal(signal)
+        except Exception as exc:
+            self.logger.error("Risk validate_signal raised: %s", exc, exc_info=True)
+            return
+
+        approved = True
+        if isinstance(result, dict):
+            approved = bool(result.get("approved", result.get("valid", True)))
+        elif hasattr(result, "approved"):
+            approved = bool(result.approved)
+        elif isinstance(result, bool):
+            approved = result
+
+        if not approved:
+            self.logger.warning("Strategy signal rejected by risk gate: %s", signal)
+            try:
+                self.event_manager.publish(
+                    EventType.RISK_ALERT,
+                    {"severity": "warning", "reason": "validate_signal_rejected", "signal": signal},
+                )
+            except Exception:
+                pass
 
     def _on_risk_alert(self, event: Event):
         """Handle risk alert events"""

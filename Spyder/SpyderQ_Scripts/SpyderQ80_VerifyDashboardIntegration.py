@@ -355,7 +355,7 @@ class DashboardIntegrationVerifier:
             "Q-Scripts → Dashboard": True,
             "Dashboard → Risk Dialog": True,
             "Tradier API → Dashboard": True,
-            "Databento Feed → Dashboard": True,
+            "Massive Fallback → Dashboard": True,
             "Prometheus → Metrics Display": True,
             "System Monitor → Health Panel": True,
         }

@@ -5,14 +5,14 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderX_Unknown
 Module: config.py
-Purpose: SPYDER - Tradier + Databento Configuration
+Purpose: SPYDER - Tradier + Massive Configuration
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
-    SPYDER - Tradier + Databento Configuration
+    SPYDER - Tradier + Massive Configuration
 
 Change Log:
     2026-03-03:
@@ -96,39 +96,13 @@ TRADIER_CONFIG = {
 }
 
 # ==============================================================================
-# DATABENTO API CONFIGURATION
-# ==============================================================================
-DATABENTO_CONFIG = {
-    "api_key": os.environ.get("DATABENTO_API_KEY", ""),
-
-    # Dataset for options (OPRA.PILLAR for US equity options)
-    "dataset": os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR"),
-
-    # Default schemas for different use cases
-    "live_schema": os.environ.get("DATABENTO_LIVE_SCHEMA", "mbp-1"),
-    "historical_schema": os.environ.get("DATABENTO_HIST_SCHEMA", "ohlcv-1m"),
-
-    # Subscription Settings
-    "subscribe_trades": os.environ.get("DATABENTO_SUBSCRIBE_TRADES", "true").lower() == "true",
-    "subscribe_quotes": os.environ.get("DATABENTO_SUBSCRIBE_QUOTES", "true").lower() == "true",
-
-    # Default underlyings (will subscribe to all options for these)
-    "default_underlyings": os.environ.get("DATABENTO_UNDERLYINGS", "SPY").split(","),
-
-    # Connection Settings
-    "reconnect_delay": 5,
-    "max_reconnect_attempts": 10,
-
-    # Cost Controls (Databento charges per GB streamed)
-    "max_daily_gb": float(os.environ.get("DATABENTO_MAX_DAILY_GB", "5.0")),
-    "warn_gb_threshold": float(os.environ.get("DATABENTO_WARN_GB", "3.0")),
-}
-
-# ==============================================================================
 # MASSIVE API CONFIGURATION (formerly Polygon.io, rebranded Oct 2025)
 # ==============================================================================
 MASSIVE_CONFIG = {
     "api_key": os.environ.get("MASSIVE_API_KEY", ""),
+    "dataset": os.environ.get("MASSIVE_DATASET", "massive-live"),
+    "live_schema": os.environ.get("MASSIVE_LIVE_SCHEMA", "quotes"),
+    "historical_schema": os.environ.get("MASSIVE_HIST_SCHEMA", "bars-1m"),
 
     # REST rate limit — Massive free tier = 5 req/s, paid = unlimited
     "rest_requests_per_second": float(os.environ.get("MASSIVE_REST_RPS", "3.0")),
@@ -155,7 +129,7 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "massive")  # massive | polygon | tradier
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "tradier")  # tradier | massive | polygon
 ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # overrides DATA_PROVIDER
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
@@ -342,14 +316,14 @@ def get_active_config():
         "data_provider": DATA_PROVIDER,
         "tradier_url": tradier_url,
         "tradier_account_id": TRADIER_CONFIG["account_id"],
-        "databento_dataset": DATABENTO_CONFIG["dataset"],
-        "databento_live_schema": DATABENTO_CONFIG["live_schema"],
+        "market_data_dataset": MASSIVE_CONFIG["dataset"] if DATA_PROVIDER in ("massive", "polygon") else "tradier-live",
+        "market_data_schema": MASSIVE_CONFIG["live_schema"] if DATA_PROVIDER in ("massive", "polygon") else "tradier-quote",
         "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
     }
 
 
 def validate_config():
-    """Validate Tradier + Databento configuration"""
+    """Validate Tradier + Massive configuration"""
     errors = []
 
     # Check Tradier configuration
@@ -366,7 +340,7 @@ def validate_config():
         pass  # Tradier credentials already checked above
     else:
         errors.append(
-            f"Invalid ACTIVE_DATA_PROVIDER: {ACTIVE_DATA_PROVIDER}. Must be 'massive', 'polygon', or 'tradier'"
+            f"Invalid ACTIVE_DATA_PROVIDER: {ACTIVE_DATA_PROVIDER}. Must be 'tradier', 'massive', or 'polygon'"
         )
 
     # Check trading mode
@@ -394,7 +368,7 @@ def validate_startup_config() -> None:
         - ``TRADING_MODE``          — must be ``sandbox``, ``paper``, or ``live``
         - ``TRADIER_ENVIRONMENT``   — ``live`` or ``sandbox`` (Tradier API endpoint;
                                        independent of TRADING_MODE)
-        - ``DATABENTO_API_KEY``     — market data (required when DATA_PROVIDER=databento)
+        - ``MASSIVE_API_KEY``       — optional fallback market data (required when DATA_PROVIDER=massive)
 
     Required variables (live mode only):
         - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
@@ -419,15 +393,22 @@ def validate_startup_config() -> None:
         )
 
     # --- Data-provider credentials -------------------------------------------
-    provider = ACTIVE_DATA_PROVIDER.lower()
+    # Prefer DATA_PROVIDER for startup validation compatibility; fall back to
+    # ACTIVE_DATA_PROVIDER when explicitly provided.
+    provider_raw = (
+        os.environ.get("DATA_PROVIDER")
+        or os.environ.get("ACTIVE_DATA_PROVIDER")
+        or DATA_PROVIDER
+    )
+    provider = provider_raw.lower()
     if provider in ("massive", "polygon"):
         if not MASSIVE_CONFIG["api_key"]:
-            problems.append("MASSIVE_API_KEY is not set (required when ACTIVE_DATA_PROVIDER=massive/polygon)")
+            problems.append("MASSIVE_API_KEY is not set (required when DATA_PROVIDER=massive)")
     elif provider == "tradier":
         pass  # Tradier credentials already validated above
     else:
         problems.append(
-            f"ACTIVE_DATA_PROVIDER='{ACTIVE_DATA_PROVIDER}' is invalid; must be 'massive', 'polygon', or 'tradier'"
+            f"DATA_PROVIDER='{provider_raw}' is invalid; must be 'tradier' or 'massive'"
         )
 
     # --- Live-trading safety gate --------------------------------------------

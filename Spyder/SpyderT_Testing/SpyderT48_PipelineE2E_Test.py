@@ -4,7 +4,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
 Module: SpyderT48_PipelineE2E_Test.py
-Purpose: End-to-end pipeline test: Databento → DataFeed → OrderManager → Tradier
+Purpose: End-to-end pipeline test: Massive-style market data → DataFeed → OrderManager → Tradier
 
 Author: GitHub Copilot
 Year Created: 2026
@@ -16,7 +16,7 @@ Description:
     external services.
 
     Pipeline under test:
-        Databento (C26) → DataFeed (C01) → [Strategy signal]
+        Massive-style market data → DataFeed (C01) → [Strategy signal]
                                             ↓
                                       OrderManager (B02) → TradierClient (B40)
 
@@ -48,14 +48,19 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierAPIError,
 )
 
-# Databento data classes
-from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
-    MarketDataUpdate,
-    ConnectionStatus,
-    DatabentoSchema,
-    convert_symbol,
-    SymbolFormat,
-)
+from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import MassiveClient
+
+
+class MockMarketDataUpdate:
+    """Minimal market-data update shape for pipeline tests."""
+
+    def __init__(self, symbol, timestamp_ns, schema, data, underlying, is_option):
+        self.symbol = symbol
+        self.timestamp_ns = timestamp_ns
+        self.schema = schema
+        self.data = data
+        self.underlying = underlying
+        self.is_option = is_option
 
 
 # ==============================================================================
@@ -113,10 +118,10 @@ class TestDataToOrderPipeline:
 
     def test_quote_triggers_equity_order(self, pipeline_order_manager, mock_tradier):
         """
-        Simulate: Databento quote update → strategy decides to buy → equity order placed.
+        Simulate: market-data quote update → strategy decides to buy → equity order placed.
         """
-        # Step 1: Simulate Databento market data update
-        quote = MarketDataUpdate(
+        # Step 1: Simulate market data update
+        quote = MockMarketDataUpdate(
             symbol="SPY",
             timestamp_ns=int(datetime.now().timestamp() * 1e9),
             schema="mbp-1",
@@ -157,22 +162,19 @@ class TestDataToOrderPipeline:
 
     def test_option_quote_triggers_option_order(self, pipeline_order_manager, mock_tradier):
         """
-        Simulate: Databento option quote → single-leg option order.
+        Simulate: option quote → single-leg option order.
         """
-        # Step 1: Option quote from Databento
-        option_quote = MarketDataUpdate(
-            symbol="SPY   260220C00585000",
+        # Step 1: Option quote represented with a Massive ticker
+        option_quote = MockMarketDataUpdate(
+            symbol=MassiveClient.build_option_ticker("SPY", "2026-02-20", "call", 585.0),
             timestamp_ns=int(datetime.now().timestamp() * 1e9),
-            schema="mbp-1",
+            schema="quotes",
             data={"bid_px": 3.45, "ask_px": 3.55},
             underlying="SPY",
             is_option=True,
         )
 
-        # Step 2: Convert symbol to Tradier format
-        tradier_sym = convert_symbol(
-            option_quote.symbol, SymbolFormat.DATABENTO_OSI, SymbolFormat.TRADIER
-        )
+        tradier_sym = "SPY260220C00585000"
 
         # Step 3: Create and submit option order
         order = pipeline_order_manager.create_order(
@@ -194,7 +196,7 @@ class TestDataToOrderPipeline:
         """
         # Step 1: Simulate receiving multiple option quotes
         quotes = [
-            MarketDataUpdate(
+            MockMarketDataUpdate(
                 symbol=f"SPY   260220{t}{s:08d}",
                 timestamp_ns=int(datetime.now().timestamp() * 1e9),
                 schema="mbp-1",
@@ -439,15 +441,12 @@ class TestErrorRecoveryPipeline:
 # ==============================================================================
 
 
-class TestSymbolConversionPipeline:
-    """Test symbol conversion in the data→order pipeline."""
+class TestOptionSymbolPipeline:
+    """Test option symbol handling in the data→order pipeline."""
 
-    def test_databento_to_tradier_in_order(self, pipeline_order_manager, mock_tradier):
-        """Databento OSI symbol converts correctly for order placement."""
-        databento_sym = "SPY   260220C00585000"
-        tradier_sym = convert_symbol(
-            databento_sym, SymbolFormat.DATABENTO_OSI, SymbolFormat.TRADIER
-        )
+    def test_tradier_option_symbol_passes_through(self, pipeline_order_manager, mock_tradier):
+        """Tradier-formatted option symbols pass through unchanged for order placement."""
+        tradier_sym = "SPY260220C00585000"
 
         order = pipeline_order_manager.create_order(
             symbol="SPY",
@@ -460,9 +459,7 @@ class TestSymbolConversionPipeline:
         result = pipeline_order_manager.submit_order(order)
         assert result.success is True
 
-        # Verify the option_symbol was passed through
         assert order.option_symbol == tradier_sym
-        assert " " not in tradier_sym
 
 
 # ==============================================================================

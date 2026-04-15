@@ -341,7 +341,10 @@ class RiskParametersDialog(QDialog):
         strategy_layout = QVBoxLayout()
 
         # Create strategy table
-        self.strategy_table = QTableWidget(5, 4)
+        # NOTE: Naked puts are prohibited — they carry unlimited downside risk
+        # and are not permitted by system policy. Only defined-risk strategies
+        # are listed here.
+        self.strategy_table = QTableWidget(4, 4)
         self.strategy_table.setHorizontalHeaderLabels(
             ["Strategy", "Enabled", "Max Risk (%)", "Max Contracts"]
         )
@@ -351,7 +354,6 @@ class RiskParametersDialog(QDialog):
             "Credit Spreads",
             "Straddles/Strangles",
             "Calendar Spreads",
-            "Naked Options",
         ]
 
         for i, strategy in enumerate(strategies):

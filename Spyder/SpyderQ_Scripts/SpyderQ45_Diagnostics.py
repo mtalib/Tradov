@@ -240,7 +240,7 @@ class DiagnosticsRunner:
     def _check_network_dns(self) -> DiagnosticResult:
         """Verify DNS resolution for critical hostnames."""
         import socket
-        hosts = ["api.tradier.com", "api.databento.com"]
+        hosts = ["api.tradier.com", "api.polygon.io"]
         failed = []
         for host in hosts:
             try:

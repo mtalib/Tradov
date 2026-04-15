@@ -684,7 +684,8 @@ class TradingEngine:
             self.logger.error("TradingEngine start failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
-            return False
+                        # Set up event handlers
+                        self._setup_event_handlers()
 
     def stop(self, reason: str = "Manual stop") -> bool:
         """
@@ -1222,6 +1223,7 @@ class TradingEngine:
                 'price': signal.get('price'),
                 'type': signal.get('type', 'stock'),
                 'value': signal.get('value', 0),
+                'metadata': signal.get('metadata', {}),
                 'existing_positions': len(self._get_strategy_positions(strategy_id))
             }
 

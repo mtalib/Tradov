@@ -2027,22 +2027,28 @@ def optimize_black_litterman_views(expected_returns: np.ndarray, cov_matrix: np.
 # MODULE INITIALIZATION
 # ==============================================================================
 
-# Global allocation optimizer instance
+import threading as _threading
+
+# Global allocation optimizer instance (lock-guarded for concurrent init)
 _global_allocation_optimizer: AllocationOptimizer | None = None
+_global_allocation_optimizer_lock = _threading.RLock()
 
 def get_global_allocation_optimizer() -> AllocationOptimizer | None:
     """Get global allocation optimizer instance"""
-    return _global_allocation_optimizer
+    with _global_allocation_optimizer_lock:
+        return _global_allocation_optimizer
 
 def set_global_allocation_optimizer(optimizer: AllocationOptimizer) -> None:
     """Set global allocation optimizer instance"""
     global _global_allocation_optimizer
-    _global_allocation_optimizer = optimizer
+    with _global_allocation_optimizer_lock:
+        _global_allocation_optimizer = optimizer
 
 def reset_global_allocation_optimizer() -> None:
     """Clear global allocation optimizer instance (for shutdown/testing)."""
     global _global_allocation_optimizer
-    _global_allocation_optimizer = None
+    with _global_allocation_optimizer_lock:
+        _global_allocation_optimizer = None
 
 # ==============================================================================
 # MAIN EXECUTION

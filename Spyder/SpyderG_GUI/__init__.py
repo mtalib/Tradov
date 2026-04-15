@@ -125,7 +125,7 @@ for module_info in modules_to_import:
 
 logging.info("✅ SpyderG_GUI: %s components loaded successfully", successful_imports)
 
-# Import broker status widget (Tradier + Databento)
+# Import broker status widget (Tradier + Massive)
 try:
     from .SpyderG15_ConnectAPIStatus import (
         BrokerStatusWidget,

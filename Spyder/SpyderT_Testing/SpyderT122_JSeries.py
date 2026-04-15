@@ -19,6 +19,7 @@ import sys
 import types
 import logging
 import unittest
+import importlib
 from unittest.mock import MagicMock
 
 logging.disable(logging.CRITICAL)
@@ -76,8 +77,12 @@ for _k in ("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
 _m = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils")
 _m.DateTimeUtils = type("DateTimeUtils", (), {})
 
-_m = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU04_Encryption")
-_m.EncryptionManager = type("EncryptionManager", (), {"__init__": lambda self: None})
+try:
+    _u04_real = importlib.import_module("Spyder.SpyderU_Utilities.SpyderU04_Encryption")
+    sys.modules["Spyder.SpyderU_Utilities.SpyderU04_Encryption"] = _u04_real
+except Exception:
+    _m = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU04_Encryption")
+    _m.EncryptionManager = type("EncryptionManager", (), {"__init__": lambda self: None})
 
 # ---- J-series package pre-stub ----------------------------------------------
 _j_path = os.path.join(_ROOT, "Spyder", "SpyderJ_Alerts")

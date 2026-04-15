@@ -4,14 +4,14 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderG_GUI
 Module: SpyderG15_ConnectAPIStatus.py
-Purpose: Broker & data connection status display widget (Tradier + Databento)
+Purpose: Broker & data connection status display widget (Tradier + Massive)
 
 Author: SPYDER Trading System
 Year Created: 2025
 Last Updated: 2026-02-25 Time: 14:00:00
 
 Module Description:
-    GUI widget for displaying Tradier broker and Databento data connection
+    GUI widget for displaying Tradier broker and Massive data connection
     status.  Shows connection health, account info, order status, and risk
     metrics.  Fully PySide6 (Qt6) — replaces the legacy PyQt5/ConnectAPI
     version.
@@ -22,11 +22,11 @@ Module Constants:
 
 Change Log:
     2026-02-25 (v2.0.0):
-        - Full rewrite for Tradier + Databento migration
+        - Full rewrite for Tradier + Massive migration
         - Converted from PyQt5 to PySide6
         - Replaced ConnectAPI dependency with TradierClient + OrderManager
         - Added Tradier account / environment / connection display
-        - Added Databento data-feed status panel
+        - Added Massive data-feed status panel
 
     2025-10-20 (v1.0.0):
         - Initial module creation (ConnectAPI)

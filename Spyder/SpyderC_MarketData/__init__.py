@@ -21,7 +21,7 @@ import logging
 # ==============================================================================
 __all__ = []
 
-# Provider Protocol (Tradier ↔ Databento swap layer)
+# Provider Protocol (Tradier ↔ Massive provider swap layer)
 try:
     from .SpyderC00_MarketDataProtocol import (
         OptionsDataProvider,
@@ -43,7 +43,6 @@ try:
         DataFeedStatus,
         DataSource,
         MarketDataProvider,
-        DatabentoProvider,
         create_provider,
         SYMBOL_GROUPS,
     )
@@ -57,7 +56,6 @@ try:
         "DataFeedStatus",
         "DataSource",
         "MarketDataProvider",
-        "DatabentoProvider",
         "create_provider",
         "SYMBOL_GROUPS",
     ])

@@ -201,6 +201,10 @@ hmm_dialog_available = None  # None = not yet checked; True/False after first ch
 SkewMonitorDialog = None  # type: ignore  - populated on first use
 skew_dialog_available = None  # None = not yet attempted; True/False after first check
 
+# MarketInternalsDialog is imported lazily inside show_internals_dialog().
+MarketInternalsDialog = None  # type: ignore
+internals_dialog_available = None  # None = not yet attempted; True/False after first check
+
 # Try to import Prometheus metrics display module if available
 try:
     from Spyder.SpyderG_GUI.SpyderG07_PrometheusMetricsDisplay import (
@@ -238,6 +242,18 @@ except ImportError:
     circuit_breaker_monitor_available = False
     logger.info("⚠️ Circuit Breaker Monitor not available")
 
+# Circuit breaker singletons — reset from heartbeat when API confirmed healthy
+try:
+    from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
+        tradier_breaker as _tradier_breaker,
+        massive_breaker as _massive_breaker,
+    )
+    _circuit_breakers_available = True
+except ImportError:
+    _tradier_breaker = None  # type: ignore
+    _massive_breaker = None  # type: ignore
+    _circuit_breakers_available = False
+
 # Client Connection Manager — DEPRECATED (legacy multi-client no longer used)
 ClientConnectionManager = None
 ClientStatus = None
@@ -251,19 +267,24 @@ WINDOW_HEIGHT = 1080
 
 
 # Market hours (Eastern Time)
-MARKET_OPEN_TIME = dt_time(4, 0)  # 4:00 AM ET
+MARKET_OPEN_TIME = dt_time(4, 0)   # 4:00 AM ET — extended pre-market
 MARKET_CLOSE_TIME = dt_time(16, 30)  # 4:30 PM ET
 
+# Tradier connection window — only connect 10 min before regular market open
+TRADIER_CONNECT_TIME = dt_time(9, 20)   # 9:20 AM ET — 10 min before open
+TRADIER_DISCONNECT_TIME = dt_time(16, 30)  # 4:30 PM ET — after close
+
 # Heartbeat and connection monitoring
-HEARTBEAT_INTERVAL = 30000  # 30 seconds in milliseconds
-HEARTBEAT_WARNING_TIME = 20000  # 20 seconds before next check (blue heart)
+HEARTBEAT_INTERVAL = 30000        # 30 seconds in milliseconds — check frequency
+HEARTBEAT_WARNING_TIME = 20000    # 20 seconds before next check (blue heart)
+HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX", "/ES"],
-    "VOLATILITY": ["VIX", "VXV", "VXMT", "VVIX", "UVXY"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "PCALL", "SKEW", "VUD"],
-    "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
+    "S&P CORE": ["SPY", "SPX"],
+    "VOLATILITY": ["VIX", "VXV", "VVIX"],
+    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
+    "MAJOR INDICES": ["QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
     "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
@@ -274,24 +295,18 @@ SYMBOL_DESCRIPTIONS = {
     # S&P Core
     "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
     "SPX": "S&P 500 Index - Cash index value",
-    "/ES": "E-mini S&P 500 Futures - 24/5 trading",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
     "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
     "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
-    "VXMT": "CBOE Mid-Term Volatility Index - 6-month volatility",
     "VVIX": "VIX of VIX - Volatility of volatility index",
-    "UVXY": "ProShares Ultra VIX Short-Term Futures ETF",
     # Market Internals
     "$TICK": "NYSE Tick Index - Upticks minus downticks",
     "$TRIN": "Arms Index - Advance/Decline volume ratio",
     "$ADD": "Advance-Decline Line - Net advancing issues",
     "CPC": "Put/Call Ratio - Computed from SPY options chain volume (nearest expiry)",
-    "PCALL": "Put/Call Ratio - Same as CPC (SPY chain proxy; CBOE total PCR unavailable)",
     "SKEW": "CBOE Skew Index - Tail risk measure",
-    "VUD": "Put/Call Volume Ratio - Options sentiment indicator",
     # Major Indices
-    "DIA": "SPDR Dow Jones Industrial Average ETF",
     "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
     "IWM": "iShares Russell 2000 ETF - Small caps",
     # Bonds & Credit
@@ -338,6 +353,71 @@ def is_market_hours():
     eastern = pytz.timezone("US/Eastern")
     now_et = datetime.now(eastern).time()
     return MARKET_OPEN_TIME <= now_et <= MARKET_CLOSE_TIME
+
+
+def is_tradier_window() -> bool:
+    """Return True only during the Tradier active window (9:20 AM – 4:30 PM ET).
+
+    Connecting before 9:20 ET is wasteful — no intraday bars exist yet and
+    the sandbox returns nothing useful.  The 10-minute lead time lets the
+    dashboard warm up before the 9:30 regular open.
+    """
+    eastern = pytz.timezone("US/Eastern")
+    now_et = datetime.now(eastern).time()
+    return TRADIER_CONNECT_TIME <= now_et <= TRADIER_DISCONNECT_TIME
+
+
+REALTIME_QUOTE_MAX_AGE_SECONDS = 15.0   # Must exceed the 10-second fast-fetch interval
+REALTIME_SENTINEL_SYMBOLS = ("SPY", "SPX", "QQQ")
+
+
+def _coerce_epoch_ms(value) -> int | None:
+    """Return an integer epoch-millisecond value when possible."""
+    if value in (None, ""):
+        return None
+    try:
+        epoch_ms = int(value)
+    except (TypeError, ValueError):
+        return None
+    return epoch_ms if epoch_ms > 0 else None
+
+
+def _datetime_from_epoch_ms(value) -> datetime | None:
+    """Convert epoch milliseconds to a naive local datetime for age checks."""
+    epoch_ms = _coerce_epoch_ms(value)
+    if epoch_ms is None:
+        return None
+    return datetime.fromtimestamp(epoch_ms / 1000)
+
+
+def _freshest_quote_timestamp_ms(quote: dict) -> int | None:
+    """Return the freshest market timestamp carried by a Tradier quote payload."""
+    timestamps = [
+        _coerce_epoch_ms(quote.get("trade_date")),
+        _coerce_epoch_ms(quote.get("bid_date")),
+        _coerce_epoch_ms(quote.get("ask_date")),
+    ]
+    valid = [ts for ts in timestamps if ts is not None]
+    return max(valid) if valid else None
+
+
+def _freshest_live_data_timestamp(live_data: dict) -> datetime | None:
+    """Return the freshest quote timestamp from sentinel symbols or any live symbol."""
+    for symbol in REALTIME_SENTINEL_SYMBOLS:
+        quote = live_data.get(symbol)
+        if isinstance(quote, dict):
+            quote_time = _datetime_from_epoch_ms(quote.get("timestamp_ms"))
+            if quote_time is not None:
+                return quote_time
+
+    freshest: datetime | None = None
+    for quote in live_data.values():
+        if not isinstance(quote, dict):
+            continue
+        quote_time = _datetime_from_epoch_ms(quote.get("timestamp_ms"))
+        if quote_time is not None and (freshest is None or quote_time > freshest):
+            freshest = quote_time
+    return freshest
 
 
 def check_api_connection():
@@ -444,7 +524,8 @@ class ThreadSafeMarketDataWorker(QObject):
     heartbeat_status_changed = Signal(str)  # New signal for heartbeat status
     log_message = Signal(str)  # New signal for log messages
     balance_updated = Signal(float, float)  # (equity/settled, buying_power)
-    fetch_requested = Signal()  # Trigger live fetch from GUI thread safely
+    fetch_requested = Signal()       # Trigger full live fetch from GUI thread safely
+    fast_fetch_requested = Signal()  # Trigger lightweight quote-only refresh
 
     def __init__(self):
         super().__init__()
@@ -468,6 +549,8 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = None
 
         self.last_data_update = {}
+        self._last_healthy_log: datetime | None = None  # Throttle healthy heartbeat messages
+        self._last_offline_log: datetime | None = None   # Throttle outside-hours heartbeat messages
         self._init_simulation_data()
 
         logger.info("🔧 Market Data Worker initialized with heartbeat monitoring")
@@ -475,6 +558,31 @@ class ThreadSafeMarketDataWorker(QObject):
 
     def _heartbeat_check(self):
         """30-second heartbeat check for Tradier API connection"""
+        # Stay quiet outside the 9:20 AM – 4:30 PM ET trading window
+        if not is_tradier_window():
+            if self.api_connected:
+                # Transition to disconnected when window closes
+                self.api_connected = False
+                self.connection_status_changed.emit(False, "OUTSIDE TRADING HOURS")
+                self.market_data_status_changed.emit("NONE")
+
+            # Always signal offline so toolbar labels stay red
+            self.heartbeat_status_changed.emit("offline")
+
+            # Emit calm ❤️ message at startup and every 30 minutes thereafter
+            _now = datetime.now()
+            _elapsed_offline = (
+                (_now - self._last_offline_log).total_seconds()
+                if self._last_offline_log is not None
+                else HEARTBEAT_LOG_INTERVAL + 1
+            )
+            if _elapsed_offline >= HEARTBEAT_LOG_INTERVAL:
+                self._last_offline_log = _now
+                self.heartbeat_received.emit(
+                    "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
+                )
+            return
+
         try:
             # Check actual connection
             connected, mode = check_api_connection()
@@ -485,17 +593,48 @@ class ThreadSafeMarketDataWorker(QObject):
             if connected:
                 self.heartbeat_status_changed.emit("connected")  # Green heart
                 if not previous_status:
-                    # Connection restored
+                    # Connection restored — first heartbeat of the day or reconnect
+                    _is_sandbox = "SANDBOX" in mode.upper() or "PAPER" in mode.upper()
+                    _mkt_status = "PAPER" if _is_sandbox else "LIVE"
                     self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
+                    self.market_data_status_changed.emit(_mkt_status)
                     self.heartbeat_received.emit(
                         f"💚 Heartbeat: Tradier API connection restored ({mode})",
                     )
                 else:
-                    self.heartbeat_received.emit(
-                        f"💚 Heartbeat: Tradier API healthy ({mode})",
+                    # Log healthy status at most once every 30 minutes to avoid
+                    # jamming the log; failures are always emitted immediately.
+                    _now = datetime.now()
+                    _elapsed = (
+                        (_now - self._last_healthy_log).total_seconds()
+                        if self._last_healthy_log is not None
+                        else HEARTBEAT_LOG_INTERVAL + 1
                     )
-                # Refresh live quotes and account balance on every healthy heartbeat
-                self._fetch_live_data_from_tradier()
+                    if _elapsed >= HEARTBEAT_LOG_INTERVAL:
+                        self._last_healthy_log = _now
+                        self.heartbeat_received.emit(
+                            f"💚 Heartbeat: Tradier API healthy ({mode})",
+                        )
+                # Reset offline throttle so next outside-hours period fires immediately
+                self._last_offline_log = None
+                # Emit the correct market data status every heartbeat so the label
+                # switches from REAL-TIME to EOD promptly after 4:00 PM ET close.
+                _mkt_open = is_market_hours()
+                if _mkt_open:
+                    _mkt_data_status = "PAPER" if ("SANDBOX" in mode.upper() or "PAPER" in mode.upper()) else "LIVE"
+                else:
+                    _mkt_data_status = "EOD"
+                self.market_data_status_changed.emit(_mkt_data_status)
+                # If the tradier circuit breaker is BLOCKED/OPEN, reset it — the
+                # heartbeat just confirmed Tradier is reachable so the breaker
+                # state is stale (tripped during pre-market or a transient outage).
+                if _circuit_breakers_available and _tradier_breaker is not None:
+                    if _tradier_breaker.is_open:
+                        _tradier_breaker.reset()
+                        logger.info("🔄 Tradier circuit breaker auto-reset (API confirmed healthy)")
+                # Refresh Tradier quotes every heartbeat (30 s) while real data is active
+                if getattr(self, "real_data_active", False) and self.market_worker:
+                    self.market_worker.fetch_requested.emit()
             else:
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
                 if previous_status:
@@ -544,36 +683,66 @@ class ThreadSafeMarketDataWorker(QObject):
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
 
             # --- Fetch account balance ---
+            # Always fetch balance from the account that matches TRADING_MODE:
+            #   paper → sandbox API with sandbox credentials (VA... account, $100k virtual)
+            #   live  → live API with live credentials
+            # This keeps market data quotes (live API) separate from paper balance.
+            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
             try:
-                bal = client.get_account_balances()
-                account_data = bal.get("balances", {})
-                equity = float(account_data.get("total_equity") or 0)
-                cash = float(account_data.get("total_cash") or 0)
-                margin = account_data.get("margin", {})
-                option_bp = float(
-                    margin.get("option_buying_power")
-                    or account_data.get("buying_power")
-                    or cash
-                )
-                if equity or cash:
-                    self.balance_updated.emit(equity, option_bp)
+                if trading_mode == "paper":
+                    paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "")
+                    paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "")
+                    if paper_key and paper_acct:
+                        paper_client = TradierClient(
+                            api_key=paper_key,
+                            account_id=paper_acct,
+                            environment=TradingEnvironment.SANDBOX,
+                        )
+                        bal = paper_client.get_account_balances()
+                        account_data = bal.get("balances", {})
+                        equity = float(account_data.get("total_equity") or 0)
+                        cash = float(account_data.get("total_cash") or 0)
+                        margin = account_data.get("margin", {})
+                        option_bp = float(
+                            margin.get("option_buying_power")
+                            or account_data.get("buying_power")
+                            or cash
+                        )
+                        if equity or cash:
+                            self.balance_updated.emit(equity, option_bp)
+                else:
+                    # Live trading: fetch from live account
+                    bal = client.get_account_balances()
+                    account_data = bal.get("balances", {})
+                    equity = float(account_data.get("total_equity") or 0)
+                    cash = float(account_data.get("total_cash") or 0)
+                    margin = account_data.get("margin", {})
+                    option_bp = float(
+                        margin.get("option_buying_power")
+                        or account_data.get("buying_power")
+                        or cash
+                    )
+                    if equity or cash:
+                        self.balance_updated.emit(equity, option_bp)
             except Exception:
                 pass
 
             # --- Fetch live quotes and write to data_file ---
             symbols = [
-                "SPY", "SPX", "VIX", "VIX9D",         # S&P core + volatility
-                "VVIX", "UVXY",                          # Volatility ETFs
-                "SKEW",                                  # CBOE SKEW index
-                "DIA", "QQQ", "IWM",                     # Major index ETFs
-                "TLT", "LQD", "GLD",                     # Bonds & credit + correlations
-                "UUP",                                   # USD Index ETF (DXY proxy; Tradier: no DXY)
-                "$DJI",                                  # Dow Jones index ($DJI confirmed on Tradier)
-                "NDX",                                   # NASDAQ 100 index (no $ prefix on Tradier)
-                "RUT",                                   # Russell 2000 index (no $ prefix on Tradier)
-                # NYSE market internals — returned by Tradier during market hours only;
-                # sandbox returns nothing for these, production returns live values.
-                "$TICK", "$ADD", "$TRIN",
+                "SPY", "SPX", "VIX", "VIX9D",           # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)
+                "VVIX", "UVXY",                           # Volatility ETFs
+                "SKEW",                                   # CBOE SKEW index
+                "DIA", "QQQ", "IWM",                      # Major index ETFs
+                "TLT", "LQD", "GLD",                      # Bonds & credit + correlations
+                "UUP",                                    # USD Index ETF (DXY proxy; Tradier: no DXY)
+                # NOTE: $DJI confirmed ~15 min delayed on Tradier (April 2026 testing).
+                # DIA ETF * 100 is used instead — real-time, tracks within 0.3%.
+                "RUT",                                    # Russell 2000 index (bare symbol confirmed on Tradier)
+                # NOTE: NASDAQ Composite (IXIC) is NOT available on Tradier.
+                # QQQ ETF * 37.5 is used as a Composite proxy (~23,079 vs actual ~23,111).
+                # NDX (NASDAQ 100, ~25,358) is a different, unrelated index.
+                # NOTE: $TICK, $ADD, $TRIN all confirmed unmatched on Tradier LIVE API (April 2026).
+                # NYSE market internals are not available on current Tradier data subscription.
             ]
             try:
                 raw = client.get_quotes(symbols)
@@ -583,20 +752,23 @@ class ThreadSafeMarketDataWorker(QObject):
                 live_data = {}
                 # Remap Tradier symbols to dashboard widget keys where needed
                 _sym_remap = {
-                    "VIX9D": "VXV",  # VIX9D closest proxy for VXV 3-month vol
-                    "UUP":   "DXY",  # Invesco USD ETF (~27) proxies DXY (~104)
+                    "VIX9D": "VXV",   # VIX9D closest proxy for VXV 3-month vol
+                    "UUP":   "DXY",   # Invesco USD ETF (~27) proxies DXY (~104)
+                    # NDX and RUT are already correct key names — no remap needed
                 }
                 for q in quotes_raw:
                     sym = q.get("symbol", "")
                     last = float(q.get("last") or q.get("close") or 0.0)
                     change = float(q.get("change") or 0.0)
                     change_pct = float(q.get("change_percentage") or 0.0)
+                    timestamp_ms = _freshest_quote_timestamp_ms(q)
                     if last:
                         key = _sym_remap.get(sym, sym)
                         live_data[key] = {
                             "last": last,
                             "change": change,
                             "change_pct": change_pct,
+                            "timestamp_ms": timestamp_ms,
                         }
                 if live_data:
                     self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -653,8 +825,14 @@ class ThreadSafeMarketDataWorker(QObject):
                 pass
 
             # --- Fetch 5-min SPY bars for chart ---
+            # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
             try:
-                from datetime import date as _date
+                import pytz as _pytz
+                from datetime import date as _date, datetime as _dt
+                _et_now = _dt.now(_pytz.timezone("US/Eastern"))
+                _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
+                if _et_now < _market_open_et:
+                    raise StopIteration  # skip fetch — bars don't exist yet
                 today_open = f"{_date.today().isoformat()} 09:30"
                 ts_resp = client.get_time_sales(
                     "SPY", interval="5min", start=today_open, session_filter="open",
@@ -669,8 +847,127 @@ class ThreadSafeMarketDataWorker(QObject):
                     with open(chart_file, "w") as f:
                         import json as _json2
                         _json2.dump(candles_raw, f)
+            except StopIteration:
+                pass  # before 9:30 ET — no bars yet
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _fetch_quotes_fast(self):
+        """Lightweight 10-second quote refresh — prices only, no options chain or chart bars.
+
+        Merges fresh prices into live_data.json so the 1-second _real_data_timer
+        picks them up immediately without overwriting CPC or other computed keys.
+        """
+        try:
+            import os, json as _json
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+            if not TRADIER_AVAILABLE:
+                return
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
+            if not api_key or not account_id:
+                return
+            env_enum = (
+                TradingEnvironment.LIVE
+                if env_str.lower() == "live"
+                else TradingEnvironment.SANDBOX
+            )
+            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+            symbols = [
+                "SPY", "SPX", "VIX", "VIX9D", "VVIX", "UVXY", "SKEW",
+                "DIA", "QQQ", "IWM", "TLT", "LQD", "GLD", "UUP",
+                # $DJI excluded: ~15 min delayed on Tradier; DIA*100 used for display
+                "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
+                # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
+            ]
+            _sym_remap = {
+                "VIX9D": "VXV",
+                "UUP":   "DXY",
+                # NOTE: $DJI confirmed ~15 min delayed — not fetched; DIA*100 used instead
+                # RUT is already the correct key name — no remap needed
+            }
+            raw = client.get_quotes(symbols)
+            quotes_raw = raw.get("quotes", {}).get("quote", [])
+            if isinstance(quotes_raw, dict):
+                quotes_raw = [quotes_raw]
+
+            # Load existing file to preserve CPC and other computed keys
+            existing: dict = {}
+            if self.data_file.exists():
+                try:
+                    with open(self.data_file) as _f:
+                        existing = _json.load(_f)
+                except Exception:
+                    pass
+
+            updated = False
+            for q in quotes_raw:
+                sym = q.get("symbol", "")
+                last = float(q.get("last") or q.get("close") or 0.0)
+                change = float(q.get("change") or 0.0)
+                change_pct = float(q.get("change_percentage") or 0.0)
+                timestamp_ms = _freshest_quote_timestamp_ms(q)
+                if last:
+                    key = _sym_remap.get(sym, sym)
+                    existing[key] = {
+                        "last": last,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "timestamp_ms": timestamp_ms,
+                    }
+                    updated = True
+            if updated:
+                self.data_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.data_file, "w") as _f:
+                    _json.dump(existing, _f)
+
+            # --- Market internals via yfinance ($TICK, $ADD, $TRIN) ---
+            # Tradier does not carry NYSE breadth symbols; yfinance provides
+            # ~15-min-delayed free data.  Throttled to every 3rd fast-quote call
+            # (~30 s) since the data changes slowly.
+            self._internals_tick = getattr(self, "_internals_tick", 0) + 1
+            if self._internals_tick % 3 == 1:  # 1st, 4th, 7th … calls
+                try:
+                    import yfinance as _yf
+                    _map = {"$TICK": "^TICK", "$ADD": "^ADD", "$TRIN": "^TRIN"}
+                    _df = _yf.download(
+                        list(_map.values()),
+                        period="1d", interval="5m",
+                        progress=False, auto_adjust=True,
+                    )
+                    if not _df.empty:
+                        import pandas as _pd
+                        _int_updated = False
+                        for dash_key, yf_sym in _map.items():
+                            try:
+                                if isinstance(_df.columns, _pd.MultiIndex):
+                                    _closes = _df[("Close", yf_sym)].dropna()
+                                else:
+                                    _closes = _df["Close"].dropna()
+                                if _closes.empty:
+                                    continue
+                                _last = float(_closes.iloc[-1])
+                                _prev = float(_closes.iloc[-2]) if len(_closes) >= 2 else _last
+                                _chg = _last - _prev
+                                _pct = (_chg / abs(_prev) * 100) if _prev else 0.0
+                                existing[dash_key] = {
+                                    "last": round(_last, 2),
+                                    "change": round(_chg, 2),
+                                    "change_pct": round(_pct, 2),
+                                }
+                                _int_updated = True
+                            except Exception:
+                                pass
+                        if _int_updated:
+                            self.data_file.parent.mkdir(parents=True, exist_ok=True)
+                            with open(self.data_file, "w") as _f:
+                                _json.dump(existing, _f)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -752,14 +1049,31 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = QTimer()
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
-        # FIXED: Re-check connection at start and emit proper status
+        # Only attempt initial connection if within the trading window
+        if not is_tradier_window():
+            import pytz as _pytz
+            _et_now = datetime.now(_pytz.timezone("US/Eastern"))
+            _open_str = TRADIER_CONNECT_TIME.strftime("%I:%M %p")
+            logger.info("🕐 Outside trading window — Tradier will connect at %s ET", _open_str)
+            self.connection_status_changed.emit(False, "WAITING FOR MARKET")
+            self.market_data_status_changed.emit("NONE")
+            self.heartbeat_status_changed.emit("disconnected")
+            self.heartbeat_received.emit(
+                "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
+            )
+            return
+
         try:
             connected, mode = check_api_connection()
             self.api_connected = connected
 
             if connected:
                 self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
-                self.market_data_status_changed.emit("LIVE")
+                # Emit "LIVE" or "PAPER" (not "REAL-TIME") so on_market_data_status_changed
+                # sets mkt_data_connected = True and turns the TRADIER DATA label green.
+                _startup_sandbox = "SANDBOX" in mode.upper() or "PAPER" in mode.upper()
+                _startup_mkt = "PAPER" if _startup_sandbox else "LIVE"
+                self.market_data_status_changed.emit(_startup_mkt)
                 self.heartbeat_status_changed.emit("connected")  # Green heart
                 logger.info("✅ Tradier API connected at startup: %s", mode)
             else:
@@ -822,7 +1136,8 @@ class ThreadSafeMarketDataWorker(QObject):
 
         if connected:
             self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
-            self.market_data_status_changed.emit("LIVE")
+            is_sandbox = "SANDBOX" in mode.upper() or "PAPER" in mode.upper()
+            self.market_data_status_changed.emit("PAPER" if is_sandbox else "LIVE")
             return True
         self.connection_status_changed.emit(False, "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
@@ -953,6 +1268,7 @@ class SignalMonitorPanel(QWidget):
         self.swan_button = TrafficLightButton("BLACK SWAN")
         self.hmm_button = TrafficLightButton("HMM")
         self.skew_button = TrafficLightButton("SKEW")
+        self.internals_button = TrafficLightButton("MKT INTERNALS")
 
         # Add buttons to grid (6 rows, 2 columns)
         layout.addWidget(self.vix_button, 0, 0)
@@ -967,6 +1283,7 @@ class SignalMonitorPanel(QWidget):
         layout.addWidget(self.swan_button, 4, 1)
         layout.addWidget(self.hmm_button, 5, 0)
         layout.addWidget(self.skew_button, 5, 1)
+        layout.addWidget(self.internals_button, 6, 0, 1, 2)  # spans both columns
 
         # Connect buttons to their dialog methods
         self.vix_button.clicked.connect(self.show_vix_dialog)
@@ -981,6 +1298,7 @@ class SignalMonitorPanel(QWidget):
         self.swan_button.clicked.connect(self.show_swan_dialog)
         self.hmm_button.clicked.connect(self.show_hmm_dialog)
         self.skew_button.clicked.connect(self.show_skew_dialog)
+        self.internals_button.clicked.connect(self.show_internals_dialog)
 
         self.setLayout(layout)
 
@@ -1015,6 +1333,9 @@ class SignalMonitorPanel(QWidget):
 
         # SKEW — default to green (normal tail-risk level)
         self.skew_button.set_status("green")
+
+        # MKT INTERNALS — default to yellow (data pending)
+        self.internals_button.set_status("yellow")
 
     def close_current_dialog(self):
         """Close the currently open dialog if any"""
@@ -1194,6 +1515,38 @@ class SignalMonitorPanel(QWidget):
                 "Strategy Impact:\n- Puts: Fairly priced\n- Calls: Normal premium\n- Recommended: Iron Condors",
             )
 
+    def show_internals_dialog(self):
+        global internals_dialog_available, MarketInternalsDialog
+        if internals_dialog_available is None:
+            try:
+                from Spyder.SpyderG_GUI.SpyderG17_MarketInternalsWidget import (
+                    MarketInternalsDialog as _MID,
+                )
+                MarketInternalsDialog = _MID
+                internals_dialog_available = True
+                logger.info("✅ Market Internals Dialog loaded (lazy)")
+            except ImportError as exc:
+                MarketInternalsDialog = None
+                internals_dialog_available = False
+                logger.warning("⚠️ Market Internals Dialog not available: %s", exc)
+
+        if internals_dialog_available and MarketInternalsDialog:
+            self.close_current_dialog()
+            # Pass the dashboard's Tradier client if accessible
+            client = getattr(self, "_tradier_client", None)
+            if client is None:
+                # Try alternate attribute names used by different dashboard versions
+                client = getattr(self, "tradier_client", None) or getattr(self, "client", None)
+            self.current_dialog = MarketInternalsDialog(tradier_client=client, parent=self)
+            self.current_dialog.show()
+        else:
+            QMessageBox.information(
+                self,
+                "Market Internals",
+                "TICK / ADD / TRIN monitor unavailable.\n"
+                "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",
+            )
+
 
 class MarketSymbolWidget(QWidget):
     """Widget for displaying a single market symbol"""
@@ -1254,8 +1607,16 @@ class MarketSymbolWidget(QWidget):
     def _update_standard_symbol(self, last, change, change_pct):
         """Update standard market symbols"""
         if self.symbol.startswith("$"):
-            if self.symbol == "$TICK":
+            if self.symbol in ("$TICK", "$ADD"):
                 self.price_label.setText(f"{last:+.0f}")
+                # Colour: green when positive breadth, red when negative
+                _int_color = COLORS["positive"] if last >= 0 else COLORS["negative"]
+                self.price_label.setStyleSheet(f"color: {_int_color};")
+            elif self.symbol == "$TRIN":
+                self.price_label.setText(f"{last:.2f}")
+                # TRIN < 1 = bullish (green), > 1 = bearish (red)
+                _trin_color = COLORS["positive"] if last < 1.0 else COLORS["negative"]
+                self.price_label.setStyleSheet(f"color: {_trin_color};")
             else:
                 self.price_label.setText(f"{last:.2f}")
         elif self.symbol in ["SPX", "/ES"]:
@@ -1702,8 +2063,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.greek_risks = GreekRisk(45.5, -2.3, -156.8, -245.2)
         self.system_logs = []
 
-        # CRITICAL: Add startup banner FIRST to show actual launch time
-        startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # CRITICAL: Add startup banner FIRST to show actual launch time (ET)
+        startup_time = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S ET")
         startup_banner = (
             f"{'=' * 60}\n🚀 SPYDER DASHBOARD STARTED: {startup_time}\n{'=' * 60}"
         )
@@ -1812,20 +2173,29 @@ class SpyderTradingDashboard(QMainWindow):
         # Start market worker with fixed connection detection
         self.start_market_worker()
 
+        # Start custom metrics orchestrator (DIX + Black Swan schedulers)
+        # Deferred 1 s so the Qt event loop is fully running before QTimer creation in S07
+        self._metrics_orchestrator = None
+        QTimer.singleShot(1000, self._start_metrics_orchestrator)
+
         # Apply white tooltip styling
         self.setup_white_tooltips()
 
-        # Log the actual dashboard initialization time
-        init_time = datetime.now().strftime("%H:%M:%S")
+        # Log the actual dashboard initialization time (ET)
+        _et_tz = pytz.timezone("US/Eastern")
+        init_time = datetime.now(_et_tz).strftime("%H:%M:%S ET")
         self.add_system_log(f"🚀 Dashboard initialized at {init_time}")
 
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
 
-        # Check Tradier API connectivity on startup
-        QTimer.singleShot(2000, self.check_and_connect_gateway)
+        # NOTE: check_and_connect_gateway() was removed — it called check_api_connection()
+        # (30-second HTTP timeout) on the main Qt thread and caused "Not Responding" freezes.
+        # The ThreadSafeMarketDataWorker already performs the same startup check in its own
+        # thread and emits connection_status_changed / market_data_status_changed signals.
 
-        # Fetch live balance + quotes shortly after startup (before first 30s heartbeat)
+        # Fetch live balance + quotes shortly after startup (before first 30s heartbeat).
+        # Retry once in case the worker's startup API call hasn't completed yet.
         QTimer.singleShot(4000, self._trigger_initial_live_fetch)
 
         self.logger.info(
@@ -1865,6 +2235,10 @@ class SpyderTradingDashboard(QMainWindow):
         if self.api_connected:
             return
 
+        # Do not attempt connection outside the 9:20 AM – 4:30 PM ET window
+        if not is_tradier_window():
+            return
+
         try:
             connected, mode = check_api_connection()
 
@@ -1885,15 +2259,29 @@ class SpyderTradingDashboard(QMainWindow):
             self.api_connected = False
 
     def _trigger_initial_live_fetch(self):
-        """Ask the market worker to do an immediate live data + balance fetch."""
+        """Ask the market worker to do an immediate live data + balance fetch.
+
+        If the worker's startup API check hasn't completed yet (api_connected still
+        False), retry once in 5 seconds so the initial fetch is never silently skipped.
+        """
         if self.market_worker and self.api_connected:
             self.market_worker.fetch_requested.emit()
+        elif self.market_worker and is_tradier_window():
+            # Worker's startup API check may still be in-flight — retry shortly
+            QTimer.singleShot(5000, self._trigger_initial_live_fetch)
 
     # ==========================================================================
     # REAL DATA INTEGRATION PATTERN (UNCHANGED)
     # ==========================================================================
     def apply_proven_real_data_pattern(self):
         """Apply the proven real data integration pattern from temp_WorkingRealDashboard"""
+        # Only activate real data during the Tradier connection window.
+        # Outside 9:20 AM – 4:30 PM ET the data file may contain stale prices
+        # from a previous session — treat those as unusable.
+        if not is_tradier_window():
+            self.add_system_log("🕐 Outside trading window — skipping real data activation")
+            return
+
         try:
             # Check if real data is available
             real_data_available = False
@@ -1943,6 +2331,18 @@ class SpyderTradingDashboard(QMainWindow):
             self._real_data_timer = QTimer()
             self._real_data_timer.timeout.connect(self.update_with_real_data)
             self._real_data_timer.start(1000)  # Update every second
+
+            # Fast quote refresh — polls Tradier for fresh prices every 10 s.
+            # Runs in the market worker thread via fast_fetch_requested so it
+            # doesn't block the UI.  The full fetch (balance + options + chart)
+            # still happens every 30 s via the heartbeat.
+            self._fast_quote_timer = QTimer()
+            self._fast_quote_timer.timeout.connect(
+                lambda: self.market_worker.fast_fetch_requested.emit()
+                if getattr(self, "market_worker", None)
+                else None
+            )
+            self._fast_quote_timer.start(10_000)  # every 10 seconds
 
             self.real_data_active = True
 
@@ -2008,34 +2408,34 @@ class SpyderTradingDashboard(QMainWindow):
                 self.market_data[symbol]["last"] = data["last"]
                 self.market_data[symbol]["change"] = data["change"]
                 self.market_data[symbol]["change_pct"] = data["change_pct"]
+                quote_time = _datetime_from_epoch_ms(data.get("timestamp_ms"))
+                if quote_time is not None:
+                    self.market_data[symbol]["timestamp"] = quote_time
 
-            # Update symbol widgets directly
+            freshest_quote_time = _freshest_live_data_timestamp(live_data)
+            if freshest_quote_time is not None:
+                self.connection_info.last_successful_data = freshest_quote_time
+                self.connection_info.data_was_live = True
+
+            # Update symbol widgets — delegate to update_data() so each widget's
+            # symbol-specific formatting and colour logic is applied correctly
+            # (e.g. $TICK/$ADD as signed integers, $TRIN colour-coded by value).
             for symbol, data in live_data.items():
                 if symbol in self.symbol_widgets:
-                    widget = self.symbol_widgets[symbol]
-
-                    # Update price
-                    if hasattr(widget, "price_label"):
-                        widget.price_label.setText(f"{data['last']:.2f}")
-
-                    # Update change with color
-                    if hasattr(widget, "change_label"):
-                        change = data["change"]
-                        sign = "+" if change >= 0 else ""
-                        widget.change_label.setText(f"{sign}{change:.2f}")
-                        color = "#00ff41" if change >= 0 else "#ff1744"
-                        widget.change_label.setStyleSheet(f"color: {color};")
-
-                    # Update percentage with color
-                    if hasattr(widget, "pct_label"):
-                        pct = data["change_pct"]
-                        sign = "+" if pct >= 0 else ""
-                        widget.pct_label.setText(f"{sign}{pct:.2f}%")
-                        color = "#00ff41" if pct >= 0 else "#ff1744"
-                        widget.pct_label.setStyleSheet(f"color: {color};")
+                    self.symbol_widgets[symbol].update_data(data)
 
             # Update toolbar indices
             self.update_toolbar_with_real_data(live_data)
+
+            # Re-evaluate the status badge on every real-data refresh so stale
+            # quotes flip the UI promptly instead of waiting for the next heartbeat.
+            _correct_status = self.determine_data_status()
+            _label_map = {"REAL-TIME": "REAL-TIME", "EOD": "EOD", "FROZEN": "FROZEN"}
+            _current_label = self.data_status_label.text() if hasattr(self, "data_status_label") else ""
+            _target_label = _label_map.get(_correct_status, "SIMULATED")
+            if _current_label != _target_label:
+                self.update_data_status(_correct_status)
+                self.connection_info.market_data_status = _correct_status
 
         except Exception as e:
             # Suppress frequent errors in logs
@@ -2063,9 +2463,10 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#ff1744"
                     self.spx_change.setStyleSheet(f"color: {color};")
 
-            # NDX — Tradier symbol "NDX" (no $ prefix), NASDAQ 100 index; fallback to QQQ * ratio
-            ndx_src = live_data.get("NDX") or live_data.get("QQQ")
-            ndx_mult = 1 if "NDX" in live_data else 37.5
+            # COMP (NASDAQ Composite) — Tradier has no IXIC symbol.
+            # QQQ ETF * 37.5 is the closest available proxy (~23,079 vs actual ~23,111).
+            ndx_src = live_data.get("QQQ")
+            ndx_mult = 37.5
             if ndx_src:
                 if hasattr(self, "ndx_value"):
                     self.ndx_value.setText(f" {ndx_src['last'] * ndx_mult:,.0f}")
@@ -2077,9 +2478,10 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#ff1744"
                     self.ndx_change.setStyleSheet(f"color: {color};")
 
-            # DJI — use $DJI directly, fallback to DIA * 100
-            dji_src = live_data.get("$DJI") or live_data.get("DIA")
-            dji_mult = 1 if "$DJI" in live_data else 100
+            # DJI — Tradier's $DJI index is ~15 min delayed (confirmed April 2026).
+            # Use DIA ETF * 100 instead: real-time, tracks within ~0.3% of actual DJIA.
+            dji_src = live_data.get("DIA")
+            dji_mult = 100
             if dji_src:
                 if hasattr(self, "dji_value"):
                     self.dji_value.setText(f" {dji_src['last'] * dji_mult:,.0f}")
@@ -2091,15 +2493,26 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#ff1744"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
-            # RUT — Tradier symbol "RUT" (no $ prefix), Russell 2000 index; fallback to IWM * 10
+            # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).
+            # Use RUT last directly; derive change from IWM ETF change_pct as proxy.
             rut_src = live_data.get("RUT") or live_data.get("IWM")
             rut_mult = 1 if "RUT" in live_data else 10
             if rut_src:
+                rut_last = rut_src["last"] * rut_mult
                 if hasattr(self, "rut_value"):
-                    self.rut_value.setText(f" {rut_src['last'] * rut_mult:,.0f}")
+                    self.rut_value.setText(f" {rut_last:,.0f}")
                 if hasattr(self, "rut_change"):
-                    change = rut_src["change"] * rut_mult
-                    pct = rut_src["change_pct"]
+                    # RUT index: change_pct is None from Tradier; borrow IWM's change_pct
+                    iwm = live_data.get("IWM")
+                    if rut_src.get("change_pct") is not None and rut_src["change_pct"] != 0:
+                        pct = rut_src["change_pct"]
+                        change = rut_src["change"] * rut_mult
+                    elif iwm and iwm.get("change_pct"):
+                        pct = iwm["change_pct"]
+                        change = rut_last * pct / 100
+                    else:
+                        pct = 0.0
+                        change = 0.0
                     sign = "+" if change >= 0 else ""
                     self.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#ff1744"
@@ -2259,7 +2672,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Center section with market indices
         center_section = QHBoxLayout()
-        center_section.setSpacing(15)
+        center_section.setSpacing(5)
 
         # DJI
         dji_container = QHBoxLayout()
@@ -2277,7 +2690,7 @@ class SpyderTradingDashboard(QMainWindow):
         dji_container.addWidget(self.dji_change)
 
         center_section.addLayout(dji_container)
-        center_section.addSpacing(24)
+        center_section.addSpacing(10)
 
         # SPX
         spx_container = QHBoxLayout()
@@ -2295,12 +2708,12 @@ class SpyderTradingDashboard(QMainWindow):
         spx_container.addWidget(self.spx_change)
 
         center_section.addLayout(spx_container)
-        center_section.addSpacing(24)
+        center_section.addSpacing(10)
 
         # NDX
         ndx_container = QHBoxLayout()
         ndx_container.setSpacing(0)
-        ndx_label = QLabel("NDX:")
+        ndx_label = QLabel("COMP:")
         ndx_label.setStyleSheet(f"color: {COLORS['text']};")
         ndx_container.addWidget(ndx_label)
 
@@ -2313,7 +2726,7 @@ class SpyderTradingDashboard(QMainWindow):
         ndx_container.addWidget(self.ndx_change)
 
         center_section.addLayout(ndx_container)
-        center_section.addSpacing(24)
+        center_section.addSpacing(10)
 
         # RUT (Russell 2000)
         rut_container = QHBoxLayout()
@@ -2451,7 +2864,8 @@ class SpyderTradingDashboard(QMainWindow):
         pipe_label = QLabel(" | ")
         pipe_label.setStyleSheet(f"color: {COLORS['text']};")
         layout.addWidget(pipe_label)
-        self.datetime_label = QLabel(datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET"))
+        _et_tz = pytz.timezone("US/Eastern")
+        self.datetime_label = QLabel(datetime.now(_et_tz).strftime("%Y-%m-%d   %H:%M:%S  ET"))
         self.datetime_label.setStyleSheet("font-size: 14px;")
         layout.addWidget(self.datetime_label)
 
@@ -2812,8 +3226,14 @@ class SpyderTradingDashboard(QMainWindow):
         # Row 0: ACCOUNT | account-number | MODE selector (spans cols 2-3)
         acct_grid.addWidget(self._acct_lbl("ACCOUNT", cell_style), 0, 0)
         import os as _os_acct
+        _trading_mode_init = _os_acct.environ.get("TRADING_MODE", "paper").lower()
+        _display_acct_id = (
+            _os_acct.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "—")
+            if _trading_mode_init == "paper"
+            else _os_acct.environ.get("TRADIER_ACCOUNT_ID", "—")
+        )
         self.acct_number_lbl = self._acct_lbl(
-            _os_acct.environ.get("TRADIER_ACCOUNT_ID", "—"), cell_style
+            _display_acct_id, cell_style
         )
         acct_grid.addWidget(self.acct_number_lbl, 0, 1)
 
@@ -3768,14 +4188,16 @@ class SpyderTradingDashboard(QMainWindow):
             # Refresh orders & positions table with live data
             self._refresh_positions_table()
 
-            # Auto-recover from FROZEN → LIVE when API reconnects during market hours
+            # Auto-recover from FROZEN when API reconnects during market hours
             if (
                 hasattr(self, "data_status_label")
                 and self.data_status_label.text() == "FROZEN"
             ):
-                self.mkt_data_connected = True
-                self.update_data_status("LIVE")
                 import os
+                _env = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
+                _status = "PAPER" if _env != "live" else "LIVE"
+                self.mkt_data_connected = True
+                self.update_data_status(_status)
                 provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
                 self._apply_mkt_provider_display(provider)
         else:
@@ -3807,21 +4229,51 @@ class SpyderTradingDashboard(QMainWindow):
 
     @Slot(str)
     def on_heartbeat_status_changed(self, status: str):
-        """Handle heartbeat status changes — connection state is shown via label color only."""
-        # Heartbeat icon removed; TRADIER EXEC label color handles state
+        """Handle heartbeat status — turns TRADIER EXEC and DATA labels red on connection failure.
+
+        Args:
+            status: "connected" | "disconnected" | "error" | "warning"
+        """
+        if status in ("disconnected", "error", "offline"):
+            # Force both toolbar indicators to red immediately on heartbeat failure
+            if hasattr(self, "api_connection_label"):
+                self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
+            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
+                self.api_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
+            if hasattr(self, "mkt_provider_label"):
+                self.mkt_provider_label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 14px;")
+            if hasattr(self, "mkt_connect_icon") and self.mkt_connect_icon:
+                self.mkt_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
+        elif status == "connected":
+            # Restore both labels from actual connection state (safety net)
+            exec_color = COLORS["positive"] if getattr(self, "api_connected", False) else COLORS["negative"]
+            if hasattr(self, "api_connection_label"):
+                self.api_connection_label.setStyleSheet(f"color: {exec_color};")
+            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
+                self.api_connect_icon.setStyleSheet(f"color: {exec_color}; font-size: 13px;")
+            import os
+            provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
+            self._apply_mkt_provider_display(provider)
+        # "warning" (pre-check pulse) intentionally does not change label colors
 
     @Slot(str)
     def on_market_data_status_changed(self, status: str):
         """Handle market data status change and update provider connection indicator."""
         was_connected = self.mkt_data_connected
-        if status == "LIVE":
+        previous_status = self.connection_info.market_data_status
+        if status in ("LIVE", "PAPER"):
             self.mkt_data_connected = True
-            self.add_system_log("📊 Market data: LIVE")
-            # Auto-recover from FROZEN → LIVE when API reconnects during market hours
-            if self.data_status_label.text() == "FROZEN":
-                self.update_data_status("LIVE")
+            resolved_status = self.determine_data_status()
+            self.update_data_status(resolved_status)
+            self.connection_info.market_data_status = resolved_status
+        elif status == "EOD":
+            # Market closed but API still reachable — show EOD, keep provider green
+            self.mkt_data_connected = True
+            self.update_data_status("EOD")
+            self.connection_info.market_data_status = "EOD"
         else:
             self.mkt_data_connected = False
+            self.connection_info.market_data_status = "NONE"
             if self.trading_active:
                 self.trading_active = False
                 self.connection_info.trading_active = False
@@ -3832,11 +4284,6 @@ class SpyderTradingDashboard(QMainWindow):
                 self.start_btn.setText("START TRADING")
 
                 self.add_automation_log("Trading stopped - Market data lost")
-
-            if status == "CLOSED":
-                self.add_system_log("📊 Market closed - data static")
-            else:
-                self.add_system_log("📊 Market data: NONE")
 
         # Refresh provider label color if connection state changed
         if was_connected != self.mkt_data_connected:
@@ -4024,6 +4471,17 @@ class SpyderTradingDashboard(QMainWindow):
         if not getattr(self, "api_connected", False):
             self.add_system_log("ℹ️ Not connected — showing demo data")
             return
+
+        # In paper trading mode the live account endpoints are not used;
+        # paper positions are tracked internally by _PaperTradingWorker.
+        if getattr(self, "trading_mode", None) == TradingMode.PAPER:
+            self.positions_table.clear()
+            _empty = QTreeWidgetItem(self.positions_table)
+            _empty.setText(0, "Paper trading mode — positions tracked by paper engine")
+            _empty.setForeground(0, Qt.GlobalColor.gray)
+            self.positions_table.setFirstColumnSpanned(0, QModelIndex(), True)
+            return
+
         client = self._get_tradier_client_for_mode()
         if not client:
             return
@@ -4357,7 +4815,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Reset account container to placeholders; real data arrives via broker/signals
         if self.acct_number_lbl:
-            self.acct_number_lbl.setText("PAPER ACCOUNT" if is_paper else "—")
+            import os as _os_mode
+            _paper_acct_id = _os_mode.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT")
+            self.acct_number_lbl.setText(_paper_acct_id if is_paper else "—")
         for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):
             if lbl:
                 lbl.setText("—")
@@ -4408,7 +4868,7 @@ class SpyderTradingDashboard(QMainWindow):
             return
         is_live = self.trading_mode == TradingMode.LIVE
         _active_base = "font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none;"
-        _inactive_base = f"font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none; background-color: {COLORS['panel']}; color: #555555;"
+        _inactive_base = f"font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none; background-color: {COLORS['panel']}; color: #aaaaaa;"
         self.live_btn.setStyleSheet(
             f"background-color: {COLORS['positive']}; color: black; {_active_base}"
             if is_live else _inactive_base
@@ -4569,12 +5029,22 @@ class SpyderTradingDashboard(QMainWindow):
         self.start_btn.setText("PAPER ACTIVE")
         self.start_btn.setEnabled(False)
 
-        # Show "Connecting…" placeholder in the account container
+        # Pre-populate account panel with initial paper capital immediately,
+        # so the user sees $100k right away without waiting for the first Tradier poll.
+        # (On market-closed days SPY last=0 so the poll returns early and labels would
+        # stay stuck on "Connecting…" indefinitely.)
         if self.acct_number_lbl:
-            self.acct_number_lbl.setText("PAPER ACCOUNT")
-        for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):
-            if lbl:
-                lbl.setText("Connecting…")
+            import os as _os_pt
+            self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
+        _ic = 100_000.0  # matches _PaperTradingWorker(initial_capital=100_000.0) below
+        if self.settled_value:
+            self.settled_value.setText(f"${_ic:,.2f}")
+        if self.buying_value:
+            self.buying_value.setText(f"${_ic:,.2f}")
+        if self.realized_value:
+            self.realized_value.setText("$0.00")
+        if self.unrealized_value:
+            self.unrealized_value.setText("$0.00")
 
         # Create worker and thread
         self._paper_thread = QThread(self)
@@ -4743,7 +5213,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Reset account container to idle state
         if self.acct_number_lbl:
-            self.acct_number_lbl.setText("PAPER ACCOUNT")
+            import os as _os_stop
+            self.acct_number_lbl.setText(_os_stop.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
         for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):
             if lbl:
                 lbl.setText("—")
@@ -4753,20 +5224,24 @@ class SpyderTradingDashboard(QMainWindow):
     @Slot(float, float)
     def _on_balance_updated(self, equity: float, buying_power: float):
         """Update account balance fields from Tradier API (emitted by market worker heartbeat)."""
-        if not self.trading_active:  # Only show if paper trading not already active
-            if self.settled_value and equity:
-                self.settled_value.setText(f"${equity:,.2f}")
-            if self.buying_value and buying_power:
-                self.buying_value.setText(f"${buying_power:,.2f}")
+        # In paper-trading mode the paper worker keeps these labels updated; skip to avoid
+        # overwriting live paper P&L with the (potentially zero) sandbox account balance.
+        if self.trading_active and self._paper_worker is not None:
+            return
+        if self.settled_value and equity:
+            self.settled_value.setText(f"${equity:,.2f}")
+        if self.buying_value and buying_power:
+            self.buying_value.setText(f"${buying_power:,.2f}")
 
     @Slot(bool)
     def _on_paper_connection(self, connected: bool):
         """Handle paper trading connection result."""
         if connected:
             self.on_connection_status_changed(True, "Tradier (PAPER)")
-            self.update_data_status("LIVE")
+            self.update_data_status("PAPER")
             if self.acct_number_lbl:
-                self.acct_number_lbl.setText("PAPER ACCOUNT")
+                import os as _os_conn
+                self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
             self.add_automation_log("PAPER TRADING ACTIVE — Polling SPY every 30s")
         else:
             self.add_system_log("❌ Paper trading could not connect to Tradier")
@@ -4849,14 +5324,14 @@ class SpyderTradingDashboard(QMainWindow):
     # ENHANCED STATUS MANAGEMENT
     # ==========================================================================
     def update_data_status(self, status_type: str):
-        """Update data status display — 4 states: LIVE, EOD, SIMULATED, FROZEN."""
-        if status_type == "LIVE":
-            self.data_status_label.setText("LIVE")
+        """Update data status display — 4 states: REAL-TIME, EOD, SIMULATED, FROZEN."""
+        if status_type in ("LIVE", "REAL-TIME", "PAPER"):
+            self.data_status_label.setText("REAL-TIME")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["positive"] + "; font-size: 14px;",
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
-            self.data_status_container.setToolTip("Live market data")
+            self.data_status_container.setToolTip("Real-time market data — live prices")
         elif status_type == "EOD":
             self.data_status_label.setText("EOD")
             self.data_status_label.setStyleSheet(
@@ -4901,10 +5376,15 @@ class SpyderTradingDashboard(QMainWindow):
         if self.api_connected:
             # API is connected
             if market_hours:
-                self.connection_info.data_was_live = True
-                self.connection_info.last_successful_data = datetime.now()
-                return "LIVE"
-            self.connection_info.last_successful_data = datetime.now()
+                freshest_quote_time = getattr(self.connection_info, "last_successful_data", None)
+                if freshest_quote_time is not None:
+                    quote_age_seconds = (datetime.now() - freshest_quote_time).total_seconds()
+                    if quote_age_seconds <= REALTIME_QUOTE_MAX_AGE_SECONDS:
+                        self.connection_info.data_was_live = True
+                        return "REAL-TIME"
+                    if self.connection_info.data_was_live:
+                        return "FROZEN"
+                return "EOD"
             return "EOD"
         # API is disconnected
         if self.real_data_active:
@@ -4987,7 +5467,7 @@ class SpyderTradingDashboard(QMainWindow):
     def _toggle_data_display(self, event):
         """Toggle data display between EOD and SIMULATED (click handler for data_status_container).
 
-        Only EOD and SIMULATED are clickable. LIVE and FROZEN ignore clicks.
+        Only EOD and SIMULATED are clickable. REAL-TIME and FROZEN ignore clicks.
         """
         current_text = self.data_status_label.text()
         if current_text == "EOD":
@@ -5050,6 +5530,69 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     # UTILITY METHODS - ENHANCED WITH HEARTBEAT WORKER
     # ==========================================================================
+    def _start_metrics_orchestrator(self):
+        """Instantiate the S07 CustomMetricsOrchestrator on the main Qt thread.
+
+        Called via QTimer.singleShot so QTimers inside S07 bind to the correct thread.
+        auto_start=True in S07.__init__ calls start() automatically, which in turn
+        starts the S02 DIX and S04 Black Swan schedulers.
+        """
+        try:
+            from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator
+            self._metrics_orchestrator = get_metrics_orchestrator()
+            # Wire S07 output → custom metric widgets in the Market Overview panel
+            self._metrics_orchestrator.metrics_updated.connect(self._on_custom_metrics_updated)
+            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")
+        except Exception as e:
+            self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
+            self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
+
+    def _on_custom_metrics_updated(self, metrics: dict) -> None:
+        """Slot for SpyderS07 CustomMetricsOrchestrator.metrics_updated signal.
+
+        S07 emits a nested dict: {"GEX": {"value": <float>, ...}, "DEX": {...}, ...}
+        The widget expects {last, change, change_pct} in the units its own
+        _update_custom_indicator() expects:
+          - GEX: raw dollars (widget divides by 1e9 to display "B")
+          - DEX: raw dollars (widget divides by 1e6 to display "M")
+          - OGL, DIX, SWAN: stored and displayed as-is
+          - TICK → "$TICK", ADD → "$ADD", TRIN → "$TRIN": market internals
+        """
+        # Multipliers to convert S07 units → widget raw units
+        # Maps S07 metric key → (dashboard widget key, scale factor)
+        _routing = {
+            "GEX":  ("GEX",   1e9),
+            "DEX":  ("DEX",   1e6),
+            "OGL":  ("OGL",   1.0),
+            "DIX":  ("DIX",   1.0),
+            "SWAN": ("SWAN",  1.0),
+            # Market breadth internals — S07 uses plain keys, widgets use $-prefixed keys
+            "TICK": ("$TICK", 1.0),
+            "ADD":  ("$ADD",  1.0),
+            "TRIN": ("$TRIN", 1.0),
+        }
+
+        for s07_key, (widget_key, scale) in _routing.items():
+            entry = metrics.get(s07_key)
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get("value")
+            if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+                continue
+            widget = self.symbol_widgets.get(widget_key)
+            if widget is None:
+                continue
+
+            value = raw * scale
+            # Compute change vs last known value for the change/pct columns
+            prev_attr = f"_cm_prev_{widget_key}"
+            prev = getattr(self, prev_attr, value)
+            change = value - prev
+            change_pct = (change / prev * 100.0) if prev else 0.0
+            setattr(self, prev_attr, value)
+
+            widget.update_data({"last": value, "change": change, "change_pct": change_pct})
+
     def start_market_worker(self):
         """Start the enhanced market worker with heartbeat monitoring"""
         try:
@@ -5080,6 +5623,10 @@ class SpyderTradingDashboard(QMainWindow):
                 self.market_worker._fetch_live_data_from_tradier,
                 Qt.QueuedConnection,
             )  # Safe cross-thread trigger
+            self.market_worker.fast_fetch_requested.connect(
+                self.market_worker._fetch_quotes_fast,
+                Qt.QueuedConnection,
+            )  # Lightweight 10-second quote-only refresh
 
             self.market_thread.started.connect(self.market_worker.start)
             self.market_thread.start()
@@ -5124,11 +5671,12 @@ class SpyderTradingDashboard(QMainWindow):
 
     def update_datetime(self):
         """Update date/time display"""
-        current_time = datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET")
+        _et_tz = pytz.timezone("US/Eastern")
+        current_time = datetime.now(_et_tz).strftime("%Y-%m-%d   %H:%M:%S  ET")
         self.datetime_label.setText(current_time)
 
     def generate_automation_activity(self):
-        """Generate automation activity logs"""
+        """Generate automation activity logs."""
         if not hasattr(self, "automation_activity_count"):
             self.automation_activity_count = 0
 
@@ -5652,7 +6200,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def add_system_log(self, message: str):
         """Add message to system log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}"
 
         self.system_logs.append(formatted_message)
@@ -5675,7 +6223,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def add_automation_log(self, message: str):
         """Add message to automation log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}"
 
         self.automation_logs.append(formatted_message)
@@ -5716,7 +6264,6 @@ class SpyderTradingDashboard(QMainWindow):
                 }
                 """
                 app.setStyleSheet(current_style + tooltip_style)
-                self.add_system_log("🎨 White tooltip styling applied")
 
             # Method 2: Set widget-specific tooltip styling as backup
             widget_style = """
@@ -5918,9 +6465,10 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
                 color = "#00ff41" if change >= 0 else "#ff1744"
                 dashboard.spx_change.setStyleSheet(f"color: {color};")
 
-        # NDX — Tradier symbol "NDX" (no $ prefix), NASDAQ 100 index; fallback to QQQ * ratio
-        ndx_src = live_data.get("NDX") or live_data.get("QQQ")
-        ndx_mult = 1 if "NDX" in live_data else 37.5
+        # COMP (NASDAQ Composite) — Tradier has no IXIC symbol.
+        # QQQ ETF * 37.5 is the closest available proxy (~23,079 vs actual ~23,111).
+        ndx_src = live_data.get("QQQ")
+        ndx_mult = 37.5
         if ndx_src:
             if hasattr(dashboard, "ndx_value"):
                 dashboard.ndx_value.setText(f" {ndx_src['last'] * ndx_mult:,.0f}")
@@ -5932,9 +6480,10 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
                 color = "#00ff41" if change >= 0 else "#ff1744"
                 dashboard.ndx_change.setStyleSheet(f"color: {color};")
 
-        # DJI — use $DJI directly, fallback to DIA * 100
-        dji_src = live_data.get("$DJI") or live_data.get("DIA")
-        dji_mult = 1 if "$DJI" in live_data else 100
+        # DJI — Tradier's $DJI index is ~15 min delayed (confirmed April 2026).
+        # Use DIA ETF * 100 instead: real-time, tracks within ~0.3% of actual DJIA.
+        dji_src = live_data.get("DIA")
+        dji_mult = 100
         if dji_src:
             if hasattr(dashboard, "dji_value"):
                 dashboard.dji_value.setText(f" {dji_src['last'] * dji_mult:,.0f}")
@@ -5946,15 +6495,25 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
                 color = "#00ff41" if change >= 0 else "#ff1744"
                 dashboard.dji_change.setStyleSheet(f"color: {color};")
 
-        # RUT — Tradier symbol "RUT" (no $ prefix), Russell 2000 index; fallback to IWM * 10
+        # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).
+        # Use RUT last directly; derive change from IWM ETF change_pct as proxy.
         rut_src = live_data.get("RUT") or live_data.get("IWM")
         rut_mult = 1 if "RUT" in live_data else 10
         if rut_src:
+            rut_last = rut_src["last"] * rut_mult
             if hasattr(dashboard, "rut_value"):
-                dashboard.rut_value.setText(f" {rut_src['last'] * rut_mult:,.0f}")
+                dashboard.rut_value.setText(f" {rut_last:,.0f}")
             if hasattr(dashboard, "rut_change"):
-                change = rut_src["change"] * rut_mult
-                pct = rut_src["change_pct"]
+                iwm = live_data.get("IWM")
+                if rut_src.get("change_pct") is not None and rut_src["change_pct"] != 0:
+                    pct = rut_src["change_pct"]
+                    change = rut_src["change"] * rut_mult
+                elif iwm and iwm.get("change_pct"):
+                    pct = iwm["change_pct"]
+                    change = rut_last * pct / 100
+                else:
+                    pct = 0.0
+                    change = 0.0
                 sign = "+" if change >= 0 else ""
                 dashboard.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                 color = "#00ff41" if change >= 0 else "#ff1744"

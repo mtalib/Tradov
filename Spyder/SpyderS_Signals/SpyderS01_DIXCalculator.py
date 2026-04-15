@@ -26,6 +26,14 @@ from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
+try:
+    import fcntl  # POSIX-only; Windows falls back to best-effort coordination
+    _HAS_FCNTL = True
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+    _HAS_FCNTL = False
+import json
+import os
 import time
 import warnings
 import logging
@@ -75,7 +83,15 @@ BATCH_DELAY = 1.0  # seconds between batches
 
 # Calculation Constants
 MIN_VOLUME_THRESHOLD = 0  # minimum volume to include in calculation
-MAX_RETRY_ATTEMPTS = 3
+# Cover up to a 7-day gap (long weekends + holidays): Sun→Thu needs 4 steps;
+# Good Friday long weekends (Fri + Sun)→Mon needs 6. 10 is a safe ceiling.
+MAX_RETRY_ATTEMPTS = 10
+
+# Disk cache for market caps (avoids yfinance re-fetch on every startup)
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
+_MARKET_CAPS_CACHE_FILE = os.path.join(_CACHE_DIR, "market_caps_cache.json")
+# Advisory lock file: prevents S02 and S07 from running concurrent yfinance fetches
+_MARKET_CAPS_LOCK_FILE = os.path.join(_CACHE_DIR, "market_caps_fetch.lock")
 
 class DataUnavailableError(RuntimeError):
     """Raised when required market data cannot be obtained from real sources."""
@@ -162,6 +178,9 @@ class SpyderDIXCalculator:
 
         # Suppress warnings
         warnings.filterwarnings('ignore')
+
+        # Try to warm the in-memory cache from disk immediately
+        self._load_market_caps_from_disk()
 
         self.logger.info("%s initialized", self.__class__.__name__)
 
@@ -268,8 +287,19 @@ class SpyderDIXCalculator:
         try:
             self.logger.info("Fetching S&P 500 constituents from Wikipedia...")
 
-            # Read S&P 500 list
-            tables = pd.read_html(SP500_WIKI_URL)
+            # Read S&P 500 list — Wikipedia blocks urllib's default UA with 403;
+            # fetch via requests with a browser UA, then parse the HTML string.
+            _wiki_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            }
+            _resp = requests.get(SP500_WIKI_URL, headers=_wiki_headers, timeout=30)
+            _resp.raise_for_status()
+            from io import StringIO as _StringIO
+            tables = pd.read_html(_StringIO(_resp.text))
             sp500_table = tables[0]
 
             # Extract and clean symbols
@@ -287,45 +317,114 @@ class SpyderDIXCalculator:
             self.logger.warning("Using fallback list of %s symbols", len(self.sp500_symbols))
             return True
 
+    def _load_market_caps_from_disk(self) -> bool:
+        """Load market caps from the disk cache if today's data is present.
+
+        Returns:
+            True if today's cache was loaded, False otherwise.
+        """
+        today = datetime.now().strftime("%Y%m%d")
+        if not os.path.exists(_MARKET_CAPS_CACHE_FILE):
+            return False
+        try:
+            with open(_MARKET_CAPS_CACHE_FILE, "r") as fh:
+                cached = json.load(fh)
+            if cached.get("date") == today and cached.get("caps"):
+                self.market_caps = cached["caps"]
+                self._market_caps_date = today
+                self.logger.info(
+                    "Market caps loaded from disk cache (%s symbols, date=%s)",
+                    len(self.market_caps), today,
+                )
+                return True
+        except Exception as exc:
+            self.logger.warning("Could not read market cap disk cache: %s", exc)
+        return False
+
+    def _save_market_caps_to_disk(self) -> None:
+        """Persist the current market_caps dict to the disk cache."""
+        today = datetime.now().strftime("%Y%m%d")
+        try:
+            os.makedirs(_CACHE_DIR, exist_ok=True)
+            payload = {"date": today, "caps": self.market_caps}
+            tmp = _MARKET_CAPS_CACHE_FILE + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, _MARKET_CAPS_CACHE_FILE)  # atomic on Linux
+            self.logger.info(
+                "Market caps saved to disk cache (%s symbols)", len(self.market_caps)
+            )
+        except Exception as exc:
+            self.logger.warning("Could not write market cap disk cache: %s", exc)
+
     def _fetch_market_caps(self) -> None:
-        """Fetch market capitalization data for all symbols."""
-        self.logger.info("Fetching market cap data for %s symbols...", len(self.sp500_symbols))
+        """Fetch market capitalization data for all symbols.
 
-        self.market_caps = {}
-        failed_symbols = []
-        # S&P500 market-cap data via yfinance — C29 does not carry .info metadata
-        self.logger.debug(
-            "Fetching S&P500 market caps via yfinance (C29/MassiveClient has no .info endpoint)"
-        )
-        # Process in batches
-        for i in range(0, len(self.sp500_symbols), BATCH_SIZE):
-            batch = self.sp500_symbols[i:i + BATCH_SIZE]
-            self.logger.info("Processing batch %s/%s", i//BATCH_SIZE + 1, (len(self.sp500_symbols)-1)//BATCH_SIZE + 1)
+        Check order:
+        1. In-memory cache valid for today → return immediately.
+        2. Disk cache valid for today → load and return.
+        3. Fetch from yfinance (slow, ~6 min) → save to disk when done.
+        """
+        today = datetime.now().strftime("%Y%m%d")
+        # 1. In-memory hit
+        if self.market_caps and getattr(self, "_market_caps_date", None) == today:
+            self.logger.debug("Market caps in-memory cache hit for %s", today)
+            return
+        # 2. Disk cache hit (covers restarts within the same trading day)
+        if self._load_market_caps_from_disk():
+            return
 
-            for symbol in batch:
-                try:
-                    ticker = yf.Ticker(symbol)
-                    info = ticker.info
+        # 3. Full yfinance fetch — serialised with a file lock so that concurrent
+        #    callers (S02 scheduler + S07 orchestrator both start at launch) don't
+        #    race against each other and hit yfinance rate limits.
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        self.logger.debug("Waiting for market-cap fetch lock…")
+        with open(_MARKET_CAPS_LOCK_FILE, "w") as _lock_fh:
+            if _HAS_FCNTL:
+                fcntl.flock(_lock_fh, fcntl.LOCK_EX)  # blocks until previous fetch done
+            try:
+                # Re-check: another process may have populated the cache while we waited
+                if self._load_market_caps_from_disk():
+                    self.logger.info("Market caps ready from peer fetch — skipping yfinance")
+                    return
 
-                    market_cap = self._extract_market_cap(info)
+                self.logger.info(
+                    "Fetching market cap data for %s symbols via yfinance (one-time per day) …",
+                    len(self.sp500_symbols),
+                )
+                self.market_caps = {}
+                failed_symbols = []
+                total_batches = (len(self.sp500_symbols) - 1) // BATCH_SIZE + 1
+                for i in range(0, len(self.sp500_symbols), BATCH_SIZE):
+                    batch = self.sp500_symbols[i:i + BATCH_SIZE]
+                    batch_num = i // BATCH_SIZE + 1
+                    self.logger.debug("Market cap batch %s/%s", batch_num, total_batches)
 
-                    if market_cap and market_cap > 0:
-                        self.market_caps[symbol] = float(market_cap)
-                        self.logger.debug(f"{symbol}: ${market_cap:,.0f}")
-                    else:
-                        failed_symbols.append(symbol)
+                    for symbol in batch:
+                        try:
+                            ticker = yf.Ticker(symbol)
+                            info = ticker.info
+                            market_cap = self._extract_market_cap(info)
+                            if market_cap and market_cap > 0:
+                                self.market_caps[symbol] = float(market_cap)
+                            else:
+                                failed_symbols.append(symbol)
+                        except Exception as e:
+                            failed_symbols.append(symbol)
+                            self.logger.warning("Error fetching %s: %s", symbol, e)
+                        time.sleep(YFINANCE_DELAY)
 
-                except Exception as e:
-                    failed_symbols.append(symbol)
-                    self.logger.warning("Error fetching %s: %s", symbol, e)
+                    time.sleep(BATCH_DELAY)
 
-                time.sleep(YFINANCE_DELAY)
-
-            time.sleep(BATCH_DELAY)
-
-        self.logger.info("Fetched market cap for %s symbols", len(self.market_caps))
-        if failed_symbols:
-            self.logger.warning("Failed: %s symbols", len(failed_symbols))
+                self.logger.info("Fetched market cap for %s symbols", len(self.market_caps))
+                if failed_symbols:
+                    self.logger.warning("Failed: %s symbols", len(failed_symbols))
+                self._market_caps_date = today
+                # Persist so next startup is instant
+                self._save_market_caps_to_disk()
+            finally:
+                if _HAS_FCNTL:
+                    fcntl.flock(_lock_fh, fcntl.LOCK_UN)
 
     def _download_finra_data(self, date: str) -> None:
         """
@@ -338,9 +437,21 @@ class SpyderDIXCalculator:
 
         url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
 
+        # FINRA's CDN blocks the default Python-requests User-Agent with HTTP 403.
+        # Presenting a realistic browser UA + Accept headers bypasses the block.
+        _headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.finra.org/",
+        }
+
         for attempt in range(MAX_RETRY_ATTEMPTS):
             try:
-                response = requests.get(url, timeout=30)
+                response = requests.get(url, headers=_headers, timeout=30)
                 response.raise_for_status()
 
                 # Parse data
@@ -484,6 +595,60 @@ class SpyderDIXCalculator:
             'NKE', 'AMD', 'T', 'UPS', 'QCOM', 'RTX', 'LOW', 'SPGI', 'HON'
         ]
 
+    def _calculate_dix_internal(self, date: str | None = None) -> "DIXResult | None":
+        """
+        Orchestrate the full DIX calculation pipeline.
+
+        Down# Skip FINRA re-download when we already have data for this date
+            if self.finra_data is None or getattr(self, "_finra_date", None) != date:
+                self._download_finra_data(date)
+                self._finra_date = date
+            else:
+                self.logger.debug("FINRA data for %s already cached — skipping download", date)
+fetches market caps, computes
+        DPI for each S&P 500 component, and returns a weighted DIXResult.
+
+        Args:
+            date: Date in YYYYMMDD format (None = latest trading day).
+
+        Returns:
+            DIXResult on success, or None if any step fails.
+        """
+        try:
+            if date is None:
+                date = self._get_latest_trading_date()
+
+            # Skip FINRA re-download when we already have data for this date
+            if self.finra_data is None or getattr(self, "_finra_date", None) != date:
+                self._download_finra_data(date)
+                self._finra_date = date
+            else:
+                self.logger.debug("FINRA data for %s already cached — skipping download", date)
+
+            self._fetch_market_caps()
+
+            dpi_data = self._calculate_all_dpi()
+            if not dpi_data:
+                self.logger.warning("No DPI data computed — FINRA/market-cap data insufficient")
+                return None
+
+            dix, breakdown = self._calculate_weighted_dix(dpi_data)
+            total_market_cap = sum(s.market_cap for s in breakdown.values())
+
+            return DIXResult(
+                date=date,
+                dix_value=dix,
+                dix_percentage=dix * 100,
+                num_components=len(breakdown),
+                total_market_cap=total_market_cap,
+                breakdown=breakdown,
+                calculation_time=datetime.now(),
+                metadata={"source": "FINRA", "method": "market_cap_weighted"},
+            )
+        except Exception as e:
+            self.logger.warning("_calculate_dix_internal failed: %s", e)
+            return None
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
@@ -558,12 +723,13 @@ class DIXCalculator:
     """
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-
+        # Reuse one SpyderDIXCalculator instance across calls so that cached
+        # S&P 500 constituents and FINRA data are retained between updates.
+        self._inner = SpyderDIXCalculator()
 
     def calculate_dix_internal(self) -> DIXResult:
-        """Internal DIX calculation — delegates to SpyderDIXCalculator."""
-        calc = SpyderDIXCalculator()
-        return calc.calculate_dix()
+        """Internal DIX calculation — delegates to shared SpyderDIXCalculator."""
+        return self._inner.calculate_dix()
 
     def calculate_dix(self):
         """Calculate DIX using available data — raises DataUnavailableError on failure."""

@@ -445,7 +445,7 @@ class BlackScholesCalculator:
         q: float,
         T: float,
         option_type: str = "CALL",
-    ) -> float:
+    ) -> float | None:
         """Solve for implied volatility via Newton-Raphson iteration.
 
         Args:
@@ -458,10 +458,12 @@ class BlackScholesCalculator:
             option_type:  ``"CALL"`` or ``"PUT"``.
 
         Returns:
-            Solved implied volatility, or ``0.0`` on failure.
+            Solved implied volatility, or ``None`` for non-positive prices.
         """
         if T <= 0:
             return 0.0
+        if option_price <= 0:
+            return None
         intrinsic = max(S - K, 0.0) if option_type == "CALL" else max(K - S, 0.0)
         if option_price < intrinsic:
             return 0.0
@@ -505,6 +507,56 @@ class GreeksCalculator:
     def __init__(self) -> None:
         self.bs = BlackScholesCalculator()
         self.cache = CalculationCache()
+
+    def calculate_greeks(
+        self,
+        S: float,
+        K: float,
+        r: float,
+        q: float,
+        sigma: float,
+        T: float,
+        option_type: str = "CALL",
+    ) -> Greeks:
+        """Backward-compatible primitive-argument Greeks API.
+
+        This convenience method mirrors legacy call sites and test contracts by
+        accepting scalar parameters directly instead of an OptionContract.
+        """
+        if T <= 0:
+            return Greeks(delta=0.0, gamma=0.0, theta=0.0, vega=0.0, rho=0.0)
+
+        d1, d2 = self.bs.calculate_d1_d2(S, K, r, q, sigma, T)
+
+        if option_type == "CALL":
+            delta = np.exp(-q * T) * norm.cdf(d1)
+            theta = self._calculate_call_theta(S, K, r, q, sigma, T, d1, d2)
+            rho = K * T * np.exp(-r * T) * norm.cdf(d2) / 100
+        else:
+            delta = -np.exp(-q * T) * norm.cdf(-d1)
+            theta = self._calculate_put_theta(S, K, r, q, sigma, T, d1, d2)
+            rho = -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
+
+        gamma = self._calculate_gamma(S, K, r, q, sigma, T, d1)
+        vega = self.bs.calculate_vega(S, K, r, q, sigma, T)
+        lambda_ = delta * S
+        vanna = self._calculate_vanna(S, K, r, q, sigma, T, d1, d2)
+        volga = self._calculate_volga(S, K, r, q, sigma, T, d1)
+        charm = self._calculate_charm(S, K, r, q, sigma, T, d1, d2, option_type)
+        veta = self._calculate_veta(S, K, r, q, sigma, T, d1)
+
+        return Greeks(
+            delta=delta,
+            gamma=gamma,
+            theta=theta,
+            vega=vega,
+            rho=rho,
+            lambda_=lambda_,
+            vanna=vanna,
+            volga=volga,
+            charm=charm,
+            veta=veta,
+        )
 
     def calculate_all_greeks(
         self,

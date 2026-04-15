@@ -134,7 +134,7 @@ TRADIER_SANDBOX_URL = "https://sandbox.tradier.com/v1"
 TRADIER_STREAM_URL = "https://stream.tradier.com/v1"
 TRADIER_WS_URL = "wss://ws.tradier.com/v1"
 TRADIER_SANDBOX_WS_URL = "wss://sandbox-ws.tradier.com/v1"
-DEFAULT_TIMEOUT = 10  # seconds
+DEFAULT_TIMEOUT = 30  # seconds (sandbox can be slow; 10 s was too tight)
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # exponential backoff factor
 WS_PING_INTERVAL = 30  # seconds between WebSocket pings
@@ -630,7 +630,9 @@ class TradierClient:
 
             elif response.status_code == 401 or response.status_code == 403:
                 error_msg = f"Authentication failed: {response.text}"
-                logger.error(error_msg)
+                # Log at WARNING rather than ERROR — callers receive the exception
+                # and are expected to handle it; ERROR-level floods the GUI system log.
+                logger.warning(error_msg)
                 raise TradierAuthenticationError(error_msg)
 
             elif response.status_code == 400 or response.status_code == 422:
@@ -654,13 +656,20 @@ class TradierClient:
                 raise TradierAPIError(error_msg)
 
         except requests.exceptions.Timeout:
-            error_msg = f"Request timeout after {self.timeout}s"
-            logger.error(error_msg, exc_info=True)
+            error_msg = f"Request timeout after {self.timeout}s: {endpoint}"
+            logger.warning(error_msg)  # transient; full traceback is noise
             raise TradierAPIError(error_msg)
 
         except requests.exceptions.ConnectionError as e:
-            error_msg = f"Connection error: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            # Includes ReadTimeoutError wrapped by urllib3 after max retries.
+            # Log as warning — these are transient network conditions on sandbox.
+            detail = str(e).strip()
+            if not detail:
+                detail = "request failed"
+            else:
+                detail = detail.splitlines()[0]
+            error_msg = f"Connection error: {detail}"
+            logger.warning(error_msg)
             raise TradierAPIError(error_msg)
 
         except (TradierAuthenticationError, TradierValidationError,
@@ -1677,7 +1686,7 @@ class TradierClient:
             order_type=order_type,
             duration=duration,
             price=price,
-            tag="iron_condor",
+            tag="ironcondor",
         )
 
     def place_credit_spread(

@@ -71,7 +71,7 @@ for _k in ("Spyder.SpyderA_Core.SpyderA05_EventManager",
     _m.Event = type("Event", (), {"__init__": lambda self, *a, **k: None})
     _m.EventManager = type("EventManager", (), {"subscribe": lambda *a, **k: None,
                                                   "publish": lambda *a, **k: None})
-    _m.get_event_manager = lambda: _m.EventManager()
+    _m.get_event_manager = (lambda _mod=_m: _mod.EventManager())
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator",
            "SpyderU_Utilities.SpyderU44_ShutdownCoordinator"):
@@ -167,7 +167,7 @@ class TestC01DataFeedStatusEnum(unittest.TestCase):
 
 class TestC01DataSourceEnum(unittest.TestCase):
     def test_members(self):
-        for name in ("DATABENTO", "MASSIVE", "CACHE"):
+        for name in ("MASSIVE", "CACHE", "CUSTOM", "SYNTHETIC"):
             self.assertTrue(hasattr(DataSource, name), f"Missing: {name}")
 
 

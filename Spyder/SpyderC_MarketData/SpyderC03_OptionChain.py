@@ -12,12 +12,11 @@ Last Updated: 2025-08-22 Time: 14:40:00
 
 BROKER NOTE:
     This module now uses Tradier API for option chain data.
-    Market data sourced from Databento (SpyderC26_DatabentoClient).
     Greeks calculations use SpyderF06_GreeksCalculator.
 
     Current Architecture:
     - Tradier: GET /markets/options/chains endpoint for option chains
-    - Databento: Options quotes and historical data via OPRA.PILLAR
+    - Massive: optional fallback market-data and historical-data path
     - Internal: Greeks calculations (SpyderF06_GreeksCalculator)
 
 Module Description:

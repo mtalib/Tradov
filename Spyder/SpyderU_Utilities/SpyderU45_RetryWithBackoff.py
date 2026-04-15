@@ -12,7 +12,7 @@ Last Updated: 2026-03-31
 
 Module Description:
     Provides retry logic with configurable exponential back-off and jitter for
-    transient failures in external API calls (Tradier, Databento, Massive, etc.).
+    transient failures in external API calls (Tradier, Massive, etc.).
 
     Works with both regular (sync) and async functions.  Designed to complement
     SpyderU41_CircuitBreaker — use retry for transient network errors and circuit
@@ -263,7 +263,7 @@ tradier_retry = retry_async(
     exceptions=(Exception,),
 )
 
-#: Retry policy for Databento/Massive data feed calls.
+#: Retry policy for market-data feed calls (Tradier / Massive).
 datafeed_retry = retry_async(
     max_attempts=4,
     base_delay=2.0,

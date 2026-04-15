@@ -4,22 +4,23 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
 Module: SpyderT42_Integration_Test.py
-Purpose: Integration tests for Tradier + Databento end-to-end workflow
+Purpose: Integration tests for Tradier + Massive market-data workflow
 
 Author: GitHub Copilot
 Year Created: 2025
 Last Updated: 2026-02-25 Time: 20:00:00
 
 Description:
-    End-to-end integration tests for the Tradier + Databento migration.
-    Tests the complete data flow from Databento → Strategy → Tradier execution.
+    End-to-end integration tests for the current Tradier-first architecture and
+    the Massive market-data client.
+    Tests the complete data flow from market data → Strategy → Tradier execution.
 
 Usage:
     pytest Spyder/SpyderT_Testing/SpyderT42_Integration_Test.py -v --tb=short
 
 Requirements:
     - Valid TRADIER_API_KEY and TRADIER_ACCOUNT_ID in environment
-    - Valid DATABENTO_API_KEY in environment (for Databento tests)
+    - Valid MASSIVE_API_KEY in environment
     - TRADING_MODE=paper (sandbox) for testing
 """
 
@@ -33,20 +34,21 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierClient,
     TradingEnvironment,
     OrderSide,
-    OrderType
+    OrderType,
+    TradierAuthenticationError,
 )
 
-# Conditional Databento import
+# Conditional Massive market-data client import
 try:
-    from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
-        DatabentoClient,
-        MarketDataUpdate,
+    from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
+        MassiveClient,
+        MassiveQuoteUpdate,
         ConnectionStatus,
-        DatabentoSchema,
+        create_massive_client_from_env,
     )
-    HAS_DATABENTO = True
+    HAS_MASSIVE_MARKET_DATA = True
 except ImportError:
-    HAS_DATABENTO = False
+    HAS_MASSIVE_MARKET_DATA = False
 
 
 # ==============================================================================
@@ -64,31 +66,35 @@ def integration_env_vars():
 
 
 @pytest.fixture
-def databento_env_vars():
-    """Check for Databento integration test environment variables."""
-    if not os.getenv("DATABENTO_API_KEY"):
-        pytest.skip("Integration test requires: DATABENTO_API_KEY")
+def massive_market_data_env_vars():
+    """Check for Massive market-data integration variables."""
+    if not os.getenv("MASSIVE_API_KEY"):
+        pytest.skip("Integration test requires: MASSIVE_API_KEY")
 
 
 @pytest.fixture
 def tradier_client(integration_env_vars):
     """Create live Tradier client for integration testing."""
-    return TradierClient(
+    client = TradierClient(
         api_key=os.getenv("TRADIER_API_KEY"),
         account_id=os.getenv("TRADIER_ACCOUNT_ID"),
         environment=TradingEnvironment.SANDBOX  # Always use sandbox for testing
     )
+    try:
+        if not client.test_connection():
+            pytest.skip("Tradier integration credentials invalid for sandbox")
+    except TradierAuthenticationError as exc:
+        pytest.skip(f"Tradier integration credentials invalid for sandbox: {exc}")
+    return client
 
 
 @pytest.fixture
-def databento_client(databento_env_vars):
-    """Create Databento client for integration testing."""
-    if not HAS_DATABENTO:
-        pytest.skip("DatabentoClient not available")
+def massive_market_data_client(massive_market_data_env_vars):
+    """Create the Massive market-data client for integration testing."""
+    if not HAS_MASSIVE_MARKET_DATA:
+        pytest.skip("Massive market-data client not available")
 
-    return DatabentoClient(
-        api_key=os.getenv("DATABENTO_API_KEY"),
-    )
+    return create_massive_client_from_env()
 
 
 # ==============================================================================
@@ -152,63 +158,53 @@ class TestTradierIntegration:
 
 
 # ==============================================================================
-# DATABENTO INTEGRATION TESTS
+# MASSIVE MARKET-DATA INTEGRATION TESTS
 # ==============================================================================
 
-@pytest.mark.skipif(not HAS_DATABENTO, reason="Requires databento SDK")
-class TestDatabentoIntegration:
-    """Integration tests for Databento market data API."""
+@pytest.mark.skipif(not HAS_MASSIVE_MARKET_DATA, reason="Requires Massive market-data client")
+class TestMassiveMarketDataIntegration:
+    """Integration tests for the Massive market-data client."""
 
-    @pytest.mark.databento
     @pytest.mark.network
-    def test_databento_client_init(self, databento_client):
-        """Test DatabentoClient initializes with valid API key."""
-        assert databento_client.api_key != ""
-        assert databento_client.dataset == "OPRA.PILLAR"
-        assert databento_client.status == ConnectionStatus.DISCONNECTED
+    def test_massive_client_init(self, massive_market_data_client):
+        """Test the Massive client initializes with a valid API key."""
+        assert massive_market_data_client.api_key != ""
+        assert massive_market_data_client.status == ConnectionStatus.DISCONNECTED
 
-    @pytest.mark.databento
     @pytest.mark.network
     @pytest.mark.slow
-    def test_databento_test_connection(self, databento_client):
-        """Test Databento connection validation."""
-        result = databento_client.test_connection()
+    def test_massive_market_status(self, massive_market_data_client):
+        """Test Massive market status retrieval."""
+        result = massive_market_data_client.get_market_status()
         assert isinstance(result, dict)
+        assert result
 
-    @pytest.mark.databento
     @pytest.mark.network
     @pytest.mark.slow
-    def test_databento_historical_bars(self, databento_client):
-        """Test fetching historical OHLCV bars from Databento."""
-        df = databento_client.get_historical_bars(
+    def test_massive_historical_bars(self, massive_market_data_client):
+        """Test fetching historical OHLCV bars from Massive."""
+        df = massive_market_data_client.get_historical_bars(
             symbol="SPY",
             start="2026-01-02",
             end="2026-01-03",
-            schema="ohlcv-1m",
+            timespan="minute",
         )
         if df is not None:
             assert len(df) > 0
 
-    def test_databento_data_normalization(self):
-        """Test Databento data normalization to MarketDataUpdate."""
-        update = MarketDataUpdate(
+    def test_massive_quote_update_normalization(self):
+        """Test Massive quote update normalization to provider-agnostic format."""
+        update = MassiveQuoteUpdate(
             symbol="SPY",
-            timestamp_ns=1_700_000_000_000_000_000,
-            schema="mbp-1",
-            data={
-                "bid_px": 585.23,
-                "ask_px": 585.27,
-                "bid_sz": 500,
-                "ask_sz": 300,
-            },
-            underlying="SPY",
-            is_option=False,
+            bid=585.23,
+            ask=585.27,
+            bid_size=500,
+            ask_size=300,
         )
 
         assert update.symbol == "SPY"
-        assert update.data["bid_px"] == 585.23
-        assert update.schema == "mbp-1"
-        assert not update.is_option
+        assert update.bid == 585.23
+        assert round(update.mid, 2) == 585.25
 
 
 # ==============================================================================
@@ -216,7 +212,7 @@ class TestDatabentoIntegration:
 # ==============================================================================
 
 class TestEndToEndWorkflow:
-    """Test complete data flow: Databento → Strategy → Tradier."""
+    """Test complete data flow: market data → Strategy → Tradier."""
 
     def test_data_to_execution_latency(self, tradier_client):
         """Test latency from market data to order placement."""

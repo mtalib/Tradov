@@ -107,10 +107,10 @@ class IndicatorSnapshot:
     """
 
     symbol: str = ""
-    timestamp: str = ""
+    timestamp: datetime = field(default_factory=datetime.now)
     rsi: float = field(default_factory=lambda: math.nan)
-    macd_signal: float = 0.0
-    atr: float = 0.0
+    macd_signal: float = field(default_factory=lambda: math.nan)
+    atr: float = field(default_factory=lambda: math.nan)
     vwap: float = 0.0
     bb_upper: float = 0.0
     bb_lower: float = 0.0
@@ -127,6 +127,10 @@ class IndicatorSnapshot:
     def is_oversold(self) -> bool:
         """True when RSI is below the conventional 30 threshold."""
         return (not math.isnan(self.rsi)) and self.rsi < 30.0
+
+    def is_valid_rsi(self) -> bool:
+        """True when RSI is populated and within [0, 100]."""
+        return (not math.isnan(self.rsi)) and 0.0 <= self.rsi <= 100.0
 
 
 @dataclass
@@ -153,7 +157,14 @@ class RegimeSnapshot:
                                 about to change.
     """
 
+    symbol: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
+    regime: str = "unknown"
+    confidence: float = 0.0
+    iv_rank: float = 0.0
+    vix_level: float = 0.0
+
+    # Extended fields used by newer consumers.
     volatility_regime: str = "UNDEFINED"
     trend_regime: str = "UNDEFINED"
     regime_confidence: float = 0.0
@@ -171,6 +182,10 @@ class RegimeSnapshot:
         """True when transition probability exceeds 50 %."""
         return self.transition_probability > 0.5
 
+    def is_high_confidence(self) -> bool:
+        """True when boundary confidence is at least 0.70."""
+        return self.confidence >= 0.70
+
 
 # ==============================================================================
 # PROTOCOL DEFINITIONS
@@ -185,12 +200,12 @@ class AnalyticsProviderProtocol(Protocol):
     satisfies this Protocol without inheriting from it.
 
     Methods:
-        get_indicator_snapshot: Return the current IndicatorSnapshot for a symbol.
-        get_regime_snapshot:    Return the latest RegimeSnapshot.
-        get_trading_signals:    Return aggregated directional signals for a symbol.
+        calculate_all_indicators: Return the current IndicatorSnapshot for a symbol.
+        get_trading_signals:      Return aggregated directional signals for a symbol.
+        get_current_regime:       Return the latest RegimeSnapshot for a symbol.
     """
 
-    def get_indicator_snapshot(self, symbol: str) -> IndicatorSnapshot:
+    def calculate_all_indicators(self, symbol: str, data: Any) -> IndicatorSnapshot:
         """Return the latest normalised indicator snapshot for a symbol.
 
         Args:
@@ -201,7 +216,7 @@ class AnalyticsProviderProtocol(Protocol):
         """
         ...
 
-    def get_regime_snapshot(self) -> RegimeSnapshot:
+    def get_current_regime(self, symbol: str) -> RegimeSnapshot:
         """Return the most recently computed market regime state.
 
         Returns:
@@ -210,15 +225,14 @@ class AnalyticsProviderProtocol(Protocol):
         """
         ...
 
-    def get_trading_signals(self, symbol: str) -> dict[str, Any]:
+    def get_trading_signals(self, symbol: str) -> list[Any]:
         """Return aggregated directional signals for a symbol.
 
         Args:
             symbol: Ticker symbol (e.g., ``"SPY"``).
 
         Returns:
-            Mapping of signal name → value / strength dict; keys include at
-            minimum ``"signal_type"`` and ``"confidence"``.
+            List of signal payloads.
         """
         ...
 
@@ -232,11 +246,11 @@ class RegimeAwareAgentProtocol(Protocol):
     detected by the F-Series.
 
     Methods:
-        on_regime_update: Called when a new RegimeSnapshot is available.
-        get_agent_id:     Returns the agent's unique identifier string.
+        on_regime_change: Called when a new RegimeSnapshot is available.
+        get_regime_context: Returns the current regime context.
     """
 
-    def on_regime_update(self, snapshot: RegimeSnapshot) -> None:
+    def on_regime_change(self, snapshot: RegimeSnapshot) -> None:
         """Receive and process a new regime snapshot.
 
         Args:
@@ -244,10 +258,10 @@ class RegimeAwareAgentProtocol(Protocol):
         """
         ...
 
-    def get_agent_id(self) -> str:
-        """Return the agent's unique identifier.
+    def get_regime_context(self) -> RegimeSnapshot | None:
+        """Return current regime context.
 
         Returns:
-            String agent identifier (e.g., ``"StrategyDirectorAgent"``).
+            RegimeSnapshot or None when unavailable.
         """
         ...

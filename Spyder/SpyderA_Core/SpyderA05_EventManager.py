@@ -87,6 +87,8 @@ class EventType(Enum):
     OPTION_CHAIN_UPDATE = "option_chain_update"
     GREEKS_UPDATE = "greeks_update"
     VOLUME_UPDATE = "volume_update"
+    DATA_STALE = "data_stale"
+    DATA_FRESH = "data_fresh"
 
     # Trading events
     TRADING = "trading"
@@ -180,17 +182,29 @@ class Event:
     ttl: int | None = None  # Time to live in seconds
 
     def __post_init__(self):
-        # Ensure event_type is EventType enum
+        # Normalize event_type to this module's EventType even when callers pass
+        # enum members from another loaded copy of the module.
         if isinstance(self.event_type, str):
             try:
-                self.event_type = EventType(self.event_type)
-            except ValueError:
+                self.event_type = EventType(str(self.event_type).lower())
+            except Exception:
+                self.event_type = EventType.SYSTEM
+        elif not isinstance(self.event_type, Enum):
+            try:
+                self.event_type = EventType(str(self.event_type).lower())
+            except Exception:
                 self.event_type = EventType.SYSTEM
 
-        # Ensure priority is EventPriority enum
+        # Normalize priority similarly for cross-module enum identity mismatches.
         if isinstance(self.priority, str):
+            raw_priority = self.priority.name if isinstance(self.priority, Enum) else self.priority
             try:
-                self.priority = EventPriority[self.priority.upper()]
+                self.priority = EventPriority[raw_priority.upper()] if isinstance(raw_priority, str) else EventPriority.NORMAL
+            except KeyError:
+                self.priority = EventPriority.NORMAL
+        elif not isinstance(self.priority, Enum):
+            try:
+                self.priority = EventPriority[str(self.priority).upper()]
             except KeyError:
                 self.priority = EventPriority.NORMAL
 
@@ -222,6 +236,11 @@ class Event:
             metadata=data.get('metadata', {}),
             ttl=data.get('ttl')
         )
+
+
+# Keep a stable local reference so external test bootstraps cannot clobber
+# the global `Event` symbol used by EventManager methods.
+_A05_EVENT_CLASS = Event
 
 @dataclass
 class HandlerInfo:
@@ -922,7 +941,7 @@ class EventManager:
         Returns:
             bool: True if event published successfully
         """
-        event = Event(
+        event = _A05_EVENT_CLASS(
             event_type=event_type,
             data=data,
             priority=priority,
@@ -937,7 +956,7 @@ class EventManager:
     def create_event(self, event_type: EventType, data: dict[str, Any],
                     **kwargs) -> Event:
         """Create event without publishing"""
-        return Event(
+        return _A05_EVENT_CLASS(
             event_type=event_type,
             data=data,
             priority=kwargs.get('priority', EventPriority.NORMAL),
@@ -1031,6 +1050,11 @@ class EventManager:
         """Remove global event filter"""
         self.global_filter.remove_filter(filter_func)
 
+
+# Keep a stable local reference so external test bootstraps cannot clobber
+# the global `EventManager` symbol used by singleton helpers.
+_A05_EVENT_MANAGER_CLASS = EventManager
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
@@ -1051,7 +1075,7 @@ def get_event_manager(persist_events: bool = True) -> EventManager:
 
     with _event_manager_lock:
         if _event_manager_instance is None:
-            _event_manager_instance = EventManager(persist_events=persist_events)
+            _event_manager_instance = _A05_EVENT_MANAGER_CLASS(persist_events=persist_events)
 
         return _event_manager_instance
 

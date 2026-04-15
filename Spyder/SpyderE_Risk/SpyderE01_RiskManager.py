@@ -4,17 +4,18 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderE_Risk
 Module: SpyderE01_RiskManager.py
-Purpose: Risk management using Connect API
+Purpose: Risk management using Tradier client
 
 Author: SPYDER Trading System
 Year Created: 2025
-Last Updated: 2025-10-20 Time: 22:10:00
+Last Updated: 2026-04-14
 
 Module Description:
-    This module provides risk management functionality using the Connect API.
-    It monitors positions, exposure, and risk metrics, and enforces risk limits
-    for all trading activities. This module replaces the legacy broker
-    risk management components.
+    Risk management for the Spyder trading system. Monitors positions,
+    exposure, and risk metrics, and enforces risk limits for all trading
+    activities. Position and account data are sourced from the Tradier
+    client (SpyderB40_TradierClient). Legacy ConnectAPI wiring has been
+    removed.
 
 Module Constants:
     RISK_CHECK_INTERVAL (float): Risk check interval in seconds (default: 5.0)
@@ -54,6 +55,7 @@ from threading import Event as ThreadEvent, RLock
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 # ConnectAPI: removed with legacy broker (SpyderB01_ConnectAPI deleted).
 # Tradier integration uses SpyderB40_TradierClient directly.
@@ -198,26 +200,30 @@ class RiskManager:
     def __init__(
         self,
         config: RiskConfig,
-        connect_api: ConnectAPI,
-        order_manager: Any | None = None
+        connect_api: Any = None,
+        order_manager: Any | None = None,
+        tradier_client: Any | None = None,
     ):
         """
         Initialize the risk manager.
 
         Args:
             config: Risk management configuration
-            connect_api: Connect API instance
+            connect_api: Deprecated — legacy ConnectAPI shim, always None
             order_manager: Order manager instance
+            tradier_client: Tradier client used for position and account sync
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
 
         # Configuration
+        self._config = config
         self.config = config
 
-        # Connect API
+        # Broker integration
         self.connect_api = connect_api
+        self.tradier_client = tradier_client
         self.order_manager = order_manager
 
         # Risk management
@@ -236,6 +242,16 @@ class RiskManager:
         self._daily_high = 0.0
         self._daily_low = float('inf')
 
+        # Market-data staleness gate — set via mark_data_stale(); blocks new trade entries
+        self._data_stale: bool = False
+        # Tracks which watched symbols are currently stale; gate clears only when all are fresh
+        self._stale_symbols: set[str] = set()
+
+        # Subscribe to proactive staleness events from DataValidator (C06)
+        _em = get_event_manager()
+        _em.subscribe(EventType.DATA_STALE, self._on_data_stale)
+        _em.subscribe(EventType.DATA_FRESH, self._on_data_fresh)
+
         # Metrics
         self.metrics = {
             'risk_checks': 0,
@@ -250,8 +266,22 @@ class RiskManager:
 
         self.logger.info("RiskManager initialized")
 
+    @property
+    def config(self) -> RiskConfig:
+        """Primary risk configuration object."""
+        return self._config
+
+    @config.setter
+    def config(self, value: RiskConfig) -> None:
+        self._config = value
+
     def _register_handlers(self):
-        """Register message handlers with the Connect API"""
+        """Register message handlers with the Connect API (no-op when connect_api is None)."""
+        if self.connect_api is None:
+            self.logger.debug(
+                "RiskManager: connect_api is None — skipping handler registration"
+            )
+            return
         self.connect_api.register_handler(MessageType.POSITION_UPDATE, self._handle_position_update)
         self.connect_api.register_handler(MessageType.ACCOUNT_SUMMARY_UPDATE, self._handle_account_summary_update)
 
@@ -270,9 +300,15 @@ class RiskManager:
             self.logger.info("Starting RiskManager...")
 
             # Connect to Connect API if not already connected
-            if self.connect_api.state != "AUTHENTICATED":
-                if not await self.connect_api.connect():
-                    return False
+            if self.connect_api is not None:
+                if self.connect_api.state != "AUTHENTICATED":
+                    if not await self.connect_api.connect():
+                        return False
+            else:
+                self.logger.info(
+                    "RiskManager: no connect_api configured — "
+                    "running in standalone mode (position sync via ConnectAPI unavailable)"
+                )
 
             # Request initial positions
             await self._request_positions()
@@ -318,6 +354,10 @@ class RiskManager:
             self.error_handler.handle_error(e, "stop")
             return False
 
+    def initialize(self) -> bool:
+        """Legacy synchronous startup hook used by older runtime callers."""
+        return True
+
     # ==========================================================================
     # RISK CHECKING
     # ==========================================================================
@@ -343,6 +383,26 @@ class RiskManager:
         try:
             with self._risk_lock:
                 self.metrics['risk_checks'] += 1
+
+                # Block new entries while upstream market data is stale.
+                if self._data_stale:
+                    return RiskCheckResponse(
+                        result=RiskCheckResult.BLOCKED,
+                        order_id=order.order_id,
+                        reason="Market data feed is stale; trading disabled until fresh data arrives",
+                    )
+
+                # Block naked put orders — unlimited downside risk, prohibited by policy.
+                # A naked put is a single-leg sell-to-open put with no protective long leg.
+                is_sell_to_open = order.side.lower() in ("sell", "sell_to_open")
+                is_put = (order.right or "").lower() in ("put", "p")
+                is_single_leg = order.order_class.lower() == "option" and not order.legs
+                if is_sell_to_open and is_put and is_single_leg:
+                    return RiskCheckResponse(
+                        result=RiskCheckResult.BLOCKED,
+                        order_id=order.order_id,
+                        reason="Naked put orders are prohibited by risk policy; use a defined-risk spread instead",
+                    )
 
                 # Get current risk metrics
                 risk_metrics = self._calculate_risk_metrics()
@@ -440,6 +500,68 @@ class RiskManager:
                 reason=f"Error checking order risk: {str(e)}"
             )
 
+    def mark_data_stale(self, stale: bool) -> None:
+        """
+        Signal whether the market data feed is currently stale.
+
+        When stale=True all new trade entries are blocked by check_order_risk()
+        until this method is called again with stale=False.
+
+        Wire this to SpyderC06_DataValidator's staleness callback so that any
+        tick older than the configured threshold (recommend <=5 s) automatically
+        disables new entries without manual intervention.
+
+        Args:
+            stale: True to block new entries; False to re-enable.
+        """
+        with self._risk_lock:
+            self._data_stale = stale
+        if stale:
+            self.logger.warning(
+                "RiskManager: market data feed marked STALE — all new trade entries BLOCKED"
+            )
+        else:
+            self.logger.info(
+                "RiskManager: market data feed marked FRESH — trade entries re-enabled"
+            )
+
+    # ==========================================================================
+    # DATA STALENESS EVENT HANDLERS (wired by __init__ via EventManager)
+    # ==========================================================================
+
+    def _on_data_stale(self, event: Any) -> None:
+        """Handle DATA_STALE event emitted by SpyderC06_DataValidator.
+
+        Adds the affected symbol to the stale-symbol set and gates new entries
+        the moment any watched symbol goes silent.
+        """
+        symbol = (event.data or {}).get("symbol", "unknown")
+        age = (event.data or {}).get("age_seconds", 0.0)
+        with self._risk_lock:
+            self._stale_symbols.add(symbol)
+        self.mark_data_stale(True)
+        self.logger.warning(
+            "DATA_STALE received for %s (age=%.1fs) — trade gate CLOSED", symbol, age
+        )
+
+    def _on_data_fresh(self, event: Any) -> None:
+        """Handle DATA_FRESH event emitted by SpyderC06_DataValidator.
+
+        Removes the symbol from the stale set; clears the gate only once *all*
+        previously-stale symbols have recovered (OR logic across watched symbols).
+        """
+        symbol = (event.data or {}).get("symbol", "unknown")
+        with self._risk_lock:
+            self._stale_symbols.discard(symbol)
+            remaining = set(self._stale_symbols)
+        if not remaining:
+            self.mark_data_stale(False)
+            self.logger.info("DATA_FRESH received for %s — all symbols fresh, gate OPEN", symbol)
+        else:
+            self.logger.info(
+                "DATA_FRESH received for %s — still stale: %s", symbol, sorted(remaining)
+            )
+
     # ==========================================================================
     # POSITION MONITORING
     # ==========================================================================
@@ -474,44 +596,245 @@ class RiskManager:
         with self._risk_lock:
             return self._risk_metrics
 
+    def validate_signal(self, request: Any) -> Any:
+        """Satisfies RiskManagerProtocol.validate_signal().
+
+        Maps a RiskValidationRequest from the D↔E series boundary into the
+        internal synchronous risk checks and returns a RiskValidationResult.
+        All state reads are performed under _risk_lock for TOCTOU safety.
+
+        Args:
+            request: RiskValidationRequest from SpyderE00_RiskProtocol.
+
+        Returns:
+            RiskValidationResult indicating approval, risk score, and any
+            violated rule codes.
+        """
+        from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import RiskValidationResult
+        try:
+            with self._risk_lock:
+                # --- Stale data gate ---
+                if self._data_stale:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason="Market data feed is stale; trading disabled until fresh data arrives",
+                        risk_score=1.0,
+                        violations=["DATA_STALE"],
+                    )
+
+                # Block naked puts — strategy_type is carried in metadata.
+                strategy_type = (request.metadata or {}).get("strategy_type", "")
+                if strategy_type == "naked_put":
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason="Naked put orders are prohibited by risk policy; use a defined-risk spread instead",
+                        risk_score=1.0,
+                        violations=["NAKED_PUT_PROHIBITED"],
+                    )
+
+                risk_metrics = self._calculate_risk_metrics()
+                qty = request.quantity
+                symbol = request.symbol
+                entry_price = float(request.entry_price or 0.0)
+
+                # --- Order size ---
+                max_order = self.config.risk_limits["max_single_order_size"]
+                if qty > max_order:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason=f"Quantity {qty} exceeds single-order limit {max_order}",
+                        violations=["ORDER_SIZE_EXCEEDED"],
+                    )
+
+                # --- Position size ---
+                current_pos = self._positions.get(symbol)
+                current_qty = current_pos.quantity if current_pos else 0
+                new_qty = abs(current_qty + qty)
+                max_pos = self.config.risk_limits["max_position_size"]
+                if new_qty > max_pos:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason=f"New position size {new_qty} exceeds limit {max_pos}",
+                        violations=["POSITION_SIZE_EXCEEDED"],
+                    )
+
+                # --- Total exposure ---
+                ref_price = entry_price or (current_pos.market_price if current_pos else 0.0)
+                order_value = qty * ref_price
+                new_exposure = risk_metrics.total_exposure + order_value
+                max_exp = self.config.risk_limits["max_total_exposure"]
+                if new_exposure > max_exp:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason=f"Total exposure {new_exposure:.0f} exceeds limit {max_exp:.0f}",
+                        violations=["EXPOSURE_EXCEEDED"],
+                    )
+
+                # --- Daily loss ---
+                if risk_metrics.daily_pnl < -self.config.risk_limits["max_daily_loss"]:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason=f"Daily P&L {risk_metrics.daily_pnl:.0f} exceeds max daily loss limit",
+                        violations=["DAILY_LOSS_EXCEEDED"],
+                    )
+
+                # --- Soft warnings (approved but flagged) ---
+                violations: list[str] = []
+                new_symbol_value = (current_pos.market_value if current_pos else 0.0) + order_value
+                concentration = new_symbol_value / new_exposure if new_exposure > 0 else 0.0
+                if concentration > self.config.risk_limits["max_concentration_ratio"]:
+                    violations.append("CONCENTRATION_WARNING")
+
+                total_margin = risk_metrics.margin_used + risk_metrics.margin_available
+                if total_margin > 0 and (risk_metrics.margin_used / total_margin) > self.config.risk_limits["max_margin_usage"]:
+                    violations.append("MARGIN_WARNING")
+
+                risk_score = min(1.0, risk_metrics.total_exposure / max_exp) if max_exp > 0 else 0.0
+                return RiskValidationResult(
+                    approved=True,
+                    risk_score=risk_score,
+                    max_safe_quantity=qty,
+                    violations=violations,
+                )
+
+        except Exception as exc:
+            self.logger.error("validate_signal error: %s", exc, exc_info=True)
+            return RiskValidationResult(
+                approved=False,
+                rejection_reason=f"Internal risk check error: {exc}",
+                risk_score=1.0,
+                violations=["INTERNAL_ERROR"],
+            )
+
+    def check_trade(self, trade_request: dict[str, Any]) -> dict[str, Any]:
+        """Compatibility adapter for legacy runtime callers.
+
+        Older A/P/Q/K modules still send plain dict payloads via ``check_trade``.
+        Map that request onto the typed E00 validation contract.
+        """
+        from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
+            BoundarySignalType,
+            RiskValidationRequest,
+        )
+
+        action = str(trade_request.get("action", "buy")).lower()
+        if action in {"buy", "buy_to_open", "buy_to_close"}:
+            signal_type = BoundarySignalType.BUY
+        elif action in {"sell", "sell_to_open", "sell_to_close", "sell_short"}:
+            signal_type = BoundarySignalType.SELL
+        elif action in {"close", "exit"}:
+            signal_type = BoundarySignalType.CLOSE
+        elif action == "adjust":
+            signal_type = BoundarySignalType.ADJUST
+        else:
+            signal_type = BoundarySignalType.HOLD
+
+        metadata = dict(trade_request.get("metadata") or {})
+        if "strategy_id" in trade_request and "strategy_id" not in metadata:
+            metadata["strategy_id"] = trade_request["strategy_id"]
+        if "type" in trade_request and "security_type" not in metadata:
+            metadata["security_type"] = trade_request["type"]
+        if "value" in trade_request and "notional_value" not in metadata:
+            metadata["notional_value"] = trade_request["value"]
+
+        request = RiskValidationRequest(
+            symbol=str(trade_request.get("symbol", "")),
+            quantity=int(trade_request.get("quantity", 0) or 0),
+            signal_type=signal_type,
+            strategy_id=str(trade_request.get("strategy_id", "")),
+            entry_price=float(trade_request.get("price") or 0.0),
+            metadata=metadata,
+        )
+        result = self.validate_signal(request)
+        return {
+            "approved": result.approved,
+            "reason": result.rejection_reason,
+            "risk_score": result.risk_score,
+            "max_safe_quantity": result.max_safe_quantity,
+            "violations": list(result.violations),
+        }
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
 
     async def _request_positions(self):
-        """Request position updates"""
-        # Load account ID from environment variable (NEVER hardcode!)
-        account_id = os.environ.get("TRADIER_ACCOUNT_ID")
-
-        if not account_id:
-            self.logger.error("TRADIER_ACCOUNT_ID not configured in environment")
+        """Fetch positions from the Tradier client and push through the handler."""
+        if self.tradier_client is None:
+            self.logger.debug(
+                "RiskManager: tradier_client not configured — skipping position sync"
+            )
             return
 
-        message = {
-            "MsgType": "PositionRequest",
-            "Account": account_id
-        }
+        try:
+            response = await self.tradier_client.get_positions_async()
+        except Exception as e:
+            self.logger.error("Tradier position fetch failed: %s", e, exc_info=True)
+            self.error_handler.handle_error(e, "_request_positions")
+            return
 
-        await self.connect_api.send_message(message)
-        self.logger.debug("Requested position updates for account %s", account_id)
+        for update in self._iter_tradier_positions(response):
+            await self._handle_position_update(update)
+
+        self.logger.debug("Requested position updates via Tradier client")
 
     async def _request_account_summary(self):
-        """Request account summary updates"""
-        # Load account ID from environment variable (NEVER hardcode!)
-        account_id = os.environ.get("TRADIER_ACCOUNT_ID")
-
-        if not account_id:
-            self.logger.error("TRADIER_ACCOUNT_ID not configured in environment")
+        """Fetch account balances from Tradier and push through the handler."""
+        if self.tradier_client is None:
+            self.logger.debug(
+                "RiskManager: tradier_client not configured — skipping account summary sync"
+            )
             return
 
-        message = {
-            "MsgType": "AccountSummaryRequest",
-            "Account": account_id,
-            "Tags": "NetLiquidation,TotalCashValue,MarginUsed,MarginAvailable"
-        }
+        try:
+            response = await self.tradier_client.get_account_balances_async()
+        except Exception as e:
+            self.logger.error("Tradier balance fetch failed: %s", e, exc_info=True)
+            self.error_handler.handle_error(e, "_request_account_summary")
+            return
 
-        await self.connect_api.send_message(message)
-        self.logger.debug("Requested account summary updates for account %s", account_id)
+        balances = (response or {}).get("balances") or {}
+        summary = {
+            "NetLiquidation": float(balances.get("total_equity", 0.0) or 0.0),
+            "TotalCashValue": float(balances.get("total_cash", 0.0) or 0.0),
+            "MarginUsed": float(
+                (balances.get("margin") or {}).get("option_buying_power", 0.0) or 0.0
+            ),
+            "MarginAvailable": float(balances.get("option_short_value", 0.0) or 0.0),
+        }
+        await self._handle_account_summary_update(summary)
+        self.logger.debug("Requested account summary via Tradier client")
+
+    @staticmethod
+    def _iter_tradier_positions(response: dict[str, Any]):
+        """Yield dict updates in the shape _handle_position_update expects."""
+        if not response:
+            return
+        positions_node = response.get("positions")
+        if not positions_node or positions_node == "null":
+            return
+        raw = positions_node.get("position") if isinstance(positions_node, dict) else None
+        if raw is None:
+            return
+        items = raw if isinstance(raw, list) else [raw]
+        for item in items:
+            try:
+                qty = float(item.get("quantity", 0) or 0)
+                cost_basis = float(item.get("cost_basis", 0.0) or 0.0)
+                avg_cost = cost_basis / qty if qty else 0.0
+                yield {
+                    "Symbol": item.get("symbol", ""),
+                    "Position": int(qty),
+                    "MarketPrice": 0.0,
+                    "MarketValue": cost_basis,
+                    "AverageCost": avg_cost,
+                    "UnrealizedPNL": 0.0,
+                    "RealizedPNL": 0.0,
+                    "Currency": "USD",
+                    "SecurityType": "STK",
+                }
+            except (TypeError, ValueError):
+                continue
 
     async def _handle_position_update(self, data: dict[str, Any]):
         """
@@ -691,6 +1014,47 @@ class RiskManager:
                 warnings=[f"Error calculating risk metrics: {str(e)}"],
                 blocked_orders=[]
             )
+
+
+def get_risk_manager(
+    portfolio_value: float | None = None,
+    config: dict[str, Any] | None = None,
+    connect_api: Any | None = None,
+    order_manager: Any | None = None,
+    tradier_client: Any | None = None,
+) -> RiskManager:
+    """Legacy factory retained for older runtime modules.
+
+    The current E01 constructor is explicit, but several production callers
+    still expect a factory-style entry point.
+    """
+    risk_limits = DEFAULT_RISK_LIMITS.copy()
+    if portfolio_value is not None:
+        risk_limits["max_total_exposure"] = max(
+            risk_limits["max_total_exposure"],
+            float(portfolio_value),
+        )
+
+    raw_config = dict(config or {})
+    risk_limits.update(raw_config.get("risk_limits") or {})
+
+    risk_config = RiskConfig(
+        risk_limits=risk_limits,
+        enable_real_time_monitoring=bool(raw_config.get("enable_real_time_monitoring", True)),
+        risk_check_interval=float(raw_config.get("risk_check_interval", RISK_CHECK_INTERVAL)),
+        position_update_interval=float(
+            raw_config.get("position_update_interval", POSITION_UPDATE_INTERVAL)
+        ),
+        enable_automatic_order_cancellation=bool(
+            raw_config.get("enable_automatic_order_cancellation", False)
+        ),
+    )
+    return RiskManager(
+        config=risk_config,
+        connect_api=connect_api,
+        order_manager=order_manager,
+        tradier_client=tradier_client,
+    )
 
     def _start_risk_monitoring(self):
         """Start risk monitoring thread"""
@@ -898,21 +1262,28 @@ class RiskManager:
 # ==============================================================================
 def create_risk_manager(
     config: RiskConfig,
-    connect_api: ConnectAPI,
-    order_manager: Any | None = None
+    connect_api: Any = None,
+    order_manager: Any | None = None,
+    tradier_client: Any | None = None,
 ) -> RiskManager:
     """
     Factory function to create a risk manager instance.
 
     Args:
         config: Risk management configuration
-        connect_api: Connect API instance
+        connect_api: Deprecated legacy param, kept for positional compatibility
         order_manager: Order manager instance
+        tradier_client: Tradier client for position/account sync
 
     Returns:
         RiskManager instance
     """
-    return RiskManager(config, connect_api, order_manager)
+    return RiskManager(
+        config,
+        connect_api=connect_api,
+        order_manager=order_manager,
+        tradier_client=tradier_client,
+    )
 
 
 # ==============================================================================

@@ -64,10 +64,10 @@ COLORS = {
 
 # Market symbols organized by category
 MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX", "/ES"],
-    "VOLATILITY": ["VIX", "VXV", "VXMT", "VVIX", "UVXY"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "PCALL", "SKEW", "VUD"],
-    "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
+    "S&P CORE": ["SPY", "SPX"],
+    "VOLATILITY": ["VIX", "VXV", "VVIX"],
+    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
+    "MAJOR INDICES": ["QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
     "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
@@ -78,24 +78,18 @@ SYMBOL_DESCRIPTIONS = {
     # S&P Core
     "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
     "SPX": "S&P 500 Index - Cash index value",
-    "/ES": "E-mini S&P 500 Futures - 24/5 trading",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
     "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
     "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
-    "VXMT": "CBOE Mid-Term Volatility Index - 6-month volatility",
     "VVIX": "VIX of VIX - Volatility of volatility index",
-    "UVXY": "ProShares Ultra VIX Short-Term Futures ETF",
     # Market Internals
     "$TICK": "NYSE Tick Index - Upticks minus downticks",
     "$TRIN": "Arms Index - Advance/Decline volume ratio",
     "$ADD": "Advance-Decline Line - Net advancing issues",
     "CPC": "CBOE Put/Call Ratio - Equity options only",
-    "PCALL": "Total Put/Call Ratio - All options",
     "SKEW": "CBOE Skew Index - Tail risk measure",
-    "VUD": "Put/Call Volume Ratio - Options sentiment indicator",
     # Major Indices
-    "DIA": "SPDR Dow Jones Industrial Average ETF",
     "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
     "IWM": "iShares Russell 2000 ETF - Small caps",
     # Bonds & Credit

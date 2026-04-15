@@ -236,7 +236,7 @@ class FuturesBasisAnalyzer:
 
         Args:
             config: Configuration dictionary
-            provider: Market data provider name (e.g. 'databento')
+            provider: Market data provider name (e.g. 'tradier' or legacy fallback paths)
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -589,13 +589,13 @@ class FuturesBasisAnalyzer:
     # ==========================================================================
 
     def _fetch_live_es_data(self) -> ESFuturesData:
-        """Fetch live ES futures data from Databento"""
+        """Fetch live ES futures data from the configured provider path."""
         # Implementation for live ES data fetching
         # This would use the data client to get real ES futures data
         pass
 
     def _fetch_live_spy_data(self) -> SPYData:
-        """Fetch live SPY data from Databento"""
+        """Fetch live SPY data from the configured provider path."""
         # Implementation for live SPY data fetching
         pass
 
@@ -1232,7 +1232,7 @@ def create_futures_basis_analyzer(config: dict | None = None,
 
     Args:
         config: Configuration dictionary
-provider: Market data provider name (e.g. 'databento')
+        provider: Market data provider name (e.g. 'tradier' or 'massive')
 
     Returns:
         Configured FuturesBasisAnalyzer instance

@@ -1,6 +1,6 @@
 # Copilot Instructions — Spyder Trading System
 
-> **Last Updated:** March 8, 2026 — 01:46 UTC
+> **Last Updated:** April 15, 2026 — 00:00 UTC
 
 ## Project Overview
 
@@ -8,7 +8,7 @@
 
 - **Primary instrument**: SPY options (Iron Condors, Credit Spreads, Straddles, Zero-DTE, etc.)
 - **Broker**: Tradier API (Bearer token auth) — `SpyderB40_TradierClient`
-- **Market Data**: Databento (real-time + historical) — migrating from Polygon.io
+- **Market Data**: Massive API — `SpyderC27_MassiveClient`, `SpyderC29_DataProviderRouter`
 - **GUI**: PySide6 (LGPL, Qt6)
 - **ML**: scikit-learn, PyTorch, TensorFlow, XGBoost, stable-baselines3
 - **LLM Agents**: Ollama (local) with 4 model roles: PRIMARY, FAST, CODE, FINANCE
@@ -84,11 +84,10 @@ Each entry: `Module` — lines of code — purpose description.
 | `SpyderB03_PositionTracker.py` | 259 | Lightweight real-time position-tracking helper; maintains open-position state cache |
 | `SpyderB04_AccountManager.py` | 1,203 | Retrieves and caches Tradier account info: balances, buying power, and margin |
 | `SpyderB15_PrometheusMetrics.py` | 1,275 | Exposes broker-level Prometheus metrics (latency, fill rate, rejection rate) |
-| `SpyderB26_PySideAsyncBridge.py` | 877 | Thread-safe bridge between the async broker I/O layer and PySide6 UI thread |
 | `SpyderB30_SPYOptionsChainManager.py` | 945 | Manages and refreshes SPY options chain snapshots; handles strike filtering |
 | `SpyderB40_TradierClient.py` | 1,917 | Primary Tradier REST/WebSocket client; handles auth, all API calls, retry logic |
 
-### SpyderC_MarketData — Real-Time & Historical Data (29 modules)
+### SpyderC_MarketData — Real-Time & Historical Data (25 modules)
 
 | Module | Lines | Purpose |
 |--------|------:|--------|
@@ -99,25 +98,22 @@ Each entry: `Module` — lines of code — purpose description.
 | `SpyderC04_MarketInternals.py` | 881 | Tracks market breadth, advance/decline, new highs/lows, TICK, TRIN |
 | `SpyderC05_VolumeProfile.py` | 917 | Intraday and session volume profile (VPOC, HVN, LVN) calculations |
 | `SpyderC06_DataValidator.py` | 1,269 | Multi-layer validation of all incoming market data; detects stale, invalid, or anomalous ticks |
-| `SpyderC07_OPRAFeed.py` | 1,466 | OPRA-compliant options data feed; processes high-volume options quote streams |
 | `SpyderC08_SPYFeed.py` | 831 | SPY-specific equity feed; handles split-adjusted prices, dividends, and extended hours |
 | `SpyderC09_NewsManager.py` | 1,051 | News headline collection and distribution; interfaces with financial news APIs |
 | `SpyderC10_VIXAnalyzer.py` | 1,483 | VIX index analysis: term structure, regime classification, and VIX-based signals |
 | `SpyderC11_FuturesBasis.py` | 1,435 | ES/SPY futures basis tracking; roll-adjust calculations; cash-futures arbitrage alerts |
 | `SpyderC12_DarkPoolFlow.py` | 786 | Tracks and aggregates reported dark pool prints and off-exchange volume |
 | `SpyderC13_IndexComponents.py` | 1,051 | S&P 500 constituent data management; sector weights, rebalance events |
-| `SpyderC14_UltraLowLatencyFeed.py` | 839 | Ultra-low-latency tick feed with lock-free ring buffer; minimum-copy path |
 | `SpyderC15_MicrostructureAnalyzer.py` | 1,296 | Intraday market microstructure: bid-ask spread, queue depth, order toxicity |
 | `SpyderC16_MarketDataCache.py` | 918 | In-memory LRU cache for frequently accessed market data; TTL eviction |
 | `SpyderC17_MarketConfigManager.py` | 1,105 | Dynamic market configuration: session times, holiday overrides, circuit-breaker thresholds |
 | `SpyderC18_SKEWCalculator.py` | 1,319 | CBOE SKEW index replication; real-time skew surface construction |
 | `SpyderC19_AfterHoursDataManager.py` | 836 | Pre/post-market data collection, gap detection, and overnight risk assessment |
-| `SpyderC20_MarketDataHub.py` | 908 | Central data hub/aggregator; fan-out architecture routing data to all subscribers |
-| `SpyderC21_MarketDataFeed.py` | 687 | Secondary market data feed; fallback provider and redundancy layer |
 | `SpyderC22_FactorDataProvider.py` | 1,271 | Factor data (momentum, value, quality, size) for ML feature pipelines |
 | `SpyderC23_RealTimeDataOptimizer.py` | 1,227 | Optimises real-time data throughput: batching, compression, priority queuing |
 | `SpyderC24_ModelDataPipeline.py` | 1,457 | End-to-end data pipeline preparing market data for ML model consumption |
-| `SpyderC26_DatabentooClient.py` | 1,389 | Databento REST/streaming client; supports MBO, MBP, TBBO, OHLCV, and definition schemas |
+| `SpyderC27_MassiveClient.py` | 1,389 | Massive REST/streaming client; primary real-time options and equity data source |
+| `SpyderC29_DataProviderRouter.py` | 620 | Routes data requests between market data providers; primary route is Massive |
 | `SpyderC30_OrderFlowAnalyzer.py` | 1,745 | Real-time order flow analysis: delta, cumulative delta, imbalance, absorption |
 | `SpyderC35_SentimentAnalyzer.py` | 1,472 | Multi-source sentiment analysis: news, social, options flow, put/call ratios |
 
@@ -315,7 +311,7 @@ Each entry: `Module` — lines of code — purpose description.
 | `SpyderM04_TradingMetrics.py` | 1,123 | Trading metrics collector: real-time P&L, fill rate, order rate, and latency histograms |
 | `SpyderM05_TransactionCostAnalysis.py` | 1,378 | Transaction cost analysis (TCA): commissions, slippage, market impact breakdown |
 | `SpyderM06_HMMRegimeDetector.py` | 1,421 | Standalone HMM regime detector for system-level market state monitoring |
-| `SpyderM07_MigrationMonitor.py` | 374 | Monitors data migration jobs (e.g. Polygon.io → Databento) for completeness |
+| `SpyderM07_MigrationMonitor.py` | 374 | Monitors data migration jobs for completeness and data integrity |
 
 ### SpyderN_OptionsAnalytics — Options Pricing & Greeks (13 modules)
 
@@ -411,7 +407,7 @@ The T-Series contains the complete pytest test suite. Key structural files:
 | `SpyderT40_TradierClient_Test.py` | 429 | Unit tests for Tradier API client: auth, orders, quotes, and error handling |
 | `SpyderT42_Integration_Test.py` | 351 | Live integration tests (sandbox credentials required; skipped in CI) |
 | `SpyderT43_OrderManager_Test.py` | 806 | Order manager tests: lifecycle states, partial fills, cancellations |
-| `SpyderT44_DatabentoClient_Test.py` | 547 | Databento client tests: schema validation, streaming, and historical requests |
+| `SpyderT44_DatabentoClient_Test.py` | 547 | Market data client tests: schema validation and streaming requests |
 | `SpyderT46_RiskManager_Test.py` | 485 | Risk manager unit tests: position sizing, limits, and circuit breaker triggers |
 | `SpyderT47_StrategyUnit_Test.py` | 469 | Strategy unit tests: signal generation, entry/exit logic for all D-Series |
 | `SpyderT55_PaperTradingHarness_Test.py` | 750 | Paper trading harness tests: end-to-end scenario validation |
@@ -530,7 +526,7 @@ Persistent agents running continuously, driven by Ollama LLM.
 ## Data Flow
 
 ```
-Databento WebSocket → SpyderC_MarketData (normalization/validation)
+Massive API WebSocket → SpyderC_MarketData (normalization/validation)
                         ↓
                   SpyderF_Analysis (indicators, regime detection)
                         ↓
@@ -549,11 +545,10 @@ Databento WebSocket → SpyderC_MarketData (normalization/validation)
 - **Auth**: Bearer token in `Authorization` header
 - **Env vars**: `TRADIER_API_KEY`, `TRADIER_ACCOUNT_ID`, `TRADIER_ENVIRONMENT`
 
-### Databento (Market Data)
-- **Auth**: API key
-- **Env vars**: `DATABENTO_API_KEY`
-- **Schemas**: MBO (L3), MBP-1/MBP-10 (L1/L2 book), TBBO, OHLCV, trades, definition
-- **Use cases**: Real-time streaming, historical bars, options chains, replay
+### Massive API (Market Data)
+- **Client**: `SpyderC27_MassiveClient`, routed via `SpyderC29_DataProviderRouter`
+- **Env vars**: `MASSIVE_API_KEY`
+- **Use cases**: Real-time streaming options flow, Greeks, SPY equity data
 
 ## Coding Standards
 

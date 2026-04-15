@@ -79,14 +79,14 @@ except ImportError:
 
     tradier_breaker = MockCircuitBreaker("tradier")
 
-# Try to import Databento breaker (may not exist yet)
+# Try to import Massive breaker (may not exist yet)
 try:
-    from SpyderU_Utilities.SpyderU41_CircuitBreaker import databento_breaker
+    from SpyderU_Utilities.SpyderU41_CircuitBreaker import massive_breaker
 except ImportError:
     if CIRCUIT_BREAKERS_AVAILABLE:
-        databento_breaker = MockCircuitBreaker("databento")  # type: ignore[misc]
+        massive_breaker = MockCircuitBreaker("massive")  # type: ignore[misc]
     else:
-        databento_breaker = MockCircuitBreaker("databento")
+        massive_breaker = MockCircuitBreaker("massive")
 
 # ==============================================================================
 # CIRCUIT BREAKER MONITOR WIDGET
@@ -189,7 +189,7 @@ class CircuitBreakerMonitor(QWidget):
         # ── Service rows ───────────────────────────────────────────
         services = [
             ("tradier",   "TRADIER API", 2),
-            ("databento", "MASSIVE",     3),
+            ("massive",   "MASSIVE API", 3),
         ]
 
         for breaker_id, label_text, row in services:
@@ -223,7 +223,7 @@ class CircuitBreakerMonitor(QWidget):
     def update_display(self):
         """Poll breakers and refresh dots."""
         self._refresh_breaker("tradier",   tradier_breaker)
-        self._refresh_breaker("databento", databento_breaker)
+        self._refresh_breaker("massive", massive_breaker)
 
     def _refresh_breaker(self, breaker_id: str, breaker):
         """Light the correct dot for a single breaker."""
@@ -237,11 +237,14 @@ class CircuitBreakerMonitor(QWidget):
         if not dots:
             return
 
-        if state == CircuitState.CLOSED:
+        # get_stats() returns self.state.name (a string: "CLOSED", "HALF_OPEN", "OPEN")
+        # so compare against strings, not enum members.
+        state_str = state.name if isinstance(state, CircuitState) else str(state)
+        if state_str == "CLOSED":
             dots["normal"].setStyleSheet(  f"color: {self.COLOR_NORMAL};   font-size: 18px;")
             dots["recovery"].setStyleSheet(f"color: {self.COLOR_DIM};      font-size: 18px;")
             dots["blocked"].setStyleSheet( f"color: {self.COLOR_DIM};      font-size: 18px;")
-        elif state == CircuitState.HALF_OPEN:
+        elif state_str == "HALF_OPEN":
             dots["normal"].setStyleSheet(  f"color: {self.COLOR_DIM};      font-size: 18px;")
             dots["recovery"].setStyleSheet(f"color: {self.COLOR_RECOVERY}; font-size: 18px;")
             dots["blocked"].setStyleSheet( f"color: {self.COLOR_DIM};      font-size: 18px;")
@@ -260,7 +263,7 @@ class CircuitBreakerMonitor(QWidget):
         """Reset a circuit breaker manually."""
         try:
             import asyncio
-            breaker = tradier_breaker if breaker_id == "tradier" else databento_breaker
+            breaker = tradier_breaker if breaker_id == "tradier" else massive_breaker
             asyncio.create_task(breaker.reset())
             self.reset_requested.emit(breaker_id)
             self.update_display()

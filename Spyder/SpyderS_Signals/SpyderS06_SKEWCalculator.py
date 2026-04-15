@@ -312,9 +312,65 @@ class SpyderS06_SKEWCalculator:
                 logger.warning("Insufficient strikes: %s calls, %s puts", len(calls), len(puts))
                 return self._calculate_skew_simulated()
 
-            # Regular SKEW calculation would go here
-            # For now, return simulated
-            return self._calculate_skew_simulated()
+            # --- Full SKEW calculation pipeline ---
+            import time as _time
+            _t0 = _time.monotonic()
+
+            # Select expiry in the configured 23-37 day window.
+            # If nothing falls in that window (common on weekends / near expiry
+            # weeks), widen the search to 10-60 days so we always get a result.
+            expiry, dte_years = self._select_expiry()
+            if expiry is None or dte_years is None:
+                _saved_min = self.config['min_days']
+                _saved_max = self.config['max_days']
+                self.config['min_days'] = 10
+                self.config['max_days'] = 60
+                expiry, dte_years = self._select_expiry()
+                self.config['min_days'] = _saved_min
+                self.config['max_days'] = _saved_max
+
+            if expiry is None or dte_years is None:
+                return self._calculate_skew_simulated()
+
+            options = self._process_options(expiry)
+            if len(options) < self.config.get('min_strikes', 6):
+                return self._calculate_skew_simulated()
+
+            components = self._calculate_skew_components(options, dte_years)
+            if components is None:
+                return self._calculate_skew_simulated()
+
+            skew_index = self._compute_skew_index(components)
+            confidence = self._calculate_confidence(options, components)
+
+            put_skew = (float(np.mean([v for _, v in components.put_wing]))
+                        if components.put_wing else 0.0)
+            call_skew = (float(np.mean([v for _, v in components.call_wing]))
+                         if components.call_wing else 0.0)
+
+            elapsed_ms = (_time.monotonic() - _t0) * 1000.0
+
+            result = SKEWCalculation(
+                skew_index=skew_index,
+                timestamp=datetime.now(),
+                spot_price=self.spot_price,
+                risk_free_rate=self.risk_free_rate,
+                expiry_used=expiry,
+                strikes_used=len(options),
+                put_skew=put_skew,
+                call_skew=call_skew,
+                third_moment=components.risk_neutral_skew,
+                confidence=confidence,
+                calculation_time=elapsed_ms,
+            )
+            self._cache_calculation(result)
+            self.skew_history.append(result)
+            logger.info(
+                "SKEW calculated: %.1f (expiry %s, %d options, %.0fms)",
+                skew_index, str(expiry.date()) if hasattr(expiry, 'date') else expiry,
+                len(options), elapsed_ms,
+            )
+            return result
 
         except Exception as e:
             logger.error("SKEW calculation error: %s", e)
@@ -392,9 +448,19 @@ class SpyderS06_SKEWCalculator:
             calls_df = self.option_chain.get('calls', pd.DataFrame())
             puts_df = self.option_chain.get('puts', pd.DataFrame())
 
+            # Normalise expiry to a "YYYY-MM-DD" string for comparison.
+            # _select_expiry returns a pd.Timestamp; the chain DataFrames store
+            # expiry as plain strings (from yfinance / Tradier), so a direct ==
+            # would always be False without this conversion.
+            if hasattr(expiry, 'date'):
+                expiry_str = str(expiry.date())
+            else:
+                expiry_str = str(expiry)[:10]
+
             # Process calls
             if not calls_df.empty:
-                expiry_calls = calls_df[calls_df['expiry'] == expiry]
+                calls_col = calls_df['expiry'].astype(str).str[:10]
+                expiry_calls = calls_df[calls_col == expiry_str]
                 for _, row in expiry_calls.iterrows():
                     option = self._create_option_data(row, 'call', expiry)
                     if option and self._is_valid_option(option):
@@ -402,7 +468,8 @@ class SpyderS06_SKEWCalculator:
 
             # Process puts
             if not puts_df.empty:
-                expiry_puts = puts_df[puts_df['expiry'] == expiry]
+                puts_col = puts_df['expiry'].astype(str).str[:10]
+                expiry_puts = puts_df[puts_col == expiry_str]
                 for _, row in expiry_puts.iterrows():
                     option = self._create_option_data(row, 'put', expiry)
                     if option and self._is_valid_option(option):
@@ -995,7 +1062,57 @@ class SpyderS06_SKEWCalculator:
 
     def _fetch_option_chain(self) -> dict[str, pd.DataFrame] | None:
         """Fetch SPY option chain"""
-        # Try C29 / MassiveClient first (returns list of dicts per contract)
+        # Primary: Tradier B40 — live options with greeks, preferred over C29/yfinance
+        try:
+            from datetime import date as _date, timedelta as _td
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
+
+            client = create_tradier_client_from_env()
+            exps_resp = client.get_option_expirations("SPY")
+            exps = exps_resp.get("expirations", {}).get("date", [])
+            if isinstance(exps, str):
+                exps = [exps]
+            if exps:
+                today = _date.today()
+                target = today + _td(days=30)
+                future = sorted(e for e in exps if e > str(today))
+                if future:
+                    # Pick the expiry closest to 30 DTE (broadened window)
+                    chosen = min(
+                        future,
+                        key=lambda e: abs((_date.fromisoformat(e) - target).days)
+                    )
+                    greeks = client.get_option_chain_with_greeks("SPY", chosen)
+                    if greeks:
+                        calls_rows, puts_rows = [], []
+                        for g in greeks:
+                            row = {
+                                "strike": g.strike,
+                                "bid": g.bid,
+                                "ask": g.ask,
+                                "lastPrice": getattr(g, "last", 0.0) or 0.0,
+                                "impliedVolatility": g.iv,
+                                "openInterest": g.open_interest,
+                                "volume": getattr(g, "volume", 0) or 0,
+                                "expiry": chosen,
+                            }
+                            if g.option_type == "call":
+                                calls_rows.append(row)
+                            else:
+                                puts_rows.append(row)
+                        if calls_rows or puts_rows:
+                            logger.debug(
+                                "Tradier B40 option chain: %d calls, %d puts for %s",
+                                len(calls_rows), len(puts_rows), chosen,
+                            )
+                            return {
+                                'calls': pd.DataFrame(calls_rows),
+                                'puts': pd.DataFrame(puts_rows),
+                            }
+        except Exception as _e:
+            logger.debug("Tradier B40 option chain unavailable for SPY: %s", _e)
+
+        # Try C29 / MassiveClient next (returns list of dicts per contract)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()

@@ -341,7 +341,7 @@ class EarningsStrategyHandler:
 
         Args:
             data_provider: OptionsDataProvider instance (e.g. TradierClient or
-                DatabentoMarketDataAdapter). If None, auto-created via
+                MassiveMarketDataAdapter). If None, auto-created via
                 create_options_data_provider() using MARKET_DATA_PROVIDER env var.
             default_expiry_days: Default days for expiry selection
         """
@@ -427,7 +427,7 @@ class EarningsStrategyHandler:
     ) -> list[EarningsEvent]:
         """Fetch earnings calendar from API."""
         try:
-            # Using a mock/estimated approach; Databento integration pending
+            # Using a mock/estimated approach; external earnings feed integration pending
             # In production, would integrate with Earnings Whispers, Zacks, etc.
 
             # For SPY/ETFs, there are no earnings
@@ -1118,7 +1118,7 @@ class EarningsStrategyHandler:
             consistency_score=0.7
         )
 
-    # DATA FETCHING (Databento — stub implementations)
+    # DATA FETCHING (Provider-backed stub implementations)
     # Options chain data is sourced via SpyderC27_MassiveClient or SpyderC03_OptionChain
     # ==========================================================================
 

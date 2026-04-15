@@ -339,7 +339,7 @@ class VIXHedgingStrategy:
 
         Args:
             data_provider: OptionsDataProvider instance (e.g. TradierClient or
-                DatabentoMarketDataAdapter). If None, auto-created via
+                MassiveMarketDataAdapter). If None, auto-created via
                 create_options_data_provider() using MARKET_DATA_PROVIDER env var.
             vix_mean: Long-term VIX mean for reversion (default: 20)
         """

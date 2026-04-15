@@ -64,13 +64,14 @@ INTERNAL_SYMBOLS = {
 
 # Tradier-native symbols that can be fetched directly via get_quotes().
 # Maps Tradier symbol string -> INTERNAL_SYMBOLS key.
+# Source: Tradier official docs (April 2026 screenshot).
+# $TICK and $ADD are confirmed Real-time; $VIX is confirmed Real-time.
+# $TRIN, $TRINQ, $TICKQ are NOT listed in Tradier's official index symbol table
+# and have been removed until confirmed working on a production account.
 TRADIER_FETCHABLE_SYMBOLS = {
     "$TICK":  "TICK",
-    "$TICKQ": "TICKI",
     "$ADD":   "ADD",
-    "$TRIN":  "TRIN",
-    "$TRINQ": "TRINQ",
-    "VIX":    "VIX",
+    "$VIX":   "VIX",
 }
 
 # How often (seconds) to poll Tradier for market internals
@@ -960,20 +961,20 @@ class MarketInternals:
     def get_current_condition(self) -> MarketCondition:
         """Get current market condition"""
         if self.current_analysis:
-            return getattr(self.current_analysis, 'condition', MarketCondition.UNKNOWN)
-        return MarketCondition.UNKNOWN
+            return self.current_analysis.market_condition
+        return MarketCondition.NEUTRAL
 
     def get_breadth_condition(self) -> BreadthCondition:
         """Get current breadth condition"""
         if self.current_analysis:
-            return getattr(self.current_analysis, 'breadth', BreadthCondition.NEUTRAL)
+            return self.current_analysis.breadth_condition
         return BreadthCondition.NEUTRAL
 
     def get_market_phase(self) -> MarketPhase:
         """Get current market phase"""
         if self.current_analysis:
-            return getattr(self.current_analysis, 'phase', MarketPhase.UNKNOWN)
-        return MarketPhase.UNKNOWN
+            return self.current_analysis.market_phase
+        return MarketPhase.ACCUMULATION
 
 def get_market_internals() -> MarketInternals:
     """Factory function to get MarketInternals instance"""

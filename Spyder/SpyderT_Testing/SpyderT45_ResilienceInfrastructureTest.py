@@ -15,7 +15,7 @@ Module Description:
     - Rate limiter token bucket algorithm
     - Circuit breaker pattern (CLOSED/OPEN/HALF_OPEN)
     - Integration with TradierClient
-    - Integration with DatabentoClient
+    - Integration with Massive fallback infrastructure
     - Monitoring and statistics
 """
 
@@ -34,7 +34,7 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import (
     MultiRateLimiter,
     rate_limit,
     acquire_tradier,
-    acquire_databento,
+    acquire_massive,
     _global_limiters
 )
 
@@ -358,7 +358,7 @@ class TestCircuitBreaker(unittest.IsolatedAsyncioTestCase):
 # TEST: PRE-CONFIGURED LIMITERS & BREAKERS
 # ==============================================================================
 class TestPreconfiguredInfrastructure(unittest.IsolatedAsyncioTestCase):
-    """Test pre-configured Tradier and Databento infrastructure."""
+    """Test pre-configured Tradier and Massive infrastructure."""
 
     def setUp(self):
         """Reset global state."""
@@ -375,13 +375,13 @@ class TestPreconfiguredInfrastructure(unittest.IsolatedAsyncioTestCase):
         limiter = _global_limiters._limiters["tradier"]
         self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
 
-    async def test_databento_rate_limiter_exists(self):
-        """Test Databento rate limiter is pre-configured."""
-        await acquire_databento()
+    async def test_massive_rate_limiter_exists(self):
+        """Test Massive rate limiter is pre-configured."""
+        await acquire_massive()
 
-        self.assertIn("databento", _global_limiters._limiters)
+        self.assertIn("massive", _global_limiters._limiters)
 
-        limiter = _global_limiters._limiters["databento"]
+        limiter = _global_limiters._limiters["massive"]
         self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
 
     def test_tradier_breaker_configuration(self):
@@ -583,7 +583,7 @@ if __name__ == "__main__":
     print("  ✓ Rate Limiter (sync & async)")
     print("  ✓ Multi-Service Rate Limiter")
     print("  ✓ Circuit Breaker Pattern")
-    print("  ✓ Pre-configured Tradier & Databento Infrastructure")
+    print("  ✓ Pre-configured Tradier & Massive Infrastructure")
     print("  ✓ Decorator Integration")
     print("  ✓ API Client Integration")
     print("  ✓ Performance & Overhead")

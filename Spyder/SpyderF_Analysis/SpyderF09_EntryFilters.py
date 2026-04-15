@@ -907,10 +907,16 @@ class EntryFilters:
         """
         Check correlation risk against existing portfolio positions.
 
-        Prevents accumulating highly correlated short-delta positions.
-
-        NOTE: Currently checks symbol-level correlation only.
-        TODO: Integrate portfolio-level Greek correlation when position data available.
+        Performs two checks:
+          1. Symbol-level: rejects if too many existing positions share the
+             same underlying root (accumulation of directional exposure).
+          2. Portfolio-level Greek correlation: when portfolio Greek totals
+             are supplied (via `portfolio_greeks`) together with the candidate
+             order's expected Greek contribution (via `candidate_greeks`),
+             blocks entries that would push net delta/gamma/vega past the
+             `max_portfolio_[delta|gamma|vega]` thresholds. This is the gate
+             that stops "30 short-delta positions adding up to a -4,500 delta
+             book" without the operator ever seeing a single oversized order.
         """
         results = []
         try:
@@ -936,6 +942,32 @@ class EntryFilters:
                 ),
                 weight=self.filter_weights[FilterType.CORRELATION]
             ))
+
+            # Portfolio-level Greek aggregation gate
+            portfolio_greeks = entry_params.get('portfolio_greeks') or {}
+            candidate_greeks = entry_params.get('candidate_greeks') or {}
+            if portfolio_greeks and candidate_greeks:
+                for greek in ("delta", "gamma", "vega"):
+                    limit_key = f"max_portfolio_{greek}"
+                    limit = entry_params.get(limit_key)
+                    if limit is None:
+                        continue
+                    projected = float(portfolio_greeks.get(greek, 0.0)) + float(
+                        candidate_greeks.get(greek, 0.0)
+                    )
+                    ok = abs(projected) <= float(limit)
+                    results.append(FilterCheck(
+                        filter_type=FilterType.CORRELATION,
+                        result=FilterResult.PASS if ok else FilterResult.FAIL,
+                        value=abs(projected),
+                        threshold=float(limit),
+                        message=(
+                            f"Portfolio {greek} projection: {projected:+.2f} vs "
+                            f"limit ±{float(limit):.2f} "
+                            f"({'OK' if ok else 'BREACH'})"
+                        ),
+                        weight=self.filter_weights[FilterType.CORRELATION],
+                    ))
         except Exception as e:
             self.logger.warning("Correlation filter check failed: %s", e, exc_info=True)
             # On failure, pass filter (don't block entry for filter error)

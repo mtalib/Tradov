@@ -362,8 +362,8 @@ tradier_breaker = get_circuit_breaker(
     timeout=30.0
 )
 
-databento_breaker = get_circuit_breaker(
-    "databento",
+massive_breaker = get_circuit_breaker(
+    "massive",
     failure_threshold=5,
     recovery_timeout=60.0,
     timeout=30.0
@@ -377,5 +377,5 @@ __all__ = [
     "circuit_breaker",
     "get_circuit_breaker",
     "tradier_breaker",
-    "databento_breaker",
+    "massive_breaker",
 ]

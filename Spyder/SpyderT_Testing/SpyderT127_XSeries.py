@@ -81,13 +81,20 @@ _m = _ensure_mod("Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor")
 _m.get_migration_monitor = MagicMock(return_value=MagicMock())
 
 _m = _ensure_mod("Spyder.SpyderE_Risk.SpyderE01_RiskManager")
-_m.RiskManager = type("RiskManager", (), {"__init__": lambda self, *a, **kw: None})
+_rm = getattr(_m, "RiskManager", None)
+if _rm is None or not hasattr(_rm, "check_order_risk"):
+    # Fallback stub only when a functional RiskManager is unavailable.
+    _m.RiskManager = type("RiskManager", (), {"__init__": lambda self, *a, **kw: None})
 
 _m = _ensure_mod("Spyder.SpyderE_Risk.SpyderE02_PositionSizer")
-_m.PositionSizer = type("PositionSizer", (), {"__init__": lambda self, *a, **kw: None})
+_ps = getattr(_m, "PositionSizer", None)
+if _ps is None or not hasattr(_ps, "calculate_position_size"):
+    _m.PositionSizer = type("PositionSizer", (), {"__init__": lambda self, *a, **kw: None})
 
 _m = _ensure_mod("Spyder.SpyderE_Risk.SpyderE03_DrawdownControl")
-_m.DrawdownController = type("DrawdownController", (), {"__init__": lambda self, *a, **kw: None})
+_dc = getattr(_m, "DrawdownController", None)
+if _dc is None:
+    _m.DrawdownController = type("DrawdownController", (), {"__init__": lambda self, *a, **kw: None})
 
 # ---- gym / stable_baselines3 stubs (needed by X14) -------------------------
 _gym_mod = types.ModuleType("gym")

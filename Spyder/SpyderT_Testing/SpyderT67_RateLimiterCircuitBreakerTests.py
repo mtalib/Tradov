@@ -67,7 +67,7 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import (
     MultiRateLimiter,
     rate_limit,
     acquire_tradier,
-    acquire_databento,
+    acquire_massive,
     _global_limiters,
 )
 
@@ -82,7 +82,7 @@ from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
     circuit_breaker,
     get_circuit_breaker,
     tradier_breaker,
-    databento_breaker,
+    massive_breaker,
 )
 
 
@@ -351,23 +351,23 @@ class TestGlobalLimiters:
         assert "tradier" in _global_limiters._defaults or \
                "tradier" in _global_limiters._limiters
 
-    def test_databento_default_registered(self):
-        assert "databento" in _global_limiters._defaults or \
-               "databento" in _global_limiters._limiters
+    def test_massive_default_registered(self):
+        assert "massive" in _global_limiters._defaults or \
+               "massive" in _global_limiters._limiters
 
     def test_acquire_tradier_is_coroutine(self):
         import inspect
         assert inspect.iscoroutinefunction(acquire_tradier)
 
-    def test_acquire_databento_is_coroutine(self):
+    def test_acquire_massive_is_coroutine(self):
         import inspect
-        assert inspect.iscoroutinefunction(acquire_databento)
+        assert inspect.iscoroutinefunction(acquire_massive)
 
     def test_acquire_tradier_completes(self):
         _run(acquire_tradier())
 
-    def test_acquire_databento_completes(self):
-        _run(acquire_databento())
+    def test_acquire_massive_completes(self):
+        _run(acquire_massive())
 
 
 # ==============================================================================
@@ -889,7 +889,7 @@ class TestGetCircuitBreaker:
 # U41 — Pre-configured breaker TESTS
 # ==============================================================================
 class TestPreConfiguredBreakers:
-    """Tests for tradier_breaker and databento_breaker."""
+    """Tests for tradier_breaker and massive_breaker."""
 
     def test_tradier_breaker_exists(self):
         assert tradier_breaker is not None
@@ -897,11 +897,11 @@ class TestPreConfiguredBreakers:
     def test_tradier_breaker_is_circuit_breaker(self):
         assert isinstance(tradier_breaker, CircuitBreaker)
 
-    def test_databento_breaker_exists(self):
-        assert databento_breaker is not None
+    def test_massive_breaker_exists(self):
+        assert massive_breaker is not None
 
-    def test_databento_breaker_is_circuit_breaker(self):
-        assert isinstance(databento_breaker, CircuitBreaker)
+    def test_massive_breaker_is_circuit_breaker(self):
+        assert isinstance(massive_breaker, CircuitBreaker)
 
     def test_tradier_breaker_starts_closed(self):
         # Pre-configured breaker should start in CLOSED state
@@ -911,5 +911,5 @@ class TestPreConfiguredBreakers:
         # Configured with timeout=30.0
         assert tradier_breaker.config.timeout == 30.0
 
-    def test_databento_breaker_has_timeout(self):
-        assert databento_breaker.config.timeout == 30.0
+    def test_massive_breaker_has_timeout(self):
+        assert massive_breaker.config.timeout == 30.0

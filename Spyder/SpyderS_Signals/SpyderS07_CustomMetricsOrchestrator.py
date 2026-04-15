@@ -81,18 +81,57 @@ except ImportError:
 
 try:
     from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
+    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import DataUnavailableError as GEXDataUnavailableError
     GEX_AVAILABLE = True
 except ImportError:
     GEX_AVAILABLE = False
+    GEXDataUnavailableError = Exception
     logging.info("⚠️ S05_GEXDEXCalculator not available")
 
 try:
     from SpyderS_Signals.SpyderS06_SKEWCalculator import (
         SpyderS06_SKEWCalculator, get_skew_calculator)  # noqa: F401
+    from SpyderS_Signals.SpyderS06_SKEWCalculator import DataUnavailableError as SKEWDataUnavailableError
     SKEW_AVAILABLE = True
 except ImportError:
     SKEW_AVAILABLE = False
+    SKEWDataUnavailableError = Exception
     logging.info("⚠️ S06_SKEWCalculator not available")
+
+try:
+    from SpyderS_Signals.SpyderS09_FREDClient import get_fred_client
+    FRED_AVAILABLE = True
+except ImportError:
+    FRED_AVAILABLE = False
+    logging.info("⚠️ S09_FREDClient not available")
+
+try:
+    from SpyderS_Signals.SpyderS10_SentimentScraper import get_sentiment_scraper
+    SENTIMENT_AVAILABLE = True
+except ImportError:
+    SENTIMENT_AVAILABLE = False
+    logging.info("⚠️ S10_SentimentScraper not available")
+
+try:
+    from SpyderS_Signals.SpyderS11_BarchartInternals import get_barchart_client
+    BARCHART_AVAILABLE = True
+except ImportError:
+    BARCHART_AVAILABLE = False
+    logging.info("⚠️ S11_BarchartInternals not available")
+
+try:
+    from SpyderS_Signals.SpyderS02_DIXScheduler import SpyderDIXScheduler
+    DIX_SCHEDULER_AVAILABLE = True
+except ImportError:
+    DIX_SCHEDULER_AVAILABLE = False
+    logging.info("⚠️ S02_DIXScheduler not available")
+
+try:
+    from SpyderS_Signals.SpyderS04_BlackSwanScheduler import BlackSwanScheduler as BlackSwanSchedulerCls
+    SWAN_SCHEDULER_AVAILABLE = True
+except ImportError:
+    SWAN_SCHEDULER_AVAILABLE = False
+    logging.info("⚠️ S04_BlackSwanScheduler not available")
 
 # ==============================================================================
 # CONSTANTS
@@ -124,6 +163,18 @@ class MetricSnapshot:
     dix: float = 0.0
     swan: float = 1.0
     skew: float = 100.0
+    vex: float = 0.0
+    chex: float = 0.0
+    yield_10y: float = float("nan")
+    yield_slope: float = float("nan")
+    aaii_bullish: float = float("nan")
+    aaii_bearish: float = float("nan")
+    naaim_exposure: float = float("nan")
+    tick: float = float("nan")
+    add: float = float("nan")
+    trin: float = float("nan")
+    nymo: float = float("nan")
+    breadth_regime: str = "neutral"
     timestamp: datetime = field(default_factory=datetime.now)
     update_frequency: int = UPDATE_INTERVAL
 
@@ -167,6 +218,9 @@ class CustomMetricsOrchestrator(QObject):
     dix_updated = Signal(float)
     swan_updated = Signal(dict)
     skew_updated = Signal(float)
+    fred_updated = Signal(dict)
+    sentiment_updated = Signal(dict)
+    breadth_updated = Signal(dict)
     connection_status_changed = Signal(bool, str)
     error_occurred = Signal(str)
     stress_level_changed = Signal(str)  # New signal for stress level changes
@@ -192,6 +246,19 @@ class CustomMetricsOrchestrator(QObject):
             "DIX": 0.0,
             "SWAN": 1.0,
             "SKEW": 100.0,
+            "VEX": 0.0,
+            "CHEX": 0.0,
+            "YIELD_10Y": float("nan"),
+            "YIELD_SLOPE": float("nan"),
+            "YIELD_INVERTED": False,
+            "AAII_BULLISH": float("nan"),
+            "AAII_BEARISH": float("nan"),
+            "NAAIM_EXPOSURE": float("nan"),
+            "TICK": float("nan"),
+            "ADD": float("nan"),
+            "TRIN": float("nan"),
+            "NYMO": float("nan"),
+            "BREADTH_REGIME": "neutral",
         }
 
         # Metrics history for trend analysis
@@ -217,7 +284,11 @@ class CustomMetricsOrchestrator(QObject):
 
         # Update timer with dynamic frequency
         self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self.update_all_metrics)
+        # IMPORTANT: connect to _dispatch_metrics_update, NOT update_all_metrics directly.
+        # update_all_metrics makes blocking HTTP requests (FINRA, FRED, NAAIM, AAII) that
+        # take 5-10 seconds and freeze the Qt main thread if called here.
+        # The dispatcher spawns a daemon thread so the event loop is never stalled.
+        self.update_timer.timeout.connect(self._dispatch_metrics_update)
         self.update_timer.setInterval(self.current_update_interval * 1000)
 
         self.logger.info("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
@@ -273,9 +344,64 @@ class CustomMetricsOrchestrator(QObject):
         else:
             self.skew_calculator = None
 
+        # S09 - FRED Client (Treasury yields, DXY proxy, yield curve)
+        if FRED_AVAILABLE:
+            try:
+                self.fred_client = get_fred_client()
+                self.logger.info("✅ S09_FREDClient initialized")
+            except Exception as e:
+                self.logger.error("Failed to init FRED: %s", e, exc_info=True)
+                self.fred_client = None
+        else:
+            self.fred_client = None
+
+        # S10 - Sentiment Scraper (AAII + NAAIM weekly surveys)
+        if SENTIMENT_AVAILABLE:
+            try:
+                self.sentiment_scraper = get_sentiment_scraper()
+                self.logger.info("✅ S10_SentimentScraper initialized")
+            except Exception as e:
+                self.logger.error("Failed to init Sentiment: %s", e, exc_info=True)
+                self.sentiment_scraper = None
+        else:
+            self.sentiment_scraper = None
+
+        # S11 - Barchart Internals ($TICK, $ADD, $TRIN, $NYMO)
+        if BARCHART_AVAILABLE:
+            try:
+                self.barchart_client = get_barchart_client()
+                self.logger.info("✅ S11_BarchartInternals initialized")
+            except Exception as e:
+                self.logger.error("Failed to init Barchart: %s", e, exc_info=True)
+                self.barchart_client = None
+        else:
+            self.barchart_client = None
+
+        # S02 - DIX Scheduler (pre-market 9:00 AM + EOD 6:30 PM ET cron collection)
+        if DIX_SCHEDULER_AVAILABLE:
+            try:
+                self.dix_scheduler = SpyderDIXScheduler()
+                self.logger.info("✅ S02_DIXScheduler initialized")
+            except Exception as e:
+                self.logger.error("Failed to init DIX scheduler: %s", e, exc_info=True)
+                self.dix_scheduler = None
+        else:
+            self.dix_scheduler = None
+
+        # S04 - Black Swan Scheduler (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM / 4:30 PM ET)
+        if SWAN_SCHEDULER_AVAILABLE:
+            try:
+                self.swan_scheduler = BlackSwanSchedulerCls()
+                self.logger.info("✅ S04_BlackSwanScheduler initialized")
+            except Exception as e:
+                self.logger.error("Failed to init Black Swan scheduler: %s", e, exc_info=True)
+                self.swan_scheduler = None
+        else:
+            self.swan_scheduler = None
+
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW']
+        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH']
 
         for metric in metrics:
             self.metric_quality[metric] = MetricQuality(
@@ -292,22 +418,80 @@ class CustomMetricsOrchestrator(QObject):
     # ==========================================================================
 
     def start(self):
-        """Start the orchestrator"""
+        """Start the orchestrator — non-blocking.
+
+        The QTimer is started here on the main Qt thread (required). All network
+        I/O (initial metric fetch + late-start Black Swan check) is deferred to a
+        background daemon thread so that the Qt event loop is never blocked.
+        """
+        import threading
         try:
             self.update_timer.start()
-            self.update_all_metrics()  # Initial update
             self.ib_connected = True
 
-            self.logger.info("✅ Orchestrator started successfully")
+            # swan_scheduler.start() only spawns a thread — safe on main thread.
+            # dix_scheduler.initialize() makes a live HTTP request, so it belongs
+            # in the background thread below.
+            if self.swan_scheduler is not None:
+                self.swan_scheduler.start(daemon=True)
+                self.logger.info("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")
+
+            self.logger.info("✅ Orchestrator started — background fetch beginning")
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
+
+            # All blocking network I/O (DIX init + metric fetch + Black Swan
+            # catch-up) runs in a background daemon thread so the Qt event loop
+            # is never stalled during startup.
+            threading.Thread(
+                target=self._startup_fetch,
+                name="S07-startup-fetch",
+                daemon=True,
+            ).start()
 
         except Exception as e:
             self.logger.error("Failed to start orchestrator: %s", e, exc_info=True)
             self.error_occurred.emit(f"Startup failed: {str(e)}")
 
+    def _startup_fetch(self):
+        """Background startup: DIX init, initial metric fetch, late-start Black Swan check.
+
+        Runs entirely off the Qt main thread — no GUI calls allowed here.
+        """
+        # S02 DIX Scheduler — initialize() hits FINRA over HTTP; must be off-thread
+        if self.dix_scheduler is not None:
+            try:
+                if self.dix_scheduler.initialize():
+                    self.dix_scheduler.start()
+                    self.logger.info("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
+                else:
+                    self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")
+            except Exception as e:
+                self.logger.error("DIX scheduler startup failed: %s", e)
+
+        # Initial metric fetch across all S-Series sources
+        try:
+            self.update_all_metrics()
+        except Exception as e:
+            self.logger.error("Startup metric fetch failed: %s", e)
+
+        # Late-start Black Swan catch-up check
+        try:
+            if self.swan_scheduler is not None:
+                # Run the 9:15 AM check so late starts don't silently miss the
+                # pre-open window.
+                self.swan_scheduler.run_now("daily_check_0915")
+        except Exception as e:
+            self.logger.error("Startup Black Swan check failed: %s", e)
+
     def stop(self):
         """Stop the orchestrator"""
         try:
+            # Stop data collection schedulers first
+            if self.dix_scheduler is not None:
+                self.dix_scheduler.stop()
+            if self.swan_scheduler is not None:
+                self.swan_scheduler.stop()
+
             self.update_timer.stop()
             self.ib_connected = False
 
@@ -316,6 +500,32 @@ class CustomMetricsOrchestrator(QObject):
 
         except Exception as e:
             self.logger.error("Error stopping orchestrator: %s", e, exc_info=True)
+
+    def _dispatch_metrics_update(self) -> None:
+        """Qt-thread-safe timer slot: run update_all_metrics in a daemon thread.
+
+        Called by QTimer.timeout (main thread) every UPDATE_INTERVAL seconds.
+        Spawns a background thread so the Qt event loop is never stalled by
+        the blocking HTTP requests inside update_all_metrics (FINRA, FRED, NAAIM…).
+        Guards against concurrent runs with a simple flag.
+        """
+        import threading
+        if getattr(self, "_update_running", False):
+            self.logger.debug("S07 update already in progress — skipping this tick")
+            return
+        self._update_running = True
+
+        def _run():
+            try:
+                self.update_all_metrics()
+            finally:
+                self._update_running = False
+
+        threading.Thread(
+            target=_run,
+            name="S07-metrics-update",
+            daemon=True,
+        ).start()
 
     def update_all_metrics(self):
         """Update all metrics from S-Series calculators"""
@@ -326,7 +536,7 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics = {}
                 update_errors = []
 
-                # S05 - GEX/DEX/OGL Updates
+                # S05 - GEX/DEX/OGL/VEX/CHEX Updates
                 gex_success = self._update_gex_metrics(updated_metrics, update_errors)
 
                 # S01 - DIX Updates
@@ -337,6 +547,15 @@ class CustomMetricsOrchestrator(QObject):
 
                 # S06 - SKEW Updates
                 skew_success = self._update_skew_metrics(updated_metrics, update_errors)
+
+                # S09 - FRED Macro Updates (Treasury yields, yield curve, DXY)
+                fred_success = self._update_fred_metrics(updated_metrics, update_errors)
+
+                # S10 - Sentiment Updates (AAII weekly surveys, NAAIM exposure)
+                sentiment_success = self._update_sentiment_metrics(updated_metrics, update_errors)
+
+                # S11 - Market Breadth Internals ($TICK, $ADD, $TRIN, $NYMO)
+                barchart_success = self._update_barchart_metrics(updated_metrics, update_errors)
 
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
@@ -352,6 +571,18 @@ class CustomMetricsOrchestrator(QObject):
                     dix=updated_metrics.get('DIX', 0.0),
                     swan=updated_metrics.get('SWAN', 1.0),
                     skew=updated_metrics.get('SKEW', 100.0),
+                    vex=updated_metrics.get('VEX', 0.0),
+                    chex=updated_metrics.get('CHEX', 0.0),
+                    yield_10y=updated_metrics.get('YIELD_10Y', float('nan')),
+                    yield_slope=updated_metrics.get('YIELD_SLOPE', float('nan')),
+                    aaii_bullish=updated_metrics.get('AAII_BULLISH', float('nan')),
+                    aaii_bearish=updated_metrics.get('AAII_BEARISH', float('nan')),
+                    naaim_exposure=updated_metrics.get('NAAIM_EXPOSURE', float('nan')),
+                    tick=updated_metrics.get('TICK', float('nan')),
+                    add=updated_metrics.get('ADD', float('nan')),
+                    trin=updated_metrics.get('TRIN', float('nan')),
+                    nymo=updated_metrics.get('NYMO', float('nan')),
+                    breadth_regime=updated_metrics.get('BREADTH_REGIME', 'neutral'),
                     update_frequency=self.current_update_interval
                 )
 
@@ -366,14 +597,19 @@ class CustomMetricsOrchestrator(QObject):
 
                 # Log successful update
                 calculation_time = time.time() - start_time
-                success_count = sum([gex_success, dix_success, swan_success, skew_success])
+                success_count = sum([
+                    gex_success, dix_success, swan_success, skew_success,
+                    fred_success, sentiment_success, barchart_success,
+                ])
 
                 self.logger.info(
-                    f"📊 Metrics updated: {success_count}/4 sources successful "
+                    f"📊 Metrics updated: {success_count}/7 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
-                    f"SKEW={updated_metrics.get('SKEW', 100):.1f}) "
+                    f"SKEW={updated_metrics.get('SKEW', 100):.1f}, "
+                    f"TICK={updated_metrics.get('TICK', float('nan'))}, "
+                    f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%) "
                     f"[{calculation_time:.2f}s]"
                 )
 
@@ -389,6 +625,8 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics["GEX"] = gex_data.get("gex", 0) / 1e9  # Convert to billions
                 updated_metrics["DEX"] = gex_data.get("dex", 0) / 1e6  # Convert to millions
                 updated_metrics["OGL"] = gex_data.get("ogl", 585.5)
+                updated_metrics["VEX"] = gex_data.get("vex", 0.0)   # Vanna Exposure ($M/vol-pt)
+                updated_metrics["CHEX"] = gex_data.get("chex", 0.0)  # Charm Exposure (Δ/day)
                 self.gex_updated.emit(gex_data)
                 return True
             else:
@@ -396,17 +634,32 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics.update({
                     "GEX": self.current_metrics.get("GEX", -2.5) + np.random.normal(0, 0.1),
                     "DEX": self.current_metrics.get("DEX", 850) + np.random.normal(0, 50),
-                    "OGL": self.current_metrics.get("OGL", 585.5) + np.random.normal(0, 1)
+                    "OGL": self.current_metrics.get("OGL", 585.5) + np.random.normal(0, 1),
+                    "VEX": self.current_metrics.get("VEX", 0.0),
+                    "CHEX": self.current_metrics.get("CHEX", 0.0),
                 })
                 return False
-        except Exception as e:
+        except GEXDataUnavailableError as e:
+            # Expected when options chain is not yet available — log quietly
             errors.append(f"GEX update error: {e}")
-            self.logger.error("GEX update error: %s", e, exc_info=True)
-            # Use previous values
+            self.logger.warning("GEX data unavailable (options chain not ready): %s", e)
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
                 "DEX": self.current_metrics.get("DEX", 850),
-                "OGL": self.current_metrics.get("OGL", 585.5)
+                "OGL": self.current_metrics.get("OGL", 585.5),
+                "VEX": self.current_metrics.get("VEX", 0.0),
+                "CHEX": self.current_metrics.get("CHEX", 0.0),
+            })
+            return False
+        except Exception as e:
+            errors.append(f"GEX update error: {e}")
+            self.logger.error("GEX update error: %s", e, exc_info=True)
+            updated_metrics.update({
+                "GEX": self.current_metrics.get("GEX", -2.5),
+                "DEX": self.current_metrics.get("DEX", 850),
+                "OGL": self.current_metrics.get("OGL", 585.5),
+                "VEX": self.current_metrics.get("VEX", 0.0),
+                "CHEX": self.current_metrics.get("CHEX", 0.0),
             })
             return False
 
@@ -473,10 +726,83 @@ class CustomMetricsOrchestrator(QObject):
                 # Simulation fallback
                 updated_metrics["SKEW"] = 125.5 + np.random.normal(0, 3.0)
                 return False
+        except SKEWDataUnavailableError as e:
+            # Expected when options chain is not yet available — log quietly
+            errors.append(f"SKEW update error: {e}")
+            self.logger.warning("SKEW data unavailable (options chain not ready): %s", e)
+            updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
+            return False
         except Exception as e:
             errors.append(f"SKEW update error: {e}")
             self.logger.error("SKEW update error: %s", e, exc_info=True)
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
+            return False
+
+    def _update_fred_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update FRED macro metrics (10Y yield, yield curve slope, yield curve inversion flag)"""
+        try:
+            if self.fred_client:
+                snap = self.fred_client.get_snapshot()
+                updated_metrics["YIELD_10Y"]     = snap.get("GS10", float("nan"))
+                updated_metrics["YIELD_SLOPE"]   = snap.get("T10Y2Y", float("nan"))
+                updated_metrics["YIELD_INVERTED"] = snap.get("yield_curve_inverted", False)
+                self.fred_updated.emit(snap)
+                return True
+            else:
+                for key in ("YIELD_10Y", "YIELD_SLOPE", "YIELD_INVERTED"):
+                    updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+                return False
+        except Exception as e:
+            errors.append(f"FRED update error: {e}")
+            self.logger.error("FRED update error: %s", e, exc_info=True)
+            for key in ("YIELD_10Y", "YIELD_SLOPE", "YIELD_INVERTED"):
+                updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+            return False
+
+    def _update_sentiment_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update AAII and NAAIM investor sentiment metrics"""
+        try:
+            if self.sentiment_scraper:
+                snap = self.sentiment_scraper.get_snapshot()
+                updated_metrics["AAII_BULLISH"]    = snap.get("aaii_bullish",    float("nan"))
+                updated_metrics["AAII_BEARISH"]    = snap.get("aaii_bearish",    float("nan"))
+                updated_metrics["NAAIM_EXPOSURE"]  = snap.get("naaim_exposure",  float("nan"))
+                self.sentiment_updated.emit(snap)
+                return True
+            else:
+                for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
+                    updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+                return False
+        except Exception as e:
+            errors.append(f"Sentiment update error: {e}")
+            self.logger.error("Sentiment update error: %s", e, exc_info=True)
+            for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
+                updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+            return False
+
+    def _update_barchart_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update NYSE/NASDAQ market breadth internals ($TICK, $ADD, $TRIN, $NYMO) from Barchart"""
+        try:
+            if self.barchart_client:
+                snap = self.barchart_client.get_snapshot()
+                updated_metrics["TICK"]           = snap.get("tick",          float("nan"))
+                updated_metrics["ADD"]            = snap.get("add",           float("nan"))
+                updated_metrics["TRIN"]           = snap.get("trin",          float("nan"))
+                updated_metrics["NYMO"]           = snap.get("nymo",          float("nan"))
+                updated_metrics["BREADTH_REGIME"] = snap.get("breadth_regime", "neutral")
+                self.breadth_updated.emit(snap)
+                return True
+            else:
+                for key in ("TICK", "ADD", "TRIN", "NYMO"):
+                    updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+                updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
+                return False
+        except Exception as e:
+            errors.append(f"Barchart update error: {e}")
+            self.logger.error("Barchart update error: %s", e, exc_info=True)
+            for key in ("TICK", "ADD", "TRIN", "NYMO"):
+                updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+            updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
             return False
 
     def _update_quality_metrics(self, updated_metrics: dict, errors: list):
@@ -571,6 +897,72 @@ class CustomMetricsOrchestrator(QObject):
                 "formatted": f"{metrics.get('SKEW', 0):.1f}",
                 "timestamp": timestamp,
                 "quality": self.metric_quality['SKEW'].quality_score
+            },
+            "VEX": {
+                "value": metrics.get("VEX", 0),
+                "formatted": f"{metrics.get('VEX', 0):.1f}M",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VEX'].quality_score
+            },
+            "CHEX": {
+                "value": metrics.get("CHEX", 0),
+                "formatted": f"{metrics.get('CHEX', 0):.2f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['CHEX'].quality_score
+            },
+            "YIELD_10Y": {
+                "value": metrics.get("YIELD_10Y", float("nan")),
+                "formatted": f"{metrics.get('YIELD_10Y', float('nan')):.2f}%",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['FRED'].quality_score
+            },
+            "YIELD_SLOPE": {
+                "value": metrics.get("YIELD_SLOPE", float("nan")),
+                "formatted": f"{metrics.get('YIELD_SLOPE', float('nan')):.2f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['FRED'].quality_score
+            },
+            "AAII_BULLISH": {
+                "value": metrics.get("AAII_BULLISH", float("nan")),
+                "formatted": f"{metrics.get('AAII_BULLISH', float('nan')):.1f}%",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SENTIMENT'].quality_score
+            },
+            "NAAIM_EXPOSURE": {
+                "value": metrics.get("NAAIM_EXPOSURE", float("nan")),
+                "formatted": f"{metrics.get('NAAIM_EXPOSURE', float('nan')):.1f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SENTIMENT'].quality_score
+            },
+            "TICK": {
+                "value": metrics.get("TICK", float("nan")),
+                "formatted": f"{metrics.get('TICK', float('nan')):.0f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "ADD": {
+                "value": metrics.get("ADD", float("nan")),
+                "formatted": f"{metrics.get('ADD', float('nan')):.0f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "TRIN": {
+                "value": metrics.get("TRIN", float("nan")),
+                "formatted": f"{metrics.get('TRIN', float('nan')):.2f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "NYMO": {
+                "value": metrics.get("NYMO", float("nan")),
+                "formatted": f"{metrics.get('NYMO', float('nan')):.1f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "BREADTH_REGIME": {
+                "value": metrics.get("BREADTH_REGIME", "neutral"),
+                "formatted": metrics.get("BREADTH_REGIME", "neutral").replace("_", " ").title(),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
             },
             "meta": {
                 "update_frequency": self.current_update_interval,
@@ -672,6 +1064,19 @@ class CustomMetricsOrchestrator(QObject):
                 'skew_level': self.current_metrics.get('SKEW', 125.5),
                 'dex_level': self.current_metrics.get('DEX', 850),
                 'ogl_level': self.current_metrics.get('OGL', 585.5),
+                'vex': self.current_metrics.get('VEX', 0.0),
+                'chex': self.current_metrics.get('CHEX', 0.0),
+                'yield_10y': self.current_metrics.get('YIELD_10Y', float('nan')),
+                'yield_slope': self.current_metrics.get('YIELD_SLOPE', float('nan')),
+                'yield_inverted': self.current_metrics.get('YIELD_INVERTED', False),
+                'aaii_bullish': self.current_metrics.get('AAII_BULLISH', float('nan')),
+                'aaii_bearish': self.current_metrics.get('AAII_BEARISH', float('nan')),
+                'naaim_exposure': self.current_metrics.get('NAAIM_EXPOSURE', float('nan')),
+                'tick': self.current_metrics.get('TICK', float('nan')),
+                'add': self.current_metrics.get('ADD', float('nan')),
+                'trin': self.current_metrics.get('TRIN', float('nan')),
+                'nymo': self.current_metrics.get('NYMO', float('nan')),
+                'breadth_regime': self.current_metrics.get('BREADTH_REGIME', 'neutral'),
                 'stress_level': self.current_stress_level.value,
                 'update_frequency': self.current_update_interval,
                 'timestamp': datetime.now(),

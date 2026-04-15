@@ -600,22 +600,28 @@ def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> Correlat
 # MODULE INITIALIZATION
 # ==============================================================================
 
-# Global correlation analyzer instance
+import threading as _threading
+
+# Global correlation analyzer instance (lock-guarded for concurrent init)
 _global_correlation_analyzer: CorrelationAnalyzer | None = None
+_global_correlation_analyzer_lock = _threading.RLock()
 
 def get_global_correlation_analyzer() -> CorrelationAnalyzer | None:
     """Get global correlation analyzer instance"""
-    return _global_correlation_analyzer
+    with _global_correlation_analyzer_lock:
+        return _global_correlation_analyzer
 
 def set_global_correlation_analyzer(analyzer: CorrelationAnalyzer) -> None:
     """Set global correlation analyzer instance"""
     global _global_correlation_analyzer
-    _global_correlation_analyzer = analyzer
+    with _global_correlation_analyzer_lock:
+        _global_correlation_analyzer = analyzer
 
 def reset_global_correlation_analyzer() -> None:
     """Clear global correlation analyzer instance (for shutdown/testing)."""
     global _global_correlation_analyzer
-    _global_correlation_analyzer = None
+    with _global_correlation_analyzer_lock:
+        _global_correlation_analyzer = None
 
 # ==============================================================================
 # MAIN EXECUTION

@@ -66,6 +66,14 @@ class PositionTracker:
         self._position_callbacks = []
         self._pnl_callbacks = []
         self._risk_callbacks = []
+        # Called with (symbol: str) when a position exists internally but not on the broker.
+        # Set via set_orphan_close_callback().  When None the tracker attempts a direct
+        # market close order via self.spyder_client.
+        self._orphan_close_callback: Callable | None = None
+
+        # Backward-compatible aliases used throughout this module.
+        self.lock = self._position_lock
+        self.positions: dict[str, object] = {}
 
     # ==========================================================================
     # THREAD MANAGEMENT
@@ -205,9 +213,25 @@ class PositionTracker:
             except Exception as exc:
                 self.logger.error("Risk callback error: %s", exc)
 
+    def set_orphan_close_callback(self, callback: Callable | None) -> None:
+        """
+        Register a callback invoked whenever an orphaned position is detected.
+
+        The callback receives the symbol string as its only argument.  The
+        caller is responsible for submitting a closing order.  When no callback
+        is registered the tracker falls back to a direct market-close attempt
+        via self.spyder_client.
+
+        Args:
+            callback: callable(symbol: str) or None to clear.
+        """
+        with self._position_lock:
+            self._orphan_close_callback = callback
+
     # ==========================================================================
     # BACKGROUND LOOP METHODS
     # ==========================================================================
+
 
     def _sync_positions_loop(self):
         """Background loop for syncing positions with broker."""
@@ -308,8 +332,10 @@ class PositionTracker:
                             if orphaned:
                                 self.logger.warning("Orphaned positions detected: %s", orphaned)
                                 for symbol in orphaned:
-                                    # Mark for review or auto-close
-                                    self.logger.info("Reconciling orphaned position: %s", symbol)
+                                    self.logger.warning(
+                                        "Initiating auto-close for orphaned position: %s", symbol
+                                    )
+                                    self._handle_orphaned_position(symbol)
 
                             # Positions broker has but we don't
                             missing = broker_symbols - internal_symbols
@@ -331,7 +357,64 @@ class PositionTracker:
                 self.logger.error("Error in reconciliation loop: %s", e, exc_info=True)
                 self._shutdown_event.wait(10.0)  # Wait 10 seconds on error
 
+    def _handle_orphaned_position(self, symbol: str) -> None:
+        """
+        Attempt to close a position that exists locally but not on the broker.
 
+        If an orphan-close callback is registered it is invoked (and the caller
+        is responsible for the close order).  Otherwise this method attempts a
+        direct market-sell/buy-to-close via self.spyder_client.
+        """
+        # Prefer registered callback — higher-level code knows the full context
+        with self._position_lock:
+            cb = self._orphan_close_callback
+        if cb is not None:
+            try:
+                cb(symbol)
+            except Exception as exc:
+                self.logger.error("Orphan close callback raised for %s: %s", symbol, exc)
+            return
+
+        # Fallback: direct market close via the broker client
+        client = getattr(self, "spyder_client", None)
+        if client is None:
+            self.logger.warning(
+                "No broker client available — cannot auto-close orphan %s", symbol
+            )
+            return
+        try:
+            from Spyder.SpyderB_Broker.SpyderB00_OrderTypes import OrderSide, OrderType
+            # Read position quantity from internal state if available (capture both qty
+            # and signed qty inside the lock — reading from `pos` outside the lock would
+            # race with concurrent updates/removals).
+            qty = 0
+            pos_qty = 0
+            with self._position_lock:
+                pos = getattr(self, "positions", {}).get(symbol)
+                if pos is not None:
+                    pos_qty = getattr(pos, "quantity", 0)
+                    qty = abs(pos_qty)
+            if qty <= 0:
+                self.logger.warning(
+                    "Orphan %s has zero/unknown quantity — skipping auto-close", symbol
+                )
+                return
+            side = OrderSide.SELL if pos_qty >= 0 else OrderSide.BUY
+            self.logger.warning(
+                "Auto-close: submitting %s x%d market order for orphaned position %s",
+                side.value, qty, symbol,
+            )
+            client.place_order(
+                symbol=symbol,
+                side=side,
+                quantity=qty,
+                order_type=OrderType.MARKET,
+            )
+            self.logger.info("Auto-close order submitted for orphaned position %s", symbol)
+        except Exception as exc:
+            self.logger.error(
+                "Failed to auto-close orphaned position %s: %s", symbol, exc
+            )
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

@@ -1104,9 +1104,9 @@ class TestU40MultiRateLimiter:
         assert "capacity" in stats["api"]
 
     def test_global_limiters_registered(self):
-        # Default global limiters for tradier and databento are pre-registered
+        # Default global limiters for tradier and massive are pre-registered
         assert "tradier" in _global_limiters._defaults
-        assert "databento" in _global_limiters._defaults
+        assert "massive" in _global_limiters._defaults
 
 
 # ==============================================================================

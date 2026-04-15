@@ -148,9 +148,6 @@ REGISTERED_MODULES: dict[str, ModuleRecord] = {
                         "End-to-end data pipeline for ML model consumption", "C",
                         dependencies=["C22"],
                         tags=["data_pipeline", "ml"]),
-    "C26": ModuleRecord("C26", "SpyderC_MarketData", "SpyderC26_DatabentoClient", "DatabentoClient",
-                        "REMOVED — Databento REST/streaming client (superseded by C29 DataProviderRouter)", "C",
-                        tags=["deprecated", "databento"]),
     # ── D-Series: Strategies ──────────────────────────────────────────
     "D01": ModuleRecord("D01", "SpyderD_Strategies", "SpyderD01_BaseStrategy", "BaseStrategy",
                         "Abstract base class for all strategies", "D",

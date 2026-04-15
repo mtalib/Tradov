@@ -8,7 +8,8 @@ Purpose: Data provider selection and routing based on ACTIVE_DATA_PROVIDER
 
 Reads the ACTIVE_DATA_PROVIDER (or DATA_PROVIDER) environment variable and
 returns the appropriate market data client.  Currently supports:
-    massive  — SpyderC27_MassiveClient  (default; used for live and paper trading)
+    tradier  — SpyderB40_TradierClient  (default; primary live market data)
+    massive  — SpyderC27_MassiveClient  (optional fallback / extended data)
 
 Any code that needs a market data provider should call get_data_provider()
 rather than importing a provider directly.  This decouples strategy/risk code
@@ -49,7 +50,7 @@ class DataProvider(StrEnum):
         Read the active provider from environment variables.
 
         Checks ``ACTIVE_DATA_PROVIDER`` first, then falls back to
-        ``DATA_PROVIDER``.  Defaults to :attr:`MASSIVE` if neither is set.
+        ``DATA_PROVIDER``.  Defaults to :attr:`TRADIER` if neither is set.
 
         Returns:
             DataProvider: The active provider enum value.
@@ -57,18 +58,20 @@ class DataProvider(StrEnum):
         raw = (
             os.environ.get("ACTIVE_DATA_PROVIDER")
             or os.environ.get("DATA_PROVIDER")
-            or "massive"
+            or "tradier"
         ).lower().strip()
 
         if raw == "massive":
+            return cls.MASSIVE
+        if raw == "polygon":
             return cls.MASSIVE
         if raw == "tradier":
             return cls.TRADIER
 
         logger.warning(
-            "Unknown DATA_PROVIDER '%s'; defaulting to 'massive'", raw
+            "Unknown DATA_PROVIDER '%s'; defaulting to 'tradier'", raw
         )
-        return cls.MASSIVE
+        return cls.TRADIER
 
 
 # ==============================================================================
@@ -95,7 +98,7 @@ class DataProviderRouter:
 
         router = DataProviderRouter()
         client = router.get_client()
-        # client is a MassiveClient (or whatever provider is configured)
+        # client is a TradierClient or MassiveClient depending on environment
     """
 
     def __init__(self, api_key: str | None = None, **kwargs: Any) -> None:

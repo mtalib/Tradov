@@ -195,9 +195,9 @@ class StrategyStateProvider(Protocol):
     structurally.
 
     Methods:
-        get_state:       Current strategy operational state.
-        get_performance: Aggregated performance metrics as a plain dictionary.
-        get_positions:   Open positions currently held by this strategy.
+        get_state:               Current strategy operational state.
+        get_performance_summary: Aggregated performance metrics as a plain dictionary.
+        get_open_positions:      Open positions currently held by this strategy.
     """
 
     def get_state(self) -> dict[str, Any]:
@@ -209,7 +209,7 @@ class StrategyStateProvider(Protocol):
         """
         ...
 
-    def get_performance(self) -> dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Return aggregated performance metrics.
 
         Returns:
@@ -218,7 +218,7 @@ class StrategyStateProvider(Protocol):
         """
         ...
 
-    def get_positions(self) -> list[Any]:
+    def get_open_positions(self) -> list[Any]:
         """Return all open positions currently managed by this strategy.
 
         Returns:

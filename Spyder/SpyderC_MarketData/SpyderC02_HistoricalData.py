@@ -4,17 +4,15 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC02_HistoricalData.py
-Purpose: Historical data retrieval and storage (Databento/Tradier compatible)
+Purpose: Historical data retrieval and storage (Tradier/Massive compatible)
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-03-08 Time: 02:00:00
 
 BROKER NOTE:
-    Historical data now available via Databento (SpyderC26_DatabentoClient).
-    Use SpyderC26_DatabentoClient.get_historical_ohlcv() for new development.
-    Databento provides nanosecond-resolution institutional data with no
-    broker dependency for historical data retrieval.
+    Historical data should be sourced from Tradier or Massive through the
+    active provider routing layer.
 
 Module Description:
     This module handles the retrieval, storage, and management of historical market data
@@ -41,7 +39,7 @@ from enum import Enum
 # ==============================================================================
 import pandas as pd
 
-# B10_IBDataTypes removed (legacy broker) — use Databento for historical data
+# B10_IBDataTypes removed (legacy broker) — use provider-routed historical data
 IBContract = None  # type: ignore
 SecurityType = None  # type: ignore
 Contract = None  # type: ignore
@@ -920,7 +918,7 @@ class HistoricalDataManager:
 
 
 # Legacy contract creation functions removed
-# Use Tradier API or Databento for market data
+# Use Tradier API or Massive for market data
 
 
 def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
@@ -936,5 +934,4 @@ def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Legacy standalone test — use SpyderC26_DatabentoClient for historical data
-    logging.info("HistoricalDataManager: Use SpyderC26_DatabentoClient for historical data retrieval")
+    logging.info("HistoricalDataManager: Use provider-routed Tradier or Massive historical data retrieval")

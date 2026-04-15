@@ -11,12 +11,12 @@ Last Updated: 2025-11-24
 
 Module Description:
     Updated package initialization for SpyderB_Broker with Tradier API integration
-    for order execution and Databento for market data.
+    for order execution and Tradier/Massive market data.
 
     MIGRATION NOTES:
     - Removed all legacy broker dependencies
     - TradierClient is now the primary broker interface
-    - Market data provided by Databento (see SpyderC_MarketData)
+    - Market data provided by Tradier by default, with Massive available as fallback
     - Simplified authentication (Bearer token vs OAuth 2.0)
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ def get_package_status() -> dict[str, Any]:
         "success_rate": sum(_module_status.values()) / max(1, len(_module_status)),
         "module_details": _module_status.copy(),
         "broker": "Tradier",
-        "data_provider": "Databento",
+        "data_provider": "Tradier / Massive",
     }
 
 

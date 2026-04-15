@@ -19,6 +19,7 @@ import sys
 import types
 import logging
 import importlib.util as _ilu
+from typing import Any
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -386,15 +387,191 @@ for _fname, _attrs in _N_NUM_STUBS.items():
                 setattr(_m, _attr_name, _attr_val)
 
 # ---- P07 RenaissancePositionSizer stub (for D33) ----------------------------
-for _key in [
-    "Spyder.SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer",
-    "SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer",
-]:
-    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
-    if _new:
-        _m.RenaissancePositionSizer = MagicMock
-        _m.PositionSizeMethod = MagicMock
-        _m.PositionSizeResult = MagicMock
+_p07_pref_key = "Spyder.SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer"
+_p07_bare_key = "SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer"
+_p_pkg_path = os.path.join(_ROOT, "Spyder", "SpyderP_PortfolioMgmt")
+
+_p_pkg_pref = sys.modules.setdefault(
+    "Spyder.SpyderP_PortfolioMgmt", types.ModuleType("Spyder.SpyderP_PortfolioMgmt")
+)
+_p_pkg_pref.__path__ = [_p_pkg_path]
+_p_pkg_pref.__package__ = "Spyder.SpyderP_PortfolioMgmt"
+
+_p_pkg_bare = sys.modules.setdefault(
+    "SpyderP_PortfolioMgmt", types.ModuleType("SpyderP_PortfolioMgmt")
+)
+_p_pkg_bare.__path__ = [_p_pkg_path]
+_p_pkg_bare.__package__ = "SpyderP_PortfolioMgmt"
+
+try:
+    _p07_path = os.path.join(_p_pkg_path, "SpyderP07_RenaissancePositionSizer.py")
+    _p07_spec = _ilu.spec_from_file_location(_p07_pref_key, _p07_path)
+    _p07_mod = _ilu.module_from_spec(_p07_spec)
+    _p07_mod.__package__ = "Spyder.SpyderP_PortfolioMgmt"
+    sys.modules[_p07_pref_key] = _p07_mod
+    sys.modules[_p07_bare_key] = _p07_mod
+    _p07_spec.loader.exec_module(_p07_mod)
+except Exception:
+    for _key in [_p07_pref_key, _p07_bare_key]:
+        _m, _new = _ensure_mod(_key, force=False)
+        if _new or not hasattr(_m, "DEFAULT_MAX_POSITION_SIZE"):
+            _m.DEFAULT_MAX_POSITION_SIZE = 0.05
+        if _new or not hasattr(_m, "DEFAULT_MAX_PORTFOLIO_RISK"):
+            _m.DEFAULT_MAX_PORTFOLIO_RISK = 0.02
+        if _new or not hasattr(_m, "DEFAULT_MIN_CONFIDENCE"):
+            _m.DEFAULT_MIN_CONFIDENCE = 0.50
+        if _new or not hasattr(_m, "PositionSizeMethod"):
+            class _PositionSizeMethod(Enum):
+                FIXED_FRACTION = "fixed_fraction"
+                RISK_BASED = "risk_based"
+                KELLY = "kelly"
+                CONFIDENCE_SCALED = "confidence_scaled"
+
+            _m.PositionSizeMethod = _PositionSizeMethod
+        if _new or not hasattr(_m, "TradeOutcome"):
+            class _TradeOutcome(Enum):
+                WIN = "win"
+                LOSS = "loss"
+                BREAKEVEN = "breakeven"
+
+            _m.TradeOutcome = _TradeOutcome
+        if _new or not hasattr(_m, "PerformanceMetrics"):
+            @dataclass
+            class _PerformanceMetrics:
+                total_trades: int = 0
+                winning_trades: int = 0
+                losing_trades: int = 0
+                win_rate: float = 0.0
+                avg_win: float = 0.0
+                avg_loss: float = 0.0
+                profit_factor: float = 0.0
+                total_pnl: float = 0.0
+                sharpe_ratio: float = 0.0
+                max_drawdown: float = 0.0
+
+            _m.PerformanceMetrics = _PerformanceMetrics
+        if _new or not hasattr(_m, "TradeRecord"):
+            @dataclass
+            class _TradeRecord:
+                entry_time: datetime
+                exit_time: datetime
+                symbol: str
+                entry_price: float
+                exit_price: float
+                position_size: int
+                pnl: float
+                return_pct: float
+                confidence: float
+                exit_reason: str
+
+            _m.TradeRecord = _TradeRecord
+        if _new or not hasattr(_m, "PositionSizeResult"):
+            @dataclass
+            class _PositionSizeResult:
+                num_contracts: int
+                position_value: float
+                risk_per_trade: float
+                confidence_used: float
+                method_used: Any
+                reasoning: str
+                max_loss: float = 0.0
+                risk_reward_ratio: float = 0.0
+                portfolio_risk_pct: float = 0.0
+
+                def to_dict(self):
+                    method_value = getattr(self.method_used, "value", self.method_used)
+                    return {
+                        "num_contracts": self.num_contracts,
+                        "position_value": self.position_value,
+                        "risk_per_trade": self.risk_per_trade,
+                        "confidence_used": self.confidence_used,
+                        "method_used": method_value,
+                        "reasoning": self.reasoning,
+                        "max_loss": self.max_loss,
+                        "risk_reward_ratio": self.risk_reward_ratio,
+                        "portfolio_risk_pct": self.portfolio_risk_pct,
+                    }
+
+            _m.PositionSizeResult = _PositionSizeResult
+        if _new or not hasattr(_m, "RenaissancePositionSizer"):
+            class _RenaissancePositionSizer:
+                def __init__(
+                    self,
+                    initial_capital: float = 100000.0,
+                    max_position_size: float = 0.05,
+                    max_portfolio_risk: float = 0.02,
+                    min_confidence: float = 0.50,
+                ):
+                    self.initial_capital = float(initial_capital)
+                    self.current_capital = float(initial_capital)
+                    self.max_position_size = float(max_position_size)
+                    self.max_portfolio_risk = float(max_portfolio_risk)
+                    self.min_confidence = float(min_confidence)
+                    self.trade_history = []
+                    self.metrics = _m.PerformanceMetrics()
+
+                def calculate_position_size(self, entry_price, stop_loss, confidence, method):
+                    confidence = float(confidence)
+                    if confidence < self.min_confidence or entry_price <= 0 or stop_loss <= 0:
+                        return _m.PositionSizeResult(
+                            num_contracts=0,
+                            position_value=0.0,
+                            risk_per_trade=0.0,
+                            confidence_used=confidence,
+                            method_used=method,
+                            reasoning="below confidence or invalid prices",
+                        )
+
+                    risk_per_contract = max(abs(float(entry_price) - float(stop_loss)) * 100.0, 1.0)
+                    risk_budget = max(self.current_capital * self.max_portfolio_risk, 0.0)
+                    num_contracts = max(int(risk_budget / risk_per_contract), 0)
+
+                    return _m.PositionSizeResult(
+                        num_contracts=num_contracts,
+                        position_value=num_contracts * float(entry_price) * 100.0,
+                        risk_per_trade=risk_budget,
+                        confidence_used=confidence,
+                        method_used=method,
+                        reasoning="fallback sizing",
+                    )
+
+                def record_trade(
+                    self,
+                    symbol,
+                    entry_price,
+                    exit_price,
+                    position_size,
+                    confidence,
+                    entry_time,
+                    exit_reason,
+                ):
+                    exit_time_dt = datetime.now()
+                    pnl = (float(exit_price) - float(entry_price)) * int(position_size)
+                    base = float(entry_price) * max(int(position_size), 1)
+                    return_pct = (pnl / base) if base else 0.0
+                    record = _m.TradeRecord(
+                        entry_time=entry_time,
+                        exit_time=exit_time_dt,
+                        symbol=symbol,
+                        entry_price=float(entry_price),
+                        exit_price=float(exit_price),
+                        position_size=int(position_size),
+                        pnl=pnl,
+                        return_pct=return_pct,
+                        confidence=float(confidence),
+                        exit_reason=exit_reason,
+                    )
+                    self.trade_history.append(record)
+                    return record
+
+                def get_metrics(self):
+                    return {
+                        "total_trades": len(self.trade_history),
+                        "initial_capital": self.initial_capital,
+                        "current_capital": self.current_capital,
+                    }
+
+            _m.RenaissancePositionSizer = _RenaissancePositionSizer
 
 # ==============================================================================
 # SpyderD_Strategies package pre-stubs
@@ -434,7 +611,7 @@ for _bare in [
 def _load_d_module(filename: str, module_name: str):
     """Load a D-series module by filename, registering it in sys.modules."""
     from enum import auto as _enum_auto
-    from typing import (Union, Optional, Any)
+    from typing import (Union, Optional, Any, ClassVar)
     from collections.abc import Callable
     filepath = os.path.join(_D_PKG_PATH, filename)
     spec = _ilu.spec_from_file_location(module_name, filepath)

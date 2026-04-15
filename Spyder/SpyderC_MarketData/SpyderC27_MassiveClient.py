@@ -27,7 +27,7 @@ Module Description:
         - Automatic reconnection with exponential backoff
 
     Design notes:
-        - Databento (SpyderC26) remains intact for OPRA L3 options depth.
+        - SpyderC26 remains only as a legacy compatibility shim.
         - Massive is the primary provider for SPY equity price and options chain.
         - REST and WebSocket share one API key.
         - All output is normalized to NormalizedQuote / NormalizedTrade from
@@ -413,7 +413,9 @@ class MassiveClient:
 
     @property
     def is_streaming(self) -> bool:
-        """True while the background WebSocket thread is alive."""
+        """True when status is STREAMING or thread-driven streaming is active."""
+        if self.status == ConnectionStatus.STREAMING:
+            return True
         return (
             self._running
             and self._ws_thread is not None

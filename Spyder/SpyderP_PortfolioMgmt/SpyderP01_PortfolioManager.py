@@ -1986,22 +1986,29 @@ def optimize_portfolio_allocation(expected_returns: np.ndarray,
 # MODULE INITIALIZATION
 # ==============================================================================
 
-# Global portfolio manager instance
+import threading as _threading
+
+# Global portfolio manager instance guarded by a lock so concurrent
+# init/reset/get calls from different threads cannot race.
 _global_portfolio_manager: PortfolioManager | None = None
+_global_portfolio_manager_lock = _threading.RLock()
 
 def get_global_portfolio_manager() -> PortfolioManager | None:
     """Get global portfolio manager instance"""
-    return _global_portfolio_manager
+    with _global_portfolio_manager_lock:
+        return _global_portfolio_manager
 
 def set_global_portfolio_manager(portfolio_manager: PortfolioManager) -> None:
     """Set global portfolio manager instance"""
     global _global_portfolio_manager
-    _global_portfolio_manager = portfolio_manager
+    with _global_portfolio_manager_lock:
+        _global_portfolio_manager = portfolio_manager
 
 def reset_global_portfolio_manager() -> None:
     """Clear global portfolio manager instance (for shutdown/testing)."""
     global _global_portfolio_manager
-    _global_portfolio_manager = None
+    with _global_portfolio_manager_lock:
+        _global_portfolio_manager = None
 
 # ==============================================================================
 # MAIN EXECUTION

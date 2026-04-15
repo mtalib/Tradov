@@ -17,6 +17,13 @@ Module Description:
     regime transition detection. Eliminates conflicting regime signals and ensures
     consistent strategy selection across the entire Spyder ecosystem.
 
+CANONICAL REGIME ENGINE:
+    As of 2026-04-14 this module is the canonical regime detector for Spyder.
+    Other regime-detection modules (E21 HMMRegimeDetector, F10
+    MarketRegimeDetector, M06 HMMRegimeDetector, V02 ModelManager regime paths)
+    are retained for research/legacy compatibility only. New callers MUST use
+    L09; legacy callers should migrate before their owning series is next touched.
+
 Key Features:
     • ML-based regime classification with ensemble models
     • Signal-based regime detection via DIX, GEX, SWAN, SKEW analysis
@@ -269,6 +276,23 @@ class MarketConditions:
     vix_change: float = 0.0  # VIX change for composite state
     implied_volatility: float = 0.20  # Current IV for options
     prev_vix_level: float = 0.0  # Previous VIX for spike detection
+    # Second-order Greeks from S05 (Vanna/Charm Exposure)
+    vex: float = 0.0    # Vanna Exposure ($M per 1-vol-pt move)
+    chex: float = 0.0   # Charm Exposure (delta-equiv per calendar day)
+    # Macro / yield-curve context from S09 (FRED)
+    yield_curve_slope: float = float("nan")   # 10Y-2Y spread; negative = inverted
+    yield_10y: float = float("nan")
+    yield_curve_inverted: bool = False
+    # Market breadth internals from S11 (Barchart)
+    tick_index: float = float("nan")   # NYSE Tick Index
+    add_index: float = float("nan")    # NYSE Advance-Decline
+    trin: float = float("nan")         # NYSE Arms / TRIN
+    nymo: float = float("nan")         # McClellan Oscillator
+    breadth_regime: str = "neutral"
+    # Investor sentiment from S10 (AAII + NAAIM)
+    aaii_bullish: float = float("nan")
+    aaii_bearish: float = float("nan")
+    naaim_exposure: float = float("nan")
 
 @dataclass
 class OptionsSignal:
@@ -598,11 +622,29 @@ class SignalRegimeDetector:
         if self.metrics_orchestrator:
             try:
                 current_metrics = self.metrics_orchestrator.get_all_metrics()
+                # get_all_metrics() returns raw float values, not formatted dicts
                 signals.update({
-                    'dix': current_metrics.get('DIX', {}).get('value', conditions.dix_score),
-                    'gex': current_metrics.get('GEX', {}).get('value', conditions.gex_level),
-                    'swan': current_metrics.get('SWAN', {}).get('value', conditions.swan_score),
-                    'skew': current_metrics.get('SKEW', {}).get('value', conditions.skew_level)
+                    'dix':            current_metrics.get('DIX',  conditions.dix_score),
+                    'gex':            current_metrics.get('GEX',  conditions.gex_level),
+                    'swan':           current_metrics.get('SWAN', conditions.swan_score),
+                    'skew':           current_metrics.get('SKEW', conditions.skew_level),
+                    # Second-order Greeks (S05 Vanna/Charm)
+                    'vex':            current_metrics.get('VEX',  conditions.vex),
+                    'chex':           current_metrics.get('CHEX', conditions.chex),
+                    # Macro / yield curve (S09 FRED)
+                    'yield_slope':    current_metrics.get('YIELD_SLOPE',   conditions.yield_curve_slope),
+                    'yield_inverted': current_metrics.get('YIELD_INVERTED', conditions.yield_curve_inverted),
+                    'yield_10y':      current_metrics.get('YIELD_10Y',     conditions.yield_10y),
+                    # Breadth internals (S11 Barchart)
+                    'tick':           current_metrics.get('TICK',  conditions.tick_index),
+                    'add':            current_metrics.get('ADD',   conditions.add_index),
+                    'trin':           current_metrics.get('TRIN',  conditions.trin),
+                    'nymo':           current_metrics.get('NYMO',  conditions.nymo),
+                    'breadth':        current_metrics.get('BREADTH_REGIME', conditions.breadth_regime),
+                    # Investor sentiment (S10 AAII + NAAIM)
+                    'aaii_bullish':   current_metrics.get('AAII_BULLISH',   conditions.aaii_bullish),
+                    'aaii_bearish':   current_metrics.get('AAII_BEARISH',   conditions.aaii_bearish),
+                    'naaim':          current_metrics.get('NAAIM_EXPOSURE', conditions.naaim_exposure),
                 })
             except Exception as e:
                 self.logger.warning("Could not get real-time signals: %s", e, exc_info=True)
@@ -651,6 +693,61 @@ class SignalRegimeDetector:
         # Recovery mode detection
         if vix > 20 and dix > 45 and price_change > 0.01:
             regime_scores[MarketRegime.RECOVERY_MODE] += 1.0
+
+        # --- Breadth / Macro / Sentiment signals (S09/S10/S11) ---
+
+        # Composite breadth regime ($TICK + $ADD + $TRIN via S11)
+        breadth = signals.get('breadth', 'neutral')
+        if breadth == 'strong_bull':
+            regime_scores[MarketRegime.BULL_TRENDING] += 1.0
+        elif breadth == 'bull':
+            regime_scores[MarketRegime.BULL_TRENDING] += 0.5
+        elif breadth == 'strong_bear':
+            regime_scores[MarketRegime.BEAR_TRENDING] += 1.0
+        elif breadth == 'bear':
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.5
+
+        # TRIN (Arms Index) fine-grained scoring
+        trin = signals.get('trin', float('nan'))
+        if trin < 0.8:    # advancing volume dominating = bullish
+            regime_scores[MarketRegime.BULL_TRENDING] += 0.5
+        elif trin > 1.5:  # declining volume dominating heavily = high stress
+            regime_scores[MarketRegime.HIGH_VOLATILITY] += 0.5
+        elif trin > 1.2:
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
+
+        # McClellan Oscillator (NYMO) — breadth momentum
+        nymo = signals.get('nymo', float('nan'))
+        if nymo > 40:     # extreme overbought breadth momentum
+            regime_scores[MarketRegime.LOW_VOLATILITY] += 0.3
+        elif nymo < -40:  # extreme oversold breadth = potential crisis
+            regime_scores[MarketRegime.HIGH_VOLATILITY] += 0.5
+        elif nymo < -20:
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
+
+        # Yield curve (S09/FRED) — macro regime signal
+        yield_slope = signals.get('yield_slope', float('nan'))
+        yield_inverted = signals.get('yield_inverted', False)
+        if yield_inverted:
+            regime_scores[MarketRegime.HIGH_VOLATILITY] += 0.5
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
+        elif yield_slope == yield_slope and yield_slope > 1.5:  # steep curve = reflationary
+            regime_scores[MarketRegime.BULL_TRENDING] += 0.3
+
+        # NAAIM exposure index (S10) — contrarian institutional sentiment
+        naaim = signals.get('naaim', float('nan'))
+        if naaim < 40:    # managers under-invested → contrarian bullish
+            regime_scores[MarketRegime.BULL_TRENDING] += 0.4
+        elif naaim > 90:  # managers over-invested → contrarian bearish risk
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.4
+
+        # AAII sentiment (S10) — contrarian retail signal
+        aaii_bear = signals.get('aaii_bearish', float('nan'))
+        aaii_bull = signals.get('aaii_bullish', float('nan'))
+        if aaii_bear > 40:   # extreme retail pessimism → contrarian bullish
+            regime_scores[MarketRegime.RECOVERY_MODE] += 0.4
+        elif aaii_bull > 50:  # extreme retail optimism → contrarian bearish risk
+            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
 
         # Determine best regime
         if regime_scores:

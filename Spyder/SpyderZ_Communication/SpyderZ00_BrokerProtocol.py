@@ -120,8 +120,8 @@ class NormalizedOrderRequest:
     side: OrderSide = OrderSide.BUY
     quantity: int = 0
     order_type: OrderType = OrderType.MARKET
-    limit_price: float = 0.0
-    stop_price: float = 0.0
+    limit_price: float | None = None
+    stop_price: float | None = None
     duration: str = "day"
     account_id: str = ""
     strategy_id: str = ""
@@ -148,12 +148,22 @@ class NormalizedOrderResult:
                          normalised.
     """
 
+    success: bool = False
     order_id: str = ""
     status: str = ""
     filled_quantity: int = 0
-    avg_fill_price: float = 0.0
-    error_message: str = ""
+    filled_price: float | None = None
+    error_message: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def avg_fill_price(self) -> float | None:
+        """Backward-compatible alias for legacy callers."""
+        return self.filled_price
+
+    @avg_fill_price.setter
+    def avg_fill_price(self, value: float | None) -> None:
+        self.filled_price = value
 
     @property
     def is_filled(self) -> bool:
@@ -185,15 +195,14 @@ class BrokerClientProtocol(Protocol):
     (SpyderB40) already satisfies it structurally.
 
     Methods:
-        place_order:     Submit a new order and return the broker's response.
-        cancel_order:    Request cancellation of an outstanding order.
-        get_order:       Retrieve the current state of a specific order.
-        get_quotes:      Fetch current market quotes for one or more symbols.
-        get_positions:   Retrieve all open positions from the broker account.
-        test_connection: Return True when the broker API is reachable.
+        submit_order:     Submit a new order and return the broker's response.
+        cancel_order:     Request cancellation of an outstanding order.
+        get_order_status: Retrieve the current state of a specific order.
+        get_positions:    Retrieve all open positions from the broker account.
+        get_account_info: Retrieve account-level balances and metadata.
     """
 
-    def place_order(self, request: NormalizedOrderRequest) -> NormalizedOrderResult:
+    def submit_order(self, request: NormalizedOrderRequest) -> NormalizedOrderResult:
         """Submit a new order to the broker.
 
         Args:
@@ -216,7 +225,7 @@ class BrokerClientProtocol(Protocol):
         """
         ...
 
-    def get_order(self, order_id: str) -> NormalizedOrderResult:
+    def get_order_status(self, order_id: str) -> NormalizedOrderResult:
         """Retrieve the current state of a specific order.
 
         Args:
@@ -224,17 +233,6 @@ class BrokerClientProtocol(Protocol):
 
         Returns:
             NormalizedOrderResult reflecting the latest order status.
-        """
-        ...
-
-    def get_quotes(self, symbols: list[str]) -> dict[str, Any]:
-        """Fetch current market quotes for one or more symbols.
-
-        Args:
-            symbols: List of ticker symbols to quote.
-
-        Returns:
-            Mapping of symbol → quote data dict.
         """
         ...
 
@@ -246,11 +244,11 @@ class BrokerClientProtocol(Protocol):
         """
         ...
 
-    def test_connection(self) -> bool:
-        """Return True when the broker API endpoint is reachable.
+    def get_account_info(self) -> dict[str, Any]:
+        """Retrieve account-level balances and metadata.
 
         Returns:
-            True if the connectivity probe succeeds, False otherwise.
+            Account information dict.
         """
         ...
 
@@ -264,12 +262,11 @@ class OrderRouterProtocol(Protocol):
     OrderRouter (SpyderZ05) already satisfies it structurally.
 
     Methods:
-        submit_order:     Route a normalised order request to the best venue.
-        cancel_order:     Cancel an in-flight order through the router.
-        get_order_status: Retrieve router-layer order state by identifier.
+        route_order:        Route a normalised order request to the best venue.
+        get_routing_stats:  Return routing telemetry/counters.
     """
 
-    def submit_order(self, request: NormalizedOrderRequest) -> NormalizedOrderResult:
+    def route_order(self, request: NormalizedOrderRequest) -> NormalizedOrderResult:
         """Route a normalised order to the best available broker venue.
 
         Args:
@@ -280,25 +277,6 @@ class OrderRouterProtocol(Protocol):
         """
         ...
 
-    def cancel_order(self, order_id: str) -> bool:
-        """Cancel an in-flight order via the routing layer.
-
-        Args:
-            order_id: Order identifier returned by submit_order.
-
-        Returns:
-            True if the cancellation was accepted by the router.
-        """
-        ...
-
-    def get_order_status(self, order_id: str) -> NormalizedOrderResult | None:
-        """Retrieve the current routing-layer state of an order.
-
-        Args:
-            order_id: Order identifier returned by submit_order.
-
-        Returns:
-            NormalizedOrderResult if the order is known to the router,
-            None if the identifier is unrecognised.
-        """
+    def get_routing_stats(self) -> dict[str, Any]:
+        """Return routing telemetry/counters for observability."""
         ...

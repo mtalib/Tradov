@@ -41,6 +41,13 @@ import os
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+# Soft import: TradierServerError is only available when the broker layer is present.
+try:
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierServerError as _TradierServerError
+except ImportError:
+    class _TradierServerError(Exception):  # type: ignore[no-redef]
+        """Stub used when SpyderB40_TradierClient is not importable."""
+
 MARKET_OPEN = time(9, 30)
 MARKET_CLOSE = time(16, 0)
 EXTENDED_HOURS_START = time(4, 0)
@@ -56,8 +63,15 @@ EMERGENCY_STOP_LOSS = float(os.environ.get('EMERGENCY_STOP_LOSS_PCT', 0.05))  # 
 REQUIRE_LIVE_ORDER_CONFIRMATION = os.environ.get('REQUIRE_LIVE_ORDER_CONFIRMATION', 'false').lower() == 'true'
 HIGH_RISK_ORDER_CONFIRMATION = os.environ.get('HIGH_RISK_ORDER_CONFIRMATION', 'true').lower() == 'true'
 HIGH_RISK_ORDER_THRESHOLD_USD = float(os.environ.get('HIGH_RISK_ORDER_THRESHOLD_USD', 50000))  # $50k
+# Consecutive Tradier 5xx errors before entering API Panic Mode and halting all trading.
+API_PANIC_THRESHOLD = int(os.environ.get("API_PANIC_THRESHOLD", "3"))
 HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_PCT', 0.25))  # 25% of portfolio
-CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'true').lower() == 'true'
+# CLOSE_POSITIONS_ON_EMERGENCY: when true, emergency_stop flattens all open positions
+# immediately via market orders. Default is false so that a transient Tradier API outage
+# (which now triggers emergency_stop via API Panic Mode after 3 consecutive 5xx errors)
+# does not auto-liquidate legitimate positions. Operators who want automatic flattening
+# must opt in explicitly by setting CLOSE_POSITIONS_ON_EMERGENCY=true in .env.
+CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'false').lower() == 'true'
 
 # Execution parameters
 ORDER_RETRY_LIMIT = 3
@@ -120,7 +134,7 @@ class LiveTradingConfig:
     use_limit_orders_only: bool = False
     slippage_tolerance: float = 0.01  # 1%
     partial_fill_timeout: int = 60  # seconds
-    close_positions_on_emergency: bool = CLOSE_POSITIONS_ON_EMERGENCY  # Env: CLOSE_POSITIONS_ON_EMERGENCY (default true)
+    close_positions_on_emergency: bool = CLOSE_POSITIONS_ON_EMERGENCY  # Env: CLOSE_POSITIONS_ON_EMERGENCY (default false, opt-in)
 
 
 @dataclass
@@ -213,6 +227,10 @@ class LiveEngine:
         self.emergency_stop = False
         self.daily_loss = 0.0
         self.daily_trades = 0
+
+        # API Panic Mode — counts consecutive Tradier 5xx errors.
+        self._api_error_count: int = 0
+        self._api_panic_mode: bool = False
 
         # Execution metrics
         self.metrics = ExecutionMetrics()
@@ -563,6 +581,37 @@ class LiveEngine:
         except Exception as e:
             self.logger.critical("Emergency stop failed: %s", e)
             return False
+
+    def record_api_server_error(self) -> None:
+        """
+        Record one Tradier 5xx (server-side) error.
+
+        Call this whenever the broker layer raises TradierServerError after
+        all retries are exhausted.  If the count reaches API_PANIC_THRESHOLD
+        the engine enters API Panic Mode: no new entries are accepted and all
+        open positions are closed per close_positions_on_emergency.
+        Auto-resets when reset_api_error_count() is called on success.
+        """
+        self._api_error_count += 1
+        self.logger.warning(
+            "Tradier API server error #%d (threshold=%d)",
+            self._api_error_count, API_PANIC_THRESHOLD,
+        )
+        if self._api_error_count >= API_PANIC_THRESHOLD and not self._api_panic_mode:
+            self._api_panic_mode = True
+            self.emergency_stop_all(
+                f"Tradier API unreachable - {self._api_error_count} consecutive 5xx errors"
+            )
+
+    def reset_api_error_count(self) -> None:
+        """Reset the consecutive 5xx counter after a successful broker call."""
+        if self._api_error_count > 0:
+            self.logger.info(
+                "Tradier API recovered — resetting error count (was %d)",
+                self._api_error_count,
+            )
+        self._api_error_count = 0
+        self._api_panic_mode = False
 
     # ==========================================================================
     # PRIVATE METHODS - INITIALIZATION
@@ -1121,7 +1170,7 @@ class LiveEngine:
         return SafetyCheck(
             check_name="position_size",
             result=SafetyCheckResult.PASSED,
-            message="Position size within limits",
+            message="Position sizes within limits",
             timestamp=datetime.now(),
         )
 
@@ -1159,6 +1208,10 @@ class LiveEngine:
         order_id = order.get("order_id")
         try:
             result = self.broker.submit_order(order)
+            # Any broker round-trip that returns without a TradierServerError
+            # is a successful API contact — clear the panic counter even if
+            # the order itself wasn't filled.
+            self.reset_api_error_count()
             if result and result.get("status") == "filled":
                 self.metrics.successful_executions += 1
                 self.daily_trades += 1
@@ -1167,6 +1220,12 @@ class LiveEngine:
             else:
                 self.metrics.failed_executions += 1
             self.pending_orders[order_id] = {"order": order, "result": result}
+        except _TradierServerError as exc:
+            # Tradier 5xx: record failure; may trigger API Panic Mode
+            self.logger.error("Tradier 5xx error for order %s: %s", order_id, exc)
+            self.metrics.failed_executions += 1
+            self.pending_orders[order_id] = {"order": order, "result": {"status": "error", "reason": str(exc)}}
+            self.record_api_server_error()
         except Exception as exc:
             self.logger.error("Internal order execution failed for %s: %s", order_id, exc)
             self.metrics.failed_executions += 1

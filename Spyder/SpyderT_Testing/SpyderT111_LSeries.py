@@ -174,14 +174,18 @@ for _k, _v in _U07_ATTRS.items():
 # ---------------------------------------------------------------------------
 # E01 RiskManager stub (L16 try/except imports it; real init requires args)
 # ---------------------------------------------------------------------------
-_e01 = _ensure_mod("Spyder.SpyderE_Risk.SpyderE01_RiskManager")
-if not hasattr(_e01, "RiskManager"):
+try:
+    import importlib
+    _e01 = importlib.import_module("Spyder.SpyderE_Risk.SpyderE01_RiskManager")
+except Exception:
+    _e01 = _ensure_mod("Spyder.SpyderE_Risk.SpyderE01_RiskManager")
+    if not hasattr(_e01, "RiskManager"):
 
-    class _RiskManagerStub:
-        def __init__(self, *a, **k):
-            pass
+        class _RiskManagerStub:
+            def __init__(self, *a, **k):
+                pass
 
-    _e01.RiskManager = _RiskManagerStub
+        _e01.RiskManager = _RiskManagerStub
 
 # ---------------------------------------------------------------------------
 # E06 RiskMetrics stub (L07 hard-imports calculate_sharpe_ratio/sortino)

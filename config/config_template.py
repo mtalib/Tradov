@@ -5,7 +5,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderX_Unknown
 Module: config_template.py
-Purpose: Configuration template for Spyder trading system (Tradier + Databento).
+Purpose: Configuration template for Spyder trading system (Tradier + Massive).
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -22,7 +22,7 @@ Module Description:
 # ==============================================================================
 import os
 
-__all__ = ["TRADIER_CONFIG", "DATABENTO_CONFIG", "TRADING_CONFIG"]
+__all__ = ["TRADIER_CONFIG", "MASSIVE_CONFIG", "TRADING_CONFIG"]
 
 # ==============================================================================
 # TRADIER BROKER CONFIGURATION
@@ -40,18 +40,16 @@ TRADIER_CONFIG = {
 }
 
 # ==============================================================================
-# DATABENTO MARKET DATA CONFIGURATION
+# MASSIVE FALLBACK MARKET DATA CONFIGURATION
 # ==============================================================================
-DATABENTO_CONFIG = {
-    "api_key": os.environ.get("DATABENTO_API_KEY", ""),
-    "dataset": os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR"),
-    "live_schema": "mbp-1",
-    "historical_schema": "ohlcv-1m",
-    "default_underlyings": ["SPY"],
+MASSIVE_CONFIG = {
+    "api_key": os.environ.get("MASSIVE_API_KEY", ""),
+    "rest_requests_per_second": float(os.environ.get("MASSIVE_REST_RPS", "3.0")),
+    "stream_quotes": True,
+    "stream_trades": True,
+    "default_symbols": ["SPY"],
     "reconnect_delay": 5,
     "max_reconnect_attempts": 10,
-    "max_daily_gb": 5.0,
-    "warn_gb_threshold": 3.0,
 }
 
 # ==============================================================================

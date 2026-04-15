@@ -73,20 +73,68 @@ class AgentSeries(StrEnum):
 
 class AgentStatus(StrEnum):
     """Derived health status based on heartbeat age."""
-    UP       = "UP"
-    DEGRADED = "DEGRADED"
-    DOWN     = "DOWN"
-    UNKNOWN  = "UNKNOWN"   # never sent a heartbeat
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    ERROR = "error"
+    STARTING = "starting"
+    STOPPING = "stopping"
+    UNKNOWN = "unknown"
+
+
+# Backward-compatible aliases used by older call-sites.
+AgentStatus.UP = AgentStatus.ACTIVE
+AgentStatus.DEGRADED = AgentStatus.INACTIVE
+AgentStatus.DOWN = AgentStatus.ERROR
 
 
 @dataclass
 class AgentMetrics:
-    """Per-agent runtime metrics populated by the agent itself."""
-    decisions_made:   int   = 0
-    decisions_failed: int   = 0
-    avg_latency_ms:   float = 0.0
-    last_error:       str   = ""
+    """Per-agent runtime metrics populated by the agent itself.
+
+    Includes backward-compatible fields expected by older utility tests.
+    """
+    # Legacy/general fields
+    agent_id: str = "unknown"
+    status: AgentStatus = AgentStatus.UNKNOWN
+    cpu_usage: float = 0.0
+    memory_usage: float = 0.0
+    uptime_seconds: float = 0.0
+    requests_processed: int = 0
+    errors_count: int = 0
+    last_activity: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+    # Current dashboard-focused fields
+    decisions_made: int = 0
+    decisions_failed: int = 0
+    avg_latency_ms: float = 0.0
+    last_error: str = ""
     custom: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.metadata is None:
+            self.metadata = {}
+        # Keep legacy metadata and current custom map in sync by default.
+        if not self.custom and self.metadata:
+            self.custom = dict(self.metadata)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent_id": self.agent_id,
+            "status": self.status.value if isinstance(self.status, AgentStatus) else str(self.status),
+            "cpu_usage": self.cpu_usage,
+            "memory_usage": self.memory_usage,
+            "uptime_seconds": self.uptime_seconds,
+            "requests_processed": self.requests_processed,
+            "errors_count": self.errors_count,
+            "last_activity": self.last_activity.isoformat() if self.last_activity else None,
+            "metadata": self.metadata or {},
+            "decisions_made": self.decisions_made,
+            "decisions_failed": self.decisions_failed,
+            "avg_latency_ms": self.avg_latency_ms,
+            "last_error": self.last_error,
+            "custom": self.custom,
+        }
 
 
 @dataclass
@@ -109,10 +157,10 @@ class AgentRecord:
             return AgentStatus.UNKNOWN
         age = (datetime.now(UTC) - self.last_heartbeat).total_seconds()
         if age <= _HEARTBEAT_DEGRADED_SECS:
-            return AgentStatus.UP
+            return AgentStatus.ACTIVE
         if age <= _HEARTBEAT_DOWN_SECS:
-            return AgentStatus.DEGRADED
-        return AgentStatus.DOWN
+            return AgentStatus.INACTIVE
+        return AgentStatus.ERROR
 
     @property
     def is_running(self) -> bool:
