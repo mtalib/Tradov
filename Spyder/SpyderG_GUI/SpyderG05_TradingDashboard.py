@@ -517,7 +517,15 @@ class GreekRisk:
 
 @dataclass
 class ConnectionInfo:
+    """Single source of truth for dashboard connection state.
+
+    Per 2026-04-15 audit §16: api_connected and mkt_data_connected used to
+    exist as parallel scalar attributes on SpyderTradingDashboard, mutated
+    independently of this dataclass. They are now @property accessors that
+    read/write the fields below.
+    """
     api_connected: bool = False
+    mkt_data_connected: bool = False
     bridge_connected: bool = False
     connection_mode: str = "DISCONNECTED"
     market_data_status: str = "NONE"
@@ -2040,6 +2048,27 @@ class _PaperTradingWorker(QObject):
 class SpyderTradingDashboard(QMainWindow):
     """Complete dashboard with fixed API connection detection and heartbeat monitoring"""
 
+    # ------------------------------------------------------------------
+    # Connection-state accessors (audit §16 — single source of truth)
+    # Both flags are backed by self.connection_info to eliminate the
+    # parallel scalar attributes that previously drifted out of sync.
+    # ------------------------------------------------------------------
+    @property
+    def api_connected(self) -> bool:
+        return self.connection_info.api_connected
+
+    @api_connected.setter
+    def api_connected(self, value: bool) -> None:
+        self.connection_info.api_connected = bool(value)
+
+    @property
+    def mkt_data_connected(self) -> bool:
+        return self.connection_info.mkt_data_connected
+
+    @mkt_data_connected.setter
+    def mkt_data_connected(self, value: bool) -> None:
+        self.connection_info.mkt_data_connected = bool(value)
+
     def __init__(self):
         super().__init__()
 
@@ -2076,8 +2105,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.automation_logs = []
         self.trading_mode = TradingMode.PAPER
-        self.api_connected = False  # FIXED: Start disconnected
-        self.mkt_data_connected = False  # Market data provider connection state
+        # api_connected and mkt_data_connected are @property accessors backed
+        # by self.connection_info (see ConnectionInfo docstring, audit §16).
         self.tradier_client = (
             None  # FIXED: Initialize API client attribute before timer starts
         )
