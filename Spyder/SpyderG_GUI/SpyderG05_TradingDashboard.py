@@ -2049,6 +2049,25 @@ class SpyderTradingDashboard(QMainWindow):
     """Complete dashboard with fixed API connection detection and heartbeat monitoring"""
 
     # ------------------------------------------------------------------
+    # S07 metric routing (audit §21 — display-unit adaptation layer)
+    # Maps S07 metric keys → (dashboard widget key, raw→widget scale).
+    # Scales live here because S07 emits in domain units (raw dollars for
+    # GEX/DEX) and the dashboard widgets expect pre-scaled values that they
+    # then format to "B"/"M" labels. When S07's contract is normalised so it
+    # emits in widget-ready units, this table collapses to pure key mapping.
+    # ------------------------------------------------------------------
+    _S07_METRIC_ROUTING: dict[str, tuple[str, float]] = {
+        "GEX":  ("GEX",   1e9),
+        "DEX":  ("DEX",   1e6),
+        "OGL":  ("OGL",   1.0),
+        "DIX":  ("DIX",   1.0),
+        "SWAN": ("SWAN",  1.0),
+        "TICK": ("$TICK", 1.0),
+        "ADD":  ("$ADD",  1.0),
+        "TRIN": ("$TRIN", 1.0),
+    }
+
+    # ------------------------------------------------------------------
     # Connection-state accessors (audit §16 — single source of truth)
     # Both flags are backed by self.connection_info to eliminate the
     # parallel scalar attributes that previously drifted out of sync.
@@ -4571,6 +4590,57 @@ class SpyderTradingDashboard(QMainWindow):
     # TRADING MODE MANAGEMENT
     # ==========================================================================
 
+    def _handle_pending_orders_gate(
+        self, pending_mode: TradingMode, target_label: str, support_suffix: str
+    ) -> bool:
+        """Run the shared 'pending orders must be cancelled' gate.
+
+        Detects pending orders in *pending_mode*, prompts the user to cancel
+        them, executes the cancellation, and reports failures. Returns True
+        when the gate passes (no pending, or everything cancelled cleanly)
+        and False when the caller must abort the mode switch. Both PAPER→LIVE
+        and LIVE→PAPER branches route through here so the cancel-recheck
+        policy lives in one place."""
+        pending = self._fetch_pending_orders(pending_mode)
+        if not pending:
+            return True
+
+        order_lines = "\n".join(
+            f"  #{o.get('id')}  {o.get('symbol','?')}  {o.get('side','?').upper()}"
+            f"  qty {int(o.get('quantity',0))}  [{o.get('status','?').upper()}]"
+            for o in pending[:10]
+        )
+        suffix = f"\n  … and {len(pending)-10} more" if len(pending) > 10 else ""
+        source = "paper/sandbox" if pending_mode == TradingMode.PAPER else "LIVE"
+        result = QMessageBox.warning(
+            self,
+            f"Pending {source.title()} Orders Must Be Cancelled",
+            f"You have {len(pending)} pending {source} order(s):\n\n"
+            f"{order_lines}{suffix}\n\n"
+            f"These must be cancelled before switching to {target_label}.\n\n"
+            "Cancel all pending orders now and continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            self.add_system_log(
+                f"Switch to {target_label} cancelled — pending {source} orders remain"
+            )
+            return False
+
+        ok, fail = self._cancel_orders(pending, pending_mode)
+        if fail:
+            QMessageBox.critical(
+                self,
+                "Cancellation Failed",
+                f"{fail} order(s) could not be cancelled.\n{support_suffix}",
+            )
+            return False
+        self.add_system_log(
+            f"✅ {ok} pending {source} order(s) cancelled — continuing switch"
+        )
+        return True
+
     def _on_mode_btn_clicked(self, new_mode: TradingMode):
         """Handle LIVE TRADING / PAPER TRADING toggle button click.
 
@@ -4608,39 +4678,13 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             # Gate 2: check for pending sandbox orders
-            pending = self._fetch_pending_orders(TradingMode.PAPER)
-            if pending:
-                order_lines = "\n".join(
-                    f"  #{o.get('id')}  {o.get('symbol','?')}  {o.get('side','?').upper()}"
-                    f"  qty {int(o.get('quantity',0))}  [{o.get('status','?').upper()}]"
-                    for o in pending[:10]
-                )
-                suffix = f"\n  … and {len(pending)-10} more" if len(pending) > 10 else ""
-                result = QMessageBox.warning(
-                    self,
-                    "Pending Paper Orders Must Be Cancelled",
-                    f"You have {len(pending)} pending order(s) in the paper/sandbox account:\n\n"
-                    f"{order_lines}{suffix}\n\n"
-                    "These must be cancelled before switching to LIVE trading.\n\n"
-                    "Cancel all pending orders now and continue?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if result != QMessageBox.StandardButton.Yes:
-                    self.add_system_log("Switch to LIVE cancelled — pending paper orders remain")
-                    self._update_mode_buttons()
-                    return
-                ok, fail = self._cancel_orders(pending, TradingMode.PAPER)
-                if fail:
-                    QMessageBox.critical(
-                        self,
-                        "Cancellation Failed",
-                        f"{fail} order(s) could not be cancelled.\n"
-                        "Resolve them manually before switching to LIVE trading.",
-                    )
-                    self._update_mode_buttons()
-                    return
-                self.add_system_log(f"✅ {ok} pending paper order(s) cancelled — continuing switch")
+            if not self._handle_pending_orders_gate(
+                TradingMode.PAPER,
+                target_label="LIVE",
+                support_suffix="Resolve them manually before switching to LIVE trading.",
+            ):
+                self._update_mode_buttons()
+                return
 
             # Gate 3: Tradier EXEC must be connected
             if not getattr(self, "api_connected", False):
@@ -4685,39 +4729,13 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             # Gate 2: check for pending live orders — must be cancelled first
-            pending = self._fetch_pending_orders(TradingMode.LIVE)
-            if pending:
-                order_lines = "\n".join(
-                    f"  #{o.get('id')}  {o.get('symbol','?')}  {o.get('side','?').upper()}"
-                    f"  qty {int(o.get('quantity',0))}  [{o.get('status','?').upper()}]"
-                    for o in pending[:10]
-                )
-                suffix = f"\n  … and {len(pending)-10} more" if len(pending) > 10 else ""
-                result = QMessageBox.warning(
-                    self,
-                    "Pending Live Orders Must Be Cancelled",
-                    f"You have {len(pending)} pending LIVE order(s) at Tradier:\n\n"
-                    f"{order_lines}{suffix}\n\n"
-                    "These must be cancelled before switching to Paper Trading.\n\n"
-                    "Cancel all pending orders now and continue?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if result != QMessageBox.StandardButton.Yes:
-                    self.add_system_log("Switch to PAPER cancelled — pending live orders remain")
-                    self._update_mode_buttons()
-                    return
-                ok, fail = self._cancel_orders(pending, TradingMode.LIVE)
-                if fail:
-                    QMessageBox.critical(
-                        self,
-                        "Cancellation Failed",
-                        f"{fail} order(s) could not be cancelled.\n"
-                        "Resolve them manually or call Tradier: +1 (312) 542-6901.",
-                    )
-                    self._update_mode_buttons()
-                    return
-                self.add_system_log(f"✅ {ok} pending live order(s) cancelled — continuing switch")
+            if not self._handle_pending_orders_gate(
+                TradingMode.LIVE,
+                target_label="PAPER",
+                support_suffix="Resolve them manually or call Tradier: +1 (312) 542-6901.",
+            ):
+                self._update_mode_buttons()
+                return
 
             # Gate 3: warn if live positions still open (positions, not orders)
             open_count = 0
@@ -5507,21 +5525,7 @@ class SpyderTradingDashboard(QMainWindow):
           - OGL, DIX, SWAN: stored and displayed as-is
           - TICK → "$TICK", ADD → "$ADD", TRIN → "$TRIN": market internals
         """
-        # Multipliers to convert S07 units → widget raw units
-        # Maps S07 metric key → (dashboard widget key, scale factor)
-        _routing = {
-            "GEX":  ("GEX",   1e9),
-            "DEX":  ("DEX",   1e6),
-            "OGL":  ("OGL",   1.0),
-            "DIX":  ("DIX",   1.0),
-            "SWAN": ("SWAN",  1.0),
-            # Market breadth internals — S07 uses plain keys, widgets use $-prefixed keys
-            "TICK": ("$TICK", 1.0),
-            "ADD":  ("$ADD",  1.0),
-            "TRIN": ("$TRIN", 1.0),
-        }
-
-        for s07_key, (widget_key, scale) in _routing.items():
+        for s07_key, (widget_key, scale) in self._S07_METRIC_ROUTING.items():
             entry = metrics.get(s07_key)
             if not isinstance(entry, dict):
                 continue
@@ -5853,7 +5857,13 @@ class SpyderTradingDashboard(QMainWindow):
             )
 
     def load_default_risk_parameters(self):
-        """Load default risk parameters"""
+        """Seed current_risk_params for the G09 risk-parameters dialog.
+
+        Note: these are GUI-layer display/filter thresholds consumed by
+        SpyderG09_RiskParametersDialog, NOT broker-level limits. In particular
+        max_position_size here is in *dollars*, while SpyderE01_RiskManager
+        uses max_position_size as a *contract count*. The two live in separate
+        namespaces on purpose — do not delegate blindly."""
         self.current_risk_params = {
             "max_position_size": 50000,
             "max_daily_loss": 5000,
@@ -5868,16 +5878,17 @@ class SpyderTradingDashboard(QMainWindow):
         if risk_dialog_available and show_risk_parameters_dialog:
             show_risk_parameters_dialog(self)
         else:
+            p = self.current_risk_params or {}
             QMessageBox.information(
                 self,
                 "Risk Parameters",
                 "Risk Parameters Configuration\n\n"
-                "Max Position Size: $50,000\n"
-                "Max Daily Loss: $5,000\n"
-                "Max Portfolio Delta: 100\n"
-                "Max Portfolio Gamma: 50\n"
-                "VIX Threshold: 30\n"
-                "Correlation Limit: 0.8",
+                f"Max Position Size: ${p.get('max_position_size', 0):,}\n"
+                f"Max Daily Loss: ${p.get('max_daily_loss', 0):,}\n"
+                f"Max Portfolio Delta: {p.get('max_portfolio_delta', 0)}\n"
+                f"Max Portfolio Gamma: {p.get('max_portfolio_gamma', 0)}\n"
+                f"VIX Threshold: {p.get('vix_threshold', 0)}\n"
+                f"Correlation Limit: {p.get('correlation_limit', 0)}",
             )
 
     def _append_to_ring_log(self, buffer: list, widget, message: str,
