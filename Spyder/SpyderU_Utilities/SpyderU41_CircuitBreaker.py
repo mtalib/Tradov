@@ -279,6 +279,15 @@ class CircuitBreaker:
             self.last_failure_time = None
             logger.info("%s manually reset", self.name)
 
+    def reset_if_open(self) -> bool:
+        """Reset the breaker only if currently OPEN. Returns True if a reset
+        actually happened. Used by health-probe callers so breaker policy
+        stays inside the breaker module, not at the call site."""
+        if self.is_open:
+            self.reset()
+            return True
+        return False
+
     def get_stats(self) -> dict:
         """Get circuit breaker statistics"""
         with self.lock:

@@ -99,6 +99,28 @@ def is_tradier_active_window(now_et: datetime | None = None) -> bool:
         current = (now_et or datetime.now()).time()
     return TRADIER_CONNECT_TIME <= current <= TRADIER_DISCONNECT_TIME
 
+
+class LogThrottle:
+    """Emit at most once per `interval` seconds; first call always emits.
+
+    Used to rate-limit healthy-heartbeat log spam without hiding failures,
+    which must always fire immediately.
+    """
+
+    def __init__(self, interval_seconds: float):
+        self.interval = float(interval_seconds)
+        self._last: datetime | None = None
+
+    def should_emit(self) -> bool:
+        now = datetime.now()
+        if self._last is None or (now - self._last).total_seconds() >= self.interval:
+            self._last = now
+            return True
+        return False
+
+    def reset(self) -> None:
+        self._last = None
+
 # ==============================================================================
 # HOLIDAY DEFINITIONS
 # ==============================================================================

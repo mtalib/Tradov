@@ -263,6 +263,7 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
     DASHBOARD_SESSION_CLOSE as MARKET_CLOSE_TIME,
     TRADIER_CONNECT_TIME,
     TRADIER_DISCONNECT_TIME,
+    LogThrottle,
     is_dashboard_session as is_market_hours,
     is_tradier_active_window as is_tradier_window,
 )
@@ -566,8 +567,8 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = None
 
         self.last_data_update = {}
-        self._last_healthy_log: datetime | None = None  # Throttle healthy heartbeat messages
-        self._last_offline_log: datetime | None = None   # Throttle outside-hours heartbeat messages
+        self._healthy_log_throttle = LogThrottle(HEARTBEAT_LOG_INTERVAL)
+        self._offline_log_throttle = LogThrottle(HEARTBEAT_LOG_INTERVAL)
         self._init_simulation_data()
 
         logger.info("🔧 Market Data Worker initialized with heartbeat monitoring")
@@ -587,14 +588,7 @@ class ThreadSafeMarketDataWorker(QObject):
             self.heartbeat_status_changed.emit("offline")
 
             # Emit calm ❤️ message at startup and every 30 minutes thereafter
-            _now = datetime.now()
-            _elapsed_offline = (
-                (_now - self._last_offline_log).total_seconds()
-                if self._last_offline_log is not None
-                else HEARTBEAT_LOG_INTERVAL + 1
-            )
-            if _elapsed_offline >= HEARTBEAT_LOG_INTERVAL:
-                self._last_offline_log = _now
+            if self._offline_log_throttle.should_emit():
                 self.heartbeat_received.emit(
                     "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
                 )
@@ -619,21 +613,13 @@ class ThreadSafeMarketDataWorker(QObject):
                         f"💚 Heartbeat: Tradier API connection restored ({mode})",
                     )
                 else:
-                    # Log healthy status at most once every 30 minutes to avoid
-                    # jamming the log; failures are always emitted immediately.
-                    _now = datetime.now()
-                    _elapsed = (
-                        (_now - self._last_healthy_log).total_seconds()
-                        if self._last_healthy_log is not None
-                        else HEARTBEAT_LOG_INTERVAL + 1
-                    )
-                    if _elapsed >= HEARTBEAT_LOG_INTERVAL:
-                        self._last_healthy_log = _now
+                    # Healthy status at most once per interval; failures fire immediately.
+                    if self._healthy_log_throttle.should_emit():
                         self.heartbeat_received.emit(
                             f"💚 Heartbeat: Tradier API healthy ({mode})",
                         )
                 # Reset offline throttle so next outside-hours period fires immediately
-                self._last_offline_log = None
+                self._offline_log_throttle.reset()
                 # Emit the correct market data status every heartbeat so the label
                 # switches from REAL-TIME to EOD promptly after 4:00 PM ET close.
                 _mkt_open = is_market_hours()
@@ -642,12 +628,10 @@ class ThreadSafeMarketDataWorker(QObject):
                 else:
                     _mkt_data_status = "EOD"
                 self.market_data_status_changed.emit(_mkt_data_status)
-                # If the tradier circuit breaker is BLOCKED/OPEN, reset it — the
-                # heartbeat just confirmed Tradier is reachable so the breaker
-                # state is stale (tripped during pre-market or a transient outage).
+                # Health probe succeeded — let the breaker decide whether a
+                # reset is warranted (policy lives inside U41 CircuitBreaker).
                 if _circuit_breakers_available and _tradier_breaker is not None:
-                    if _tradier_breaker.is_open:
-                        _tradier_breaker.reset()
+                    if _tradier_breaker.reset_if_open():
                         logger.info("🔄 Tradier circuit breaker auto-reset (API confirmed healthy)")
                 # Refresh Tradier quotes every heartbeat (30 s) while real data is active
                 if getattr(self, "real_data_active", False) and self.market_worker:
@@ -3976,8 +3960,9 @@ class SpyderTradingDashboard(QMainWindow):
             component_layout.setSpacing(3)
 
             indicator = QLabel(status)
+            # Unknown until a real health event arrives (see 2026-04-15 audit §11c).
             indicator.setStyleSheet(
-                "color: " + COLORS["positive"] + "; font-size: 14px;",
+                "color: " + COLORS["text_dim"] + "; font-size: 14px;",
             )
             component_layout.addWidget(indicator)
 
@@ -4071,8 +4056,9 @@ class SpyderTradingDashboard(QMainWindow):
                     "color: " + COLORS["warning"] + "; font-size: 14px;",
                 )
             else:
+                # Unknown until real health arrives (2026-04-15 audit §11c).
                 indicator.setStyleSheet(
-                    "color: " + COLORS["positive"] + "; font-size: 14px;",
+                    "color: " + COLORS["text_dim"] + "; font-size: 14px;",
                 )
             module_layout.addWidget(indicator)
 
