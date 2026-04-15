@@ -256,13 +256,16 @@ WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 
 
-# Market hours (Eastern Time)
-MARKET_OPEN_TIME = dt_time(4, 0)   # 4:00 AM ET — extended pre-market
-MARKET_CLOSE_TIME = dt_time(16, 30)  # 4:30 PM ET
-
-# Tradier connection window — only connect 10 min before regular market open
-TRADIER_CONNECT_TIME = dt_time(9, 20)   # 9:20 AM ET — 10 min before open
-TRADIER_DISCONNECT_TIME = dt_time(16, 30)  # 4:30 PM ET — after close
+# Dashboard session & Tradier active window come from U03_DateTimeUtils —
+# module-level aliases kept for readability at use sites within this file.
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
+    DASHBOARD_SESSION_OPEN as MARKET_OPEN_TIME,
+    DASHBOARD_SESSION_CLOSE as MARKET_CLOSE_TIME,
+    TRADIER_CONNECT_TIME,
+    TRADIER_DISCONNECT_TIME,
+    is_dashboard_session as is_market_hours,
+    is_tradier_active_window as is_tradier_window,
+)
 
 # Heartbeat and connection monitoring
 HEARTBEAT_INTERVAL = 30000        # 30 seconds in milliseconds — check frequency
@@ -338,23 +341,47 @@ COLORS = {
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
-def is_market_hours():
-    """Check if current time is within market hours (4:00 AM - 4:30 PM ET)"""
-    eastern = pytz.timezone("US/Eastern")
-    now_et = datetime.now(eastern).time()
-    return MARKET_OPEN_TIME <= now_et <= MARKET_CLOSE_TIME
+_TOOLTIP_APP_STYLE = """
+QToolTip {
+    color: #ffffff !important;
+    background-color: #1a1a1a !important;
+    border: 2px solid #555555 !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+    font-size: 12px !important;
+    font-weight: normal !important;
+    opacity: 1.0 !important;
+}
+"""
+
+_TOOLTIP_WIDGET_STYLE = """
+QWidget {
+    selection-background-color: #2a2a2a;
+}
+QWidget QToolTip {
+    color: white !important;
+    background-color: #1a1a1a !important;
+    border: 2px solid #555555 !important;
+    padding: 8px !important;
+}
+"""
+
+_TOOLTIP_THEME_MARKER = "/* spyder-tooltip-theme */"
 
 
-def is_tradier_window() -> bool:
-    """Return True only during the Tradier active window (9:20 AM – 4:30 PM ET).
+def apply_tooltip_theme(app, widget=None) -> None:
+    """Install the dashboard's tooltip theme app-wide; idempotent across calls.
 
-    Connecting before 9:20 ET is wasteful — no intraday bars exist yet and
-    the sandbox returns nothing useful.  The 10-minute lead time lets the
-    dashboard warm up before the 9:30 regular open.
+    Callable from the app bootstrap (preferred) or from a window constructor.
+    Re-application is a no-op at the app level because the theme is tagged with
+    a marker comment. The widget-level stylesheet is additive and harmless.
     """
-    eastern = pytz.timezone("US/Eastern")
-    now_et = datetime.now(eastern).time()
-    return TRADIER_CONNECT_TIME <= now_et <= TRADIER_DISCONNECT_TIME
+    if app is not None:
+        current = app.styleSheet() or ""
+        if _TOOLTIP_THEME_MARKER not in current:
+            app.setStyleSheet(current + _TOOLTIP_THEME_MARKER + _TOOLTIP_APP_STYLE)
+    if widget is not None:
+        widget.setStyleSheet((widget.styleSheet() or "") + _TOOLTIP_WIDGET_STYLE)
 
 
 REALTIME_QUOTE_MAX_AGE_SECONDS = 15.0   # Must exceed the 10-second fast-fetch interval
@@ -3738,23 +3765,9 @@ class SpyderTradingDashboard(QMainWindow):
         """,
         )
 
-        if status == "OPEN":
-            close_action = menu.addAction("\u274c  Close Position")
-            close_action.triggered.connect(
-                lambda: self._on_close_position(strategy_item),
-            )
-
-            roll_action = menu.addAction("\U0001f504  Roll Forward")
-            roll_action.triggered.connect(
-                lambda: self._on_roll_position(strategy_item),
-            )
-
-            adjust_action = menu.addAction("\u2699\ufe0f  Adjust Strikes")
-            adjust_action.triggered.connect(
-                lambda: self._on_adjust_position(strategy_item),
-            )
-
-            menu.addSeparator()
+        # Close / Roll / Adjust actions intentionally absent until an
+        # OrderManager service is wired. A do-nothing context-menu item
+        # misleads traders (see 2026-04-15 audit §24).
 
         if is_strategy:
             expand_action = menu.addAction(
@@ -3770,21 +3783,6 @@ class SpyderTradingDashboard(QMainWindow):
         )
 
         menu.exec(self.positions_table.viewport().mapToGlobal(pos))
-
-    def _on_close_position(self, strategy_item: QTreeWidgetItem):
-        """Handle close position from context menu."""
-        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
-        self.add_system_log(f"Close requested: {name}")
-
-    def _on_roll_position(self, strategy_item: QTreeWidgetItem):
-        """Handle roll forward from context menu."""
-        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
-        self.add_system_log(f"Roll forward requested: {name}")
-
-    def _on_adjust_position(self, strategy_item: QTreeWidgetItem):
-        """Handle adjust strikes from context menu."""
-        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
-        self.add_system_log(f"Adjust strikes requested: {name}")
 
     def _on_copy_strategy(self, strategy_item: QTreeWidgetItem):
         """Copy strategy and leg details to clipboard."""
@@ -5867,87 +5865,33 @@ class SpyderTradingDashboard(QMainWindow):
                 "Correlation Limit: 0.8",
             )
 
-    def add_system_log(self, message: str):
-        """Add message to system log"""
+    def _append_to_ring_log(self, buffer: list, widget, message: str,
+                             max_buffer: int = 100, display_count: int = 20) -> None:
+        """Append to an in-memory ring buffer and refresh its widget (newest first)."""
         timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-
-        self.system_logs.append(formatted_message)
-
-        # Keep only last 100 entries
-        if len(self.system_logs) > 100:
-            self.system_logs = self.system_logs[-100:]
-
-        # Update display - REVERSED to show newest at top (descending order)
-        self.system_log.clear()
-        reversed_logs = list(
-            reversed(self.system_logs[-20:]),
-        )  # Show last 20, newest first
-        self.system_log.append("\n".join(reversed_logs))
-
-        # Scroll to top to see newest messages
-        cursor = self.system_log.textCursor()
+        buffer.append(f"[{timestamp}] {message}")
+        if len(buffer) > max_buffer:
+            del buffer[:-max_buffer]
+        widget.clear()
+        widget.append("\n".join(reversed(buffer[-display_count:])))
+        cursor = widget.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self.system_log.setTextCursor(cursor)
+        widget.setTextCursor(cursor)
+
+    def add_system_log(self, message: str):
+        """Add message to system log."""
+        self._append_to_ring_log(self.system_logs, self.system_log, message,
+                                  max_buffer=100, display_count=20)
 
     def add_automation_log(self, message: str):
-        """Add message to automation log"""
-        timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-
-        self.automation_logs.append(formatted_message)
-
-        # Keep only last 100 entries
-        if len(self.automation_logs) > 100:
-            self.automation_logs = self.automation_logs[-100:]
-
-        # Update display - REVERSED to show newest at top (descending order)
-        self.auto_log.clear()
-        reversed_logs = list(
-            reversed(self.automation_logs[-15:]),
-        )  # Show last 15, newest first
-        self.auto_log.append("\n".join(reversed_logs))
-
-        # Scroll to top to see newest messages
-        cursor = self.auto_log.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self.auto_log.setTextCursor(cursor)
+        """Add message to automation log."""
+        self._append_to_ring_log(self.automation_logs, self.auto_log, message,
+                                  max_buffer=100, display_count=15)
 
     def setup_white_tooltips(self):
-        """Setup white tooltips that are actually visible"""
+        """Apply the white-tooltip theme to this window (delegates to module helper)."""
         try:
-            # Method 1: Set application-wide stylesheet
-            app = QApplication.instance()
-            if app:
-                current_style = app.styleSheet()
-                tooltip_style = """
-                QToolTip {
-                    color: #ffffff !important;
-                    background-color: #1a1a1a !important;
-                    border: 2px solid #555555 !important;
-                    padding: 8px !important;
-                    border-radius: 4px !important;
-                    font-size: 12px !important;
-                    font-weight: normal !important;
-                    opacity: 1.0 !important;
-                }
-                """
-                app.setStyleSheet(current_style + tooltip_style)
-
-            # Method 2: Set widget-specific tooltip styling as backup
-            widget_style = """
-                QWidget {
-                    selection-background-color: #2a2a2a;
-                }
-                QWidget QToolTip {
-                    color: white !important;
-                    background-color: #1a1a1a !important;
-                    border: 2px solid #555555 !important;
-                    padding: 8px !important;
-                }
-            """
-            self.setStyleSheet(self.styleSheet() + widget_style)
-
+            apply_tooltip_theme(QApplication.instance(), self)
         except Exception as e:
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
 

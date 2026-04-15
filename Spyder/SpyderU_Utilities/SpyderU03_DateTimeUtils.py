@@ -64,6 +64,41 @@ INDEX_OPTIONS_CLOSE = time(16, 15)  # 4:15 PM ET (SPX, SPY)
 # Early close days
 EARLY_CLOSE_TIME = time(13, 0)  # 1:00 PM ET
 
+# Dashboard polling window — broader than regular session, used by the GUI
+# to decide whether to keep live-data workers active. Includes extended
+# pre-market (from 4:00 AM) through the close-auction settle (until 4:30 PM).
+DASHBOARD_SESSION_OPEN = time(4, 0)
+DASHBOARD_SESSION_CLOSE = time(16, 30)
+
+# Tradier active window — when the Tradier worker should hold an open
+# connection. 9:20 AM gives ~10 minutes of warm-up before the 9:30 open;
+# 4:30 PM matches the dashboard session close. Outside this window the
+# sandbox returns nothing useful and connecting is wasteful.
+TRADIER_CONNECT_TIME = time(9, 20)
+TRADIER_DISCONNECT_TIME = time(16, 30)
+
+
+def is_dashboard_session(now_et: datetime | None = None) -> bool:
+    """Return True if current ET time is inside the dashboard polling window."""
+    try:
+        import pytz
+        eastern = pytz.timezone("US/Eastern")
+        current = (now_et or datetime.now(eastern)).time()
+    except Exception:
+        current = (now_et or datetime.now()).time()
+    return DASHBOARD_SESSION_OPEN <= current <= DASHBOARD_SESSION_CLOSE
+
+
+def is_tradier_active_window(now_et: datetime | None = None) -> bool:
+    """Return True only during the Tradier active window (9:20 AM – 4:30 PM ET)."""
+    try:
+        import pytz
+        eastern = pytz.timezone("US/Eastern")
+        current = (now_et or datetime.now(eastern)).time()
+    except Exception:
+        current = (now_et or datetime.now()).time()
+    return TRADIER_CONNECT_TIME <= current <= TRADIER_DISCONNECT_TIME
+
 # ==============================================================================
 # HOLIDAY DEFINITIONS
 # ==============================================================================
