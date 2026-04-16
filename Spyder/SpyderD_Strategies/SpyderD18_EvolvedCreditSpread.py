@@ -762,7 +762,7 @@ class EvolvedCreditSpreadStrategy:
             vol_env = self._assess_volatility_environment()
             # Credit spreads prefer medium volatility
             return vol_env in [VolatilityEnvironment.MEDIUM, VolatilityEnvironment.LOW]
-        except BaseException:
+        except Exception:
             return True
 
     def _identify_market_regime(self) -> MarketRegime:
@@ -838,7 +838,7 @@ class EvolvedCreditSpreadStrategy:
                     quality_score += 0.1
 
             return min(1.0, max(0.0, quality_score))
-        except BaseException:
+        except Exception:
             return 0.5
 
     def _assess_indicator_quality(self) -> float:
@@ -871,7 +871,7 @@ class EvolvedCreditSpreadStrategy:
                 indicator_count += 1
 
             return quality_score / indicator_count if indicator_count > 0 else 0.5
-        except BaseException:
+        except Exception:
             return 0.5
 
     def _calculate_analysis_quality(self) -> float:
@@ -883,7 +883,7 @@ class EvolvedCreditSpreadStrategy:
             # Weight market quality higher
             overall_quality = (market_quality * 0.6) + (indicator_quality * 0.4)
             return overall_quality
-        except BaseException:
+        except Exception:
             return 0.5
 
     # ==========================================================================
@@ -1212,7 +1212,7 @@ class EvolvedCreditSpreadStrategy:
             else:
                 return "UNKNOWN"
 
-        except BaseException:
+        except Exception:
             return "ERROR"
 
     def _detect_technical_reversal(self, analysis: MarketAnalysis) -> bool:

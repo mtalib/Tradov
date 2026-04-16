@@ -250,7 +250,7 @@ class BlackSwanIndicator:
         # Historical scores for momentum calculation
         self.score_history = []
 
-        self.logger.info("Black Swan Indicator initialized")
+        self.logger.debug("Black Swan Indicator initialized")
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -324,7 +324,10 @@ class BlackSwanIndicator:
                 raw_data=market_data if self.config.get("include_raw_data") else None,
             )
 
-            self.logger.info(f"SWAN Score calculated: {result.overall_score:.2f} ({status.value})")
+            _swan_key = (round(result.overall_score, 2), status.value)
+            _log_swan = self.logger.info if _swan_key != getattr(self, "_last_swan_key", None) else self.logger.debug
+            self._last_swan_key = _swan_key
+            _log_swan(f"SWAN Score calculated: {result.overall_score:.2f} ({status.value})")
             return result
 
         except Exception as e:
@@ -421,7 +424,7 @@ class BlackSwanIndicator:
             else:
                 # Fallback to simulation
                 return self._simulate_quote(symbol)
-        except BaseException:
+        except Exception:
             return None
 
     def _simulate_quote(self, symbol: str) -> float:

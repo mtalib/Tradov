@@ -816,7 +816,7 @@ class DataValidators:
 
             datetime.strptime(date_str, "%Y-%m-%d")
             return True
-        except BaseException:
+        except Exception:
             return False
 
     @staticmethod

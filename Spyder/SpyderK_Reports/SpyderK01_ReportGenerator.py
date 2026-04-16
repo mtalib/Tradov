@@ -37,7 +37,7 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
@@ -117,7 +117,7 @@ class ReportMetadata:
     report_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     report_type: ReportType = ReportType.CUSTOM
     generator_name: str = ""
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     period_start: date | None = None
     period_end: date | None = None
     format: ReportFormat = ReportFormat.JSON
@@ -272,7 +272,7 @@ class BaseReportGenerator(ABC):
         return ReportMetadata(
             report_type=request.report_type,
             generator_name=generator_name or self.__class__.__name__,
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             period_start=request.start_date,
             period_end=request.end_date or date.today(),
             format=request.format,

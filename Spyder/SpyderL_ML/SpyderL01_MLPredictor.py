@@ -957,7 +957,7 @@ class MLPredictor:
         try:
             # This is simplified - would need proper implementation
             return {}
-        except BaseException:
+        except Exception:
             return {}
 
     def _get_latest_features(self, model_name: str) -> pd.DataFrame:

@@ -29,8 +29,54 @@ Module Description:
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
+from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Datetime hygiene gate
+# ---------------------------------------------------------------------------
+_UTCNOW_PATTERN = re.compile(r"\bdatetime\.utcnow\b")
+_SPYDER_ROOT = Path(__file__).resolve().parent.parent  # Spyder/ package root
+
+
+def check_no_datetime_utcnow() -> bool:
+    """Return True when no production file calls ``datetime.utcnow``.
+
+    Test files (SpyderT_Testing/) are intentionally excluded; the rule is
+    production-only.  Violations are printed to stderr.
+    """
+    violations: list[str] = []
+    for py_file in sorted(_SPYDER_ROOT.rglob("*.py")):
+        if "SpyderT_Testing" in py_file.parts or "__pycache__" in py_file.parts:
+            continue
+        try:
+            text = py_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if _UTCNOW_PATTERN.search(line):
+                rel = py_file.relative_to(_SPYDER_ROOT.parent)
+                violations.append(f"  {rel}:{lineno}: {line.strip()}")
+
+    if violations:
+        print(
+            "[Q10] datetime.utcnow() found in production code "
+            f"({len(violations)} occurrence(s)):",
+            file=sys.stderr,
+        )
+        for v in violations:
+            print(v, file=sys.stderr)
+        print(
+            "[Q10] Use datetime.now(timezone.utc) or SpyderU03.now_utc() instead.",
+            file=sys.stderr,
+        )
+        return False
+
+    print("[Q10] datetime hygiene OK — no utcnow() in production code.", file=sys.stderr)
+    return True
 
 
 def main() -> int:
@@ -54,6 +100,12 @@ def main() -> int:
         return 1
 
     print("[Q10] Protocol compliance OK", file=sys.stderr)
+
+    # Datetime hygiene gate — run independently so both reports are visible.
+    datetime_ok = check_no_datetime_utcnow()
+    if not datetime_ok:
+        return 1
+
     return 0
 
 
