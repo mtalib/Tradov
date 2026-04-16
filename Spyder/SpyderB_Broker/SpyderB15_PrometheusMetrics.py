@@ -688,6 +688,18 @@ if HAS_PROMETHEUS:
             )
 
             # =================================================================
+            # RISK SIGNAL REJECTION COUNTER
+            # =================================================================
+            self.risk_rejections_total = Counter(
+                "risk_rejections_total",
+                "Total strategy signals rejected by the E-Series risk gate",
+                ["strategy", "rejection_reason"],
+                namespace=NAMESPACE,
+                subsystem=SUBSYSTEM_RISK,
+                registry=self.registry
+            )
+
+            # =================================================================
             # REGIME CLASSIFICATION CONFIDENCE
             # =================================================================
             self.regime_classification_confidence = Gauge(
@@ -1254,6 +1266,21 @@ class PrometheusMetricsCollector:
                 severity=severity
             ).inc()
 
+    def record_risk_rejection(self, strategy: str, rejection_reason: str) -> None:
+        """
+        Increment the signal-rejection counter for the Prometheus scrape endpoint.
+
+        Args:
+            strategy: Identifier of the originating strategy (e.g. 'iron_condor').
+            rejection_reason: Short rule-code or reason string (e.g.
+                'DELTA_LIMIT_EXCEEDED', 'MAX_DAILY_LOSS').
+        """
+        if HAS_PROMETHEUS and self.metrics:
+            self.metrics.risk_rejections_total.labels(
+                strategy=strategy,
+                rejection_reason=rejection_reason,
+            ).inc()
+
     def update_regime_confidence(self, regime_type: str, detector: str, confidence: float):
         """
         Update the gauge reflecting current regime classification confidence.
@@ -1337,6 +1364,20 @@ def record_risk_breach(breach_type: str, severity: str):
     get_default_metrics_collector().record_risk_breach(breach_type, severity)
 
 
+def record_risk_rejection(strategy: str, rejection_reason: str) -> None:
+    """
+    Module-level helper: increment the risk signal rejection counter.
+
+    Call this from D31 (or any risk gate) whenever ``validate_signal`` rejects
+    a strategy signal so the rejection rate is visible on Prometheus dashboards.
+
+    Args:
+        strategy: Originating strategy identifier.
+        rejection_reason: Short rule-code / reason string.
+    """
+    get_default_metrics_collector().record_risk_rejection(strategy, rejection_reason)
+
+
 def update_regime_confidence(regime_type: str, detector: str, confidence: float):
     """
     Module-level helper: update regime classification confidence on the default collector.
@@ -1370,6 +1411,7 @@ __all__ = [
     # New metric helper functions
     'record_strategy_pnl', 'record_fill_latency',
     'record_risk_breach', 'update_regime_confidence',
+    'record_risk_rejection',
 ]
 
 # ==============================================================================

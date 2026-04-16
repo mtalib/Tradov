@@ -91,9 +91,12 @@ except ImportError:
 
 try:
     from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
+    from SpyderE_Risk.SpyderE00_RiskProtocol import RiskValidationRequest, BoundarySignalType
 except ImportError:
     get_risk_manager = None
     RiskProfile = None
+    RiskValidationRequest = None  # type: ignore[assignment,misc]
+    BoundarySignalType = None  # type: ignore[assignment,misc]
 
 try:
     from SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
@@ -684,8 +687,6 @@ class TradingEngine:
             self.logger.error("TradingEngine start failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
-                        # Set up event handlers
-                        self._setup_event_handlers()
 
     def stop(self, reason: str = "Manual stop") -> bool:
         """
@@ -1209,36 +1210,58 @@ class TradingEngine:
         return True
 
     def _check_signal_risk(self, strategy_id: str, signal: dict[str, Any]) -> bool:
-        """Check signal against risk limits"""
+        """Check signal against risk limits using the typed E00 Protocol boundary."""
         if not self.risk_manager:
             return True
 
         try:
-            # Create risk check request
-            risk_check = {
-                'strategy_id': strategy_id,
-                'symbol': signal['symbol'],
-                'action': signal['action'],
-                'quantity': signal['quantity'],
-                'price': signal.get('price'),
-                'type': signal.get('type', 'stock'),
-                'value': signal.get('value', 0),
-                'metadata': signal.get('metadata', {}),
-                'existing_positions': len(self._get_strategy_positions(strategy_id))
-            }
-
-            # Perform risk check
-            result = self.risk_manager.check_trade(risk_check)
-
-            if not result.get('approved', False):
-                self.logger.warning("Risk check failed: %s", result.get('reason', 'Unknown'))
-                return False
-
-            return True
+            if RiskValidationRequest is not None and hasattr(self.risk_manager, 'validate_signal'):
+                # Typed path: E00 Protocol boundary
+                action_str = str(signal.get('action', 'BUY')).upper()
+                signal_type = (
+                    BoundarySignalType.SELL
+                    if action_str in ('SELL', 'SELL_TO_OPEN', 'SELL_TO_CLOSE')
+                    else BoundarySignalType.BUY
+                )
+                request = RiskValidationRequest(
+                    symbol=signal['symbol'],
+                    quantity=int(signal['quantity']),
+                    signal_type=signal_type,
+                    strategy_id=strategy_id,
+                    entry_price=float(signal.get('price') or 0.0),
+                    confidence=float(signal.get('confidence', 0.0)),
+                    metadata={
+                        **signal.get('metadata', {}),
+                        'type': signal.get('type', 'stock'),
+                        'value': signal.get('value', 0),
+                        'existing_positions': len(self._get_strategy_positions(strategy_id)),
+                    },
+                )
+                result = self.risk_manager.validate_signal(request)
+                approved = bool(result.approved) if hasattr(result, 'approved') else bool(result.get('approved', False))
+                if not approved:
+                    reason = getattr(result, 'rejection_reason', None) or result.get('reason', 'Unknown')
+                    self.logger.warning("Risk check failed: %s", reason)
+                return approved
+            else:
+                # Fallback: legacy dict adapter for environments missing E00
+                risk_check = {
+                    'strategy_id': strategy_id,
+                    'symbol': signal['symbol'],
+                    'action': signal['action'],
+                    'quantity': signal['quantity'],
+                    'price': signal.get('price'),
+                    'metadata': signal.get('metadata', {}),
+                }
+                result = self.risk_manager.check_trade(risk_check)
+                if not result.get('approved', False):
+                    self.logger.warning("Risk check failed: %s", result.get('reason', 'Unknown'))
+                    return False
+                return True
 
         except Exception as e:
             self.logger.error("Risk check error: %s", e)
-            # Fail safe - reject on error
+            # Fail safe — reject on error
             return False
 
     def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:
