@@ -51,7 +51,6 @@ CONNECTION MONITORING:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-import random
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -190,10 +189,8 @@ except ImportError:
     logger.info("⚠️ Risk Parameters Dialog not available")
 
 # Import HMM and SKEW Dialog modules
-# NOTE: HMMMonitorDialog is imported lazily inside show_hmm_dialog() to avoid
-# loading PyTorch (via SpyderL13_LSTMPricer) at startup, which costs 3-5 seconds.
-HMMMonitorDialog = None  # type: ignore  - populated on first use
-hmm_dialog_available = None  # None = not yet checked; True/False after first check
+# NOTE: HMMMonitorDialog was removed — M06 is deprecated (L09 is canonical).
+#       show_hmm_dialog() now calls SignalInfoDialog directly.
 
 # SkewMonitorDialog is imported lazily inside show_skew_dialog() to defer the
 # ~0.25 s import cost to when the user first opens the dialog.
@@ -243,11 +240,6 @@ except ImportError:
     _tradier_breaker = None  # type: ignore
     _massive_breaker = None  # type: ignore
     _circuit_breakers_available = False
-
-# Client Connection Manager — DEPRECATED (legacy multi-client no longer used)
-ClientConnectionManager = None
-ClientStatus = None
-client_manager_available = False
 
 # ==============================================================================
 # CONSTANTS
@@ -747,33 +739,17 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_hmm_dialog(self):
-        global hmm_dialog_available, HMMMonitorDialog
-        # Lazy-import: only pay the PyTorch startup cost when the dialog is first opened.
-        if hmm_dialog_available is None:
-            try:
-                from Spyder.SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import (
-                    HMMMonitorDialog as _HMM,
-                )
-                HMMMonitorDialog = _HMM
-                hmm_dialog_available = True
-                logger.info("✅ HMM Monitor Dialog loaded (lazy)")
-            except ImportError:
-                HMMMonitorDialog = None
-                hmm_dialog_available = False
-                logger.info("⚠️ HMM Monitor Dialog not available")
-
-        if hmm_dialog_available and HMMMonitorDialog:
-            self.close_current_dialog()
-            self.current_dialog = HMMMonitorDialog(self)
-            self.current_dialog.show()
-        elif signal_dialog_available:
+        # M06 HMMRegimeDetector is deprecated (L09 is canonical); show the
+        # informational SignalInfoDialog directly without attempting an import.
+        if signal_dialog_available:
             self.show_signal_dialog("HMM REGIME")
         else:
             QMessageBox.information(
                 self,
                 "HMM Regime Detector",
-                "Current Regime: NORMAL\nProbability: 0.75\nTransition Risk: LOW\n\n"
-                "Regime History:\n- Low Vol: 45%\n- Normal: 40%\n- High Vol: 15%",
+                "The HMM regime dialog is unavailable.\n\n"
+                "Connect a supported analytics source or open the signal dialog "
+                "when it is available to view live regime data.",
             )
 
     def show_skew_dialog(self):
@@ -802,8 +778,9 @@ class SignalMonitorPanel(QWidget):
             QMessageBox.information(
                 self,
                 "SKEW Monitor",
-                "CBOE SKEW Index: 125.5\nStatus: NORMAL\nTail Risk: Moderate\n\n"
-                "Strategy Impact:\n- Puts: Fairly priced\n- Calls: Normal premium\n- Recommended: Iron Condors",
+                "The SKEW monitor is unavailable.\n\n"
+                "Connect a supported market-data source or open the signal dialog "
+                "when it is available to view live SKEW data.",
             )
 
     def show_internals_dialog(self):
@@ -3930,12 +3907,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         mode_label = self.trading_mode.value
         self.add_system_log(f"{mode_label} trading started successfully")
-        self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Autonomous AI Engine engaged")
+        self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Session started")
 
         if self.real_data_active:
-            self.add_automation_log("Using REAL market data from Massive API")
+            self.add_automation_log("Using live market data feed")
         else:
-            self.add_automation_log("Monitoring SPY options for trading opportunities")
+            self.add_automation_log("Using current dashboard data source")
 
     def _start_paper_trading(self):
         """Launch the paper trading worker in a background QThread."""
@@ -4168,7 +4145,7 @@ class SpyderTradingDashboard(QMainWindow):
             if self.acct_number_lbl:
                 import os as _os_conn
                 self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
-            self.add_automation_log("PAPER TRADING ACTIVE — Polling SPY every 30s")
+            self.add_automation_log("PAPER TRADING ACTIVE — Connected to Tradier sandbox")
         else:
             self.add_system_log("❌ Paper trading could not connect to Tradier")
 
@@ -4200,7 +4177,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.add_system_log("Trading stopped - Orders and positions remain active")
         self.add_automation_log("TRADING STOPPED - Existing positions maintained")
-        self.add_automation_log("Autonomous AI Engine on standby")
+        self.add_automation_log("Automation session inactive")
 
     def emergency_close(self):
         """Handle emergency close button click - FIXED MESSAGES"""
@@ -4231,7 +4208,7 @@ class SpyderTradingDashboard(QMainWindow):
                 "🚨 EMERGENCY CLOSE - All positions closed, system stopped",
             )
             self.add_automation_log(
-                "EMERGENCY PROTOCOL - All positions closed by autonomous system",
+                "EMERGENCY PROTOCOL - Close requested by operator",
             )
 
             self.trading_active = False
@@ -4445,13 +4422,13 @@ class SpyderTradingDashboard(QMainWindow):
     def _init_simulation_from_real_data(self):
         """Initialize simulation starting from last real market prices"""
         if hasattr(self, "market_data") and self.market_data:
+            spy_last = self.market_data.get("SPY", {}).get("last")
             # Use current market data as baseline for simulation
-            self.add_system_log(
-                f"🎯 Simulation baseline: SPY ${self.market_data.get('SPY', {}).get('last', 585):.2f}",
-            )
-        else:
-            # Use default simulation data
-            self.add_system_log("🎯 Using default simulation baseline")
+            if isinstance(spy_last, (int, float)):
+                self.add_system_log(f"🎯 Simulation baseline: SPY ${spy_last:.2f}")
+                return
+
+        self.add_system_log("🎯 Simulation baseline unavailable - awaiting market data")
 
     # ==========================================================================
     # UTILITY METHODS - ENHANCED WITH HEARTBEAT WORKER
