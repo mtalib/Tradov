@@ -756,7 +756,9 @@ class MassiveClient:
         rest = self._get_rest()
         result: dict[str, float] = {}
         try:
-            for snapshot in self._rest_call(rest.list_snapshot_indices, tickers=symbols):
+            # get_snapshot_indices(ticker_any_of=...) is the correct SDK method.
+            # list_snapshot_indices does not exist in the installed polygon SDK.
+            for snapshot in self._rest_call(rest.get_snapshot_indices, ticker_any_of=symbols):
                 ticker = getattr(snapshot, "ticker", "") or ""
                 internal_key = _MASSIVE_INTERNALS_MAP.get(ticker)
                 if not internal_key:

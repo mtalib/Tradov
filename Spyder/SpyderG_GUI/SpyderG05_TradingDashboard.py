@@ -284,6 +284,8 @@ from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import (
     _freshest_quote_timestamp_ms,
     check_api_connection,
 )
+# Chart indicator computation extracted per audit §3.
+from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import compute_chart_indicators
 
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
@@ -1124,6 +1126,22 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self.trading_active = False
         self.auto_connect_attempts = 0
+
+        # Order manager — broker-layer facade (audit §5)
+        from Spyder.SpyderB_Broker.SpyderB06_DashboardOrderManager import (
+            DashboardOrderManager,
+        )
+        self._order_manager = DashboardOrderManager(client=None, use_live=False)
+
+        # H07 PerformanceAnalytics — injected once at construction (audit §9/§20)
+        try:
+            from Spyder.SpyderH_Storage.SpyderH07_PerformanceAnalytics import (
+                PerformanceAnalytics as _PerformanceAnalytics,
+            )
+            self._h07_performance_analytics = _PerformanceAnalytics()
+        except Exception as _h07_import_err:
+            logger.warning("H07 PerformanceAnalytics unavailable: %s", _h07_import_err)
+            self._h07_performance_analytics = None
 
         # Risk parameters
         self.current_risk_params = None
@@ -2476,37 +2494,27 @@ class SpyderTradingDashboard(QMainWindow):
             self.canvas.draw()
             return
 
-        # Calculate pivot points from previous session high/low/close
-        prev_high = max(highs)
-        prev_low = min(lows)
-        prev_close = closes[-1]
+        # --- Compute chart indicators via extracted service (audit §3) ---
+        try:
+            indicators = compute_chart_indicators(highs, lows, closes, volumes)
+        except ValueError:
+            indicators = None
 
-        # Fibonacci Daily Pivot Points
-        pivot = (prev_high + prev_low + prev_close) / 3
-        r1 = (2 * pivot) - prev_low
-        r2 = pivot + (prev_high - prev_low)
-        r3 = prev_high + 2 * (pivot - prev_low)
-        s1 = (2 * pivot) - prev_high
-        s2 = pivot - (prev_high - prev_low)
-        s3 = prev_low - 2 * (pivot - prev_low)
-
-        # 20-period Moving Average
-        ma_20 = []
-        for i in range(len(closes)):
-            if i < 19:
-                ma_20.append(None)
-            else:
-                ma_20.append(sum(closes[i - 19 : i + 1]) / 20)
-
-        # VWAP
-        vwap = []
-        cumulative_pv = 0
-        cumulative_volume = 0
-        for i in range(len(closes)):
-            typical_price = (highs[i] + lows[i] + closes[i]) / 3
-            cumulative_pv += typical_price * volumes[i]
-            cumulative_volume += volumes[i]
-            vwap.append(cumulative_pv / cumulative_volume)
+        if indicators is not None:
+            pivot = indicators.pivots.pivot
+            r1 = indicators.pivots.r1
+            r2 = indicators.pivots.r2
+            r3 = indicators.pivots.r3
+            s1 = indicators.pivots.s1
+            s2 = indicators.pivots.s2
+            s3 = indicators.pivots.s3
+            ma_20 = indicators.ma20
+            vwap = indicators.vwap
+        else:
+            # Degenerate fallback: keep pivot at last close, skip other overlays
+            pivot = r1 = r2 = r3 = s1 = s2 = s3 = closes[-1]
+            ma_20 = [None] * len(closes)
+            vwap = closes[:]
 
         # Create plot
         ax = self.figure.add_subplot(111)
@@ -3373,52 +3381,19 @@ class SpyderTradingDashboard(QMainWindow):
             return None
 
     def _fetch_pending_orders(self, mode: "TradingMode | None" = None) -> list[dict]:
-        """Fetch open/pending orders from Tradier for the given (or current) mode.
-
-        Returns a list of raw Tradier order dicts with status in
-        {open, partially_filled, pending}.  Returns empty list on any failure.
-        """
-        client = self._get_tradier_client_for_mode(mode)
-        if not client:
-            return []
-        try:
-            response = client.get_orders()
-            orders_node = response.get("orders")
-            if not orders_node or orders_node == "null":
-                return []
-            order_list = orders_node.get("order", [])
-            if isinstance(order_list, dict):
-                order_list = [order_list]
-            _pending = {"open", "partially_filled", "pending"}
-            return [o for o in order_list if o.get("status", "").lower() in _pending]
-        except Exception as exc:
-            self.add_system_log(f"⚠️ Could not fetch orders from Tradier: {exc}")
-            return []
+        """Thin wrapper — delegates to DashboardOrderManager (audit §5)."""
+        self._order_manager.set_client(self._get_tradier_client_for_mode(mode))
+        return self._order_manager.fetch_pending_orders()
 
     def _cancel_orders(
         self, orders: list[dict], mode: "TradingMode | None" = None
     ) -> tuple[int, int]:
-        """Cancel each order in *orders* via Tradier.
-
-        Returns ``(success_count, fail_count)``.
-        """
-        client = self._get_tradier_client_for_mode(mode)
-        if not client:
-            return 0, len(orders)
-        success = fail = 0
-        for order in orders:
-            try:
-                order_id = int(order.get("id", 0))
-                if order_id:
-                    client.cancel_order(order_id)
-                    success += 1
-                    self.add_system_log(f"✅ Cancelled order #{order_id}")
-                else:
-                    fail += 1
-            except Exception as exc:
-                fail += 1
-                self.add_system_log(f"❌ Failed to cancel order #{order.get('id')}: {exc}")
-        return success, fail
+        """Thin wrapper — delegates to DashboardOrderManager (audit §5)."""
+        self._order_manager.set_client(self._get_tradier_client_for_mode(mode))
+        ok, fail = self._order_manager.cancel_orders(orders)
+        for order in orders[:ok]:
+            self.add_system_log(f"✅ Cancelled order #{order.get('id')}")
+        return ok, fail
 
     def _refresh_positions_table(self) -> None:
         """Fetch live orders & positions from Tradier and repopulate the table.
@@ -3444,36 +3419,23 @@ class SpyderTradingDashboard(QMainWindow):
             return
 
         client = self._get_tradier_client_for_mode()
-        if not client:
-            return
+        self._order_manager.set_client(client)
 
         try:
             self.positions_table.clear()
             has_rows = False
 
+            data = self._order_manager.fetch_orders_and_positions()
+
             # ── Pending / open orders ─────────────────────────────────────────
-            orders_resp = client.get_orders()
-            orders_node = orders_resp.get("orders")
-            if orders_node and orders_node != "null":
-                order_list = orders_node.get("order", [])
-                if isinstance(order_list, dict):
-                    order_list = [order_list]
-                _pending = {"open", "partially_filled", "pending"}
-                for o in order_list:
-                    if o.get("status", "").lower() in _pending:
-                        self._add_order_row(o)
-                        has_rows = True
+            for o in data["pending_orders"]:
+                self._add_order_row(o)
+                has_rows = True
 
             # ── Open positions ────────────────────────────────────────────────
-            pos_resp = client.get_positions()
-            pos_node = pos_resp.get("positions")
-            if pos_node and pos_node != "null":
-                pos_list = pos_node.get("position", [])
-                if isinstance(pos_list, dict):
-                    pos_list = [pos_list]
-                for p in pos_list:
-                    self._add_position_row(p)
-                    has_rows = True
+            for p in data["open_positions"]:
+                self._add_position_row(p)
+                has_rows = True
 
             if not has_rows:
                 _empty = QTreeWidgetItem(self.positions_table)
@@ -3567,12 +3529,9 @@ class SpyderTradingDashboard(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        client = self._get_tradier_client_for_mode()
-        if not client:
-            QMessageBox.warning(self, "Not Connected", "No Tradier client available.")
-            return
+        self._order_manager.set_client(self._get_tradier_client_for_mode())
         try:
-            client.cancel_order(int(order_id))
+            self._order_manager.cancel_order_by_id(int(order_id))
             self.add_system_log(f"✅ Order #{order_id} cancelled")
             self._refresh_positions_table()
         except Exception as exc:
@@ -3582,6 +3541,18 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     # TRADING MODE MANAGEMENT
     # ==========================================================================
+
+    def _count_open_live_positions(self) -> int:
+        """Return the number of live positions visible in the positions table.
+
+        Separated from _on_mode_btn_clicked per audit §18 so the policy check
+        (does the user have open live positions?) can be tested without a dialog.
+        The table row count is used as a proxy because positions are fetched from
+        Tradier and rendered row-by-row into that widget.
+        """
+        if self.positions_table is None:
+            return 0
+        return self.positions_table.topLevelItemCount()
 
     def _handle_pending_orders_gate(
         self, pending_mode: TradingMode, target_label: str, support_suffix: str
@@ -3731,9 +3702,7 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             # Gate 3: warn if live positions still open (positions, not orders)
-            open_count = 0
-            if self.positions_table is not None:
-                open_count = self.positions_table.topLevelItemCount()
+            open_count = self._count_open_live_positions()
             if open_count > 0:
                 answer = QMessageBox.warning(
                     self,
@@ -4112,17 +4081,14 @@ class SpyderTradingDashboard(QMainWindow):
         if self.pnl_table is None:
             return
 
-        # Also try H07 PerformanceAnalytics if available
-        try:
-            from Spyder.SpyderH_Storage.SpyderH07_PerformanceAnalytics import (
-                PerformanceAnalytics,
-            )
-            pa = PerformanceAnalytics()
-            h07_stats = pa.get_summary_stats()
-            if h07_stats:
-                stats = {**stats, **h07_stats}
-        except Exception:
-            pass  # H07 unavailable — use whatever is in stats
+        # Augment stats with H07 PerformanceAnalytics when available (§9: injected at __init__)
+        if self._h07_performance_analytics is not None:
+            try:
+                h07_stats = self._h07_performance_analytics.get_summary_stats()
+                if h07_stats:
+                    stats = {**stats, **h07_stats}
+            except Exception as _h07_err:
+                logger.warning("H07 PerformanceAnalytics.get_summary_stats failed: %s", _h07_err)
 
         periods = ["today", "week", "month", "year"]
         col_map = {1: "pnl", 2: "win_rate", 3: "win_loss", 4: "profit_factor",
@@ -4651,174 +4617,41 @@ class SpyderTradingDashboard(QMainWindow):
             self.close_strategy(strategy_data)
 
     def close_strategy(self, strategy_data: dict):
-        """Close all legs of a strategy with market orders"""
+        """Close all legs of a strategy with market orders.
+
+        Delegates leg parsing and API submission to DashboardOrderManager
+        (audit §5).  This method handles only the resulting UX: success dialog,
+        error messageboxes, and system log messages.
+        """
         strategy_name = strategy_data["strategy"]
-        num_legs = len(strategy_data["legs"])
+        legs_data = strategy_data.get("legs", [])
+        num_legs = len(legs_data)
 
         self.log_system_message(
             f"⚠️ MANUAL OVERRIDE: Closing {strategy_name} strategy ({num_legs} legs)...",
         )
 
-        # --- Validate prerequisites ---
-        if self.tradier_client is None:
-            self.log_system_message("❌ Cannot close strategy: Tradier client not connected")
-            QMessageBox.warning(
-                self,
-                "Not Connected",
-                "Cannot submit close orders: Tradier API is not connected.\n\n"
-                "Please connect to the API first.",
-            )
-            return
-
-        if not TRADIER_AVAILABLE or OptionLeg is None:
-            self.log_system_message("❌ Cannot close strategy: TradierClient module unavailable")
-            QMessageBox.critical(
-                self,
-                "Module Unavailable",
-                "TradierClient module could not be imported.\n"
-                "Order submission is not available.",
-            )
-            return
-
-        legs_data = strategy_data.get("legs", [])
-        if not legs_data:
-            self.log_system_message("❌ Cannot close strategy: no legs found in strategy data")
-            return
+        self._order_manager.set_client(self._get_tradier_client_for_mode())
 
         try:
-            # ------------------------------------------------------------------
-            # Parse UI leg dicts into OptionLeg objects for place_multileg_order
-            # ------------------------------------------------------------------
-            # Leg dict keys: leg, strike, cntr, expiry, cost, pnl, status
-            # Examples:
-            #   leg    = "Sell Put"  | "Buy Call"
-            #   strike = "$580P"     | "$600C"
-            #   cntr   = "10"
-            #   expiry = "03/07"  (MM/DD — year inferred from current date)
-
-            current_year = datetime.now().year
-            current_month = datetime.now().month
-            option_legs: list = []
-
-            for leg_dict in legs_data:
-                leg_label: str = leg_dict["leg"]          # e.g. "Sell Put"
-                strike_raw: str = leg_dict["strike"]      # e.g. "$580P"
-                cntr_raw: str = leg_dict["cntr"]          # e.g. "10"
-                expiry_raw: str = leg_dict["expiry"]      # e.g. "03/07"
-
-                # --- Validate quantity ---
-                try:
-                    quantity = int(cntr_raw.strip())
-                except ValueError:
-                    raise ValueError(
-                        f"Invalid contract count '{cntr_raw}' for leg '{leg_label}'",
-                    ) from None
-                if quantity <= 0:
-                    raise ValueError(
-                        f"Contract count must be positive, got {quantity} for leg '{leg_label}'",
-                    )
-
-                # --- Parse strike: strip leading "$", trailing C/P ---
-                # e.g. "$580P" → strike=580.0, opt_type="P"
-                clean_strike = strike_raw.lstrip("$")
-                if not clean_strike:
-                    raise ValueError(f"Empty strike value for leg '{leg_label}'")
-                opt_type_char = clean_strike[-1].upper()
-                if opt_type_char not in ("C", "P"):
-                    raise ValueError(
-                        f"Cannot determine option type from strike '{strike_raw}' "
-                        f"for leg '{leg_label}'; expected trailing 'C' or 'P'",
-                    )
-                try:
-                    strike_price = float(clean_strike[:-1])
-                except ValueError:
-                    raise ValueError(
-                        f"Cannot parse strike price from '{strike_raw}' for leg '{leg_label}'",
-                    ) from None
-
-                # --- Parse expiry: MM/DD → YYYY-MM-DD (roll to next year if past) ---
-                exp_parts = expiry_raw.strip().split("/")
-                if len(exp_parts) != 2:
-                    raise ValueError(
-                        f"Unexpected expiry format '{expiry_raw}' for leg '{leg_label}'; "
-                        "expected MM/DD",
-                    )
-                exp_month, exp_day = int(exp_parts[0]), int(exp_parts[1])
-                exp_year = current_year
-                # If the expiry month is earlier than the current month, it's next year
-                if exp_month < current_month:
-                    exp_year += 1
-                expiration_str = f"{exp_year}-{exp_month:02d}-{exp_day:02d}"
-
-                # --- Determine close side from leg label ---
-                # "Sell …" was opened SELL_TO_OPEN → close with BUY_TO_CLOSE
-                # "Buy …"  was opened BUY_TO_OPEN  → close with SELL_TO_CLOSE
-                leg_lower = leg_label.lower()
-                if leg_lower.startswith("sell"):
-                    close_side = OrderSide.BUY_TO_CLOSE
-                elif leg_lower.startswith("buy"):
-                    close_side = OrderSide.SELL_TO_CLOSE
-                else:
-                    raise ValueError(
-                        f"Cannot determine order side from leg label '{leg_label}'; "
-                        "expected label beginning with 'Sell' or 'Buy'",
-                    )
-
-                # --- Build OCC option symbol ---
-                occ_symbol = build_option_symbol(
-                    "SPY", expiration_str, opt_type_char, strike_price,
-                )
-
-                option_legs.append(OptionLeg(
-                    option_symbol=occ_symbol,
-                    side=close_side,
-                    quantity=quantity,
-                ))
-
-                self.log_system_message(
-                    f"  Prepared close leg: {close_side.value} {quantity}x {occ_symbol}",
-                )
-
-            # ------------------------------------------------------------------
-            # Submit the multileg market order to Tradier
-            # ------------------------------------------------------------------
-            self.logger.info(
-                f"Submitting market close order for {strategy_name} "
-                f"({len(option_legs)} legs)",
-            )
-
-            response = self.tradier_client.place_multileg_order(
-                symbol="SPY",
-                legs=option_legs,
-                order_type="market",
-                duration=OrderDuration.DAY,
-            )
-
-            # Extract order ID from response (Tradier returns {"order": {"id": …, …}})
+            response = self._order_manager.submit_multileg_close(strategy_name, legs_data)
             order_id = (
                 response.get("order", {}).get("id")
                 or response.get("id")
             )
-
-            self.logger.info(
-                f"Close order submitted successfully for {strategy_name}: "
-                f"order_id={order_id}",
-            )
             self.log_system_message(
                 f"✅ Close order submitted for {strategy_name} — order ID: {order_id}",
             )
-
             QMessageBox.information(
                 self,
                 "Close Order Submitted",
                 f"Strategy '{strategy_name}' close order submitted successfully.\n\n"
                 f"Order ID: {order_id}\n"
-                f"Legs: {len(option_legs)}\n"
+                f"Legs: {num_legs}\n"
                 f"Type: Market / Day\n\n"
                 "Positions will update once fills are confirmed.",
             )
-
-        except TradierAPIError as e:
+        except (TradierAPIError if TradierAPIError is not None else Exception) as e:
             self.logger.exception(
                 "Tradier API error closing strategy '%s': %s", strategy_name, e,
             )

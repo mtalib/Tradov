@@ -283,7 +283,7 @@ class MarketConditions:
     yield_curve_slope: float = float("nan")   # 10Y-2Y spread; negative = inverted
     yield_10y: float = float("nan")
     yield_curve_inverted: bool = False
-    # Market breadth internals from S11 (Barchart)
+    # Market breadth internals from S11 (no provider configured yet)
     tick_index: float = float("nan")   # NYSE Tick Index
     add_index: float = float("nan")    # NYSE Advance-Decline
     trin: float = float("nan")         # NYSE Arms / TRIN
@@ -635,7 +635,7 @@ class SignalRegimeDetector:
                     'yield_slope':    current_metrics.get('YIELD_SLOPE',   conditions.yield_curve_slope),
                     'yield_inverted': current_metrics.get('YIELD_INVERTED', conditions.yield_curve_inverted),
                     'yield_10y':      current_metrics.get('YIELD_10Y',     conditions.yield_10y),
-                    # Breadth internals (S11 Barchart)
+                    # Breadth internals (S11)
                     'tick':           current_metrics.get('TICK',  conditions.tick_index),
                     'add':            current_metrics.get('ADD',   conditions.add_index),
                     'trin':           current_metrics.get('TRIN',  conditions.trin),

@@ -57,7 +57,7 @@ Spyder is an autonomous algorithmic trading system targeting SPY (S&P 500 ETF) o
 
 - **Language:** Python 3.13.3
 - **Broker:** Tradier API (REST + WebSocket, Bearer token auth)
-- **Market Data:** Tradier (runtime and execution), Massive SDK (supported market-data path / fallback)
+- **Market Data:** Tradier (runtime and execution), Massive SDK (supported market-data path / fallback), Playwright (TradingView scraping for NYSE breadth: TICK, TRIN, ADD)
 - **GUI:** PySide6 (Qt6)
 - **ML/AI:** scikit-learn, PyTorch, TensorFlow, XGBoost, stable-baselines3
 - **LLM:** Ollama (local inference) — 4 model roles: PRIMARY, FAST, CODE, FINANCE
@@ -98,7 +98,7 @@ Spyder is an autonomous algorithmic trading system targeting SPY (S&P 500 ETF) o
 | P | `SpyderP_PortfolioMgmt` | 8 | 10,402 | Portfolio optimization, capital allocation, strategy rotation |
 | Q | `SpyderQ_Scripts` | 22 | 9,360 | Launchers, validators, utilities, fine-tuning scripts, CI gates |
 | R | `SpyderR_Runtime` | 7 | 6,487 | Paper engine, live engine, backtest harness, production deployment |
-| S | `SpyderS_Signals` | 12 | 9,556 | Custom signals: DIX, GEX, SKEW, Black Swan, short squeeze, macros |
+| S | `SpyderS_Signals` | 12 | 9,524 | Custom signals: DIX, GEX, SKEW, Black Swan, short squeeze, breadth, macros |
 | T | `SpyderT_Testing` | 122 | 94,020 | Full pytest test suite covering all series |
 | U | `SpyderU_Utilities` | 33 | 19,901 | Logger, error handler, date/time, math, encryption, resilience utils |
 | V | `SpyderV_QuantModels` | 10 | 11,228 | Quant models, Heston/SABR pricing, GARCH volatility, IV engine |
@@ -568,9 +568,9 @@ The R-Series contains the execution engines for paper trading, live trading, and
 
 ## 21. Series S — Signals
 
-**Package:** `SpyderS_Signals` | **12 files** | **9,556 LOC**
+**Package:** `SpyderS_Signals` | **12 files** | **9,524 LOC**
 
-The S-Series generates custom proprietary signals beyond standard technical analysis: dark pool indices, gamma/delta exposure, SKEW, Black Swan risk indicators, short squeeze detection, and macro economic data integration.
+The S-Series generates custom proprietary signals beyond standard technical analysis: dark pool indices, gamma/delta exposure, SKEW, Black Swan risk indicators, short squeeze detection, NYSE breadth internals (via TradingView scraping), and macro economic data integration.
 
 | Module | LOC | Description |
 |--------|----:|-------------|
@@ -580,11 +580,11 @@ The S-Series generates custom proprietary signals beyond standard technical anal
 | `SpyderS04_BlackSwanScheduler.py` | 1,448 | Black Swan scheduler. Manages data polling cadence, cooling-off periods, and alert routing when the indicator reaches critical thresholds. |
 | `SpyderS05_GEXDEXCalculator.py` | 546 | GEX/DEX (Gamma Exposure / Delta Exposure) calculator. Computes dealer net gamma and delta from SPY open interest for hedging flow analysis. |
 | `SpyderS06_SKEWCalculator.py` | 1,423 | CBOE SKEW index replication from SPY options chain. Computes real-time SKEW, tracks historical percentiles, and signals tail-risk elevation. |
-| `SpyderS07_CustomMetricsOrchestrator.py` | 1,149 | Orchestrates all custom metrics (DIX, GEX, SKEW, Black Swan) into a unified real-time signal feed consumed by strategies and risk modules. |
+| `SpyderS07_CustomMetricsOrchestrator.py` | 1,148 | Orchestrates all custom metrics (DIX, GEX, SKEW, Black Swan, TradingView breadth) into a unified real-time signal feed consumed by strategies and risk modules. Emits `breadth_updated` signal with TICK/TRIN/ADD snapshot. |
 | `SpyderS08_ShortSqueezeDetector.py` | 1,330 | Short squeeze detector. Identifies rapid market spike patterns driven by short-covering dynamics using volume, price velocity, and short interest data. |
 | `SpyderS09_FREDClient.py` | 314 | FRED (Federal Reserve Economic Data) API client. Fetches macro and yield curve data (Fed Funds rate, 2Y/10Y spread, CPI) for strategy conditioning. |
 | `SpyderS10_SentimentScraper.py` | 413 | Weekly sentiment data scrapers. Collects AAII individual investor survey and NAAIM exposure index for contrarian positioning signals. |
-| `SpyderS11_BarchartInternals.py` | 407 | Market breadth internals via Barchart API. Retrieves $TICK, $ADD, $TRIN, and $NYMO (McClellan Oscillator) for intraday market health signals. |
+| `SpyderS11_TradingViewInternals.py` | 369 | NYSE market breadth internals via Playwright headless Chromium scraping of public TradingView symbol pages. Retrieves $TICK (USI:TICK), $ADD (USI:ADD), and $TRIN (USI:TRIN.NY) with majority-vote breadth regime classification. Browser tabs persist across polling cycles; ~2 s refresh for all 3 symbols during market hours, cached off-hours. No API key or authentication required. |
 | `__init__.py` | 98 | Package init exporting the custom metrics orchestrator and all S-Series signal classes. |
 
 ---

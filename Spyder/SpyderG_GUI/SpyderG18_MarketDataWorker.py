@@ -88,6 +88,16 @@ HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 REALTIME_QUOTE_MAX_AGE_SECONDS = 15.0   # Must exceed the 10-second fast-fetch interval
 REALTIME_SENTINEL_SYMBOLS = ("SPY", "SPX", "QQQ")
 
+# Single canonical remap: Tradier symbol → dashboard widget key.
+# §1c: Consolidated from two inline dicts that previously lived independently
+# inside _fetch_live_data_from_tradier and _fetch_quotes_fast.
+_SYMBOL_REMAP: dict[str, str] = {
+    "VIX9D": "VXV",   # VIX9D is the closest available proxy for VXV (3-month vol)
+    "UUP":   "DXY",   # Invesco USD ETF (~27) proxies DXY (~104) for display
+    # NDX, RUT are already the correct widget key names — no remap needed.
+    # $DJI confirmed ~15 min delayed on Tradier; DIA*100 used for display instead.
+}
+
 
 # ==============================================================================
 # QUOTE-FRESHNESS HELPERS
@@ -402,11 +412,6 @@ class ThreadSafeMarketDataWorker(QObject):
                     quotes_raw = [quotes_raw]
                 live_data = {}
                 # Remap Tradier symbols to dashboard widget keys where needed
-                _sym_remap = {
-                    "VIX9D": "VXV",   # VIX9D closest proxy for VXV 3-month vol
-                    "UUP":   "DXY",   # Invesco USD ETF (~27) proxies DXY (~104)
-                    # NDX and RUT are already correct key names — no remap needed
-                }
                 for q in quotes_raw:
                     sym = q.get("symbol", "")
                     last = float(q.get("last") or q.get("close") or 0.0)
@@ -414,7 +419,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     change_pct = float(q.get("change_percentage") or 0.0)
                     timestamp_ms = _freshest_quote_timestamp_ms(q)
                     if last:
-                        key = _sym_remap.get(sym, sym)
+                        key = _SYMBOL_REMAP.get(sym, sym)
                         live_data[key] = {
                             "last": last,
                             "change": change,
@@ -534,13 +539,8 @@ class ThreadSafeMarketDataWorker(QObject):
                 # $DJI excluded: ~15 min delayed on Tradier; DIA*100 used for display
                 "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
                 # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
+                # $TICK/$ADD/$TRIN not reliably served by Tradier sandbox — fetched via yfinance below
             ]
-            _sym_remap = {
-                "VIX9D": "VXV",
-                "UUP":   "DXY",
-                # NOTE: $DJI confirmed ~15 min delayed — not fetched; DIA*100 used instead
-                # RUT is already the correct key name — no remap needed
-            }
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
             if isinstance(quotes_raw, dict):
@@ -563,7 +563,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 change_pct = float(q.get("change_percentage") or 0.0)
                 timestamp_ms = _freshest_quote_timestamp_ms(q)
                 if last:
-                    key = _sym_remap.get(sym, sym)
+                    key = _SYMBOL_REMAP.get(sym, sym)
                     existing[key] = {
                         "last": last,
                         "change": change,
@@ -576,49 +576,20 @@ class ThreadSafeMarketDataWorker(QObject):
                 with open(self.data_file, "w") as _f:
                     _json.dump(existing, _f)
 
-            # --- Market internals via yfinance ($TICK, $ADD, $TRIN) ---
-            # Tradier does not carry NYSE breadth symbols; yfinance provides
-            # ~15-min-delayed free data.  Throttled to every 3rd fast-quote call
-            # (~30 s) since the data changes slowly.
-            self._internals_tick = getattr(self, "_internals_tick", 0) + 1
-            if self._internals_tick % 3 == 1:  # 1st, 4th, 7th … calls
-                try:
-                    import yfinance as _yf
-                    _map = {"$TICK": "^TICK", "$ADD": "^ADD", "$TRIN": "^TRIN"}
-                    _df = _yf.download(
-                        list(_map.values()),
-                        period="1d", interval="5m",
-                        progress=False, auto_adjust=True,
-                    )
-                    if not _df.empty:
-                        import pandas as _pd
-                        _int_updated = False
-                        for dash_key, yf_sym in _map.items():
-                            try:
-                                if isinstance(_df.columns, _pd.MultiIndex):
-                                    _closes = _df[("Close", yf_sym)].dropna()
-                                else:
-                                    _closes = _df["Close"].dropna()
-                                if _closes.empty:
-                                    continue
-                                _last = float(_closes.iloc[-1])
-                                _prev = float(_closes.iloc[-2]) if len(_closes) >= 2 else _last
-                                _chg = _last - _prev
-                                _pct = (_chg / abs(_prev) * 100) if _prev else 0.0
-                                existing[dash_key] = {
-                                    "last": round(_last, 2),
-                                    "change": round(_chg, 2),
-                                    "change_pct": round(_pct, 2),
-                                }
-                                _int_updated = True
-                            except Exception:
-                                pass
-                        if _int_updated:
-                            self.data_file.parent.mkdir(parents=True, exist_ok=True)
-                            with open(self.data_file, "w") as _f:
-                                _json.dump(existing, _f)
-                except Exception:
-                    pass
+            # --- Market internals ($TICK, $ADD, $TRIN) ---
+            # These NYSE breadth indicators are unavailable on current data subscriptions:
+            #   • Yahoo Finance removed ^TICK/^ADD/^TRIN (404 Not Found as of 2025)
+            #   • Tradier returns unmatched_symbols (requires index data add-on)
+            #   • Polygon/Massive requires a paid Indices plan (I:TICK/I:ADD/I:TRIN)
+            # SpyderC27_MassiveClient.get_market_internals() is ready to use once
+            # the Polygon Indices subscription is activated.
+            if not getattr(self, "_internals_unavailable_logged", False):
+                logger.warning(
+                    "Market internals ($TICK/$ADD/$TRIN) unavailable: requires Tradier "
+                    "index data add-on or Polygon paid Indices plan. "
+                    "Route via SpyderC27_MassiveClient.get_market_internals() once enabled."
+                )
+                self._internals_unavailable_logged = True
         except Exception:
             pass
 

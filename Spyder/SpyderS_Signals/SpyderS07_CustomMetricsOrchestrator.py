@@ -113,13 +113,6 @@ except ImportError:
     logging.info("⚠️ S10_SentimentScraper not available")
 
 try:
-    from SpyderS_Signals.SpyderS11_BarchartInternals import get_barchart_client
-    BARCHART_AVAILABLE = True
-except ImportError:
-    BARCHART_AVAILABLE = False
-    logging.info("⚠️ S11_BarchartInternals not available")
-
-try:
     from SpyderS_Signals.SpyderS02_DIXScheduler import SpyderDIXScheduler
     DIX_SCHEDULER_AVAILABLE = True
 except ImportError:
@@ -132,6 +125,13 @@ try:
 except ImportError:
     SWAN_SCHEDULER_AVAILABLE = False
     logging.info("⚠️ S04_BlackSwanScheduler not available")
+
+try:
+    from SpyderS_Signals.SpyderS11_TradingViewInternals import get_tv_internals_client
+    TV_INTERNALS_AVAILABLE = True
+except ImportError:
+    TV_INTERNALS_AVAILABLE = False
+    logging.info("⚠️ S11_TradingViewInternals not available")
 
 # ==============================================================================
 # CONSTANTS
@@ -366,17 +366,6 @@ class CustomMetricsOrchestrator(QObject):
         else:
             self.sentiment_scraper = None
 
-        # S11 - Barchart Internals ($TICK, $ADD, $TRIN, $NYMO)
-        if BARCHART_AVAILABLE:
-            try:
-                self.barchart_client = get_barchart_client()
-                self.logger.info("✅ S11_BarchartInternals initialized")
-            except Exception as e:
-                self.logger.error("Failed to init Barchart: %s", e, exc_info=True)
-                self.barchart_client = None
-        else:
-            self.barchart_client = None
-
         # S02 - DIX Scheduler (pre-market 9:00 AM + EOD 6:30 PM ET cron collection)
         if DIX_SCHEDULER_AVAILABLE:
             try:
@@ -398,6 +387,17 @@ class CustomMetricsOrchestrator(QObject):
                 self.swan_scheduler = None
         else:
             self.swan_scheduler = None
+
+        # S11 - TradingView Breadth Internals (TICK, TRIN, ADD)
+        if TV_INTERNALS_AVAILABLE:
+            try:
+                self.tv_client = get_tv_internals_client()
+                self.logger.info("✅ S11_TradingViewInternals initialized")
+            except Exception as e:
+                self.logger.error("Failed to init TradingView internals: %s", e, exc_info=True)
+                self.tv_client = None
+        else:
+            self.tv_client = None
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
@@ -554,8 +554,8 @@ class CustomMetricsOrchestrator(QObject):
                 # S10 - Sentiment Updates (AAII weekly surveys, NAAIM exposure)
                 sentiment_success = self._update_sentiment_metrics(updated_metrics, update_errors)
 
-                # S11 - Market Breadth Internals ($TICK, $ADD, $TRIN, $NYMO)
-                barchart_success = self._update_barchart_metrics(updated_metrics, update_errors)
+                # S11 - TradingView Breadth Internals (TICK, TRIN, ADD)
+                breadth_success = self._update_tv_breadth_metrics(updated_metrics, update_errors)
 
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
@@ -599,7 +599,7 @@ class CustomMetricsOrchestrator(QObject):
                 calculation_time = time.time() - start_time
                 success_count = sum([
                     gex_success, dix_success, swan_success, skew_success,
-                    fred_success, sentiment_success, barchart_success,
+                    fred_success, sentiment_success, breadth_success,
                 ])
 
                 self.logger.info(
@@ -780,27 +780,26 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             return False
 
-    def _update_barchart_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update NYSE/NASDAQ market breadth internals ($TICK, $ADD, $TRIN, $NYMO) from Barchart"""
+    def _update_tv_breadth_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update TICK, TRIN, ADD breadth internals from TradingView."""
         try:
-            if self.barchart_client:
-                snap = self.barchart_client.get_snapshot()
-                updated_metrics["TICK"]           = snap.get("tick",          float("nan"))
-                updated_metrics["ADD"]            = snap.get("add",           float("nan"))
-                updated_metrics["TRIN"]           = snap.get("trin",          float("nan"))
-                updated_metrics["NYMO"]           = snap.get("nymo",          float("nan"))
+            if self.tv_client:
+                snap = self.tv_client.get_snapshot()
+                updated_metrics["TICK"] = snap.get("tick", float("nan"))
+                updated_metrics["ADD"]  = snap.get("add",  float("nan"))
+                updated_metrics["TRIN"] = snap.get("trin", float("nan"))
                 updated_metrics["BREADTH_REGIME"] = snap.get("breadth_regime", "neutral")
                 self.breadth_updated.emit(snap)
                 return True
             else:
-                for key in ("TICK", "ADD", "TRIN", "NYMO"):
+                for key in ("TICK", "ADD", "TRIN"):
                     updated_metrics[key] = self.current_metrics.get(key, float("nan"))
                 updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
                 return False
         except Exception as e:
-            errors.append(f"Barchart update error: {e}")
-            self.logger.error("Barchart update error: %s", e, exc_info=True)
-            for key in ("TICK", "ADD", "TRIN", "NYMO"):
+            errors.append(f"Breadth update error: {e}")
+            self.logger.error("Breadth update error: %s", e, exc_info=True)
+            for key in ("TICK", "ADD", "TRIN"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
             return False
