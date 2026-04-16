@@ -216,7 +216,7 @@ class DashboardIntegrationVerifier:
                             os.chmod(script_path, 0o755)
                             self.print_info(f"  → Made {script_name} executable")
                             results[name] = True
-                        except BaseException:
+                        except Exception:
                             results[name] = False
                 else:
                     # Python scripts

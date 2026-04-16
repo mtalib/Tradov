@@ -80,7 +80,7 @@ Change Log:
 import os
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from enum import Enum
@@ -217,7 +217,7 @@ class MassiveQuoteUpdate:
     ask: float
     bid_size: int = 0
     ask_size: int = 0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     bid_exchange: str = ""
     ask_exchange: str = ""
     raw: Any = field(default=None, repr=False)
@@ -271,7 +271,7 @@ class MassiveTradeUpdate:
     symbol: str
     price: float
     size: int
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     exchange: str = ""
     conditions: list[str] = field(default_factory=list)
     raw: Any = field(default=None, repr=False)
@@ -663,7 +663,7 @@ class MassiveClient:
                 ts_ms = getattr(agg, "timestamp", 0) or 0
                 rows.append({
                     "timestamp": (
-                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
                     ),
                     "open":         float(getattr(agg, "open", 0.0) or 0.0),
                     "high":         float(getattr(agg, "high", 0.0) or 0.0),
@@ -1467,7 +1467,7 @@ class MassiveClient:
             bid_size=int(getattr(msg, "bid_size", 0) or 0),
             ask_size=int(getattr(msg, "ask_size", 0) or 0),
             timestamp=(
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
             bid_exchange=str(getattr(msg, "bid_exchange", "") or ""),
             ask_exchange=str(getattr(msg, "ask_exchange", "") or ""),
@@ -1483,7 +1483,7 @@ class MassiveClient:
             price=float(getattr(msg, "price", 0.0) or 0.0),
             size=int(getattr(msg, "size", 0) or 0),
             timestamp=(
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
             exchange=str(getattr(msg, "exchange", "") or ""),
             conditions=[str(c) for c in conditions],
@@ -1504,7 +1504,7 @@ class MassiveClient:
             "vwap":               float(getattr(msg, "vwap", 0.0) or 0.0),
             "accumulated_volume": int(getattr(msg, "accumulated_volume", 0) or 0),
             "timestamp":          (
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
         }
 

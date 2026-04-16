@@ -229,7 +229,7 @@ class SkewDataThread(QThread):
                 new_value = history[-1].skew_index
                 return new_value - old_value
             return 0.0
-        except BaseException:
+        except Exception:
             return 0.0
 
     def determine_regime(self, skew_value: float) -> str:

@@ -429,7 +429,7 @@ class SyntaxValidator:
                                         suggestion="Use VolumeWeightedAveragePrice instead",
                                     )
                                 )
-        except BaseException:
+        except Exception:
             pass  # If we can't parse, syntax check will catch it
 
         return issues
@@ -523,7 +523,7 @@ class SyntaxValidator:
                 fixed_content, options={"aggressive": 2, "max_line_length": 100}
             )
             fixes_applied += 1
-        except BaseException:
+        except Exception:
             pass
 
         # Apply black formatting if available
@@ -531,7 +531,7 @@ class SyntaxValidator:
             try:
                 fixed_content = black.format_str(fixed_content, mode=black.Mode(line_length=100))
                 fixes_applied += 1
-            except BaseException:
+            except Exception:
                 pass
 
         # Apply isort for import sorting if available
@@ -539,7 +539,7 @@ class SyntaxValidator:
             try:
                 fixed_content = isort.code(fixed_content)
                 fixes_applied += 1
-            except BaseException:
+            except Exception:
                 pass
 
         # Custom fixes for specific issues

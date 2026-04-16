@@ -55,7 +55,7 @@ import json
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -408,7 +408,7 @@ class ShortSqueezeDetector:
             flows: List of OptionsFlow objects from the last N minutes.
         """
         with self._lock:
-            cutoff = datetime.utcnow() - timedelta(hours=1)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
             # Evict stale entries
             while self._flow_buffer and self._flow_buffer[0].timestamp < cutoff:
                 self._flow_buffer.popleft()
@@ -553,7 +553,7 @@ class ShortSqueezeDetector:
                 strength=strength,
                 components=components,
                 reasoning=reasoning,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 price=current_price,
                 price_change_pct=price_change,
                 vix_level=vix,
@@ -850,7 +850,7 @@ class ShortSqueezeDetector:
         # If live flow data is available, compute the current PCR from it
         if _FLOW_TYPES_AVAILABLE and len(self._flow_buffer) >= 20:
             window_sec = 900  # last 15 minutes
-            cutoff = datetime.utcnow() - timedelta(seconds=window_sec)
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_sec)
             recent_flows = [f for f in self._flow_buffer if f.timestamp >= cutoff]
             if recent_flows:
                 call_vol = sum(
@@ -988,7 +988,7 @@ class ShortSqueezeDetector:
                 description="No options flow data",
             ), False
 
-        cutoff = datetime.utcnow() - timedelta(minutes=SWEEP_WINDOW_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=SWEEP_WINDOW_MINUTES)
         recent = [f for f in self._flow_buffer if f.timestamp >= cutoff]
 
         # Aggressive call buys: side=ask/buy + minimum premium

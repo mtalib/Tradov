@@ -35,7 +35,7 @@ import time
 from typing import Any
 from collections.abc import Callable
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
@@ -592,7 +592,7 @@ class FinnhubNewsSource(BaseNewsSource):
     def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """Fetch from Finnhub /company-news endpoint."""
         try:
-            today = datetime.utcnow()
+            today = datetime.now(timezone.utc)
             week_ago = today - timedelta(days=7)
             params = {
                 "symbol": ticker,
