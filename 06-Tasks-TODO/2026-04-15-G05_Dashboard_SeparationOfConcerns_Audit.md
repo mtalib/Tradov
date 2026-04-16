@@ -633,19 +633,40 @@ subsystems actively misleads anyone reading the file.
 
 ## Updated impact summary
 
+### Re-baseline note (2026-04-16)
+
+The live file was re-checked against this audit before Phase 1 cleanup work
+continued. Several items in the original quick-win list had already been fixed
+or deleted in the current codebase, so the table and priority list below must be
+read as a re-baselined view, not a verbatim carry-forward of the first pass.
+
+What changed during re-validation:
+
+- The `_paper_worker` / `_paper_thread` initializer defect from §12 is no longer
+  active; both are already initialized in `__init__`.
+- The specific duplicate helper / patch targets called out in §15 were not found
+  in the current file.
+- Several legacy dead-code anchors from §19 were already absent; the remaining
+  low-risk cleanup was narrower and centered on deceptive fallback text and
+  misleading automation/status language.
+- The immediate integrity fix set was reduced to truthful HMM/SKEW fallback
+  dialogs, truthful automation log text, removal of an unused `random` import,
+  removal of an obsolete client-manager stub block, and removal of the default
+  fabricated simulation baseline message.
+
 | Concern | Severity | Notes |
 |---|---|---|
-| Fake UI content (§11) | **Critical** | Most deceptive issue — fake AI log, fake positions at startup, hardcoded-green indicators, zero Greeks, literal regime labels |
+| Fake UI content (§11) | **High** | The current file no longer matches the original worst-case description; the remaining deceptive fallback/log strings were the real Phase 1 integrity target and have now been cleaned up. |
 | Market-data fetcher (§1, §2) | Critical | First-pass finding |
 | Paper engine embedded (§4) | Critical | First-pass finding |
-| `_paper_worker` crash (§12) | High | Real defect — AttributeError path |
+| `_paper_worker` crash (§12) | Resolved | Historical finding; the current file already initializes `_paper_worker` and `_paper_thread` to `None`. |
 | Trading calendar in GUI (§13) | High | Circular-dep magnet |
 | Index-proxy math (§14) | High | Display data invented in view |
-| Duplicate "patch" functions (§15) | High | Second live-data injection path |
+| Duplicate "patch" functions (§15) | Stale | The specific duplicate patch/helper targets from the first pass were not present in the current file during re-baselining. |
 | Connection-state mirrors (§16) | High | Multiple sources of truth |
 | Hardcoded risk params (§17) | High | Enforcement logic in view |
 | Mode-switch policy (§18) | High | Gates not separated from UX |
-| Dead/legacy code (§19) | High | IBKR leftovers, dead stubs |
+| Dead/legacy code (§19) | Medium | Some legacy targets were already gone; the remaining low-risk cleanup was limited to obsolete stubs and misleading strings. |
 | Silent exception swallowing (§20) | High | Hides failures |
 | S07 lifecycle (§21) | High | Service owned by view |
 | `_heartbeat_check` god-method (§22) | High | 100-line mixed responsibility |
@@ -661,13 +682,11 @@ subsystems actively misleads anyone reading the file.
 | Analytics import (§9) | Low | First-pass finding |
 | Simulation data (§10) | Low | First-pass finding |
 
-Combined with the first-pass estimate (~1,000 LOC of misplaced code),
-the second-pass findings add roughly **another 800-1,000 lines** of
-fake-content removal, dead-code deletion, and misplaced service logic.
-After both passes, `SpyderG05_TradingDashboard.py` should plausibly
-shrink from **6,738 lines to under 3,000** — and the remaining file
-should be nothing but widgets, layouts, signal wiring, and slot
-handlers that call services.
+The original shrink estimate is directionally useful, but the deletion-first
+phase should be recalculated from the live file rather than from stale helper
+targets. The remaining work is still substantial, but the next pass should be
+driven by current service-boundary violations, not by assuming all earlier
+quick wins are still present.
 
 ---
 
@@ -677,31 +696,27 @@ The order below reflects both *severity* and *prerequisite chains* — do
 the deletions before the extractions, because deletion shrinks the
 surface area that extraction has to preserve.
 
-1. **Delete §11 fake content immediately.** `generate_automation_activity`,
-   `load_test_data`, `update_prometheus_metrics`' always-green force,
-   `update_greek_risks`' zero-overwrite timer, and hardcoded regime/strategy
-   labels. Zero-risk deletions, maximum integrity win.
-2. **Fix §12 `_paper_worker` crash path.** Trivial initializer fix —
-   do it in the same PR as §11.
-3. **Delete §15 duplicate module-level patch functions** and §19 dead
-   gateway/IBKR code.
-4. **Extract §13 trading calendar** to a utility module. Unblocks
-   non-GUI callers.
-5. **Verify / create `SpyderR02_PaperEngine`** (first-pass §4) and move
-   `_PaperTradingWorker` into it.
-6. **Create `MarketDataFeed` protocol** (first-pass §1) and move the
-   Tradier fetch, yfinance internals, index-proxy math (§14), and JSON
-   cache I/O (§23) behind it.
-7. **Create `HealthMonitor`** and move `_heartbeat_check` (§22),
-   circuit-breaker reset (first-pass §8), and indicator coloring
-   (replacing §11c) into it.
-8. **Create `ConnectionState`** (§16) as a single source of truth
-   published by the feed provider.
-9. **Move risk-parameter loading (§17), S07 lifecycle (§21), and
-   mode-switch gates (§18)** into their owning services.
-10. **Final polish:** theme injection (§26), context-menu stubs (§24),
-    log ring-buffer (§25).
+1. **Finish the integrity pass from the live file.** Treat deceptive fallback
+  dialogs, misleading automation/status text, and fabricated default-state UI
+  messages as the first cleanup class. Do not assume the stale helper names
+  from §11/§15/§19 still exist.
+2. **Re-audit connection-state ownership (§16)** against the current file and
+  identify the smallest path to a single source of truth for API/data/trading
+  status.
+3. **Extract §13 trading calendar and §23 file I/O** into service/util layers.
+  These are still concrete non-GUI responsibilities in the dashboard.
+4. **Verify / create `SpyderR02_PaperEngine`** (first-pass §4) and move
+  `_PaperTradingWorker` into it.
+5. **Create `MarketDataFeed` protocol** (first-pass §1) and move the
+  Tradier fetch, any remaining index-proxy math (§14), and JSON cache I/O
+  (§23) behind it.
+6. **Create `HealthMonitor`** and move `_heartbeat_check` (§22),
+  circuit-breaker reset (first-pass §8), and indicator coloring into it.
+7. **Move risk-parameter loading (§17), S07 lifecycle (§21), and
+  mode-switch gates (§18)** into their owning services.
+8. **Final polish:** theme injection (§26), context-menu stubs (§24),
+  log ring-buffer (§25).
 
-After step 10, re-run the one-line test: *Delete G05 and drive the
+After step 8, re-run the one-line test: *Delete G05 and drive the
 system from a script — does it still trade?* If yes, the dashboard has
 been reduced to its proper role.
