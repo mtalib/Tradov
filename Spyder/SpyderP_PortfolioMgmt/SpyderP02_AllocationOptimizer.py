@@ -1531,11 +1531,12 @@ class AllocationOptimizer:
                     # Calculate returns from P&L data
                     returns_dict[strategy_id] = data['pnl'].pct_change()
                 else:
-                    # Generate synthetic returns for testing
-                    returns_dict[strategy_id] = pd.Series(
-                        np.random.normal(0.001, 0.02, len(data)),
-                        index=data.index
+                    # No usable returns column — skip this strategy rather than fabricating data
+                    self.logger.warning(
+                        "_prepare_returns_data: strategy %s has no returns/close/pnl column — skipping",
+                        strategy_id,
                     )
+                    continue
 
             # Combine into DataFrame
             returns_df = pd.DataFrame(returns_dict)
@@ -1571,14 +1572,11 @@ class AllocationOptimizer:
                 if features_list:
                     features_df = pd.concat(features_list, axis=1)
                 else:
-                    # Generate synthetic features
-                    dates = pd.date_range(start='2020-01-01', end='2024-12-31', freq='D')
-                    features_df = pd.DataFrame({
-                        'vix': np.random.gamma(2, 10, len(dates)),
-                        'spy_returns': np.random.normal(0.001, 0.01, len(dates)),
-                        'volume': np.random.lognormal(15, 0.5, len(dates)),
-                        'volatility': np.random.gamma(3, 0.05, len(dates))
-                    }, index=dates)
+                    # No real features available — return empty rather than fabricating synthetic data
+                    self.logger.warning(
+                        "_prepare_features_data: no feature lists collected — returning empty DataFrame"
+                    )
+                    features_df = pd.DataFrame()
 
             # Store features history
             if len(features_df) > 0:
@@ -1778,8 +1776,8 @@ class AllocationOptimizer:
             if regime_features:
                 return np.column_stack(regime_features)
             else:
-                # Return dummy features
-                return np.random.randn(len(features_df), 3)
+                # No real features — return empty array; caller must handle gracefully
+                return np.array([])
 
         except Exception as e:
             self.error_handler.handle_error(e, "_extract_regime_features")

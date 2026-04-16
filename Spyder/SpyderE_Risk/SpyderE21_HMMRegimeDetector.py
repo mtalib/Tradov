@@ -936,6 +936,9 @@ def create_sample_data(n_periods: int = 252,
     """
     Create sample market data for HMM training.
 
+    NOTE: Test/training data generator — do not call from production code.
+    Uses a fixed random seed (42) for reproducibility.
+
     Args:
         n_periods: Number of periods to generate
         n_assets: Number of assets (default 1)

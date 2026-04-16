@@ -1724,7 +1724,11 @@ class CorrelationRiskManager:
 # ==============================================================================
 def create_sample_returns_data(n_assets: int = 10, n_periods: int = 100,
                               base_correlation: float = 0.3) -> pd.DataFrame:
-    """Create sample returns data for testing."""
+    """Create sample returns data for testing.
+
+    NOTE: Test/development data generator — do not call from production code.
+    Uses a fixed random seed (42) for reproducibility.
+    """
     np.random.seed(42)  # For reproducible results
 
     # Generate correlated returns

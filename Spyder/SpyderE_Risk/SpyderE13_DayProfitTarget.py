@@ -2114,9 +2114,9 @@ class DayProfitTargetWidget(QWidget):
             self.analytics_figure.clear()
             ax = self.analytics_figure.add_subplot(111)
 
-            # Create sample data for demo
+            # Create sample data for demo (static — avoids non-deterministic chart noise)
             times = list(range(10))
-            profits = [i * 2500 + np.random.normal(0, 500) for i in times]
+            profits = [i * 2500 for i in times]
 
             go.Scatter(times, profits, "b-", linewidth=2)
             ax.set_xlabel("Time (minutes)")
