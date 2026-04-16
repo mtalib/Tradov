@@ -689,9 +689,12 @@ class UnifiedRiskCoordinator:
                 self.cache_hits += 1
                 return cached_result
 
-            # AI pattern analysis (placeholder implementation)
+            # AI pattern analysis (placeholder — wire to X04 RiskGuardianAgent)
+            # ai_risk_score is neutral (0.5) until a real model is integrated;
+            # anomaly_alerts is empty because stochastic injection is not valid
+            # in a production path.
             result = {
-                'ai_risk_score': np.random.uniform(0.2, 0.8),  # Placeholder AI score
+                'ai_risk_score': 0.5,  # Neutral placeholder — TODO: wire to X04 model
                 'risk_patterns': [
                     {
                         'pattern': 'concentration_risk',
@@ -709,15 +712,6 @@ class UnifiedRiskCoordinator:
                 'learning_confidence': 0.6,
                 'source': RiskSource.AI_ENHANCEMENT.value
             }
-
-            # Add anomalies if detected
-            if np.random.random() < 0.1:  # 10% chance of anomaly
-                result['anomaly_alerts'].append({
-                    'type': 'unusual_correlation',
-                    'severity': 'medium',
-                    'description': 'Unusual correlation pattern detected',
-                    'confidence': 0.8
-                })
 
             # Cache the result
             self.cache.put(RiskCalculationType.AI_PATTERN_ANALYSIS, cache_key_data, result)
