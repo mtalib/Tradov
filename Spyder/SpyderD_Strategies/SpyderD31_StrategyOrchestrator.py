@@ -93,10 +93,14 @@ try:
     # Connectivity integration
     from SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState
 
+    # Prometheus rejection telemetry
+    from SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection
+
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
     logging.info("⚠️ Some Spyder modules not available: %s", e)
     SPYDER_MODULES_AVAILABLE = False
+    _record_risk_rejection = None  # type: ignore[assignment]
 
     # Fallback enums
     class StrategyState(Enum):
@@ -1276,7 +1280,17 @@ class StrategyOrchestrator:
             approved = result
 
         if not approved:
+            strategy_id = signal.get("strategy_id", "unknown") if isinstance(signal, dict) else "unknown"
+            if isinstance(result, dict):
+                reason = result.get("rejection_reason") or result.get("reason", "unknown")
+            else:
+                reason = getattr(result, "rejection_reason", "unknown") or "unknown"
             self.logger.warning("Strategy signal rejected by risk gate: %s", signal)
+            if _record_risk_rejection is not None:
+                try:
+                    _record_risk_rejection(strategy=strategy_id, rejection_reason=reason)
+                except Exception:
+                    pass
             try:
                 self.event_manager.publish(
                     EventType.RISK_ALERT,

@@ -22,6 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import concurrent.futures
 import queue
 import threading
 from collections import deque
@@ -471,6 +472,10 @@ class LiveEngine:
             # Add to order queue
             order["timestamp"] = datetime.now()
             order["order_id"] = self._generate_order_id()
+            # Pre-register a Future so _execute_order_internal can signal
+            # completion without a poll loop.
+            _fut: concurrent.futures.Future = concurrent.futures.Future()
+            self.pending_orders[order["order_id"]] = {"order": order, "result": None, "future": _fut}
             self.order_queue.put(order)
 
             # Wait for execution result
@@ -1219,32 +1224,54 @@ class LiveEngine:
                     self.current_session.trades_executed += 1
             else:
                 self.metrics.failed_executions += 1
-            self.pending_orders[order_id] = {"order": order, "result": result}
+            self._resolve_order_future(order_id, order, result)
         except _TradierServerError as exc:
             # Tradier 5xx: record failure; may trigger API Panic Mode
             self.logger.error("Tradier 5xx error for order %s: %s", order_id, exc)
             self.metrics.failed_executions += 1
-            self.pending_orders[order_id] = {"order": order, "result": {"status": "error", "reason": str(exc)}}
+            self._resolve_order_future(order_id, order, {"status": "error", "reason": str(exc)})
             self.record_api_server_error()
         except Exception as exc:
             self.logger.error("Internal order execution failed for %s: %s", order_id, exc)
             self.metrics.failed_executions += 1
-            self.pending_orders[order_id] = {"order": order, "result": {"status": "error", "reason": str(exc)}}
+            self._resolve_order_future(order_id, order, {"status": "error", "reason": str(exc)})
         finally:
             self.metrics.total_orders += 1
 
+    def _resolve_order_future(self, order_id: str, order: dict[str, Any], result: dict[str, Any]) -> None:
+        """Store result in pending_orders and signal the associated Future."""
+        entry = self.pending_orders.get(order_id)
+        if entry is None:
+            # Pre-registration may have been skipped (e.g. during unit tests).
+            self.pending_orders[order_id] = {"order": order, "result": result}
+            return
+        entry["result"] = result
+        fut: concurrent.futures.Future | None = entry.get("future")
+        if fut is not None and not fut.done():
+            fut.set_result(result)
+
     def _wait_for_execution(self, order_id: str, timeout: int = ORDER_TIMEOUT_SECONDS) -> dict[str, Any]:
-        """Block until the broker confirms order execution or timeout expires."""
-        import time as _time
-        deadline = _time.monotonic() + timeout
-        while _time.monotonic() < deadline:
-            if order_id in self.pending_orders:
-                entry = self.pending_orders[order_id]
-                result = entry.get("result")
-                if result is not None:
-                    return result
-            _time.sleep(0.1)
-        return {"status": "timeout", "reason": f"Order {order_id} not confirmed within {timeout}s"}
+        """Block until the broker confirms order execution or timeout expires.
+
+        Waits on a ``concurrent.futures.Future`` pre-registered by
+        ``execute_order`` — zero CPU cost until the fill callback fires.
+        Falls back to a dict lookup if no Future is registered (e.g. in
+        legacy unit test contexts that bypass ``execute_order``).
+        """
+        entry = self.pending_orders.get(order_id, {})
+        fut: concurrent.futures.Future | None = entry.get("future")
+        if fut is not None:
+            try:
+                return fut.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                return {"status": "timeout", "reason": f"Order {order_id} not confirmed within {timeout}s"}
+            except Exception as exc:
+                return {"status": "error", "reason": str(exc)}
+        # Fallback: no Future registered — return whatever is already stored.
+        result = entry.get("result")
+        if result is not None:
+            return result
+        return {"status": "error", "reason": f"No Future registered for order {order_id}"}
 
     def _update_execution_metrics(self, order: dict[str, Any], result: dict[str, Any]) -> None:
         """Update rolling execution metrics from a completed order."""
