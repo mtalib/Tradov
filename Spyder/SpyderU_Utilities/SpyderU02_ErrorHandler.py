@@ -232,7 +232,7 @@ class SpyderErrorHandler:
         # Component references (weak to avoid circular refs)
         self.components: dict[str, weakref.ref] = {}
 
-        self.logger.info("SpyderErrorHandler initialized")
+        self.logger.debug("SpyderErrorHandler initialized")
 
     # ==========================================================================
     # INITIALIZATION

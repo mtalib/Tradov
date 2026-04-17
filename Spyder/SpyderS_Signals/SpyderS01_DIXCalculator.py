@@ -182,7 +182,7 @@ class SpyderDIXCalculator:
         # Try to warm the in-memory cache from disk immediately
         self._load_market_caps_from_disk()
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -195,13 +195,13 @@ class SpyderDIXCalculator:
             bool: True if initialization successful
         """
         try:
-            self.logger.info("Initializing DIX Calculator...")
+            self.logger.debug("Initializing DIX Calculator...")
 
             # Fetch S&P 500 constituents
             if not self._fetch_sp500_constituents():
                 raise Exception("Failed to fetch S&P 500 constituents")
 
-            self.logger.info("Initialized with %s S&P 500 symbols", len(self.sp500_symbols))
+            self.logger.debug("Initialized with %s S&P 500 symbols", len(self.sp500_symbols))
             return True
 
         except Exception as e:
@@ -285,7 +285,7 @@ class SpyderDIXCalculator:
             bool: True if successful
         """
         try:
-            self.logger.info("Fetching S&P 500 constituents from Wikipedia...")
+            self.logger.debug("Fetching S&P 500 constituents from Wikipedia...")
 
             # Read S&P 500 list — Wikipedia blocks urllib's default UA with 403;
             # fetch via requests with a browser UA, then parse the HTML string.
@@ -306,7 +306,7 @@ class SpyderDIXCalculator:
             symbols = sp500_table['Symbol'].tolist()
             self.sp500_symbols = [str(symbol).replace('.', '-') for symbol in symbols]
 
-            self.logger.info("Fetched %s S&P 500 constituents", len(self.sp500_symbols))
+            self.logger.debug("Fetched %s S&P 500 constituents", len(self.sp500_symbols))
             return True
 
         except Exception as e:
@@ -332,7 +332,7 @@ class SpyderDIXCalculator:
             if cached.get("date") == today and cached.get("caps"):
                 self.market_caps = cached["caps"]
                 self._market_caps_date = today
-                self.logger.info(
+                self.logger.debug(
                     "Market caps loaded from disk cache (%s symbols, date=%s)",
                     len(self.market_caps), today,
                 )
@@ -416,7 +416,7 @@ class SpyderDIXCalculator:
 
                     time.sleep(BATCH_DELAY)
 
-                self.logger.info("Fetched market cap for %s symbols", len(self.market_caps))
+                self.logger.debug("Fetched market cap for %s symbols", len(self.market_caps))
                 if failed_symbols:
                     self.logger.warning("Failed: %s symbols", len(failed_symbols))
                 self._market_caps_date = today
@@ -433,7 +433,7 @@ class SpyderDIXCalculator:
         Args:
             date: Date in YYYYMMDD format
         """
-        self.logger.info("Downloading FINRA data for %s...", date)
+        self.logger.debug("Downloading FINRA data for %s...", date)
 
         url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
 
@@ -456,7 +456,7 @@ class SpyderDIXCalculator:
 
                 # Parse data
                 self.finra_data = pd.read_csv(StringIO(response.text), sep='|')
-                self.logger.info("Downloaded FINRA data: %s records", len(self.finra_data))
+                self.logger.debug("Downloaded FINRA data: %s records", len(self.finra_data))
                 return
 
             except Exception as e:
@@ -480,7 +480,7 @@ class SpyderDIXCalculator:
         Returns:
             Dictionary mapping symbols to StockDPI objects
         """
-        self.logger.info("Calculating DPI for S&P 500 components...")
+        self.logger.debug("Calculating DPI for S&P 500 components...")
 
         dpi_data = {}
 
@@ -489,7 +489,7 @@ class SpyderDIXCalculator:
             self.finra_data['Symbol'].isin(self.sp500_symbols)
         ].copy()
 
-        self.logger.info("Found FINRA data for %s symbols", len(sp500_finra))
+        self.logger.debug("Found FINRA data for %s symbols", len(sp500_finra))
 
         for _, row in sp500_finra.iterrows():
             symbol = row['Symbol']
@@ -513,7 +513,7 @@ class SpyderDIXCalculator:
                         contribution=0  # Will be calculated later
                     )
 
-        self.logger.info("Calculated DPI for %s symbols", len(dpi_data))
+        self.logger.debug("Calculated DPI for %s symbols", len(dpi_data))
         return dpi_data
 
     def _calculate_weighted_dix(self, dpi_data: dict[str, StockDPI]) -> tuple[float, dict[str, StockDPI]]:
@@ -546,9 +546,12 @@ class SpyderDIXCalculator:
         # Calculate DIX
         dix = weighted_dpi_sum / total_market_cap
 
-        self.logger.info(f"DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
-        self.logger.info(f"Based on {len(dpi_data)} components, "
-                        f"total market cap: ${total_market_cap:,.0f}")
+        _dix_key = round(dix, 4)
+        _log_dix = self.logger.info if _dix_key != getattr(self, "_last_dix_key", None) else self.logger.debug
+        self._last_dix_key = _dix_key
+        _log_dix(f"DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
+        self.logger.debug(f"Based on {len(dpi_data)} components, "
+                         f"total market cap: ${total_market_cap:,.0f}")
 
         return dix, dpi_data
 

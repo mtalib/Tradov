@@ -33,7 +33,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -64,6 +64,20 @@ except ImportError:
     X13_AVAILABLE = False
 
 try:
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+        UnifiedRegimeEngine as L09UnifiedRegimeEngine,
+    )
+    L09_AVAILABLE = True
+except ImportError:
+    try:
+        from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+            UnifiedRegimeEngine as L09UnifiedRegimeEngine,
+        )
+        L09_AVAILABLE = True
+    except ImportError:
+        L09_AVAILABLE = False
+
+try:
     from Spyder.SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
         SpyderE21_HMMRegimeDetector,
     )
@@ -86,7 +100,7 @@ except ImportError:
 @dataclass
 class MarketSnapshot:
     """Point-in-time market state captured by the agent."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     session: str = ""
     regime: str = "unknown"
     regime_confidence: float = 0.0
@@ -258,8 +272,21 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
             session=session.value,
         )
 
-        # Try to get regime from HMM detector
-        if HMM_AVAILABLE:
+        # Try L09 UnifiedRegimeEngine first (canonical source per Overview §1)
+        if L09_AVAILABLE:
+            try:
+                engine = L09UnifiedRegimeEngine.get_instance()
+                consensus = engine.get_cached_regime()
+                if consensus is not None:
+                    snapshot.regime = str(getattr(consensus, "regime", "unknown"))
+                    snapshot.regime_confidence = float(
+                        getattr(consensus, "confidence", 0.0)
+                    )
+            except Exception as e:
+                logger.warning("L09 regime detection failed: %s", e, exc_info=True)
+
+        # Fallback: E21 HMMRegimeDetector if L09 did not yield a result
+        if HMM_AVAILABLE and snapshot.regime == "unknown":
             try:
                 detector = SpyderE21_HMMRegimeDetector()
                 prediction = detector.predict_regime()

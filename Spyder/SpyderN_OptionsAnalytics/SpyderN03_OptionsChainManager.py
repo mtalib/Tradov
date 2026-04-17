@@ -242,7 +242,7 @@ class OptionsChainManager:
         self.cache_timestamp = {}
         self._cache_maxsize = 500
 
-        self.logger.info("OptionsChainManager initialized")
+        self.logger.debug("OptionsChainManager initialized")
 
     # ==========================================================================
     # DATA MANAGEMENT

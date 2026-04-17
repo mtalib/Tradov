@@ -222,7 +222,7 @@ class SpyderS06_SKEWCalculator:
         # Load historical data if available
         self._load_history()
 
-        logger.info("SKEW Calculator initialized")
+        logger.debug("SKEW Calculator initialized")
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -365,7 +365,10 @@ class SpyderS06_SKEWCalculator:
             )
             self._cache_calculation(result)
             self.skew_history.append(result)
-            logger.info(
+            _skew_key = round(skew_index, 1)
+            _log_skew = logger.info if _skew_key != getattr(logger, "_last_skew", None) else logger.debug
+            logger._last_skew = _skew_key
+            _log_skew(
                 "SKEW calculated: %.1f (expiry %s, %d options, %.0fms)",
                 skew_index, str(expiry.date()) if hasattr(expiry, 'date') else expiry,
                 len(options), elapsed_ms,

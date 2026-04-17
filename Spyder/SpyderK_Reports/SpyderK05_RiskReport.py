@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -241,7 +241,7 @@ class RiskReportGenerator:
 
                 report = RiskReportData(
                     report_date=date.today(),
-                    report_time=datetime.now(),
+                    report_time=datetime.now(timezone.utc),
                     account_id=account_id,
                     portfolio_value=portfolio_value
                 )

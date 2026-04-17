@@ -57,12 +57,6 @@ import numpy as np
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 
-# Legacy broker types removed — order execution now via SpyderB40_TradierClient
-IB = None  # type: ignore[assignment,misc]  # Legacy stub
-Contract = None  # type: ignore[assignment,misc]  # Legacy stub
-Order = None  # type: ignore[assignment,misc]  # Legacy stub
-Fill = None  # type: ignore[assignment,misc]  # Legacy stub
-
 try:
     from PySide6.QtWidgets import (
         QWidget,

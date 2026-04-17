@@ -504,7 +504,13 @@ class MasterController:
             ),
             StartupSequence(
                 phase="Trading Strategies",
-                modules=["D01_BaseStrategy", "D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"],
+                modules=[
+                    "D01_BaseStrategy",
+                    "D02_IronCondor",
+                    "D04_ZeroDTE",
+                    "D05_Straddle",
+                    "D31_StrategyOrchestrator",
+                ],
                 parallel=True,
                 timeout=30,
                 critical=True,
@@ -1288,6 +1294,15 @@ class MasterController:
                     logger.debug("Strategy %s started", module_id)
                 except Exception as e:
                     logger.warning("Failed to start strategy %s: %s", module_id, e)
+
+        # Start the strategy orchestration loop so signals are generated
+        orchestrator = self.components.get("D31_StrategyOrchestrator")
+        if orchestrator is not None and hasattr(orchestrator, "start_orchestration"):
+            try:
+                orchestrator.start_orchestration()
+                logger.info("StrategyOrchestrator orchestration loop started")
+            except Exception as e:
+                logger.error("Failed to start StrategyOrchestrator: %s", e, exc_info=True)
 
         self.trading_enabled = True
         self.status = SystemStatus.TRADING

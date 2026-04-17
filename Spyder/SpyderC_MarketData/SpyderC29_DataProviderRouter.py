@@ -106,7 +106,7 @@ class DataProviderRouter:
         self._kwargs = kwargs
         self._provider: DataProvider = DataProvider.from_env()
         self._client: Any | None = None
-        logger.info("DataProviderRouter: provider='%s'", self._provider.value)
+        logger.debug("DataProviderRouter: provider='%s'", self._provider.value)
 
     # ------------------------------------------------------------------
     # Public API
@@ -215,7 +215,7 @@ class DataProviderRouter:
                 "TRADIER_ACCOUNT_ID) to your .env file."
             )
 
-        logger.info(
+        logger.debug(
             "DataProviderRouter: connecting to Tradier %s environment",
             environment.value,
         )

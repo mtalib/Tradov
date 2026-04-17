@@ -527,7 +527,7 @@ class TradierClient:
         # Rate limit snapshot updated after every successful API call (ENH-03)
         self._last_rate_limit: RateLimitInfo | None = None
 
-        logger.info("TradierClient initialized for %s environment", environment.value)
+        logger.debug("TradierClient initialized for %s environment", environment.value)
 
     def _create_session(self) -> requests.Session:
         """
@@ -714,7 +714,7 @@ class TradierClient:
             >>> profile = client.get_user_profile()
             >>> print(profile["profile"]["name"])
         """
-        logger.info("Fetching user profile")
+        logger.debug("Fetching user profile")
         return self._make_request("GET", "/user/profile")
 
     def get_account_balances(self) -> dict[str, Any]:
@@ -728,7 +728,7 @@ class TradierClient:
             >>> balances = client.get_account_balances()
             >>> print(balances["balances"]["total_equity"])
         """
-        logger.info("Fetching balances for account %s", self.account_id)
+        logger.debug("Fetching balances for account %s", self.account_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/balances")
 
     def get_positions(self) -> dict[str, Any]:
@@ -1993,7 +1993,7 @@ class TradierClient:
         try:
             profile = self.get_user_profile()
             if "profile" in profile:
-                logger.info("Tradier connection test PASSED")
+                logger.debug("Tradier connection test PASSED")
                 return True
             else:
                 logger.error("Tradier connection test FAILED: Invalid response")

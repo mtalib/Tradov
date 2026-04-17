@@ -675,7 +675,7 @@ class SpyderApplication:
                             self.main_window,
                             log_level=gui_log_level
                         )
-                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
+                        self.logger.debug("✅ GUI logging handler connected (level: %s)", gui_log_level)
                 except Exception as e:
                     self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             elif has_working_dashboard and WorkingSpyderDashboard:
@@ -702,7 +702,7 @@ class SpyderApplication:
                             self.main_window,
                             log_level=gui_log_level
                         )
-                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
+                        self.logger.debug("✅ GUI logging handler connected (level: %s)", gui_log_level)
                 except Exception as e:
                     self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             else:
@@ -712,7 +712,7 @@ class SpyderApplication:
                 self.main_window = SpyderMainWindow(self)
                 self.main_window.show()
 
-            self.logger.info("✅ GUI started successfully")
+            self.logger.debug("✅ GUI started successfully")
 
             return True
 
@@ -759,9 +759,9 @@ class SpyderApplication:
                     return 1
 
                 # Run GUI event loop
-                self.logger.info("🔄 Running GUI event loop...")
+                self.logger.debug("🔄 Running GUI event loop...")
                 exit_code = self.gui_app.exec()
-                self.logger.info("GUI event loop ended with code: %s", exit_code)
+                self.logger.debug("GUI event loop ended with code: %s", exit_code)
                 return exit_code
             else:
                 # Headless mode

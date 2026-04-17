@@ -303,12 +303,6 @@ except ImportError as e:
     logging.info("Warning: SpyderG13_EnhancedWidgets not available: %s", e)
 
 try:
-    from .SpyderG14_Dashboard import main as g14_dashboard_main
-    __all__.extend(["g14_dashboard_main"])
-except ImportError as e:
-    logging.info("Warning: SpyderG14_Dashboard not available: %s", e)
-
-try:
     from .SpyderG29_ChartWidgetPlotly import PlotlyChartWidget
     __all__.extend(["PlotlyChartWidget"])
 except ImportError as e:
