@@ -99,5 +99,68 @@ class F00AnalyticsProtocolSurfaceTest(unittest.TestCase):
         )
 
 
+class RegimeCanonicalWiringTest(unittest.TestCase):
+    """Verify that no production module calls E21/M06 regime APIs directly
+    when L09 UnifiedRegimeEngine is available, per Overview §1."""
+
+    def test_d30_regime_gated_selector_prefers_l09(self) -> None:
+        """D30 must declare L09 as primary regime source (fallback to E21 is OK)."""
+        import ast
+        import pathlib
+
+        d30_path = pathlib.Path(__file__).resolve().parents[1] / "SpyderD_Strategies" / "SpyderD30_RegimeGatedSelector.py"
+        source = d30_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        # Collect all import aliases
+        imported_names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imported_names.add(alias.asname or alias.name)
+
+        self.assertIn(
+            "UnifiedRegimeEngine",
+            imported_names,
+            "D30 must import UnifiedRegimeEngine from L09 (canonical regime source)",
+        )
+        # E21 import is allowed as a fallback but L09 must be declared first
+        l09_lineno: int | None = None
+        e21_lineno: int | None = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if "SpyderL09" in node.module or "L09_Unified" in node.module:
+                    l09_lineno = node.lineno
+                if "SpyderE21" in node.module:
+                    e21_lineno = node.lineno
+        if l09_lineno is not None and e21_lineno is not None:
+            self.assertLess(
+                l09_lineno,
+                e21_lineno,
+                "D30 must import L09 before E21 (L09 is the canonical primary source)",
+            )
+
+    def test_y01_market_sense_agent_prefers_l09(self) -> None:
+        """Y01 MarketSenseAgent must import L09 and try it before E21."""
+        import pathlib
+
+        y01_path = pathlib.Path(__file__).resolve().parents[1] / "SpyderY_AutoAgents" / "SpyderY01_MarketSenseAgent.py"
+        source = y01_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "L09_AVAILABLE",
+            source,
+            "Y01 must declare L09_AVAILABLE flag (signals canonical regime wiring)",
+        )
+        # L09 import block should appear before E21 import block
+        l09_idx = source.find("L09_AVAILABLE")
+        e21_idx = source.find("HMM_AVAILABLE")
+        self.assertLess(
+            l09_idx,
+            e21_idx,
+            "Y01 must check L09 availability before E21 (L09 is canonical primary)",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

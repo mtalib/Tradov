@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -250,7 +250,7 @@ class StrategyComparisonAnalyzer:
                 period_end = all_dates.max().date()
 
                 comparison = StrategyComparison(
-                    comparison_date=datetime.now(),
+                    comparison_date=datetime.now(timezone.utc),
                     strategies=strategies,
                     period_start=period_start,
                     period_end=period_end

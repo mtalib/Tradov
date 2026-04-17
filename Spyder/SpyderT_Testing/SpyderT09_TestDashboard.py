@@ -1446,8 +1446,8 @@ class MarketSymbolWidget(QWidget):
                 color = COLORS["warning"]  # Yellow
             else:
                 color = COLORS["negative"]  # Red
-            # Display as BSWAN without traffic light emoji
-            self.symbol_label.setText("BSWAN")
+            # Display as SWAN without traffic light emoji
+            self.symbol_label.setText("SWAN")
 
         # Update change and percentage
         sign = "+" if data.change >= 0 else ""
@@ -1860,7 +1860,7 @@ class SpyderTestDashboard(QMainWindow):
         logo_label = QLabel("S P Y D E R")
         try:
             logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
-        except BaseException:
+        except Exception:
             logo_font = QFont("Arial", 16, QFont.Weight.Normal)
         logo_label.setFont(logo_font)
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")

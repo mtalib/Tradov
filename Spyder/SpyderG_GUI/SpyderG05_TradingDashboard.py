@@ -52,6 +52,7 @@ CONNECTION MONITORING:
 # ==============================================================================
 import json
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as dt_time
@@ -118,6 +119,7 @@ import pandas as pd
 from matplotlib import patches
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.transforms import blended_transform_factory
 
 # ==============================================================================
 # BROKER/DATA IMPORTS (Tradier + Massive)
@@ -277,7 +279,11 @@ from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import (
     check_api_connection,
 )
 # Chart indicator computation extracted per audit §3.
-from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import compute_chart_indicators
+from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (
+    ChartIndicators,
+    PivotLevels,
+    compute_chart_indicators,
+)
 
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
@@ -285,8 +291,9 @@ MARKET_SYMBOLS = {
     "VOLATILITY": ["VIX", "VXV", "VVIX"],
     "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
     "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["TLT", "LQD"],
+    "BONDS & CREDIT": ["10Y", "TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
+    "SENTIMENT": ["NAAIM", "AABULL"],
     "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
 }
 
@@ -310,11 +317,15 @@ SYMBOL_DESCRIPTIONS = {
     "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
     "IWM": "iShares Russell 2000 ETF - Small caps",
     # Bonds & Credit
+    "10Y": "10-Year Treasury Yield (FRED DGS10 — risk-free rate)",
     "TLT": "iShares 20+ Year Treasury Bond ETF",
     "LQD": "iShares Investment Grade Corporate Bond ETF",
     # Correlations
     "DXY": "US Dollar Index (UUP ETF proxy — Tradier has no DXY index)",
     "GLD": "SPDR Gold Trust ETF - Gold proxy",
+    # Sentiment
+    "NAAIM": "NAAIM Exposure Index - Active manager equity allocation (0-200%)",
+    "AABULL": "AAII Bull% (UMCSENT proxy) - Retail investor bullish sentiment",
     # Custom Metrics
     "GEX": "Gamma Exposure - Market maker hedging pressure",
     "DEX": "Delta Exposure - Directional hedging flow",
@@ -552,8 +563,9 @@ class SignalMonitorPanel(QWidget):
         self.hmm_button = TrafficLightButton("HMM")
         self.skew_button = TrafficLightButton("SKEW")
         self.internals_button = TrafficLightButton("MKT INTERNALS")
+        self.regime_button = TrafficLightButton("REGIME")
 
-        # Add buttons to grid (6 rows, 2 columns)
+        # Add buttons to grid (7 rows, 2 columns)
         layout.addWidget(self.vix_button, 0, 0)
         layout.addWidget(self.ai_button, 0, 1)
         layout.addWidget(self.gex_button, 1, 0)
@@ -566,7 +578,8 @@ class SignalMonitorPanel(QWidget):
         layout.addWidget(self.swan_button, 4, 1)
         layout.addWidget(self.hmm_button, 5, 0)
         layout.addWidget(self.skew_button, 5, 1)
-        layout.addWidget(self.internals_button, 6, 0, 1, 2)  # spans both columns
+        layout.addWidget(self.internals_button, 6, 0)  # no longer spans both columns
+        layout.addWidget(self.regime_button, 6, 1)     # new — sits below SKEW
 
         # Connect buttons to their dialog methods
         self.vix_button.clicked.connect(self.show_vix_dialog)
@@ -582,15 +595,37 @@ class SignalMonitorPanel(QWidget):
         self.hmm_button.clicked.connect(self.show_hmm_dialog)
         self.skew_button.clicked.connect(self.show_skew_dialog)
         self.internals_button.clicked.connect(self.show_internals_dialog)
+        self.regime_button.clicked.connect(self.show_regime_dialog)
 
         self.setLayout(layout)
 
         # Store current dialog reference for auto-close functionality
         self.current_dialog = None
 
+        # Live regime state — populated by update_regime() on each S07 cycle.
+        self._regime_label = "—"
+        self._regime_swan  = 1.9
+        self._regime_dix   = 42.0
+        self._regime_skew  = 120.0
+        self._regime_gex   = 0.0
+        self.regime_button.set_status("yellow")  # pending until live data arrives
+
+        # Live market values — populated externally so popups show real figures.
+        # Keys: "VIX", "SKEW", "GEX" (dollars), "DEX" (dollars),
+        #        "DIX" (%), "SWAN" (score), "OGL" (price).
+        self._live: dict = {}
+
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_button_states)
         self.update_timer.start(5000)
+
+    def update_live_data(self, data: dict) -> None:
+        """Merge live market values so signal popups display current figures.
+
+        Args:
+            data: flat dict of {symbol: last_value}.
+        """
+        self._live.update(data)
 
     def update_button_states(self):
         """Update traffic light colors — defaults to yellow (pending) until real signals are wired."""
@@ -635,7 +670,7 @@ class SignalMonitorPanel(QWidget):
         self.close_current_dialog()
 
         if signal_dialog_available and SignalInfoDialog:
-            self.current_dialog = SignalInfoDialog(signal_type, self)
+            self.current_dialog = SignalInfoDialog(signal_type, self, live_data=self._live)
             # Position the dialog to the right of the signal panel
             parent_pos = self.mapToGlobal(self.rect().topRight())
             self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
@@ -803,9 +838,14 @@ class SignalMonitorPanel(QWidget):
             # Pass the dashboard's Tradier client if accessible
             client = getattr(self, "_tradier_client", None)
             if client is None:
-                # Try alternate attribute names used by different dashboard versions
                 client = getattr(self, "tradier_client", None) or getattr(self, "client", None)
-            self.current_dialog = MarketInternalsDialog(tradier_client=client, parent=self)
+            orch = getattr(self, "_metrics_orchestrator", None)
+            # Pass orchestrator so dialog can connect directly and drive "Refresh Now"
+            self.current_dialog = MarketInternalsDialog(
+                tradier_client=client,
+                orchestrator=orch,
+                parent=self,
+            )
             self.current_dialog.show()
         else:
             QMessageBox.information(
@@ -814,6 +854,220 @@ class SignalMonitorPanel(QWidget):
                 "TICK / ADD / TRIN monitor unavailable.\n"
                 "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",
             )
+
+    # ------------------------------------------------------------------
+    # REGIME button — live state + dialog
+    # ------------------------------------------------------------------
+
+    def update_regime(
+        self,
+        label: str,
+        swan: float,
+        dix: float,
+        skew: float,
+        gex: float,
+    ) -> None:
+        """Store live regime state and colour the REGIME button.
+
+        Called by the dashboard on every S07 update cycle so the button
+        always reflects the most recent reading.
+        """
+        self._regime_label = label
+        self._regime_swan  = swan
+        self._regime_dix   = dix
+        self._regime_skew  = skew
+        self._regime_gex   = gex
+
+        # Keep _live in sync so HMM REGIME popup shows live values.
+        self.update_live_data({
+            "HMM_LABEL": label,
+            "HMM_SWAN":  swan,
+            "HMM_DIX":   dix,
+            "HMM_SKEW":  skew,
+            "HMM_GEX":   gex,
+        })
+
+        if label in ("EXTREME RISK", "HIGH RISK", "BEARISH"):
+            self.regime_button.set_status("red")
+        elif label in ("BULLISH", "NEUTRAL BULL"):
+            self.regime_button.set_status("green")
+        else:  # CAUTIOUS, NEUTRAL, "—"
+            self.regime_button.set_status("yellow")
+
+    def show_regime_dialog(self) -> None:
+        """Show a popup table of regime conditions with the active row highlighted."""
+        self.close_current_dialog()
+
+        # Condition rows (priority order, first match wins)
+        CONDS = [
+            ("SWAN \u2265 2.0",                           "EXTREME RISK",  COLORS["negative"]),
+            ("SWAN \u2265 1.95  or  SKEW \u2265 150",     "HIGH RISK",     COLORS["negative"]),
+            ("SKEW \u2265 140  and  DIX < 42",            "CAUTIOUS",      COLORS["warning"]),
+            ("DIX \u2265 46,  GEX \u2265 0,  SWAN < 1.9", "BULLISH",       COLORS["positive"]),
+            ("DIX \u2264 40  and  SWAN \u2265 1.85",      "BEARISH",       COLORS["negative"]),
+            ("DIX \u2265 43  and  SWAN < 1.92",           "NEUTRAL BULL",  COLORS["positive"]),
+            ("else",                                       "NEUTRAL",       COLORS["warning"]),
+        ]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Market Regime Classifier")
+        dlg.setFixedSize(660, 540)
+        dlg.setStyleSheet(
+            f"""
+            QDialog {{
+                background-color: {COLORS["background"]};
+                color: {COLORS["text"]};
+            }}
+            QLabel {{
+                color: {COLORS["text"]};
+            }}
+            QTableWidget {{
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text"]};
+                gridline-color: {COLORS["border"]};
+                border: 1px solid {COLORS["border"]};
+                font-size: 12px;
+            }}
+            QHeaderView::section {{
+                background-color: #2a2a2a;
+                color: {COLORS["text"]};
+                padding: 5px;
+                border: 1px solid {COLORS["border"]};
+                font-weight: bold;
+            }}
+            QPushButton {{
+                background-color: #2a2a2a;
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 4px;
+                padding: 6px 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #3a3a3a;
+            }}
+            """
+        )
+
+        outer = QVBoxLayout(dlg)
+        outer.setSpacing(10)
+        outer.setContentsMargins(16, 14, 16, 14)
+
+        # Title
+        title = QLabel("Market Regime Classifier")
+        title.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #ffffff; padding-bottom: 2px;"
+        )
+        outer.addWidget(title)
+
+        subtitle = QLabel(
+            "Conditions are evaluated top-to-bottom; the first match wins."
+        )
+        subtitle.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; padding-bottom: 4px;"
+        )
+        outer.addWidget(subtitle)
+
+        # Condition table
+        table = QTableWidget(len(CONDS), 3)
+        table.setHorizontalHeaderLabels(["Condition", "Label", "Colour"])
+        table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(False)
+        table.verticalHeader().setDefaultSectionSize(38)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setFixedHeight(len(CONDS) * 38 + 34)
+
+        active_row = -1
+        bold_font = QFont()
+        bold_font.setBold(True)
+
+        for row, (cond_text, label_text, label_color) in enumerate(CONDS):
+            is_active = label_text == self._regime_label
+            if is_active:
+                active_row = row
+            row_bg = "#1e2e1e" if is_active else COLORS["panel"]
+
+            # Column 0 — Condition
+            cond_item = QTableWidgetItem(f"  {cond_text}")
+            cond_item.setForeground(QColor(COLORS["text"]))
+            cond_item.setBackground(QColor(row_bg))
+            if is_active:
+                cond_item.setFont(bold_font)
+            table.setItem(row, 0, cond_item)
+
+            # Column 1 — Label (coloured)
+            label_item = QTableWidgetItem(f"  {label_text}")
+            label_item.setForeground(QColor(label_color))
+            label_item.setBackground(QColor(row_bg))
+            if is_active:
+                label_item.setFont(bold_font)
+            table.setItem(row, 1, label_item)
+
+            # Column 2 — Colour name
+            if label_color == COLORS["positive"]:
+                colour_name = "Green"
+            elif label_color == COLORS["negative"]:
+                colour_name = "Red"
+            else:
+                colour_name = "Yellow"
+            colour_item = QTableWidgetItem(colour_name)
+            colour_item.setForeground(QColor(label_color))
+            colour_item.setBackground(QColor(row_bg))
+            if is_active:
+                colour_item.setFont(bold_font)
+            table.setItem(row, 2, colour_item)
+
+        outer.addWidget(table)
+
+        # Current readings
+        readings = QLabel(
+            f"Current readings:  "
+            f"SWAN = {self._regime_swan:.2f}   "
+            f"DIX = {self._regime_dix:.1f}%   "
+            f"SKEW = {self._regime_skew:.0f}   "
+            f"GEX = {self._regime_gex:+.2f}"
+        )
+        readings.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; padding-top: 4px;"
+        )
+        outer.addWidget(readings)
+
+        # Active regime summary line
+        if active_row >= 0:
+            regime_color = CONDS[active_row][2]
+        else:
+            regime_color = COLORS["warning"]
+        active_lbl = QLabel(
+            f"Active regime: "
+            f"<b style='color: {regime_color};'>{self._regime_label}</b>"
+        )
+        active_lbl.setTextFormat(Qt.TextFormat.RichText)
+        active_lbl.setStyleSheet("font-size: 12px; padding-bottom: 2px;")
+        outer.addWidget(active_lbl)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.setFixedWidth(90)
+        close_btn.clicked.connect(dlg.close)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        outer.addLayout(btn_row)
+
+        self.current_dialog = dlg
+        dlg.finished.connect(lambda _: setattr(self, "current_dialog", None))
+        dlg.show()
 
 
 class MarketSymbolWidget(QWidget):
@@ -867,7 +1121,7 @@ class MarketSymbolWidget(QWidget):
             change = data.change
             change_pct = data.change_pct
 
-        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
+        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN", "NAAIM", "AABULL"]:
             self._update_custom_indicator(last, change, change_pct)
         else:
             self._update_standard_symbol(last, change, change_pct)
@@ -931,7 +1185,25 @@ class MarketSymbolWidget(QWidget):
                 color = COLORS["warning"]
             else:
                 color = COLORS["negative"]
-            self.symbol_label.setText("BSWAN")
+            self.symbol_label.setText("SWAN")
+        elif self.symbol == "NAAIM":
+            self.price_label.setText(f"{last:.1f}%")
+            # > 90 = over-invested (bearish contrarian), < 40 = under-invested, 40-90 = normal
+            if last > 90:
+                color = COLORS["negative"]
+            elif last < 40:
+                color = COLORS["warning"]
+            else:
+                color = COLORS["positive"]
+        elif self.symbol == "AABULL":
+            self.price_label.setText(f"{last:.1f}%")
+            # < 30 = extreme fear (contrarian bullish), > 50 = extreme greed (contrarian bearish)
+            if last < 30:
+                color = COLORS["warning"]   # extreme fear — caution, contrarian signal
+            elif last > 50:
+                color = COLORS["negative"]  # extreme greed
+            else:
+                color = COLORS["positive"]  # normal range
 
         sign = "+" if change >= 0 else ""
         self.change_label.setText(f"{sign}{change:.2f}")
@@ -1029,14 +1301,17 @@ class SpyderTradingDashboard(QMainWindow):
     # emits in widget-ready units, this table collapses to pure key mapping.
     # ------------------------------------------------------------------
     _S07_METRIC_ROUTING: dict[str, tuple[str, float]] = {
-        "GEX":  ("GEX",   1e9),
-        "DEX":  ("DEX",   1e6),
-        "OGL":  ("OGL",   1.0),
-        "DIX":  ("DIX",   1.0),
-        "SWAN": ("SWAN",  1.0),
-        "TICK": ("$TICK", 1.0),
-        "ADD":  ("$ADD",  1.0),
-        "TRIN": ("$TRIN", 1.0),
+        "GEX":      ("GEX",   1e9),
+        "DEX":      ("DEX",   1e6),
+        "OGL":      ("OGL",   1.0),
+        "DIX":      ("DIX",   1.0),
+        "SWAN":     ("SWAN",  1.0),
+        "TICK":     ("$TICK", 1.0),
+        "ADD":      ("$ADD",  1.0),
+        "TRIN":     ("$TRIN", 1.0),
+        "YIELD_10Y": ("10Y",  1.0),
+        "NAAIM_EXPOSURE": ("NAAIM", 1.0),
+        "AAII_BULLISH":   ("AABULL", 1.0),
     }
 
     # ------------------------------------------------------------------
@@ -1089,10 +1364,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         # CRITICAL: Add startup banner FIRST to show actual launch time (ET)
         startup_time = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S ET")
-        startup_banner = (
-            f"{'=' * 60}\n🚀 SPYDER DASHBOARD STARTED: {startup_time}\n{'=' * 60}"
-        )
-        self.system_logs.append(startup_banner)
+        startup_hms  = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
+        self.system_logs.extend([
+            f"[{startup_hms}] {'=' * 56}",
+            f"[{startup_hms}] 🚀 SPYDER DASHBOARD STARTED: {startup_time}",
+            f"[{startup_hms}] {'=' * 56}",
+        ])
 
         self.automation_logs = []
         self.trading_mode = TradingMode.PAPER
@@ -1152,8 +1429,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.dji_change = None
         self.spx_value = None
         self.spx_change = None
-        self.ndx_value = None
-        self.ndx_change = None
+        self.comp_value = None
+        self.comp_change = None
         self.positions_table = None
         self.system_log = None
         self.signal_panel = None
@@ -1197,6 +1474,10 @@ class SpyderTradingDashboard(QMainWindow):
         self.setup_ui()
         self.setup_timers()
         self.load_default_risk_parameters()
+
+        # Restore previous session's symbol values (if any) — runs after the
+        # event loop starts so all widgets are fully initialised.
+        QTimer.singleShot(0, self._restore_snapshot)
 
         # Start market worker with fixed connection detection
         self.start_market_worker()
@@ -1410,6 +1691,17 @@ class SpyderTradingDashboard(QMainWindow):
                 if symbol in self.symbol_widgets:
                     self.symbol_widgets[symbol].update_data(data)
 
+            # Push standard-quote values (VIX, SKEW, …) to the signal panel
+            # so popup dialogs show the same figures as the Market Overview.
+            if self.signal_panel is not None:
+                _sp = {}
+                for _sym in ("VIX", "SKEW", "CPC"):
+                    _e = live_data.get(_sym)
+                    if isinstance(_e, dict) and _e.get("last") is not None:
+                        _sp[_sym] = _e["last"]
+                if _sp:
+                    self.signal_panel.update_live_data(_sp)
+
             # Update toolbar indices
             self.update_toolbar_with_real_data(live_data)
 
@@ -1454,15 +1746,15 @@ class SpyderTradingDashboard(QMainWindow):
             ndx_src = live_data.get("QQQ")
             ndx_mult = 37.5
             if ndx_src:
-                if hasattr(self, "ndx_value"):
-                    self.ndx_value.setText(f" {ndx_src['last'] * ndx_mult:,.0f}")
-                if hasattr(self, "ndx_change"):
+                if hasattr(self, "comp_value"):
+                    self.comp_value.setText(f" {ndx_src['last'] * ndx_mult:,.0f}")
+                if hasattr(self, "comp_change"):
                     change = ndx_src["change"] * ndx_mult
                     pct = ndx_src["change_pct"]
                     sign = "+" if change >= 0 else ""
-                    self.ndx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
+                    self.comp_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#ff1744"
-                    self.ndx_change.setStyleSheet(f"color: {color};")
+                    self.comp_change.setStyleSheet(f"color: {color};")
 
             # DJI — Tradier's $DJI index is ~15 min delayed (confirmed April 2026).
             # Use DIA ETF * 100 instead: real-time, tracks within ~0.3% of actual DJIA.
@@ -1508,8 +1800,8 @@ class SpyderTradingDashboard(QMainWindow):
             self.logger.debug("Toolbar update error: %s", e)
 
     def update_status_for_real_data(self):
-        """Update status indicators for real data - FIXED to not override API status"""
-        # Real data integration does not change API connection display
+        """Update status indicators when real file data has been loaded."""
+        self.update_data_status("EOD")
 
     def refresh_market_data(self):
         """Enhanced refresh market data - callback for refresh icon click"""
@@ -1656,76 +1948,94 @@ class SpyderTradingDashboard(QMainWindow):
 
         layout.addStretch(7)
 
-        # Center section with market indices
+        # Center section with market indices — order matches standard convention:
+        # DOW → NASDAQ (COMP) → S&P 500 (SPX) → Russell 2000 (RUT)
         center_section = QHBoxLayout()
         center_section.setSpacing(5)
 
-        # DJI
+        # DJI (Dow Jones Industrial Average — DIA ETF × 100 proxy)
         dji_container = QHBoxLayout()
         dji_container.setSpacing(0)
         dji_label = QLabel("DJI:")
         dji_label.setStyleSheet(f"color: {COLORS['text']};")
+        dji_label.setToolTip(
+            "Dow Jones Industrial Average\n"
+            "Source: DIA ETF × 100  (Tradier $DJI index is ~15 min delayed)"
+        )
         dji_container.addWidget(dji_label)
 
-        self.dji_value = QLabel(" 43,900.42")
+        self.dji_value = QLabel(" ---")
         self.dji_value.setStyleSheet(f"color: {COLORS['text']};")
+        self.dji_value.setToolTip("Dow Jones Industrial Average (DIA ETF × 100)")
         dji_container.addWidget(self.dji_value)
 
-        self.dji_change = QLabel("  +350.35  +2.3%")
+        self.dji_change = QLabel("")
         self.dji_change.setStyleSheet(f"color: {COLORS['positive']};")
         dji_container.addWidget(self.dji_change)
 
         center_section.addLayout(dji_container)
         center_section.addSpacing(10)
 
-        # SPX
+        # COMP (NASDAQ Composite — QQQ ETF × 37.5 proxy; IXIC not on Tradier)
+        comp_container = QHBoxLayout()
+        comp_container.setSpacing(0)
+        comp_label = QLabel("COMP:")
+        comp_label.setStyleSheet(f"color: {COLORS['text']};")
+        comp_label.setToolTip(
+            "NASDAQ Composite Index (3,000+ stocks)\n"
+            "Source: QQQ ETF × 37.5  (Tradier IXIC/COMP not available)"
+        )
+        comp_container.addWidget(comp_label)
+
+        self.comp_value = QLabel(" ---")
+        self.comp_value.setStyleSheet(f"color: {COLORS['text']};")
+        self.comp_value.setToolTip("NASDAQ Composite (QQQ ETF × 37.5 proxy)")
+        comp_container.addWidget(self.comp_value)
+
+        self.comp_change = QLabel("")
+        self.comp_change.setStyleSheet(f"color: {COLORS['positive']};")
+        comp_container.addWidget(self.comp_change)
+
+        center_section.addLayout(comp_container)
+        center_section.addSpacing(10)
+
+        # SPX (S&P 500 — direct Tradier index)
         spx_container = QHBoxLayout()
         spx_container.setSpacing(0)
         spx_label = QLabel("SPX:")
         spx_label.setStyleSheet(f"color: {COLORS['text']};")
+        spx_label.setToolTip("S&P 500 Index — direct from Tradier")
         spx_container.addWidget(spx_label)
 
-        self.spx_value = QLabel(" 6,876.23")
+        self.spx_value = QLabel(" ---")
         self.spx_value.setStyleSheet(f"color: {COLORS['text']};")
+        self.spx_value.setToolTip("S&P 500 Index (direct from Tradier)")
         spx_container.addWidget(self.spx_value)
 
-        self.spx_change = QLabel("  +45.43  +1.2%")
+        self.spx_change = QLabel("")
         self.spx_change.setStyleSheet(f"color: {COLORS['positive']};")
         spx_container.addWidget(self.spx_change)
 
         center_section.addLayout(spx_container)
         center_section.addSpacing(10)
 
-        # NDX
-        ndx_container = QHBoxLayout()
-        ndx_container.setSpacing(0)
-        ndx_label = QLabel("COMP:")
-        ndx_label.setStyleSheet(f"color: {COLORS['text']};")
-        ndx_container.addWidget(ndx_label)
-
-        self.ndx_value = QLabel(" 20,275.62")
-        self.ndx_value.setStyleSheet(f"color: {COLORS['text']};")
-        ndx_container.addWidget(self.ndx_value)
-
-        self.ndx_change = QLabel("  +45.23  +0.78%")
-        self.ndx_change.setStyleSheet(f"color: {COLORS['positive']};")
-        ndx_container.addWidget(self.ndx_change)
-
-        center_section.addLayout(ndx_container)
-        center_section.addSpacing(10)
-
-        # RUT (Russell 2000)
+        # RUT (Russell 2000 — direct Tradier index; change% borrowed from IWM when unavailable)
         rut_container = QHBoxLayout()
         rut_container.setSpacing(0)
         rut_label = QLabel("RUT:")
         rut_label.setStyleSheet(f"color: {COLORS['text']};")
+        rut_label.setToolTip(
+            "Russell 2000 Index — direct from Tradier\n"
+            "Change % uses IWM ETF as fallback when Tradier omits it"
+        )
         rut_container.addWidget(rut_label)
 
-        self.rut_value = QLabel(" 2,636")
+        self.rut_value = QLabel(" ---")
         self.rut_value.setStyleSheet(f"color: {COLORS['text']};")
+        self.rut_value.setToolTip("Russell 2000 Index (direct from Tradier)")
         rut_container.addWidget(self.rut_value)
 
-        self.rut_change = QLabel("  +15.85  +0.60%")
+        self.rut_change = QLabel("")
         self.rut_change.setStyleSheet(f"color: {COLORS['positive']};")
         rut_container.addWidget(self.rut_change)
 
@@ -2430,35 +2740,94 @@ class SpyderTradingDashboard(QMainWindow):
         self.update_chart()
 
     def update_chart(self):
-        """Update the SPY chart with real 5-min candlesticks and indicators."""
+        """Update the SPY chart — 2-day 5-min candlestick view.
+
+        Shows the previous session's bars (dimmed) followed by today's bars at
+        full brightness.  A vertical dashed separator marks the day boundary.
+        Pivot levels are computed per day:
+          • Previous day — pivots from its own session range (best proxy).
+          • Today        — pivots from the previous day's H/L/C (correct formula).
+        VWAP resets each session; MA(20) runs continuously across both days.
+        """
         self.figure.clear()
 
-        # --- Load real 5-min bars from cache file written by the market data worker ---
         chart_file = self.data_file.parent / "spy_5min_chart.json"
-        opens = []
-        highs = []
-        lows = []
-        closes = []
-        volumes = []
-        dates = []
+        prev_file  = self.data_file.parent / "spy_5min_prev_day.json"
 
-        if chart_file.exists():
+        # ── helpers ────────────────────────────────────────────────────────────
+        def _load_bars(path: Path) -> list[dict]:
+            """Load OHLCV bars from a JSON file; return [] on any failure."""
+            if not path.exists():
+                return []
             try:
-                with open(chart_file) as _f:
-                    candles = json.load(_f)
-                for bar in candles:
-                    opens.append(float(bar.get("open", 0)))
-                    highs.append(float(bar.get("high", 0)))
-                    lows.append(float(bar.get("low", 0)))
-                    closes.append(float(bar.get("close", 0)))
-                    volumes.append(int(bar.get("volume", 0)))
-                    # bar["time"] is like "2026-04-09T09:30:00"
-                    dates.append(pd.to_datetime(bar.get("time", "")))
+                bars = json.load(open(path))  # noqa: WPS515
+                return [b for b in bars if b.get("close")]
             except Exception:
-                candles = []
+                return []
 
-        # If no real data yet, show a "waiting for data" placeholder
-        if not closes:
+        def _extract(bars: list[dict]):
+            """Unpack bar dicts to typed lists (open, high, low, close, vol, date)."""
+            o, h, l, c, v, d = [], [], [], [], [], []
+            for b in bars:
+                c_val = float(b.get("close", 0))
+                o.append(float(b.get("open",   c_val)))
+                h.append(float(b.get("high",   c_val)))
+                l.append(float(b.get("low",    c_val)))
+                c.append(c_val)
+                v.append(int(b.get("volume", 0)))
+                d.append(pd.to_datetime(b.get("time", "")))
+            return o, h, l, c, v, d
+
+        def _safe_ind(highs, lows, closes, volumes):
+            """compute_chart_indicators with ValueError guard."""
+            try:
+                return compute_chart_indicators(highs, lows, closes, volumes)
+            except ValueError:
+                return None
+
+        def _ma(prices: list[float], period: int = 20) -> list[float | None]:
+            """Simple moving average — returns None for the first period-1 bars."""
+            result: list[float | None] = []
+            for i in range(len(prices)):
+                if i < period - 1:
+                    result.append(None)
+                else:
+                    result.append(sum(prices[i - period + 1 : i + 1]) / period)
+            return result
+
+        def _vwap(highs, lows, closes, volumes) -> list[float]:
+            """Session cumulative VWAP (typical price × volume)."""
+            cum_pv = cum_v = 0.0
+            result = []
+            for i in range(len(closes)):
+                tp = (highs[i] + lows[i] + closes[i]) / 3
+                cum_pv += tp * volumes[i]
+                cum_v  += volumes[i]
+                result.append(cum_pv / cum_v if cum_v else closes[i])
+            return result
+
+        # ── load both sessions ────────────────────────────────────────────────
+        today_raw = _load_bars(chart_file)
+        prev_raw  = _load_bars(prev_file)
+
+        # Discard prev-day file if it shares the same calendar date as today's
+        # bars (e.g. dashboard restarted mid-session without a market close).
+        if prev_raw and today_raw:
+            try:
+                if (pd.to_datetime(prev_raw[0]["time"]).date()
+                        >= pd.to_datetime(today_raw[0]["time"]).date()):
+                    prev_raw = []
+            except Exception:
+                prev_raw = []
+
+        prev_o, prev_h, prev_l, prev_c, prev_v, prev_d = _extract(prev_raw)
+        tod_o,  tod_h,  tod_l,  tod_c,  tod_v,  tod_d  = _extract(today_raw)
+
+        have_prev  = bool(prev_c)
+        have_today = bool(tod_c)
+
+        # ── placeholder when nothing is available ─────────────────────────────
+        if not have_prev and not have_today:
             ax = self.figure.add_subplot(111)
             ax.set_facecolor(COLORS["panel"])
             ax.text(
@@ -2471,197 +2840,186 @@ class SpyderTradingDashboard(QMainWindow):
             self.canvas.draw()
             return
 
-        # --- Compute chart indicators via extracted service (audit §3) ---
-        try:
-            indicators = compute_chart_indicators(highs, lows, closes, volumes)
-        except ValueError:
-            indicators = None
+        # ── compute per-day indicators ────────────────────────────────────────
+        prev_ind: ChartIndicators | None = None
+        tod_ind:  ChartIndicators | None = None
 
-        if indicators is not None:
-            pivot = indicators.pivots.pivot
-            r1 = indicators.pivots.r1
-            r2 = indicators.pivots.r2
-            r3 = indicators.pivots.r3
-            s1 = indicators.pivots.s1
-            s2 = indicators.pivots.s2
-            s3 = indicators.pivots.s3
-            ma_20 = indicators.ma20
-            vwap = indicators.vwap
-        else:
-            # Degenerate fallback: keep pivot at last close, skip other overlays
-            pivot = r1 = r2 = r3 = s1 = s2 = s3 = closes[-1]
-            ma_20 = [None] * len(closes)
-            vwap = closes[:]
+        if have_prev:
+            prev_ind = _safe_ind(prev_h, prev_l, prev_c, prev_v)
 
-        # Create plot
+        if have_today:
+            if have_prev:
+                # Today's pivots — derived from yesterday's H/L/C (standard formula)
+                ph, pl, pc = max(prev_h), min(prev_l), prev_c[-1]
+                tp = (ph + pl + pc) / 3
+                rng = ph - pl
+                today_pivots = PivotLevels(
+                    pivot=tp,
+                    r1=(2 * tp) - pl,
+                    r2=tp + rng,
+                    r3=ph + 2 * (tp - pl),
+                    s1=(2 * tp) - ph,
+                    s2=tp - rng,
+                    s3=pl - 2 * (tp - pl),
+                )
+                # MA and VWAP still from today's own bars
+                _base = _safe_ind(tod_h, tod_l, tod_c, tod_v)
+                if _base is not None:
+                    tod_ind = ChartIndicators(
+                        pivots=today_pivots,
+                        ma20=_base.ma20,
+                        vwap=_base.vwap,
+                    )
+                else:
+                    tod_ind = ChartIndicators(
+                        pivots=today_pivots,
+                        ma20=[None] * len(tod_c),
+                        vwap=_vwap(tod_h, tod_l, tod_c, tod_v),
+                    )
+            else:
+                # Only today available — use own-bars proxy (existing behaviour)
+                tod_ind = _safe_ind(tod_h, tod_l, tod_c, tod_v)
+
+        # ── index layout ──────────────────────────────────────────────────────
+        n_prev  = len(prev_c)
+        n_today = len(tod_c)
+        n_total = n_prev + n_today
+
+        prev_xs  = list(range(n_prev))
+        today_xs = list(range(n_prev, n_total))
+
+        # ── axes ──────────────────────────────────────────────────────────────
         ax = self.figure.add_subplot(111)
+        ax.set_facecolor(COLORS["panel"])
         ax.yaxis.tick_left()
         ax.yaxis.set_label_position("left")
 
-        # Set background color
-        ax.set_facecolor(COLORS["panel"])
+        # ── plot previous-session candles (dimmed) ────────────────────────────
+        if have_prev:
+            for i, x in enumerate(prev_xs):
+                color = COLORS["positive"] if prev_c[i] >= prev_o[i] else COLORS["negative"]
+                ax.plot([x, x], [prev_l[i], prev_h[i]],
+                        color=color, linewidth=1, alpha=0.40, zorder=3)
+                height = max(abs(prev_c[i] - prev_o[i]), 0.01)
+                ax.add_patch(patches.Rectangle(
+                    (x - 0.3, min(prev_o[i], prev_c[i])),
+                    0.6, height,
+                    facecolor=color, edgecolor=color, alpha=0.35, zorder=3,
+                ))
 
-        # Plot Fibonacci Daily Pivot Points
-        ax.axhline(
-            y=pivot,
-            color="#FFFF00",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.7,
-            label="Pivot",
-            zorder=1,
-        )
-        ax.axhline(
-            y=r1,
-            color="#00FF41",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="R1",
-            zorder=1,
-        )
-        ax.axhline(
-            y=r2,
-            color="#00FF41",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="R2",
-            zorder=1,
-        )
-        ax.axhline(
-            y=r3,
-            color="#00FF41",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="R3",
-            zorder=1,
-        )
-        ax.axhline(
-            y=s1,
-            color="#FF1744",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="S1",
-            zorder=1,
-        )
-        ax.axhline(
-            y=s2,
-            color="#FF1744",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="S2",
-            zorder=1,
-        )
-        ax.axhline(
-            y=s3,
-            color="#FF1744",
-            linewidth=1.5,
-            linestyle="-",
-            alpha=0.6,
-            label="S3",
-            zorder=1,
-        )
+        # ── plot today's candles (full brightness) ────────────────────────────
+        if have_today:
+            for i, x in enumerate(today_xs):
+                color = COLORS["positive"] if tod_c[i] >= tod_o[i] else COLORS["negative"]
+                ax.plot([x, x], [tod_l[i], tod_h[i]],
+                        color=color, linewidth=1, alpha=0.90, zorder=3)
+                height = max(abs(tod_c[i] - tod_o[i]), 0.01)
+                ax.add_patch(patches.Rectangle(
+                    (x - 0.3, min(tod_o[i], tod_c[i])),
+                    0.6, height,
+                    facecolor=color, edgecolor=color, alpha=0.90, zorder=3,
+                ))
 
-        # Plot 20-period Moving Average
-        ma_x = [i for i, val in enumerate(ma_20) if val is not None]
-        ma_y = [val for val in ma_20 if val is not None]
-        ax.plot(
-            ma_x,
-            ma_y,
-            color="#00B8D4",
-            linewidth=1.5,
-            alpha=0.8,
-            label="MA(20)",
-            zorder=2,
-        )
+        # ── day separator & date labels ───────────────────────────────────────
+        if have_prev and have_today:
+            sep_x = n_prev - 0.5
+            ax.axvline(x=sep_x, color="#00B8D4", linewidth=1.5,
+                       linestyle="--", alpha=0.85, zorder=5)
+            blend = blended_transform_factory(ax.transData, ax.transAxes)
+            if prev_d:
+                ax.text(n_prev * 0.5, 0.98, prev_d[0].strftime("%b %d"),
+                        color="#00B8D4", fontsize=8, ha="center", va="top",
+                        transform=blend, zorder=6)
+            if tod_d:
+                ax.text(n_prev + n_today * 0.5, 0.98, tod_d[0].strftime("%b %d"),
+                        color="#00B8D4", fontsize=8, ha="center", va="top",
+                        transform=blend, zorder=6)
 
-        # Plot VWAP
-        ax.plot(
-            range(len(vwap)),
-            vwap,
-            color="#BF00FF",
-            linewidth=1.5,
-            alpha=0.9,
-            label="VWAP",
-            zorder=2,
-        )
+        # ── pivot level lines per day ─────────────────────────────────────────
+        def _draw_pivots(pivots: PivotLevels, x0: float, x1: float,
+                         label_x: float, prefix: str = "") -> None:
+            dim = prefix != ""   # True → previous day (dimmed)
+            lw    = 1.0 if dim else 1.5
+            alpha = 0.38 if dim else 0.65
+            fsize = 7   if dim else 8
 
-        # Plot candlesticks
-        for i in range(len(dates)):
-            color = COLORS["positive"] if closes[i] >= opens[i] else COLORS["negative"]
+            def _hline(y: float, color: str, tag: str) -> None:
+                ax.hlines(y, x0, x1, colors=color, linewidth=lw,
+                          linestyles="-", alpha=alpha, zorder=1)
+                ax.text(label_x, y,
+                        f" {prefix}{'P' if tag == 'Pivot' else tag}: {y:.2f}",
+                        color=color, fontsize=fsize, va="center", zorder=6)
 
-            # High-Low line
-            ax.plot([i, i], [lows[i], highs[i]], color=color, linewidth=1, zorder=3)
+            _hline(pivots.pivot, "#FFFF00", "Pivot")
+            _hline(pivots.r1,    "#00FF41", "R1")
+            _hline(pivots.r2,    "#00FF41", "R2")
+            _hline(pivots.r3,    "#00FF41", "R3")
+            _hline(pivots.s1,    "#FF1744", "S1")
+            _hline(pivots.s2,    "#FF1744", "S2")
+            _hline(pivots.s3,    "#FF1744", "S3")
 
-            # Open-Close box
-            height = abs(closes[i] - opens[i])
-            bottom = min(opens[i], closes[i])
+        label_pad = 0.5
+        if have_prev and prev_ind:
+            _draw_pivots(prev_ind.pivots,
+                         x0=0, x1=n_prev - 0.5,
+                         label_x=n_prev - 0.5 + label_pad,
+                         prefix="Y")
+        if have_today and tod_ind:
+            _draw_pivots(tod_ind.pivots,
+                         x0=(n_prev if have_prev else 0),
+                         x1=n_total - 1,
+                         label_x=n_total - 1 + label_pad,
+                         prefix="")
+        elif not have_prev and tod_ind:
+            # Only today — full-width pivots (existing behaviour)
+            _draw_pivots(tod_ind.pivots,
+                         x0=0, x1=n_total - 1,
+                         label_x=n_total - 1 + label_pad,
+                         prefix="")
 
-            rect = patches.Rectangle(
-                (i - 0.3, bottom),
-                0.6,
-                height,
-                facecolor=color,
-                edgecolor=color,
-                alpha=0.9,
-                zorder=3,
-            )
-            ax.add_patch(rect)
+        # ── VWAP — separate per session, resets at open ───────────────────────
+        if have_prev and prev_ind:
+            ax.plot(prev_xs, prev_ind.vwap,
+                    color="#BF00FF", linewidth=1.2, alpha=0.40, zorder=2)
+        if have_today and tod_ind:
+            ax.plot(today_xs, tod_ind.vwap,
+                    color="#BF00FF", linewidth=1.5, alpha=0.90, zorder=2,
+                    label="VWAP")
 
-        # Add pivot level labels on the right
-        ax.text(
-            len(dates),
-            pivot,
-            f" P: {pivot:.2f}",
-            color="#FFFF00",
-            fontsize=9,
-            va="center",
-        )
-        ax.text(
-            len(dates), r1, f" R1: {r1:.2f}", color="#00FF41", fontsize=8, va="center",
-        )
-        ax.text(
-            len(dates), r2, f" R2: {r2:.2f}", color="#00FF41", fontsize=8, va="center",
-        )
-        ax.text(
-            len(dates), r3, f" R3: {r3:.2f}", color="#00FF41", fontsize=8, va="center",
-        )
-        ax.text(
-            len(dates), s1, f" S1: {s1:.2f}", color="#FF1744", fontsize=8, va="center",
-        )
-        ax.text(
-            len(dates), s2, f" S2: {s2:.2f}", color="#FF1744", fontsize=8, va="center",
-        )
-        ax.text(
-            len(dates), s3, f" S3: {s3:.2f}", color="#FF1744", fontsize=8, va="center",
-        )
+        # ── MA(20) — continuous across both days ──────────────────────────────
+        all_closes = prev_c + tod_c
+        all_ma20   = _ma(all_closes, period=20)
+        ma_x = [i for i, v in enumerate(all_ma20) if v is not None]
+        ma_y = [v for v in all_ma20 if v is not None]
+        if ma_x:
+            ax.plot(ma_x, ma_y, color="#00B8D4", linewidth=1.5,
+                    alpha=0.80, zorder=2, label="MA(20)")
 
-        # Styling (title moved to regime bar)
-        ax.set_xlim(-1, len(dates))
+        # ── x-axis labels ─────────────────────────────────────────────────────
+        all_dates = prev_d + tod_d
+        if all_dates:
+            n_ticks = min(9, n_total)
+            indices = np.linspace(0, n_total - 1, n_ticks, dtype=int)
+            ax.set_xticks(indices)
+            tick_labels = []
+            for idx in indices:
+                dt = all_dates[idx]
+                # Show "Apr 15\n09:30" at the first bar and at each day boundary
+                prev_idx = idx - 1
+                if idx == 0 or (prev_idx >= 0
+                                and all_dates[idx].date() != all_dates[prev_idx].date()):
+                    tick_labels.append(dt.strftime("%b %d\n%H:%M"))
+                else:
+                    tick_labels.append(dt.strftime("%H:%M"))
+            ax.set_xticklabels(tick_labels, fontsize=8)
+
+        # ── styling ───────────────────────────────────────────────────────────
+        ax.set_xlim(-1, n_total + 2)   # +2 gives room for right-side labels
         ax.grid(True, alpha=0.2, color=COLORS["grid"], zorder=0)
-
-        # Format x-axis with time labels
-        num_labels = 6
-        indices = np.linspace(0, len(dates) - 1, num_labels, dtype=int)
-        ax.set_xticks(indices)
-
-        time_labels = []
-        for idx in indices:
-            time_str = dates[idx].strftime("%H:%M")
-            time_labels.append(time_str)
-
-        ax.set_xticklabels(time_labels, fontsize=9)
-
-        # Style axes
         ax.tick_params(colors="#FFFFFF")
         for spine in ax.spines.values():
             spine.set_color(COLORS["border"])
 
-        # Adjust layout
         self.figure.tight_layout()
         self.canvas.draw()
 
@@ -3249,6 +3607,16 @@ class SpyderTradingDashboard(QMainWindow):
                     self.symbol_widgets[symbol].update_data(market_info)
 
             self.market_data.update(data)
+
+            # Keep signal panel live-data in sync (simulation path).
+            if self.signal_panel is not None:
+                _sp = {}
+                for _sym in ("VIX", "SKEW", "GEX", "DEX", "OGL", "DIX", "SWAN"):
+                    _e = data.get(_sym)
+                    if isinstance(_e, dict) and _e.get("last") is not None:
+                        _sp[_sym] = _e["last"]
+                if _sp:
+                    self.signal_panel.update_live_data(_sp)
 
         except Exception as e:
             self.logger.exception("Error updating market data: %s", e)
@@ -4262,12 +4630,16 @@ class SpyderTradingDashboard(QMainWindow):
         """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""
         market_hours = is_market_hours()
 
-        # FIXED: Check for simulation mode first with better detection
+        # FIXED: Check for simulation mode first with better detection.
+        # Exclude the real-file-data case: if real EOD data is loaded we must
+        # not incorrectly label it SIMULATION just because the update_timer is
+        # running (it always is, even when serving real file prices).
         if (
             hasattr(self.connection_info, "simulation_mode")
             and self.connection_info.simulation_mode
         ) or (
             not self.api_connected
+            and not self.real_data_active
             and hasattr(self, "market_worker")
             and self.market_worker is not None
             and hasattr(self.market_worker, "update_timer")
@@ -4318,7 +4690,8 @@ class SpyderTradingDashboard(QMainWindow):
             and self.market_worker.update_timer.isActive()
         ):
             return "SIMULATION"
-        return "EOD"
+        # No real data and no active worker — nothing meaningful to show yet
+        return "SIMULATION"
 
     def update_status_indicators(self):
         """Update both status indicators based on current state"""
@@ -4430,6 +4803,24 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.add_system_log("🎯 Simulation baseline unavailable - awaiting market data")
 
+    def _on_eod_snapshot_fetched(self, success: bool) -> None:
+        """Handle the result of the worker's outside-hours EOD price fetch.
+
+        When the worker successfully fetches real last-trade prices from Tradier
+        (success=True), activate the real-data patch so the dashboard shows
+        genuine EOD figures and the label reads 'EOD'.
+
+        When the fetch fails (success=False) — e.g. credentials missing or API
+        unreachable — log a warning and leave the label as 'SIMULATED' so the
+        trader is never misled about what is being shown.
+        """
+        if success:
+            self.add_system_log("📊 Real EOD data loaded from Tradier — prices are last close")
+            self.apply_real_data_patch()
+        else:
+            self.add_system_log("⚠️ EOD snapshot unavailable — Tradier unreachable or not configured")
+            self.update_data_status("SIMULATION")
+
     # ==========================================================================
     # UTILITY METHODS - ENHANCED WITH HEARTBEAT WORKER
     # ==========================================================================
@@ -4482,6 +4873,108 @@ class SpyderTradingDashboard(QMainWindow):
 
             widget.update_data({"last": value, "change": change, "change_pct": change_pct})
 
+        # Forward TICK/ADD/TRIN to the Market Internals dialog if it is open.
+        # This ensures the popup always shows the same values as the Market Overview panel.
+        dlg = getattr(self, "current_dialog", None)
+        if dlg is not None and hasattr(dlg, "on_breadth_updated"):
+            import math
+            tick_entry = metrics.get("TICK", {})
+            add_entry  = metrics.get("ADD",  {})
+            trin_entry = metrics.get("TRIN", {})
+            if isinstance(tick_entry, dict) and isinstance(add_entry, dict) and isinstance(trin_entry, dict):
+                tick = tick_entry.get("value", float("nan"))
+                add  = add_entry.get("value",  float("nan"))
+                trin = trin_entry.get("value", float("nan"))
+                if not (isinstance(tick, float) and math.isnan(tick)
+                        and isinstance(add, float) and math.isnan(add)
+                        and isinstance(trin, float) and math.isnan(trin)):
+                    breadth_entry = metrics.get("BREADTH_REGIME", {})
+                    regime = breadth_entry.get("value", "") if isinstance(breadth_entry, dict) else ""
+                    dlg.on_breadth_updated({
+                        "tick": tick,
+                        "add":  add,
+                        "trin": trin,
+                        "breadth_regime": regime,
+                    })
+
+        # Update the MARKET REGIME label from live S07 metrics.
+        regime_label, regime_color = self._derive_regime_label(metrics)
+        self.regime_value.setText(regime_label)
+        self.regime_value.setStyleSheet(f"color: {regime_color};")
+
+        # Sync REGIME traffic-light button in the SIGNAL MONITOR panel.
+        if self.signal_panel is not None:
+            import math
+
+            def _sv(key: str, default: float) -> float:
+                e = metrics.get(key)
+                if not isinstance(e, dict):
+                    return default
+                v = e.get("value", default)
+                return default if (isinstance(v, float) and math.isnan(v)) else float(v)
+
+            self.signal_panel.update_regime(
+                regime_label,
+                _sv("SWAN", 1.9),
+                _sv("DIX", 42.0),
+                _sv("SKEW", 120.0),
+                _sv("GEX", 0.0),
+            )
+
+            # Also push S07 custom-metric values into _live so dialogs stay
+            # in sync with the Market Overview panel.
+            _live_s07: dict = {}
+            for _s07_key, (_wk, _sc) in self._S07_METRIC_ROUTING.items():
+                if _s07_key in ("TICK", "ADD", "TRIN"):
+                    continue
+                _e = metrics.get(_s07_key)
+                if not isinstance(_e, dict):
+                    continue
+                _raw = _e.get("value")
+                if _raw is None or (isinstance(_raw, float) and math.isnan(_raw)):
+                    continue
+                _live_s07[_wk] = _raw * _sc
+            if _live_s07:
+                self.signal_panel.update_live_data(_live_s07)
+
+    def _derive_regime_label(self, metrics: dict) -> tuple[str, str]:
+        """Derive a simple market regime label from live S07 metrics.
+
+        Uses SWAN (tail risk), DIX (dark-pool buying), SKEW, and GEX.
+        All of these are populated by S07 on every update cycle.
+        Returns (label, colour_hex).
+        """
+        import math
+
+        def _val(key: str, default: float) -> float:
+            entry = metrics.get(key)
+            if not isinstance(entry, dict):
+                return default
+            v = entry.get("value", default)
+            if isinstance(v, float) and math.isnan(v):
+                return default
+            return float(v)
+
+        swan = _val("SWAN", 1.9)
+        dix  = _val("DIX",  42.0)
+        skew = _val("SKEW", 120.0)
+        gex  = _val("GEX",  0.0)
+
+        # Priority order: extreme risk → high risk → directional → neutral
+        if swan >= 2.0:
+            return "EXTREME RISK", COLORS["negative"]
+        if swan >= 1.95 or skew >= 150:
+            return "HIGH RISK", COLORS["negative"]
+        if skew >= 140 and dix < 42:
+            return "CAUTIOUS", COLORS["warning"]
+        if dix >= 46 and gex >= 0 and swan < 1.9:
+            return "BULLISH", COLORS["positive"]
+        if dix <= 40 and swan >= 1.85:
+            return "BEARISH", COLORS["negative"]
+        if dix >= 43 and swan < 1.92:
+            return "NEUTRAL BULL", COLORS["positive"]
+        return "NEUTRAL", COLORS["warning"]
+
     def start_market_worker(self):
         """Start the enhanced market worker with heartbeat monitoring"""
         try:
@@ -4508,6 +5001,9 @@ class SpyderTradingDashboard(QMainWindow):
             self.market_worker.balance_updated.connect(
                 self._on_balance_updated,
             )  # NEW: Account balance from Tradier
+            self.market_worker.eod_snapshot_fetched.connect(
+                self._on_eod_snapshot_fetched,
+            )  # Real EOD prices written outside market hours
             self.market_worker.fetch_requested.connect(
                 self.market_worker._fetch_live_data_from_tradier,
                 Qt.QueuedConnection,
@@ -4710,12 +5206,12 @@ class SpyderTradingDashboard(QMainWindow):
     def add_system_log(self, message: str):
         """Add message to system log."""
         self._append_to_ring_log(self.system_logs, self.system_log, message,
-                                  max_buffer=100, display_count=20)
+                                  max_buffer=200, display_count=200)
 
     def add_automation_log(self, message: str):
         """Add message to automation log."""
         self._append_to_ring_log(self.automation_logs, self.auto_log, message,
-                                  max_buffer=100, display_count=15)
+                                  max_buffer=100, display_count=100)
 
     def setup_white_tooltips(self):
         """Apply the white-tooltip theme to this window (delegates to module helper)."""
@@ -4723,6 +5219,99 @@ class SpyderTradingDashboard(QMainWindow):
             apply_tooltip_theme(QApplication.instance(), self)
         except Exception as e:
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
+
+    # ------------------------------------------------------------------
+    # Snapshot persistence — save symbol values on exit, restore on open
+    # ------------------------------------------------------------------
+    _SNAPSHOT_FILE: Path = (
+        Path.home() / "Projects/Spyder/market_data/dashboard_snapshot.json"
+    )
+    # Snapshot age thresholds (seconds)
+    _SNAPSHOT_STALE_HOURS = 8  # > 8 h → FROZEN badge (red)
+    _SNAPSHOT_EOD_HOURS = 0    # anything younger → EOD badge (yellow)
+
+    def _save_snapshot(self) -> None:
+        """Persist current market_data values to disk for next launch."""
+        try:
+            if not self.market_data:
+                return
+            self._SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "_saved_at": time.time(),
+                "data": {
+                    sym: {
+                        "last": entry.get("last", 0.0),
+                        "change": entry.get("change", 0.0),
+                        "change_pct": entry.get("change_pct", 0.0),
+                    }
+                    for sym, entry in self.market_data.items()
+                    if isinstance(entry, dict) and entry.get("last") is not None
+                },
+            }
+            self._SNAPSHOT_FILE.write_text(json.dumps(payload))
+            logger.info("Dashboard snapshot saved (%d symbols)", len(payload["data"]))
+        except Exception as _snap_err:  # noqa: BLE001
+            logger.warning("Could not save dashboard snapshot: %s", _snap_err)
+
+        # Also snapshot the SPY 5-min chart bars for next-session 2-day view
+        try:
+            import shutil as _shutil
+            chart_src = self.data_file.parent / "spy_5min_chart.json"
+            chart_dst = self.data_file.parent / "spy_5min_prev_day.json"
+            if chart_src.exists():
+                _shutil.copy2(chart_src, chart_dst)
+                logger.info("SPY 5-min chart snapshot saved for next session")
+        except Exception as _chart_snap_err:  # noqa: BLE001
+            logger.warning("Could not save SPY chart snapshot: %s", _chart_snap_err)
+
+    def _restore_snapshot(self) -> None:
+        """Load the last snapshot and pre-populate symbol widgets (best-effort)."""
+        try:
+            if not self._SNAPSHOT_FILE.exists():
+                return
+            raw = self._SNAPSHOT_FILE.read_text()
+            payload = json.loads(raw)
+            saved_at = payload.get("_saved_at", 0.0)
+            age_hours = (time.time() - saved_at) / 3600
+            data: dict = payload.get("data", {})
+            if not data:
+                return
+
+            count = 0
+            for sym, entry in data.items():
+                # Merge into market_data so other code reading it gets values too
+                if sym not in self.market_data:
+                    self.market_data[sym] = {}
+                self.market_data[sym].update(entry)
+                if sym in self.symbol_widgets:
+                    self.symbol_widgets[sym].update_data(entry)
+                    count += 1
+
+            # Also push recognised keys to signal panel
+            if self.signal_panel is not None:
+                _sp = {}
+                for _sym in ("VIX", "SKEW", "CPC"):
+                    _e = data.get(_sym)
+                    if isinstance(_e, dict) and _e.get("last") is not None:
+                        _sp[_sym] = _e["last"]
+                if _sp:
+                    self.signal_panel.update_live_data(_sp)
+
+            # Set appropriate data-status badge
+            if age_hours >= self._SNAPSHOT_STALE_HOURS:
+                self.update_data_status("FROZEN")
+                badge = "FROZEN (stale snapshot)"
+            else:
+                self.update_data_status("EOD")
+                badge = "EOD snapshot"
+
+            import datetime as _dt
+            saved_str = _dt.datetime.fromtimestamp(saved_at).strftime("%Y-%m-%d %H:%M:%S")
+            self.add_system_log(
+                f"📦 Restored {count} symbols from {badge} saved at {saved_str}"
+            )
+        except Exception as _restore_err:  # noqa: BLE001
+            logger.warning("Could not restore dashboard snapshot: %s", _restore_err)
 
     def closeEvent(self, event):
         """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
@@ -4749,6 +5338,9 @@ class SpyderTradingDashboard(QMainWindow):
                 self.datetime_timer.stop()
             if hasattr(self, "chart_timer") and self.chart_timer:
                 self.chart_timer.stop()
+
+            # Persist symbol values so next launch can restore them
+            self._save_snapshot()
 
             # Log shutdown
             self.add_system_log("🔥 Enhanced Trading Dashboard shutting down...")

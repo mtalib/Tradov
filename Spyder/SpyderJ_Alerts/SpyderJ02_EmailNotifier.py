@@ -783,7 +783,7 @@ if __name__ == "__main__":
         smtp_port=587,
         use_tls=True,
         username='your_email@gmail.com',
-        password='encrypted_password',  # Would be encrypted
+        password='<REPLACE_ME>',  # Replace with actual credentials via .env
         from_address='your_email@gmail.com',
         from_name='Spyder Trading'
     )

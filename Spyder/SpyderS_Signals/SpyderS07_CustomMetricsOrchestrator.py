@@ -291,8 +291,8 @@ class CustomMetricsOrchestrator(QObject):
         self.update_timer.timeout.connect(self._dispatch_metrics_update)
         self.update_timer.setInterval(self.current_update_interval * 1000)
 
-        self.logger.info("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
-        self.logger.info("⚠️ Regime detection functions removed - now handled by L09_UnifiedRegimeEngine")
+        self.logger.debug("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
+        self.logger.debug("⚠️ Regime detection functions removed - now handled by L09_UnifiedRegimeEngine")
 
         # Auto-start if configured
         if self.config.get("auto_start", True):
@@ -304,7 +304,7 @@ class CustomMetricsOrchestrator(QObject):
         if DIX_AVAILABLE:
             try:
                 self.dix_calculator = get_calculator_instance()
-                self.logger.info("✅ S01_DIXCalculator initialized")
+                self.logger.debug("✅ S01_DIXCalculator initialized")
             except Exception as e:
                 self.logger.error("Failed to init DIX: %s", e, exc_info=True)
                 self.dix_calculator = None
@@ -315,7 +315,7 @@ class CustomMetricsOrchestrator(QObject):
         if SWAN_AVAILABLE:
             try:
                 self.swan_indicator = get_black_swan_indicator()
-                self.logger.info("✅ S03_BlackSwanIndicator initialized")
+                self.logger.debug("✅ S03_BlackSwanIndicator initialized")
             except Exception as e:
                 self.logger.error("Failed to init SWAN: %s", e, exc_info=True)
                 self.swan_indicator = None
@@ -326,7 +326,7 @@ class CustomMetricsOrchestrator(QObject):
         if GEX_AVAILABLE:
             try:
                 self.gex_calculator = GEXDEXCalculator()
-                self.logger.info("✅ S05_GEXDEXCalculator initialized")
+                self.logger.debug("✅ S05_GEXDEXCalculator initialized")
             except Exception as e:
                 self.logger.error("Failed to init GEX: %s", e, exc_info=True)
                 self.gex_calculator = None
@@ -337,7 +337,7 @@ class CustomMetricsOrchestrator(QObject):
         if SKEW_AVAILABLE:
             try:
                 self.skew_calculator = get_skew_calculator()
-                self.logger.info("✅ S06_SKEWCalculator initialized")
+                self.logger.debug("✅ S06_SKEWCalculator initialized")
             except Exception as e:
                 self.logger.error("Failed to init SKEW: %s", e, exc_info=True)
                 self.skew_calculator = None
@@ -348,7 +348,7 @@ class CustomMetricsOrchestrator(QObject):
         if FRED_AVAILABLE:
             try:
                 self.fred_client = get_fred_client()
-                self.logger.info("✅ S09_FREDClient initialized")
+                self.logger.debug("✅ S09_FREDClient initialized")
             except Exception as e:
                 self.logger.error("Failed to init FRED: %s", e, exc_info=True)
                 self.fred_client = None
@@ -359,7 +359,7 @@ class CustomMetricsOrchestrator(QObject):
         if SENTIMENT_AVAILABLE:
             try:
                 self.sentiment_scraper = get_sentiment_scraper()
-                self.logger.info("✅ S10_SentimentScraper initialized")
+                self.logger.debug("✅ S10_SentimentScraper initialized")
             except Exception as e:
                 self.logger.error("Failed to init Sentiment: %s", e, exc_info=True)
                 self.sentiment_scraper = None
@@ -370,7 +370,7 @@ class CustomMetricsOrchestrator(QObject):
         if DIX_SCHEDULER_AVAILABLE:
             try:
                 self.dix_scheduler = SpyderDIXScheduler()
-                self.logger.info("✅ S02_DIXScheduler initialized")
+                self.logger.debug("✅ S02_DIXScheduler initialized")
             except Exception as e:
                 self.logger.error("Failed to init DIX scheduler: %s", e, exc_info=True)
                 self.dix_scheduler = None
@@ -381,7 +381,7 @@ class CustomMetricsOrchestrator(QObject):
         if SWAN_SCHEDULER_AVAILABLE:
             try:
                 self.swan_scheduler = BlackSwanSchedulerCls()
-                self.logger.info("✅ S04_BlackSwanScheduler initialized")
+                self.logger.debug("✅ S04_BlackSwanScheduler initialized")
             except Exception as e:
                 self.logger.error("Failed to init Black Swan scheduler: %s", e, exc_info=True)
                 self.swan_scheduler = None
@@ -392,7 +392,7 @@ class CustomMetricsOrchestrator(QObject):
         if TV_INTERNALS_AVAILABLE:
             try:
                 self.tv_client = get_tv_internals_client()
-                self.logger.info("✅ S11_TradingViewInternals initialized")
+                self.logger.debug("✅ S11_TradingViewInternals initialized")
             except Exception as e:
                 self.logger.error("Failed to init TradingView internals: %s", e, exc_info=True)
                 self.tv_client = None
@@ -434,9 +434,9 @@ class CustomMetricsOrchestrator(QObject):
             # in the background thread below.
             if self.swan_scheduler is not None:
                 self.swan_scheduler.start(daemon=True)
-                self.logger.info("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")
+                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")
 
-            self.logger.info("✅ Orchestrator started — background fetch beginning")
+            self.logger.debug("✅ Orchestrator started — background fetch beginning")
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
 
             # All blocking network I/O (DIX init + metric fetch + Black Swan
@@ -462,7 +462,7 @@ class CustomMetricsOrchestrator(QObject):
             try:
                 if self.dix_scheduler.initialize():
                     self.dix_scheduler.start()
-                    self.logger.info("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
+                    self.logger.debug("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
                 else:
                     self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")
             except Exception as e:
@@ -602,7 +602,18 @@ class CustomMetricsOrchestrator(QObject):
                     fred_success, sentiment_success, breadth_success,
                 ])
 
-                self.logger.info(
+                # Only log at INFO when key values change; use DEBUG for unchanged cycles.
+                _summary = (
+                    f"{success_count}/7 | "
+                    f"GEX={updated_metrics.get('GEX', 0):.1f}B "
+                    f"DIX={updated_metrics.get('DIX', 0):.1f}% "
+                    f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
+                    f"SKEW={updated_metrics.get('SKEW', 100):.1f} "
+                    f"TICK={updated_metrics.get('TICK', float('nan'))}"
+                )
+                _last = getattr(self, "_last_metrics_summary", None)
+                _log = self.logger.info if _summary != _last else self.logger.debug
+                _log(
                     f"📊 Metrics updated: {success_count}/7 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
@@ -612,6 +623,7 @@ class CustomMetricsOrchestrator(QObject):
                     f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%) "
                     f"[{calculation_time:.2f}s]"
                 )
+                self._last_metrics_summary = _summary
 
         except Exception as e:
             self.logger.error("Critical error updating metrics: %s", e, exc_info=True)
@@ -743,8 +755,8 @@ class CustomMetricsOrchestrator(QObject):
         try:
             if self.fred_client:
                 snap = self.fred_client.get_snapshot()
-                updated_metrics["YIELD_10Y"]     = snap.get("GS10", float("nan"))
-                updated_metrics["YIELD_SLOPE"]   = snap.get("T10Y2Y", float("nan"))
+                updated_metrics["YIELD_10Y"]     = snap.get("yield_10y", float("nan"))
+                updated_metrics["YIELD_SLOPE"]   = snap.get("spread_10y_2y", float("nan"))
                 updated_metrics["YIELD_INVERTED"] = snap.get("yield_curve_inverted", False)
                 self.fred_updated.emit(snap)
                 return True

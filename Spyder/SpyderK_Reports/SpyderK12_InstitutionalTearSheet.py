@@ -32,7 +32,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -428,7 +428,7 @@ class InstitutionalTearSheet:
 
         result: dict[str, Any] = {
             'title': title,
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'data_range': {
                 'start': str(returns.index[0]),
                 'end': str(returns.index[-1]),
@@ -507,7 +507,7 @@ class InstitutionalTearSheet:
 
         return {
             'title': 'Risk Tear Sheet',
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'var_historical': {
                 'var_95': metrics.get('var_95', 0),
                 'cvar_95': metrics.get('cvar_95', 0),
@@ -563,7 +563,7 @@ class InstitutionalTearSheet:
 
         return {
             'title': 'Returns Tear Sheet',
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'summary': {
                 'annual_return': metrics.get('annual_return', 0),
                 'cumulative_return': metrics.get('cumulative_return', 0),
@@ -647,7 +647,7 @@ class InstitutionalTearSheet:
 
         return {
             'title': 'Strategy Comparison',
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'n_strategies': len(strategy_returns),
             'strategies': comparison,
             'rankings_by_sharpe': [r[0] for r in rankings],

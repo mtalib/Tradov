@@ -228,6 +228,10 @@ class PerformanceAnalytics:
         """Legacy calculate method for backward compatibility."""
         return {}
 
+    def get_summary_stats(self) -> dict[str, Any]:
+        """Return an empty summary; populated when trade data is available."""
+        return {}
+
     def analyze_trades(
         self,
         trades: list[dict[str, Any]],

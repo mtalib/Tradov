@@ -15,6 +15,7 @@ Module Description:
       Gate 1 — np.random in production risk/portfolio packages
       Gate 2 — T129 protocol-compliance unittest suite
       Gate 3 — datetime.utcnow() in production code (use timezone.utc)
+      Gate 4 — datetime.now() (naive, no tz) in production code
 
     Usage:
         python -m Spyder.SpyderQ_Scripts.SpyderQ10_ProtocolComplianceGate
@@ -147,6 +148,53 @@ def check_no_datetime_utcnow() -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Gate 4: datetime.now() (naive, no tz) in production code
+# ---------------------------------------------------------------------------
+_NAIVE_NOW_PATTERN = re.compile(r"\bdatetime\.now\(\s*\)")
+
+# Packages/directories excluded from Gate 4 — scripts and tests may use naive
+# timestamps for local display or CLI output.
+_NAIVE_NOW_EXCLUDE_DIRS = {
+    "SpyderQ_Scripts",
+    "SpyderT_Testing",
+    "__pycache__",
+}
+
+
+def check_no_naive_datetime_now() -> bool:
+    """Return True when no production file calls datetime.now() without a tz arg."""
+    violations: list[str] = []
+    for py_file in sorted(_SPYDER_ROOT.rglob("*.py")):
+        if any(part in _NAIVE_NOW_EXCLUDE_DIRS for part in py_file.parts):
+            continue
+        try:
+            text = py_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if _NAIVE_NOW_PATTERN.search(line):
+                rel = py_file.relative_to(_SPYDER_ROOT.parent)
+                violations.append(f"  {rel}:{lineno}: {line.strip()}")
+
+    if violations:
+        print(
+            "[Q10] datetime.now() (naive) found in production code "
+            f"({len(violations)} occurrence(s)):",
+            file=sys.stderr,
+        )
+        for v in violations:
+            print(v, file=sys.stderr)
+        print(
+            "[Q10] Use datetime.now(timezone.utc) or SpyderU03.now_utc() instead.",
+            file=sys.stderr,
+        )
+        return False
+
+    print("[Q10] Naive datetime.now() gate OK — no bare now() in production code.", file=sys.stderr)
+    return True
+
+
 def main() -> int:
     exit_code = 0
 
@@ -178,6 +226,10 @@ def main() -> int:
 
     # Gate 3: datetime.utcnow()
     if not check_no_datetime_utcnow():
+        exit_code = 1
+
+    # Gate 4: naive datetime.now()
+    if not check_no_naive_datetime_now():
         exit_code = 1
 
     return exit_code

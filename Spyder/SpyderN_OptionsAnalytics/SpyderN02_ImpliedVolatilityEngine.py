@@ -421,7 +421,7 @@ class ImpliedVolatilityEngine:
         self.min_open_interest = 100  # Minimum OI
         self.max_bid_ask_spread = 0.50  # Maximum spread
 
-        self.logger.info("ImpliedVolatilityEngine initialized")
+        self.logger.debug("ImpliedVolatilityEngine initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - IV CALCULATION

@@ -723,7 +723,7 @@ class OptionsPricer:
         self.use_cache = True
         self.cache_ttl = 60  # seconds
 
-        self.logger.info("OptionsPricer initialized")
+        self.logger.debug("OptionsPricer initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - PRICING

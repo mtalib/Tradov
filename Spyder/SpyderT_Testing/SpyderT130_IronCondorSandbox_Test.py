@@ -47,10 +47,17 @@ import os
 import sys
 from datetime import date, timedelta
 
+import pytest
+
+pytestmark = pytest.mark.manual  # Interactive CLI sandbox — excluded from CI
+
 # ---------------------------------------------------------------------------
-# Path setup — allow running from repo root or 08-TestScripts/
+# Path setup — allow running from repo root or SpyderT_Testing/
 # ---------------------------------------------------------------------------
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The file lives at <project_root>/Spyder/SpyderT_Testing/<file>.py so we
+# need 3 dirname levels to reach <project_root> where the `Spyder` package
+# directory lives.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
@@ -62,10 +69,9 @@ except ImportError:
 
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierClient,
+    TradierAPIError,
     TradingEnvironment,
     build_option_symbol,
-    OptionLeg,
-    OrderSide,
     OrderDuration,
 )
 
@@ -281,7 +287,7 @@ def main() -> None:
         print("[OK]  Preview response:")
         import json
         print(json.dumps(preview, indent=2))
-    except Exception as e:
+    except TradierAPIError as e:
         print(f"[WARN] Preview failed: {e}")
         print("       (Tradier sandbox sometimes rejects previews for illiquid chains.)")
 
@@ -318,7 +324,7 @@ def main() -> None:
             order_status = client.get_order(order_id)
             print("Order status:")
             print(json.dumps(order_status, indent=2))
-    except Exception as e:
+    except TradierAPIError as e:
         print(f"[ERROR] Order placement failed: {e}")
         sys.exit(1)
 

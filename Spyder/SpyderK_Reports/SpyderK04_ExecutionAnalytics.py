@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -484,7 +484,7 @@ class ExecutionAnalytics:
                 'recommendations': self._generate_comprehensive_recommendations(
                     summary, time_analysis, impact_analysis
                 ),
-                'generated_at': datetime.now().isoformat()
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
 
             self.logger.info("Generated execution report for %s", report_date)
@@ -909,7 +909,7 @@ class ExecutionAnalytics:
             'market_impact': {},
             'charts': {},
             'recommendations': ["No execution data available for analysis"],
-            'generated_at': datetime.now().isoformat()
+            'generated_at': datetime.now(timezone.utc).isoformat()
         }
 
     def _export_html_report(self, report: dict[str, Any], output_path: str) -> bool:

@@ -92,7 +92,7 @@ class GEXDEXCalculator:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.info("GEXDEXCalculator initialized (real options chain mode)")
+        self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
 
     # ------------------------------------------------------------------

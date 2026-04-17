@@ -38,6 +38,9 @@ import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# APScheduler is very chatty at INFO; only show WARNING and above
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -59,19 +62,19 @@ class _DIXVisualizerStub:
         self._log = logging.getLogger(__name__)
 
     def initialize(self) -> bool:
-        self._log.info("DIX visualizer unavailable — using stub")
+        self._log.debug("DIX visualizer unavailable — using stub")
         return True
 
     def create_summary_dashboard(self, results) -> None:
-        self._log.info("DIX summary dashboard skipped (visualizer not available)")
+        self._log.debug("DIX summary dashboard skipped (visualizer not available)")
         return None
 
     def create_time_series_chart(self, history_data) -> None:
-        self._log.info("DIX time-series chart skipped (visualizer not available)")
+        self._log.debug("DIX time-series chart skipped (visualizer not available)")
         return None
 
     def generate_analysis_report(self, results) -> None:
-        self._log.info("DIX analysis report skipped (visualizer not available)")
+        self._log.debug("DIX analysis report skipped (visualizer not available)")
         return None
 
 SpyderDIXVisualizer = _DIXVisualizerStub
@@ -90,7 +93,7 @@ try:
                 # Newer EmailNotifier implementations require explicit config.
                 self._notifier = _EmailNotifier()
             except TypeError:
-                self._logger.info(
+                self._logger.debug(
                     "Email notifier requires config; using no-op email sender for scheduler"
                 )
             except Exception as exc:
@@ -100,7 +103,7 @@ try:
 
         def send_email(self, subject: str, body: str, recipients: list | None = None) -> None:
             if self._notifier is None:
-                self._logger.info("Email [%s]: %s", subject, body[:120])
+                self._logger.debug("Email [%s]: %s", subject, body[:120])
                 return
             try:
                 self._notifier.send_custom_notification(
@@ -116,7 +119,7 @@ try:
 except ImportError:
     class SpyderEmailSender:
         def send_email(self, subject: str, body: str, recipients: list | None = None) -> None:
-            logging.getLogger(__name__).info("Email [%s]: %s", subject, body[:120])
+            logging.getLogger(__name__).debug("Email [%s]: %s", subject, body[:120])
 
 
 # ==============================================================================
@@ -261,7 +264,7 @@ class SpyderDIXScheduler:
         self.calculation_history = []
         self.status = SchedulerStatus.IDLE
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - INITIALIZATION
@@ -274,7 +277,7 @@ class SpyderDIXScheduler:
             bool: True if initialization successful
         """
         try:
-            self.logger.info("Initializing DIX Scheduler...")
+            self.logger.debug("Initializing DIX Scheduler...")
 
             # Initialize calculator
             if not self.calculator.initialize():
@@ -292,7 +295,7 @@ class SpyderDIXScheduler:
             # Schedule jobs
             self._schedule_jobs()
 
-            self.logger.info("DIX Scheduler initialized successfully")
+            self.logger.debug("DIX Scheduler initialized successfully")
             return True
 
         except Exception as e:
@@ -307,10 +310,10 @@ class SpyderDIXScheduler:
         """Start the scheduler."""
         try:
             self.scheduler.start()
-            self.logger.info("DIX Scheduler started")
+            self.logger.debug("DIX Scheduler started")
 
             # Run initial calculation
-            self.logger.info("Running initial DIX calculation...")
+            self.logger.debug("Running initial DIX calculation...")
             self.run_scheduled_calculation()
 
         except Exception as e:
@@ -337,8 +340,7 @@ class SpyderDIXScheduler:
         start_time = datetime.now()
 
         try:
-            self.logger.info("=" * 60)
-            self.logger.info("Starting scheduled DIX calculation at %s", start_time)
+            self.logger.debug("Starting scheduled DIX calculation at %s", start_time)
 
             # Step 1: Check data availability
             if not self._wait_for_finra_data():
@@ -455,11 +457,11 @@ class SpyderDIXScheduler:
             replace_existing=True,
         )
 
-        self.logger.info("Scheduled jobs configured")
+        self.logger.debug("Scheduled jobs configured")
 
     def _morning_check(self) -> None:
         """Morning check using cached DIX data."""
-        self.logger.info("Running morning DIX check...")
+        self.logger.debug("Running morning DIX check...")
 
         dix_data = self.get_latest_dix()
 
@@ -487,7 +489,7 @@ class SpyderDIXScheduler:
         Returns:
             bool: True if data available
         """
-        self.logger.info("Checking FINRA data availability...")
+        self.logger.debug("Checking FINRA data availability...")
 
         # Get expected date
         expected_date = self._get_expected_finra_date()
@@ -500,14 +502,14 @@ class SpyderDIXScheduler:
             try:
                 response = requests.head(url, timeout=HEALTH_CHECK_TIMEOUT)
                 if response.status_code == 200:
-                    self.logger.info("FINRA data is available")
+                    self.logger.debug("FINRA data is available")
                     return True
 
             except Exception as e:
                 self.logger.debug("FINRA check failed: %s", e)
 
             # Wait before retry
-            self.logger.info("FINRA data not yet available, waiting...")
+            self.logger.debug("FINRA data not yet available, waiting...")
             time_module.sleep(60)  # Check every minute
 
         self.logger.error("FINRA data not available after timeout")
@@ -522,7 +524,7 @@ class SpyderDIXScheduler:
         """
         for attempt in range(MAX_RETRY_ATTEMPTS):
             try:
-                self.logger.info("DIX calculation attempt %s", attempt + 1)
+                self.logger.debug("DIX calculation attempt %s", attempt + 1)
 
                 # Run calculation
                 results = self.calculator.run_calculation()
@@ -534,14 +536,14 @@ class SpyderDIXScheduler:
                 self.logger.error("Calculation attempt %s failed: %s", attempt + 1, e)
 
                 if attempt < MAX_RETRY_ATTEMPTS - 1:
-                    self.logger.info("Retrying in %s seconds...", RETRY_DELAY_SECONDS)
+                    self.logger.debug("Retrying in %s seconds...", RETRY_DELAY_SECONDS)
                     time_module.sleep(RETRY_DELAY_SECONDS)
 
         return None
 
     def _update_sp500_constituents(self) -> None:
         """Update S&P 500 constituent list."""
-        self.logger.info("Updating S&P 500 constituents...")
+        self.logger.debug("Updating S&P 500 constituents...")
 
         try:
             # Force refresh of constituent list
@@ -592,11 +594,11 @@ class SpyderDIXScheduler:
     def _generate_visualizations(self, results: dict) -> None:
         """Generate DIX visualizations."""
         try:
-            self.logger.info("Generating DIX visualizations...")
+            self.logger.debug("Generating DIX visualizations...")
 
             # Create dashboard
             dashboard_path = self.visualizer.create_summary_dashboard(results)
-            self.logger.info("Dashboard created: %s", dashboard_path)
+            self.logger.debug("Dashboard created: %s", dashboard_path)
 
             # Create time series if enough history
             if len(self.calculation_history) >= 5:
@@ -617,7 +619,7 @@ class SpyderDIXScheduler:
 
             # Generate report
             report_path = self.visualizer.generate_analysis_report(results)
-            self.logger.info("Report generated: %s", report_path)
+            self.logger.debug("Report generated: %s", report_path)
 
         except Exception as e:
             self.logger.error("Visualization generation failed: %s", e)
@@ -733,7 +735,6 @@ Market Outlook:
             subject=subject,
             body=body,
             recipients=ALERT_EMAIL_RECIPIENTS,
-            attachments=[report_path] if os.path.exists(report_path) else None,
         )
 
     def _send_error_notification(self, error_message: str) -> None:
@@ -825,7 +826,7 @@ Today's Trading Bias:
             with open(filename, "w") as f:
                 json.dump(data, f, indent=2)
 
-            self.logger.info("Results saved to %s", filename)
+            self.logger.debug("Results saved to %s", filename)
 
         except Exception as e:
             self.logger.error("Failed to save to database: %s", e)
@@ -836,7 +837,7 @@ Today's Trading Bias:
     def _test_data_sources(self) -> bool:
         """Test all data sources are accessible."""
 
-        self.logger.info("Testing data sources...")
+        self.logger.debug("Testing data sources...")
 
         # Test FINRA
         try:
@@ -850,7 +851,7 @@ Today's Trading Bias:
             self.logger.error("FINRA test failed: %s", e)
             return False
 
-        self.logger.info("Data source tests passed")
+        self.logger.debug("Data source tests passed")
         return True
 
     def _get_expected_finra_date(self) -> str:

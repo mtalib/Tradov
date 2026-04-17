@@ -30,7 +30,7 @@ from PySide6.QtGui import QCursor
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
-                            QPushButton, QTextEdit, QVBoxLayout, QWidget)
+                            QPushButton, QVBoxLayout, QWidget)
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -70,16 +70,18 @@ class SignalInfoDialog(QDialog):
 
     closed = Signal()
 
-    def __init__(self, signal_type: str, parent=None):
+    def __init__(self, signal_type: str, parent=None, live_data: dict = None):
         """
         Initialize the signal info dialog.
 
         Args:
             signal_type: The type of signal (e.g., 'VIX MONITOR', 'GEX', etc.)
             parent: Parent widget
+            live_data: Optional dict of live values keyed by symbol name.
         """
         super().__init__(parent)
         self.signal_type = signal_type
+        self.live_data = live_data or {}
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
@@ -92,11 +94,11 @@ class SignalInfoDialog(QDialog):
     def setup_ui(self):
         """Setup the dialog UI with consistent styling"""
         # Fixed size for all popups
-        self.setFixedSize(420, 380)
+        self.setFixedSize(700, 660)
 
         # Main container with background and border
         self.container = QWidget(self)
-        self.container.setGeometry(0, 0, 420, 380)
+        self.container.setGeometry(0, 0, 700, 660)
         self.container.setStyleSheet(
             f"""
             QWidget {{
@@ -120,7 +122,7 @@ class SignalInfoDialog(QDialog):
         self.title_label.setStyleSheet(
             f"""
             color: {COLORS['cyan']};
-            font-size: 14px;
+            font-size: 16px;
             font-weight: normal;
             padding: 5px;
         """
@@ -160,33 +162,24 @@ class SignalInfoDialog(QDialog):
         separator.setStyleSheet(f"background-color: {COLORS['border']};")
         layout.addWidget(separator)
 
-        # Content area
-        self.content_area = QTextEdit()
-        self.content_area.setReadOnly(True)
+        # Content area — QLabel renders rich HTML without any scrollbar
+        self.content_area = QLabel()
+        self.content_area.setWordWrap(True)
+        self.content_area.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
+        self.content_area.setTextInteractionFlags(
+            Qt.TextInteractionFlag.NoTextInteraction
+        )
         self.content_area.setStyleSheet(
             f"""
-            QTextEdit {{
+            QLabel {{
                 background-color: {COLORS['background']};
                 color: {COLORS['text']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 4px;
-                padding: 10px;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 12px;
-                line-height: 1.5;
-            }}
-            QTextEdit::verticalScrollBar {{
-                width: 8px;
-                background-color: {COLORS['background']};
-                border: none;
-            }}
-            QTextEdit::verticalScrollBar::handle {{
-                background-color: {COLORS['border']};
-                border-radius: 4px;
-                min-height: 20px;
-            }}
-            QTextEdit::verticalScrollBar::handle:hover {{
-                background-color: {COLORS['text_dim']};
+                padding: 12px;
+                font-size: 13px;
             }}
         """
         )
@@ -198,7 +191,7 @@ class SignalInfoDialog(QDialog):
 
         # Format content with HTML for better styling
         formatted_content = self.format_content_html(content)
-        self.content_area.setHtml(formatted_content)
+        self.content_area.setText(formatted_content)
 
     def format_content_html(self, content: dict) -> str:
         """
@@ -212,40 +205,40 @@ class SignalInfoDialog(QDialog):
         """
         html = f"""
         <html>
-        <body style="color: {COLORS['text']};">
+        <body style="color: {COLORS['text']}; font-weight: 400; font-family: inherit;">
 
-        <p style="color: {COLORS['cyan']}; font-size: 13px; margin-bottom: 8px;">
+        <p style="color: {COLORS['cyan']}; font-size: 15px; font-weight: 400; margin-bottom: 4px;">
         {content['full_name']}<br/>
-        <span style="color: {COLORS['text_dim']}; font-size: 11px;">
+        <span style="color: {COLORS['text']}; font-size: 13px; font-weight: 400;">
         {content['description']}
         </span>
         </p>
 
         <p style="margin-top: 10px; margin-bottom: 8px;">
-        <span style="color: {COLORS['warning']};">Concept:</span><br/>
-        <span style="color: {COLORS['text']}; font-size: 11px;">
+        <span style="color: {COLORS['cyan']}; font-size: 13px; font-weight: 400;">CONCEPT:</span><br/>
+        <span style="color: {COLORS['text']}; font-size: 13px; font-weight: 400;">
         {content['concept']}
         </span>
         </p>
 
-        <p style="margin-top: 10px; margin-bottom: 8px;">
-        <span style="color: {COLORS['warning']};">Signal Colors:</span><br/>
+        <p style="margin-top: 10px; margin-bottom: 4px;">
+        <span style="color: {COLORS['cyan']}; font-size: 13px; font-weight: 400;">SIGNAL COLORS:</span>
         """
 
         for color_info in content["signal_colors"]:
             color_style = COLORS[color_info["color"]]
             html += f"""
-            <span style="color: {color_style}; font-size: 11px;">
-            • {color_info['text']}<br/>
-            </span>
+            <p style="color: {color_style}; font-size: 13px; font-weight: 400; margin: 2px 0;">
+            • {color_info['text']}
+            </p>
             """
 
         html += f"""
         </p>
 
         <p style="margin-top: 10px; margin-bottom: 5px;">
-        <span style="color: {COLORS['warning']};">Current Status:</span><br/>
-        <span style="color: {COLORS['text']}; font-size: 11px; line-height: 1.4;">
+        <span style="color: {COLORS['cyan']}; font-size: 13px; font-weight: 400;">CURRENT STATUS:</span><br/>
+        <span style="color: {COLORS['text']}; font-size: 13px; font-weight: 400; line-height: 1.6;">
         {content['current_status']}
         </span>
         </p>
@@ -256,6 +249,16 @@ class SignalInfoDialog(QDialog):
 
         return html
 
+    def _lv(self, key: str):
+        """Return a live value or None if not yet available."""
+        v = self.live_data.get(key)
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
     def get_signal_content(self) -> dict:
         """
         Get content for specific signal type.
@@ -263,7 +266,152 @@ class SignalInfoDialog(QDialog):
         Returns:
             Dictionary containing all signal information
         """
+        # ----------------------------------------------------------------
+        # Build live current_status strings where real data is available.
+        # Falls back to illustrative static text when no live feed yet.
+        # ----------------------------------------------------------------
 
+        # VIX ─────────────────────────────────────────────────────────────
+        vix = self._lv("VIX")
+        if vix is not None:
+            daily_move = vix / 16.0
+            if vix < 15:
+                vix_regime = "Low Volatility"
+            elif vix < 20:
+                vix_regime = "Normal Volatility"
+            elif vix < 30:
+                vix_regime = "High Volatility"
+            else:
+                vix_regime = "Extreme Volatility"
+            vix_status = (
+                f"VIX: {vix:.2f}<br/>"
+                f"Implied Daily Move: ±{daily_move:.2f}%<br/>"
+                f"Market Regime: {vix_regime}"
+            )
+        else:
+            vix_status = "VIX: --<br/>Implied Daily Move: --<br/>Market Regime: --"
+
+        # GEX ─────────────────────────────────────────────────────────────
+        gex_raw = self._lv("GEX")  # stored in raw dollars
+        if gex_raw is not None:
+            gex_b = gex_raw / 1e9
+            gex_regime = "Positive Gamma" if gex_b >= 0 else "Negative Gamma"
+            gex_impact = "Volatility suppression expected" if gex_b >= 0 else "Increased volatility expected"
+            gex_status = (
+                f"GEX: {gex_b:+.2f}B<br/>"
+                f"Market Impact: {gex_impact}<br/>"
+                f"Regime: {gex_regime}"
+            )
+        else:
+            gex_status = "GEX: --<br/>Market Impact: --<br/>Regime: --"
+
+        # DIX ─────────────────────────────────────────────────────────────
+        dix = self._lv("DIX")
+        if dix is not None:
+            if dix > 45:
+                dix_sentiment = "Bullish"
+            elif dix < 40:
+                dix_sentiment = "Bearish"
+            else:
+                dix_sentiment = "Neutral"
+            dix_status = (
+                f"DIX: {dix:.1f}%<br/>"
+                f"Sentiment: {dix_sentiment}<br/>"
+                f"Dark Pool Volume: Normal"
+            )
+        else:
+            dix_status = "DIX: --<br/>Sentiment: --"
+
+        # OGL ─────────────────────────────────────────────────────────────
+        ogl = self._lv("OGL")
+        spy = self._lv("SPY")
+        if ogl is not None:
+            ogl_lines = [f"OGL: {ogl:.2f}"]
+            if spy is not None:
+                dist = spy - ogl
+                dist_pct = dist / ogl * 100.0
+                pos = "Above OGL (Bullish)" if dist >= 0 else "Below OGL (Bearish)"
+                ogl_lines += [
+                    f"Current SPY: {spy:.2f}",
+                    f"Distance: {dist:+.2f} ({dist_pct:+.2f}%)",
+                    f"Position: {pos}",
+                ]
+            ogl_status = "<br/>".join(ogl_lines)
+        else:
+            ogl_status = "OGL: --<br/>Current SPY: --"
+
+        # DEX ─────────────────────────────────────────────────────────────
+        dex_raw = self._lv("DEX")  # stored in raw dollars
+        if dex_raw is not None:
+            dex_m = dex_raw / 1e6
+            dex_dir = "Bullish" if dex_m >= 0 else "Bearish"
+            dex_status = (
+                f"DEX: {dex_m:+.0f}M<br/>"
+                f"Flow Direction: {dex_dir}"
+            )
+        else:
+            dex_status = "DEX: --<br/>Flow Direction: --"
+
+        # SWAN ────────────────────────────────────────────────────────────
+        swan = self._lv("SWAN")
+        if swan is not None:
+            if swan < 1.9:
+                swan_risk = "LOW"
+            elif swan < 2.0:
+                swan_risk = "ELEVATED"
+            else:
+                swan_risk = "HIGH"
+            swan_status = (
+                f"SWAN Score: {swan:.2f}<br/>"
+                f"Risk Level: {swan_risk}"
+            )
+        else:
+            swan_status = "SWAN Score: --<br/>Risk Level: --"
+
+        # SKEW ────────────────────────────────────────────────────────────
+        skew = self._lv("SKEW")
+        if skew is not None:
+            if skew < 125:
+                skew_risk = "Normal"
+            elif skew < 135:
+                skew_risk = "Elevated"
+            else:
+                skew_risk = "Extreme"
+            skew_status = (
+                f"CBOE SKEW: {skew:.1f}<br/>"
+                f"Tail Risk: {skew_risk}"
+            )
+        else:
+            skew_status = "CBOE SKEW: --<br/>Tail Risk: --"
+
+        # HMM REGIME ──────────────────────────────────────────────────────
+        # HMM_LABEL and supporting values are pushed by SignalMonitorPanel.update_regime()
+        # on every S07 cycle, so they always match what the REGIME button shows.
+        hmm_label = self.live_data.get("HMM_LABEL")
+        hmm_swan  = self._lv("HMM_SWAN")
+        hmm_dix   = self._lv("HMM_DIX")
+        hmm_skew  = self._lv("HMM_SKEW")
+        hmm_gex   = self._lv("HMM_GEX")
+        if hmm_label is not None:
+            hmm_lines = [f"Current Regime: {hmm_label}"]
+            if hmm_swan is not None:
+                hmm_lines.append(f"SWAN Score: {hmm_swan:.2f}")
+            if hmm_dix is not None:
+                hmm_lines.append(f"DIX: {hmm_dix:.1f}%")
+            if hmm_skew is not None:
+                hmm_lines.append(f"SKEW: {hmm_skew:.1f}")
+            if hmm_gex is not None:
+                hmm_lines.append(f"GEX: {hmm_gex / 1e9:+.2f}B")
+            hmm_status = "<br/>".join(hmm_lines)
+        else:
+            hmm_status = (
+                "Current Regime: --<br/>"
+                "SWAN Score: --<br/>"
+                "DIX: --<br/>"
+                "SKEW: --"
+            )
+
+        # ─────────────────────────────────────────────────────────────────
         signal_contents = {
             "VIX MONITOR": {
                 "full_name": "VIX - CBOE Volatility Index",
@@ -274,9 +422,7 @@ class SignalInfoDialog(QDialog):
                     {"color": "neutral", "text": "Yellow: VIX 15-20 (Normal volatility)"},
                     {"color": "negative", "text": "Red: VIX > 20 (High volatility, market stress)"},
                 ],
-                "current_status": """VIX: 15.32<br/>
-                Implied Daily Move: ±0.96%<br/>
-                Market Regime: Normal Volatility""",
+                "current_status": vix_status,
             },
             "AI DECISION": {
                 "full_name": "AI DECISION ENGINE",
@@ -293,10 +439,12 @@ class SignalInfoDialog(QDialog):
                         "text": "Red: Conflicting signals or system recalibration",
                     },
                 ],
-                "current_status": """Signal: NEUTRAL<br/>
-                Confidence: 72%<br/>
-                Next Update: 5 minutes<br/>
-                Active Models: 4/4""",
+                "current_status": (
+                    "Signal: NEUTRAL<br/>"
+                    "Confidence: 72%<br/>"
+                    "Next Update: 5 minutes<br/>"
+                    "Active Models: 4/4"
+                ),
             },
             "GEX": {
                 "full_name": "GEX - Gamma Exposure",
@@ -313,10 +461,7 @@ class SignalInfoDialog(QDialog):
                         "text": "Red: Negative GEX (<-$1B) - Volatility expansion",
                     },
                 ],
-                "current_status": """GEX: -$2.5B<br/>
-                Gamma Flip Level: 590<br/>
-                Market Impact: Increased volatility expected<br/>
-                Regime: Negative Gamma""",
+                "current_status": gex_status,
             },
             "DIX": {
                 "full_name": "DIX - Dark Pool Index",
@@ -333,10 +478,7 @@ class SignalInfoDialog(QDialog):
                         "text": "Red: DIX < 40% (Bearish, lack of institutional support)",
                     },
                 ],
-                "current_status": """DIX: 42.5%<br/>
-                30-Day Average: 43.2%<br/>
-                Sentiment: Neutral<br/>
-                Dark Pool Volume: Normal""",
+                "current_status": dix_status,
             },
             "RSI CONFLUENCE": {
                 "full_name": "RSI - Relative Strength Index Confluence",
@@ -353,10 +495,12 @@ class SignalInfoDialog(QDialog):
                         "text": "Red: Overbought confluence (>70 on multiple timeframes)",
                     },
                 ],
-                "current_status": """RSI(14): 52<br/>
-                RSI(5): 48<br/>
-                RSI(21): 55<br/>
-                Confluence: No extreme conditions""",
+                "current_status": (
+                    "RSI(14): 52<br/>"
+                    "RSI(5): 48<br/>"
+                    "RSI(21): 55<br/>"
+                    "Confluence: No extreme conditions"
+                ),
             },
             "RISK TRIGGERS": {
                 "full_name": "RISK MANAGEMENT TRIGGERS",
@@ -370,11 +514,13 @@ class SignalInfoDialog(QDialog):
                     },
                     {"color": "negative", "text": "Red: Risk limit breached, action required"},
                 ],
-                "current_status": """Active Triggers: 0/8<br/>
-                Daily Loss: -$125 (2.5% of limit)<br/>
-                Position Delta: 45.5<br/>
-                Risk Level: LOW<br/>
-                Max Contracts: 5/10 used""",
+                "current_status": (
+                    "Active Triggers: 0/8<br/>"
+                    "Daily Loss: -$125 (2.5% of limit)<br/>"
+                    "Position Delta: 45.5<br/>"
+                    "Risk Level: LOW<br/>"
+                    "Max Contracts: 5/10 used"
+                ),
             },
             "OGL": {
                 "full_name": "OGL - Zero Gamma Level",
@@ -385,10 +531,7 @@ class SignalInfoDialog(QDialog):
                     {"color": "neutral", "text": "Yellow: SPY within ±0.5% of OGL (Neutral zone)"},
                     {"color": "negative", "text": "Red: SPY < OGL - 0.5% (Bearish positioning)"},
                 ],
-                "current_status": """OGL: 585.50<br/>
-                Current SPY: 585.39<br/>
-                Distance: -0.11 (-0.02%)<br/>
-                Position: Near OGL (Neutral)""",
+                "current_status": ogl_status,
             },
             "DIVERGENCE": {
                 "full_name": "DIVERGENCE DETECTOR",
@@ -399,10 +542,12 @@ class SignalInfoDialog(QDialog):
                     {"color": "neutral", "text": "Yellow: Weak divergence forming"},
                     {"color": "negative", "text": "Red: Strong divergence confirmed"},
                 ],
-                "current_status": """Price/RSI: No divergence<br/>
-                Price/MACD: No divergence<br/>
-                Price/Volume: No divergence<br/>
-                Signal Strength: None""",
+                "current_status": (
+                    "Price/RSI: No divergence<br/>"
+                    "Price/MACD: No divergence<br/>"
+                    "Price/Volume: No divergence<br/>"
+                    "Signal Strength: None"
+                ),
             },
             "DEX": {
                 "full_name": "DEX - Delta Exposure",
@@ -413,10 +558,7 @@ class SignalInfoDialog(QDialog):
                     {"color": "neutral", "text": "Yellow: Neutral (-$500M to $500M)"},
                     {"color": "negative", "text": "Red: Negative DEX (<-$500M) - Bearish flow"},
                 ],
-                "current_status": """DEX: $850M<br/>
-                Delta Neutral Level: 585.00<br/>
-                Flow Direction: Bullish<br/>
-                1-Day Change: +$125M""",
+                "current_status": dex_status,
             },
             "BLACK SWAN": {
                 "full_name": "BLACK SWAN RISK INDICATOR",
@@ -430,15 +572,9 @@ class SignalInfoDialog(QDialog):
                         "text": "Red: SWAN Score > 3.0 (Extreme tail risk warning)",
                     },
                 ],
-                "current_status": """SWAN Score: 1.85<br/>
-                Components:<br/>
-                - Skew Index: Normal<br/>
-                - Put/Call Ratio: Balanced<br/>
-                - VIX Term Structure: Normal<br/>
-                - Credit Spreads: Tight<br/>
-                Risk Level: LOW""",
+                "current_status": swan_status,
             },
-            "HMM": {
+            "HMM REGIME": {
                 "full_name": "HMM - Hidden Markov Model Regime Detector",
                 "description": "Statistical model identifying market regime states",
                 "concept": "Uses probabilistic modeling to identify current market regime (low/normal/high volatility)",
@@ -448,14 +584,7 @@ class SignalInfoDialog(QDialog):
                     {"color": "negative", "text": "Red: High volatility regime"},
                     {"color": "blue", "text": "Blue: Normal regime (stable)"},
                 ],
-                "current_status": """Current Regime: NORMAL<br/>
-                Probability: 0.75<br/>
-                Transition Risk: LOW<br/>
-                Regime Duration: 12 days<br/>
-                Historical Distribution:<br/>
-                - Low Vol: 45%<br/>
-                - Normal: 40%<br/>
-                - High Vol: 15%""",
+                "current_status": hmm_status,
             },
             "SKEW": {
                 "full_name": "SKEW - CBOE SKEW Index",
@@ -466,11 +595,7 @@ class SignalInfoDialog(QDialog):
                     {"color": "neutral", "text": "Yellow: SKEW 125-135 (Elevated tail risk)"},
                     {"color": "negative", "text": "Red: SKEW > 135 (Extreme tail risk)"},
                 ],
-                "current_status": """CBOE SKEW: 125.5<br/>
-                30-Day Average: 124.8<br/>
-                Percentile Rank: 55th<br/>
-                Tail Risk: Moderate<br/>
-                Strategy Impact: Neutral for spreads""",
+                "current_status": skew_status,
             },
         }
 

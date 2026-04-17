@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import json
 import joblib
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -1137,7 +1137,7 @@ class DailyTradingReport:
 
         # Add metadata
         report_dict['metadata'] = {
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'version': '1.0',
             'generator': 'SpyderK02_DailyTradingReport'
         }
@@ -1485,7 +1485,7 @@ Please find detailed reports attached.
         """Generate quick intraday performance snapshot"""
         try:
             # Get current date
-            snapshot_time = datetime.now()
+            snapshot_time = datetime.now(timezone.utc)
             report_date = snapshot_time.date()
 
             # Collect basic metrics

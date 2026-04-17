@@ -14,16 +14,16 @@ Last Updated: 2026-04-14 Time: 21:00:00
 Description:
     Non-modal dialog that embeds live 1-day mini-charts and configurable alert
     sliders for the three core market-breadth internals:
-        • $TICK  — NYSE Tick Index (Tradier real-time)
-        • $ADD   — NYSE Advance-Decline Difference (Tradier real-time)
-        • $TRIN  — NYSE Arms Index (yfinance fallback)
+        • $TICK  — NYSE Tick Index
+        • $ADD   — NYSE Advance-Decline Difference
+        • $TRIN  — NYSE Arms Index
 
-    Data refresh priority:
-        1. Tradier get_quotes() for $TICK and $ADD  (confirmed symbols April 2026)
-        2. yfinance ^TRIN intraday 1-min bars for TRIN
-        3. yfinance ^TICK / ^ADD as fallback if Tradier connection is absent
+    Data source:
+        SpyderS07_CustomMetricsOrchestrator → SpyderS11_TradingViewInternals
+        (Playwright headless Chromium scraping TradingView public pages).
+        Connect S07.breadth_updated → dialog.on_breadth_updated to push data in.
 
-    Auto-refresh interval: configurable (default 5 s).
+    Auto-refresh interval: configurable (default 5 s) for manual polling fallback.
     Alert: plays native Qt MessageBeep and flashes the value label when a
     threshold is breached.
 """
@@ -72,12 +72,6 @@ try:
 except ImportError:
     _PYQTGRAPH = False
 
-try:
-    import yfinance as yf
-    _YFINANCE = True
-except ImportError:
-    _YFINANCE = False
-
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -104,19 +98,6 @@ _ORANGE    = "#ff9800"
 # History depth – 1 trading day at 5 s resolution ≈ 1 560 points
 _HISTORY_MAXLEN = 2_000
 
-# Tradier symbols confirmed real-time (April 2026 production account test)
-_TRADIER_SYMBOLS = {
-    "TICK": "$TICK",
-    "ADD":  "$ADD",
-}
-
-# yfinance fallback symbols
-_YF_SYMBOLS = {
-    "TICK": "^TICK",
-    "ADD":  "^ADD",
-    "TRIN": "^TRIN",
-}
-
 # Default alert thresholds
 _DEFAULTS = {
     "TICK": {"high": 800,  "low": -800,  "unit": "",  "scale": 1},
@@ -140,7 +121,7 @@ _TICK_COLOURS = [
 # DATA FETCH WORKER
 # ==============================================================================
 class _FetchWorker(QThread):
-    """Background thread — fetches fresh quotes once per trigger."""
+    """Background thread — placeholder; real data pushed in via on_breadth_updated()."""
 
     # Emits dict: {"TICK": float|None, "ADD": float|None, "TRIN": float|None}
     data_ready = Signal(dict)
@@ -148,73 +129,23 @@ class _FetchWorker(QThread):
 
     def __init__(self, tradier_client=None, parent=None):
         super().__init__(parent)
-        self._client = tradier_client
 
     def run(self):
-        result = {"TICK": None, "ADD": None, "TRIN": None}
-        try:
-            # --- Tradier for TICK + ADD -----------------------------------------
-            if self._client is not None:
-                try:
-                    symbols = list(_TRADIER_SYMBOLS.values())  # ["$TICK", "$ADD"]
-                    resp = self._client.get_quotes(symbols)
-                    quotes_raw = resp.get("quotes", {}).get("quote", [])
-                    if isinstance(quotes_raw, dict):
-                        quotes_raw = [quotes_raw]
-                    for q in quotes_raw:
-                        sym = q.get("symbol", "")
-                        val = q.get("last") or q.get("close")
-                        if val is not None:
-                            if sym == "$TICK":
-                                result["TICK"] = float(val)
-                            elif sym == "$ADD":
-                                result["ADD"] = float(val)
-                except Exception as exc:
-                    logger.warning("Tradier internals fetch failed: %s", exc)
-
-            # --- yfinance fallback / TRIN -----------------------------------------
-            if _YFINANCE:
-                need = [k for k in ("TICK", "ADD", "TRIN") if result[k] is None]
-                for key in need:
-                    yf_sym = _YF_SYMBOLS[key]
-                    try:
-                        tick = yf.Ticker(yf_sym)
-                        hist = tick.history(period="1d", interval="1m")
-                        if not hist.empty:
-                            result[key] = float(hist["Close"].iloc[-1])
-                    except Exception as exc:
-                        logger.debug("yfinance %s failed: %s", yf_sym, exc)
-
-        except Exception as exc:
-            self.error_occurred.emit(str(exc))
-
-        self.data_ready.emit(result)
+        # Data comes from S07 → S11 (TradingView/Playwright); nothing to fetch here.
+        self.data_ready.emit({"TICK": None, "ADD": None, "TRIN": None})
 
 
 # ==============================================================================
 # HISTORY FETCH WORKER  (1-day bars for charts)
 # ==============================================================================
 class _HistoryWorker(QThread):
-    """Fetches 1-day 1-min bars for all three internals via yfinance."""
+    """Placeholder history worker — intraday bars unavailable until a Playwright history source is added."""
 
     history_ready = Signal(dict)  # {"TICK": [(ts, val),...], ...}
 
     def run(self):
         out = {"TICK": [], "ADD": [], "TRIN": []}
-        if not _YFINANCE:
-            self.history_ready.emit(out)
-            return
-        for key, yf_sym in _YF_SYMBOLS.items():
-            try:
-                hist = yf.Ticker(yf_sym).history(period="1d", interval="1m")
-                if not hist.empty:
-                    rows = [
-                        (ts.to_pydatetime(), float(val))
-                        for ts, val in zip(hist.index, hist["Close"])
-                    ]
-                    out[key] = rows
-            except Exception as exc:
-                logger.debug("History fetch %s: %s", yf_sym, exc)
+        # History bars unavailable — TradingView Playwright scraper returns current value only.
         self.history_ready.emit(out)
 
 
@@ -281,7 +212,7 @@ class _InternalPanel(QGroupBox):
 
         self._status_lbl = QLabel("waiting for data…")
         self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        self._status_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
 
         root.addWidget(self._value_lbl)
         root.addWidget(self._status_lbl)
@@ -308,8 +239,8 @@ class _InternalPanel(QGroupBox):
         root.addWidget(slider_frame)
 
         # -- Source label ----------------------------------------------------
-        self._src_lbl = QLabel(f"source: yfinance ({_YF_SYMBOLS[self.symbol]})")
-        self._src_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+        self._src_lbl = QLabel("source: TradingView (Playwright)")
+        self._src_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 12px;")
         self._src_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         root.addWidget(self._src_lbl)
 
@@ -319,8 +250,8 @@ class _InternalPanel(QGroupBox):
             pw = pg.PlotWidget()
             pw.setBackground(_PANEL)
             pw.setFixedHeight(130)
-            pw.getAxis("bottom").setStyle(tickFont=QFont("Courier New", 7))
-            pw.getAxis("left").setStyle(tickFont=QFont("Courier New", 7))
+            pw.getAxis("bottom").setStyle(tickFont=QFont("Courier New", 9))
+            pw.getAxis("left").setStyle(tickFont=QFont("Courier New", 9))
             pw.getAxis("bottom").setPen(pg.mkPen(_BORDER))
             pw.getAxis("left").setPen(pg.mkPen(_BORDER))
             pw.showGrid(x=False, y=True, alpha=0.2)
@@ -333,7 +264,7 @@ class _InternalPanel(QGroupBox):
         else:
             lbl = QLabel("Install pyqtgraph for live charts\n(pip install pyqtgraph)")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+            lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
             lbl.setFixedHeight(130)
             self._plot_curve = None
             self._chart_pw   = None
@@ -397,7 +328,7 @@ class _InternalPanel(QGroupBox):
         self._low_threshold = value
 
     # ------------------------------------------------------------------
-    def update_value(self, value: Optional[float], source: str = "yfinance"):
+    def update_value(self, value: Optional[float], source: str = "TradingView (Playwright)"):
         """Called from the main dialog when fresh data arrives."""
         if value is None:
             self._value_lbl.setText("N/A")
@@ -477,18 +408,19 @@ class MarketInternalsDialog(QDialog):
     Non-modal dialog window: three side-by-side InternalPanel widgets for
     TICK, ADD, and TRIN with a shared auto-refresh timer.
 
+    Data is pushed in via on_breadth_updated(snap) which should be connected
+    to SpyderS07_CustomMetricsOrchestrator.breadth_updated at construction time.
+
     Args:
-        tradier_client: Optional live TradierClient instance for real-time
-                        TICK and ADD quotes.  When None, yfinance is the
-                        sole data source for all three.
         parent: Optional parent widget.
     """
 
-    def __init__(self, tradier_client=None, parent=None):
+    def __init__(self, tradier_client=None, orchestrator=None, parent=None):
+        """tradier_client kept for signature compatibility but is no longer used."""
         super().__init__(parent)
-        self._client = tradier_client
         self._fetch_worker: Optional[_FetchWorker] = None
         self._hist_worker:  Optional[_HistoryWorker] = None
+        self._orchestrator = orchestrator
 
         self.setWindowTitle("Market Internals Monitor — TICK | ADD | TRIN")
         self.setMinimumSize(820, 560)
@@ -510,8 +442,10 @@ class MarketInternalsDialog(QDialog):
 
         # Load 1-day history on open (non-blocking)
         self._fetch_history()
-        # Immediate first refresh
-        QTimer.singleShot(300, self._refresh)
+
+        # Connect orchestrator so live TICK/ADD/TRIN data flows in immediately.
+        # _get_orchestrator() tries both import paths and caches on self._orchestrator.
+        self._get_orchestrator()
 
     # ------------------------------------------------------------------
     def _setup_ui(self):
@@ -526,7 +460,7 @@ class MarketInternalsDialog(QDialog):
             f"color: {_CYAN}; font-size: 15px; letter-spacing: 2px;"
         )
         self._refresh_indicator = QLabel(" ● ")
-        self._refresh_indicator.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 14px;")
+        self._refresh_indicator.setStyleSheet(f"color: {_TEXT}; font-size: 14px;")
         self._refresh_indicator.setToolTip("Green while fetching data")
 
         title_row.addWidget(title_lbl)
@@ -552,14 +486,14 @@ class MarketInternalsDialog(QDialog):
         bottom = QHBoxLayout()
 
         self._status_lbl = QLabel("Ready")
-        self._status_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        self._status_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
 
         # Refresh interval spinbox
         iv_lbl = QLabel("Refresh every:")
-        iv_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        iv_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
         self._interval_spin = QSpinBox()
-        self._interval_spin.setRange(2, 60)
-        self._interval_spin.setValue(5)
+        self._interval_spin.setRange(2, 3600)
+        self._interval_spin.setValue(30)
         self._interval_spin.setSuffix(" s")
         self._interval_spin.setFixedWidth(65)
         self._interval_spin.setStyleSheet(
@@ -581,7 +515,7 @@ class MarketInternalsDialog(QDialog):
     # ------------------------------------------------------------------
     def _setup_timer(self):
         self._timer = QTimer(self)
-        self._timer.setInterval(5_000)
+        self._timer.setInterval(30_000)  # default 30 s; mirrors user-visible spinbox
         self._timer.timeout.connect(self._refresh)
         self._timer.start()
 
@@ -591,21 +525,99 @@ class MarketInternalsDialog(QDialog):
         self._timer.setInterval(seconds * 1_000)
 
     # ------------------------------------------------------------------
+    def _get_orchestrator(self):
+        """Return the live S07 orchestrator, resolving it lazily if not yet set."""
+        if self._orchestrator is not None:
+            return self._orchestrator
+        # Try both import paths (module may have been loaded under either)
+        for mod_path in (
+            "SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator",
+            "Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator",
+        ):
+            try:
+                import importlib
+                mod = importlib.import_module(mod_path)
+                orch = mod.get_metrics_orchestrator()
+                if orch is not None:
+                    self._orchestrator = orch
+                    # Wire breadth_updated so future live pushes reach the panels
+                    try:
+                        orch.breadth_updated.connect(self.on_breadth_updated)
+                    except Exception:
+                        pass
+                    # Immediately push any cached values
+                    cm = getattr(orch, "current_metrics", {})
+                    self._push_current_metrics(cm)
+                    return orch
+            except Exception:
+                continue
+        return None
+
+    def _push_current_metrics(self, cm: dict):
+        """Push raw flat current_metrics dict straight to the panels (no network needed)."""
+        import math
+        tick = cm.get("TICK", float("nan"))
+        add  = cm.get("ADD",  float("nan"))
+        trin = cm.get("TRIN", float("nan"))
+        has_data = any(
+            not (isinstance(v, float) and math.isnan(v))
+            for v in (tick, add, trin)
+        )
+        if has_data:
+            self.on_breadth_updated({
+                "tick": tick,
+                "add":  add,
+                "trin": trin,
+                "breadth_regime": cm.get("BREADTH_REGIME", ""),
+            })
+
     def _refresh(self):
-        """Kick off the background fetch worker."""
-        if self._fetch_worker and self._fetch_worker.isRunning():
-            return  # previous fetch still in progress — skip this tick
-        self._refresh_indicator.setStyleSheet(f"color: {_GREEN}; font-size: 14px;")
-        self._fetch_worker = _FetchWorker(self._client, self)
-        self._fetch_worker.data_ready.connect(self._on_data_ready)
-        self._fetch_worker.error_occurred.connect(self._on_fetch_error)
-        self._fetch_worker.start()
+        """Force an immediate S07 metrics update so TICK/ADD/TRIN are pushed to this dialog."""
+        import threading
+        orch = self._get_orchestrator()
+        if orch is not None:
+            self._status_lbl.setText("Refreshing…")
+            threading.Thread(
+                target=orch.update_all_metrics,
+                name="G17-force-refresh",
+                daemon=True,
+            ).start()
+        else:
+            self._status_lbl.setText("No data source — S07 not running")
+
+    # ------------------------------------------------------------------
+    @Slot(dict)
+    def on_breadth_updated(self, snap: dict):
+        """Receive live TICK/ADD/TRIN values from S07 (TradingView via Playwright).
+
+        Connect S07.breadth_updated to this slot when constructing the dialog.
+
+        Args:
+            snap: dict with keys 'tick', 'add', 'trin' (floats) and optionally
+                  'breadth_regime' (str) emitted by SpyderS07_CustomMetricsOrchestrator.
+        """
+        import math
+        data = {
+            "TICK": snap.get("tick"),
+            "ADD":  snap.get("add"),
+            "TRIN": snap.get("trin"),
+        }
+        any_updated = False
+        for sym, panel in self._panels.items():
+            val = data.get(sym)
+            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                panel.update_value(val, "TradingView (Playwright)")
+                any_updated = True
+        if not any_updated:
+            return  # no real data — don't touch status or indicator
+        ts = datetime.now().strftime("%H:%M:%S")
+        regime = snap.get("breadth_regime", "")
+        self._status_lbl.setText(f"Last update: {ts}  |  Regime: {regime}" if regime else f"Last update: {ts}")
+        self._refresh_indicator.setStyleSheet(f"color: {_TEXT}; font-size: 14px;")
 
     # ------------------------------------------------------------------
     def _fetch_history(self):
-        """Load 1-day 1-min historical bars for all three internals."""
-        if not _YFINANCE:
-            return
+        """Load 1-day 1-min historical bars (currently unavailable — no intraday source)."""
         self._hist_worker = _HistoryWorker(self)
         self._hist_worker.history_ready.connect(self._on_history_ready)
         self._hist_worker.start()
@@ -613,21 +625,11 @@ class MarketInternalsDialog(QDialog):
     # ------------------------------------------------------------------
     @Slot(dict)
     def _on_data_ready(self, data: dict):
+        # Only update panels that have a real value — never overwrite live S07 data with None.
         for sym, panel in self._panels.items():
             val = data.get(sym)
-            # Determine source label
-            if sym in ("TICK", "ADD") and self._client is not None and val is not None:
-                src = "Tradier (real-time)"
-            elif val is not None:
-                src = f"yfinance ({_YF_SYMBOLS.get(sym, sym)}) 15 min delay"
-            else:
-                src = "no data"
-            panel.update_value(val, src)
-
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._status_lbl.setText(f"Last refresh: {ts}"
-                                  + ("" if _YFINANCE else " — install yfinance for TRIN"))
-        self._refresh_indicator.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 14px;")
+            if val is not None:
+                panel.update_value(val, "TradingView (Playwright)")
 
     # ------------------------------------------------------------------
     @Slot(dict)
@@ -649,9 +651,9 @@ class MarketInternalsDialog(QDialog):
         msg = f"[ALERT] {symbol} breached {direction} threshold: {value:+.1f}"
         logger.warning(msg)
         self._status_lbl.setText(msg)
-        self._status_lbl.setStyleSheet(f"color: {_RED if direction == 'HIGH' else _GREEN}; font-size: 11px;")
+        self._status_lbl.setStyleSheet(f"color: {_RED if direction == 'HIGH' else _GREEN}; font-size: 13px;")
         QTimer.singleShot(4_000, lambda: self._status_lbl.setStyleSheet(
-            f"color: {_TEXT_DIM}; font-size: 11px;"
+            f"color: {_TEXT}; font-size: 13px;"
         ))
 
     # ------------------------------------------------------------------
@@ -679,19 +681,6 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    # Optionally wire a real TradierClient if credentials are present
-    client = None
-    api_key = os.environ.get("TRADIER_SANDBOX_API_KEY") or os.environ.get("TRADIER_API_KEY", "")
-    acct_id = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID") or os.environ.get("TRADIER_ACCOUNT_ID", "")
-    if api_key and acct_id:
-        try:
-            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierClient, TradingEnvironment
-            env = TradingEnvironment.SANDBOX if os.environ.get("TRADIER_SANDBOX_API_KEY") else TradingEnvironment.LIVE
-            client = TradierClient(api_key=api_key, account_id=acct_id, environment=env)
-            print(f"[INFO] TradierClient ready ({env.value})")
-        except Exception as e:
-            print(f"[WARN] Could not init TradierClient: {e} — using yfinance only")
-
-    dlg = MarketInternalsDialog(tradier_client=client)
+    dlg = MarketInternalsDialog()
     dlg.show()
     sys.exit(app.exec())

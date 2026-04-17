@@ -205,6 +205,7 @@ class ThreadSafeMarketDataWorker(QObject):
     balance_updated = Signal(float, float)  # (equity/settled, buying_power)
     fetch_requested = Signal()       # Trigger full live fetch from GUI thread safely
     fast_fetch_requested = Signal()  # Trigger lightweight quote-only refresh
+    eod_snapshot_fetched = Signal(bool)  # True = real EOD prices written to live_data.json
 
     def __init__(self):
         super().__init__()
@@ -539,7 +540,8 @@ class ThreadSafeMarketDataWorker(QObject):
                 # $DJI excluded: ~15 min delayed on Tradier; DIA*100 used for display
                 "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
                 # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
-                # $TICK/$ADD/$TRIN not reliably served by Tradier sandbox — fetched via yfinance below
+                # $TICK/$ADD/$TRIN: Yahoo Finance removed ^TICK/^ADD/^TRIN (404 as of 2025);
+                # Tradier requires an index data add-on; route via SpyderC27_MassiveClient once enabled
             ]
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -592,6 +594,73 @@ class ThreadSafeMarketDataWorker(QObject):
                 self._internals_unavailable_logged = True
         except Exception:
             pass
+
+    def _fetch_eod_snapshot(self):
+        """Fetch last-trade prices from Tradier outside market hours.
+
+        Called once at startup when the trading window is closed.  Writes real
+        closing/last prices to live_data.json so the dashboard can display
+        genuine EOD data rather than hardcoded simulation values.
+
+        Emits eod_snapshot_fetched(True) on success, eod_snapshot_fetched(False)
+        when credentials are missing or the API call fails.
+        """
+        try:
+            from dotenv import load_dotenv  # noqa: PLC0415
+            import json as _json  # noqa: PLC0415
+            load_dotenv(override=True)
+            if not TRADIER_AVAILABLE:
+                self.eod_snapshot_fetched.emit(False)
+                return
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
+            if not api_key or not account_id:
+                logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")
+                self.eod_snapshot_fetched.emit(False)
+                return
+            env_enum = (
+                TradingEnvironment.LIVE
+                if env_str.lower() == "live"
+                else TradingEnvironment.SANDBOX
+            )
+            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+            symbols = [
+                "SPY", "SPX", "VIX", "VIX9D", "VVIX", "UVXY", "SKEW",
+                "DIA", "QQQ", "IWM", "TLT", "LQD", "GLD", "UUP", "RUT",
+            ]
+            raw = client.get_quotes(symbols)
+            quotes_raw = raw.get("quotes", {}).get("quote", [])
+            if isinstance(quotes_raw, dict):
+                quotes_raw = [quotes_raw]
+            live_data: dict = {}
+            for q in quotes_raw:
+                sym = q.get("symbol", "")
+                last = float(q.get("last") or q.get("close") or 0.0)
+                change = float(q.get("change") or 0.0)
+                change_pct = float(q.get("change_percentage") or 0.0)
+                timestamp_ms = _freshest_quote_timestamp_ms(q)
+                if last:
+                    key = _SYMBOL_REMAP.get(sym, sym)
+                    live_data[key] = {
+                        "last": last,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "timestamp_ms": timestamp_ms,
+                    }
+            if live_data:
+                self.data_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.data_file, "w") as _f:
+                    _json.dump(live_data, _f)
+                logger.info("📊 EOD snapshot: %d symbols fetched from Tradier", len(live_data))
+                self.market_data_status_changed.emit("EOD")
+                self.eod_snapshot_fetched.emit(True)
+            else:
+                logger.warning("📊 EOD snapshot: Tradier returned no valid prices")
+                self.eod_snapshot_fetched.emit(False)
+        except Exception as _e:
+            logger.warning("📊 EOD snapshot fetch failed: %s", _e)
+            self.eod_snapshot_fetched.emit(False)
 
     def _init_simulation_data(self):
         """Initialize simulation data with all symbols"""
@@ -683,6 +752,10 @@ class ThreadSafeMarketDataWorker(QObject):
             self.heartbeat_received.emit(
                 "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
             )
+            # Fetch real last-trade prices so the dashboard shows genuine EOD data
+            # rather than hardcoded simulation values.  Run after a short delay so
+            # all Qt signal connections are established before the emit fires.
+            QTimer.singleShot(500, self._fetch_eod_snapshot)
             return
 
         try:
