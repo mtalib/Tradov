@@ -843,6 +843,10 @@ class N1KillSwitchPersistenceTest(unittest.TestCase):
                 "LIVE_TRADING_CONFIRMED": "true",
                 "TRADIER_API_KEY": "test",
                 "TRADIER_ACCOUNT_ID": "TEST123",
+                # A12 (v14): additional safety-config env required for live preflight
+                "CLOSE_POSITIONS_ON_EMERGENCY": "true",
+                "MAX_DAILY_LOSS": "500",
+                "MAX_POSITION_SIZE": "100",
             }):
                 # Patch Path.home() so the launcher finds our temp lock
                 with mock.patch(
@@ -1314,6 +1318,297 @@ class A6FillPriceGuardTest(unittest.TestCase):
         )
         rm._on_position_updated(self._make_event(symbol="SPY", quantity=0))
         self.assertNotIn("SPY", rm._positions, "qty=0 must close out regardless of price")
+
+
+# =============================================================================
+# v14 HIGH regression tests (A7–A15)
+# =============================================================================
+
+
+class A8CancelAllEscalationTest(unittest.TestCase):
+    """T129-A8: partial cancel failures must escalate to KILL_SWITCH."""
+
+    def test_cancel_all_escalates_on_partial_failure(self) -> None:
+        import unittest.mock as mock
+
+        from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+            EventType,
+            get_event_manager,
+        )
+
+        broker = mock.MagicMock()
+        call_count = {"n": 0}
+
+        def _cancel(order_id):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise RuntimeError("broker reject")
+            return {"status": "ok"}
+
+        broker.cancel_order.side_effect = _cancel
+        engine = _make_live_engine_for_v14(broker=broker)
+        engine.pending_orders = {"a": {}, "b": {}, "c": {}}
+
+        em = get_event_manager()
+        captured: list[dict] = []
+
+        def _capture(evt):
+            captured.append({"type": evt.event_type, "data": dict(evt.data)})
+
+        em.subscribe(EventType.KILL_SWITCH, _capture)
+
+        engine._cancel_all_pending_orders()
+
+        import time
+        time.sleep(0.2)
+
+        kill_events = [c for c in captured if c["type"] is EventType.KILL_SWITCH]
+        self.assertTrue(kill_events, "KILL_SWITCH must fire on partial cancel failure")
+        self.assertIn("failed_order_ids", kill_events[-1]["data"])
+
+
+class A9R13OrphanRecoveryTest(unittest.TestCase):
+    """T129-A9: FillReconciler recovers orphans via ORDER_UN_ORPHANED + terminal event."""
+
+    def _make_reconciler(self, broker):
+        import unittest.mock as mock
+
+        from Spyder.SpyderR_Runtime.SpyderR13_FillReconciler import FillReconciler
+
+        rec = FillReconciler.__new__(FillReconciler)
+        rec.logger = mock.MagicMock()
+        rec._broker = broker
+        rec._em = mock.MagicMock()
+        rec._poll_cadence_market = 0.01
+        rec._poll_cadence_limit = 0.01
+        rec._tracked = {}
+        rec._orphaned = {}
+        import threading
+        rec._lock = threading.Lock()
+        rec._stop_event = threading.Event()
+        rec._thread = None
+        rec._prom = None
+        return rec
+
+    def test_orphan_recovers_to_filled(self) -> None:
+        import unittest.mock as mock
+
+        from Spyder.SpyderR_Runtime.SpyderR13_FillReconciler import _TrackedOrder
+        from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
+
+        broker = mock.MagicMock()
+        broker.get_order.return_value = {"order": {"status": "filled",
+                                                   "avg_fill_price": 1.23,
+                                                   "quantity": 1}}
+        rec = self._make_reconciler(broker)
+        entry = _TrackedOrder(
+            order_id="oid-1",
+            tradier_order_id="8675309",
+            order_type="market",
+            cadence=0.01,
+        )
+        rec._orphaned["8675309"] = entry
+
+        rec._poll_orphaned(entry)
+
+        # ORDER_UN_ORPHANED + ORDER_FILLED both emitted, and orphan dropped.
+        emitted_types = [c.args[0] for c in rec._em.emit.call_args_list]
+        self.assertIn(EventType.ORDER_UN_ORPHANED, emitted_types)
+        self.assertIn(EventType.ORDER_FILLED, emitted_types)
+        self.assertNotIn("8675309", rec._orphaned)
+
+    def test_orphan_still_failing_stays_orphaned(self) -> None:
+        import unittest.mock as mock
+
+        from Spyder.SpyderR_Runtime.SpyderR13_FillReconciler import _TrackedOrder
+
+        broker = mock.MagicMock()
+        broker.get_order.side_effect = RuntimeError("still down")
+        rec = self._make_reconciler(broker)
+        entry = _TrackedOrder(
+            order_id="oid-1",
+            tradier_order_id="42",
+            order_type="market",
+            cadence=0.01,
+        )
+        rec._orphaned["42"] = entry
+
+        rec._poll_orphaned(entry)
+
+        self.assertIn("42", rec._orphaned,
+                      "orphan must stay orphaned while broker still errors")
+        rec._em.emit.assert_not_called()
+
+
+class A10EventManagerBoundedDrainTest(unittest.TestCase):
+    """T129-A10: EventManager.stop() returns within the supplied timeout."""
+
+    def test_stop_returns_within_timeout_under_load(self) -> None:
+        import time
+
+        from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+            EventManager,
+            EventType,
+        )
+
+        em = EventManager()
+        em.start()
+
+        # Slow handler that intentionally exceeds the timeout budget.
+        def _slow(_evt):
+            time.sleep(0.5)
+
+        em.subscribe(EventType.SYSTEM_ERROR, _slow)
+        for _ in range(20):
+            em.emit(EventType.SYSTEM_ERROR, {"i": 1}, source="test")
+
+        t0 = time.monotonic()
+        em.stop(timeout=0.5)
+        elapsed = time.monotonic() - t0
+
+        # Must honor the bounded drain contract.
+        self.assertLess(elapsed, 2.0,
+                        f"stop() exceeded bounded-drain budget: {elapsed:.2f}s")
+
+
+class A12LivePreflightTest(unittest.TestCase):
+    """T129-A12: Q14 live preflight catches missing safety-config env vars."""
+
+    def _make_launcher(self):
+        import argparse
+        import unittest.mock as mock
+
+        from Spyder.SpyderQ_Scripts.SpyderQ14_MainLauncher import SpyderLauncher
+
+        launcher = SpyderLauncher.__new__(SpyderLauncher)
+        launcher.logger = mock.MagicMock()
+        launcher.log_error = mock.MagicMock()
+        launcher.log_info = mock.MagicMock()
+        launcher.log_warning = mock.MagicMock()
+        launcher.args = argparse.Namespace(mode="live", clear_kill_lock=False)
+        return launcher
+
+    def _base_env(self):
+        return {
+            "LIVE_TRADING_CONFIRMED": "true",
+            "TRADIER_API_KEY": "x",
+            "TRADIER_ACCOUNT_ID": "y",
+            "CLOSE_POSITIONS_ON_EMERGENCY": "true",
+            "MAX_DAILY_LOSS": "500",
+            "MAX_POSITION_SIZE": "100",
+        }
+
+    def test_rejects_missing_emergency_close(self) -> None:
+        import os
+        import unittest.mock as mock
+
+        env = self._base_env()
+        env["CLOSE_POSITIONS_ON_EMERGENCY"] = "false"
+        with mock.patch.dict(os.environ, env, clear=True):
+            launcher = self._make_launcher()
+            self.assertFalse(launcher._live_preflight_checks())
+
+    def test_rejects_paper_account_profile_in_live_mode(self) -> None:
+        import os
+        import unittest.mock as mock
+
+        env = self._base_env()
+        env["ACCOUNT_PROFILE"] = "paper"
+        with mock.patch.dict(os.environ, env, clear=True):
+            launcher = self._make_launcher()
+            self.assertFalse(launcher._live_preflight_checks())
+
+    def test_rejects_negative_max_daily_loss(self) -> None:
+        import os
+        import unittest.mock as mock
+
+        env = self._base_env()
+        env["MAX_DAILY_LOSS"] = "-10"
+        with mock.patch.dict(os.environ, env, clear=True):
+            launcher = self._make_launcher()
+            self.assertFalse(launcher._live_preflight_checks())
+
+
+class A14OrderStatusTransitionTest(unittest.TestCase):
+    """T129-A14: OrderStatus.validate_transition rejects invalid transitions."""
+
+    def test_terminal_states_reject_outbound(self) -> None:
+        from Spyder.SpyderB_Broker.SpyderB00_OrderTypes import OrderStatus
+
+        for terminal in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED):
+            for target in (OrderStatus.SUBMITTED, OrderStatus.WORKING,
+                           OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING):
+                self.assertFalse(
+                    OrderStatus.validate_transition(terminal, target),
+                    f"{terminal} → {target} should be invalid",
+                )
+
+    def test_happy_path_transitions(self) -> None:
+        from Spyder.SpyderB_Broker.SpyderB00_OrderTypes import OrderStatus
+
+        valid = [
+            (OrderStatus.PENDING, OrderStatus.SUBMITTED),
+            (OrderStatus.SUBMITTED, OrderStatus.WORKING),
+            (OrderStatus.WORKING, OrderStatus.PARTIALLY_FILLED),
+            (OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED),
+            (OrderStatus.SUBMITTED, OrderStatus.CANCELLED),
+            (OrderStatus.SUBMITTED, OrderStatus.REJECTED),
+        ]
+        for src, dst in valid:
+            self.assertTrue(
+                OrderStatus.validate_transition(src, dst),
+                f"{src} → {dst} should be valid",
+            )
+
+    def test_transition_to_logs_but_does_not_raise(self) -> None:
+        from Spyder.SpyderB_Broker.SpyderB00_OrderTypes import (
+            OrderRequest, OrderAction, OrderType, OrderStatus,
+            ContractDetails, SecType,
+        )
+
+        order = OrderRequest(
+            contract=ContractDetails(symbol="SPY", sec_type=SecType.STOCK),
+            action=OrderAction.BUY,
+            total_quantity=1,
+            order_type=OrderType.MARKET,
+        )
+        order.status = OrderStatus.FILLED  # terminal
+        # Invalid: FILLED → PENDING — must not raise, must return False.
+        valid = order.transition_to(OrderStatus.PENDING)
+        self.assertFalse(valid)
+        self.assertIs(order.status, OrderStatus.PENDING,
+                      "log-only mode applies the transition regardless")
+
+
+class A15StubGatedTest(unittest.TestCase):
+    """T129-A15: R11/L16 abstract stubs no longer raise NotImplementedError."""
+
+    def test_r11_strategy_adapter_defaults_do_not_raise(self) -> None:
+        from datetime import datetime
+
+        from Spyder.SpyderR_Runtime.SpyderR11_PaperStrategyRunner import StrategyAdapter
+
+        adapter = StrategyAdapter()
+        self.assertFalse(adapter.within_entry_window(datetime.now()))
+        self.assertIsNone(adapter.evaluate_entry(None, None))  # type: ignore[arg-type]
+
+    def test_l16_env_defaults_do_not_raise(self) -> None:
+        import unittest.mock as mock
+
+        from Spyder.SpyderL_ML.SpyderL16_OptionsAdjustmentRL import (
+            OptionsEnvironment,
+        )
+
+        env = OptionsEnvironment.__new__(OptionsEnvironment)
+        env.logger = mock.MagicMock()
+        self.assertEqual(env._initialize_position(), {})
+        self.assertEqual(env._calculate_position_greeks(), {})
+        self.assertEqual(env._calculate_pnl(), 0.0)
+        self.assertEqual(env._calculate_closing_cost(), 0.0)
+        self.assertEqual(env._roll_position("up"), {})
+        self.assertEqual(env._add_hedge(), {})
+        self.assertEqual(env._adjust_size("up"), {})
+        self.assertEqual(env._convert_position("other"), {})
 
 
 if __name__ == "__main__":  # pragma: no cover

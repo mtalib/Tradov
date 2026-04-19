@@ -111,6 +111,87 @@ class OrderStatus(Enum):
         """Check if order is in a terminal state."""
         return self in {self.FILLED, self.CANCELLED, self.REJECTED}
 
+    @classmethod
+    def validate_transition(
+        cls, current: "OrderStatus", proposed: "OrderStatus"
+    ) -> bool:
+        """A14 (v14): Return True if ``current → proposed`` is allowed.
+
+        Terminal states (FILLED/CANCELLED/REJECTED) are sinks; any outbound
+        transition from them is invalid. ERROR/INACTIVE are recovery states
+        and may transition back into the active lifecycle.
+        """
+        if current is proposed:
+            return True
+        if current in _TERMINAL_STATES:
+            return False
+        return proposed in _VALID_TRANSITIONS.get(current, set())
+
+
+# A14 (v14): Canonical state-machine table for OrderStatus transitions.
+# Terminal states are deliberately omitted — they are sinks.
+_TERMINAL_STATES: "frozenset[OrderStatus]" = frozenset({
+    OrderStatus.FILLED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+})
+
+_VALID_TRANSITIONS: "dict[OrderStatus, frozenset[OrderStatus]]" = {
+    OrderStatus.PENDING: frozenset({
+        OrderStatus.SUBMITTED,
+        OrderStatus.PENDING_CANCEL,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+        OrderStatus.ERROR,
+        OrderStatus.INACTIVE,
+    }),
+    OrderStatus.PENDING_CANCEL: frozenset({
+        OrderStatus.CANCELLED,
+        OrderStatus.FILLED,  # race: broker fills before cancel lands
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.REJECTED,
+        OrderStatus.ERROR,
+    }),
+    OrderStatus.SUBMITTED: frozenset({
+        OrderStatus.WORKING,
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+        OrderStatus.PENDING_CANCEL,
+        OrderStatus.ERROR,
+        OrderStatus.INACTIVE,
+    }),
+    OrderStatus.WORKING: frozenset({
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+        OrderStatus.PENDING_CANCEL,
+        OrderStatus.ERROR,
+        OrderStatus.INACTIVE,
+    }),
+    OrderStatus.PARTIALLY_FILLED: frozenset({
+        OrderStatus.FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.PENDING_CANCEL,
+        OrderStatus.ERROR,
+    }),
+    OrderStatus.INACTIVE: frozenset({
+        OrderStatus.PENDING,
+        OrderStatus.SUBMITTED,
+        OrderStatus.CANCELLED,
+        OrderStatus.ERROR,
+    }),
+    OrderStatus.ERROR: frozenset({
+        OrderStatus.PENDING,
+        OrderStatus.SUBMITTED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+        OrderStatus.INACTIVE,
+    }),
+}
+
 class TimeInForce(Enum):
     """Time in force options."""
     DAY = "DAY"           # Day order
@@ -376,6 +457,49 @@ class OrderRequest:
         # Combination order validation
         if self.combo_legs and self.contract.sec_type not in [SecType.OPTION, SecType.FUTURE]:
             raise ValueError("Combination orders only supported for options and futures")
+
+    def transition_to(self, new_status: OrderStatus) -> bool:
+        """A14 (v14): Validated transition to a new OrderStatus.
+
+        Always applies the transition (log-only for one release cycle) so we
+        don't mask bugs during the v14 paper soak. Returns True if the
+        transition was valid, False otherwise. Invalid transitions are logged
+        and a ``SYSTEM_ERROR`` event is emitted so the soak report surfaces
+        them.
+        """
+        old_status = self.status
+        valid = OrderStatus.validate_transition(old_status, new_status)
+        self.status = new_status
+        if not valid:
+            try:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Invalid OrderStatus transition: %s → %s (order_ref=%s)",
+                    old_status,
+                    new_status,
+                    self.order_ref,
+                )
+            except Exception:
+                pass
+            try:
+                from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+                    EventType,
+                    get_event_manager,
+                )
+                get_event_manager().emit(
+                    EventType.SYSTEM_ERROR,
+                    {
+                        "source": "OrderStatus.transition_to",
+                        "message": "invalid_order_status_transition",
+                        "from": str(old_status),
+                        "to": str(new_status),
+                        "order_ref": self.order_ref,
+                    },
+                    source="OrderRequest",
+                )
+            except Exception:
+                pass
+        return valid
 
     @property
     def is_buy(self) -> bool:

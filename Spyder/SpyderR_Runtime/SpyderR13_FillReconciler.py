@@ -61,6 +61,7 @@ DEFAULT_POLL_CADENCE_LIMIT: float = 5.0    # seconds
 MAX_CONSECUTIVE_ERRORS: int = 8            # after this, stop tracking the order
 MAX_BACKOFF_SECONDS: float = 60.0
 ORPHAN_DEAD_LETTER_PATH: Path = Path("logs/orphans.jsonl")
+ORPHAN_RECOVERY_CADENCE: float = 60.0      # A9 (v14): probe orphaned orders every 60s
 
 
 # ==============================================================================
@@ -119,6 +120,7 @@ class FillReconciler:
         self._poll_cadence_limit = poll_cadence_limit
 
         self._tracked: dict[str, _TrackedOrder] = {}  # keyed by tradier_order_id
+        self._orphaned: dict[str, _TrackedOrder] = {}  # A9 (v14): retry-recoverable orphans
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -222,13 +224,20 @@ class FillReconciler:
         while not self._stop_event.is_set():
             now = time.monotonic()
             due: list[_TrackedOrder] = []
+            due_orphans: list[_TrackedOrder] = []
             with self._lock:
                 for entry in list(self._tracked.values()):
                     if now >= entry.next_poll_at:
                         due.append(entry)
+                # A9 (v14): also check orphaned entries for possible recovery.
+                for entry in list(self._orphaned.values()):
+                    if now >= entry.next_poll_at:
+                        due_orphans.append(entry)
 
             for entry in due:
                 self._poll_one(entry)
+            for entry in due_orphans:
+                self._poll_orphaned(entry)
 
             # Sleep in small bursts so stop_event is noticed promptly.
             # Granularity of 50 ms is fine for 2–5 s real cadences and
@@ -254,7 +263,10 @@ class FillReconciler:
             entry.consecutive_errors += 1
             if entry.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 self._emit_orphaned(entry, last_error=str(exc))
-                self._drop(entry.tradier_order_id)
+                # A9 (v14): keep probing — move from _tracked to _orphaned with
+                # a slower 60s cadence so we can emit ORDER_UN_ORPHANED if the
+                # broker eventually answers.
+                self._move_to_orphaned(entry)
                 return
             backoff = min(
                 entry.cadence * (2 ** entry.consecutive_errors),
@@ -365,6 +377,109 @@ class FillReconciler:
         """Remove a terminal order from the tracking dict."""
         with self._lock:
             self._tracked.pop(tradier_order_id, None)
+            self._orphaned.pop(tradier_order_id, None)
+
+    def _move_to_orphaned(self, entry: _TrackedOrder) -> None:
+        """A9 (v14): move a tracked entry to the orphan recovery map."""
+        with self._lock:
+            self._tracked.pop(entry.tradier_order_id, None)
+            entry.next_poll_at = time.monotonic() + ORPHAN_RECOVERY_CADENCE
+            self._orphaned[entry.tradier_order_id] = entry
+
+    def _poll_orphaned(self, entry: _TrackedOrder) -> None:
+        """A9 (v14): retry an orphaned order; emit un-orphan + terminal event on success."""
+        try:
+            response = self._broker.get_order(entry.tradier_order_id)
+            order_data: dict[str, Any] = (response or {}).get("order", response or {})
+            raw_status: str = (order_data.get("status") or "").lower().replace(" ", "_")
+        except Exception as exc:
+            self.logger.debug(
+                "Orphan probe still failing tradier_id=%s: %s",
+                entry.tradier_order_id,
+                exc,
+            )
+            with self._lock:
+                if entry.tradier_order_id in self._orphaned:
+                    self._orphaned[entry.tradier_order_id].next_poll_at = (
+                        time.monotonic() + ORPHAN_RECOVERY_CADENCE
+                    )
+            return
+
+        terminal_map = {
+            "filled": EventType.ORDER_FILLED,
+            "canceled": EventType.ORDER_CANCELLED,
+            "cancelled": EventType.ORDER_CANCELLED,
+            "expired": EventType.ORDER_EXPIRED,
+            "rejected": EventType.ORDER_REJECTED,
+        }
+        terminal_event = terminal_map.get(raw_status)
+
+        if terminal_event is None:
+            # Broker answered with a non-terminal status — treat as recovery
+            # back to live tracking.
+            self.logger.info(
+                "Orphan recovered to non-terminal status=%s tradier_id=%s; "
+                "resuming normal tracking",
+                raw_status,
+                entry.tradier_order_id,
+            )
+            entry.consecutive_errors = 0
+            entry.next_poll_at = time.monotonic() + entry.cadence
+            with self._lock:
+                self._orphaned.pop(entry.tradier_order_id, None)
+                self._tracked[entry.tradier_order_id] = entry
+            try:
+                self._em.emit(
+                    EventType.ORDER_UN_ORPHANED,
+                    {
+                        "order_id": entry.order_id,
+                        "tradier_order_id": entry.tradier_order_id,
+                        "recovered_status": raw_status,
+                        "terminal": False,
+                    },
+                    source="FillReconciler",
+                )
+            except Exception as exc:
+                self.logger.error("Failed to emit ORDER_UN_ORPHANED: %s", exc)
+            return
+
+        # Terminal recovery: emit un-orphan first, then the terminal event.
+        self.logger.info(
+            "Orphan recovered to terminal status=%s tradier_id=%s",
+            raw_status,
+            entry.tradier_order_id,
+        )
+        try:
+            self._em.emit(
+                EventType.ORDER_UN_ORPHANED,
+                {
+                    "order_id": entry.order_id,
+                    "tradier_order_id": entry.tradier_order_id,
+                    "recovered_status": raw_status,
+                    "terminal": True,
+                },
+                source="FillReconciler",
+            )
+        except Exception as exc:
+            self.logger.error("Failed to emit ORDER_UN_ORPHANED: %s", exc)
+
+        terminal_payload: dict[str, Any] = {
+            "order_id": entry.order_id,
+            "tradier_order_id": entry.tradier_order_id,
+            "raw": order_data,
+        }
+        if terminal_event is EventType.ORDER_FILLED:
+            terminal_payload["fill_price"] = order_data.get("avg_fill_price")
+            terminal_payload["quantity"] = order_data.get("quantity")
+            terminal_payload["timestamp"] = order_data.get("transaction_date")
+
+        try:
+            self._em.emit(terminal_event, terminal_payload, source="FillReconciler")
+        except Exception as exc:
+            self.logger.error(
+                "Failed to emit terminal event after orphan recovery: %s", exc
+            )
+        self._drop(entry.tradier_order_id)
 
     def _emit_orphaned(self, entry: _TrackedOrder, last_error: str) -> None:
         """Emit ORDER_ORPHANED and append to dead-letter log exactly once."""

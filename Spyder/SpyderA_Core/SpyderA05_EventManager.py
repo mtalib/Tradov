@@ -23,10 +23,12 @@ Module Description:
 # ==============================================================================
 import json
 import logging
+import os
 import queue
 import sqlite3
 import threading
 import time
+import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -68,6 +70,27 @@ WORKER_THREAD_COUNT = 3
 HANDLER_TIMEOUT = 30  # seconds
 
 # ==============================================================================
+# P2-4: Per-thread event loop for ASYNC handlers
+# ==============================================================================
+_thread_local = threading.local()
+
+
+def _get_thread_loop() -> asyncio.AbstractEventLoop:
+    """Return a persistent event loop for the calling thread.
+
+    Creates a new loop on first access (or after the previous loop was closed).
+    This avoids the overhead and GIL contention of ``asyncio.run()``
+    (which creates *and tears down* a loop on every call) and is safe to call
+    from worker threads that do not themselves host a running loop.
+    """
+    loop = getattr(_thread_local, 'loop', None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _thread_local.loop = loop
+    return loop
+
+
+# ==============================================================================
 # ENUMS
 # ==============================================================================
 class EventType(Enum):
@@ -83,28 +106,38 @@ class EventType(Enum):
 
     # Market data events
     MARKET_DATA = "market_data"
+    MARKET_DATA_TICK = "market_data_tick"
     QUOTE_UPDATE = "quote_update"
     OPTION_CHAIN_UPDATE = "option_chain_update"
     GREEKS_UPDATE = "greeks_update"
     VOLUME_UPDATE = "volume_update"
     DATA_STALE = "data_stale"
     DATA_FRESH = "data_fresh"
+    CUSTOM_METRIC_UPDATE = "custom_metric_update"
 
     # Trading events
     TRADING = "trading"
     TRADE = "trade"
     ORDER_PLACED = "order_placed"
+    ORDER_SUBMITTED = "order_submitted"
     ORDER_FILLED = "order_filled"
+    ORDER_PARTIALLY_FILLED = "order_partially_filled"
     ORDER_CANCELLED = "order_cancelled"
+    ORDER_EXPIRED = "order_expired"
     ORDER_REJECTED = "order_rejected"
+    ORDER_ORPHANED = "order_orphaned"
+    ORDER_UN_ORPHANED = "order_un_orphaned"  # A9 (v14): recovered after orphan
     POSITION_OPENED = "position_opened"
+    POSITION_UPDATED = "position_updated"
     POSITION_CLOSED = "position_closed"
 
     # Risk events
     RISK = "risk"
     RISK_LIMIT_BREACH = "risk_limit_breach"
+    RISK_VIOLATION = "risk_violation"
     MARGIN_CALL = "margin_call"
     STOP_LOSS_TRIGGERED = "stop_loss_triggered"
+    FLATTEN_REQUEST = "flatten_request"  # P2-2: flatten all positions (e.g. prolonged data stale)
 
     # Connection events
     CONNECTION = "connection"
@@ -136,6 +169,10 @@ class EventType(Enum):
     ALERT = "alert"
     INFO = "info"
     DEBUG = "debug"
+
+    # System control events
+    KILL_SWITCH = "kill_switch"  # O-4: hard stop — halt all new order submission
+    EMERGENCY = "emergency"      # P0-2: catastrophic-loss breach (emitted by E11/E13)
 
 class EventPriority(Enum):
     """Event priorities with numeric values"""
@@ -255,6 +292,8 @@ class HandlerInfo:
     weak_ref: bool = False
     execution_count: int = 0
     error_count: int = 0
+    consecutive_errors: int = 0
+    disabled: bool = False
     total_execution_time: float = 0.0
     last_execution: datetime | None = None
     last_error: str | None = None
@@ -364,6 +403,20 @@ class EventManager:
         >>> manager.stop()
     """
 
+    # Tracks how many instances have been created.  More than one outside of
+    # ``get_event_manager()`` is almost certainly a bug (fragmented bus).
+    _constructed_count: int = 0
+    _construction_lock = threading.Lock()
+
+    @staticmethod
+    def _allow_multiple() -> bool:
+        """Return True when multiple instances are explicitly permitted.
+
+        Set the environment variable ``SPYDER_ALLOW_MULTIPLE_EM=1`` in unit
+        tests that deliberately construct isolated EventManager instances.
+        """
+        return os.environ.get("SPYDER_ALLOW_MULTIPLE_EM", "0") == "1"
+
     def __init__(self, persist_events: bool = True,
                  db_path: Path | None = None):
         """
@@ -373,6 +426,17 @@ class EventManager:
             persist_events: Enable event persistence
             db_path: Optional database path
         """
+        with EventManager._construction_lock:
+            EventManager._constructed_count += 1
+            if EventManager._constructed_count > 1 and not EventManager._allow_multiple():
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "EventManager: multiple instances detected (count=%d). "
+                    "Use get_event_manager() to share a single instance. "
+                    "Set SPYDER_ALLOW_MULTIPLE_EM=1 to suppress this warning in tests.",
+                    EventManager._constructed_count,
+                )
+
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
@@ -416,6 +480,10 @@ class EventManager:
 
         # Dead letter queue
         self.dead_letter_queue = deque(maxlen=100)
+
+        # Per-handler error ring (P1-12)
+        self._handler_errors: deque = deque(maxlen=100)
+        self._handler_errors_lock = threading.Lock()
 
         self.logger.info("EventManager initialized")
 
@@ -559,12 +627,35 @@ class EventManager:
             # Signal shutdown
             self._shutdown_event.set()
 
-            # Wait for queues to empty
+            # A10 (v14): bounded drain — unconditional join() can block forever
+            # when a handler holds a task_done(). Cap drain time at half the
+            # stop() timeout so the rest of the shutdown sequence can still run.
+            drain_deadline = time.time() + max(0.1, timeout / 2.0)
+
+            def _bounded_join(q) -> bool:
+                """Wait on queue.unfinished_tasks up to drain_deadline."""
+                while time.time() < drain_deadline:
+                    if getattr(q, "unfinished_tasks", 0) == 0:
+                        return True
+                    time.sleep(0.02)
+                return getattr(q, "unfinished_tasks", 0) == 0
+
             try:
-                self.event_queue.join()
-                self.priority_queue.join()
-                if self.persist_events:
-                    self._persist_queue.join()
+                if not _bounded_join(self.event_queue):
+                    self.logger.warning(
+                        "A10: event_queue drain timed out; %s tasks left unfinished",
+                        getattr(self.event_queue, "unfinished_tasks", "?"),
+                    )
+                if not _bounded_join(self.priority_queue):
+                    self.logger.warning(
+                        "A10: priority_queue drain timed out; %s tasks left unfinished",
+                        getattr(self.priority_queue, "unfinished_tasks", "?"),
+                    )
+                if self.persist_events and not _bounded_join(self._persist_queue):
+                    self.logger.warning(
+                        "A10: persist_queue drain timed out; %s tasks left unfinished",
+                        getattr(self._persist_queue, "unfinished_tasks", "?"),
+                    )
             except (RuntimeError, AttributeError) as e:
                 # Queue join may fail if queue already closed or in invalid state
                 self.logger.warning("Error waiting for queues during shutdown: %s", e)
@@ -662,6 +753,10 @@ class EventManager:
 
     def _execute_handler(self, handler: HandlerInfo, event: Event):
         """Execute a single handler"""
+        # P1-12: skip disabled handlers
+        if handler.disabled:
+            return
+
         try:
             # Apply filter
             if handler.filter_func and not handler.filter_func(event):
@@ -674,12 +769,14 @@ class EventManager:
             if handler.handler_type == HandlerType.SYNC:
                 handler.func(event)
             elif handler.handler_type == HandlerType.ASYNC:
-                asyncio.run(handler.func(event))
+                # P2-4: reuse a per-thread loop instead of creating a new one per call
+                _get_thread_loop().run_until_complete(handler.func(event))
             elif handler.handler_type == HandlerType.THREADED:
                 self.executor.submit(handler.func, event)
 
             # Update metrics
             handler.execution_count += 1
+            handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
             handler.last_execution = datetime.now()
 
@@ -688,8 +785,68 @@ class EventManager:
 
         except Exception as e:
             handler.error_count += 1
+            handler.consecutive_errors += 1
             handler.last_error = str(e)
+            tb = traceback.format_exc()
             self.logger.error("Handler %s error: %s", handler.name, e)
+
+            # P1-12: record to error ring
+            error_record = {
+                "handler_name": handler.name,
+                "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                "error": str(e),
+                "traceback": tb,
+                "consecutive": handler.consecutive_errors,
+                "ts": datetime.now().isoformat(),
+            }
+            with self._handler_errors_lock:
+                self._handler_errors.append(error_record)
+
+            # P1-12: circuit-break after 3 consecutive failures
+            if handler.consecutive_errors >= 3:
+                handler.disabled = True
+                self.logger.critical(
+                    "Handler %s disabled after %d consecutive errors; last: %s",
+                    handler.name, handler.consecutive_errors, e,
+                )
+                self._emit_system_error(handler.name, event, tb)
+
+    def _emit_system_error(self, handler_name: str, event: Event, tb: str) -> None:
+        """Emit SYSTEM_ERROR for a disabled handler (best-effort; never raises)."""
+        try:
+            err_event = Event(
+                event_id=str(uuid.uuid4()),
+                event_type=EventType.SYSTEM_ERROR,
+                data={
+                    "handler_name": handler_name,
+                    "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                    "traceback": tb,
+                    "reason": "handler_circuit_open",
+                },
+                source="EventManager",
+                priority=EventPriority.HIGH,
+            )
+            # Place directly on the high-priority queue to avoid recursion
+            try:
+                self.priority_queue.put_nowait((
+                    -EventPriority.HIGH.value,
+                    err_event.timestamp,
+                    err_event,
+                ))
+            except Exception:
+                self.dead_letter_queue.append(err_event)
+        except Exception as inner:
+            self.logger.error("_emit_system_error failed: %s", inner)
+
+    def get_handler_errors(self) -> list:
+        """Return a copy of the per-handler error ring (newest last).
+
+        Returns:
+            List of dicts with keys: handler_name, event_type, error,
+            traceback, consecutive, ts.
+        """
+        with self._handler_errors_lock:
+            return list(self._handler_errors)
 
     # ==========================================================================
     # BACKGROUND LOOPS
@@ -1086,6 +1243,8 @@ def reset_event_manager():
         if _event_manager_instance and _event_manager_instance.is_running:
             _event_manager_instance.stop()
         _event_manager_instance = None
+    with EventManager._construction_lock:
+        EventManager._constructed_count = 0
 
 # ==============================================================================
 # MAIN EXECUTION

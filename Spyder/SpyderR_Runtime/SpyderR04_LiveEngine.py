@@ -1334,11 +1334,20 @@ class LiveEngine:
                 self.logger.error("PositionTracker.record_fill error: %s", exc)
 
     def _on_reconciler_partial_fill(self, event) -> None:
-        """Update engine metrics when FillReconciler confirms a partial fill."""
+        """Update engine metrics when FillReconciler confirms a partial fill.
+
+        A7 (v14): membership check takes ``_pending_orders_lock`` so a
+        concurrent terminal-event handler cannot drop the entry between the
+        ``in`` test and the metrics update.
+        """
         if getattr(event, "source", None) != "FillReconciler":
             return
         order_id = (event.data or {}).get("order_id")
-        if order_id and order_id in self.pending_orders:
+        if not order_id:
+            return
+        with self._pending_orders_lock:
+            hit = order_id in self.pending_orders
+        if hit:
             self.metrics.successful_executions += 1
 
     def _on_order_orphaned(self, event) -> None:
@@ -1790,9 +1799,14 @@ class LiveEngine:
         A3 (v14): snapshot under ``_pending_orders_lock``, iterate outside the
         lock (broker calls can block), and use ``pop(_, None)`` so concurrent
         terminal events cannot trigger KeyError.
+        A8 (v14): collect failed order IDs and escalate to KILL_SWITCH if any
+        cancellations fail — a partial-cancel can leave live broker-side orders
+        that keep executing against a halted system.
         """
         with self._pending_orders_lock:
             order_ids = list(self.pending_orders.keys())
+        failed_order_ids: list[str] = []
+        failure_reasons: list[str] = []
         for order_id in order_ids:
             try:
                 self.broker.cancel_order(order_id)
@@ -1800,7 +1814,33 @@ class LiveEngine:
                     self.pending_orders.pop(order_id, None)
                 self.logger.info("Cancelled pending order %s", order_id)
             except Exception as exc:
+                failed_order_ids.append(order_id)
+                failure_reasons.append(f"{order_id}:{exc}")
                 self.logger.error("Failed to cancel order %s: %s", order_id, exc)
+
+        if failed_order_ids and not self._kill_switch_event.is_set():
+            reason = (
+                f"CANCEL_ALL failed for {len(failed_order_ids)}/{len(order_ids)} orders — "
+                f"escalating to KILL_SWITCH: {';'.join(failure_reasons)}"
+            )
+            self.logger.critical(reason)
+            self._kill_switch_event.set()
+            try:
+                self._write_kill_lock(reason)
+            except Exception as exc:  # pragma: no cover
+                self.logger.error("Failed to write kill lock: %s", exc)
+            try:
+                self._event_manager.emit(
+                    EventType.KILL_SWITCH,
+                    {
+                        "reason": reason,
+                        "source": "CANCEL_ALL",
+                        "failed_order_ids": failed_order_ids,
+                    },
+                    source="LiveEngine",
+                )
+            except Exception as exc:  # pragma: no cover
+                self.logger.error("Failed to emit KILL_SWITCH: %s", exc)
 
     def _emergency_cancel_all_orders(self) -> None:
         """Emergency cancellation — drain the queue then cancel all pending orders."""

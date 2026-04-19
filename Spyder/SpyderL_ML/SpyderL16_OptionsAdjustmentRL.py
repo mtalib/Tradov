@@ -304,9 +304,18 @@ class OptionsEnvironment(_GymEnvBase):
         return new_state.to_array(), reward, done, info
 
     def _initialize_position(self) -> dict[str, Any]:
-        """Initialize a new options position"""
-        # To be implemented by strategy-specific environments
-        raise NotImplementedError
+        """Initialize a new options position.
+
+        A15 (v14): Safe no-op default — L16 is reached only through T111 tests
+        and the L_ML ``__init__`` shim. Returning an empty dict lets a
+        mis-wired caller fail gracefully rather than crash.
+        """
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._initialize_position() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _get_state(self) -> PositionState:
         """Get current position state"""
@@ -454,27 +463,64 @@ class OptionsEnvironment(_GymEnvBase):
             return True
         return abs(state.delta) > 0.8  # Position too directional
 
-    # Abstract methods to be implemented by specific strategies
+    # A15 (v14): Abstract methods — subclasses override. Defaults return safe
+    # no-ops (empty dict / 0.0) plus a one-line warning so mis-wiring surfaces
+    # without crashing runtime callers.
     def _calculate_position_greeks(self) -> dict[str, float]:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._calculate_position_greeks() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _calculate_pnl(self) -> float:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._calculate_pnl() default hit on %s",
+            type(self).__name__,
+        )
+        return 0.0
 
     def _calculate_closing_cost(self) -> float:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._calculate_closing_cost() default hit on %s",
+            type(self).__name__,
+        )
+        return 0.0
 
     def _roll_position(self, direction: str) -> dict[str, Any]:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._roll_position() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _add_hedge(self) -> dict[str, Any]:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._add_hedge() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _adjust_size(self, direction: str) -> dict[str, Any]:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._adjust_size() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _convert_position(self, new_type: str) -> dict[str, Any]:
-        raise NotImplementedError
+        import logging
+        logging.getLogger(__name__).warning(
+            "OptionsAdjustmentEnv._convert_position() default hit on %s",
+            type(self).__name__,
+        )
+        return {}
 
     def _update_position(self):
         """Update position based on market movement"""

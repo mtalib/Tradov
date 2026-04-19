@@ -40,9 +40,11 @@ Examples:
 # STANDARD IMPORTS
 # ==============================================================================
 import argparse
+import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # ==============================================================================
@@ -334,93 +336,219 @@ class SpyderLauncher:
         self.log_error(f"Module not found: {module_name}")
         return False
 
-    def launch_system(self):
-        """Launch the full system"""
-        self.log_info("🚀 Launching Spyder system...")
+    def _live_preflight_checks(self) -> bool:
+        """P0-7: Gate that must pass before any live-mode session starts.
 
-        if CORE_AVAILABLE and master_controller:
+        Checks (in order):
+        1. ``LIVE_TRADING_CONFIRMED=true`` env guard — requires explicit opt-in.
+        2. Required credentials present (``TRADIER_API_KEY``, ``TRADIER_ACCOUNT_ID``).
+        3. Kill-lock gate — blocks start if ~/.spyder_kill_lock exists (N1).
+        4. Single-instance PID lock — prevents two launchers trading the same account.
+
+        Returns True if all checks pass; logs the first failure and returns False.
+        """
+        # 1. Explicit opt-in guard.
+        if os.environ.get("LIVE_TRADING_CONFIRMED") != "true":
+            self.log_error(
+                "❌ Live trading requires LIVE_TRADING_CONFIRMED=true in the environment. "
+                "Set the variable and re-run."
+            )
+            return False
+
+        # 2. Credentials check.
+        missing = [
+            var for var in ("TRADIER_API_KEY", "TRADIER_ACCOUNT_ID")
+            if not os.environ.get(var)
+        ]
+        if missing:
+            self.log_error("❌ Missing required env vars for live mode: %s", missing)
+            return False
+
+        # A12 (v14): Safety-config preflight for live mode.
+        # Catch the operator error of launching live with emergency-close off,
+        # risk limits unset, or the account profile pointing elsewhere.
+        emergency_close = os.environ.get("CLOSE_POSITIONS_ON_EMERGENCY", "false").lower()
+        if emergency_close != "true":
+            self.log_error(
+                "❌ Live mode requires CLOSE_POSITIONS_ON_EMERGENCY=true — "
+                "emergency stop will NOT flatten positions as currently configured."
+            )
+            return False
+
+        account_profile = os.environ.get("ACCOUNT_PROFILE", "").lower()
+        if account_profile and account_profile not in ("live", "production", "real"):
+            self.log_error(
+                "❌ Mode is live but ACCOUNT_PROFILE=%s — refusing to start. "
+                "Set ACCOUNT_PROFILE=live before running in live mode.",
+                account_profile,
+            )
+            return False
+
+        for var in ("MAX_DAILY_LOSS", "MAX_POSITION_SIZE"):
+            raw = os.environ.get(var)
+            if raw is None or raw == "":
+                self.log_error(
+                    "❌ Live mode requires %s to be set (got empty/unset).", var
+                )
+                return False
             try:
-                # Try to use the master controller
-                controller = master_controller()
-                if hasattr(controller, 'start'):
-                    controller.start()
-                    self.state = SystemState.RUNNING
-                    self.log_info("✅ System started successfully")
-                else:
-                    self.log_warning("⚠️ Controller has no start method")
-            except Exception as e:
-                self.log_error(f"❌ System startup failed: {e}")
+                value = float(raw)
+            except (TypeError, ValueError):
+                self.log_error(
+                    "❌ Live mode env var %s must be numeric, got %r.", var, raw
+                )
+                return False
+            if value <= 0:
+                self.log_error(
+                    "❌ Live mode env var %s must be > 0, got %s.", var, value
+                )
+                return False
 
-        if self.args.mode == "live":
-            self._start_live_engine()
-        elif self.args.mode == "paper":
-            self.log_info("📄 Paper trading mode — using simulated execution")
+        # 3. N1: Kill-lock gate — refuse start if a prior session triggered the kill-switch.
+        _KILL_LOCK = Path.home() / ".spyder_kill_lock"
+        if _KILL_LOCK.exists():
+            clear_requested = getattr(self.args, "clear_kill_lock", False)
+            try:
+                lock_data = json.loads(_KILL_LOCK.read_text())
+            except Exception:
+                lock_data = {}
+            reason = lock_data.get("reason", "unknown")
+            ts = lock_data.get("ts", "unknown")
+            account = lock_data.get("account_id", "unknown")
+            if clear_requested:
+                cleared_at = datetime.now().isoformat()
+                self.log_info(
+                    "🔓 Clearing kill-lock (reason=%s ts=%s account=%s cleared_at=%s)",
+                    reason, ts, account, cleared_at,
+                )
+                try:
+                    _KILL_LOCK.unlink()
+                except Exception as exc:
+                    self.log_error("❌ Failed to remove kill-lock: %s", exc)
+                    return False
+            else:
+                self.log_error(
+                    "❌ Kill-lock present — a prior session activated the kill-switch "
+                    "(reason=%s ts=%s account=%s). "
+                    "Investigate, then re-run with --clear-kill-lock to proceed.",
+                    reason, ts, account,
+                )
+                return False
 
-        # Fallback: just show status
-        if self.state != SystemState.RUNNING:
-            self.log_warning("⚠️ Full system startup not available, showing status instead")
-            return self.show_status()
+        # 4. PID lock — prevent duplicate launchers.
+        import fcntl
+        lock_path = "/tmp/spyder_trading.lock"
+        try:
+            self._pid_lock_fh = open(lock_path, "w")  # noqa: WPS515
+            fcntl.flock(self._pid_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._pid_lock_fh.write(str(os.getpid()))
+            self._pid_lock_fh.flush()
+        except OSError:
+            self.log_error(
+                "❌ Another Spyder launcher is already running (lock: %s).", lock_path
+            )
+            return False
 
         return True
 
-    def _start_live_engine(self) -> None:
-        """Import and start SpyderR04_LiveEngine for live trading."""
-        self.log_info("🔴 LIVE TRADING MODE — initialising live engine...")
+    def _broker_preflight_check(self) -> bool:
+        """P0-7: Verify the broker is reachable and buying power > 0 after start."""
+        supervisor = getattr(self, "_supervisor", None)
+        if supervisor is None or not hasattr(supervisor, "broker"):
+            return True  # nothing to check in non-live / no-broker scenarios
         try:
-            from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import create_live_engine
-            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
-            from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-        except ImportError as e:
-            self.log_error(f"❌ Live engine prerequisites missing — cannot start live: {e}")
-            return
-
-        # Build the Telegram bot for high-risk order confirmation (optional; env-gated).
-        # If the required env vars are absent the engine falls back to autonomous risk
-        # decision — no exception is raised.
-        telegram_bot = None
-        _tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-        _tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
-        if _tg_token and _tg_chat:
-            try:
-                from Spyder.SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
-                from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-                telegram_bot = TelegramBot(
-                    bot_token=_tg_token,
-                    chat_id=_tg_chat,
-                    event_manager=EventManager(),
+            acct = supervisor.broker.get_account()
+            buying_power = float((acct or {}).get("buying_power", 0))
+            if buying_power <= 0:
+                self.log_error(
+                    "❌ Broker reachable but buying_power=%.2f — aborting live session.",
+                    buying_power,
                 )
-                self.log_info("✅ Telegram confirmation bot ready for high-risk orders")
-            except Exception as _tg_err:
-                self.log_warning(f"⚠️ Telegram bot unavailable — falling back to autonomous risk decision: {_tg_err}")
-        else:
-            self.log_warning(
-                "⚠️ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — "
-                "high-risk orders will use autonomous risk decision (no human confirmation)"
-            )
+                return False
+            self.log_info("✅ Broker preflight OK (buying_power=%.2f)", buying_power)
+        except Exception as exc:
+            self.log_error("❌ Broker preflight failed: %s", exc)
+            return False
+        return True
 
+    def launch_system(self):
+        """Launch the full system via SessionSupervisor (S-12)."""
+        self.log_info("🚀 Launching Spyder system via SessionSupervisor...")
         try:
-            # create_tradier_client_from_env() reads TRADIER_ENVIRONMENT automatically.
-            # In live mode this will be "live" (api.tradier.com) unless explicitly overridden.
-            broker = create_tradier_client_from_env()
-            risk_manager = get_risk_manager()
-            config = {
-                "account_id": os.environ.get("TRADIER_ACCOUNT_ID"),
-                "max_daily_trades": int(os.environ.get("MAX_DAILY_TRADES", 100)),
-                "max_daily_loss": float(os.environ.get("MAX_DAILY_LOSS_USD", 10000)),
-                "require_confirmation": True,  # Always confirm live orders
-            }
-            live_engine = create_live_engine(broker, risk_manager, config, telegram_bot=telegram_bot)
-            if live_engine.initialize():
-                self.log_info("✅ Live engine initialised — safety guards active")
-                live_engine.start()
-                self.state = SystemState.RUNNING
-            else:
-                self.log_error("❌ Live engine initialisation failed — aborting live mode")
-        except Exception as e:
-            self.log_error(f"❌ Failed to start live engine: {e}")
+            # P0-7: Gate live mode before any session objects are created.
+            if self.args.mode == "live" and not self._live_preflight_checks():
+                return False
 
-    def launch(self):
-        """Main launch method"""
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import create_session_supervisor
+            self._supervisor = create_session_supervisor(
+                mode=self.args.mode,
+                skip_orphan_sweep=getattr(self.args, "skip_orphan_sweep", False),
+            )
+            if not self._supervisor.start():
+                self.log_error("❌ SessionSupervisor failed to start — aborting")
+                return False
+
+            # P0-7: Post-start broker health check (live only).
+            if self.args.mode == "live" and not self._broker_preflight_check():
+                self._supervisor.stop(flatten=False)  # session failed pre-trade; nothing to flatten
+                return False
+
+            self.state = SystemState.RUNNING
+            self.log_info("✅ Session started (%s mode)", self.args.mode)
+            return True
+        except Exception as exc:
+            self.log_error(f"❌ SessionSupervisor launch failed: {exc}")
+            # Fallback: just show status so the user knows something ran.
+            return self.show_status()
+
+    # ── S-01: restructured launch routing ─────────────────────────────────────
+
+    def _start_backend(self, mode: str) -> bool:
+        """Start the trading backend (SessionSupervisor) for the given mode."""
+        return self.launch_system()
+
+    def _run_headless_loop(self) -> bool:
+        """Block until SIGTERM / SIGINT, then tear down cleanly."""
+        supervisor = getattr(self, "_supervisor", None)
+        if supervisor is None:
+            self.log_error("❌ _run_headless_loop called with no supervisor — aborting")
+            return False
+        self.log_info("⏳ Running headless — waiting for SIGTERM / Ctrl-C …")
+        try:
+            supervisor.block_until_signal()
+        finally:
+            # P0-6: flatten positions on exit in live mode so SIGTERM / deploy
+            # restarts do not leave open positions on the broker.
+            flatten = getattr(self.args, "mode", "paper") == "live"
+            supervisor.stop(flatten=flatten)
+            self.state = SystemState.STOPPED
+            self.log_info("🛑 Headless session stopped cleanly (flatten=%s).", flatten)
+        return True
+
+    def _run_gui_attached_to_backend(self) -> bool:
+        """Attach the Qt dashboard to the already-running backend."""
+        if not GUI_AVAILABLE:
+            self.log_warning("⚠️ GUI modules not available — falling back to headless loop")
+            return self._run_headless_loop()
+        self.log_info("🖥️ Attaching GUI to running backend …")
+        try:
+            return self.launch_gui()
+        except Exception as exc:
+            self.log_error(f"❌ GUI attach failed: {exc} — falling back to headless loop")
+            return self._run_headless_loop()
+
+    def _request_shutdown(self) -> bool:
+        """Handle a --shutdown request gracefully."""
+        self.log_info("🛑 Shutdown requested via CLI flag.")
+        supervisor = getattr(self, "_supervisor", None)
+        if supervisor is not None:
+            flatten = getattr(self.args, "mode", "paper") == "live"
+            supervisor.stop(flatten=flatten)
+        self.state = SystemState.STOPPED
+        return True
+
+    def launch(self) -> bool:
+        """Main launch method (S-01)."""
         try:
             self._log_startup_info()
 
@@ -430,25 +558,47 @@ class SpyderLauncher:
             if self.args.module:
                 return self.run_specific_module(self.args.module)
 
-            if self.args.gui and not self.args.headless:
-                if GUI_AVAILABLE:
-                    return self.launch_gui()
-                else:
-                    self.log_error("❌ GUI not available, showing status instead")
-                    return self.show_status()
+            if self.args.shutdown:
+                return self._request_shutdown()
 
-            # Default: try to launch full system
-            return self.launch_system()
+            # 1. Always start the trading backend regardless of GUI flag.
+            backend_ok = self._start_backend(self.args.mode)
+            if not backend_ok:
+                return False
+
+            # 2. Optionally attach the dashboard on top of the running backend.
+            if self.args.gui and not self.args.headless and GUI_AVAILABLE:
+                return self._run_gui_attached_to_backend()
+
+            # Headless: block until SIGTERM / KeyboardInterrupt then clean up.
+            return self._run_headless_loop()
 
         except KeyboardInterrupt:
             self.log_info("🛑 Interrupted by user")
+            self._safe_stop_supervisor()
             return True
-        except Exception as e:
-            self.log_error(f"❌ Launch failed: {e}")
+        except Exception as exc:
+            self.log_error(f"❌ Launch failed: {exc}")
             if self.args.debug:
                 import traceback
                 traceback.print_exc()
+            self._safe_stop_supervisor()
             return False
+
+    def _safe_stop_supervisor(self) -> None:
+        """Stop the supervisor with flatten=True iff in live mode.
+
+        Centralised so every exit path (SIGTERM, KeyboardInterrupt, uncaught
+        exception) uses identical flatten logic.
+        """
+        supervisor = getattr(self, "_supervisor", None)
+        if supervisor is None:
+            return
+        flatten = getattr(self.args, "mode", "paper") == "live"
+        try:
+            supervisor.stop(flatten=flatten)
+        except Exception as exc:
+            self.log_error(f"❌ Supervisor stop failed during shutdown: {exc}")
 
 # ==============================================================================
 # MAIN FUNCTION
@@ -477,6 +627,19 @@ Examples:
     parser.add_argument("--module", type=str, help="Start specific module only")
     parser.add_argument("--status", action="store_true", help="Check system status and exit")
     parser.add_argument("--shutdown", action="store_true", help="Shutdown running system")
+    parser.add_argument(
+        "--clear-kill-lock",
+        action="store_true",
+        help="Clear the ~/.spyder_kill_lock file and allow live trading to start. "
+             "CAUTION: only use after confirming the triggering risk event is resolved.",
+    )
+    parser.add_argument(
+        "--skip-orphan-sweep",
+        action="store_true",
+        dest="skip_orphan_sweep",
+        help="Skip the boot-time orphan position sweep (P1-3). "
+             "Use when restarting on an empty account to avoid misleading orphan alerts.",
+    )
 
     args = parser.parse_args()
 
