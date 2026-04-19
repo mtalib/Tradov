@@ -1611,5 +1611,147 @@ class A15StubGatedTest(unittest.TestCase):
         self.assertEqual(env._convert_position("other"), {})
 
 
+class A16R04PositionsCacheTest(unittest.TestCase):
+    """A16 (v14): R04._get_positions_cached must serve from cache within TTL
+    and invalidate on fill events."""
+
+    def test_cache_hits_within_ttl_and_invalidates_on_fill(self) -> None:
+        from unittest import mock
+        from Spyder.SpyderR_Runtime import SpyderR04_LiveEngine as R04
+
+        engine = R04.LiveEngine.__new__(R04.LiveEngine)
+        engine.logger = mock.MagicMock()
+        engine._positions_cache = None
+        engine._positions_cache_at = 0.0
+        import threading
+        engine._positions_cache_lock = threading.Lock()
+
+        call_count = {"n": 0}
+        def fake_positions():
+            call_count["n"] += 1
+            return [{"symbol": "SPY", "quantity": 1}]
+
+        engine.broker = mock.MagicMock()
+        engine.broker.get_positions = fake_positions
+
+        engine._get_positions_cached()
+        engine._get_positions_cached()
+        engine._get_positions_cached()
+        self.assertEqual(
+            call_count["n"], 1,
+            "cache should serve three successive calls from one broker round-trip",
+        )
+
+        # Invalidate via the fill path → next call hits broker again.
+        engine._invalidate_positions_cache()
+        engine._get_positions_cached()
+        self.assertEqual(
+            call_count["n"], 2,
+            "invalidation after fill must force a fresh broker fetch",
+        )
+
+
+class A22MoneyPrecisionTest(unittest.TestCase):
+    """A22 (v14): accumulating 10k fills of $0.10 must equal exactly $1000.00
+    with Money; float would drift."""
+
+    def test_accumulator_is_cent_exact_after_10k_fills(self) -> None:
+        from Spyder.SpyderU_Utilities.SpyderU48_Money import Money, ZERO
+
+        acc = ZERO
+        for _ in range(10_000):
+            acc = acc + Money("0.10")
+        self.assertEqual(acc, Money("1000.00"))
+        # Sanity: a naive float accumulator drifts.
+        f_acc = 0.0
+        for _ in range(10_000):
+            f_acc += 0.10
+        self.assertNotEqual(f_acc, 1000.0)
+
+    def test_money_rejects_money_times_money(self) -> None:
+        from Spyder.SpyderU_Utilities.SpyderU48_Money import Money
+        with self.assertRaises(TypeError):
+            _ = Money("5.00") * Money("2.00")
+
+    def test_e13_record_trade_pnl_is_cent_exact(self) -> None:
+        from unittest import mock
+        from Spyder.SpyderE_Risk import SpyderE13_DayProfitTarget as E13
+
+        engine = E13.DayProfitTargetEngine.__new__(E13.DayProfitTargetEngine)
+        engine.logger = mock.MagicMock()
+        import threading
+        engine._realized_pnl_lock = threading.Lock()
+        # Force the Money path even if the test harness imported E13 before
+        # the U48 module was available on sys.path.
+        if E13._Money is not None:
+            engine._realized_pnl_money = E13._MONEY_ZERO
+        else:  # pragma: no cover — should be available in test env
+            self.skipTest("U48 Money unavailable")
+
+        for _ in range(1_000):
+            engine.record_trade_pnl(0.01)
+        self.assertAlmostEqual(engine.get_realized_pnl(), 10.00, places=2)
+
+
+class A23BrokerVerifiedCloseTest(unittest.TestCase):
+    """A23 (v14): close_position_verified returns status=verified on a normal
+    paper fill, and status=unverified with a reason on timeout."""
+
+    def test_verified_on_paper_fill(self) -> None:
+        from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import PaperBroker
+
+        broker = PaperBroker(event_manager=None, fill_delay_s=0.0)
+        broker.start()
+        # Seed a position by placing a synthetic order first.
+        broker.place_order(symbol="SPY", side="buy", quantity=1, order_type="market")
+        result = broker.close_position_verified("SPY", timeout_s=2.0)
+        self.assertEqual(result.get("status"), "verified")
+
+    def test_unverified_on_missing_order_id(self) -> None:
+        from unittest import mock
+        from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import PaperBroker
+
+        broker = PaperBroker(event_manager=None, fill_delay_s=0.0)
+        broker.close_position = mock.MagicMock(return_value={"order": {}})
+        result = broker.close_position_verified("SPY", timeout_s=0.1)
+        self.assertEqual(result.get("status"), "unverified")
+        self.assertEqual(result.get("reason"), "no_order_id_returned")
+
+
+class A24HotReloadRefusesStructuralTest(unittest.TestCase):
+    """A24 (v14): the R04/E01 hot-reload callbacks must refuse structural
+    fields (account_id, env) with a log, not apply them."""
+
+    def test_r04_refuses_account_id_change(self) -> None:
+        from unittest import mock
+        from Spyder.SpyderR_Runtime import SpyderR04_LiveEngine as R04
+
+        engine = R04.LiveEngine.__new__(R04.LiveEngine)
+        engine.logger = mock.MagicMock()
+        engine.config = mock.MagicMock(account_id="old-acct")
+        engine._on_config_reload("account_id", "old-acct", "new-acct")
+        # Must log an error and NOT mutate the config attribute.
+        engine.logger.error.assert_called()
+        self.assertEqual(engine.config.account_id, "old-acct")
+
+    def test_e01_refuses_env_change(self) -> None:
+        from unittest import mock
+        from Spyder.SpyderE_Risk import SpyderE01_RiskManager as E01
+
+        rm = E01.RiskManager.__new__(E01.RiskManager)
+        rm.logger = mock.MagicMock()
+        rm.config = mock.MagicMock()
+        rm.config.risk_limits = {"max_daily_loss": 1000.0}
+        import threading
+        rm._risk_lock = threading.RLock()
+
+        rm._on_config_reload("account.env", "sandbox", "live")
+        rm.logger.error.assert_called()
+
+        # Non-structural key should update.
+        rm._on_config_reload("risk_limits.max_daily_loss", 1000.0, 500.0)
+        self.assertEqual(rm.config.risk_limits["max_daily_loss"], 500.0)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

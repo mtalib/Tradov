@@ -126,6 +126,11 @@ AI_PATTERN_CONFIDENCE_THRESHOLD = 0.7
 AI_ANOMALY_THRESHOLD = 2.0  # Standard deviations
 MIN_AI_LEARNING_SAMPLES = 100
 
+# A20/A26 (v14): explicit named constant for the "no model wired yet" placeholder
+# so a grep for the magic 0.5 finds this single site, and so the value's intent
+# (neutral — do NOT bias either direction) is documented at the definition.
+AI_RISK_NEUTRAL_PLACEHOLDER = 0.5
+
 # ==============================================================================
 # ENUMERATIONS
 # ==============================================================================
@@ -690,11 +695,16 @@ class UnifiedRiskCoordinator:
                 return cached_result
 
             # AI pattern analysis (placeholder — wire to X04 RiskGuardianAgent)
-            # ai_risk_score is neutral (0.5) until a real model is integrated;
+            # ai_risk_score is neutral until a real model is integrated;
             # anomaly_alerts is empty because stochastic injection is not valid
-            # in a production path.
+            # in a production path. A26 (v14): logged once per call so an
+            # operator reading the risk log can tell the real model is inactive.
+            self.logger.debug(
+                "AI risk placeholder in use (score=%.2f) — X04 model not wired",
+                AI_RISK_NEUTRAL_PLACEHOLDER,
+            )
             result = {
-                'ai_risk_score': 0.5,  # Neutral placeholder — TODO: wire to X04 model
+                'ai_risk_score': AI_RISK_NEUTRAL_PLACEHOLDER,
                 'risk_patterns': [
                     {
                         'pattern': 'concentration_risk',

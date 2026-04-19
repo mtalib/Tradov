@@ -83,6 +83,7 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import functools
 import os
 import time
 try:
@@ -397,6 +398,14 @@ def build_option_symbol(
     Raises:
         ValueError: If option_type is not recognized.
     """
+    # P1-6: enforce SPY options strike tick (0.05). Avoid generating symbols
+    # that live exchange validation will reject.
+    strike_steps = strike * 20.0
+    if abs(round(strike_steps) - strike_steps) > 1e-9:
+        raise ValueError(
+            f"Invalid strike {strike:.4f}: must be in 0.05 increments"
+        )
+
     # Normalize option type
     opt_char = option_type[0].upper()
     if opt_char not in ("C", "P"):
@@ -872,7 +881,8 @@ class TradierClient:
         duration: OrderDuration = OrderDuration.DAY,
         limit_price: float | None = None,
         stop_price: float | None = None,
-        order_class: OrderClass = OrderClass.EQUITY
+        order_class: OrderClass = OrderClass.EQUITY,
+        tag: str | None = None,  # P0-9: idempotency key (≤24 h dedup by Tradier)
     ) -> dict[str, Any]:
         """
         Place an order.
@@ -920,6 +930,10 @@ class TradierClient:
         if stop_price is not None:
             payload["stop"] = stop_price
 
+        # P0-9: Tradier idempotency tag — prevents duplicate fills on retry.
+        if tag is not None:
+            payload["tag"] = tag
+
         return self._make_request(
             "POST",
             f"/accounts/{self.account_id}/orders",
@@ -961,6 +975,147 @@ class TradierClient:
         """
         logger.info("Fetching all orders for account %s", self.account_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/orders")
+
+    def close_position(
+        self,
+        symbol: str,
+        urgency: str = "IMMEDIATE",
+        reason: str = "close_position",
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Close an existing position by placing a market closing order.
+
+        Looks up the current position quantity from Tradier, then submits a
+        market order on the opposite side to flatten the position.
+
+        Args:
+            symbol: Symbol of the position to close (equity or OCC option symbol).
+            urgency: Urgency hint for logging ("IMMEDIATE", "EOD", etc.).
+            reason: Audit-trail reason string logged with every close attempt.
+            force: When True, submit a qty-1 closing order even if no position
+                   is found via get_positions() (safety sweep for stale state).
+
+        Returns:
+            Order response dict from place_order(), or ``{}`` if no position
+            was found and *force* is False.
+
+        Raises:
+            TradierAPIError: If the order submission fails.
+        """
+        logger.warning(
+            "close_position: symbol=%s urgency=%s reason=%s force=%s",
+            symbol, urgency, reason, force,
+        )
+
+        # ── 1. Look up live position quantity ────────────────────────────────
+        quantity: int = 0
+        try:
+            pos_resp = self.get_positions()
+            raw = (pos_resp.get("positions") or {}).get("position", [])
+            if isinstance(raw, dict):
+                raw = [raw]  # Tradier returns a dict when only one position exists
+            for p in raw:
+                if p.get("symbol") == symbol:
+                    quantity = int(p.get("quantity", 0))
+                    break
+        except Exception as exc:
+            logger.error("close_position: get_positions() failed for %s: %s", symbol, exc)
+            if not force:
+                return {}
+
+        if quantity == 0 and not force:
+            logger.info("close_position: no open position found for %s — skipping", symbol)
+            return {}
+
+        # ── 2. Determine close side and order class ───────────────────────────
+        # OCC option symbols are 21 characters (e.g. SPY260220C00550000);
+        # equity tickers are ≤ 5 characters.
+        is_option: bool = len(symbol) > 6
+        close_qty: int = abs(quantity) if quantity != 0 else 1  # force=True fallback
+
+        if quantity >= 0:
+            side = OrderSide.SELL_TO_CLOSE if is_option else OrderSide.SELL
+        else:
+            side = OrderSide.BUY_TO_CLOSE if is_option else OrderSide.BUY
+
+        order_class = OrderClass.OPTION if is_option else OrderClass.EQUITY
+
+        logger.warning(
+            "Closing position: symbol=%s qty=%s side=%s urgency=%s reason=%s",
+            symbol, close_qty, side.value, urgency, reason,
+        )
+
+        return self.place_order(
+            symbol=symbol,
+            side=side,
+            quantity=close_qty,
+            order_type=OrderType.MARKET,
+            duration=OrderDuration.DAY,
+            order_class=order_class,
+        )
+
+    def close_position_verified(
+        self,
+        symbol: str,
+        timeout_s: float = 10.0,
+        urgency: str = "IMMEDIATE",
+        reason: str = "close_position_verified",
+    ) -> dict[str, Any]:
+        """A23 (v14): submit close and poll ``get_order`` until filled or timeout.
+
+        Tradier market-close orders usually fill in well under a second, but
+        the shutdown path cannot trust a bare ``close_position`` ack — that
+        only confirms the broker received the order, not that the position
+        is actually flat. Callers are expected to fire ``KILL_SWITCH`` when
+        this returns ``status != "verified"``.
+        """
+        response = self.close_position(symbol, urgency=urgency, reason=reason)
+        if not response:
+            return {
+                "status": "unverified",
+                "order": response,
+                "reason": "no_position_or_submit_failed",
+            }
+        oid = (response.get("order") or {}).get("id")
+        if oid is None:
+            return {
+                "status": "unverified",
+                "order": response,
+                "reason": "no_order_id_returned",
+            }
+
+        import time as _time
+        deadline = _time.monotonic() + max(0.0, float(timeout_s))
+        last_status: str | None = None
+        while _time.monotonic() < deadline:
+            try:
+                order_resp = self.get_order(int(oid))
+                last_status = (order_resp.get("order") or {}).get("status")
+            except Exception as exc:
+                logger.warning(
+                    "close_position_verified: get_order failed for %s: %s", oid, exc
+                )
+                last_status = None
+
+            if last_status == "filled":
+                return {
+                    "status": "verified",
+                    "order": response,
+                    "fill": order_resp,
+                }
+            if last_status in ("canceled", "cancelled", "rejected", "expired"):
+                return {
+                    "status": "unverified",
+                    "order": response,
+                    "reason": f"terminal_non_fill:{last_status}",
+                }
+            _time.sleep(0.25)
+
+        return {
+            "status": "unverified",
+            "order": response,
+            "reason": f"timeout_last_status:{last_status}",
+        }
 
     # ==========================================================================
     # ORDER PREVIEW (DRY-RUN)
@@ -2022,7 +2177,8 @@ class TradierClient:
         duration: OrderDuration = OrderDuration.DAY,
         limit_price: float | None = None,
         stop_price: float | None = None,
-        order_class: OrderClass = OrderClass.EQUITY
+        order_class: OrderClass = OrderClass.EQUITY,
+        tag: str | None = None,
     ) -> dict[str, Any]:
         """
         Place an order asynchronously with rate limiting and circuit breaker.
@@ -2031,6 +2187,7 @@ class TradierClient:
         - Rate limiting (10 req/sec for Tradier)
         - Circuit breaker protection (opens after 5 failures)
         - Non-blocking execution in async contexts
+        - Idempotency tag forwarded to the sync ``place_order`` (P0-9).
 
         Args:
             symbol: Security symbol (e.g., "SPY")
@@ -2041,6 +2198,9 @@ class TradierClient:
             limit_price: Limit price (required for limit orders)
             stop_price: Stop price (required for stop orders)
             order_class: Security class (equity, option)
+            tag: Optional Tradier idempotency tag (e.g. ``"spyder-<order_id>"``).
+                 Deduplicated by Tradier for ~24 h; prevents duplicate fills on
+                 network-timeout retries.
 
         Returns:
             Order response with order ID
@@ -2051,24 +2211,29 @@ class TradierClient:
             ...     symbol="SPY",
             ...     side=OrderSide.BUY,
             ...     quantity=10,
-            ...     order_type=OrderType.MARKET
+            ...     order_type=OrderType.MARKET,
+            ...     tag="spyder-abc123",
             ... )
         """
         loop = asyncio.get_running_loop()
 
-        # Wrap sync method in async executor with circuit breaker protection
+        # Use functools.partial so the tag keyword arg is forwarded correctly
+        # without relying on positional order (place_order has 8+ positional args).
         async with tradier_breaker:
             result = await loop.run_in_executor(
                 None,
-                self.place_order,
-                symbol,
-                side,
-                quantity,
-                order_type,
-                duration,
-                limit_price,
-                stop_price,
-                order_class
+                functools.partial(
+                    self.place_order,
+                    symbol,
+                    side,
+                    quantity,
+                    order_type,
+                    duration,
+                    limit_price,
+                    stop_price,
+                    order_class,
+                    tag,
+                ),
             )
             return result
 

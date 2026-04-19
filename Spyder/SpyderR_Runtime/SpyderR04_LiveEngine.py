@@ -85,6 +85,10 @@ CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'f
 ORDER_RETRY_LIMIT = 3
 ORDER_TIMEOUT_SECONDS = 30
 HEARTBEAT_INTERVAL = 5  # seconds
+# A16 (v14): monitor tick runs once per second; a 5s cache cuts broker
+# get_positions calls 5× while still reacting quickly after a fill (fills
+# explicitly invalidate the cache, so the post-fill view is immediate).
+POSITIONS_CACHE_TTL = 5.0
 
 # ==============================================================================
 # ENUMS
@@ -294,7 +298,70 @@ class LiveEngine:
         self.last_heartbeat = datetime.now(_ET)
         self.broker_connected = False
 
+        # A16 (v14): TTL cache on broker.get_positions() so each monitor tick
+        # doesn't burn a broker API call; invalidated on any fill so a freshly
+        # opened position shows up within one monitor cycle rather than after
+        # the TTL expires.
+        self._positions_cache: list[Any] | None = None
+        self._positions_cache_at: float = 0.0
+        self._positions_cache_lock = threading.Lock()
+
+        # A24 (v14): hot-reload subscriber — if the A03 configuration manager
+        # is importable, register ourselves so operator-initiated config
+        # changes propagate without a restart. Structural fields (account_id,
+        # env) are refused to avoid swapping broker identity mid-session.
+        self._register_hot_reload_callback()
+
         self.logger.info("LiveEngine initialized for account %s", config.account_id)
+
+    # A24 (v14): fields whose change requires a full restart, not a reload.
+    _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
+
+    def _register_hot_reload_callback(self) -> None:
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import (
+                get_config_manager,
+            )
+            cfg_mgr = get_config_manager()
+            if cfg_mgr is not None:
+                cfg_mgr.register_callback("*", self._on_config_reload)
+                self.logger.debug("R04: registered A03 hot-reload callback")
+        except Exception as exc:
+            # Non-fatal — config hot-reload is optional.
+            self.logger.debug("R04: hot-reload registration skipped: %s", exc)
+
+    def _on_config_reload(self, key: str, old_value: Any, new_value: Any) -> None:
+        """A24 (v14): apply a config change, refusing structural fields.
+
+        Logged regardless of whether the value is honored so an operator
+        reading the R04 log sees every config event.
+        """
+        if key in self._STRUCTURAL_CONFIG_FIELDS:
+            self.logger.error(
+                "R04: refusing hot-reload of structural field %s "
+                "(old=%s new=%s) — restart required",
+                key, old_value, new_value,
+            )
+            return
+        self.logger.info(
+            "R04: config hot-reload %s: %s -> %s", key, old_value, new_value
+        )
+        # Apply known runtime-safe fields onto self.config dataclass (best-effort).
+        for attr in (
+            "max_daily_trades",
+            "max_daily_loss",
+            "max_position_size",
+            "high_risk_threshold_usd",
+            "close_positions_on_emergency",
+            "enable_extended_hours",
+        ):
+            if key == attr and hasattr(self.config, attr):
+                try:
+                    setattr(self.config, attr, new_value)
+                except Exception as exc:
+                    self.logger.error(
+                        "R04: failed to apply reload for %s: %s", attr, exc
+                    )
 
     # ==========================================================================
     # PUBLIC METHODS - LIFECYCLE
@@ -486,6 +553,11 @@ class LiveEngine:
             Execution result
         """
         try:
+            # A19 (v14): Never mutate the caller's dict — strategies may retain
+            # their order payload for logging and should not see our
+            # engine-injected timestamp / order_id.
+            order = dict(order)
+
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
                 return {"status": "rejected", "reason": f"Trading not active: {self.state.value}"}
@@ -771,11 +843,39 @@ class LiveEngine:
             except Exception as e:
                 self.logger.error("Error processing order: %s", e)
 
+    def _get_positions_cached(self) -> list[Any]:
+        """A16 (v14): TTL-cached wrapper over ``broker.get_positions()``.
+
+        The monitor tick fires every second; without this the engine burns a
+        broker round-trip per tick. Cache is invalidated on every fill so new
+        positions surface immediately rather than after the TTL elapses.
+        """
+        # ``time`` is shadowed by ``datetime.time`` at module scope, so use the
+        # already-standard ``datetime.now().timestamp()`` pattern for elapsed math.
+        now = datetime.now(_ET).timestamp()
+        with self._positions_cache_lock:
+            if (
+                self._positions_cache is not None
+                and (now - self._positions_cache_at) < POSITIONS_CACHE_TTL
+            ):
+                return self._positions_cache
+        positions = self.broker.get_positions()
+        with self._positions_cache_lock:
+            self._positions_cache = positions
+            self._positions_cache_at = datetime.now(_ET).timestamp()
+        return positions
+
+    def _invalidate_positions_cache(self) -> None:
+        """Drop the cached positions snapshot so the next call hits the broker."""
+        with self._positions_cache_lock:
+            self._positions_cache = None
+            self._positions_cache_at = 0.0
+
     def _monitor_positions(self):
         """Monitor active positions."""
         try:
-            # Update position data
-            positions = self.broker.get_positions()
+            # A16 (v14): TTL-cached broker call — invalidated on every fill.
+            positions = self._get_positions_cached()
 
             # A1 (v14): guard writes; _should_trigger_stop_loss is pure on its
             # arg so it can run outside the lock. _execute_stop_loss calls the
@@ -805,7 +905,10 @@ class LiveEngine:
     def _check_heartbeat(self):
         """Check broker connection heartbeat."""
         now = datetime.now(_ET)
-        if (now - self.last_heartbeat).seconds > HEARTBEAT_INTERVAL:
+        # A18 (v14): .seconds drops sign + day overflow — use .total_seconds()
+        # so a day-boundary tick or clock skew doesn't produce a wildly wrong
+        # delta that silently suppresses the heartbeat call.
+        if (now - self.last_heartbeat).total_seconds() > HEARTBEAT_INTERVAL:
             try:
                 if self.broker.heartbeat():
                     self.last_heartbeat = now
@@ -1317,6 +1420,9 @@ class LiveEngine:
         """Update engine metrics when FillReconciler confirms a fill."""
         if getattr(event, "source", None) != "FillReconciler":
             return
+        # A16 (v14): a fill changes positions on the broker side; drop the
+        # cache so the next monitor tick fetches fresh data.
+        self._invalidate_positions_cache()
         order_id = (event.data or {}).get("order_id")
         if order_id:
             with self._pending_orders_lock:  # B4: thread-safe lookup

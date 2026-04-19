@@ -279,7 +279,52 @@ class RiskManager:
         # Register message handlers
         self._register_handlers()
 
+        # A24 (v14): A03 hot-reload subscriber so operator-adjusted risk
+        # limits take effect without a restart. Structural identity fields
+        # are refused to prevent mid-session account/env swaps.
+        self._register_hot_reload_callback()
+
         self.logger.info("RiskManager initialized")
+
+    _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
+
+    def _register_hot_reload_callback(self) -> None:
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import (
+                get_config_manager,
+            )
+            cfg_mgr = get_config_manager()
+            if cfg_mgr is not None:
+                cfg_mgr.register_callback("risk_limits.*", self._on_config_reload)
+                cfg_mgr.register_callback("risk.*", self._on_config_reload)
+                self.logger.debug("E01: registered A03 hot-reload callback")
+        except Exception as exc:
+            self.logger.debug("E01: hot-reload registration skipped: %s", exc)
+
+    def _on_config_reload(self, key: str, old_value: Any, new_value: Any) -> None:
+        """A24 (v14): apply a risk-limit change; refuse structural fields."""
+        if any(key.endswith(f) for f in self._STRUCTURAL_CONFIG_FIELDS):
+            self.logger.error(
+                "E01: refusing hot-reload of structural field %s "
+                "(old=%s new=%s) — restart required",
+                key, old_value, new_value,
+            )
+            return
+        self.logger.info(
+            "E01: config hot-reload %s: %s -> %s", key, old_value, new_value
+        )
+        # Apply onto self.config.risk_limits — keyed by the last path segment.
+        leaf = key.rsplit(".", 1)[-1]
+        try:
+            if (
+                hasattr(self.config, "risk_limits")
+                and isinstance(self.config.risk_limits, dict)
+                and leaf in self.config.risk_limits
+            ):
+                with self._risk_lock:
+                    self.config.risk_limits[leaf] = new_value
+        except Exception as exc:
+            self.logger.error("E01: failed to apply reload for %s: %s", key, exc)
 
     @property
     def config(self) -> RiskConfig:

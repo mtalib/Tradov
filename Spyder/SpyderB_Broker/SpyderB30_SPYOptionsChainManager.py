@@ -864,6 +864,7 @@ class SPYOptionsChainManager:
             current_date = datetime.now().date()
             current_time = datetime.now().time()
 
+            to_roll: list[OptionsChainType] = []
             for chain_type, chain in self.active_chains.items():
                 # Check if chain has expired
                 if chain.expiration < current_date or (
@@ -874,12 +875,72 @@ class SPYOptionsChainManager:
                     if chain.status != ChainStatus.EXPIRED:
                         self.logger.info("%s chain expired", chain_type.value)
                         chain.status = ChainStatus.EXPIRED
+                        to_roll.append(chain_type)
 
-                        # TODO: Reinitialize with new expiration
-                        # self._reinitialize_expired_chain(chain_type)
+            # A20 (v14): after marking expired chains, re-initialize each with
+            # the next target expiration so the strategy layer always sees a
+            # live chain of each type rather than a stale EXPIRED record.
+            for chain_type in to_roll:
+                self._reinitialize_expired_chain(chain_type)
 
         except Exception as e:
             self.logger.error("Error checking expired chains: %s", e, exc_info=True)
+
+    def _reinitialize_expired_chain(self, chain_type: OptionsChainType) -> None:
+        """A20 (v14): roll an expired chain forward to the next expiration.
+
+        Builds a fresh OptionsChain for ``chain_type`` using the same strike-
+        window and contract-factory logic as ``_initialize_options_chains``
+        but only for the one expired chain. Callers (subscribers) are not
+        notified here; the next scheduled update pass will fan out normally.
+        """
+        try:
+            spec = OPTIONS_SPECIFICATIONS[chain_type.value]
+            current_date = datetime.now().date()
+            expiration_date = self._calculate_expiration_date(
+                current_date, spec["days"]
+            )
+
+            chain = OptionsChain(
+                symbol="SPY",
+                expiration=expiration_date,
+                chain_type=chain_type,
+                underlying_price=self.current_spy_price,
+            )
+
+            strikes = self._generate_strikes_around_price(
+                self.current_spy_price, spec["strikes"]
+            )
+            for strike in strikes:
+                call_contract = self._create_options_contract(
+                    expiration_date, strike, OptionType.CALL, chain_type
+                )
+                if call_contract:
+                    chain.calls[strike] = call_contract
+                put_contract = self._create_options_contract(
+                    expiration_date, strike, OptionType.PUT, chain_type
+                )
+                if put_contract:
+                    chain.puts[strike] = put_contract
+
+            chain.atm_strike = self._find_closest_strike(
+                self.current_spy_price, strikes
+            )
+            chain.total_contracts = len(chain.calls) + len(chain.puts)
+            chain.status = ChainStatus.ACTIVE
+
+            self.active_chains[chain_type] = chain
+            self.logger.info(
+                "Rolled %s chain to new expiration %s (%d calls, %d puts)",
+                chain_type.value,
+                expiration_date,
+                len(chain.calls),
+                len(chain.puts),
+            )
+        except Exception as e:
+            self.logger.error(
+                "Error rolling expired chain %s: %s", chain_type, e, exc_info=True
+            )
 
 
 # ==============================================================================
