@@ -55,7 +55,12 @@ from threading import Event as ThreadEvent, RLock
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et  # P2-5: tz-aware ET timestamps
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
+from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
+    RiskValidationRequest,
+    RiskValidationResult,
+)
 
 # ConnectAPI: removed with legacy broker (SpyderB01_ConnectAPI deleted).
 # Tradier integration uses SpyderB40_TradierClient directly.
@@ -231,13 +236,16 @@ class RiskManager:
         self._risk_metrics: RiskMetrics | None = None
         self._risk_lock = RLock()
         self._shutdown_event = ThreadEvent()
+        # P1-2: cold-start guard. Signals are rejected until at least one
+        # account summary sync succeeds, preventing blind trading on empty state.
+        self._account_state_synced: bool = False
 
         # Monitoring
         self._risk_thread: threading.Thread | None = None
         self._position_thread: threading.Thread | None = None
 
         # Daily tracking
-        self._daily_start_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._daily_start_time = now_et().replace(hour=0, minute=0, second=0, microsecond=0)
         self._daily_start_value = 0.0
         self._daily_high = 0.0
         self._daily_low = float('inf')
@@ -246,11 +254,18 @@ class RiskManager:
         self._data_stale: bool = False
         # Tracks which watched symbols are currently stale; gate clears only when all are fresh
         self._stale_symbols: set[str] = set()
+        # P2-2: when staleness began; used to trigger FLATTEN_REQUEST after timeout
+        self._stale_since: datetime | None = None
+        self._stale_flatten_emitted: bool = False
+        self._stale_flatten_timeout_s: float = 300.0  # 5 minutes
 
         # Subscribe to proactive staleness events from DataValidator (C06)
         _em = get_event_manager()
         _em.subscribe(EventType.DATA_STALE, self._on_data_stale)
         _em.subscribe(EventType.DATA_FRESH, self._on_data_fresh)
+
+        # Subscribe to fill-driven position updates from PositionTracker (S-06)
+        _em.subscribe(EventType.POSITION_UPDATED, self._on_position_updated)
 
         # Metrics
         self.metrics = {
@@ -258,7 +273,7 @@ class RiskManager:
             'warnings': 0,
             'blocks': 0,
             'position_updates': 0,
-            'start_time': datetime.now()
+            'start_time': now_et()
         }
 
         # Register message handlers
@@ -517,10 +532,16 @@ class RiskManager:
         with self._risk_lock:
             self._data_stale = stale
         if stale:
+            # P2-2: record when staleness began (only on first transition to stale)
+            if self._stale_since is None:
+                self._stale_since = now_et()
             self.logger.warning(
                 "RiskManager: market data feed marked STALE — all new trade entries BLOCKED"
             )
         else:
+            # P2-2: cleared — reset timer and flatten-emitted flag
+            self._stale_since = None
+            self._stale_flatten_emitted = False
             self.logger.info(
                 "RiskManager: market data feed marked FRESH — trade entries re-enabled"
             )
@@ -566,6 +587,84 @@ class RiskManager:
     # POSITION MONITORING
     # ==========================================================================
 
+    def _on_position_updated(self, event: Any) -> None:
+        """Update internal position state from a PositionTracker POSITION_UPDATED event.
+
+        Called whenever B03 PositionTracker confirms a fill has changed a
+        position (S-06).  Merges the incoming net quantity into
+        ``self._positions`` under ``_risk_lock`` so that subsequent
+        ``validate_signal`` calls see ground-truth position sizes.
+
+        Args:
+            event: EventManager Event whose ``data`` dict has at least
+                   ``symbol`` (str) and ``quantity`` (int, signed net).
+        """
+        data   = event.data or {}
+        symbol = data.get("symbol")
+        qty    = data.get("quantity")
+
+        if not symbol or qty is None:
+            return
+
+        # A6 (v14): reject updates with missing or non-positive fill price for
+        # position *creation*. Silently defaulting to 0.0 produced risk
+        # positions that priced at zero and evaded loss checks. A qty==0
+        # close-out does not need a price and is allowed to proceed.
+        raw_price = data.get("fill_price")
+        fill_price: float | None
+        if qty == 0:
+            fill_price = None
+        else:
+            try:
+                fill_price = float(raw_price) if raw_price is not None else None
+            except (TypeError, ValueError):
+                fill_price = None
+            if fill_price is None or fill_price <= 0.0:
+                self.logger.error(
+                    "E01: rejecting POSITION_UPDATED for %s — invalid fill_price=%r "
+                    "(qty=%s). Position not created.",
+                    symbol, raw_price, qty,
+                )
+                try:
+                    get_event_manager().emit(
+                        EventType.SYSTEM_ERROR,
+                        {
+                            "source": "E01.RiskManager",
+                            "reason": "invalid_fill_price",
+                            "symbol": symbol,
+                            "fill_price": raw_price,
+                            "quantity": qty,
+                        },
+                        source="RiskManager",
+                    )
+                except Exception as exc:
+                    self.logger.error("E01: failed to emit SYSTEM_ERROR: %s", exc)
+                return
+
+        with self._risk_lock:
+            if qty == 0:
+                self._positions.pop(symbol, None)
+            else:
+                existing = self._positions.get(symbol)
+                if existing is not None:
+                    existing.quantity = int(qty)
+                    existing.last_updated = now_et()
+                else:
+                    self._positions[symbol] = Position(
+                        symbol=symbol,
+                        quantity=int(qty),
+                        market_price=float(fill_price),
+                        market_value=0.0,
+                        average_fill_price=float(fill_price),
+                        unrealized_pnl=0.0,
+                        realized_pnl=0.0,
+                    )
+            self.metrics["position_updates"] = self.metrics.get("position_updates", 0) + 1
+
+        self.logger.debug(
+            "_on_position_updated: %s net_qty=%s", symbol, qty
+        )
+
     def get_positions(self) -> dict[str, Position]:
         """
         Get current positions.
@@ -596,7 +695,7 @@ class RiskManager:
         with self._risk_lock:
             return self._risk_metrics
 
-    def validate_signal(self, request: Any) -> Any:
+    def validate_signal(self, request: RiskValidationRequest) -> RiskValidationResult:
         """Satisfies RiskManagerProtocol.validate_signal().
 
         Maps a RiskValidationRequest from the D↔E series boundary into the
@@ -609,10 +708,27 @@ class RiskManager:
         Returns:
             RiskValidationResult indicating approval, risk score, and any
             violated rule codes.
+
+        Raises:
+            TypeError: If request is not a RiskValidationRequest instance.
         """
-        from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import RiskValidationResult
+        if not isinstance(request, RiskValidationRequest):
+            raise TypeError(
+                f"validate_signal expects RiskValidationRequest, got {type(request).__name__}"
+            )
+        from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import RiskValidationResult  # noqa: F811
         try:
             with self._risk_lock:
+                # P1-2: cold-start gate — if we still have no positions and
+                # account state has not been synced yet, reject new signals.
+                if len(self._positions) == 0 and not self._account_state_synced:
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason="risk_state_cold",
+                        risk_score=1.0,
+                        violations=["RISK_STATE_COLD"],
+                    )
+
                 # --- Stale data gate ---
                 if self._data_stale:
                     return RiskValidationResult(
@@ -705,6 +821,39 @@ class RiskManager:
                 risk_score=1.0,
                 violations=["INTERNAL_ERROR"],
             )
+
+    def check_daily_limits(self) -> bool:
+        """Check whether daily risk limits are within acceptable bounds.
+
+        Called by runtime engines (e.g. SpyderR04_LiveEngine) before starting
+        or continuing a trading session.
+
+        Returns:
+            True  — trading is permitted (all daily limits within bounds).
+            False — a daily limit has been breached; caller should halt trading.
+        """
+        with self._risk_lock:
+            if self._data_stale:
+                self.logger.warning(
+                    "check_daily_limits: market data is stale — returning False"
+                )
+                return False
+            try:
+                metrics = self._calculate_risk_metrics()
+                max_loss = self.config.risk_limits.get("max_daily_loss", 0.0)
+                if metrics.daily_pnl < -abs(max_loss):
+                    self.logger.warning(
+                        "Daily loss limit breached: P&L %.2f < -%.2f",
+                        metrics.daily_pnl,
+                        max_loss,
+                    )
+                    return False
+                return True
+            except Exception as exc:
+                self.logger.error(
+                    "check_daily_limits error: %s", exc, exc_info=True
+                )
+                return False  # Fail safe
 
     def check_trade(self, trade_request: dict[str, Any]) -> dict[str, Any]:
         """Compatibility adapter for legacy runtime callers.
@@ -803,6 +952,8 @@ class RiskManager:
             "MarginAvailable": float(balances.get("option_short_value", 0.0) or 0.0),
         }
         await self._handle_account_summary_update(summary)
+        with self._risk_lock:
+            self._account_state_synced = True
         self.logger.debug("Requested account summary via Tradier client")
 
     @staticmethod
@@ -864,7 +1015,7 @@ class RiskManager:
                     expiry=data.get("ExpirationDate"),
                     strike=float(data.get("Strike", 0.0)) if data.get("Strike") else None,
                     right=data.get("Right"),
-                    last_updated=datetime.now()
+                    last_updated=now_et()
                 )
 
                 self._positions[symbol] = position
@@ -979,7 +1130,7 @@ class RiskManager:
 
             # Create risk metrics
             risk_metrics = RiskMetrics(
-                timestamp=datetime.now(),
+                timestamp=now_et(),
                 total_exposure=total_exposure,
                 daily_pnl=daily_pnl,
                 net_liquidation=net_liq,
@@ -1001,7 +1152,7 @@ class RiskManager:
 
             # Return default risk metrics
             return RiskMetrics(
-                timestamp=datetime.now(),
+                timestamp=now_et(),
                 total_exposure=0.0,
                 daily_pnl=0.0,
                 net_liquidation=0.0,
@@ -1088,6 +1239,32 @@ def get_risk_manager(
 
                     # Send notifications
                     self._send_risk_notifications(self._risk_metrics)
+
+                # P2-2: emit FLATTEN_REQUEST if data has been stale beyond the timeout
+                stale_since = self._stale_since
+                if (
+                    stale_since is not None
+                    and not self._stale_flatten_emitted
+                    and (now_et() - stale_since).total_seconds() >= self._stale_flatten_timeout_s
+                ):
+                    self._stale_flatten_emitted = True
+                    elapsed = (now_et() - stale_since).total_seconds()
+                    self.logger.critical(
+                        "RiskManager: data stale for %.0fs (threshold %.0fs) — emitting FLATTEN_REQUEST",
+                        elapsed, self._stale_flatten_timeout_s,
+                    )
+                    try:
+                        _em = get_event_manager()
+                        _em.emit(
+                            EventType.FLATTEN_REQUEST,
+                            {
+                                "reason": "data_stale",
+                                "stale_seconds": elapsed,
+                                "symbols": sorted(self._stale_symbols),
+                            },
+                        )
+                    except Exception as _fe:
+                        self.logger.error("Failed to emit FLATTEN_REQUEST: %s", _fe)
 
                 # Wait for next check
                 self._shutdown_event.wait(self.config.risk_check_interval)
@@ -1209,7 +1386,7 @@ def get_risk_manager(
         """
         with self._risk_lock:
             # Calculate uptime
-            uptime = datetime.now() - self.metrics['start_time']
+            uptime = now_et() - self.metrics['start_time']
 
             # Get risk metrics
             risk_metrics = self._risk_metrics
@@ -1239,7 +1416,7 @@ def get_risk_manager(
         """
         with self._risk_lock:
             # Calculate uptime
-            uptime = datetime.now() - self.metrics['start_time']
+            uptime = now_et() - self.metrics['start_time']
 
             # Calculate check rate
             check_rate = 0.0

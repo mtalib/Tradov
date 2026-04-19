@@ -22,9 +22,14 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
 from threading import RLock, Event as ThreadEvent
+
+_DEFAULT_STATE_PATH = Path.home() / ".spyder" / "position_tracker_state.json"
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -74,6 +79,7 @@ class PositionTracker:
         # Backward-compatible aliases used throughout this module.
         self.lock = self._position_lock
         self.positions: dict[str, object] = {}
+        self._state_path: Path = _DEFAULT_STATE_PATH
 
     # ==========================================================================
     # THREAD MANAGEMENT
@@ -130,6 +136,8 @@ class PositionTracker:
         if self._running:
             self.logger.warning("PositionTracker already running")
             return
+        self.load_state(self._state_path)
+        self.reconcile_with_broker(tolerance=0.01)
         self._running = True
         self._shutdown_event.clear()
         self._start_background_threads()
@@ -141,7 +149,130 @@ class PositionTracker:
             return
         self._running = False
         self._stop_background_threads()
+        self.save_state(self._state_path)
         self.logger.info("PositionTracker stopped")
+
+    def get_positions(self) -> dict[str, dict[str, object]]:
+        """Return a normalized copy of local positions."""
+        with self._position_lock:
+            out: dict[str, dict[str, object]] = {}
+            for symbol, pos in self.positions.items():
+                if isinstance(pos, dict):
+                    out[symbol] = dict(pos)
+                else:
+                    out[symbol] = {
+                        "symbol": symbol,
+                        "quantity": getattr(pos, "quantity", 0),
+                        "average_fill_price": getattr(pos, "average_fill_price", 0.0),
+                    }
+            return out
+
+    def save_state(self, path: str | Path | None = None) -> bool:
+        """Persist local positions to JSON for restart continuity."""
+        target = Path(path) if path is not None else self._state_path
+        try:
+            snapshot = {
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "positions": self.get_positions(),
+            }
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+            return True
+        except Exception as exc:
+            self.logger.error("save_state failed for %s: %s", target, exc)
+            return False
+
+    def load_state(self, path: str | Path | None = None) -> bool:
+        """Load persisted positions from JSON if available."""
+        target = Path(path) if path is not None else self._state_path
+        if not target.exists():
+            return False
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            restored = payload.get("positions") or {}
+            if not isinstance(restored, dict):
+                self.logger.warning("load_state ignored invalid payload at %s", target)
+                return False
+            with self._position_lock:
+                self.positions = {
+                    str(sym): {
+                        "symbol": str(sym),
+                        "quantity": int((pos or {}).get("quantity", 0)),
+                        "average_fill_price": float((pos or {}).get("average_fill_price", 0.0)),
+                    }
+                    for sym, pos in restored.items()
+                }
+            self.logger.info("Loaded %d persisted positions from %s", len(self.positions), target)
+            return True
+        except Exception as exc:
+            self.logger.error("load_state failed for %s: %s", target, exc)
+            return False
+
+    def _normalize_broker_positions(self, broker_positions: object) -> dict[str, float]:
+        """Normalize broker get_positions() payload to symbol->quantity mapping."""
+        normalized: dict[str, float] = {}
+        if isinstance(broker_positions, dict):
+            # Tradier-like shape: {"positions": {"position": [...]}}
+            if "positions" in broker_positions:
+                raw = (broker_positions.get("positions") or {}).get("position", [])
+                if isinstance(raw, dict):
+                    raw = [raw]
+                if isinstance(raw, list):
+                    for item in raw:
+                        try:
+                            symbol = str(item.get("symbol", ""))
+                            if symbol:
+                                normalized[symbol] = float(item.get("quantity", 0) or 0)
+                        except Exception:
+                            continue
+                return normalized
+            # Already symbol->position dict
+            for symbol, pos in broker_positions.items():
+                if isinstance(pos, dict):
+                    qty = float(pos.get("quantity", 0) or 0)
+                else:
+                    qty = float(getattr(pos, "quantity", 0) or 0)
+                normalized[str(symbol)] = qty
+            return normalized
+        if isinstance(broker_positions, list):
+            for item in broker_positions:
+                if not isinstance(item, dict):
+                    continue
+                symbol = str(item.get("symbol", ""))
+                if symbol:
+                    normalized[symbol] = float(item.get("quantity", 0) or 0)
+        return normalized
+
+    def reconcile_with_broker(self, tolerance: float = 0.01) -> bool:
+        """Reconcile local positions against broker positions and warn on drift."""
+        client = getattr(self, "spyder_client", None)
+        if client is None or not hasattr(client, "get_positions"):
+            self.logger.debug("reconcile_with_broker skipped: broker client unavailable")
+            return False
+        try:
+            broker_positions = self._normalize_broker_positions(client.get_positions())
+        except Exception as exc:
+            self.logger.warning("reconcile_with_broker broker fetch failed: %s", exc)
+            return False
+
+        local_positions = self.get_positions()
+        symbols = set(local_positions.keys()) | set(broker_positions.keys())
+        divergence = False
+        for symbol in sorted(symbols):
+            local_qty = float((local_positions.get(symbol) or {}).get("quantity", 0) or 0)
+            broker_qty = float(broker_positions.get(symbol, 0) or 0)
+            if abs(local_qty - broker_qty) > tolerance:
+                divergence = True
+                self.logger.warning(
+                    "Position divergence for %s: local=%s broker=%s (tol=%s)",
+                    symbol,
+                    local_qty,
+                    broker_qty,
+                    tolerance,
+                )
+        if not divergence:
+            self.logger.info("PositionTracker reconciliation OK (symbols=%d)", len(symbols))
+        return not divergence
 
     # ==========================================================================
     # CALLBACK MANAGEMENT
@@ -227,6 +358,84 @@ class PositionTracker:
         """
         with self._position_lock:
             self._orphan_close_callback = callback
+
+    # ==========================================================================
+    # FILL RECORDING (S-06)
+    # ==========================================================================
+
+    def record_fill(self, fill: dict) -> None:
+        """
+        Record a confirmed broker fill and publish POSITION_UPDATED.
+
+        Called by R04._on_reconciler_fill every time FillReconciler confirms
+        an ORDER_FILLED event.  Adjusts the in-memory position for the symbol,
+        then emits POSITION_UPDATED on the shared EventManager so that E01
+        RiskManager (and any dashboard subscriber) can react.
+
+        Args:
+            fill: Fill data dict with keys: symbol, side, quantity,
+                  fill_price, order_id.  Missing keys are silently ignored.
+        """
+        symbol   = fill.get("symbol") or fill.get("instrument")
+        side     = (fill.get("side") or "buy").lower()
+        qty      = int(fill.get("quantity") or fill.get("exec_quantity") or 0)
+        price    = float(fill.get("fill_price") or fill.get("avg_fill_price") or 0.0)
+        order_id = fill.get("order_id", "")
+
+        if not symbol or qty == 0:
+            self.logger.warning("record_fill: incomplete fill data — %s", fill)
+            return
+
+        signed_qty = qty if side in ("buy", "long") else -qty
+
+        with self._position_lock:
+            if symbol in self.positions:
+                existing = self.positions[symbol]
+                if isinstance(existing, dict):
+                    old_qty = existing.get("quantity", 0)
+                else:
+                    old_qty = getattr(existing, "quantity", 0)
+                new_qty  = old_qty + signed_qty
+                if new_qty == 0:
+                    del self.positions[symbol]
+                else:
+                    try:
+                        existing.quantity = new_qty
+                    except (AttributeError, TypeError):
+                        self.positions[symbol]["quantity"] = new_qty
+            else:
+                # New position entry
+                self.positions[symbol] = {
+                    "symbol":            symbol,
+                    "quantity":          signed_qty,
+                    "average_fill_price": price,
+                }
+
+            snapshot = dict(self.positions.get(symbol) or {"symbol": symbol, "quantity": 0})
+
+        # Publish POSITION_UPDATED so E01 and dashboard can react.
+        if self.event_manager is not None:
+            try:
+                from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
+                self.event_manager.emit(
+                    EventType.POSITION_UPDATED,
+                    {
+                        "symbol":   symbol,
+                        "quantity": snapshot.get("quantity", 0),
+                        "fill_price": price,
+                        "order_id": order_id,
+                        "position": snapshot,
+                    },
+                    source="PositionTracker",
+                )
+            except Exception as exc:
+                self.logger.error("POSITION_UPDATED emit error: %s", exc)
+
+        self.logger.info(
+            "record_fill: %s qty=%+d @%.4f → net=%s",
+            symbol, signed_qty, price, snapshot.get("quantity", 0),
+        )
+        self.save_state(self._state_path)
 
     # ==========================================================================
     # BACKGROUND LOOP METHODS
