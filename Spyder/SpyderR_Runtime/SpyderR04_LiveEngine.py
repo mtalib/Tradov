@@ -26,6 +26,7 @@ import concurrent.futures
 import json
 import queue
 import threading
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
@@ -557,6 +558,12 @@ class LiveEngine:
             # their order payload for logging and should not see our
             # engine-injected timestamp / order_id.
             order = dict(order)
+
+            # O5 (v14): Stamp a correlation_id at the strategy→order boundary
+            # so every downstream event (pending_orders entry, ORDER_SUBMITTED,
+            # ORDER_FILLED via reconciler) can be linked back to the originating
+            # strategy call. If the strategy already provided one, preserve it.
+            order["correlation_id"] = order.get("correlation_id") or uuid.uuid4().hex
 
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
@@ -1586,7 +1593,12 @@ class LiveEngine:
                 # Emit ORDER_SUBMITTED on any successful broker acknowledgement.
                 self._event_manager.emit(
                     EventType.ORDER_SUBMITTED,
-                    {"order_id": order_id, "symbol": order.get("symbol")},
+                    {
+                        "order_id": order_id,
+                        "symbol": order.get("symbol"),
+                        # O5 (v14): propagate correlation_id for trade-chain tracing.
+                        "correlation_id": order.get("correlation_id"),
+                    },
                     source="LiveEngine",
                 )
                 if status == "accepted":

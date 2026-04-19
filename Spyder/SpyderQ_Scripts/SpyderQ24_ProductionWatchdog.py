@@ -16,11 +16,13 @@ Last Updated: 2026-04-03 Time: 00:00:00
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -133,6 +135,42 @@ class ProductionWatchdog:
     def state(self) -> WatchdogState:
         """Current watchdog state."""
         return self._state
+
+    def register_heartbeat_service(
+        self,
+        name: str = "spyder_liveness",
+        heartbeat_path: str | Path | None = None,
+        max_age_seconds: float = 30.0,
+        restart_handler: Callable[[], None] | None = None,
+    ) -> None:
+        """v14 A13/O9: register a health check against the R05 heartbeat file.
+
+        The check reads the JSON file written by SpyderR05_LivenessMonitor and
+        verifies that (a) the file exists, (b) it parses as JSON, and (c) the
+        embedded timestamp is within ``max_age_seconds`` of now. The watchdog
+        treats a stale or unreadable heartbeat as an unhealthy service and
+        escalates via the registered restart handler / alert path.
+        """
+        path = Path(heartbeat_path) if heartbeat_path else Path.home() / ".spyder_heartbeat"
+
+        def _check() -> bool:
+            try:
+                if not path.exists():
+                    return False
+                with open(path, "r") as fh:
+                    payload = json.load(fh)
+                ts_str = payload.get("ts")
+                if not ts_str:
+                    return False
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - ts).total_seconds()
+                return age <= max_age_seconds
+            except Exception:
+                return False
+
+        self.register_service(name=name, health_check=_check, restart_handler=restart_handler)
 
     def register_service(
         self,

@@ -124,6 +124,8 @@ class SessionSupervisor:
         self.engine: Any = None
         self.orchestrator: Any = None
         self.exit_monitor: Any = None
+        # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
+        self.liveness: Any = None
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -181,6 +183,9 @@ class SessionSupervisor:
         # 10. ExitMonitor — must come after orchestrator so strategy_map is populated
         self._start_exit_monitor()  # non-fatal
 
+        # 11. LivenessMonitor — heartbeat + /healthz + deadman (v14 O1/O9/A13)
+        self._start_liveness_monitor()  # non-fatal
+
         # O-2: One-shot orphan sweep immediately after boot to surface any
         # pre-existing broker positions not owned by a registered strategy
         # (e.g. left open after a crash).
@@ -210,11 +215,18 @@ class SessionSupervisor:
                 return
             self._running = False
 
+        # O10 (v14): formalized shutdown phases with named log lines so an
+        # operator (or the Q24 watchdog) can pinpoint where a shutdown hung.
         self.logger.info("SessionSupervisor.stop() — flatten=%s", flatten)
 
+        # ---- Phase 1/4 — flatten (optional) ----
+        self.logger.info("SHUTDOWN_PHASE_1_FLATTEN_BEGIN")
         if flatten and self.engine is not None:
             self._flatten_positions()
+        self.logger.info("SHUTDOWN_PHASE_1_FLATTEN_END")
 
+        # ---- Phase 2/4 — stop strategy/engine layer (reverse order) ----
+        self.logger.info("SHUTDOWN_PHASE_2_COMPONENTS_BEGIN")
         for component in reversed(self._components):
             name = type(component).__name__
             try:
@@ -222,9 +234,15 @@ class SessionSupervisor:
                 self.logger.info("  stopped %s", name)
             except Exception as exc:
                 self.logger.warning("  stop %s raised: %s", name, exc)
+        self.logger.info("SHUTDOWN_PHASE_2_COMPONENTS_END")
 
+        # ---- Phase 3/4 — broker disconnect (already handled in component loop) ----
+        self.logger.info("SHUTDOWN_PHASE_3_BROKER_END")
+
+        # ---- Phase 4/4 — process cleanup ----
         # Note: the EventManager is a shared singleton — we do NOT stop it here.
         # Its lifecycle is managed by the process (Python GC / main thread shutdown).
+        self.logger.info("SHUTDOWN_PHASE_4_PROCESS_END")
 
         self.logger.info("SessionSupervisor stopped.")
 
@@ -415,6 +433,22 @@ class SessionSupervisor:
             self.logger.info("✅ StrategyOrchestrator started")
         except Exception as exc:
             self.logger.warning("⚠️ StrategyOrchestrator non-fatal: %s", exc)
+
+    def _start_liveness_monitor(self) -> None:
+        """Start the LivenessMonitor (v14 O1/O9/A13)."""
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR05_LivenessMonitor import (
+                create_liveness_monitor,
+            )
+
+            self.liveness = create_liveness_monitor(
+                event_manager=self.em, engine=self.engine
+            )
+            self.liveness.start()
+            self._components.append(self.liveness)
+            self.logger.info("✅ LivenessMonitor started")
+        except Exception as exc:
+            self.logger.warning("⚠️ LivenessMonitor non-fatal: %s", exc)
 
     def _start_exit_monitor(self) -> None:
         try:
