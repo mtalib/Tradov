@@ -597,6 +597,10 @@ class TradingEngine:
                         if self.risk_manager and self.risk_manager.initialize():
                             self.has_risk_manager = True
                             self.logger.info("Risk manager initialized")
+                            # Wire Y03 RiskSentinelAgent veto channel if message bus is available
+                            message_bus = getattr(self, 'message_bus', None)
+                            if message_bus is not None and hasattr(self.risk_manager, 'wire_agent_bus'):
+                                self.risk_manager.wire_agent_bus(message_bus)
                         else:
                             self.logger.warning("Risk manager not available")
                     except Exception as e:
@@ -1536,7 +1540,7 @@ class TradingEngine:
         self._order_processor_thread.start()
 
     def _order_processor_loop(self):
-        """Main order processing loop"""
+        """Main order processing loop — dequeues OrderInfo items and submits them to the broker."""
         self.logger.info("Order processor started")
 
         while not self._shutdown_event.is_set():
@@ -1544,13 +1548,131 @@ class TradingEngine:
                 # Get order from queue with timeout
                 priority, order_id, order = self.order_queue.get(timeout=1.0)
 
-                # Process order (simplified)
-                self.logger.info("Processing order %s", order_id)
+                self.logger.info(
+                    "Processing order %s: %s %d x %s",
+                    order_id, order.action.value, order.quantity, order.symbol,
+                )
+                self._submit_order_to_broker(order)
 
             except queue.Empty:
                 continue
             except Exception as e:
-                self.logger.error("Order processor error: %s", e)
+                self.logger.error("Order processor error: %s", e, exc_info=True)
+
+    def _submit_order_to_broker(self, order: "OrderInfo") -> None:
+        """Convert an internal OrderInfo and submit it to the broker layer.
+
+        Tries self.order_manager (B02 OrderManager) first; falls back to
+        self.spyder_client (B40 TradierClient) if order_manager is unavailable.
+
+        Args:
+            order: The OrderInfo instance to submit.
+        """
+        try:
+            # ------------------------------------------------------------------
+            # Path 1: B02 OrderManager (preferred — wraps B40, handles retries)
+            # ------------------------------------------------------------------
+            if self.order_manager is not None and hasattr(self.order_manager, "submit_order"):
+                try:
+                    try:
+                        from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order as B02Order
+                    except ImportError:
+                        from SpyderB_Broker.SpyderB02_OrderManager import Order as B02Order
+
+                    b02_order = B02Order(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.action.value.lower(),        # "buy" | "sell"
+                        order_type=order.order_type.value.lower(),  # "market" | "limit" | "stop"
+                        quantity=order.quantity,
+                        price=order.price,
+                        strategy_name=order.strategy_id,
+                    )
+                    result = self.order_manager.submit_order(b02_order)
+                    if result.success:
+                        self.logger.info(
+                            "Order %s submitted — Tradier id=%s",
+                            order.order_id, result.tradier_order_id,
+                        )
+                        order.state = OrderState.SUBMITTED
+                        order.submitted_at = datetime.now()
+                    else:
+                        self.logger.error(
+                            "Order %s rejected by broker: %s",
+                            order.order_id, result.message,
+                        )
+                        order.state = OrderState.REJECTED
+                        order.error_message = result.message
+                    return
+                except Exception as b02_exc:
+                    self.logger.warning(
+                        "B02 submission failed for %s — falling back to spyder_client: %s",
+                        order.order_id, b02_exc,
+                    )
+
+            # ------------------------------------------------------------------
+            # Path 2: B40 TradierClient direct (fallback)
+            # ------------------------------------------------------------------
+            if self.spyder_client is not None and hasattr(self.spyder_client, "place_order"):
+                try:
+                    try:
+                        from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                            OrderSide, OrderType as B40OrderType,
+                        )
+                    except ImportError:
+                        from SpyderB_Broker.SpyderB40_TradierClient import (
+                            OrderSide, OrderType as B40OrderType,
+                        )
+
+                    side_map = {
+                        "BUY": OrderSide.BUY,
+                        "SELL": OrderSide.SELL,
+                    }
+                    otype_map = {
+                        "MARKET": B40OrderType.MARKET,
+                        "LIMIT": B40OrderType.LIMIT,
+                        "STOP": B40OrderType.STOP,
+                    }
+                    side = side_map.get(order.action.value, OrderSide.BUY)
+                    otype = otype_map.get(order.order_type.value, B40OrderType.MARKET)
+                    limit_price = (
+                        order.price if order.order_type.value in ("LIMIT", "STOP_LIMIT") else None
+                    )
+
+                    response = self.spyder_client.place_order(
+                        symbol=order.symbol,
+                        side=side,
+                        quantity=order.quantity,
+                        order_type=otype,
+                        limit_price=limit_price,
+                    )
+                    self.logger.info(
+                        "Order %s submitted via B40: %s", order.order_id, response,
+                    )
+                    order.state = OrderState.SUBMITTED
+                    order.submitted_at = datetime.now()
+                    return
+                except Exception as b40_exc:
+                    self.logger.error(
+                        "B40 direct submission failed for %s: %s",
+                        order.order_id, b40_exc, exc_info=True,
+                    )
+
+            # ------------------------------------------------------------------
+            # No broker client available
+            # ------------------------------------------------------------------
+            self.logger.error(
+                "No broker client available — cannot submit order %s", order.order_id,
+            )
+            order.state = OrderState.ERROR
+            order.error_message = "No broker client configured"
+
+        except Exception as exc:
+            self.logger.error(
+                "Failed to submit order %s: %s", order.order_id, exc, exc_info=True,
+            )
+            order.state = OrderState.ERROR
+            order.error_message = str(exc)
 
     def _stop_worker_threads(self):
         """Stop all worker threads"""

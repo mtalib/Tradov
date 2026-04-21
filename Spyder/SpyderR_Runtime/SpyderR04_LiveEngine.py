@@ -82,6 +82,9 @@ HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_
 # must opt in explicitly by setting CLOSE_POSITIONS_ON_EMERGENCY=true in .env.
 CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'false').lower() == 'true'
 
+# Regime gate — SWAN tail-risk threshold (mirrors R08 paper engine)
+SWAN_BLOCK_THRESHOLD = float(os.environ.get("SWAN_BLOCK_THRESHOLD", "2.0"))
+
 # Execution parameters
 ORDER_RETRY_LIMIT = 3
 ORDER_TIMEOUT_SECONDS = 30
@@ -256,6 +259,9 @@ class LiveEngine:
         self._event_manager.subscribe(EventType.ORDER_EXPIRED, self._on_order_terminal_event)
         self._event_manager.subscribe(EventType.ORDER_REJECTED, self._on_order_terminal_event)
         self._event_manager.subscribe(EventType.ORDER_ORPHANED, self._on_order_orphaned)
+        # B4 (v15): handle the reconciler's recovery event so the orphan flag is
+        # cleared when the broker subsequently reports a terminal status.
+        self._event_manager.subscribe(EventType.ORDER_UN_ORPHANED, self._on_order_un_orphaned)
 
         # State management
         self.state = ExecutionState.INITIALIZED
@@ -305,6 +311,11 @@ class LiveEngine:
         # the TTL expires.
         self._positions_cache: list[Any] | None = None
         self._positions_cache_at: float = 0.0
+
+        # Regime metrics — populated by update_regime_metrics() which should
+        # be called by the CustomMetricsOrchestrator (S07) on each metrics tick.
+        # Mirrors the equivalent dict in R08 PaperTradingQtWorker.
+        self._regime_metrics: dict[str, Any] = {}
         self._positions_cache_lock = threading.Lock()
 
         # A24 (v14): hot-reload subscriber — if the A03 configuration manager
@@ -543,6 +554,69 @@ class LiveEngine:
     # ==========================================================================
     # PUBLIC METHODS - ORDER EXECUTION
     # ==========================================================================
+    def update_regime_metrics(self, metrics: dict[str, Any]) -> None:
+        """Receive a fresh S07 CustomMetricsOrchestrator snapshot.
+
+        Called by the metrics orchestrator on each update tick so the live
+        engine has access to SWAN, GEX, and DIX for regime gating — the same
+        data the paper engine (R08) uses.
+
+        Args:
+            metrics: Dict of metric name → value or {"value": ..., ...} entry.
+        """
+        self._regime_metrics = metrics
+
+    @staticmethod
+    def _regime_scalar(entry: Any) -> float | None:
+        """Extract a numeric scalar from an S07 metric entry (dict or raw)."""
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            entry = entry.get("value")
+        try:
+            return float(entry)
+        except (TypeError, ValueError):
+            return None
+
+    def _regime_allows_entry(self) -> tuple[bool, str]:
+        """Check whether the current regime permits opening a new position.
+
+        Blocks entries when the SWAN tail-risk index reaches the configured
+        threshold (default 2.0).  Returns ``(allowed, reason)``; reason is
+        an empty string when the entry is allowed.
+        """
+        swan = self._regime_scalar(self._regime_metrics.get("SWAN"))
+        try:
+            if swan is not None and swan >= SWAN_BLOCK_THRESHOLD:
+                return False, f"SWAN={swan:.2f} >= {SWAN_BLOCK_THRESHOLD} (extreme tail-risk regime)"
+        except (TypeError, ValueError):
+            pass
+        return True, ""
+
+    def _regime_preferred_direction(self) -> str | None:
+        """Infer a preferred spread direction from the S07 regime snapshot.
+
+        Heuristic (mirrors R08 paper engine):
+        - DIX > 0.45 → hidden bullish accumulation → ``"bullish"``
+        - DIX < 0.35 → hidden distribution → ``"bearish"``
+        - GEX > 0 and SWAN < 1.0 → range-bound → ``"neutral"``
+        - Otherwise → ``None``
+        """
+        dix = self._regime_scalar(self._regime_metrics.get("DIX"))
+        gex = self._regime_scalar(self._regime_metrics.get("GEX"))
+        swan = self._regime_scalar(self._regime_metrics.get("SWAN"))
+
+        if dix is not None:
+            if dix > 0.45:
+                return "bullish"
+            if dix < 0.35:
+                return "bearish"
+
+        if gex is not None and gex > 0 and (swan is None or swan < 1.0):
+            return "neutral"
+
+        return None
+
     def execute_order(self, order: dict[str, Any]) -> dict[str, Any]:
         """
         Execute a live order.
@@ -568,6 +642,17 @@ class LiveEngine:
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
                 return {"status": "rejected", "reason": f"Trading not active: {self.state.value}"}
+
+            # Regime gate — SWAN / GEX / DIX (mirrors paper engine R08)
+            regime_ok, regime_reason = self._regime_allows_entry()
+            if not regime_ok:
+                self.logger.warning("Live engine regime gate blocked order: %s", regime_reason)
+                self._event_manager.emit(
+                    EventType.RISK_VIOLATION,
+                    {"symbol": order.get("symbol"), "reason": regime_reason},
+                    source="LiveEngine.regime_gate",
+                )
+                return {"status": "rejected", "reason": regime_reason}
 
             # Perform safety checks
             safety_result = self._perform_order_safety_checks(order)
@@ -639,19 +724,19 @@ class LiveEngine:
         Returns:
             bool: True if cancelled successfully
         """
+        # B1 (v15): snapshot presence under lock before any broker I/O to
+        # eliminate the TOCTOU window and concurrent-pop KeyError.
+        with self._pending_orders_lock:
+            if order_id not in self.pending_orders:
+                return False
         try:
-            if order_id in self.pending_orders:
-                # Send cancellation to broker
-                result = self.broker.cancel_order(order_id)
-
-                if result:
-                    del self.pending_orders[order_id]
-                    self.logger.info("Order %s cancelled", order_id)
-
-                return result
-
-            return False
-
+            # Broker call is deliberately outside the lock — it can block.
+            result = self.broker.cancel_order(order_id)
+            if result:
+                with self._pending_orders_lock:
+                    self.pending_orders.pop(order_id, None)  # safe if already gone
+                self.logger.info("Order %s cancelled", order_id)
+            return result
         except Exception as e:
             self.logger.error("Error cancelling order %s: %s", order_id, e)
             return False
@@ -663,6 +748,12 @@ class LiveEngine:
         Returns:
             Status information
         """
+        # B5 (v15): snapshot counts under their respective locks to avoid
+        # reading partially-updated dicts from a concurrent monitor thread.
+        with self._pending_orders_lock:
+            pending_count = len(self.pending_orders)
+        with self._active_positions_lock:
+            positions_count = len(self.active_positions)
         return {
             "state": self.state.value,
             "mode": self.mode.value,
@@ -677,8 +768,8 @@ class LiveEngine:
                 "loss": self.daily_loss,
                 "limit_reached": self.daily_trades >= self.config.max_daily_trades,
             },
-            "pending_orders": len(self.pending_orders),
-            "active_positions": len(self.active_positions),
+            "pending_orders": pending_count,
+            "active_positions": positions_count,
             "metrics": {
                 "success_rate": self.metrics.successful_executions
                 / max(1, self.metrics.total_orders),
@@ -783,7 +874,20 @@ class LiveEngine:
         """Load current positions from broker."""
         try:
             positions = self.broker.get_positions()
-            self.active_positions = {p["symbol"]: p for p in positions}
+            if not isinstance(positions, list):
+                self.logger.error(
+                    "_load_current_positions: broker returned non-list: %r", type(positions)
+                )
+                return
+            # B2 (v15): update in-place under lock instead of replacing the object.
+            # Replacing the object (self.active_positions = {...}) defeats the
+            # _active_positions_lock because any thread already holding a reference
+            # to the old dict continues to see stale data and concurrent writes are
+            # lost.
+            new_map = {p["symbol"]: p for p in positions}
+            with self._active_positions_lock:
+                self.active_positions.clear()
+                self.active_positions.update(new_map)
             self.logger.info("Loaded %s active positions", len(self.active_positions))
         except Exception as e:
             self.logger.error("Failed to load positions: %s", e)
@@ -1519,6 +1623,28 @@ class LiveEngine:
             except Exception as exc:
                 self.logger.error("_on_order_orphaned: failed to emit KILL_SWITCH: %s", exc)
 
+    def _on_order_un_orphaned(self, event) -> None:
+        """B4 (v15): Clear the orphan flag when FillReconciler recovers an order.
+
+        The FillReconciler emits ORDER_UN_ORPHANED when a previously-orphaned
+        order subsequently returns a terminal status from the broker.  Clearing
+        the flag here prevents the order from being treated as a zombie on the
+        next monitor tick.
+        """
+        data = getattr(event, "data", None) or {}
+        order_id = str(data.get("order_id") or "")
+        if not order_id:
+            return
+        with self._pending_orders_lock:
+            entry = self.pending_orders.get(order_id)
+            if entry is not None:
+                entry.pop("orphaned", None)
+                entry.pop("orphaned_at", None)
+                entry.pop("orphan_reason", None)
+        self.logger.info(
+            "ORDER_UN_ORPHANED: order_id=%s — orphan flag cleared", order_id
+        )
+
     # ------------------------------------------------------------------
     # N1: Kill-lock persistence helpers
     # ------------------------------------------------------------------
@@ -1869,7 +1995,9 @@ class LiveEngine:
         symbol = position.get("symbol", "UNKNOWN")
         self.logger.warning("Stop-loss triggered for %s — closing position", symbol)
         try:
-            self.broker.close_position(position.get("id"), urgency="IMMEDIATE", reason="stop_loss")
+            # B12 (v15): use the symbol key, not "id" which may be absent or
+            # refer to a broker-internal numeric ID unrecognised by close_position.
+            self.broker.close_position(symbol, urgency="IMMEDIATE", reason="stop_loss")
         except Exception as exc:
             self.logger.error("Stop-loss close failed for %s: %s", symbol, exc)
 

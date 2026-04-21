@@ -694,33 +694,40 @@ class UnifiedRiskCoordinator:
                 self.cache_hits += 1
                 return cached_result
 
-            # AI pattern analysis (placeholder — wire to X04 RiskGuardianAgent)
-            # ai_risk_score is neutral until a real model is integrated;
-            # anomaly_alerts is empty because stochastic injection is not valid
-            # in a production path. A26 (v14): logged once per call so an
-            # operator reading the risk log can tell the real model is inactive.
-            self.logger.debug(
-                "AI risk placeholder in use (score=%.2f) — X04 model not wired",
-                AI_RISK_NEUTRAL_PLACEHOLDER,
+            # Delegate to X04 RiskGuardianAgent for real AI-enhanced risk analysis
+            portfolio = {
+                'positions': positions,
+                'total_value': portfolio_value,
+            }
+            market_conditions_dict = market_data or {}
+
+            assessment = await self.ai_risk_guardian.assess_portfolio_risk(
+                portfolio, market_conditions_dict
             )
+
             result = {
-                'ai_risk_score': AI_RISK_NEUTRAL_PLACEHOLDER,
+                'ai_risk_score': assessment.risk_metrics.portfolio_var,
                 'risk_patterns': [
                     {
-                        'pattern': 'concentration_risk',
-                        'confidence': 0.75,
-                        'impact': 'medium',
-                        'description': 'Detected concentration in tech sector'
+                        'pattern': factor_name,
+                        'confidence': factor_value,
+                        'impact': (
+                            'high' if factor_value > 0.7
+                            else 'medium' if factor_value > 0.4
+                            else 'low'
+                        ),
+                        'description': factor_name.replace('_', ' ').title(),
                     }
+                    for factor_name, factor_value in list(assessment.risk_factors.items())[:5]
                 ],
                 'anomaly_alerts': [],
                 'predictions': {
-                    'volatility_forecast': 0.18,
-                    'drawdown_probability': 0.15,
-                    'market_stress_indicator': 0.25
+                    'volatility_forecast': assessment.risk_metrics.portfolio_var,
+                    'drawdown_probability': assessment.risk_metrics.current_drawdown,
+                    'market_stress_indicator': assessment.risk_factors.get('market_stress', 0.0),
                 },
-                'learning_confidence': 0.6,
-                'source': RiskSource.AI_ENHANCEMENT.value
+                'learning_confidence': assessment.confidence_score,
+                'source': RiskSource.AI_ENHANCEMENT.value,
             }
 
             # Cache the result
@@ -738,10 +745,22 @@ class UnifiedRiskCoordinator:
             return None
 
         try:
-            # This would integrate with the unified regime engine
-            # For now, return placeholder
-            current_regime = "bull_trending"  # Would be actual regime detection
-            return current_regime
+            # Use cached consensus history when available (zero-cost)
+            if hasattr(self.regime_engine, 'consensus_history') and self.regime_engine.consensus_history:
+                latest = self.regime_engine.consensus_history[-1]
+                return latest.regime.value
+
+            # Fall back to a fresh regime call using market_data fields
+            from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketConditions as _L09Cond  # noqa: PLC0415
+            conditions = _L09Cond(
+                timestamp=datetime.now(),
+                spy_price=float(market_data.get('spy_price', 500.0)),
+                spy_change_pct=float(market_data.get('spy_change_pct', 0.0)),
+                volume_ratio=float(market_data.get('volume_ratio', 1.0)),
+                vix_level=float(market_data.get('vix_level', 20.0)),
+            )
+            consensus = self.regime_engine.get_current_regime(conditions)
+            return consensus.regime.value
         except Exception as e:
             self.logger.error("Regime context failed: %s", e)
             return None

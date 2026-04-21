@@ -259,6 +259,10 @@ class RiskManager:
         self._stale_flatten_emitted: bool = False
         self._stale_flatten_timeout_s: float = 300.0  # 5 minutes
 
+        # Y03 RiskSentinelAgent veto state — updated via wire_agent_bus().
+        # Values mirror CircuitBreakerState: "normal" | "caution" | "warning" | "halt"
+        self._y03_veto_state: str = "normal"
+
         # Subscribe to proactive staleness events from DataValidator (C06)
         _em = get_event_manager()
         _em.subscribe(EventType.DATA_STALE, self._on_data_stale)
@@ -288,6 +292,48 @@ class RiskManager:
 
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
 
+    def wire_agent_bus(self, bus: Any) -> None:
+        """Subscribe to Y03 RiskSentinelAgent circuit-breaker veto signals.
+
+        Call this once after construction (e.g. from A02 TradingEngine after
+        get_risk_manager()) to connect the live Y03 veto channel.
+
+        Args:
+            bus: AgentMessageBus instance (SpyderI06_AgentMessageBus).
+        """
+        try:
+            bus.subscribe(
+                subscriber_id="E01_RiskManager",
+                topics=["risk.circuit_breaker"],
+                callback=self._on_y03_circuit_breaker,
+                name="E01 Risk Manager",
+            )
+            self.logger.info("E01 subscribed to Y03 risk.circuit_breaker veto channel")
+        except Exception as exc:
+            self.logger.warning("Could not subscribe to agent bus: %s", exc)
+
+    def _on_y03_circuit_breaker(self, message: Any) -> None:
+        """Handle a Y03 RiskSentinelAgent circuit-breaker state change.
+
+        Args:
+            message: AgentOutput or dict with a ``circuit_breaker`` key whose
+                value is one of: ``"normal"``, ``"caution"``, ``"warning"``,
+                ``"halt"``.
+        """
+        try:
+            content = message if isinstance(message, dict) else getattr(message, "content", message)
+            if isinstance(content, dict):
+                state = content.get("circuit_breaker", "normal")
+            else:
+                state = str(content)
+            self._y03_veto_state = state
+            if state in ("warning", "halt"):
+                self.logger.warning("Y03 RiskSentinel veto active: circuit_breaker=%s", state)
+            else:
+                self.logger.info("Y03 RiskSentinel veto cleared: circuit_breaker=%s", state)
+        except Exception as exc:
+            self.logger.error("Error processing Y03 circuit-breaker message: %s", exc)
+
     def _register_hot_reload_callback(self) -> None:
         try:
             from Spyder.SpyderA_Core.SpyderA03_Configuration import (
@@ -299,7 +345,12 @@ class RiskManager:
                 cfg_mgr.register_callback("risk.*", self._on_config_reload)
                 self.logger.debug("E01: registered A03 hot-reload callback")
         except Exception as exc:
-            self.logger.debug("E01: hot-reload registration skipped: %s", exc)
+            # B13 (v15): log at ERROR so silent failure of callback registration
+            # is visible in production logs. Hot-reload of risk limits will be
+            # silently disabled until the system is restarted.
+            self.logger.error(
+                "E01: config reload callbacks not registered — hot-reload DISABLED: %s", exc
+            )
 
     def _on_config_reload(self, key: str, old_value: Any, new_value: Any) -> None:
         """A24 (v14): apply a risk-limit change; refuse structural fields."""
@@ -781,6 +832,15 @@ class RiskManager:
                         rejection_reason="Market data feed is stale; trading disabled until fresh data arrives",
                         risk_score=1.0,
                         violations=["DATA_STALE"],
+                    )
+
+                # --- Y03 RiskSentinelAgent veto gate ---
+                if self._y03_veto_state in ("warning", "halt"):
+                    return RiskValidationResult(
+                        approved=False,
+                        rejection_reason=f"Y03 RiskSentinel veto active: circuit_breaker={self._y03_veto_state}",
+                        risk_score=1.0,
+                        violations=["AGENT_VETO"],
                     )
 
                 # Block naked puts — strategy_type is carried in metadata.

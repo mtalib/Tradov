@@ -89,6 +89,11 @@ class FilterType(Enum):
     # Execution quality filters
     SPREAD_WIDTH = "spread_width"  # Bid-ask spread too wide for safe execution
 
+    # Market internals / macro filters
+    MARKET_INTERNALS = "market_internals"  # TICK/TRIN/breadth from C04
+    VIX_TERM_STRUCTURE = "vix_term_structure"  # VIX contango/backwardation from C10
+    CBOE_SKEW = "cboe_skew"  # CBOE SKEW tail-risk index from S06
+
 # ==============================================================================
 # DATA CLASSES
 # ==============================================================================
@@ -187,14 +192,30 @@ class EntryFilters:
 
     def __init__(self,
                  config_manager: ConfigManager,
-                 paper_trade_learner: Any | None = None):
-        """Initialize with adaptive learning."""
+                 paper_trade_learner: Any | None = None,
+                 vix_analyzer: Any | None = None,
+                 skew_calculator: Any | None = None,
+                 market_internals: Any | None = None):
+        """Initialize with adaptive learning.
+
+        Args:
+            config_manager: System config manager.
+            paper_trade_learner: Optional L07 paper-trade learner for adaptation.
+            vix_analyzer: Optional C10 VIXAnalyzer for term-structure gating.
+            skew_calculator: Optional S06 SKEWCalculator for CBOE SKEW gating.
+            market_internals: Optional C04 MarketInternals for TICK/TRIN gating.
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config_manager = config_manager
         self.paper_trade_learner = paper_trade_learner
         self.feature_flags = FeatureFlags()
         self.monitor = SystemMonitor()
+
+        # Optional live data sources for macro / market-internals filters
+        self._vix_analyzer = vix_analyzer
+        self._skew_calculator = skew_calculator
+        self._market_internals = market_internals
 
         # Load configuration
         self._load_config()
@@ -355,6 +376,9 @@ class EntryFilters:
             FilterType.SKEW: 1.0,
             FilterType.TERM_STRUCTURE: 0.9,
             FilterType.SPREAD_WIDTH: 1.6,   # High weight — wide spreads destroy edge
+            FilterType.MARKET_INTERNALS: 1.1,   # TICK/TRIN breadth confirmation
+            FilterType.VIX_TERM_STRUCTURE: 1.2,  # VIX backwardation = stress regime
+            FilterType.CBOE_SKEW: 1.3,           # SKEW > 145 = elevated tail risk
         }
 
         # Override with config values
@@ -583,6 +607,11 @@ class EntryFilters:
 
         # Correlation risk filters
         checks.extend(self._check_correlation_filters(params, checks))
+
+        # Macro / market-internals filters (live data sources — skip gracefully if unavailable)
+        checks.extend(self._check_vix_term_structure_filter())
+        checks.extend(self._check_cboe_skew_filter())
+        checks.extend(self._check_market_internals_filter())
 
         return checks
 
@@ -1099,6 +1128,145 @@ class EntryFilters:
             ))
 
         return checks
+
+    # --------------------------------------------------------------------------
+    # Macro / Market-Internals Filters (Wave 2 — live data sources)
+    # --------------------------------------------------------------------------
+
+    def _check_vix_term_structure_filter(self) -> list[FilterCheck]:
+        """Block entries when VIX term structure is in steep backwardation.
+
+        Steep backwardation means near-term fear > long-term fear — a stress
+        signal.  Entries are blocked when the structure is STEEP_BACKWARDATION
+        and warned on plain BACKWARDATION.  Returns an empty list (no filter
+        applied) when C10 VIXAnalyzer is not injected or has no data yet.
+        """
+        if self._vix_analyzer is None:
+            return []
+        try:
+            ts = self._vix_analyzer.get_term_structure()
+            if ts is None:
+                return []
+            state = ts.state.value if hasattr(ts.state, "value") else str(ts.state)
+            if state == "steep_backwardation":
+                return [FilterCheck(
+                    filter_type=FilterType.VIX_TERM_STRUCTURE,
+                    result=FilterResult.FAIL,
+                    value=ts.vix_vxv_ratio,
+                    threshold=1.0,
+                    message=f"VIX term structure steep backwardation (VIX/VXV={ts.vix_vxv_ratio:.3f}); stress regime",
+                    weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+                )]
+            if state == "backwardation":
+                return [FilterCheck(
+                    filter_type=FilterType.VIX_TERM_STRUCTURE,
+                    result=FilterResult.WARN,
+                    value=ts.vix_vxv_ratio,
+                    threshold=1.0,
+                    message=f"VIX term structure backwardation (VIX/VXV={ts.vix_vxv_ratio:.3f}); elevated caution",
+                    weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.VIX_TERM_STRUCTURE,
+                result=FilterResult.PASS,
+                value=ts.vix_vxv_ratio,
+                threshold=1.0,
+                message=f"VIX term structure {state} (VIX/VXV={ts.vix_vxv_ratio:.3f})",
+                weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+            )]
+        except Exception as exc:
+            self.logger.debug("VIX term structure filter skipped: %s", exc)
+            return []
+
+    def _check_cboe_skew_filter(self) -> list[FilterCheck]:
+        """Block entries when the CBOE SKEW index signals extreme tail risk.
+
+        SKEW > 145 → extreme tail-risk premium; block entries.
+        SKEW 135–145 → elevated; warn.
+        Returns an empty list when S06 SKEWCalculator is not injected or has
+        no data yet.
+        """
+        if self._skew_calculator is None:
+            return []
+        try:
+            skew = self._skew_calculator.get_current_skew()
+            if skew is None:
+                return []
+            skew = float(skew)
+            if skew > 145:
+                return [FilterCheck(
+                    filter_type=FilterType.CBOE_SKEW,
+                    result=FilterResult.FAIL,
+                    value=skew,
+                    threshold=145.0,
+                    message=f"CBOE SKEW={skew:.1f} > 145; extreme tail-risk premium; block entry",
+                    weight=self.filter_weights[FilterType.CBOE_SKEW],
+                )]
+            if skew > 135:
+                return [FilterCheck(
+                    filter_type=FilterType.CBOE_SKEW,
+                    result=FilterResult.WARN,
+                    value=skew,
+                    threshold=135.0,
+                    message=f"CBOE SKEW={skew:.1f} elevated (>135); increased tail risk",
+                    weight=self.filter_weights[FilterType.CBOE_SKEW],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.CBOE_SKEW,
+                result=FilterResult.PASS,
+                value=skew,
+                threshold=145.0,
+                message=f"CBOE SKEW={skew:.1f} within normal range",
+                weight=self.filter_weights[FilterType.CBOE_SKEW],
+            )]
+        except Exception as exc:
+            self.logger.debug("CBOE SKEW filter skipped: %s", exc)
+            return []
+
+    def _check_market_internals_filter(self) -> list[FilterCheck]:
+        """Block entries when market internals show extreme deterioration.
+
+        Uses C04 MarketInternals breadth/TICK/TRIN data:
+        - BreadthCondition EXTREMELY_WEAK → block
+        - BreadthCondition WEAK → warn
+        Returns an empty list when C04 is not injected or has no data yet.
+        """
+        if self._market_internals is None:
+            return []
+        try:
+            condition = self._market_internals.get_breadth_condition()
+            cond_value = condition.value if hasattr(condition, "value") else str(condition)
+            tick = self._market_internals.get_internal_value("TICK")
+            tick_str = f", TICK={tick:.0f}" if tick is not None else ""
+            if cond_value == "extremely_weak":
+                return [FilterCheck(
+                    filter_type=FilterType.MARKET_INTERNALS,
+                    result=FilterResult.FAIL,
+                    value=-1.0,
+                    threshold=-0.8,
+                    message=f"Market internals extremely weak{tick_str}; breadth deteriorating",
+                    weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+                )]
+            if cond_value == "weak":
+                return [FilterCheck(
+                    filter_type=FilterType.MARKET_INTERNALS,
+                    result=FilterResult.WARN,
+                    value=-0.5,
+                    threshold=-0.8,
+                    message=f"Market internals weak{tick_str}; proceed with caution",
+                    weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.MARKET_INTERNALS,
+                result=FilterResult.PASS,
+                value=0.0,
+                threshold=-0.8,
+                message=f"Market internals {cond_value}{tick_str}",
+                weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+            )]
+        except Exception as exc:
+            self.logger.debug("Market internals filter skipped: %s", exc)
+            return []
 
     # ==========================================================================
     # RESULT CALCULATION
