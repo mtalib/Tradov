@@ -85,6 +85,11 @@ try:
     from SpyderD_Strategies.SpyderD04_ZeroDTE import ZeroDTEStrategy
     from SpyderD_Strategies.SpyderD05_Straddle import StraddleStrategy
     from SpyderD_Strategies.SpyderD11_SpecializedZeroDTE import SpecializedZeroDTEStrategy
+    # Phase 3: strategies referenced in regime weights but previously unregistered
+    from SpyderD_Strategies.SpyderD10_IronButterfly import IronButterflyStrategy
+    from SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpreadStrategy
+    from SpyderD_Strategies.SpyderD19_JadeLizard import JadeLizardStrategy
+    from SpyderD_Strategies.SpyderD26_GammaScalper import GammaScalperStrategy
 
     # Event management
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
@@ -1520,39 +1525,46 @@ class StrategyOrchestrator:
         regime_weights = {
             MarketRegime.BULL_LOW_VOL: {
                 'IronCondor': 0.3,
-                'CreditSpread': 0.25,
-                'IronButterfly': 0.2,
-                'ZeroDTE': 0.15,
-                'Straddle': 0.1
+                'CreditSpread': 0.2,
+                'IronButterfly': 0.15,
+                'ZeroDTE': 0.1,
+                'Straddle': 0.1,
+                'CalendarSpread': 0.1,
+                'JadeLizard': 0.05,
             },
             MarketRegime.BULL_HIGH_VOL: {
-                'CreditSpread': 0.4,
-                'Straddle': 0.3,
+                'CreditSpread': 0.35,
+                'Straddle': 0.25,
                 'ZeroDTE': 0.2,
-                'IronCondor': 0.1
+                'IronCondor': 0.1,
+                'GammaScalper': 0.1,
             },
             MarketRegime.BEAR_LOW_VOL: {
-                'CreditSpread': 0.35,
-                'IronCondor': 0.3,
+                'CreditSpread': 0.3,
+                'IronCondor': 0.25,
                 'IronButterfly': 0.2,
-                'ZeroDTE': 0.15
+                'ZeroDTE': 0.1,
+                'CalendarSpread': 0.15,
             },
             MarketRegime.BEAR_HIGH_VOL: {
-                'Straddle': 0.4,
+                'Straddle': 0.35,
                 'CreditSpread': 0.3,
-                'ZeroDTE': 0.3
+                'ZeroDTE': 0.2,
+                'GammaScalper': 0.15,
             },
             MarketRegime.SIDEWAYS_LOW_VOL: {
-                'IronCondor': 0.4,
-                'IronButterfly': 0.3,
-                'CreditSpread': 0.2,
-                'ZeroDTE': 0.1
+                'IronCondor': 0.35,
+                'IronButterfly': 0.25,
+                'CalendarSpread': 0.15,
+                'CreditSpread': 0.15,
+                'JadeLizard': 0.1,
             },
             MarketRegime.SIDEWAYS_HIGH_VOL: {
-                'IronCondor': 0.3,
-                'Straddle': 0.3,
-                'CreditSpread': 0.25,
-                'ZeroDTE': 0.15
+                'IronCondor': 0.25,
+                'Straddle': 0.25,
+                'CreditSpread': 0.2,
+                'GammaScalper': 0.15,
+                'ZeroDTE': 0.15,
             },
             MarketRegime.CRISIS: {
                 'CreditSpread': 0.6,
@@ -1867,7 +1879,12 @@ class StrategyOrchestrator:
                 'CreditSpread': CreditSpreadStrategy,
                 'ZeroDTE': ZeroDTEStrategy,
                 'Straddle': StraddleStrategy,
-                'SpecializedZeroDTE': SpecializedZeroDTEStrategy
+                'SpecializedZeroDTE': SpecializedZeroDTEStrategy,
+                # Phase 3: strategies referenced in regime weights but previously unregistered
+                'IronButterfly': IronButterflyStrategy,
+                'CalendarSpread': CalendarSpreadStrategy,
+                'JadeLizard': JadeLizardStrategy,
+                'GammaScalper': GammaScalperStrategy,
             }
         else:
             self.available_strategies = {}
