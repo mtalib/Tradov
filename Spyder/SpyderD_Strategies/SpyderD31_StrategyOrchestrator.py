@@ -436,6 +436,10 @@ class StrategyOrchestrator:
         self._live_engine = None
         # OrderManager reference for mid-price walk execution (set via set_order_manager)
         self._order_manager: Any = None
+        # VIXAnalyzer for live VIX reads in regime detection (set via set_vix_analyzer)
+        self._vix_analyzer: Any | None = None
+        # RiskManager — resolved once and cached to avoid per-signal import overhead
+        self.risk_manager: Any | None = None
 
         # B5: Two distinct pause flags so DATA_FRESH can clear the stale-data
         # pause without also clearing a KILL_SWITCH halt (which is sticky and
@@ -484,6 +488,28 @@ class StrategyOrchestrator:
                 return True
 
             self.logger.info("🚀 Starting strategy orchestration...")
+
+            # P1-02: warn early if no execution engine is wired — approved signals
+            # would be silently dropped inside _dispatch_approved_signal otherwise.
+            if self._live_engine is None and self._order_manager is None:
+                self.logger.critical(
+                    "D31 start_orchestration: neither _live_engine nor _order_manager "
+                    "is wired — all approved signals will be dropped. "
+                    "Call set_live_engine() or set_order_manager() before starting."
+                )
+                if self.event_manager:
+                    try:
+                        self.event_manager.emit(
+                            EventType.RISK_ALERT,
+                            {
+                                "severity": "critical",
+                                "reason": "no_execution_engine_wired",
+                                "message": "StrategyOrchestrator started without execution engine",
+                            },
+                            source="StrategyOrchestrator",
+                        )
+                    except Exception:
+                        pass
 
             # Validate connectivity if available
             if self.connectivity_manager:
@@ -1300,7 +1326,37 @@ class StrategyOrchestrator:
             # For now, using simplified regime detection
 
             # Calculate volatility metrics
-            current_vix = 20.0  # Would get from market data
+            # P1-01: resolve live VIX from C10 VIXAnalyzer, then market_data_cache,
+            # then fall back to the conservative 20.0 default.
+            current_vix: float = 20.0
+            if self._vix_analyzer is not None:
+                try:
+                    _raw_vix = self._vix_analyzer.get_current_vix()
+                    if _raw_vix is not None and float(_raw_vix) > 0:
+                        current_vix = float(_raw_vix)
+                except Exception as _ve:
+                    self.logger.debug("VIXAnalyzer.get_current_vix() failed: %s", _ve)
+            else:
+                for _vix_key in ("VIX", "^VIX", "CBOE:VIX"):
+                    _vix_entry = self.market_data_cache.get(_vix_key)
+                    if isinstance(_vix_entry, list) and _vix_entry:
+                        _last = _vix_entry[-1]
+                        _v = (
+                            _last.get("close") or _last.get("price") or _last.get("last")
+                            if isinstance(_last, dict) else None
+                        )
+                        if _v and float(_v) > 0:
+                            current_vix = float(_v)
+                            break
+                    elif isinstance(_vix_entry, dict):
+                        _v = (
+                            _vix_entry.get("close")
+                            or _vix_entry.get("price")
+                            or _vix_entry.get("last")
+                        )
+                        if _v and float(_v) > 0:
+                            current_vix = float(_v)
+                            break
             vix_percentile = self._calculate_vix_percentile(current_vix)
 
             # Determine trend strength
@@ -1728,14 +1784,14 @@ class StrategyOrchestrator:
     def _check_risk_limits(self) -> None:
         """Check portfolio-level risk limits and pause all strategies if breached."""
         try:
-            risk_manager = getattr(self, "risk_manager", None)
-            if risk_manager is None:
+            # P1-03: use cached self.risk_manager; lazy-resolve once if not yet wired.
+            if self.risk_manager is None:
                 try:
                     from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-                    risk_manager = get_risk_manager()
+                    self.risk_manager = get_risk_manager()
                 except Exception:
                     return
-
+            risk_manager = self.risk_manager
             if risk_manager is None:
                 return
 
@@ -2034,13 +2090,14 @@ class StrategyOrchestrator:
                 self.logger.error("Failed to emit dry-run ORDER_REJECTED: %s", exc, exc_info=True)
             return
 
-        risk_manager = getattr(self, "risk_manager", None)
-        if risk_manager is None:
+        # P1-03: risk_manager is cached on self; lazy-resolve once if not yet wired.
+        if self.risk_manager is None:
             try:
                 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-                risk_manager = get_risk_manager()
+                self.risk_manager = get_risk_manager()
             except Exception:
-                risk_manager = None
+                pass
+        risk_manager = self.risk_manager
         if risk_manager is None or not hasattr(risk_manager, "validate_signal"):
             _count_drop("pre_risk", "no_risk_gate")
             return  # No risk gate wired — leave signal untouched
@@ -2161,6 +2218,33 @@ class StrategyOrchestrator:
             "OrderManager wired to StrategyOrchestrator for mid-price walk execution"
         )
 
+    def set_vix_analyzer(self, analyzer: Any) -> None:
+        """Wire a VIXAnalyzer (C10) so _update_market_regime reads live VIX data.
+
+        Args:
+            analyzer: A ``SpyderC10_VIXAnalyzer`` (or compatible) instance that
+                      exposes ``get_current_vix() -> float``.
+        """
+        self._vix_analyzer = analyzer
+        self.logger.info(
+            "VIXAnalyzer wired to StrategyOrchestrator for live VIX regime detection"
+        )
+
+    def set_risk_manager(self, manager: Any) -> None:
+        """Wire an E01 RiskManager for pre-trade signal validation.
+
+        Caches the reference so the hot-path ``_on_strategy_signal`` avoids a
+        module-level import + singleton lookup on every call.
+
+        Args:
+            manager: A ``SpyderE01_RiskManager`` (or compatible) instance that
+                     exposes ``validate_signal(request) -> RiskValidationResult``.
+        """
+        self.risk_manager = manager
+        self.logger.info(
+            "RiskManager wired to StrategyOrchestrator for signal pre-validation"
+        )
+
     def _dispatch_approved_signal(self, signal: Any) -> None:
         """Convert a risk-approved strategy signal to an order and submit it.
 
@@ -2184,7 +2268,11 @@ class StrategyOrchestrator:
             signal: Signal dict (or object with ``to_dict()``) from the strategy.
         """
         if self._live_engine is None and self._order_manager is None:
-            return  # Nothing wired; signal consumed at risk gate
+            self.logger.error(
+                "D31: Approved signal dropped — no execution engine wired. signal=%s", signal
+            )
+            _count_drop("dispatch", "no_execution_engine")
+            return
 
         try:
             # Normalise signal to dict
