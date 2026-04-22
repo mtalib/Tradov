@@ -46,8 +46,28 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     StrategyPosition, EventManager, RiskProfile, Event, EventType
 )
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import SPY_CONTRACT_MULTIPLIER
-from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
-from Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow import GreeksFlowAnalyzer
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
+    _D09_N07_AVAILABLE = True
+except ImportError:
+    OPRAGreeksHandler = None  # type: ignore[assignment,misc]
+    _D09_N07_AVAILABLE = False
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow import GreeksFlowAnalyzer
+    _D09_N11_AVAILABLE = True
+except ImportError:
+    GreeksFlowAnalyzer = None  # type: ignore[assignment,misc]
+    _D09_N11_AVAILABLE = False
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _d09_get_n04_calculator,
+    )
+    _D09_N04_AVAILABLE = True
+except ImportError:
+    _d09_get_n04_calculator = None  # type: ignore[assignment]
+    _D09_N04_AVAILABLE = False
 
 # ==============================================================================
 # CONSTANTS
@@ -270,9 +290,17 @@ class GreeksBasedStrategy(BaseStrategy):
         """Initialize Greeks-based strategy"""
         super().__init__("GreeksBasedStrategy", event_manager, risk_profile, config)
 
-        # Components
-        self.opra_handler = OPRAGreeksHandler()
-        self.greeks_flow = GreeksFlowAnalyzer()
+        # Components — soft-initialized; N04 is the preferred source of truth for Greeks
+        self.opra_handler = OPRAGreeksHandler() if _D09_N07_AVAILABLE else None
+        self.greeks_flow = GreeksFlowAnalyzer() if _D09_N11_AVAILABLE else None
+
+        # N04 singleton — authoritative BSM Greeks + portfolio-level aggregation
+        self._n04_calculator: Any | None = None
+        if _D09_N04_AVAILABLE:
+            try:
+                self._n04_calculator = _d09_get_n04_calculator()
+            except Exception as _exc:
+                self.logger.debug("N04 not yet available at D09 init: %s", _exc)
 
         # Configuration
         self.enable_delta_neutral = config.get('enable_delta_neutral', True)
@@ -320,6 +348,17 @@ class GreeksBasedStrategy(BaseStrategy):
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
+
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton."""
+        if not _D09_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _d09_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
 
     def _start_background_tasks(self) -> None:
         """Start background processing threads"""
@@ -533,9 +572,28 @@ class GreeksBasedStrategy(BaseStrategy):
     # ==========================================================================
 
     def _update_portfolio_greeks(self) -> None:
-        """Update portfolio-level Greeks from OPRA feed"""
+        """Update portfolio-level Greeks from N04 (preferred) or OPRA feed (fallback)."""
         try:
-            # Reset portfolio Greeks
+            # Fast path: use N04 authoritative portfolio Greeks when available
+            n04 = self._get_n04()
+            if n04 is not None:
+                try:
+                    pg = n04.portfolio_greeks
+                    self.portfolio_greeks = {
+                        'delta': pg.total_delta,
+                        'gamma': pg.total_gamma,
+                        'theta': pg.total_theta,
+                        'vega':  pg.total_vega,
+                    }
+                    self.logger.debug(
+                        "Portfolio Greeks (N04): delta=%.2f gamma=%.4f theta=%.2f vega=%.2f",
+                        pg.total_delta, pg.total_gamma, pg.total_theta, pg.total_vega,
+                    )
+                    return
+                except Exception as exc:
+                    self.logger.debug("N04 portfolio_greeks unavailable, using OPRA fallback: %s", exc)
+
+            # Fallback: reset and sum Greeks across all tracked positions
             self.portfolio_greeks = {
                 'delta': 0.0,
                 'gamma': 0.0,
@@ -623,23 +681,54 @@ class GreeksBasedStrategy(BaseStrategy):
             expiry_str = parts[2]
             expiry = datetime.strptime(expiry_str, '%Y%m%d')
 
-            # Simulate Greeks (in production, from OPRA)
+            # Derive BSM Greeks via N04 for accuracy; fall back to hardcoded defaults
+            _sim_spot = 450.0
+            _tte = max((expiry - datetime.now()).total_seconds() / (365 * 24 * 3600), 1e-6)
+            _sim_iv = 0.20
+            _sim_rf = 0.05
+            _opt_type_str = 'CALL' if option_type == 'call' else 'PUT'
+
+            n04 = self._get_n04()
+            if n04 is not None:
+                try:
+                    _bsm = n04.calculate_greeks(
+                        spot=_sim_spot,
+                        strike=strike,
+                        time_to_expiry=_tte,
+                        volatility=_sim_iv,
+                        risk_free_rate=_sim_rf,
+                        option_type=_opt_type_str,
+                    )
+                    _delta = _bsm.get('delta', 0.5 if option_type == 'call' else -0.5)
+                    _gamma = _bsm.get('gamma', 0.02)
+                    _theta = _bsm.get('theta', -0.05)
+                    _vega  = _bsm.get('vega',  0.15)
+                    _rho   = _bsm.get('rho',   0.01)
+                except Exception as exc:
+                    self.logger.debug("N04 calculate_greeks failed for %s: %s", symbol, exc)
+                    _delta = 0.5 if option_type == 'call' else -0.5
+                    _gamma, _theta, _vega, _rho = 0.02, -0.05, 0.15, 0.01
+            else:
+                _delta = 0.5 if option_type == 'call' else -0.5
+                _gamma, _theta, _vega, _rho = 0.02, -0.05, 0.15, 0.01
+
+            # Build snapshot (in production this would come from OPRA)
             return GreeksSnapshot(
                 timestamp=datetime.now(),
                 symbol=symbol,
                 strike=strike,
                 expiry=expiry,
                 option_type=option_type,
-                delta=0.5 if option_type == 'call' else -0.5,
-                gamma=0.02,
-                theta=-0.05,
-                vega=0.15,
-                rho=0.01,
+                delta=_delta,
+                gamma=_gamma,
+                theta=_theta,
+                vega=_vega,
+                rho=_rho,
                 bid=2.50,
                 ask=2.55,
                 mid=2.525,
-                iv=0.20,
-                underlying_price=450,
+                iv=_sim_iv,
+                underlying_price=_sim_spot,
                 volume=1000,
                 open_interest=5000,
                 bid_size=100,
