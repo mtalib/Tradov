@@ -54,6 +54,18 @@ except ImportError:
 try:
     from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
 except ImportError:
+    pass  # fallback defined below
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _e03_get_n04_calculator,
+    )
+    _E03_N04_AVAILABLE = True
+except ImportError:
+    _e03_get_n04_calculator = None  # type: ignore[assignment]
+    _E03_N04_AVAILABLE = False
+try:
+    from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
+except ImportError:
     # Define minimal enums if not available
     class OrderType(Enum):
         MARKET = "MARKET"
@@ -94,6 +106,10 @@ LOW_VOL_STOP_TIGHTENING = 0.8
 # Position-based adjustments
 PARTIAL_CLOSE_THRESHOLD = 0.02  # 2% profit for partial close
 SCALE_OUT_PERCENTAGES = [0.33, 0.50, 1.00]  # Scale out levels
+
+# Greek-spike exit thresholds (N04 portfolio_greeks)
+_CHARM_EXIT_THRESHOLD = 0.5    # |total_charm| per day — extreme delta bleed near expiry
+_GAMMA_SPIKE_THRESHOLD = 50.0  # |total_gamma| — extreme convexity / market-maker pinch
 
 # ==============================================================================
 # ENUMS
@@ -250,6 +266,14 @@ class StopLossManager:
         # Monitoring
         self._monitoring_active = False
         self._monitor_thread: threading.Thread | None = None
+
+        # N04 OptionsGreeksCalculator — Greek-spike exit detection
+        self._n04_calculator: Any | None = None
+        if _E03_N04_AVAILABLE:
+            try:
+                self._n04_calculator = _e03_get_n04_calculator()
+            except Exception as _exc:
+                self.logger.debug("N04 not yet available at E03 init: %s", _exc)
 
         self.logger.info("StopLossManager initialized")
 
@@ -417,6 +441,11 @@ class StopLossManager:
                 partial_exits = self._check_partial_exits(position_stops, current_price)
                 updated_stops.extend(partial_exits)
 
+                # Check Greek-spike exits (charm / gamma via N04)
+                greeks_stop = self.check_greeks_exits(position_id)
+                if greeks_stop:
+                    updated_stops.append(greeks_stop)
+
                 # Update stop history
                 if updated_stops:
                     self._update_stop_history(position_stops, updated_stops)
@@ -489,9 +518,114 @@ class StopLossManager:
 
             return None
 
+    def check_greeks_exits(self, position_id: str) -> StopOrder | None:
+        """
+        Inspect N04 portfolio Greeks and return a triggered stop if charm or
+        gamma has spiked to dangerous levels.
+
+        Charm (dDelta/dTime) spikes near expiry cause rapid delta bleed.
+        Gamma spikes create extreme convexity risk requiring immediate exit.
+
+        Args:
+            position_id: Position identifier.
+
+        Returns:
+            A triggered StopOrder (VOLATILITY_BASED) if a Greek-spike exit
+            is warranted, else None.
+        """
+        n04 = self._get_n04()
+        if n04 is None:
+            return None
+        if position_id not in self.position_stops:
+            return None
+
+        position_stops = self.position_stops[position_id]
+
+        try:
+            pg = n04.portfolio_greeks
+            abs_charm = abs(pg.total_charm)
+            abs_gamma = abs(pg.total_gamma)
+        except Exception as exc:
+            self.logger.debug(
+                "N04 portfolio_greeks unavailable in check_greeks_exits: %s", exc
+            )
+            return None
+
+        trigger_reason: str | None = None
+        if abs_charm >= _CHARM_EXIT_THRESHOLD:
+            trigger_reason = (
+                f"Charm spike exit: |charm|={abs_charm:.4f} >= {_CHARM_EXIT_THRESHOLD}"
+            )
+        elif abs_gamma >= _GAMMA_SPIKE_THRESHOLD:
+            trigger_reason = (
+                f"Gamma spike exit: |gamma|={abs_gamma:.2f} >= {_GAMMA_SPIKE_THRESHOLD}"
+            )
+
+        if trigger_reason is None:
+            return None
+
+        self.logger.warning(
+            "Greeks exit triggered for %s — %s", position_id, trigger_reason
+        )
+
+        active_stop = self._get_active_stop(position_stops)
+        stop_price = (
+            active_stop.stop_price
+            if active_stop
+            else position_stops.current_price  # market-order exit
+        )
+
+        greek_stop = StopOrder(
+            order_id=str(uuid.uuid4()),
+            position_id=position_id,
+            stop_type=StopType.VOLATILITY_BASED,
+            stop_price=stop_price,
+            original_stop=stop_price,
+            activation_price=None,
+            quantity=position_stops.quantity,
+            side=position_stops.position_side,
+            status=StopStatus.TRIGGERED,
+            created_at=datetime.now(),
+            last_updated=datetime.now(),
+            triggered_at=datetime.now(),
+            trigger_reason=trigger_reason,
+            metadata={
+                "source": "N04_greeks_exit",
+                "charm": abs_charm,
+                "gamma": abs_gamma,
+            },
+        )
+
+        with self._lock:
+            self.triggered_stops.append({
+                'stop_order': asdict(greek_stop),
+                'position_stops': {
+                    'position_id': position_id,
+                    'entry_price': position_stops.entry_price,
+                    'exit_price': stop_price,
+                },
+                'timestamp': datetime.now(),
+            })
+
+        if self.event_manager:
+            self._emit_stop_event('triggered', greek_stop, position_stops)
+
+        return greek_stop
+
     # ==========================================================================
     # PRIVATE METHODS - STOP CALCULATIONS
     # ==========================================================================
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton."""
+        if not _E03_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _e03_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
+
     def _calculate_initial_stop(
         self,
         entry_price: float,
