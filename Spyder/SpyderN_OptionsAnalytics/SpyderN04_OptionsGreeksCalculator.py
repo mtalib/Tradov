@@ -1585,6 +1585,36 @@ class OptionsGreeksCalculator:
 
 
 # ==============================================================================
+# MODULE-LEVEL SINGLETON
+# ==============================================================================
+
+_N04_CALCULATOR_SINGLETON: "OptionsGreeksCalculator | None" = None
+_N04_LOCK = threading.Lock()
+
+
+def get_n04_calculator(config: dict | None = None) -> "OptionsGreeksCalculator":
+    """Return the process-wide OptionsGreeksCalculator singleton.
+
+    Creates the instance on first call (lazy, thread-safe).  Subsequent calls
+    return the same object regardless of the ``config`` argument — callers that
+    need a custom configuration should call this before any other module does.
+
+    Args:
+        config: Optional configuration dict forwarded to OptionsGreeksCalculator
+                on first construction only.
+
+    Returns:
+        The shared OptionsGreeksCalculator instance.
+    """
+    global _N04_CALCULATOR_SINGLETON  # noqa: PLW0603
+    if _N04_CALCULATOR_SINGLETON is None:
+        with _N04_LOCK:
+            if _N04_CALCULATOR_SINGLETON is None:
+                _N04_CALCULATOR_SINGLETON = OptionsGreeksCalculator(config=config)
+    return _N04_CALCULATOR_SINGLETON
+
+
+# ==============================================================================
 # TEST/DEMO CODE
 # ==============================================================================
 if __name__ == "__main__":
