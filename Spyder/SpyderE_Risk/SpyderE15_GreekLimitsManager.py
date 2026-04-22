@@ -64,6 +64,15 @@ try:
 except ImportError:
     ALERTS_AVAILABLE = False
 
+try:
+    from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _e15_get_n04_calculator,
+    )
+    _E15_N04_AVAILABLE = True
+except ImportError:
+    _e15_get_n04_calculator = None  # type: ignore[assignment]
+    _E15_N04_AVAILABLE = False
+
 # ==============================================================================
 # ENHANCED CONSTANTS
 # ==============================================================================
@@ -277,6 +286,9 @@ class GreekLimitsManager:
         self._monitoring_thread = None
         self._regime_thread = None
 
+        # N04 OptionsGreeksCalculator reference — lazily resolved on first use
+        self._n04_calculator: Any | None = None
+
         # Initialize components
         self._initialize_ml_components()
         self._start_monitoring()
@@ -306,6 +318,14 @@ class GreekLimitsManager:
             # Initialize market regime detector
             self.market_detector = MarketRegimeDetector()
 
+            # Wire N04 singleton for accurate portfolio-level Greeks
+            if _E15_N04_AVAILABLE:
+                try:
+                    self._n04_calculator = _e15_get_n04_calculator()
+                    self.logger.info("📊 N04 OptionsGreeksCalculator wired into GreekLimitsManager")
+                except Exception as exc:
+                    self.logger.debug("N04 not yet available at init time: %s", exc)
+
             self.logger.info("🤖 ML components initialized for dynamic risk adaptation")
 
         except Exception as e:
@@ -313,6 +333,21 @@ class GreekLimitsManager:
                 'method': '_initialize_ml_components'
             })
             self.ml_available = False
+
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton.
+
+        Falls back gracefully: returns None when N04 is unavailable or fails
+        to initialise so all callers must guard with ``if n04 is not None``.
+        """
+        if not _E15_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _e15_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
 
     # ==========================================================================
     # STRATEGY REGISTRATION AND LIMIT MANAGEMENT
@@ -970,16 +1005,41 @@ class GreekLimitsManager:
 
                 return regime_mapping.get(regime_result, MarketRegime.NORMAL)
 
-            # Fallback: simple VIX-based regime detection
+            # Fallback: VIX-based regime detection, augmented by N04 portfolio gamma.
+            # High absolute gamma indicates a destabilising options market regardless
+            # of VIX level, so we escalate LOW_VOLATILITY → NORMAL when gamma is
+            # elevated (|Γ| > 5) and NORMAL → HIGH_VOLATILITY when |Γ| > 20.
             vix = self.current_market_data.get('vix', 20.0)
             if vix < 12:
-                return MarketRegime.LOW_VOLATILITY
+                regime = MarketRegime.LOW_VOLATILITY
             elif vix < 20:
-                return MarketRegime.NORMAL
+                regime = MarketRegime.NORMAL
             elif vix < 30:
-                return MarketRegime.HIGH_VOLATILITY
+                regime = MarketRegime.HIGH_VOLATILITY
             else:
-                return MarketRegime.CRISIS
+                regime = MarketRegime.CRISIS
+
+            # Gamma-based regime escalation via N04
+            n04 = self._get_n04()
+            if n04 is not None:
+                try:
+                    abs_gamma = abs(n04.portfolio_greeks.total_gamma)
+                    if abs_gamma > 20 and regime in (MarketRegime.LOW_VOLATILITY, MarketRegime.NORMAL):
+                        self.logger.debug(
+                            "N04 gamma %.2f escalates regime %s → HIGH_VOLATILITY",
+                            abs_gamma, regime.name,
+                        )
+                        regime = MarketRegime.HIGH_VOLATILITY
+                    elif abs_gamma > 5 and regime == MarketRegime.LOW_VOLATILITY:
+                        self.logger.debug(
+                            "N04 gamma %.2f escalates regime LOW_VOLATILITY → NORMAL",
+                            abs_gamma,
+                        )
+                        regime = MarketRegime.NORMAL
+                except Exception as exc:
+                    self.logger.debug("N04 gamma read failed during regime detection: %s", exc)
+
+            return regime
 
         except Exception as e:
             self.error_handler.handle_error(e, {

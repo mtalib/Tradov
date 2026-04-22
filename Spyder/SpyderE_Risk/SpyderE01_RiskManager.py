@@ -82,6 +82,15 @@ except ImportError:
     Order = None
     OrderState = None
 
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _e01_get_n04_calculator,
+    )
+    _E01_N04_AVAILABLE = True
+except ImportError:
+    _e01_get_n04_calculator = None  # type: ignore[assignment]
+    _E01_N04_AVAILABLE = False
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -280,6 +289,11 @@ class RiskManager:
             'start_time': now_et()
         }
 
+        # N04 OptionsGreeksCalculator reference — lazily resolved on first use.
+        # Caches portfolio Greeks between metric calculations.
+        self._n04_calculator: Any | None = None
+        self._last_portfolio_greeks: dict[str, float] = {}
+
         # Register message handlers
         self._register_handlers()
 
@@ -468,6 +482,29 @@ class RiskManager:
     def initialize(self) -> bool:
         """Legacy synchronous startup hook used by older runtime callers."""
         return True
+
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton.
+
+        Returns None when N04 is unavailable (import failed or construction
+        error), so all callers must guard with ``if n04 is not None``.
+        """
+        if not _E01_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _e01_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
+
+    def get_portfolio_greeks(self) -> dict[str, float]:
+        """Return the most recently cached portfolio Greeks from N04.
+
+        Returns an empty dict when N04 is unavailable or no positions have
+        been tracked yet.
+        """
+        return dict(self._last_portfolio_greeks)
 
     # ==========================================================================
     # RISK CHECKING
@@ -1248,6 +1285,29 @@ class RiskManager:
                 warnings=warnings,
                 blocked_orders=blocked_orders
             )
+
+            # Enrich risk picture with N04 portfolio Greeks (best-effort, non-blocking)
+            n04 = self._get_n04()
+            if n04 is not None:
+                try:
+                    pg = n04.portfolio_greeks
+                    self._last_portfolio_greeks = {
+                        'delta': pg.total_delta,
+                        'gamma': pg.total_gamma,
+                        'theta': pg.total_theta,
+                        'vega': pg.total_vega,
+                        'rho': pg.total_rho,
+                        'vanna': pg.total_vanna,
+                        'charm': pg.total_charm,
+                    }
+                    self.logger.debug(
+                        "Portfolio Greeks (N04): delta=%.2f gamma=%.4f "
+                        "theta=%.2f vega=%.2f",
+                        pg.total_delta, pg.total_gamma,
+                        pg.total_theta, pg.total_vega,
+                    )
+                except Exception as exc:
+                    self.logger.debug("Could not read N04 portfolio Greeks: %s", exc)
 
             return risk_metrics
 
