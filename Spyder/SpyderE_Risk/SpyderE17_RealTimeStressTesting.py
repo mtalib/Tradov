@@ -42,6 +42,15 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 import logging
 
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _e17_get_n04_calculator,
+    )
+    _E17_N04_AVAILABLE = True
+except ImportError:
+    _e17_get_n04_calculator = None  # type: ignore[assignment]
+    _E17_N04_AVAILABLE = False
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -294,11 +303,82 @@ class RealTimeStressTesting:
         self._running = False
         self._stop_event = threading.Event()
 
+        # N04 OptionsGreeksCalculator — feeds live Greeks into PortfolioSnapshot
+        self._n04_calculator: Any | None = None
+        if _E17_N04_AVAILABLE:
+            try:
+                self._n04_calculator = _e17_get_n04_calculator()
+            except Exception as _exc:
+                self.logger.debug("N04 not yet available at E17 init: %s", _exc)
+
         self.logger.info("RealTimeStressTesting engine initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - Engine Management
     # ==========================================================================
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton."""
+        if not _E17_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _e17_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
+
+    def build_portfolio_snapshot(
+        self,
+        positions: dict[str, Any] | None = None,
+        portfolio_value: float = 0.0,
+        cash_balance: float = 0.0,
+    ) -> PortfolioSnapshot:
+        """
+        Build a PortfolioSnapshot seeded with live N04 portfolio Greeks.
+
+        Greeks fields (total_delta, total_gamma, total_vega, total_theta,
+        total_rho) are read from the N04 OptionsGreeksCalculator singleton
+        when available, providing accurate BSM-derived portfolio exposure for
+        stress scenario P&L calculations.
+
+        Args:
+            positions: Mapping of position_id -> position data dict.
+            portfolio_value: Current portfolio market value.
+            cash_balance: Current cash balance.
+
+        Returns:
+            PortfolioSnapshot with Greeks populated from N04 (or zeroed).
+        """
+        delta = gamma = vega = theta = rho = 0.0
+
+        n04 = self._get_n04()
+        if n04 is not None:
+            try:
+                pg = n04.portfolio_greeks
+                delta = pg.total_delta
+                gamma = pg.total_gamma
+                vega = pg.total_vega
+                theta = pg.total_theta
+                rho = pg.total_rho
+                self.logger.debug(
+                    "E17 snapshot Greeks (N04): δ=%.2f Γ=%.4f V=%.2f Θ=%.2f ρ=%.4f",
+                    delta, gamma, vega, theta, rho,
+                )
+            except Exception as exc:
+                self.logger.debug("N04 portfolio_greeks unavailable for snapshot: %s", exc)
+
+        return PortfolioSnapshot(
+            timestamp=datetime.now(),
+            positions=positions or {},
+            portfolio_value=portfolio_value,
+            cash_balance=cash_balance,
+            total_delta=delta,
+            total_gamma=gamma,
+            total_vega=vega,
+            total_theta=theta,
+            total_rho=rho,
+        )
+
     def initialize(self) -> bool:
         """
         Initialize the stress testing engine with default scenarios.

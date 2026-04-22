@@ -53,10 +53,8 @@ CONNECTION MONITORING:
 import json
 import sys
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as dt_time
-from enum import Enum
 from pathlib import Path
 
 # Matplotlib for charting
@@ -116,7 +114,6 @@ from PySide6.QtWidgets import (
 
 matplotlib.use("QtAgg")
 import pandas as pd
-from matplotlib import patches
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.transforms import blended_transform_factory
@@ -139,6 +136,36 @@ import logging
 logger = logging.getLogger(__name__)
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (
+    COLORS,
+    ConnectionInfo,
+    GreekBar,
+    GreekRisk,
+    MarketData,
+    MarketSymbolWidget,
+    SignalMonitorPanel,
+    TradingMode,
+    TrafficLightButton,
+    apply_tooltip_theme,
+)
+from Spyder.SpyderG_GUI.SpyderG20_DashboardBuilder import (
+    build_center_panel,
+    build_left_panel,
+    build_right_panel,
+    build_toolbar,
+    create_chart_widget,
+    create_pnl_table as build_pnl_table,
+    create_positions_table as build_positions_table,
+    create_unified_prometheus_metrics as build_unified_prometheus_metrics,
+)
+from Spyder.SpyderG_GUI.SpyderG21_DashboardSignalHandlers import (
+    handle_connection_status_changed,
+    handle_heartbeat_received,
+    handle_heartbeat_status_changed,
+    handle_market_data_status_changed,
+    handle_market_data_updated,
+    handle_market_error,
+)
 
 # Tradier client for API connectivity checks
 try:
@@ -164,17 +191,6 @@ except ImportError:
     create_tradier_client_from_env = None  # type: ignore
     TRADIER_AVAILABLE = False
 
-# Import Signal Info Dialog for popup system
-try:
-    from Spyder.SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
-
-    signal_dialog_available = True
-    logger.info("✅ Signal Info Dialog module available")
-except ImportError:
-    SignalInfoDialog = None  # type: ignore
-    signal_dialog_available = False
-    logger.info("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
-
 # Import Risk Parameters Dialog
 try:
     from Spyder.SpyderG_GUI.SpyderG09_RiskParametersDialog import (
@@ -190,18 +206,22 @@ except ImportError:
     risk_dialog_available = False
     logger.info("⚠️ Risk Parameters Dialog not available")
 
-# Import HMM and SKEW Dialog modules
-# NOTE: HMMMonitorDialog was removed — M06 is deprecated (L09 is canonical).
-#       show_hmm_dialog() now calls SignalInfoDialog directly.
-
-# SkewMonitorDialog is imported lazily inside show_skew_dialog() to defer the
-# ~0.25 s import cost to when the user first opens the dialog.
-SkewMonitorDialog = None  # type: ignore  - populated on first use
-skew_dialog_available = None  # None = not yet attempted; True/False after first check
-
-# MarketInternalsDialog is imported lazily inside show_internals_dialog().
-MarketInternalsDialog = None  # type: ignore
-internals_dialog_available = None  # None = not yet attempted; True/False after first check
+# Phase 1 wiring (2026-04-17 overview v6): bring SpyderE01_RiskManager into
+# the paper-trading path so every proposed entry is validated against real
+# E-series risk rules.
+try:
+    from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
+        DEFAULT_RISK_LIMITS as _E01_DEFAULT_RISK_LIMITS,
+        RiskConfig as _E01_RiskConfig,
+        RiskManager as _E01_RiskManager,
+    )
+    _E01_AVAILABLE = True
+except ImportError:
+    _E01_DEFAULT_RISK_LIMITS = {}  # type: ignore
+    _E01_RiskConfig = None  # type: ignore
+    _E01_RiskManager = None  # type: ignore
+    _E01_AVAILABLE = False
+    logger.info("⚠️ SpyderE01_RiskManager not available — paper worker will use local checks only")
 
 # Try to import Prometheus metrics display module if available
 try:
@@ -288,999 +308,18 @@ from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
     "S&P CORE": ["SPY", "SPX"],
-    "VOLATILITY": ["VIX", "VXV", "VVIX"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
+    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
+    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "NYMO", "CPC", "SKEW", "$VOLD", "XLK", "XLF", "TNX", "RVOL"],
     "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["10Y", "TLT", "LQD"],
-    "CORRELATIONS": ["DXY", "GLD"],
-    "SENTIMENT": ["NAAIM", "AABULL"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
+    "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
+    "CORRELATIONS": ["DXY", "GLD", "USO"],
+    "OPTIONS ANALYTICS": ["IVR", "ATM_IV", "VRP"],
+    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "WRS", "PSR", "SWAN", "PMR"],
 }
-
-# Symbol descriptions for tooltips
-SYMBOL_DESCRIPTIONS = {
-    # S&P Core
-    "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
-    "SPX": "S&P 500 Index - Cash index value",
-    # Volatility
-    "VIX": "CBOE Volatility Index - 30-day implied volatility",
-    "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
-    "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
-    "VVIX": "VIX of VIX - Volatility of volatility index",
-    # Market Internals
-    "$TICK": "NYSE Tick Index - Upticks minus downticks",
-    "$TRIN": "Arms Index - Advance/Decline volume ratio",
-    "$ADD": "Advance-Decline Line - Net advancing issues",
-    "CPC": "Put/Call Ratio - Computed from SPY options chain volume (nearest expiry)",
-    "SKEW": "CBOE Skew Index - Tail risk measure",
-    # Major Indices
-    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
-    "IWM": "iShares Russell 2000 ETF - Small caps",
-    # Bonds & Credit
-    "10Y": "10-Year Treasury Yield (FRED DGS10 — risk-free rate)",
-    "TLT": "iShares 20+ Year Treasury Bond ETF",
-    "LQD": "iShares Investment Grade Corporate Bond ETF",
-    # Correlations
-    "DXY": "US Dollar Index (UUP ETF proxy — Tradier has no DXY index)",
-    "GLD": "SPDR Gold Trust ETF - Gold proxy",
-    # Sentiment
-    "NAAIM": "NAAIM Exposure Index - Active manager equity allocation (0-200%)",
-    "AABULL": "AAII Bull% (UMCSENT proxy) - Retail investor bullish sentiment",
-    # Custom Metrics
-    "GEX": "Gamma Exposure - Market maker hedging pressure",
-    "DEX": "Delta Exposure - Directional hedging flow",
-    "OGL": "Zero Gamma Level - Key support/resistance",
-    "DIX": "Dark Index - Dark pool buying percentage",
-    "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
-}
-
-COLORS = {
-    "background": "#0a0a0a",
-    "panel": "#1a1a1a",
-    "border": "#333333",
-    "text": "#ffffff",
-    "text_dim": "#888888",
-    "positive": "#00ff41",
-    "negative": "#ff1744",
-    "neutral": "#ffd700",
-    "warning": "#ff9800",
-    "automation_active": "#00b8d4",
-    "connecting": "#00b8d4",
-    "grid": "#2a2a2a",
-    "orange": "#ff9800",
-    "red": "#ff0000",
-    "cyan": "#00ffff",
-    "yellow": "#ffff00",
-    "blue": "#4169E1",
-    "purple": "#9370DB",
-}
-
-
-# ==============================================================================
-# HELPER FUNCTIONS
-# ==============================================================================
-_TOOLTIP_APP_STYLE = """
-QToolTip {
-    color: #ffffff !important;
-    background-color: #1a1a1a !important;
-    border: 2px solid #555555 !important;
-    padding: 8px !important;
-    border-radius: 4px !important;
-    font-size: 12px !important;
-    font-weight: normal !important;
-    opacity: 1.0 !important;
-}
-"""
-
-_TOOLTIP_WIDGET_STYLE = """
-QWidget {
-    selection-background-color: #2a2a2a;
-}
-QWidget QToolTip {
-    color: white !important;
-    background-color: #1a1a1a !important;
-    border: 2px solid #555555 !important;
-    padding: 8px !important;
-}
-"""
-
-_TOOLTIP_THEME_MARKER = "/* spyder-tooltip-theme */"
-
-
-def apply_tooltip_theme(app, widget=None) -> None:
-    """Install the dashboard's tooltip theme app-wide; idempotent across calls.
-
-    Callable from the app bootstrap (preferred) or from a window constructor.
-    Re-application is a no-op at the app level because the theme is tagged with
-    a marker comment. The widget-level stylesheet is additive and harmless.
-    """
-    if app is not None:
-        current = app.styleSheet() or ""
-        if _TOOLTIP_THEME_MARKER not in current:
-            app.setStyleSheet(current + _TOOLTIP_THEME_MARKER + _TOOLTIP_APP_STYLE)
-    if widget is not None:
-        widget.setStyleSheet((widget.styleSheet() or "") + _TOOLTIP_WIDGET_STYLE)
-
-
-# ==============================================================================
-# TRADING MODE ENUM
-# ==============================================================================
-class TradingMode(Enum):
-    """Two trading modes available in the Spyder system.
-
-    PAPER:    Simulated fills against live market data via Tradier sandbox + SpyderR02_PaperEngine.
-    LIVE:     Real order execution through Tradier production API + SpyderR04_LiveEngine.
-    """
-
-    PAPER = "PAPER"
-    LIVE = "LIVE"
-
-
-# ==============================================================================
-# DATA STRUCTURES
-# ==============================================================================
-@dataclass
-class MarketData:
-    symbol: str
-    last: float
-    change: float
-    change_pct: float
-    timestamp: datetime
-
-
-@dataclass
-class GreekRisk:
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-
-
-@dataclass
-class ConnectionInfo:
-    """Single source of truth for dashboard connection state.
-
-    Per 2026-04-15 audit §16: api_connected and mkt_data_connected used to
-    exist as parallel scalar attributes on SpyderTradingDashboard, mutated
-    independently of this dataclass. They are now @property accessors that
-    read/write the fields below.
-    """
-    api_connected: bool = False
-    mkt_data_connected: bool = False
-    bridge_connected: bool = False
-    connection_mode: str = "DISCONNECTED"
-    market_data_status: str = "NONE"
-    trading_active: bool = False
-    last_update: datetime | None = None
-    last_successful_data: datetime | None = None
-    data_was_live: bool = False
-    simulation_mode: bool = False
-
-
-# ==============================================================================
-# WIDGET CLASSES (UNCHANGED)
-# ==============================================================================
-class TrafficLightButton(QPushButton):
-    """Custom button that looks like a traffic light with label"""
-
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        self.label = label
-        self.status = "green"
-        self.setFixedHeight(24)
-        self.setMinimumWidth(120)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            """
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                text-align: left;
-                padding-left: 25px;
-                color: #ffffff;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #2a2a2a;
-                border-radius: 3px;
-            }
-
-            QToolTip {
-                color: white;
-                background-color: #2a2a2a;
-                border: 1px solid #555;
-                padding: 5px;
-                border-radius: 3px;
-                font-size: 12px;
-            }""",
-        )
-        self.setText(label)
-
-    def set_status(self, status: str):
-        """Set traffic light status: green, yellow, red, blue, purple"""
-        self.status = status
-        self.update()
-
-    def paintEvent(self, event):
-        """Custom paint for traffic light indicator"""
-        super().paintEvent(event)
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        circle_rect = self.rect().adjusted(5, 5, -self.width() + 19, -5)
-
-        if self.status == "green":
-            color = QColor(COLORS["positive"])
-        elif self.status == "yellow":
-            color = QColor(COLORS["warning"])
-        elif self.status == "red":
-            color = QColor(COLORS["negative"])
-        elif self.status == "blue":
-            color = QColor(COLORS["blue"])
-        elif self.status == "purple":
-            color = QColor(COLORS["purple"])
-        else:
-            color = QColor(COLORS["neutral"])
-
-        painter.setBrush(QBrush(color))
-        painter.setPen(QPen(color.darker(150), 1))
-        painter.drawEllipse(circle_rect)
-
-
-class SignalMonitorPanel(QWidget):
-    """Enhanced Signal Monitor Panel with integrated popup dialogs"""
-
-    def __init__(self, parent=None, *args, **kwargs):
-        super().__init__(parent)
-        self.setFixedHeight(165)
-        self.setMinimumWidth(280)
-        self.setStyleSheet(
-            f"""
-            QWidget {{
-                background-color: {COLORS["panel"]};
-                border: 1px solid {COLORS["border"]};
-                border-radius: 5px;
-            }}
-        """,
-        )
-
-        layout = QGridLayout()
-        layout.setContentsMargins(15, 10, 15, 10)
-        layout.setSpacing(3)
-
-        # Create all 12 buttons (2x6 grid)
-        self.vix_button = TrafficLightButton("VIX MONITOR")
-        self.ai_button = TrafficLightButton("AI DECISION")
-        self.gex_button = TrafficLightButton("GEX")
-        self.dix_button = TrafficLightButton("DIX")
-        self.rsi_button = TrafficLightButton("RSI CONFLUENCE")
-        self.risk_button = TrafficLightButton("RISK TRIGGERS")
-        self.ogl_button = TrafficLightButton("OGL")
-        self.div_button = TrafficLightButton("DIVERGENCE")
-        self.dex_button = TrafficLightButton("DEX")
-        self.swan_button = TrafficLightButton("BLACK SWAN")
-        self.hmm_button = TrafficLightButton("HMM")
-        self.skew_button = TrafficLightButton("SKEW")
-        self.internals_button = TrafficLightButton("MKT INTERNALS")
-        self.regime_button = TrafficLightButton("REGIME")
-
-        # Add buttons to grid (7 rows, 2 columns)
-        layout.addWidget(self.vix_button, 0, 0)
-        layout.addWidget(self.ai_button, 0, 1)
-        layout.addWidget(self.gex_button, 1, 0)
-        layout.addWidget(self.dix_button, 1, 1)
-        layout.addWidget(self.rsi_button, 2, 0)
-        layout.addWidget(self.risk_button, 2, 1)
-        layout.addWidget(self.ogl_button, 3, 0)
-        layout.addWidget(self.div_button, 3, 1)
-        layout.addWidget(self.dex_button, 4, 0)
-        layout.addWidget(self.swan_button, 4, 1)
-        layout.addWidget(self.hmm_button, 5, 0)
-        layout.addWidget(self.skew_button, 5, 1)
-        layout.addWidget(self.internals_button, 6, 0)  # no longer spans both columns
-        layout.addWidget(self.regime_button, 6, 1)     # new — sits below SKEW
-
-        # Connect buttons to their dialog methods
-        self.vix_button.clicked.connect(self.show_vix_dialog)
-        self.ai_button.clicked.connect(self.show_ai_dialog)
-        self.gex_button.clicked.connect(self.show_gex_dialog)
-        self.dix_button.clicked.connect(self.show_dix_dialog)
-        self.rsi_button.clicked.connect(self.show_rsi_dialog)
-        self.risk_button.clicked.connect(self.show_risk_dialog)
-        self.ogl_button.clicked.connect(self.show_ogl_dialog)
-        self.div_button.clicked.connect(self.show_div_dialog)
-        self.dex_button.clicked.connect(self.show_dex_dialog)
-        self.swan_button.clicked.connect(self.show_swan_dialog)
-        self.hmm_button.clicked.connect(self.show_hmm_dialog)
-        self.skew_button.clicked.connect(self.show_skew_dialog)
-        self.internals_button.clicked.connect(self.show_internals_dialog)
-        self.regime_button.clicked.connect(self.show_regime_dialog)
-
-        self.setLayout(layout)
-
-        # Store current dialog reference for auto-close functionality
-        self.current_dialog = None
-
-        # Live regime state — populated by update_regime() on each S07 cycle.
-        self._regime_label = "—"
-        self._regime_swan  = 1.9
-        self._regime_dix   = 42.0
-        self._regime_skew  = 120.0
-        self._regime_gex   = 0.0
-        self.regime_button.set_status("yellow")  # pending until live data arrives
-
-        # Live market values — populated externally so popups show real figures.
-        # Keys: "VIX", "SKEW", "GEX" (dollars), "DEX" (dollars),
-        #        "DIX" (%), "SWAN" (score), "OGL" (price).
-        self._live: dict = {}
-
-        self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self.update_button_states)
-        self.update_timer.start(5000)
-
-    def update_live_data(self, data: dict) -> None:
-        """Merge live market values so signal popups display current figures.
-
-        Args:
-            data: flat dict of {symbol: last_value}.
-        """
-        self._live.update(data)
-
-    def update_button_states(self):
-        """Update traffic light colors — defaults to yellow (pending) until real signals are wired."""
-        # Original 10 analysis buttons: yellow = no signal yet
-        for button in [
-            self.vix_button,
-            self.ai_button,
-            self.gex_button,
-            self.dix_button,
-            self.rsi_button,
-            self.risk_button,
-            self.ogl_button,
-            self.div_button,
-            self.dex_button,
-        ]:
-            button.set_status("yellow")
-
-        # SWAN — default to green (no black-swan condition detected)
-        self.swan_button.set_status("green")
-
-        # HMM — default to green (bull regime assumed pending data)
-        self.hmm_button.set_status("green")
-
-        # SKEW — default to green (normal tail-risk level)
-        self.skew_button.set_status("green")
-
-        # MKT INTERNALS — default to yellow (data pending)
-        self.internals_button.set_status("yellow")
-
-    def close_current_dialog(self):
-        """Close the currently open dialog if any"""
-        if (
-            self.current_dialog
-            and hasattr(self.current_dialog, "isVisible")
-            and self.current_dialog.isVisible()
-        ):
-            self.current_dialog.close()
-            self.current_dialog = None
-
-    def show_signal_dialog(self, signal_type: str):
-        """Generic method to show signal dialog with auto-close functionality"""
-        self.close_current_dialog()
-
-        if signal_dialog_available and SignalInfoDialog:
-            self.current_dialog = SignalInfoDialog(signal_type, self, live_data=self._live)
-            # Position the dialog to the right of the signal panel
-            parent_pos = self.mapToGlobal(self.rect().topRight())
-            self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
-            # Connect the closed signal to clear the reference
-            self.current_dialog.closed.connect(
-                lambda: setattr(self, "current_dialog", None),
-            )
-            self.current_dialog.show()
-
-    # Dialog show methods
-    def show_vix_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("VIX MONITOR")
-        else:
-            QMessageBox.information(
-                self, "VIX Monitor", "VIX: 15.32\nStatus: Normal\nImplied Move: ±0.96%",
-            )
-
-    def show_ai_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("AI DECISION")
-        else:
-            QMessageBox.information(
-                self,
-                "AI Decision",
-                "Current Signal: NEUTRAL\nConfidence: 72%\nNext Decision: 5 min",
-            )
-
-    def show_gex_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("GEX")
-        else:
-            QMessageBox.information(
-                self,
-                "GEX Monitor",
-                "GEX: -$2.5B\nGamma Flip: 590\nRegime: Negative Gamma",
-            )
-
-    def show_dix_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("DIX")
-        else:
-            QMessageBox.information(
-                self, "DIX Monitor", "DIX: 42.5%\nDark Pool: Normal\nSentiment: Neutral",
-            )
-
-    def show_rsi_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("RSI CONFLUENCE")
-        else:
-            QMessageBox.information(
-                self, "RSI Confluence", "RSI(14): 52\nRSI(5): 48\nStatus: Neutral Range",
-            )
-
-    def show_risk_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("RISK TRIGGERS")
-        else:
-            QMessageBox.information(
-                self,
-                "Risk Triggers",
-                "Active Triggers: 0\nRisk Level: LOW\nMax Loss Today: -$125",
-            )
-
-    def show_ogl_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("OGL")
-        else:
-            QMessageBox.information(
-                self,
-                "OGL Monitor",
-                "OGL: 585.50\nCurrent SPY: 585.39\nPosition: Below OGL",
-            )
-
-    def show_div_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("DIVERGENCE")
-        else:
-            QMessageBox.information(
-                self,
-                "Divergence Monitor",
-                "Price/RSI: None\nPrice/MACD: None\nStatus: No Divergence",
-            )
-
-    def show_dex_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("DEX")
-        else:
-            QMessageBox.information(
-                self, "DEX Monitor", "DEX: $850M\nDelta Neutral: 585\nFlow: Bullish",
-            )
-
-    def show_swan_dialog(self):
-        if signal_dialog_available:
-            self.show_signal_dialog("BLACK SWAN")
-        else:
-            QMessageBox.information(
-                self,
-                "BLACK SWAN Monitor",
-                "SWAN Score: 1.85\nRisk Level: LOW\nTail Risk: Minimal",
-            )
-
-    def show_hmm_dialog(self):
-        # M06 HMMRegimeDetector is deprecated (L09 is canonical); show the
-        # informational SignalInfoDialog directly without attempting an import.
-        if signal_dialog_available:
-            self.show_signal_dialog("HMM REGIME")
-        else:
-            QMessageBox.information(
-                self,
-                "HMM Regime Detector",
-                "The HMM regime dialog is unavailable.\n\n"
-                "Connect a supported analytics source or open the signal dialog "
-                "when it is available to view live regime data.",
-            )
-
-    def show_skew_dialog(self):
-        global skew_dialog_available, SkewMonitorDialog
-        # Lazy-import: defer the ~0.25s SkewMonitorDialog cost to first button click.
-        if skew_dialog_available is None:
-            try:
-                from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import (
-                    SkewMonitorDialog as _Skew,
-                )
-                SkewMonitorDialog = _Skew
-                skew_dialog_available = True
-                logger.info("✅ SKEW Monitor Dialog loaded (lazy)")
-            except ImportError:
-                SkewMonitorDialog = None
-                skew_dialog_available = False
-                logger.info("⚠️ SKEW Monitor Dialog not available")
-
-        if skew_dialog_available and SkewMonitorDialog:
-            self.close_current_dialog()
-            self.current_dialog = SkewMonitorDialog(self)
-            self.current_dialog.show()
-        elif signal_dialog_available:
-            self.show_signal_dialog("SKEW")
-        else:
-            QMessageBox.information(
-                self,
-                "SKEW Monitor",
-                "The SKEW monitor is unavailable.\n\n"
-                "Connect a supported market-data source or open the signal dialog "
-                "when it is available to view live SKEW data.",
-            )
-
-    def show_internals_dialog(self):
-        global internals_dialog_available, MarketInternalsDialog
-        if internals_dialog_available is None:
-            try:
-                from Spyder.SpyderG_GUI.SpyderG17_MarketInternalsWidget import (
-                    MarketInternalsDialog as _MID,
-                )
-                MarketInternalsDialog = _MID
-                internals_dialog_available = True
-                logger.info("✅ Market Internals Dialog loaded (lazy)")
-            except ImportError as exc:
-                MarketInternalsDialog = None
-                internals_dialog_available = False
-                logger.warning("⚠️ Market Internals Dialog not available: %s", exc)
-
-        if internals_dialog_available and MarketInternalsDialog:
-            self.close_current_dialog()
-            # Pass the dashboard's Tradier client if accessible
-            client = getattr(self, "_tradier_client", None)
-            if client is None:
-                client = getattr(self, "tradier_client", None) or getattr(self, "client", None)
-            orch = getattr(self, "_metrics_orchestrator", None)
-            # Pass orchestrator so dialog can connect directly and drive "Refresh Now"
-            self.current_dialog = MarketInternalsDialog(
-                tradier_client=client,
-                orchestrator=orch,
-                parent=self,
-            )
-            self.current_dialog.show()
-        else:
-            QMessageBox.information(
-                self,
-                "Market Internals",
-                "TICK / ADD / TRIN monitor unavailable.\n"
-                "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",
-            )
-
-    # ------------------------------------------------------------------
-    # REGIME button — live state + dialog
-    # ------------------------------------------------------------------
-
-    def update_regime(
-        self,
-        label: str,
-        swan: float,
-        dix: float,
-        skew: float,
-        gex: float,
-    ) -> None:
-        """Store live regime state and colour the REGIME button.
-
-        Called by the dashboard on every S07 update cycle so the button
-        always reflects the most recent reading.
-        """
-        self._regime_label = label
-        self._regime_swan  = swan
-        self._regime_dix   = dix
-        self._regime_skew  = skew
-        self._regime_gex   = gex
-
-        # Keep _live in sync so HMM REGIME popup shows live values.
-        self.update_live_data({
-            "HMM_LABEL": label,
-            "HMM_SWAN":  swan,
-            "HMM_DIX":   dix,
-            "HMM_SKEW":  skew,
-            "HMM_GEX":   gex,
-        })
-
-        if label in ("EXTREME RISK", "HIGH RISK", "BEARISH"):
-            self.regime_button.set_status("red")
-        elif label in ("BULLISH", "NEUTRAL BULL"):
-            self.regime_button.set_status("green")
-        else:  # CAUTIOUS, NEUTRAL, "—"
-            self.regime_button.set_status("yellow")
-
-    def show_regime_dialog(self) -> None:
-        """Show a popup table of regime conditions with the active row highlighted."""
-        self.close_current_dialog()
-
-        # Condition rows (priority order, first match wins)
-        CONDS = [
-            ("SWAN \u2265 2.0",                           "EXTREME RISK",  COLORS["negative"]),
-            ("SWAN \u2265 1.95  or  SKEW \u2265 150",     "HIGH RISK",     COLORS["negative"]),
-            ("SKEW \u2265 140  and  DIX < 42",            "CAUTIOUS",      COLORS["warning"]),
-            ("DIX \u2265 46,  GEX \u2265 0,  SWAN < 1.9", "BULLISH",       COLORS["positive"]),
-            ("DIX \u2264 40  and  SWAN \u2265 1.85",      "BEARISH",       COLORS["negative"]),
-            ("DIX \u2265 43  and  SWAN < 1.92",           "NEUTRAL BULL",  COLORS["positive"]),
-            ("else",                                       "NEUTRAL",       COLORS["warning"]),
-        ]
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Market Regime Classifier")
-        dlg.setFixedSize(660, 540)
-        dlg.setStyleSheet(
-            f"""
-            QDialog {{
-                background-color: {COLORS["background"]};
-                color: {COLORS["text"]};
-            }}
-            QLabel {{
-                color: {COLORS["text"]};
-            }}
-            QTableWidget {{
-                background-color: {COLORS["panel"]};
-                color: {COLORS["text"]};
-                gridline-color: {COLORS["border"]};
-                border: 1px solid {COLORS["border"]};
-                font-size: 12px;
-            }}
-            QHeaderView::section {{
-                background-color: #2a2a2a;
-                color: {COLORS["text"]};
-                padding: 5px;
-                border: 1px solid {COLORS["border"]};
-                font-weight: bold;
-            }}
-            QPushButton {{
-                background-color: #2a2a2a;
-                color: {COLORS["text"]};
-                border: 1px solid {COLORS["border"]};
-                border-radius: 4px;
-                padding: 6px 20px;
-            }}
-            QPushButton:hover {{
-                background-color: #3a3a3a;
-            }}
-            """
-        )
-
-        outer = QVBoxLayout(dlg)
-        outer.setSpacing(10)
-        outer.setContentsMargins(16, 14, 16, 14)
-
-        # Title
-        title = QLabel("Market Regime Classifier")
-        title.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #ffffff; padding-bottom: 2px;"
-        )
-        outer.addWidget(title)
-
-        subtitle = QLabel(
-            "Conditions are evaluated top-to-bottom; the first match wins."
-        )
-        subtitle.setStyleSheet(
-            f"color: {COLORS['text_dim']}; font-size: 11px; padding-bottom: 4px;"
-        )
-        outer.addWidget(subtitle)
-
-        # Condition table
-        table = QTableWidget(len(CONDS), 3)
-        table.setHorizontalHeaderLabels(["Condition", "Label", "Colour"])
-        table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
-        table.verticalHeader().setVisible(False)
-        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(False)
-        table.verticalHeader().setDefaultSectionSize(38)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setFixedHeight(len(CONDS) * 38 + 34)
-
-        active_row = -1
-        bold_font = QFont()
-        bold_font.setBold(True)
-
-        for row, (cond_text, label_text, label_color) in enumerate(CONDS):
-            is_active = label_text == self._regime_label
-            if is_active:
-                active_row = row
-            row_bg = "#1e2e1e" if is_active else COLORS["panel"]
-
-            # Column 0 — Condition
-            cond_item = QTableWidgetItem(f"  {cond_text}")
-            cond_item.setForeground(QColor(COLORS["text"]))
-            cond_item.setBackground(QColor(row_bg))
-            if is_active:
-                cond_item.setFont(bold_font)
-            table.setItem(row, 0, cond_item)
-
-            # Column 1 — Label (coloured)
-            label_item = QTableWidgetItem(f"  {label_text}")
-            label_item.setForeground(QColor(label_color))
-            label_item.setBackground(QColor(row_bg))
-            if is_active:
-                label_item.setFont(bold_font)
-            table.setItem(row, 1, label_item)
-
-            # Column 2 — Colour name
-            if label_color == COLORS["positive"]:
-                colour_name = "Green"
-            elif label_color == COLORS["negative"]:
-                colour_name = "Red"
-            else:
-                colour_name = "Yellow"
-            colour_item = QTableWidgetItem(colour_name)
-            colour_item.setForeground(QColor(label_color))
-            colour_item.setBackground(QColor(row_bg))
-            if is_active:
-                colour_item.setFont(bold_font)
-            table.setItem(row, 2, colour_item)
-
-        outer.addWidget(table)
-
-        # Current readings
-        readings = QLabel(
-            f"Current readings:  "
-            f"SWAN = {self._regime_swan:.2f}   "
-            f"DIX = {self._regime_dix:.1f}%   "
-            f"SKEW = {self._regime_skew:.0f}   "
-            f"GEX = {self._regime_gex:+.2f}"
-        )
-        readings.setStyleSheet(
-            f"color: {COLORS['text_dim']}; font-size: 11px; padding-top: 4px;"
-        )
-        outer.addWidget(readings)
-
-        # Active regime summary line
-        if active_row >= 0:
-            regime_color = CONDS[active_row][2]
-        else:
-            regime_color = COLORS["warning"]
-        active_lbl = QLabel(
-            f"Active regime: "
-            f"<b style='color: {regime_color};'>{self._regime_label}</b>"
-        )
-        active_lbl.setTextFormat(Qt.TextFormat.RichText)
-        active_lbl.setStyleSheet("font-size: 12px; padding-bottom: 2px;")
-        outer.addWidget(active_lbl)
-
-        # Close button
-        close_btn = QPushButton("Close")
-        close_btn.setFixedWidth(90)
-        close_btn.clicked.connect(dlg.close)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn_row.addWidget(close_btn)
-        outer.addLayout(btn_row)
-
-        self.current_dialog = dlg
-        dlg.finished.connect(lambda _: setattr(self, "current_dialog", None))
-        dlg.show()
-
-
-class MarketSymbolWidget(QWidget):
-    """Widget for displaying a single market symbol"""
-
-    def __init__(self, symbol: str, category: str):
-        super().__init__()
-        self.symbol = symbol
-        self.category = category
-        self.setup_ui()
-
-        if symbol in SYMBOL_DESCRIPTIONS:
-            self.setToolTip(SYMBOL_DESCRIPTIONS[symbol])
-
-    def setup_ui(self):
-        layout = QHBoxLayout()
-        layout.setContentsMargins(10, 2, 5, 2)
-
-        self.symbol_label = QLabel(self.symbol)
-        self.symbol_label.setStyleSheet(f"color: {COLORS['text']};")
-        self.symbol_label.setFixedWidth(60)
-
-        self.price_label = QLabel("---.--")
-        self.price_label.setStyleSheet(f"color: {COLORS['text']};")
-        self.price_label.setFixedWidth(70)
-        self.price_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-
-        self.change_label = QLabel("+0.00")
-        self.change_label.setFixedWidth(55)
-        self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-
-        self.pct_label = QLabel("0.00%")
-        self.pct_label.setFixedWidth(55)
-        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-
-        layout.addWidget(self.symbol_label)
-        layout.addWidget(self.price_label)
-        layout.addWidget(self.change_label)
-        layout.addWidget(self.pct_label)
-
-        self.setLayout(layout)
-
-    def update_data(self, data):
-        """Update display with new data"""
-        if isinstance(data, dict):
-            last = data.get("last", 0.0)
-            change = data.get("change", 0.0)
-            change_pct = data.get("change_pct", 0.0)
-        else:
-            last = data.last
-            change = data.change
-            change_pct = data.change_pct
-
-        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN", "NAAIM", "AABULL"]:
-            self._update_custom_indicator(last, change, change_pct)
-        else:
-            self._update_standard_symbol(last, change, change_pct)
-
-    def _update_standard_symbol(self, last, change, change_pct):
-        """Update standard market symbols"""
-        if self.symbol.startswith("$"):
-            if self.symbol in ("$TICK", "$ADD"):
-                self.price_label.setText(f"{last:+.0f}")
-                # Colour: green when positive breadth, red when negative
-                _int_color = COLORS["positive"] if last >= 0 else COLORS["negative"]
-                self.price_label.setStyleSheet(f"color: {_int_color};")
-            elif self.symbol == "$TRIN":
-                self.price_label.setText(f"{last:.2f}")
-                # TRIN < 1 = bullish (green), > 1 = bearish (red)
-                _trin_color = COLORS["positive"] if last < 1.0 else COLORS["negative"]
-                self.price_label.setStyleSheet(f"color: {_trin_color};")
-            else:
-                self.price_label.setText(f"{last:.2f}")
-        elif self.symbol in ["SPX", "/ES"]:
-            self.price_label.setText(f"{last:.2f}")
-        else:
-            self.price_label.setText(f"{last:.2f}")
-
-        color = COLORS["positive"] if change >= 0 else COLORS["negative"]
-        sign = "+" if change >= 0 else ""
-
-        self.change_label.setText(f"{sign}{change:.2f}")
-        self.change_label.setStyleSheet(f"color: {color};")
-
-        self.pct_label.setText(f"{sign}{change_pct:.2f}%")
-        self.pct_label.setStyleSheet(f"color: {color};")
-
-    def _update_custom_indicator(self, last, change, change_pct):
-        """Update custom indicators with special formatting"""
-        color = COLORS["neutral"]  # Default color
-        if self.symbol == "GEX":
-            value_b = last / 1_000_000_000
-            self.price_label.setText(f"{value_b:.1f}B")
-            color = COLORS["positive"] if last > 0 else COLORS["negative"]
-        elif self.symbol == "DEX":
-            value_m = last / 1_000_000
-            self.price_label.setText(f"{value_m:.0f}M")
-            color = COLORS["positive"] if change >= 0 else COLORS["negative"]
-        elif self.symbol == "OGL":
-            self.price_label.setText(f"{last:.2f}")
-            color = COLORS["warning"]
-        elif self.symbol == "DIX":
-            self.price_label.setText(f"{last:.1f}%")
-            if last > 45:
-                color = COLORS["positive"]
-            elif last < 40:
-                color = COLORS["negative"]
-            else:
-                color = COLORS["neutral"]
-        elif self.symbol == "SWAN":
-            self.price_label.setText(f"{last:.2f}")
-            if last < 1.9:
-                color = COLORS["positive"]
-            elif last < 2.0:
-                color = COLORS["warning"]
-            else:
-                color = COLORS["negative"]
-            self.symbol_label.setText("SWAN")
-        elif self.symbol == "NAAIM":
-            self.price_label.setText(f"{last:.1f}%")
-            # > 90 = over-invested (bearish contrarian), < 40 = under-invested, 40-90 = normal
-            if last > 90:
-                color = COLORS["negative"]
-            elif last < 40:
-                color = COLORS["warning"]
-            else:
-                color = COLORS["positive"]
-        elif self.symbol == "AABULL":
-            self.price_label.setText(f"{last:.1f}%")
-            # < 30 = extreme fear (contrarian bullish), > 50 = extreme greed (contrarian bearish)
-            if last < 30:
-                color = COLORS["warning"]   # extreme fear — caution, contrarian signal
-            elif last > 50:
-                color = COLORS["negative"]  # extreme greed
-            else:
-                color = COLORS["positive"]  # normal range
-
-        sign = "+" if change >= 0 else ""
-        self.change_label.setText(f"{sign}{change:.2f}")
-        self.change_label.setStyleSheet(f"color: {color};")
-        self.pct_label.setText(f"{sign}{change_pct:.2f}%")
-        self.pct_label.setStyleSheet(f"color: {color};")
-
-
-class GreekBar(QWidget):
-    """Custom widget for Greek risk display"""
-
-    def __init__(self, name: str, min_val: float, max_val: float):
-        super().__init__()
-        self.name = name
-        self.min_val = min_val
-        self.max_val = max_val
-        self.current_val = 0
-        self.percentage = 0
-        self.status = "NORMAL"
-        self.setFixedHeight(22)
-
-    def set_value(self, value: float, status: str = "NORMAL"):
-        """Update Greek value and status"""
-        self.current_val = value
-        self.percentage = abs(value - self.min_val) / (self.max_val - self.min_val)
-        self.percentage = min(max(self.percentage, 0), 1)
-        self.status = status
-        self.update()
-
-    def paintEvent(self, event):
-        """Custom paint for the Greek bar"""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        painter.fillRect(self.rect(), QColor(COLORS["background"]))
-
-        bar_rect = QRect(110, 6, self.width() - 300, 10)
-        painter.fillRect(bar_rect, QColor(COLORS["panel"]))
-
-        if self.percentage < 0.6:
-            color = QColor(COLORS["positive"])
-        elif self.percentage < 0.8:
-            color = QColor(COLORS["warning"])
-        else:
-            color = QColor(COLORS["negative"])
-
-        fill_width = int(bar_rect.width() * self.percentage)
-        fill_rect = QRect(bar_rect.x(), bar_rect.y(), fill_width, bar_rect.height())
-        painter.fillRect(fill_rect, color)
-
-        painter.setPen(QPen(QColor(COLORS["border"]), 1))
-        painter.drawRect(bar_rect)
-
-        painter.setPen(QColor(COLORS["text"]))
-        font = QFont()
-        font.setPointSize(10)
-        painter.setFont(font)
-
-        text = f"{self.name}: {self.current_val:.2f}"
-        painter.drawText(10, 16, text)
-
-        status_rect = QRect(self.width() - 190, 0, 180, 22)
-        painter.drawText(
-            status_rect,
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
-            self.status,
-        )
-
 
 # ==============================================================================
 # PAPER TRADING WORKER (runs off the GUI thread)
 # ==============================================================================
-
-
-# Paper trading worker lives in SpyderR_Runtime (audit §4). The leading-underscore
-# alias is kept so existing call sites (self._paper_worker = _PaperTradingWorker(...))
-# continue to work without a mass rename.
 from Spyder.SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import (
     PaperTradingQtWorker as _PaperTradingWorker,
 )
@@ -1305,13 +344,22 @@ class SpyderTradingDashboard(QMainWindow):
         "DEX":      ("DEX",   1e6),
         "OGL":      ("OGL",   1.0),
         "DIX":      ("DIX",   1.0),
+        "WRS":      ("WRS",   1.0),
+        "PSR":      ("PSR",   1.0),
         "SWAN":     ("SWAN",  1.0),
-        "TICK":     ("$TICK", 1.0),
-        "ADD":      ("$ADD",  1.0),
-        "TRIN":     ("$TRIN", 1.0),
-        "YIELD_10Y": ("10Y",  1.0),
-        "NAAIM_EXPOSURE": ("NAAIM", 1.0),
-        "AAII_BULLISH":   ("AABULL", 1.0),
+        "TICK":      ("$TICK", 1.0),
+        "ADD":       ("$ADD",  1.0),
+        "TRIN":      ("$TRIN", 1.0),
+        "NYMO":      ("NYMO",  1.0),
+        "YIELD_10Y": ("TNX",   1.0),
+        "IVR":       ("IVR",   1.0),
+        "ATM_IV":    ("ATM_IV",1.0),
+        "VRP":       ("VRP",   1.0),
+        # 0-DTE abort-gate additions (2026-04)
+        "VOLD":      ("$VOLD", 1.0),
+        "XLK":       ("XLK",   1.0),
+        "XLF":       ("XLF",   1.0),
+        "RVOL":      ("RVOL",  1.0),
     }
 
     # ------------------------------------------------------------------
@@ -1373,6 +421,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.automation_logs = []
         self.trading_mode = TradingMode.PAPER
+
+        # Per-mode snapshots — preserved across PAPER ↔ LIVE switches so each
+        # mode's table contents survive while the other mode is active.
+        self._pnl_stats_by_mode: dict = {}          # TradingMode → stats dict
+        self._positions_snapshot_by_mode: dict = {}  # TradingMode → serialized list
+
         # api_connected and mkt_data_connected are @property accessors backed
         # by self.connection_info (see ConnectionInfo docstring, audit §16).
         self.tradier_client = (
@@ -1457,6 +511,26 @@ class SpyderTradingDashboard(QMainWindow):
         self.chart_widget = None
         self.figure = None
         self.canvas = None
+        # Phase 2: spreads & volatility panel widgets.
+        self.spreads_table = None
+        self.spreads_group = None
+        self.atm_iv_label = None
+        self.iv_rank_label = None
+        self.spreads_summary_label = None
+        # Unified status strip (added when SPREADS & VOLATILITY was folded in).
+        self.realized_today_label = None
+        self.bp_used_label = None
+        # Phase 5: closed-trade audit log cached from worker emits.
+        self._closed_trades_cache: list = []
+        # Decision Log dialog singleton (None when closed).
+        self._decision_log_dialog = None
+        # Phase 3: portfolio-aggregate Greeks labels.
+        self.port_delta_label = None
+        self.port_gamma_label = None
+        self.port_vega_label = None
+        # Phase 7: higher-order Greeks labels (charm/vanna) from N04.
+        self.port_charm_label = None
+        self.port_vanna_label = None
         self.internal_module_indicators = {}
         self.datetime_timer = None
         self.chart_timer = None
@@ -1546,11 +620,39 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     def apply_proven_real_data_pattern(self):
         """Apply the proven real data integration pattern from temp_WorkingRealDashboard"""
-        # Only activate real data during the Tradier connection window.
-        # Outside 9:20 AM – 4:30 PM ET the data file may contain stale prices
-        # from a previous session — treat those as unusable.
+        # Outside the trading window: load the EOD snapshot immediately so the
+        # dashboard shows genuine closing prices.  The market worker will fetch
+        # a fresh Tradier snapshot in the background (via eod_snapshot_fetched
+        # signal → _on_eod_snapshot_fetched) and update the display once it
+        # arrives.  We only start the file-read timer here — no Tradier polling.
         if not is_tradier_window():
-            self.add_system_log("🕐 Outside trading window — skipping real data activation")
+            snapshot_file = self.data_file.parent / "eod_snapshot.json"
+            source_file = (
+                snapshot_file if snapshot_file.exists()
+                else (self.data_file if self.data_file.exists() else None)
+            )
+            if source_file:
+                try:
+                    with open(source_file) as _f:
+                        _snap = json.load(_f)
+                    spy_price = _snap.get("SPY", {}).get("last", "N/A")
+                    eod_date = _snap.get("_eod_date", "unknown date")
+                    self.add_system_log(
+                        f"📊 EOD snapshot loaded ({eod_date}) — SPY last close: ${spy_price}"
+                    )
+                    # Start file-read timer so widgets populate immediately;
+                    # skip fast-fetch (no Tradier polling outside trading hours).
+                    self.real_data_active = True
+                    if not getattr(self, "_real_data_timer", None) or not self._real_data_timer.isActive():
+                        self._real_data_timer = QTimer()
+                        self._real_data_timer.timeout.connect(self.update_with_real_data)
+                        self._real_data_timer.start(1000)
+                    self.update_with_real_data()
+                    self.update_data_status("EOD")
+                except Exception as e:
+                    self.add_system_log(f"⚠️ Could not load EOD snapshot: {e}")
+            else:
+                self.add_system_log("🕐 Outside trading window — awaiting EOD data from Tradier")
             return
 
         try:
@@ -1738,7 +840,7 @@ class SpyderTradingDashboard(QMainWindow):
                     pct = spx_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.spx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                    color = "#00ff41" if change >= 0 else "#ff1744"
+                    color = "#00ff41" if change >= 0 else "#FF073A"
                     self.spx_change.setStyleSheet(f"color: {color};")
 
             # COMP (NASDAQ Composite) — Tradier has no IXIC symbol.
@@ -1753,7 +855,7 @@ class SpyderTradingDashboard(QMainWindow):
                     pct = ndx_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.comp_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                    color = "#00ff41" if change >= 0 else "#ff1744"
+                    color = "#00ff41" if change >= 0 else "#FF073A"
                     self.comp_change.setStyleSheet(f"color: {color};")
 
             # DJI — Tradier's $DJI index is ~15 min delayed (confirmed April 2026).
@@ -1768,7 +870,7 @@ class SpyderTradingDashboard(QMainWindow):
                     pct = dji_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.dji_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                    color = "#00ff41" if change >= 0 else "#ff1744"
+                    color = "#00ff41" if change >= 0 else "#FF073A"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
             # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).
@@ -1793,7 +895,7 @@ class SpyderTradingDashboard(QMainWindow):
                         change = 0.0
                     sign = "+" if change >= 0 else ""
                     self.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                    color = "#00ff41" if change >= 0 else "#ff1744"
+                    color = "#00ff41" if change >= 0 else "#FF073A"
                     self.rut_change.setStyleSheet(f"color: {color};")
 
         except Exception as e:
@@ -1837,6 +939,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Setup the complete UI"""
         self.setWindowTitle("SPYDER - Autonomous Options Trading System v1.0")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.showMaximized()
 
         self.setStyleSheet(
             f"""
@@ -1912,6 +1015,27 @@ class SpyderTradingDashboard(QMainWindow):
         left_panel = self.create_left_panel()
         content_splitter.addWidget(left_panel)
 
+        # Seed the PMR row with its disabled/armed default before any worker
+        # connects, so it never sits blank at startup.
+        try:
+            import os as _os_pmr
+            pmr_widget = self.symbol_widgets.get("PMR") if hasattr(self, "symbol_widgets") else None
+            if pmr_widget is not None:
+                pmr_widget.update_pmr_state({
+                    "enabled": _os_pmr.environ.get("SPYDER_PIVOT_MR_ENABLED", "0") == "1",
+                    "available": True,
+                    "fired": False,
+                    "direction": None,
+                    "score": None,
+                    "level_name": None,
+                    "level_price": None,
+                    "atr_distance": None,
+                    "reasons": [],
+                    "penalties": [],
+                })
+        except (AttributeError, RuntimeError):
+            pass
+
         center_panel = self.create_center_panel()
         content_splitter.addWidget(center_panel)
 
@@ -1924,519 +1048,16 @@ class SpyderTradingDashboard(QMainWindow):
         central_widget.setLayout(main_layout)
 
     def create_toolbar(self) -> QWidget:
-        """Create top toolbar with FIXED WIDTH status containers and heartbeat monitor"""
-        toolbar = QWidget()
-        toolbar.setFixedHeight(60)
-        toolbar.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};",
-        )
-
-        layout = QHBoxLayout()
-
-        # SPYDER logo on left
-        logo_label = QLabel("S P Y D E R")
-        try:
-            logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
-        except Exception:
-            logo_font = QFont("Arial", 16, QFont.Weight.Normal)
-        logo_label.setFont(logo_font)
-        logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
-        layout.addWidget(logo_label)
-
-        # mode_selector removed — mode is controlled from the account info container
-        self.mode_selector = None
-
-        layout.addStretch(7)
-
-        # Center section with market indices — order matches standard convention:
-        # DOW → NASDAQ (COMP) → S&P 500 (SPX) → Russell 2000 (RUT)
-        center_section = QHBoxLayout()
-        center_section.setSpacing(5)
-
-        # DJI (Dow Jones Industrial Average — DIA ETF × 100 proxy)
-        dji_container = QHBoxLayout()
-        dji_container.setSpacing(0)
-        dji_label = QLabel("DJI:")
-        dji_label.setStyleSheet(f"color: {COLORS['text']};")
-        dji_label.setToolTip(
-            "Dow Jones Industrial Average\n"
-            "Source: DIA ETF × 100  (Tradier $DJI index is ~15 min delayed)"
-        )
-        dji_container.addWidget(dji_label)
-
-        self.dji_value = QLabel(" ---")
-        self.dji_value.setStyleSheet(f"color: {COLORS['text']};")
-        self.dji_value.setToolTip("Dow Jones Industrial Average (DIA ETF × 100)")
-        dji_container.addWidget(self.dji_value)
-
-        self.dji_change = QLabel("")
-        self.dji_change.setStyleSheet(f"color: {COLORS['positive']};")
-        dji_container.addWidget(self.dji_change)
-
-        center_section.addLayout(dji_container)
-        center_section.addSpacing(10)
-
-        # COMP (NASDAQ Composite — QQQ ETF × 37.5 proxy; IXIC not on Tradier)
-        comp_container = QHBoxLayout()
-        comp_container.setSpacing(0)
-        comp_label = QLabel("COMP:")
-        comp_label.setStyleSheet(f"color: {COLORS['text']};")
-        comp_label.setToolTip(
-            "NASDAQ Composite Index (3,000+ stocks)\n"
-            "Source: QQQ ETF × 37.5  (Tradier IXIC/COMP not available)"
-        )
-        comp_container.addWidget(comp_label)
-
-        self.comp_value = QLabel(" ---")
-        self.comp_value.setStyleSheet(f"color: {COLORS['text']};")
-        self.comp_value.setToolTip("NASDAQ Composite (QQQ ETF × 37.5 proxy)")
-        comp_container.addWidget(self.comp_value)
-
-        self.comp_change = QLabel("")
-        self.comp_change.setStyleSheet(f"color: {COLORS['positive']};")
-        comp_container.addWidget(self.comp_change)
-
-        center_section.addLayout(comp_container)
-        center_section.addSpacing(10)
-
-        # SPX (S&P 500 — direct Tradier index)
-        spx_container = QHBoxLayout()
-        spx_container.setSpacing(0)
-        spx_label = QLabel("SPX:")
-        spx_label.setStyleSheet(f"color: {COLORS['text']};")
-        spx_label.setToolTip("S&P 500 Index — direct from Tradier")
-        spx_container.addWidget(spx_label)
-
-        self.spx_value = QLabel(" ---")
-        self.spx_value.setStyleSheet(f"color: {COLORS['text']};")
-        self.spx_value.setToolTip("S&P 500 Index (direct from Tradier)")
-        spx_container.addWidget(self.spx_value)
-
-        self.spx_change = QLabel("")
-        self.spx_change.setStyleSheet(f"color: {COLORS['positive']};")
-        spx_container.addWidget(self.spx_change)
-
-        center_section.addLayout(spx_container)
-        center_section.addSpacing(10)
-
-        # RUT (Russell 2000 — direct Tradier index; change% borrowed from IWM when unavailable)
-        rut_container = QHBoxLayout()
-        rut_container.setSpacing(0)
-        rut_label = QLabel("RUT:")
-        rut_label.setStyleSheet(f"color: {COLORS['text']};")
-        rut_label.setToolTip(
-            "Russell 2000 Index — direct from Tradier\n"
-            "Change % uses IWM ETF as fallback when Tradier omits it"
-        )
-        rut_container.addWidget(rut_label)
-
-        self.rut_value = QLabel(" ---")
-        self.rut_value.setStyleSheet(f"color: {COLORS['text']};")
-        self.rut_value.setToolTip("Russell 2000 Index (direct from Tradier)")
-        rut_container.addWidget(self.rut_value)
-
-        self.rut_change = QLabel("")
-        self.rut_change.setStyleSheet(f"color: {COLORS['positive']};")
-        rut_container.addWidget(self.rut_change)
-
-        center_section.addLayout(rut_container)
-
-        layout.addLayout(center_section)
-        layout.addStretch(1)
-
-        # API Connection Status (Left Box) - FIXED WIDTH
-        self.api_status_container = QWidget()
-        self.api_status_container.setMinimumWidth(155)
-        self.api_status_container.setMaximumWidth(155)
-        self.api_status_container.setToolTip("Tradier execution API")
-        self.api_status_container.setStyleSheet(
-            """
-            QWidget:hover {
-                background-color: #2a2a2a;
-                border-radius: 3px;
-                padding: 2px;
-            }
-        """,
-        )
-        api_status_layout = QHBoxLayout()
-        api_status_layout.setContentsMargins(6, 3, 4, 3)
-        api_status_layout.setSpacing(4)
-
-        self.api_connection_label = QLabel("TRADIER EXEC")
-        self.api_connection_label.setStyleSheet(
-            "color: " + COLORS["negative"] + "; font-size: 14px;",
-        )
-        api_status_layout.addWidget(self.api_connection_label)
-
-        self.api_connect_icon = QLabel("\u26a1")
-        self.api_connect_icon.setStyleSheet(
-            "color: " + COLORS["negative"] + "; font-size: 13px;",
-        )
-        self.api_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.api_connect_icon.setToolTip("Click to connect to Tradier API")
-        self.api_connect_icon.mousePressEvent = self.toggle_api_connection
-        api_status_layout.addWidget(self.api_connect_icon)
-
-        self.api_status_container.setLayout(api_status_layout)
-
-        # Data Status — clickable only in EOD/SIMULATED states
-        self.data_status_container = QWidget()
-        self.data_status_container.setMinimumWidth(120)
-        self.data_status_container.setMaximumWidth(120)
-        self.data_status_container.setToolTip("Data is simulated — no live feed connected")
-        data_status_layout = QHBoxLayout()
-        data_status_layout.setContentsMargins(8, 3, 8, 3)
-        data_status_layout.setSpacing(6)
-
-        self.data_status_label = QLabel("SIMULATED")
-        self.data_status_label.setStyleSheet(
-            "color: " + COLORS["automation_active"] + "; font-size: 14px;",
-        )
-        self.data_status_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-        )
-        data_status_layout.addWidget(self.data_status_label)
-
-        self.data_status_container.setLayout(data_status_layout)
-        self.data_status_container.mousePressEvent = self._toggle_data_display
-
-        # Market Data Provider (label click = switch provider, \u26a1 click = connect/disconnect)
-        self.mkt_provider_container = QWidget()
-        self.mkt_provider_container.setMinimumWidth(165)
-        self.mkt_provider_container.setMaximumWidth(165)
-        self.mkt_provider_container.setToolTip("Market data source")
-        self.mkt_provider_container.setStyleSheet(
-            """
-            QWidget:hover {
-                background-color: #2a2a2a;
-                border-radius: 3px;
-                padding: 2px;
-            }
-        """,
-        )
-        mkt_layout = QHBoxLayout()
-        mkt_layout.setContentsMargins(8, 3, 8, 3)
-        mkt_layout.setSpacing(4)
-
-        import os as _os
-        _current_provider = _os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-        if _current_provider not in ("tradier", "massive"):
-            _current_provider = "tradier"
-        # Start red (disconnected); turns green once data feed connects
-        _provider_color = COLORS["negative"]
-
-        self.mkt_provider_label = QLabel(_current_provider.upper() + " DATA")
-        self.mkt_provider_label.setStyleSheet(f"color: {_provider_color}; font-size: 14px;")
-        self.mkt_provider_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mkt_provider_label.setToolTip(
-            "Click to switch between Tradier and Massive data source",
-        )
-        self.mkt_provider_label.mousePressEvent = self.toggle_market_data_provider
-        mkt_layout.addWidget(self.mkt_provider_label)
-
-        self.mkt_connect_icon = QLabel("\u26a1")
-        self.mkt_connect_icon.setStyleSheet(
-            f"color: {_provider_color}; font-size: 13px;",
-        )
-        self.mkt_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mkt_connect_icon.setToolTip("Click to connect market data feed")
-        self.mkt_connect_icon.mousePressEvent = self._toggle_mkt_data_connection
-        mkt_layout.addWidget(self.mkt_connect_icon)
-
-        self.mkt_provider_container.setLayout(mkt_layout)
-
-        # RIGHT SECTION - Status labels aligned with right panel buttons below
-        right_section = QHBoxLayout()
-        right_section.setSpacing(0)
-        right_section.setContentsMargins(0, 0, 0, 0)
-
-        right_section.addWidget(self.api_status_container)
-        right_section.addWidget(self.mkt_provider_container)
-        right_section.addWidget(self.data_status_container)
-
-        layout.addLayout(right_section)
-
-        # DATE/TIME - separate from status labels
-        pipe_label = QLabel(" | ")
-        pipe_label.setStyleSheet(f"color: {COLORS['text']};")
-        layout.addWidget(pipe_label)
-        _et_tz = pytz.timezone("US/Eastern")
-        self.datetime_label = QLabel(datetime.now(_et_tz).strftime("%Y-%m-%d   %H:%M:%S  ET"))
-        self.datetime_label.setStyleSheet("font-size: 14px;")
-        layout.addWidget(self.datetime_label)
-
-        toolbar.setLayout(layout)
-        return toolbar
+        """Create top toolbar with FIXED WIDTH status containers and heartbeat monitor."""
+        return build_toolbar(self)
 
     def create_left_panel(self) -> QWidget:
         """Create left panel with market overview"""
-        panel = QGroupBox("MARKET OVERVIEW")
-        panel.setStyleSheet(f"background-color: {COLORS['background']};")
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 10, 0, 0)
-
-        # Header
-        header = QWidget()
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(10, 0, 5, 0)
-
-        symbol_header = QLabel("SYMBOL")
-        symbol_header.setFixedWidth(60)
-        symbol_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
-
-        last_header = QLabel("LAST")
-        last_header.setFixedWidth(70)
-        last_header.setAlignment(Qt.AlignmentFlag.AlignRight)
-        last_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
-
-        chg_header = QLabel("CHG")
-        chg_header.setFixedWidth(55)
-        chg_header.setAlignment(Qt.AlignmentFlag.AlignRight)
-        chg_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
-
-        chg_pct_header = QLabel("CHG%")
-        chg_pct_header.setFixedWidth(55)
-        chg_pct_header.setAlignment(Qt.AlignmentFlag.AlignRight)
-        chg_pct_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
-
-        header_layout.addWidget(symbol_header)
-        header_layout.addWidget(last_header)
-        header_layout.addWidget(chg_header)
-        header_layout.addWidget(chg_pct_header)
-        header.setLayout(header_layout)
-
-        layout.addWidget(header)
-
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet(f"color: {COLORS['border']};")
-        layout.addWidget(separator)
-
-        # Scroll area for symbols
-        scroll_area = QScrollArea()
-        scroll_area.setStyleSheet(f"background-color: {COLORS['background']};")
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_widget = QWidget()
-        scroll_widget.setStyleSheet(f"background-color: {COLORS['background']};")
-        scroll_layout = QVBoxLayout()
-        scroll_layout.setSpacing(1)
-
-        # Create symbol widgets - ALL SYMBOLS
-        self.symbol_widgets = {}
-        for category, symbols in MARKET_SYMBOLS.items():
-            cat_label = QLabel(category)
-            cat_label.setStyleSheet(
-                f"color: {COLORS['cyan']}; font-size: 14px; padding: 5px 0px 2px 10px; font-weight: normal;",
-            )
-            scroll_layout.addWidget(cat_label)
-
-            for symbol in symbols:
-                widget = MarketSymbolWidget(symbol, category)
-                widget.setStyleSheet(f"background-color: {COLORS['background']};")
-                self.symbol_widgets[symbol] = widget
-                scroll_layout.addWidget(widget)
-
-        scroll_layout.addStretch()
-        scroll_widget.setLayout(scroll_layout)
-        scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
-
-        layout.addWidget(scroll_area)
-        panel.setLayout(layout)
-        return panel
+        return build_left_panel(self, MARKET_SYMBOLS)
 
     def create_center_panel(self) -> QWidget:
         """Create center panel (UNCHANGED)"""
-        panel = QWidget()
-        layout = QVBoxLayout()
-
-        # Market regime indicator
-        regime_widget = QWidget()
-        regime_widget.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};",
-        )
-        regime_widget.setFixedHeight(40)
-        regime_layout = QHBoxLayout()
-
-        regime_layout.addStretch()
-
-        center_container = QHBoxLayout()
-        center_container.setSpacing(20)
-
-        # SPY timeframe label (moved from chart title)
-        spy_label = QLabel("SPY - 5 MIN")
-        spy_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 13px;",
-        )
-        center_container.addWidget(spy_label)
-
-        separator_label0 = QLabel("|")
-        separator_label0.setStyleSheet(f"color: {COLORS['text_dim']};")
-        center_container.addWidget(separator_label0)
-
-        regime_section = QHBoxLayout()
-        regime_section.setSpacing(5)
-        regime_label = QLabel("MARKET REGIME: ")
-        regime_label.setStyleSheet(f"color: {COLORS['text']};")
-        regime_section.addWidget(regime_label)
-
-        self.regime_value = QLabel("—")
-        self.regime_value.setStyleSheet(f"color: {COLORS['cyan']};")
-        regime_section.addWidget(self.regime_value)
-
-        center_container.addLayout(regime_section)
-
-        separator_label = QLabel("|")
-        separator_label.setStyleSheet(f"color: {COLORS['text_dim']};")
-        center_container.addWidget(separator_label)
-
-        strategy_section = QHBoxLayout()
-        strategy_section.setSpacing(5)
-        strategy_label = QLabel("CURRENT ACTIVE STRATEGY: ")
-        strategy_label.setStyleSheet(f"color: {COLORS['text']};")
-        strategy_section.addWidget(strategy_label)
-
-        self.strategy_value = QLabel("—")
-        self.strategy_value.setStyleSheet(f"color: {COLORS['cyan']};")
-        strategy_section.addWidget(self.strategy_value)
-
-        # Add spacing before the chart button for elegant positioning
-        strategy_section.addSpacing(15)
-
-        # Chart toggle button
-        self.chart_toggle_btn = QPushButton("📊")
-        self.chart_toggle_btn.setFixedSize(30, 30)
-        self.chart_toggle_btn.setToolTip("Toggle SPY Chart (5-min)")
-        self.chart_toggle_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['panel']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 3px;
-                color: {COLORS['cyan']};
-                font-size: 16px;
-                padding: 2px;
-                margin-top: -3px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['border']};
-                border: 1px solid {COLORS['cyan']};
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['cyan']};
-                color: {COLORS['background']};
-            }}
-        """)
-        self.chart_toggle_btn.clicked.connect(self.toggle_chart)
-        strategy_section.addWidget(self.chart_toggle_btn)
-
-        center_container.addLayout(strategy_section)
-
-        regime_layout.addLayout(center_container)
-        regime_layout.addStretch()
-
-        regime_widget.setLayout(regime_layout)
-        layout.addWidget(regime_widget)
-
-        # Create the chart widget
-        self.create_chart()
-        self.chart_visible = True  # Track chart visibility state
-        layout.addWidget(self.chart_widget, 2)
-
-        # Positions table
-        positions_group = QGroupBox()
-        positions_layout = QVBoxLayout()
-        positions_layout.setContentsMargins(2, 2, 2, 2)
-        positions_layout.setSpacing(2)
-
-        # Toolbar row: title on the left, refresh button on the right
-        _pos_toolbar = QWidget()
-        _pos_toolbar_layout = QHBoxLayout(_pos_toolbar)
-        _pos_toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        _pos_toolbar_layout.setSpacing(4)
-        self.orders_title_label = QLabel()
-        self._update_orders_title()
-        _pos_toolbar_layout.addWidget(self.orders_title_label)
-        _pos_toolbar_layout.addStretch()
-        self.refresh_orders_btn = QPushButton("⟳ Refresh")
-        self.refresh_orders_btn.setFixedHeight(20)
-        self.refresh_orders_btn.setStyleSheet(
-            f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
-            f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
-        )
-        self.refresh_orders_btn.setToolTip("Fetch live orders & positions from Tradier")
-        self.refresh_orders_btn.clicked.connect(self._refresh_positions_table)
-        _pos_toolbar_layout.addWidget(self.refresh_orders_btn)
-        positions_layout.addWidget(_pos_toolbar)
-
-        self.positions_table = self.create_positions_table()
-        # Remove fixed height constraints to allow expansion when chart is hidden
-        self.positions_table.setMinimumHeight(220)
-        positions_layout.addWidget(self.positions_table)
-
-        positions_group.setLayout(positions_layout)
-        self.positions_group = positions_group  # Store reference for stretch factor adjustment
-        layout.addWidget(positions_group, 1)
-
-        # System logs with Signal Monitor Panel
-        logs_container = QWidget()
-        logs_container.setFixedHeight(190)  # Fixed height - won't expand when chart is hidden
-        logs_container_layout = QHBoxLayout()
-        logs_container_layout.setSpacing(5)
-        logs_container_layout.setContentsMargins(0, 0, 0, 0)
-
-        # System logs (left side)
-        logs_group = QGroupBox("SYSTEM LOG")
-        logs_layout = QVBoxLayout()
-
-        self.system_log = QTextEdit()
-        self.system_log.setReadOnly(True)
-        self.system_log.setMaximumHeight(150)
-        self.system_log.setStyleSheet(
-            f"""
-            QTextEdit {{
-                font-family: monospace;
-                font-size: 13px;
-            }}
-            QScrollBar:vertical {{
-                width: 8px;
-                background: {COLORS["panel"]};
-            }}
-        """,
-        )
-
-        logs_layout.addWidget(self.system_log)
-        logs_group.setLayout(logs_layout)
-
-        # Signal Monitor Panel (right side)
-        signal_group = QGroupBox("SIGNAL MONITOR")
-        signal_group.setStyleSheet(
-            f"QGroupBox {{ color: {COLORS['text']}; font-weight: normal; }}",
-        )
-        signal_layout = QVBoxLayout()
-        signal_layout.setContentsMargins(5, 5, 5, 5)
-
-        self.signal_panel = SignalMonitorPanel()
-        signal_layout.addWidget(self.signal_panel)
-        signal_group.setLayout(signal_layout)
-
-        logs_container_layout.addWidget(logs_group, 65)
-        logs_container_layout.addWidget(signal_group, 35)
-
-        logs_container.setLayout(logs_container_layout)
-
-        # Paper Trading P&L is now shown directly in the account info container.
-        self.paper_pnl_widget = None
-        self.backtest_pnl_widget = None
-        self._paper_metric_labels = {}
-        self._paper_status_label = None
-
-        # Backtest controls — removed; backtest feature has been removed
-        self.backtest_controls = None
-
-        layout.addWidget(logs_container, 0)  # Stretch factor 0 - stays fixed size
-
-        panel.setLayout(layout)
-        return panel
+        return build_center_panel(self)
 
     def toggle_chart(self):
         """Toggle the SPY chart visibility to provide more space for positions table"""
@@ -2455,258 +1076,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def create_right_panel(self) -> QWidget:
         """Create right panel with controls and metrics (UNCHANGED EXCEPT BUTTON MESSAGES)"""
-        panel = QWidget()
-        panel.setMinimumWidth(580)  # Prevent splitter from squishing this panel
-        layout = QVBoxLayout()
-        layout.setSpacing(3)
-        layout.setContentsMargins(5, 5, 5, 5)
-        # Control buttons
-        button_layout = QHBoxLayout()
-
-        self.start_btn = QPushButton("START TRADING")
-        self.start_btn.setStyleSheet(
-            f"background-color: {COLORS['positive']}; color: black;",
-        )
-        self.start_btn.setToolTip("Start automated trading")
-        self.start_btn.clicked.connect(self.start_trading)
-        button_layout.addWidget(self.start_btn)
-
-        self.stop_btn = QPushButton("STOP TRADING")
-        self.stop_btn.setStyleSheet(f"background-color: {COLORS['warning']}; color: black;")
-        self.stop_btn.setToolTip("Stop trading but keep orders and positions")
-        self.stop_btn.clicked.connect(self.stop_trading)
-        button_layout.addWidget(self.stop_btn)
-
-        self.emergency_btn = QPushButton("EMERGENCY CLOSE")
-        self.emergency_btn.setStyleSheet(f"background-color: {COLORS['negative']}; color: black;")
-        self.emergency_btn.setToolTip(
-            "Close all orders and positions, stop trading, and disconnect from API",
-        )
-        self.emergency_btn.clicked.connect(self.emergency_close)
-        button_layout.addWidget(self.emergency_btn)
-
-        layout.addLayout(button_layout)
-
-        # Circuit Breaker Monitor — directly below trading buttons
-        if circuit_breaker_monitor_available:
-            try:
-                circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
-                circuit_breaker_widget.setMaximumHeight(85)
-                layout.addSpacing(8)
-                layout.addWidget(circuit_breaker_widget)
-            except Exception as e:
-                logger.info("⚠️ Failed to create circuit breaker monitor: %s", e)
-
-        # Account info — compact flat grid, no QGroupBox overhead
-        self.risk_params_btn = QPushButton("RISK LEVELS")
-        self.risk_params_btn.setStyleSheet("background-color: #0066CC; color: white; font-size: 15px;")
-        self.risk_params_btn.setToolTip("Configure global and strategy-specific risk parameters")
-        self.risk_params_btn.clicked.connect(self.show_risk_parameters)
-        # Button placed in RISK MONITOR section header
-
-        account_widget = QWidget()
-        account_widget.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;",
-        )
-        acct_grid = QGridLayout()
-        acct_grid.setContentsMargins(4, 4, 4, 4)
-        acct_grid.setHorizontalSpacing(3)
-        acct_grid.setVerticalSpacing(3)
-        acct_grid.setColumnStretch(0, 3)
-        acct_grid.setColumnStretch(1, 4)
-        acct_grid.setColumnStretch(2, 3)
-        acct_grid.setColumnStretch(3, 4)
-
-        cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
-
-        # Row 0: ACCOUNT | account-number | MODE selector (spans cols 2-3)
-        acct_grid.addWidget(self._acct_lbl("ACCOUNT", cell_style), 0, 0)
-        import os as _os_acct
-        _trading_mode_init = _os_acct.environ.get("TRADING_MODE", "paper").lower()
-        _display_acct_id = (
-            _os_acct.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "—")
-            if _trading_mode_init == "paper"
-            else _os_acct.environ.get("TRADIER_ACCOUNT_ID", "—")
-        )
-        self.acct_number_lbl = self._acct_lbl(
-            _display_acct_id, cell_style
-        )
-        acct_grid.addWidget(self.acct_number_lbl, 0, 1)
-
-        # Twin toggle buttons: LIVE TRADING | PAPER TRADING
-        _mode_container = QWidget()
-        _mode_layout = QHBoxLayout(_mode_container)
-        _mode_layout.setContentsMargins(0, 0, 0, 0)
-        _mode_layout.setSpacing(2)
-
-        self.live_btn = QPushButton("LIVE TRADING")
-        self.live_btn.setToolTip("Switch to LIVE trading — real order execution at Tradier")
-        self.paper_btn = QPushButton("PAPER TRADING")
-        self.paper_btn.setToolTip("Switch to PAPER trading — simulated fills, Tradier sandbox")
-
-        _mode_layout.addWidget(self.live_btn)
-        _mode_layout.addWidget(self.paper_btn)
-        acct_grid.addWidget(_mode_container, 0, 2, 1, 2)
-
-        # Wire clicks
-        self.live_btn.clicked.connect(lambda: self._on_mode_btn_clicked(TradingMode.LIVE))
-        self.paper_btn.clicked.connect(lambda: self._on_mode_btn_clicked(TradingMode.PAPER))
-
-        # Apply initial styling
-        self._update_mode_buttons()
-
-        # backwards-compat aliases — no longer QComboBox, kept to avoid AttributeError
-        self.mode_selector = None
-        self.mode_lbl = None
-
-        # Row 1: SETTLED CASH | value | BUYING POWER | value
-        acct_grid.addWidget(self._acct_lbl("SETTLED CASH", cell_style), 1, 0)
-        self.settled_value = self._acct_lbl("—", cell_style, right=True)
-        acct_grid.addWidget(self.settled_value, 1, 1)
-        acct_grid.addWidget(self._acct_lbl("BUYING POWER", cell_style), 1, 2)
-        self.buying_value = self._acct_lbl("—", cell_style, right=True)
-        acct_grid.addWidget(self.buying_value, 1, 3)
-
-        # Row 2: REALIZED P&L | value | UNREALIZED P&L | value
-        acct_grid.addWidget(self._acct_lbl("REALIZED P&L", cell_style), 2, 0)
-        self.realized_value = self._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)
-        acct_grid.addWidget(self.realized_value, 2, 1)
-        acct_grid.addWidget(self._acct_lbl("UNREALIZED P&L", cell_style), 2, 2)
-        self.unrealized_value = self._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)
-        acct_grid.addWidget(self.unrealized_value, 2, 3)
-
-        account_widget.setLayout(acct_grid)
-        layout.addWidget(account_widget)
-
-        # P&L Performance
-        pnl_group = QGroupBox("")
-        pnl_group.setStyleSheet(
-            f"""
-            QGroupBox {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 5px;
-                margin-top: 0px;
-                padding-top: 6px;
-                background-color: {COLORS['background']};
-            }}
-            """,
-        )
-        pnl_layout = QVBoxLayout()
-        pnl_layout.setContentsMargins(5, 8, 5, 5)
-        pnl_layout.setSpacing(1)
-
-        # Title label — left-aligned
-        self.pnl_title_lbl = QLabel()
-        self._update_pnl_title()
-        pnl_layout.addWidget(self.pnl_title_lbl)
-
-        self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(140)
-        pnl_layout.addWidget(self.pnl_table)
-
-        pnl_group.setLayout(pnl_layout)
-        layout.addWidget(pnl_group)
-
-        # Risk Monitor
-        risk_group = QGroupBox("")
-        risk_group.setStyleSheet(
-            f"""
-            QGroupBox {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 5px;
-                margin-top: 0px;
-                padding-top: 6px;
-                background-color: {COLORS['background']};
-            }}
-            """,
-        )
-        risk_layout = QVBoxLayout()
-        risk_layout.setSpacing(2)
-        risk_layout.setContentsMargins(5, 8, 5, 5)
-
-        # Title row: "RISK MONITOR" label + RISK LEVELS button on the right
-        risk_header = QHBoxLayout()
-        risk_title_lbl = QLabel("RISK MONITOR")
-        risk_title_lbl.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 15px; font-weight: normal; letter-spacing: 1px;",
-        )
-        risk_header.addWidget(risk_title_lbl)
-        risk_header.addStretch()
-        risk_header.addWidget(self.risk_params_btn)
-        risk_layout.addLayout(risk_header)
-
-        self.greek_bars = {
-            "delta": GreekBar("Delta", -100, 100),
-            "gamma": GreekBar("Gamma", -10, 10),
-            "theta": GreekBar("Theta", -400, 0),
-            "vega": GreekBar("Vega", -600, 0),
-        }
-
-        for bar in self.greek_bars.values():
-            risk_layout.addWidget(bar)
-
-        risk_group.setLayout(risk_layout)
-        layout.addWidget(risk_group)
-
-        # Autonomous AI Activity
-        auto_group = QGroupBox("AUTONOMOUS AI ACTIVITY")
-        auto_group.setStyleSheet(
-            f"""
-            QGroupBox {{
-                color: {COLORS["text"]};
-                border: 1px solid {COLORS["border"]};
-                border-radius: 5px;
-                margin-top: 12px;
-                padding-top: 5px;
-                background-color: {COLORS["background"]};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                top: -2px;
-            }}
-        """,
-        )
-        auto_layout = QVBoxLayout()
-        auto_layout.setContentsMargins(5, 5, 5, 5)
-        auto_layout.setSpacing(0)
-
-        self.auto_log = QTextEdit()
-        self.auto_log.setReadOnly(True)
-        self.auto_log.setFixedHeight(110)
-        self.auto_log.setStyleSheet(
-            f"""
-            QTextEdit {{
-                font-family: monospace;
-                font-size: 13px;
-                color: {COLORS["cyan"]};
-                padding: 1px;
-                border: 1px solid {COLORS["border"]};
-                background-color: {COLORS["panel"]};
-                margin: 0px;
-            }}
-            QScrollBar:vertical {{
-                width: 8px;
-                background: {COLORS["panel"]};
-            }}
-        """,
-        )
-        self.auto_log.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.auto_log.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
-        )
-
-        auto_layout.addWidget(self.auto_log)
-        auto_group.setLayout(auto_layout)
-        layout.addWidget(auto_group)
-
-        # Unified Prometheus Metrics
-        metrics_widget = self.create_unified_prometheus_metrics()
-        layout.addWidget(metrics_widget)
-
-        panel.setLayout(layout)
-        return panel
+        return build_right_panel(self)
 
     def _acct_lbl(self, text: str, style: str, right: bool = False) -> QLabel:
         """Helper: create a styled account-grid cell label."""
@@ -2718,116 +1088,38 @@ class SpyderTradingDashboard(QMainWindow):
 
     def create_chart(self):
         """Create the SPY chart widget (UNCHANGED)"""
-        self.chart_widget = QWidget()
-        self.chart_widget.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};",
-        )
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Create matplotlib figure
-        self.figure = Figure(figsize=(10, 6), dpi=100)
-        self.figure.patch.set_facecolor(COLORS["panel"])
-
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setStyleSheet("background-color: transparent;")
-        layout.addWidget(self.canvas)
-
-        self.chart_widget.setLayout(layout)
-
-        # Draw initial chart
-        self.update_chart()
+        create_chart_widget(self)
 
     def update_chart(self):
-        """Update the SPY chart — 2-day 5-min candlestick view.
-
-        Shows the previous session's bars (dimmed) followed by today's bars at
-        full brightness.  A vertical dashed separator marks the day boundary.
-        Pivot levels are computed per day:
-          • Previous day — pivots from its own session range (best proxy).
-          • Today        — pivots from the previous day's H/L/C (correct formula).
-        VWAP resets each session; MA(20) runs continuously across both days.
-        """
+        """Update the SPY intraday chart — fixed 9:30–4:00 ET session, line chart."""
         self.figure.clear()
 
+        # --- Load real 5-min bars from cache file written by the market data worker ---
         chart_file = self.data_file.parent / "spy_5min_chart.json"
-        prev_file  = self.data_file.parent / "spy_5min_prev_day.json"
+        opens_raw: list[float] = []
+        highs_raw: list[float] = []
+        lows_raw: list[float] = []
+        closes_raw: list[float] = []
+        volumes_raw: list[int] = []
+        dates_raw: list = []
 
-        # ── helpers ────────────────────────────────────────────────────────────
-        def _load_bars(path: Path) -> list[dict]:
-            """Load OHLCV bars from a JSON file; return [] on any failure."""
-            if not path.exists():
-                return []
+        if chart_file.exists():
             try:
-                bars = json.load(open(path))  # noqa: WPS515
-                return [b for b in bars if b.get("close")]
+                with open(chart_file) as _f:
+                    candles = json.load(_f)
+                for bar in candles:
+                    opens_raw.append(float(bar.get("open", 0)))
+                    highs_raw.append(float(bar.get("high", 0)))
+                    lows_raw.append(float(bar.get("low", 0)))
+                    closes_raw.append(float(bar.get("close", 0)))
+                    volumes_raw.append(int(bar.get("volume", 0)))
+                    # bar["time"] is like "2026-04-09T09:30:00"
+                    dates_raw.append(pd.to_datetime(bar.get("time", "")))
             except Exception:
-                return []
+                candles = []
 
-        def _extract(bars: list[dict]):
-            """Unpack bar dicts to typed lists (open, high, low, close, vol, date)."""
-            o, h, l, c, v, d = [], [], [], [], [], []
-            for b in bars:
-                c_val = float(b.get("close", 0))
-                o.append(float(b.get("open",   c_val)))
-                h.append(float(b.get("high",   c_val)))
-                l.append(float(b.get("low",    c_val)))
-                c.append(c_val)
-                v.append(int(b.get("volume", 0)))
-                d.append(pd.to_datetime(b.get("time", "")))
-            return o, h, l, c, v, d
-
-        def _safe_ind(highs, lows, closes, volumes):
-            """compute_chart_indicators with ValueError guard."""
-            try:
-                return compute_chart_indicators(highs, lows, closes, volumes)
-            except ValueError:
-                return None
-
-        def _ma(prices: list[float], period: int = 20) -> list[float | None]:
-            """Simple moving average — returns None for the first period-1 bars."""
-            result: list[float | None] = []
-            for i in range(len(prices)):
-                if i < period - 1:
-                    result.append(None)
-                else:
-                    result.append(sum(prices[i - period + 1 : i + 1]) / period)
-            return result
-
-        def _vwap(highs, lows, closes, volumes) -> list[float]:
-            """Session cumulative VWAP (typical price × volume)."""
-            cum_pv = cum_v = 0.0
-            result = []
-            for i in range(len(closes)):
-                tp = (highs[i] + lows[i] + closes[i]) / 3
-                cum_pv += tp * volumes[i]
-                cum_v  += volumes[i]
-                result.append(cum_pv / cum_v if cum_v else closes[i])
-            return result
-
-        # ── load both sessions ────────────────────────────────────────────────
-        today_raw = _load_bars(chart_file)
-        prev_raw  = _load_bars(prev_file)
-
-        # Discard prev-day file if it shares the same calendar date as today's
-        # bars (e.g. dashboard restarted mid-session without a market close).
-        if prev_raw and today_raw:
-            try:
-                if (pd.to_datetime(prev_raw[0]["time"]).date()
-                        >= pd.to_datetime(today_raw[0]["time"]).date()):
-                    prev_raw = []
-            except Exception:
-                prev_raw = []
-
-        prev_o, prev_h, prev_l, prev_c, prev_v, prev_d = _extract(prev_raw)
-        tod_o,  tod_h,  tod_l,  tod_c,  tod_v,  tod_d  = _extract(today_raw)
-
-        have_prev  = bool(prev_c)
-        have_today = bool(tod_c)
-
-        # ── placeholder when nothing is available ─────────────────────────────
-        if not have_prev and not have_today:
+        # If no real data yet, show a "waiting for data" placeholder
+        if not closes_raw:
             ax = self.figure.add_subplot(111)
             ax.set_facecolor(COLORS["panel"])
             ax.text(
@@ -2840,181 +1132,142 @@ class SpyderTradingDashboard(QMainWindow):
             self.canvas.draw()
             return
 
-        # ── compute per-day indicators ────────────────────────────────────────
-        prev_ind: ChartIndicators | None = None
-        tod_ind:  ChartIndicators | None = None
+        # --- Fixed 78-slot session skeleton: slots 0–77 map to 9:30–15:55 (5-min bars) ---
+        # Slot index = (bar_minutes_since_midnight - 570) // 5  where 570 = 9h30m
+        TOTAL_SLOTS = 78  # 6.5 hours × 12 bars/hour
+        OPEN_MINUTES = 9 * 60 + 30  # 570
 
-        if have_prev:
-            prev_ind = _safe_ind(prev_h, prev_l, prev_c, prev_v)
+        slot_closes = np.full(TOTAL_SLOTS, np.nan)
+        slot_opens  = np.full(TOTAL_SLOTS, np.nan)
+        slot_highs  = np.full(TOTAL_SLOTS, np.nan)
+        slot_lows   = np.full(TOTAL_SLOTS, np.nan)
 
-        if have_today:
-            if have_prev:
-                # Today's pivots — derived from yesterday's H/L/C (standard formula)
-                ph, pl, pc = max(prev_h), min(prev_l), prev_c[-1]
-                tp = (ph + pl + pc) / 3
-                rng = ph - pl
-                today_pivots = PivotLevels(
-                    pivot=tp,
-                    r1=(2 * tp) - pl,
-                    r2=tp + rng,
-                    r3=ph + 2 * (tp - pl),
-                    s1=(2 * tp) - ph,
-                    s2=tp - rng,
-                    s3=pl - 2 * (tp - pl),
-                )
-                # MA and VWAP still from today's own bars
-                _base = _safe_ind(tod_h, tod_l, tod_c, tod_v)
-                if _base is not None:
-                    tod_ind = ChartIndicators(
-                        pivots=today_pivots,
-                        ma20=_base.ma20,
-                        vwap=_base.vwap,
-                    )
-                else:
-                    tod_ind = ChartIndicators(
-                        pivots=today_pivots,
-                        ma20=[None] * len(tod_c),
-                        vwap=_vwap(tod_h, tod_l, tod_c, tod_v),
-                    )
-            else:
-                # Only today available — use own-bars proxy (existing behaviour)
-                tod_ind = _safe_ind(tod_h, tod_l, tod_c, tod_v)
+        for i, dt in enumerate(dates_raw):
+            slot = (dt.hour * 60 + dt.minute - OPEN_MINUTES) // 5
+            if 0 <= slot < TOTAL_SLOTS:
+                slot_closes[slot] = closes_raw[i]
+                slot_opens[slot]  = opens_raw[i]
+                slot_highs[slot]  = highs_raw[i]
+                slot_lows[slot]   = lows_raw[i]
 
-        # ── index layout ──────────────────────────────────────────────────────
-        n_prev  = len(prev_c)
-        n_today = len(tod_c)
-        n_total = n_prev + n_today
+        # Previous close reference — use first bar's open so the dashed line is
+        # the "where we started" anchor (analogous to prior-close in Google Finance)
+        prev_close = opens_raw[0]
+        last_close = closes_raw[-1]
+        line_color = COLORS["positive"] if last_close >= prev_close else COLORS["negative"]
 
-        prev_xs  = list(range(n_prev))
-        today_xs = list(range(n_prev, n_total))
+        # --- Compute chart indicators on raw bars (audit §3) ---
+        # Load previous session's daily H/L/C so pivot levels stay fixed all
+        # day (floor-trader convention: pivots derive from yesterday, not today).
+        _prev_day_tuple: tuple[float, float, float] | None = None
+        _prev_day_file = self.data_file.parent / "spy_prev_day.json"
+        if _prev_day_file.exists():
+            try:
+                with open(_prev_day_file) as _pdf:
+                    _pd = json.load(_pdf)
+                _prev_day_tuple = (float(_pd["high"]), float(_pd["low"]), float(_pd["close"]))
+            except Exception:
+                pass
 
-        # ── axes ──────────────────────────────────────────────────────────────
+        try:
+            indicators = compute_chart_indicators(highs_raw, lows_raw, closes_raw, volumes_raw, prev_day=_prev_day_tuple)
+        except ValueError:
+            indicators = None
+
+        if indicators is not None:
+            pivot = indicators.pivots.pivot
+            r1 = indicators.pivots.r1
+            r2 = indicators.pivots.r2
+            r3 = indicators.pivots.r3
+            s1 = indicators.pivots.s1
+            s2 = indicators.pivots.s2
+            s3 = indicators.pivots.s3
+            ma_20_raw = indicators.ma20
+            vwap_raw = indicators.vwap
+        else:
+            pivot = r1 = r2 = r3 = s1 = s2 = s3 = last_close
+            ma_20_raw = [None] * len(closes_raw)
+            vwap_raw = closes_raw[:]
+
+        # Map MA(20) and VWAP from bar-index space to slot-index space
+        ma_slot_x: list[int] = []
+        ma_slot_y: list[float] = []
+        vwap_slot_x: list[int] = []
+        vwap_slot_y: list[float] = []
+        for i, dt in enumerate(dates_raw):
+            slot = (dt.hour * 60 + dt.minute - OPEN_MINUTES) // 5
+            if 0 <= slot < TOTAL_SLOTS:
+                if i < len(ma_20_raw) and ma_20_raw[i] is not None:
+                    ma_slot_x.append(slot)
+                    ma_slot_y.append(ma_20_raw[i])
+                if i < len(vwap_raw):
+                    vwap_slot_x.append(slot)
+                    vwap_slot_y.append(vwap_raw[i])
+
+        # --- Create plot ---
         ax = self.figure.add_subplot(111)
-        ax.set_facecolor(COLORS["panel"])
         ax.yaxis.tick_left()
         ax.yaxis.set_label_position("left")
+        ax.set_facecolor(COLORS["panel"])
 
-        # ── plot previous-session candles (dimmed) ────────────────────────────
-        if have_prev:
-            for i, x in enumerate(prev_xs):
-                color = COLORS["positive"] if prev_c[i] >= prev_o[i] else COLORS["negative"]
-                ax.plot([x, x], [prev_l[i], prev_h[i]],
-                        color=color, linewidth=1, alpha=0.40, zorder=3)
-                height = max(abs(prev_c[i] - prev_o[i]), 0.01)
-                ax.add_patch(patches.Rectangle(
-                    (x - 0.3, min(prev_o[i], prev_c[i])),
-                    0.6, height,
-                    facecolor=color, edgecolor=color, alpha=0.35, zorder=3,
-                ))
+        # x-axis always spans the full session: slot -0.5 → 78.5
+        # Slot 78 is used as the "4:00 PM" tick label (session end boundary)
+        ax.set_xlim(-0.5, 78.5)
 
-        # ── plot today's candles (full brightness) ────────────────────────────
-        if have_today:
-            for i, x in enumerate(today_xs):
-                color = COLORS["positive"] if tod_c[i] >= tod_o[i] else COLORS["negative"]
-                ax.plot([x, x], [tod_l[i], tod_h[i]],
-                        color=color, linewidth=1, alpha=0.90, zorder=3)
-                height = max(abs(tod_c[i] - tod_o[i]), 0.01)
-                ax.add_patch(patches.Rectangle(
-                    (x - 0.3, min(tod_o[i], tod_c[i])),
-                    0.6, height,
-                    facecolor=color, edgecolor=color, alpha=0.90, zorder=3,
-                ))
+        # Fibonacci Daily Pivot Points
+        ax.axhline(y=pivot, color="#FFFF00", linewidth=1.5, linestyle="-", alpha=0.7, label="Pivot", zorder=1)
+        ax.axhline(y=r1, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R1", zorder=1)
+        ax.axhline(y=r2, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R2", zorder=1)
+        ax.axhline(y=r3, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R3", zorder=1)
+        ax.axhline(y=s1, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S1", zorder=1)
+        ax.axhline(y=s2, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S2", zorder=1)
+        ax.axhline(y=s3, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S3", zorder=1)
 
-        # ── day separator & date labels ───────────────────────────────────────
-        if have_prev and have_today:
-            sep_x = n_prev - 0.5
-            ax.axvline(x=sep_x, color="#00B8D4", linewidth=1.5,
-                       linestyle="--", alpha=0.85, zorder=5)
-            blend = blended_transform_factory(ax.transData, ax.transAxes)
-            if prev_d:
-                ax.text(n_prev * 0.5, 0.98, prev_d[0].strftime("%b %d"),
-                        color="#00B8D4", fontsize=8, ha="center", va="top",
-                        transform=blend, zorder=6)
-            if tod_d:
-                ax.text(n_prev + n_today * 0.5, 0.98, tod_d[0].strftime("%b %d"),
-                        color="#00B8D4", fontsize=8, ha="center", va="top",
-                        transform=blend, zorder=6)
+        # Prior-close reference line (dashed grey — anchors the day's move)
+        ax.axhline(y=prev_close, color="#888888", linewidth=1.0, linestyle="--", alpha=0.8, zorder=1)
 
-        # ── pivot level lines per day ─────────────────────────────────────────
-        def _draw_pivots(pivots: PivotLevels, x0: float, x1: float,
-                         label_x: float, prefix: str = "") -> None:
-            dim = prefix != ""   # True → previous day (dimmed)
-            lw    = 1.0 if dim else 1.5
-            alpha = 0.38 if dim else 0.65
-            fsize = 7   if dim else 8
+        # MA(20) overlay
+        if ma_slot_x:
+            ax.plot(ma_slot_x, ma_slot_y, color="#00FFFF", linewidth=1.8, alpha=0.95, label="MA(20)", zorder=2)
 
-            def _hline(y: float, color: str, tag: str) -> None:
-                ax.hlines(y, x0, x1, colors=color, linewidth=lw,
-                          linestyles="-", alpha=alpha, zorder=1)
-                ax.text(label_x, y,
-                        f" {prefix}{'P' if tag == 'Pivot' else tag}: {y:.2f}",
-                        color=color, fontsize=fsize, va="center", zorder=6)
+        # VWAP overlay — smooth solid white line
+        if vwap_slot_x:
+            ax.plot(vwap_slot_x, vwap_slot_y, color="#FFFFFF", linewidth=1.5, linestyle="-", alpha=0.90, label="VWAP", zorder=4)
 
-            _hline(pivots.pivot, "#FFFF00", "Pivot")
-            _hline(pivots.r1,    "#00FF41", "R1")
-            _hline(pivots.r2,    "#00FF41", "R2")
-            _hline(pivots.r3,    "#00FF41", "R3")
-            _hline(pivots.s1,    "#FF1744", "S1")
-            _hline(pivots.s2,    "#FF1744", "S2")
-            _hline(pivots.s3,    "#FF1744", "S3")
+        # Candlestick bars — bodies via bar(), wicks via vlines()
+        slot_indices = np.arange(TOTAL_SLOTS)
+        valid = ~np.isnan(slot_closes)
+        xs      = slot_indices[valid]
+        op      = slot_opens[valid]
+        hi      = slot_highs[valid]
+        lo      = slot_lows[valid]
+        cl      = slot_closes[valid]
+        body_lo = np.minimum(op, cl)
+        body_hi = np.maximum(op, cl)
+        is_up   = cl >= op
+        bar_colors = np.where(is_up, COLORS["positive"], COLORS["negative"])
+        # Draw wicks first (behind bodies)
+        for xi, loi, hii, ci in zip(xs, lo, hi, np.where(is_up, COLORS["positive"], COLORS["negative"])):
+            ax.vlines(xi, loi, hii, color=ci, linewidth=0.8, zorder=2)
+        # Draw bodies
+        ax.bar(xs, height=body_hi - body_lo, bottom=body_lo, width=0.7,
+               color=bar_colors, align="center", edgecolor="none", linewidth=0, zorder=3)
 
-        label_pad = 0.5
-        if have_prev and prev_ind:
-            _draw_pivots(prev_ind.pivots,
-                         x0=0, x1=n_prev - 0.5,
-                         label_x=n_prev - 0.5 + label_pad,
-                         prefix="Y")
-        if have_today and tod_ind:
-            _draw_pivots(tod_ind.pivots,
-                         x0=(n_prev if have_prev else 0),
-                         x1=n_total - 1,
-                         label_x=n_total - 1 + label_pad,
-                         prefix="")
-        elif not have_prev and tod_ind:
-            # Only today — full-width pivots (existing behaviour)
-            _draw_pivots(tod_ind.pivots,
-                         x0=0, x1=n_total - 1,
-                         label_x=n_total - 1 + label_pad,
-                         prefix="")
+        # Pivot level labels on the right (just beyond slot 78)
+        label_x = 79
+        ax.text(label_x, pivot, f" P: {pivot:.2f}", color="#FFFF00", fontsize=9, va="center")
+        ax.text(label_x, r1, f" R1: {r1:.2f}", color="#00FF41", fontsize=8, va="center")
+        ax.text(label_x, r2, f" R2: {r2:.2f}", color="#00FF41", fontsize=8, va="center")
+        ax.text(label_x, r3, f" R3: {r3:.2f}", color="#00FF41", fontsize=8, va="center")
+        ax.text(label_x, s1, f" S1: {s1:.2f}", color="#FF073A", fontsize=8, va="center")
+        ax.text(label_x, s2, f" S2: {s2:.2f}", color="#FF073A", fontsize=8, va="center")
+        ax.text(label_x, s3, f" S3: {s3:.2f}", color="#FF073A", fontsize=8, va="center")
 
-        # ── VWAP — separate per session, resets at open ───────────────────────
-        if have_prev and prev_ind:
-            ax.plot(prev_xs, prev_ind.vwap,
-                    color="#BF00FF", linewidth=1.2, alpha=0.40, zorder=2)
-        if have_today and tod_ind:
-            ax.plot(today_xs, tod_ind.vwap,
-                    color="#BF00FF", linewidth=1.5, alpha=0.90, zorder=2,
-                    label="VWAP")
+        # Fixed hourly x-axis ticks — always present regardless of bars received
+        # slot 0=9:30, 6=10:00, 18=11:00, 30=12:00, 42=1:00, 54=2:00, 66=3:00, 78=4:00
+        ax.set_xticks([0, 6, 18, 30, 42, 54, 66, 78])
+        ax.set_xticklabels(["9:30", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00"], fontsize=9)
 
-        # ── MA(20) — continuous across both days ──────────────────────────────
-        all_closes = prev_c + tod_c
-        all_ma20   = _ma(all_closes, period=20)
-        ma_x = [i for i, v in enumerate(all_ma20) if v is not None]
-        ma_y = [v for v in all_ma20 if v is not None]
-        if ma_x:
-            ax.plot(ma_x, ma_y, color="#00B8D4", linewidth=1.5,
-                    alpha=0.80, zorder=2, label="MA(20)")
-
-        # ── x-axis labels ─────────────────────────────────────────────────────
-        all_dates = prev_d + tod_d
-        if all_dates:
-            n_ticks = min(9, n_total)
-            indices = np.linspace(0, n_total - 1, n_ticks, dtype=int)
-            ax.set_xticks(indices)
-            tick_labels = []
-            for idx in indices:
-                dt = all_dates[idx]
-                # Show "Apr 15\n09:30" at the first bar and at each day boundary
-                prev_idx = idx - 1
-                if idx == 0 or (prev_idx >= 0
-                                and all_dates[idx].date() != all_dates[prev_idx].date()):
-                    tick_labels.append(dt.strftime("%b %d\n%H:%M"))
-                else:
-                    tick_labels.append(dt.strftime("%H:%M"))
-            ax.set_xticklabels(tick_labels, fontsize=8)
-
-        # ── styling ───────────────────────────────────────────────────────────
-        ax.set_xlim(-1, n_total + 2)   # +2 gives room for right-side labels
         ax.grid(True, alpha=0.2, color=COLORS["grid"], zorder=0)
         ax.tick_params(colors="#FFFFFF")
         for spine in ax.spines.values():
@@ -3025,81 +1278,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def create_positions_table(self) -> QTreeWidget:
         """Create positions tree with strategy headers and expandable trade legs."""
-        tree = QTreeWidget()
-
-        # Leg-level columns under each strategy header
-        # Last empty column absorbs stretch so other columns don't widen
-        columns = ["     LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
-        tree.setColumnCount(len(columns))
-        tree.setHeaderLabels(columns)
-
-        # Center-align all header labels
-        for col in range(len(columns)):
-            tree.headerItem().setTextAlignment(
-                col, Qt.AlignmentFlag.AlignCenter,
-            )
-
-        tree.setAlternatingRowColors(False)
-        tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
-        tree.setRootIsDecorated(False)
-        tree.setAnimated(True)
-        tree.setIndentation(20)
-        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tree.customContextMenuRequested.connect(self._positions_context_menu)
-        tree.setStyleSheet(
-            f"""
-            QTreeWidget {{
-                font-size: 11px;
-                background-color: {COLORS["background"]};
-                border: none;
-                outline: none;
-            }}
-            QTreeWidget::item {{
-                padding: 2px 4px;
-                border-bottom: 1px solid {COLORS["border"]};
-            }}
-            QTreeWidget::item:selected {{
-                background-color: #2a3a4a;
-            }}
-            QTreeWidget::branch:has-children:!has-siblings:closed,
-            QTreeWidget::branch:closed:has-children:has-siblings {{
-                image: none;
-                border-image: none;
-            }}
-            QTreeWidget::branch:open:has-children:!has-siblings,
-            QTreeWidget::branch:open:has-children:has-siblings {{
-                image: none;
-                border-image: none;
-            }}
-            QHeaderView::section {{
-                background-color: {COLORS["panel"]};
-                color: {COLORS["text"]};
-                border: 1px solid {COLORS["border"]};
-                padding: 2px;
-                font-size: 12px;
-                font-weight: normal;
-            }}
-            QScrollBar:vertical {{
-                width: 8px;
-                background: {COLORS["panel"]};
-            }}
-        """,
-        )
-
-        # Set column widths for leg rows
-        tree.setColumnWidth(0, 100)  # LEG (wide enough for tree indentation)
-        tree.setColumnWidth(1, 80)   # STRIKE
-        tree.setColumnWidth(2, 45)   # CONT
-        tree.setColumnWidth(3, 65)   # EXPIRY
-        tree.setColumnWidth(4, 90)   # COST
-        tree.setColumnWidth(5, 90)   # P&L
-        # Column 6 (spacer) stretches to fill remaining space
-        tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-
-        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        return tree
+        return build_positions_table(self)
 
     def _positions_context_menu(self, pos):
         """Show right-click context menu for positions tree."""
@@ -3169,468 +1348,44 @@ class SpyderTradingDashboard(QMainWindow):
 
     def create_pnl_table(self) -> QTableWidget:
         """Create P&L performance table (UNCHANGED)"""
-        table = QTableWidget(4, 8)
-
-        headers = [
-            "PERIOD",
-            "P&L",
-            "WIN RATE",
-            "WIN/LOSS",
-            "PROFIT-F",
-            "SHARP",
-            "SORTINO",
-            "CALMAR",
-        ]
-        table.setHorizontalHeaderLabels(headers)
-
-        # Add placeholder data — updated by _refresh_pnl_table() when real metrics arrive
-        periods = ["TODAY", "WEEK", "MONTH", "YEAR"]
-        data = [
-            ("—", "—", "—", "—", "—", "—", "—"),
-            ("—", "—", "—", "—", "—", "—", "—"),
-            ("—", "—", "—", "—", "—", "—", "—"),
-            ("—", "—", "—", "—", "—", "—", "—"),
-        ]
-
-        for row, (period, values) in enumerate(zip(periods, data, strict=False)):
-            period_item = QTableWidgetItem(period)
-            period_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(row, 0, period_item)
-
-            pnl_item = QTableWidgetItem(values[0])
-            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            pnl_item.setForeground(QColor(COLORS["positive"]))
-            table.setItem(row, 1, pnl_item)
-
-            win_rate_item = QTableWidgetItem(values[1])
-            win_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 2, win_rate_item)
-
-            avg_item = QTableWidgetItem(values[2])
-            avg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 3, avg_item)
-
-            profit_factor_item = QTableWidgetItem(values[3])
-            profit_factor_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 4, profit_factor_item)
-
-            sharp_ratio_item = QTableWidgetItem(values[4])
-            sharp_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 5, sharp_ratio_item)
-
-            sortino_ratio_item = QTableWidgetItem(values[5])
-            sortino_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 6, sortino_ratio_item)
-
-            calmar_ratio_item = QTableWidgetItem(values[6])
-            calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 7, calmar_ratio_item)
-
-        table.setStyleSheet(
-            """
-            QTableWidget { font-size: 11px; }
-            QHeaderView::section { font-weight: normal; font-size: 11px; }
-            """,
-        )
-        table.verticalHeader().setVisible(False)
-        table.verticalHeader().setDefaultSectionSize(26)
-
-        # Stretch all columns; fix SHARP to a compact size so AVG WIN/LOSS gets more room
-        header = table.horizontalHeader()
-        header.setStretchLastSection(False)
-        for col in range(8):
-            header.setSectionResizeMode(col, header.ResizeMode.Stretch)
-        # SHARP data is short ("1.85") — fix it narrow to free space for AVG WIN/LOSS
-        table.setColumnWidth(5, 52)
-        header.setSectionResizeMode(5, header.ResizeMode.Fixed)
-
-        # Tooltips and alignment for column headers
-        _header_tooltips = {
-            2: "WIN RATE: percentage of trades that closed with a profit",
-            3: "WIN/LOSS: average winning trade size versus average losing trade size",
-            4: "PROFIT FACTOR: gross profit divided by gross loss — values above 1.0 indicate a profitable strategy",
-            5: "SHARPE RATIO: return earned above the risk-free rate per unit of total volatility — higher is better",
-            6: "SORTINO RATIO: like the sharpe ratio but only penalises downside volatility, not upside swings",
-            7: "CALMAR RATIO: annualised return divided by maximum drawdown — measures return relative to worst loss",
-        }
-        for col, tip in _header_tooltips.items():
-            item = table.horizontalHeaderItem(col)
-            if item:
-                item.setToolTip(tip)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        return table
+        return build_pnl_table()
 
     def create_unified_prometheus_metrics(self) -> QWidget:
         """Create the unified Prometheus Metrics table (8 clients in 4x2 grid + 2 empty rows)"""
-        container = QWidget()
-        container.setStyleSheet(
-            f"""
-            QWidget {{
-                background-color: {COLORS["panel"]};
-                border: 1px solid {COLORS["border"]};
-                border-radius: 5px;
-            }}
-        """,
-        )
-        container.setFixedHeight(200)
-
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 8, 10, 8)
-        main_layout.setSpacing(2)
-
-        # Title bar
-        title_layout = QHBoxLayout()
-
-        title_label = QLabel("PROMETHEUS METRICS MONITOR")
-        title_label.setStyleSheet(
-            f"""
-            color: {COLORS["text"]};
-            font-size: 14px;
-            font-weight: normal;
-            padding-bottom: 1px;
-        """,
-        )
-        title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        title_layout.addWidget(title_label)
-
-        title_layout.addStretch()
-
-        main_layout.addLayout(title_layout)
-        main_layout.addSpacing(8)
-
-        # Create the 6x4 grid (5 data rows + 1 header row)
-        grid = QGridLayout()
-        grid.setSpacing(2)
-        grid.setContentsMargins(0, 0, 0, 0)
-
-        # Column headers
-        headers = [
-            "SYSTEM HEALTH",
-            "BROKER API",
-            "DATA FEEDS",
-            "INTERNAL MODULES",
-        ]
-        for col, header in enumerate(headers):
-            header_label = QLabel(header)
-            header_label.setStyleSheet(
-                f"""
-                color: {COLORS["cyan"]};
-                font-size: 13px;
-                font-weight: normal;
-                padding: 2px;
-                border-bottom: 1px solid {COLORS["border"]};
-            """,
-            )
-            header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            grid.addWidget(header_label, 0, col)
-
-        # System Components (Column 1)
-        components = [
-            ("RISK MANAGER", "●"),
-            ("MARKET DATA", "●"),
-            ("STRATEGY ENGINE", "●"),
-            ("ML MODELS", "●"),
-            ("DATABASE", "●"),
-        ]
-
-        for row, (name, status) in enumerate(components, start=1):
-            component_widget = QWidget()
-            component_layout = QHBoxLayout()
-            component_layout.setContentsMargins(5, 1, 5, 1)
-            component_layout.setSpacing(3)
-
-            indicator = QLabel(status)
-            # Unknown until a real health event arrives (see 2026-04-15 audit §11c).
-            indicator.setStyleSheet(
-                "color: " + COLORS["text_dim"] + "; font-size: 14px;",
-            )
-            component_layout.addWidget(indicator)
-
-            label = QLabel(name)
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            component_layout.addWidget(label)
-            component_layout.addStretch()
-
-            component_widget.setLayout(component_layout)
-            self.system_components[name] = indicator
-            grid.addWidget(component_widget, row, 0)
-
-        # Broker API Services (Column 2) — Tradier REST API endpoints
-        broker_services = [
-            ("Orders", "tradier_orders"),
-            ("Account", "tradier_account"),
-            ("Market Data", "tradier_market"),
-            ("Options Chain", "tradier_options"),
-            ("Streaming", "tradier_streaming"),
-        ]
-        for row, (svc_name, svc_key) in enumerate(broker_services, start=1):
-            svc_widget = QWidget()
-            svc_layout = QHBoxLayout()
-            svc_layout.setContentsMargins(5, 1, 5, 1)
-            svc_layout.setSpacing(3)
-
-            indicator = QLabel("●")
-            indicator.setStyleSheet(
-                "color: " + COLORS["neutral"] + "; font-size: 14px;",
-            )
-            indicator.setToolTip(f"Tradier {svc_name} endpoint")
-            svc_layout.addWidget(indicator)
-
-            label = QLabel(svc_name)
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            svc_layout.addWidget(label)
-            svc_layout.addStretch()
-
-            svc_widget.setLayout(svc_layout)
-            self.client_indicators[svc_key] = indicator
-            grid.addWidget(svc_widget, row, 1)
-
-        # Data Feed Services (Column 3) — Massive feeds
-        data_services = [
-            ("Live Stream", "db_live"),
-            ("Historical", "db_historical"),
-            ("Options", "db_options"),
-            ("Book Data", "db_book"),
-            ("Replay", "db_replay"),
-        ]
-        for row, (feed_name, feed_key) in enumerate(data_services, start=1):
-            feed_widget = QWidget()
-            feed_layout = QHBoxLayout()
-            feed_layout.setContentsMargins(5, 1, 5, 1)
-            feed_layout.setSpacing(3)
-
-            indicator = QLabel("●")
-            indicator.setStyleSheet(
-                "color: " + COLORS["neutral"] + "; font-size: 14px;",
-            )
-            indicator.setToolTip(f"Massive {feed_name} feed")
-            feed_layout.addWidget(indicator)
-
-            label = QLabel(feed_name)
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            feed_layout.addWidget(label)
-            feed_layout.addStretch()
-
-            feed_widget.setLayout(feed_layout)
-            self.client_indicators[feed_key] = indicator
-            grid.addWidget(feed_widget, row, 2)
-
-        # Internal Modules (Column 4) - UNCHANGED
-        internal_modules = [
-            ("Custom Metrics", "custom_metrics"),
-            ("Risk Calculator", "risk_calc"),
-            ("ML Engine", "ml_engine"),
-            ("Options Analyzer", "options"),
-            ("Performance", "performance"),
-        ]
-
-        for row, (module_name, module_key) in enumerate(internal_modules, start=1):
-            module_widget = QWidget()
-            module_layout = QHBoxLayout()
-            module_layout.setContentsMargins(5, 1, 5, 1)
-            module_layout.setSpacing(3)
-
-            indicator = QLabel("●")
-            if module_key == "custom_metrics":
-                indicator.setStyleSheet(
-                    "color: " + COLORS["warning"] + "; font-size: 14px;",
-                )
-            else:
-                # Unknown until real health arrives (2026-04-15 audit §11c).
-                indicator.setStyleSheet(
-                    "color: " + COLORS["text_dim"] + "; font-size: 14px;",
-                )
-            module_layout.addWidget(indicator)
-
-            label = QLabel(module_name)
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            module_layout.addWidget(label)
-            module_layout.addStretch()
-
-            module_widget.setLayout(module_layout)
-            if not hasattr(self, "internal_module_indicators"):
-                self.internal_module_indicators = {}
-            self.internal_module_indicators[module_key] = indicator
-            grid.addWidget(module_widget, row, 3)
-
-        # Set equal column stretch
-        for col in range(4):
-            grid.setColumnStretch(col, 1)
-
-        # Set row heights
-        for row in range(1, 6):
-            grid.setRowMinimumHeight(row, 24)
-
-        main_layout.addLayout(grid)
-        main_layout.addStretch()
-
-        container.setLayout(main_layout)
-        return container
+        return build_unified_prometheus_metrics(self)
 
     # ==========================================================================
     # SIGNAL HANDLERS - ENHANCED WITH HEARTBEAT
     # ==========================================================================
     @Slot(bool, str)
     def on_connection_status_changed(self, connected: bool, status: str):
-        """Handle connection status change - FIXED to prevent override"""
-        self.connection_info.api_connected = connected
-        self.api_connected = connected
-
-        if connected:
-            self.api_connection_label.setText("TRADIER EXEC")
-            self.api_connection_label.setStyleSheet(f"color: {COLORS['positive']};")
-            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
-                self.api_connect_icon.setStyleSheet(f"color: {COLORS['positive']}; font-size: 13px;")
-                self.api_connect_icon.setToolTip("Click to disconnect from Tradier API")
-
-            self.add_system_log("✅ Connected to Tradier API")
-
-            # Refresh orders & positions table with live data
-            self._refresh_positions_table()
-
-            # Auto-recover from FROZEN when API reconnects during market hours
-            if (
-                hasattr(self, "data_status_label")
-                and self.data_status_label.text() == "FROZEN"
-            ):
-                import os
-                _env = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
-                _status = "PAPER" if _env != "live" else "LIVE"
-                self.mkt_data_connected = True
-                self.update_data_status(_status)
-                provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-                self._apply_mkt_provider_display(provider)
-        else:
-            self.api_connection_label.setText("TRADIER EXEC")
-            self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
-            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
-                self.api_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
-                self.api_connect_icon.setToolTip("Click to connect to Tradier API")
-
-            # Stop trading if active
-            if self.trading_active:
-                self.trading_active = False
-                self.connection_info.trading_active = False
-
-                self.start_btn.setStyleSheet(
-                    f"background-color: {COLORS['positive']}; color: black;",
-                )
-                self.start_btn.setText("START TRADING")
-
-                self.add_automation_log("Trading stopped - API connection lost")
-
-            if "MARKET CLOSED" in status:
-                self.add_system_log("📊 Market closed - API disconnected")
-            else:
-                self.add_system_log("🔌 Disconnected from Tradier API")
-
-        # Update data status (but don't override API status)
-        self.update_status_indicators()
+        """Handle connection status change and synchronize UI state."""
+        handle_connection_status_changed(self, connected, status)
 
     @Slot(str)
     def on_heartbeat_status_changed(self, status: str):
-        """Handle heartbeat status — turns TRADIER EXEC and DATA labels red on connection failure.
-
-        Args:
-            status: "connected" | "disconnected" | "error" | "warning"
-        """
-        if status in ("disconnected", "error", "offline"):
-            # Force both toolbar indicators to red immediately on heartbeat failure
-            if hasattr(self, "api_connection_label"):
-                self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
-            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
-                self.api_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
-            if hasattr(self, "mkt_provider_label"):
-                self.mkt_provider_label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 14px;")
-            if hasattr(self, "mkt_connect_icon") and self.mkt_connect_icon:
-                self.mkt_connect_icon.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px;")
-        elif status == "connected":
-            # Restore both labels from actual connection state (safety net)
-            exec_color = COLORS["positive"] if getattr(self, "api_connected", False) else COLORS["negative"]
-            if hasattr(self, "api_connection_label"):
-                self.api_connection_label.setStyleSheet(f"color: {exec_color};")
-            if hasattr(self, "api_connect_icon") and self.api_connect_icon:
-                self.api_connect_icon.setStyleSheet(f"color: {exec_color}; font-size: 13px;")
-            import os
-            provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-            self._apply_mkt_provider_display(provider)
-        # "warning" (pre-check pulse) intentionally does not change label colors
+        """Handle heartbeat status transitions for toolbar indicators."""
+        handle_heartbeat_status_changed(self, status)
 
     @Slot(str)
     def on_market_data_status_changed(self, status: str):
-        """Handle market data status change and update provider connection indicator."""
-        was_connected = self.mkt_data_connected
-        previous_status = self.connection_info.market_data_status
-        if status in ("LIVE", "PAPER"):
-            self.mkt_data_connected = True
-            resolved_status = self.determine_data_status()
-            self.update_data_status(resolved_status)
-            self.connection_info.market_data_status = resolved_status
-        elif status == "EOD":
-            # Market closed but API still reachable — show EOD, keep provider green
-            self.mkt_data_connected = True
-            self.update_data_status("EOD")
-            self.connection_info.market_data_status = "EOD"
-        else:
-            self.mkt_data_connected = False
-            self.connection_info.market_data_status = "NONE"
-            if self.trading_active:
-                self.trading_active = False
-                self.connection_info.trading_active = False
-
-                self.start_btn.setStyleSheet(
-                    f"background-color: {COLORS['positive']}; color: black;",
-                )
-                self.start_btn.setText("START TRADING")
-
-                self.add_automation_log("Trading stopped - Market data lost")
-
-        # Refresh provider label color if connection state changed
-        if was_connected != self.mkt_data_connected:
-            import os
-            provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-            self._apply_mkt_provider_display(provider)
+        """Handle market-data status transitions from the worker."""
+        handle_market_data_status_changed(self, status)
 
     @Slot(dict)
     def on_market_data_updated(self, data: dict):
-        """Handle market data update - only if not using real data"""
-        if self.real_data_active:
-            return  # Skip simulation updates when using real data
-
-        try:
-            for symbol, market_info in data.items():
-                if symbol in self.symbol_widgets:
-                    self.symbol_widgets[symbol].update_data(market_info)
-
-            self.market_data.update(data)
-
-            # Keep signal panel live-data in sync (simulation path).
-            if self.signal_panel is not None:
-                _sp = {}
-                for _sym in ("VIX", "SKEW", "GEX", "DEX", "OGL", "DIX", "SWAN"):
-                    _e = data.get(_sym)
-                    if isinstance(_e, dict) and _e.get("last") is not None:
-                        _sp[_sym] = _e["last"]
-                if _sp:
-                    self.signal_panel.update_live_data(_sp)
-
-        except Exception as e:
-            self.logger.exception("Error updating market data: %s", e)
+        """Handle market data updates from the market worker."""
+        handle_market_data_updated(self, data)
 
     @Slot(str)
     def on_market_error(self, error: str):
         """Handle market error"""
-        self.add_system_log(f"❌ Market error: {error}")
+        handle_market_error(self, error)
 
     @Slot(str)
     def on_heartbeat_received(self, message: str):
         """Handle heartbeat message - FIXED to route to system log"""
-        # Route heartbeat messages to system log (not automation log)
-        self.add_system_log(message)
+        handle_heartbeat_received(self, message)
 
     def toggle_api_connection(self, event):
         """Toggle API connection when clicking on status - UNCHANGED"""
@@ -3739,6 +1494,45 @@ class SpyderTradingDashboard(QMainWindow):
         for order in orders[:ok]:
             self.add_system_log(f"✅ Cancelled order #{order.get('id')}")
         return ok, fail
+
+    def _open_trade_audit_dialog(self) -> None:
+        """Open (or raise) the Trade Audit dialog with the cached closed-spread log.
+
+        The dialog is held as a non-modal singleton so the user can keep it
+        open alongside the dashboard. Subsequent worker emits push fresh
+        rows in via update_trades(), so the dialog reflects new closes
+        without requiring a manual refresh.
+        """
+        from Spyder.SpyderG_GUI.SpyderG22_TradeAuditDialog import TradeAuditDialog
+        existing = getattr(self, "_trade_audit_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.update_trades(self._closed_trades_cache)
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dlg = TradeAuditDialog(self._closed_trades_cache, parent=self)
+        dlg.finished.connect(lambda *_: setattr(self, "_trade_audit_dialog", None))
+        self._trade_audit_dialog = dlg
+        dlg.show()
+
+    def _open_decision_log_dialog(self) -> None:
+        """Open (or raise) the Decision Log dialog.
+
+        Shows the gate-by-gate JSON-lines audit records written by R08 for
+        every 30-second poll.  The dialog auto-refreshes while open; it is
+        a non-modal singleton so it can stay open beside the dashboard.
+        """
+        from Spyder.SpyderG_GUI.SpyderG23_DecisionLogDialog import DecisionLogDialog
+        existing = getattr(self, "_decision_log_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.force_refresh()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dlg = DecisionLogDialog(parent=self)
+        dlg.finished.connect(lambda *_: setattr(self, "_decision_log_dialog", None))
+        self._decision_log_dialog = dlg
+        dlg.show()
 
     def _refresh_positions_table(self) -> None:
         """Fetch live orders & positions from Tradier and repopulate the table.
@@ -3862,6 +1656,125 @@ class SpyderTradingDashboard(QMainWindow):
             QModelIndex(),
             True,
         )
+
+    def _render_paper_spreads_in_tree(self, spreads_detail: list) -> None:
+        """Populate ``positions_table`` with paper-engine spread rows.
+
+        Replaces the legacy 'Paper trading mode — positions tracked by paper
+        engine' placeholder with a tree of spread parents (column-spanned
+        header) and per-leg children. Called from ``_refresh_spreads_panel``
+        on every R08 worker emit while in paper mode.
+
+        Each spread parent shows: structure label, strikes, qty, credit,
+        live MTM, DTE, and stop-loss arming status. Children show one row
+        per leg with the option symbol, side, qty, expiry, and entry mark.
+        Layout matches the existing 7-col tree (LEG/STRIKE/CONT/EXPIRY/
+        COST/P&L/(close-btn)) so the live-mode flows remain unchanged.
+        """
+        from datetime import date as _date, datetime as _dt
+
+        self.positions_table.clear()
+
+        if not spreads_detail:
+            empty = QTreeWidgetItem(self.positions_table)
+            empty.setText(0, "Paper trading — no open spreads")
+            empty.setForeground(0, Qt.GlobalColor.gray)
+            self.positions_table.setFirstColumnSpanned(0, QModelIndex(), True)
+            return
+
+        today = _date.today()
+        for sp in spreads_detail:
+            # ── Parent row: spread summary ───────────────────────────────
+            structure = str(sp.get("structure") or sp.get("type") or "Spread").upper()
+            short_k = sp.get("short_strike", 0.0)
+            long_k = sp.get("long_strike", 0.0)
+            qty = int(sp.get("qty", 0))
+            credit = float(sp.get("credit", 0.0))
+            mtm = float(sp.get("mtm_pnl", 0.0))
+            stop_armed = sp.get("stop_loss_armed", True)  # default True after Phase 2
+            origin = str(sp.get("origin") or "AI").upper()
+            opened_at = float(sp.get("opened_at") or 0.0)
+
+            # Entry timestamp formatted YYYY-MM-DD HH:MM (skip if missing)
+            ts_str = ""
+            if opened_at > 0:
+                try:
+                    ts_str = _dt.fromtimestamp(opened_at).strftime("%Y-%m-%d %H:%M")
+                except (OSError, ValueError, OverflowError):
+                    ts_str = ""
+
+            # DTE from ISO expiration if present.
+            exp_str = str(sp.get("expiration", "") or "")
+            dte_str = "—"
+            if exp_str:
+                try:
+                    yyyy, mm, dd = exp_str[:10].split("-")
+                    dte = (_date(int(yyyy), int(mm), int(dd)) - today).days
+                    dte_str = f"{dte:02d}"
+                except (ValueError, TypeError):
+                    pass
+
+            # Net P&L % of credit received (premium kept).
+            credit_dollars = credit * 100.0 * qty
+            pnl_pct = (mtm / credit_dollars * 100.0) if credit_dollars > 0 else 0.0
+            mtm_sign = "+" if mtm >= 0 else "−"
+
+            stop_glyph = "🛡" if stop_armed else "•"
+            ts_field = f"{ts_str}  │  " if ts_str else ""
+            header = (
+                f"{stop_glyph}  {ts_field}"
+                f"STRATEGY TRIGGERED BY {origin} : {structure}  │  "
+                f"DTE: {dte_str}  │  STATUS: OPEN  │  "
+                f"NET P&L {mtm_sign}${abs(mtm):,.2f}  ({pnl_pct:+.1f}%)"
+            )
+            parent = QTreeWidgetItem(self.positions_table)
+            parent.setText(0, header)
+            # Colour by MTM sign.
+            parent_col = (
+                Qt.GlobalColor.green if mtm >= 0 else Qt.GlobalColor.red
+            )
+            parent.setForeground(0, parent_col)
+            self.positions_table.setFirstColumnSpanned(
+                self.positions_table.indexOfTopLevelItem(parent),
+                QModelIndex(),
+                True,
+            )
+            parent.setExpanded(False)  # collapsed by default — keeps view compact
+
+            # ── Leg children — one row per option leg ───────────────────
+            legs = sp.get("legs") or []
+            if not legs:
+                # Fallback: synthesize from short/long strike when worker
+                # didn't include a per-leg breakdown.
+                legs = [
+                    {
+                        "side": "SELL",
+                        "strike": short_k,
+                        "qty": qty,
+                        "type": "PUT" if "PUT" in structure else "CALL",
+                    },
+                    {
+                        "side": "BUY",
+                        "strike": long_k,
+                        "qty": qty,
+                        "type": "PUT" if "PUT" in structure else "CALL",
+                    },
+                ]
+            for leg in legs:
+                child = QTreeWidgetItem(parent)
+                side = str(leg.get("side", "—")).upper()
+                strike = leg.get("strike", 0.0)
+                leg_type = str(leg.get("type", "")).upper()
+                child.setText(0, f"  {side}")
+                child.setText(1, f"{strike:.0f}{leg_type[:1]}")
+                child.setText(2, str(int(leg.get("qty", qty))))
+                child.setText(3, exp_str[:10] if exp_str else "—")
+                mark = leg.get("mark") or leg.get("entry_mark")
+                if mark is not None:
+                    try:
+                        child.setText(4, f"${float(mark):.2f}")
+                    except (TypeError, ValueError):
+                        pass
 
     def _cancel_order_by_id(self, order_id: int) -> None:
         """Cancel a single order by Tradier order ID (called from row close button)."""
@@ -4082,6 +1995,10 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _apply_mode_change(self, new_mode: TradingMode):
         """Internal: commit trading mode switch and refresh all dependent UI."""
+        # ── Snapshot outgoing mode before committing the switch ───────────────
+        old_mode = self.trading_mode
+        self._positions_snapshot_by_mode[old_mode] = self._snapshot_positions_table()
+
         self.trading_mode = new_mode
         is_paper = new_mode == TradingMode.PAPER
 
@@ -4111,6 +2028,12 @@ class SpyderTradingDashboard(QMainWindow):
         import os
         current_provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
         self._apply_mkt_provider_display(current_provider)
+
+        # ── Restore incoming mode's previously saved table contents ───────────
+        saved_positions = self._positions_snapshot_by_mode.get(new_mode)
+        if saved_positions:
+            self._restore_positions_snapshot(saved_positions)
+        self._refresh_pnl_table(self._pnl_stats_by_mode.get(new_mode, {}))
 
     def _update_pnl_title(self):
         """Update the P&L PERFORMANCE title label text and color based on trading mode."""
@@ -4151,6 +2074,64 @@ class SpyderTradingDashboard(QMainWindow):
             f"background-color: {COLORS['orange']}; color: black; {_active_base}"
             if not is_live else _inactive_base
         )
+
+    # ── Per-mode snapshot helpers ─────────────────────────────────────────────
+
+    def _snapshot_positions_table(self) -> list:
+        """Serialize the current positions QTreeWidget into a plain list of dicts.
+
+        Each entry represents one top-level row and its children so that the
+        snapshot can be fully restored via ``_restore_positions_snapshot()``.
+        """
+        if not self.positions_table:
+            return []
+        ncols = self.positions_table.columnCount()
+        snapshot = []
+        for i in range(self.positions_table.topLevelItemCount()):
+            item = self.positions_table.topLevelItem(i)
+            entry = {
+                "texts": [item.text(c) for c in range(ncols)],
+                "foreground": item.foreground(0).color().name(),
+                "span": True,
+                "children": [
+                    [item.child(j).text(c) for c in range(ncols)]
+                    for j in range(item.childCount())
+                ],
+            }
+            snapshot.append(entry)
+        return snapshot
+
+    def _restore_positions_snapshot(self, snapshot: list) -> None:
+        """Repopulate the positions table from a previously captured snapshot.
+
+        Restores text, foreground colour, column spanning, and child rows.
+        The per-order cancel buttons are intentionally omitted because the
+        orders they referenced belong to a different mode session.
+        """
+        if not self.positions_table or not snapshot:
+            return
+        from PySide6.QtGui import QColor
+        self.positions_table.clear()
+        ncols = self.positions_table.columnCount()
+        for entry in snapshot:
+            parent = QTreeWidgetItem(self.positions_table)
+            texts = entry.get("texts", [])
+            for c in range(min(len(texts), ncols)):
+                parent.setText(c, texts[c])
+            color_name = entry.get("foreground", "")
+            if color_name:
+                parent.setForeground(0, QColor(color_name))
+            if entry.get("span"):
+                self.positions_table.setFirstColumnSpanned(
+                    self.positions_table.indexOfTopLevelItem(parent),
+                    QModelIndex(),
+                    True,
+                )
+            parent.setExpanded(True)
+            for child_texts in entry.get("children", []):
+                child = QTreeWidgetItem(parent)
+                for c in range(min(len(child_texts), ncols)):
+                    child.setText(c, child_texts[c])
 
     # kept for any external callers that may reference this name
     def _on_mode_changed(self, mode_text: str):
@@ -4310,7 +2291,11 @@ class SpyderTradingDashboard(QMainWindow):
         if self.acct_number_lbl:
             import os as _os_pt
             self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
-        _ic = 100_000.0  # matches _PaperTradingWorker(initial_capital=100_000.0) below
+        # Single source of truth for paper-trading starting capital. Used to
+        # initialise the worker AND to scale the E01 risk-manager limits so
+        # percentage-based dialog inputs map to the correct dollar amounts.
+        paper_initial_capital = 100_000.0
+        _ic = paper_initial_capital
         if self.settled_value:
             self.settled_value.setText(f"${_ic:,.2f}")
         if self.buying_value:
@@ -4322,7 +2307,27 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Create worker and thread
         self._paper_thread = QThread(self)
-        self._paper_worker = _PaperTradingWorker(initial_capital=100_000.0)
+        self._paper_worker = _PaperTradingWorker(initial_capital=paper_initial_capital)
+        # Pass current risk parameters before moving to thread (thread-safe at this point)
+        if self.current_risk_params:
+            self._paper_worker.set_risk_params(self.current_risk_params)
+        # Phase 1: build a real SpyderE01_RiskManager from the dialog params
+        # and inject it into the worker so validate_signal() gates every trade.
+        risk_manager = self._build_paper_risk_manager(initial_capital=paper_initial_capital)
+        if risk_manager is not None:
+            self._paper_worker.set_risk_manager(risk_manager)
+            self.add_system_log("✅ E-series RiskManager attached to paper worker")
+        # Phase 1: forward S07 regime metrics to the worker so it can gate
+        # entries on SWAN tail-risk, etc. The orchestrator is started by
+        # _start_metrics_orchestrator() early in __init__.
+        if self._metrics_orchestrator is not None:
+            try:
+                self._metrics_orchestrator.metrics_updated.connect(
+                    self._paper_worker.set_regime_metrics
+                )
+                self.add_system_log("✅ S07 regime metrics piped to paper worker")
+            except Exception as exc:
+                self.add_system_log(f"⚠️ Could not wire S07 → paper worker: {exc}")
         self._paper_worker.moveToThread(self._paper_thread)
 
         # Wire signals (all bound methods for proper QueuedConnection)
@@ -4333,6 +2338,7 @@ class SpyderTradingDashboard(QMainWindow):
         self._paper_worker.error.connect(self._on_paper_error)
         self._paper_worker.stopped.connect(self._on_paper_stopped)
         self._paper_worker.connection_ready.connect(self._on_paper_connection)
+        self._paper_worker.pivot_signal_updated.connect(self._on_pivot_signal_state)
 
         self._paper_thread.start()
         self.add_automation_log("PAPER TRADING — Connecting to Tradier sandbox…")
@@ -4347,6 +2353,427 @@ class SpyderTradingDashboard(QMainWindow):
     def _on_paper_status(self, msg: str):
         """Handle paper trading status update in the GUI thread."""
         self.add_system_log(f"Paper: {msg}")
+
+    @Slot(dict)
+    def _on_pivot_signal_state(self, state: dict) -> None:
+        """Forward S08 PMR signal state to the left-panel ``PMR`` row."""
+        widget = self.symbol_widgets.get("PMR") if hasattr(self, "symbol_widgets") else None
+        if widget is None:
+            return
+        try:
+            widget.update_pmr_state(state)
+        except (AttributeError, RuntimeError):
+            # Widget gone or wrong type — safe to ignore.
+            pass
+
+    @Slot(str)
+    def _on_symbol_widget_clicked(self, symbol: str) -> None:
+        """Handle a left-click on any market-overview row."""
+        if symbol == "PMR":
+            self._show_pmr_details_dialog()
+        elif symbol == "WRS":
+            self._show_wrs_details_dialog()
+        elif symbol == "PSR":
+            self._show_psr_details_dialog()
+
+    def _show_wrs_details_dialog(self) -> None:
+        """Open a modal dialog showing the live Walmart Recession Signal state."""
+        import math
+
+        # Pull latest data from S12 singleton (uses disk cache — no extra API call)
+        d: dict = {}
+        try:
+            from SpyderS_Signals.SpyderS12_WRSSignal import get_wrs_signal
+            d = get_wrs_signal().get_signal_dict()
+        except Exception:
+            pass
+
+        def _fmt(v, fmt=".4f", fallback="—"):
+            try:
+                return format(float(v), fmt) if not math.isnan(float(v)) else fallback
+            except (TypeError, ValueError):
+                return fallback
+
+        raw        = _fmt(d.get("wrs"),          ".4f")
+        pct_rank   = _fmt(d.get("wrs_pct_rank"), ".1f")
+        zscore     = _fmt(d.get("wrs_zscore"),   "+.2f")
+        ma_30      = _fmt(d.get("wrs_30d_ma"),   ".4f")
+        ma_90      = _fmt(d.get("wrs_90d_ma"),   ".4f")
+        yoy        = _fmt(d.get("yoy_change"),   "+.2f")
+        level      = d.get("wrs_signal_level", "NORMAL")
+        guidance   = d.get("strategy_guidance", "Insufficient data — using neutral stance.")
+        available  = ", ".join(d.get("basket_available") or []) or "—"
+        missing    = ", ".join(d.get("basket_missing")   or []) or "none"
+        data_start = str(d.get("data_start") or "—")
+        data_end   = str(d.get("data_end")   or "—")
+        crossover_date = str(d.get("last_crossover_date") or "—")
+        crossover_dir  = str(d.get("last_crossover_dir")  or "—")
+        error      = d.get("error") or ""
+
+        level_colors = {
+            "NORMAL":   "#5cffa0",
+            "CAUTION":  "#f2b134",
+            "WARNING":  "#ff9800",
+            "CRITICAL": "#FF073A",
+        }
+        level_color = level_colors.get(level, "#9bb")
+
+        if error:
+            status_html = f"<b style='color:#FF073A'>Error:</b> {error}"
+        else:
+            status_html = f"<b style='color:{level_color}'>{level}</b>"
+
+        html = f"""
+        <h2 style='margin-bottom:4px;'>WRS — Walmart Recession Signal</h2>
+        <p style='color:#9bb;'>Producer: <code>SpyderS12_WRSSignal</code> &nbsp;·&nbsp;
+        Consumer: strategy regime gate via <code>SpyderS07_CustomMetricsOrchestrator</code></p>
+
+        <h3>Live state</h3>
+        <p>Signal level: {status_html}</p>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>WMT / Luxury ratio</b></td><td>{raw}</td></tr>
+          <tr><td><b>Percentile rank (expanding)</b></td><td>{pct_rank}%</td></tr>
+          <tr><td><b>Z-score (252d rolling)</b></td><td>{zscore}</td></tr>
+          <tr><td><b>30-day MA</b></td><td>{ma_30}</td></tr>
+          <tr><td><b>90-day MA</b></td><td>{ma_90}</td></tr>
+          <tr><td><b>YoY change</b></td><td>{yoy}%</td></tr>
+          <tr><td><b>Last MA crossover</b></td><td>{crossover_date} ({crossover_dir})</td></tr>
+          <tr><td><b>Data range</b></td><td>{data_start} → {data_end}</td></tr>
+        </table>
+
+        <h3>Strategy guidance</h3>
+        <p style='font-style:italic;'>{guidance}</p>
+
+        <h3>Signal levels</h3>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b style='color:#5cffa0'>NORMAL</b></td><td>Pct-rank &lt; 60% — full strategy palette</td></tr>
+          <tr><td><b style='color:#f2b134'>CAUTION</b></td><td>60–75% — reduce allocation 20%, avoid longs</td></tr>
+          <tr><td><b style='color:#ff9800'>WARNING</b></td><td>75–90% — reduce 40%, defensive only</td></tr>
+          <tr><td><b style='color:#FF073A'>CRITICAL</b></td><td>&gt;90% — reduce 60%, iron condors only</td></tr>
+        </table>
+
+        <h3>Luxury basket</h3>
+        <p style='font-size:11px;'><b>Available ({len(d.get('basket_available') or [])}):</b> {available}</p>
+        <p style='font-size:11px;'><b>Missing:</b> {missing}</p>
+
+        <hr/>
+        <h3>How it works</h3>
+        <ol>
+          <li><b>Formula</b> — <code>WRS = Price(WMT) / mean(rebased luxury basket)</code>.
+              Rising ratio signals consumer rotation from luxury to discount → recession risk.</li>
+          <li><b>Luxury basket</b> — LVMUY, CFRUY, HESAY, PPRUY, BURBY, SWGAY, RACE, TPR, CPRI.
+              Each ticker is rebased to 100 at its own first print; equal-weight mean.</li>
+          <li><b>Data source</b> — Tradier <code>/markets/history</code> endpoint (primary);
+              yfinance fallback when API key is absent.</li>
+          <li><b>Refresh cadence</b> — 4-hour disk cache; computed once per session then
+              served from cache. S07 reads the cache on every orchestrator cycle.</li>
+          <li><b>Signal classification</b> — expanding percentile rank of the raw ratio
+              against its full history. Crossovers of 30d/90d MAs trigger early alerts.</li>
+        </ol>
+        """
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("WRS — Walmart Recession Signal (S12)")
+        dlg.setMinimumSize(680, 560)
+        v = QVBoxLayout(dlg)
+
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setHtml(html)
+        v.addWidget(body)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dlg.reject)
+        btns.accepted.connect(dlg.accept)
+        v.addWidget(btns)
+
+        dlg.exec()
+
+    def _show_psr_details_dialog(self) -> None:
+        """Open a modal dialog showing the live Pawn Shop Ratio state."""
+        import math
+
+        d: dict = {}
+        try:
+            from SpyderS_Signals.SpyderS13_PSRSignal import get_psr_signal, interpret_dual_signal
+            d = get_psr_signal().get_signal_dict()
+        except Exception:
+            pass
+
+        # Also pull WRS level for dual-signal interpretation
+        wrs_level = "NORMAL"
+        try:
+            from SpyderS_Signals.SpyderS12_WRSSignal import get_wrs_signal
+            wrs_d = get_wrs_signal().get_signal_dict()
+            wrs_level = wrs_d.get("wrs_signal_level", "NORMAL")
+        except Exception:
+            pass
+
+        def _fmt(v, fmt=".4f", fallback="—"):
+            try:
+                return format(float(v), fmt) if not math.isnan(float(v)) else fallback
+            except (TypeError, ValueError):
+                return fallback
+
+        raw        = _fmt(d.get("psr"),          ".4f")
+        pct_rank   = _fmt(d.get("psr_pct_rank"), ".1f")
+        zscore     = _fmt(d.get("psr_zscore"),   "+.2f")
+        ma_30      = _fmt(d.get("psr_30d_ma"),   ".4f")
+        ma_90      = _fmt(d.get("psr_90d_ma"),   ".4f")
+        yoy        = _fmt(d.get("psr_yoy_change"), "+.4f")
+        fcfs_px    = _fmt(d.get("psr_fcfs_price"), ".2f")
+        ezpw_px    = _fmt(d.get("psr_ezpw_price"), ".2f")
+        xlf_px     = _fmt(d.get("psr_xlf_price"),  ".2f")
+        level      = d.get("psr_signal_level", "NORMAL")
+        guidance   = d.get("psr_strategy_guidance", "Insufficient data — using neutral stance.")
+        data_start = str(d.get("psr_data_start") or "—")
+        data_end   = str(d.get("psr_data_end")   or "—")
+        crossover_date = str(d.get("psr_crossover_date") or "—")
+        crossover_dir  = str(d.get("psr_crossover_dir")  or "—")
+        error      = d.get("psr_error") or ""
+
+        level_colors = {
+            "NORMAL":   "#5cffa0",
+            "CAUTION":  "#f2b134",
+            "WARNING":  "#ff9800",
+            "CRITICAL": "#FF073A",
+        }
+        level_color = level_colors.get(level, "#9bb")
+
+        if error:
+            status_html = f"<b style='color:#FF073A'>Error:</b> {error}"
+        else:
+            status_html = f"<b style='color:{level_color}'>{level}</b>"
+
+        # Dual-signal assessment
+        try:
+            from SpyderS_Signals.SpyderS13_PSRSignal import interpret_dual_signal
+            dual = interpret_dual_signal(level, wrs_level)
+        except Exception:
+            dual = {
+                "regime": "UNKNOWN",
+                "description": "Dual-signal data unavailable.",
+                "trading_bias": "—",
+                "size_multiplier": "1.00",
+            }
+
+        dual_regime_colors = {
+            "HEALTHY":              "#5cffa0",
+            "MIDDLE_CLASS_PULLBACK":"#a0c4ff",
+            "WORKING_CLASS_STRESS": "#f2b134",
+            "EARLY_DETERIORATION":  "#f2b134",
+            "BROAD_STRESS":         "#ff9800",
+            "SYSTEMIC_CRISIS":      "#FF073A",
+        }
+        dual_color = dual_regime_colors.get(dual.get("regime", ""), "#9bb")
+
+        html = f"""
+        <h2 style='margin-bottom:4px;'>PSR \u2014 Pawn Shop Ratio</h2>
+        <p style='color:#9bb;'>Producer: <code>SpyderS13_PSRSignal</code> &nbsp;\u00b7&nbsp;
+        Consumer: strategy regime gate via <code>SpyderS07_CustomMetricsOrchestrator</code></p>
+        <p style='color:#9bb; font-size:11px;'>Formula: <code>PSR = (FCFS + EZPW) / XLF</code>
+        &nbsp;\u00b7&nbsp; FCFS = FirstCash Holdings &nbsp;\u00b7&nbsp; EZPW = EZCORP &nbsp;\u00b7&nbsp;
+        XLF = Financial Select Sector SPDR</p>
+
+        <h3>Live state</h3>
+        <p>PSR signal level: {status_html}</p>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>(FCFS+EZPW) / XLF ratio</b></td><td>{raw}</td></tr>
+          <tr><td><b>Percentile rank (expanding)</b></td><td>{pct_rank}%</td></tr>
+          <tr><td><b>Z-score (252d rolling)</b></td><td>{zscore}</td></tr>
+          <tr><td><b>30-day MA</b></td><td>{ma_30}</td></tr>
+          <tr><td><b>90-day MA</b></td><td>{ma_90}</td></tr>
+          <tr><td><b>YoY change</b></td><td>{yoy}</td></tr>
+          <tr><td><b>Last MA crossover</b></td><td>{crossover_date} ({crossover_dir})</td></tr>
+          <tr><td><b>Data range</b></td><td>{data_start} \u2192 {data_end}</td></tr>
+        </table>
+
+        <h3>Component prices</h3>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>FCFS (FirstCash Holdings)</b></td><td>${fcfs_px}</td></tr>
+          <tr><td><b>EZPW (EZCORP)</b></td><td>${ezpw_px}</td></tr>
+          <tr><td><b>XLF (Financial Select Sector SPDR)</b></td><td>${xlf_px}</td></tr>
+        </table>
+
+        <h3>Strategy guidance</h3>
+        <p style='font-style:italic;'>{guidance}</p>
+
+        <h3>PSR signal levels</h3>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b style='color:#5cffa0'>NORMAL</b></td>
+              <td>Pct-rank &lt; 60% \u2014 banks healthy, credit flowing freely</td></tr>
+          <tr><td><b style='color:#f2b134'>CAUTION</b></td>
+              <td>60\u201375% \u2014 pawn sector outperforming; early credit tightening</td></tr>
+          <tr><td><b style='color:#ff9800'>WARNING</b></td>
+              <td>75\u201390% \u2014 significant working-class liquidity stress</td></tr>
+          <tr><td><b style='color:#FF073A'>CRITICAL</b></td>
+              <td>&gt;90% \u2014 systemic credit crunch; liquidity exhaustion</td></tr>
+        </table>
+
+        <hr/>
+        <h3>Dual-Signal Assessment (PSR \u00d7 WRS)</h3>
+        <p>WRS level: <b>{wrs_level}</b> &nbsp;\u00b7&nbsp; PSR level: <b style='color:{level_color}'>{level}</b></p>
+        <p>Macro regime: <b style='color:{dual_color}'>{dual.get('regime', '\u2014')}</b></p>
+        <p>{dual.get('description', '')}</p>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>Trading bias</b></td><td>{dual.get('trading_bias', '\u2014')}</td></tr>
+          <tr><td><b>Size multiplier</b></td><td>{dual.get('size_multiplier', '1.00')}\u00d7</td></tr>
+        </table>
+
+        <hr/>
+        <h3>How it works</h3>
+        <ol>
+          <li><b>Thesis</b> \u2014 When traditional credit tightens, working-class households
+              resort to pawn collateral loans (the &ldquo;bank of last resort&rdquo;). Pawn equities
+              outperform bank stocks precisely when the credit cycle rolls over.</li>
+          <li><b>Formula</b> \u2014 <code>PSR = (FCFS + EZPW) / XLF</code>.
+              Rising PSR = Wall Street pricing in credit crunch: banks face defaults
+              while pawn shops see surging demand.</li>
+          <li><b>Leading vs lagging</b> \u2014 PSR leads credit card write-offs, CPI, and
+              unemployment by several months. Borrowers pawn assets before they default
+              on primary debts or face eviction.</li>
+          <li><b>Data source</b> \u2014 Tradier <code>/markets/history</code> endpoint (primary);
+              yfinance fallback when API key is absent.</li>
+          <li><b>Refresh cadence</b> \u2014 4-hour disk cache; PSR moves on weekly/monthly
+              timescales. S07 reads the cache on every orchestrator cycle.</li>
+          <li><b>Signal classification</b> \u2014 expanding percentile rank of the raw ratio
+              against its full history since 2000. Crossovers of 30d/90d MAs trigger early alerts.</li>
+        </ol>
+        """
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("PSR — Pawn Shop Ratio (S13)")
+        dlg.setMinimumSize(700, 620)
+        v = QVBoxLayout(dlg)
+
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setHtml(html)
+        v.addWidget(body)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dlg.reject)
+        btns.accepted.connect(dlg.accept)
+        v.addWidget(btns)
+
+        dlg.exec()
+
+    def _show_pmr_details_dialog(self) -> None:
+        """Open a modal dialog explaining how the S08 PMR producer works and
+        showing the live state captured from the last ``pivot_signal_updated``
+        emission.
+        """
+        widget = self.symbol_widgets.get("PMR") if hasattr(self, "symbol_widgets") else None
+        state: dict = getattr(widget, "_last_pmr_state", None) or {}
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("PMR — Pivot Mean-Reversion Signal (S08)")
+        dlg.setMinimumSize(620, 520)
+        v = QVBoxLayout(dlg)
+
+        body = QTextEdit()
+        body.setReadOnly(True)
+
+        # --- Build live-state block ---------------------------------------
+        enabled = bool(state.get("enabled"))
+        available = bool(state.get("available"))
+        fired = bool(state.get("fired"))
+        direction = state.get("direction") or "—"
+        score = state.get("score")
+        score_str = f"{float(score):.1f}" if isinstance(score, (int, float)) else "—"
+        level_name = state.get("level_name") or "—"
+        level_price = state.get("level_price")
+        level_price_str = (
+            f"{float(level_price):.2f}" if isinstance(level_price, (int, float)) else "—"
+        )
+        atr_distance = state.get("atr_distance")
+        atr_str = (
+            f"{float(atr_distance):.2f}" if isinstance(atr_distance, (int, float)) else "—"
+        )
+        reasons = state.get("reasons") or []
+        penalties = state.get("penalties") or []
+
+        if not available:
+            status_line = "<b style='color:#FF073A'>N/A</b> — S08 module not importable"
+        elif not enabled:
+            status_line = (
+                "<b style='color:#FF073A'>DISABLED</b> "
+                "(set <code>SPYDER_PIVOT_MR_ENABLED=1</code> to enable)"
+            )
+        elif not fired:
+            status_line = "<b style='color:#f2b134'>ARMED</b> — watching for setup"
+        else:
+            arrow = "▼" if direction == "fade_resistance" else "▲"
+            status_line = (
+                f"<b style='color:#5cffa0'>FIRED</b> {arrow} {direction} @ "
+                f"{level_name} {level_price_str} (score {score_str})"
+            )
+
+        reasons_html = (
+            "<ul>" + "".join(f"<li>{r}</li>" for r in reasons) + "</ul>"
+            if reasons else "<i>none</i>"
+        )
+        penalties_html = (
+            "<ul>" + "".join(f"<li>{p}</li>" for p in penalties) + "</ul>"
+            if penalties else "<i>none</i>"
+        )
+
+        html = f"""
+        <h2 style='margin-bottom:4px;'>PMR — Pivot Mean-Reversion Signal</h2>
+        <p style='color:#9bb;'>Producer: <code>SpyderS08_PivotMeanReversionSignal</code> &nbsp;·&nbsp;
+        Consumer: <code>SpyderD25_UnifiedCreditSpreadEngine</code> (via R08 paper worker)</p>
+
+        <h3>Live state</h3>
+        <p>{status_line}</p>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>Direction</b></td><td>{direction}</td></tr>
+          <tr><td><b>Score</b></td><td>{score_str}</td></tr>
+          <tr><td><b>Nearest level</b></td><td>{level_name} @ {level_price_str}</td></tr>
+          <tr><td><b>ATR distance</b></td><td>{atr_str}</td></tr>
+        </table>
+
+        <h3>Reasons</h3>
+        {reasons_html}
+
+        <h3>Penalties</h3>
+        {penalties_html}
+
+        <hr/>
+        <h3>How it works</h3>
+        <ol>
+          <li><b>Pivots</b> — classical daily floor pivots (P, R1/R2/R3, S1/S2/S3)
+              are computed at the open from the prior session's H/L/C.</li>
+          <li><b>Proximity filter</b> — current SPY price must be within an ATR-based
+              distance to a resistance (fade-resistance) or support (fade-support) level.</li>
+          <li><b>Confirmation</b> — recent price action must show stalling behaviour
+              (wick rejection, MACD divergence, volume fade) at that level.</li>
+          <li><b>Regime gate</b> — signal is suppressed in strong-trend regimes
+              (ADX &gt; threshold, HMM trending state).</li>
+          <li><b>Score</b> — final confidence score (0–100) blends proximity,
+              confirmation strength and regime favourability.</li>
+          <li><b>Downstream</b> — D25 reads the signal each tick; if <code>fired</code>
+              and score exceeds the threshold, it biases credit-spread selection toward
+              the fade side (bear-call on fade-resistance, bull-put on fade-support).</li>
+        </ol>
+
+        <h3>Display legend</h3>
+        <ul>
+          <li><b>DIS</b> — producer disabled (env flag off)</li>
+          <li><b>N/A</b> — S08 module not importable</li>
+          <li><b>ARMED</b> — enabled, watching, not yet fired</li>
+          <li><b>▼ &lt;score&gt;</b> — fade-resistance fired (bearish bias)</li>
+          <li><b>▲ &lt;score&gt;</b> — fade-support fired (bullish bias)</li>
+        </ul>
+        """
+        body.setHtml(html)
+        v.addWidget(body)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dlg.reject)
+        btns.accepted.connect(dlg.accept)
+        v.addWidget(btns)
+
+        dlg.exec()
 
     @Slot(dict)
     def _on_paper_position(self, data: dict):
@@ -4384,6 +2811,186 @@ class SpyderTradingDashboard(QMainWindow):
             )
         else:
             self.add_system_log(f"Paper: SPY ${spy_last:.2f} | No position | Equity: ${equity:,.2f}")
+
+        # Phase 2: refresh spreads & volatility panel
+        self._refresh_spreads_panel(data)
+
+    def _refresh_spreads_panel(self, data: dict) -> None:
+        """Populate the 'SPREADS & VOLATILITY' panel from a worker emit.
+
+        Accepts the full ``position_update`` payload and uses the following
+        fields (all optional — missing values degrade gracefully):
+            open_spreads_detail : list[dict] — per-spread rows
+            spreads_unrealized_pnl : float   — aggregate MTM
+            atm_iv : float | None            — last sampled ATM IV
+            iv_rank : float | None           — rolling 0-100 rank
+        """
+        # IV labels
+        atm_iv = data.get("atm_iv")
+        iv_rank = data.get("iv_rank")
+        if self.atm_iv_label is not None:
+            self.atm_iv_label.setText(
+                f"ATM IV: {atm_iv*100:.1f}%" if isinstance(atm_iv, (int, float)) else "ATM IV: —"
+            )
+        if self.iv_rank_label is not None:
+            if isinstance(iv_rank, (int, float)):
+                # Colour: green ≥50, amber 25-50, red <25
+                if iv_rank >= 50:
+                    col = COLORS["positive"]
+                elif iv_rank >= 25:
+                    col = COLORS.get("warning", COLORS["text"])
+                else:
+                    col = COLORS["negative"]
+                self.iv_rank_label.setText(f"IV Rank: {iv_rank:.0f}")
+                self.iv_rank_label.setStyleSheet(f"color: {col}; font-size: 11px;")
+            else:
+                self.iv_rank_label.setText("IV Rank: —")
+                self.iv_rank_label.setStyleSheet(
+                    f"color: {COLORS['text']}; font-size: 11px;"
+                )
+
+        # Summary line
+        spreads_detail = data.get("open_spreads_detail") or []
+        spreads_mtm = data.get("spreads_unrealized_pnl", 0.0)
+
+        # Cache the closed-trade audit log (Phase 5) so the Trade Audit dialog
+        # can render it on demand without depending on a live worker emit.
+        closed = data.get("closed_trades")
+        if closed is not None:
+            self._closed_trades_cache = list(closed)
+            # Push to an open dialog so user sees new closes without reopen.
+            dlg = getattr(self, "_trade_audit_dialog", None)
+            if dlg is not None and dlg.isVisible():
+                try:
+                    dlg.update_trades(self._closed_trades_cache)
+                except Exception:  # noqa: BLE001 — best-effort UI refresh
+                    pass
+        if self.spreads_summary_label is not None:
+            col = COLORS["positive"] if spreads_mtm >= 0 else COLORS["negative"]
+            self.spreads_summary_label.setText(
+                f"Open: {len(spreads_detail)}   MTM: ${spreads_mtm:+,.2f}"
+            )
+            self.spreads_summary_label.setStyleSheet(f"color: {col}; font-size: 11px;")
+
+        # Buying-power gauge (defined-risk: BP used = Σ max_loss × qty)
+        if self.bp_used_label is not None:
+            bp_used = 0.0
+            for p in spreads_detail:
+                try:
+                    bp_used += float(p.get("max_loss_per_contract", 0.0)) * int(p.get("qty", 0)) * 100.0
+                except (TypeError, ValueError):
+                    continue
+            cap = float(getattr(self, "_paper_initial_capital", 100_000.0) or 100_000.0)
+            pct = (bp_used / cap * 100.0) if cap > 0 else 0.0
+            self.bp_used_label.setText(f"BP Used: ${bp_used:,.0f} / ${cap:,.0f} ({pct:.1f}%)")
+            # Colour cue when buying-power utilisation is high.
+            if pct >= 50:
+                bp_col = COLORS["negative"]
+            elif pct >= 25:
+                bp_col = COLORS.get("warning", COLORS["text"])
+            else:
+                bp_col = COLORS["text"]
+            self.bp_used_label.setStyleSheet(f"color: {bp_col}; font-size: 11px;")
+
+        # Realized today (R08 emits cumulative session realized)
+        if self.realized_today_label is not None:
+            realized = data.get("realized_pnl_today")
+            if realized is None:
+                realized = data.get("realized_pnl", 0.0)
+            try:
+                r = float(realized)
+            except (TypeError, ValueError):
+                r = 0.0
+            r_col = COLORS["positive"] if r >= 0 else COLORS["negative"]
+            self.realized_today_label.setText(f"Realized: ${r:+,.2f}")
+            self.realized_today_label.setStyleSheet(f"color: {r_col}; font-size: 11px;")
+
+        # Populate positions_table tree with paper spreads (paper mode only).
+        # Live mode keeps the broker-driven _refresh_positions_table flow.
+        if (
+            getattr(self, "trading_mode", None) == TradingMode.PAPER
+            and self.positions_table is not None
+        ):
+            self._render_paper_spreads_in_tree(spreads_detail)
+
+        # Table rows (legacy spreads_table — None after the unified-strip refactor).
+        if self.spreads_table is None:
+            pass
+        else:
+            from PySide6.QtGui import QColor
+            from PySide6.QtWidgets import QTableWidgetItem
+            self.spreads_table.setRowCount(len(spreads_detail))
+            for row, p in enumerate(spreads_detail):
+                vals = [
+                    str(p.get("id", "")),
+                    str(p.get("expiration", "")),
+                    f"{p.get('short_strike', 0):.0f}/{p.get('long_strike', 0):.0f}",
+                    str(p.get("qty", 0)),
+                    f"${p.get('credit', 0.0):.2f}",
+                    f"${p.get('debit', 0.0):.2f}",
+                    f"${p.get('mtm_pnl', 0.0):+,.2f}",
+                ]
+                for col, text in enumerate(vals):
+                    item = QTableWidgetItem(text)
+                    if col == 6:  # MTM P&L
+                        pnl = float(p.get("mtm_pnl", 0.0))
+                        item.setForeground(
+                            QColor(COLORS["positive"] if pnl >= 0 else COLORS["negative"])
+                        )
+                    self.spreads_table.setItem(row, col, item)
+
+        # Phase 3: portfolio-aggregate Greeks labels.
+        greeks = data.get("portfolio_greeks") or {}
+        if self.port_delta_label is not None:
+            d = greeks.get("delta")
+            self.port_delta_label.setText(
+                f"Δ: {d:+,.1f}" if isinstance(d, (int, float)) else "Δ: —"
+            )
+        if self.port_gamma_label is not None:
+            g = greeks.get("gamma")
+            self.port_gamma_label.setText(
+                f"Γ: {g:+,.2f}" if isinstance(g, (int, float)) else "Γ: —"
+            )
+        if self.port_vega_label is not None:
+            v = greeks.get("vega")
+            self.port_vega_label.setText(
+                f"V: {v:+,.1f}" if isinstance(v, (int, float)) else "V: —"
+            )
+        # Phase 7: higher-order Greeks (charm / vanna) from N04 portfolio_greeks.
+        if self.port_charm_label is not None:
+            charm = greeks.get("charm")
+            self.port_charm_label.setText(
+                f"Chr: {charm:+.3f}" if isinstance(charm, (int, float)) else "Chr: —"
+            )
+        if self.port_vanna_label is not None:
+            vanna = greeks.get("vanna")
+            self.port_vanna_label.setText(
+                f"Van: {vanna:+.3f}" if isinstance(vanna, (int, float)) else "Van: —"
+            )
+
+        # Update RISK MONITOR Greek bars (delta/gamma/theta/vega progress bars).
+        # Bar scales match the GreekBar constructor in G20_DashboardBuilder:
+        #   delta (-100…100), gamma (-10…10), theta (-400…0), vega (-600…0).
+        if self.greek_bars is not None:
+            _bar_cfg = [
+                ("delta", -100.0, 100.0),
+                ("gamma", -10.0,  10.0),
+                ("theta", -400.0, 0.0),
+                ("vega",  -600.0, 0.0),
+            ]
+            for _key, _lo, _hi in _bar_cfg:
+                _bar = self.greek_bars.get(_key)
+                if _bar is None:
+                    continue
+                _val = greeks.get(_key, 0.0)
+                if not isinstance(_val, (int, float)):
+                    _val = 0.0
+                # Risk pct = distance from zero (safe) toward max exposure.
+                _scale = max(abs(_lo), abs(_hi))
+                _pct = abs(_val) / _scale if _scale else 0.0
+                _pct = min(max(_pct, 0.0), 1.0)
+                _status = "HIGH RISK" if _pct >= 0.8 else ("ELEVATED" if _pct >= 0.6 else "NORMAL")
+                _bar.set_value(float(_val), _status)
 
     @Slot(dict)
     def _on_paper_metrics(self, metrics: dict):
@@ -4458,6 +3065,10 @@ class SpyderTradingDashboard(QMainWindow):
                         item.setForeground(QColor(COLORS["positive"] if num >= 0 else COLORS["negative"]))
                     except (ValueError, TypeError):
                         pass
+
+        # Persist the merged stats for this mode so they can be restored when
+        # switching back from the other mode.
+        self._pnl_stats_by_mode[self.trading_mode] = dict(stats)
 
     @Slot(str)
     def _on_paper_error(self, error_msg: str):
@@ -4873,7 +3484,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             widget.update_data({"last": value, "change": change, "change_pct": change_pct})
 
-        # Forward TICK/ADD/TRIN to the Market Internals dialog if it is open.
+        # Forward TICK/ADD/TRIN/NYMO to the Market Internals dialog if it is open.
         # This ensures the popup always shows the same values as the Market Overview panel.
         dlg = getattr(self, "current_dialog", None)
         if dlg is not None and hasattr(dlg, "on_breadth_updated"):
@@ -4881,10 +3492,12 @@ class SpyderTradingDashboard(QMainWindow):
             tick_entry = metrics.get("TICK", {})
             add_entry  = metrics.get("ADD",  {})
             trin_entry = metrics.get("TRIN", {})
+            nymo_entry = metrics.get("NYMO", {})
             if isinstance(tick_entry, dict) and isinstance(add_entry, dict) and isinstance(trin_entry, dict):
                 tick = tick_entry.get("value", float("nan"))
                 add  = add_entry.get("value",  float("nan"))
                 trin = trin_entry.get("value", float("nan"))
+                nymo = nymo_entry.get("value", float("nan")) if isinstance(nymo_entry, dict) else float("nan")
                 if not (isinstance(tick, float) and math.isnan(tick)
                         and isinstance(add, float) and math.isnan(add)
                         and isinstance(trin, float) and math.isnan(trin)):
@@ -4894,6 +3507,7 @@ class SpyderTradingDashboard(QMainWindow):
                         "tick": tick,
                         "add":  add,
                         "trin": trin,
+                        "nymo": nymo,
                         "breadth_regime": regime,
                     })
 
@@ -5171,6 +3785,87 @@ class SpyderTradingDashboard(QMainWindow):
             "vix_threshold": 30,
             "correlation_limit": 0.8,
         }
+
+    def update_risk_parameters(self, params: dict) -> None:
+        """Receive updated risk parameters from the G09 Risk Levels dialog.
+
+        Connected to ``RiskParametersDialog.parameters_updated`` by
+        ``show_risk_parameters_dialog()`` so that clicking Apply/OK in the
+        dialog immediately updates the dashboard's risk state.
+
+        If a paper trading worker is currently running, the new limits are
+        forwarded to it immediately so they take effect without a restart.
+        """
+        if not isinstance(params, dict):
+            return
+        self.current_risk_params = params
+        self.add_system_log(
+            f"⚙️ Risk parameters updated — "
+            f"Risk/Trade: {params.get('risk_per_trade', '?')}% | "
+            f"Max Daily Loss: {params.get('max_daily_loss_pct', '?')}% | "
+            f"Max Buying Power: {params.get('max_buying_power_pct', '?')}%"
+        )
+        # Forward to running paper worker so limits take effect immediately
+        if self._paper_worker is not None:
+            self._paper_worker.set_risk_params(params)
+            # Rebuild the E01 RiskManager with the new limits so
+            # validate_signal() reflects the latest dialog settings.
+            # Pull the live worker's starting capital so the rescaled dollar
+            # limits match what the worker actually trades against.
+            live_capital = float(
+                getattr(self._paper_worker, "_initial_capital", 100_000.0)
+            )
+            new_rm = self._build_paper_risk_manager(initial_capital=live_capital)
+            if new_rm is not None:
+                self._paper_worker.set_risk_manager(new_rm)
+
+    def _build_paper_risk_manager(self, initial_capital: float):
+        """Construct a SpyderE01_RiskManager seeded from current_risk_params.
+
+        Maps the G09 dialog's percentage-based dict into E01's absolute-dollar
+        risk_limits dict, using *initial_capital* as the reference. Returns
+        None when E01 is unavailable or construction fails — the worker will
+        then fall back to its local _get_risk_limit() checks only.
+        """
+        if not _E01_AVAILABLE or _E01_RiskManager is None or _E01_RiskConfig is None:
+            return None
+
+        # Start from E01 defaults, then overlay G09 values when present.
+        limits = dict(_E01_DEFAULT_RISK_LIMITS)
+        params = self.current_risk_params or {}
+        g = params.get("global", {}) if isinstance(params, dict) else {}
+        if not isinstance(g, dict):
+            g = {}
+
+        try:
+            # Dollar-denominated limits from percentage inputs
+            if "max_buying_power" in g:
+                limits["max_total_exposure"] = float(initial_capital) * (
+                    float(g["max_buying_power"]) / 100.0
+                )
+            if "max_daily_loss" in g:
+                limits["max_daily_loss"] = float(initial_capital) * (
+                    float(g["max_daily_loss"]) / 100.0
+                )
+            # Contract-count limits map directly
+            if "max_contracts" in g:
+                mc = int(g["max_contracts"])
+                limits["max_position_size"] = mc
+                limits["max_single_order_size"] = mc
+        except (TypeError, ValueError) as exc:
+            self.logger.warning("Could not map G09 params to E01 limits: %s", exc)
+
+        try:
+            cfg = _E01_RiskConfig(risk_limits=limits, enable_real_time_monitoring=False)
+            return _E01_RiskManager(
+                config=cfg,
+                connect_api=None,
+                order_manager=None,
+                tradier_client=self.tradier_client,
+            )
+        except Exception as exc:
+            self.logger.warning("Could not construct E01 RiskManager: %s", exc)
+            return None
 
     def show_risk_parameters(self):
         """Show risk parameters dialog"""
