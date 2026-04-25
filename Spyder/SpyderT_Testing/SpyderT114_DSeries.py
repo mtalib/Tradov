@@ -158,6 +158,9 @@ class _ErrHandlerCls:
     def handle_exception(self, *a, **kw):
         pass
 
+    def handle_error(self, *a, **kw):
+        pass
+
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",

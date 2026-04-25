@@ -272,6 +272,11 @@ class RiskManager:
         # Values mirror CircuitBreakerState: "normal" | "caution" | "warning" | "halt"
         self._y03_veto_state: str = "normal"
 
+        # Stage 3: decision-quality SLO gate (vol-surface / dealer-flow / lead-lag).
+        # When True, validate_signal() rejects entries if S07 reports absent or
+        # low-confidence data for the three required quality buckets.
+        self._enforce_decision_quality_slo: bool = True
+
         # Subscribe to proactive staleness events from DataValidator (C06)
         _em = get_event_manager()
         _em.subscribe(EventType.DATA_STALE, self._on_data_stale)
@@ -479,6 +484,178 @@ class RiskManager:
             self.error_handler.handle_error(e, "stop")
             return False
 
+    def stop_sync(self) -> None:
+        """Synchronous stop adapter for SessionSupervisor component loop.
+
+        Signals shutdown and joins the monitoring threads without requiring an
+        async event loop.  This prevents the position-monitoring daemon thread
+        from outliving the interpreter and triggering
+        ``cannot schedule new futures after interpreter shutdown``.
+
+        Also serves as the no-arg ``stop()`` alias used by the component loop
+        (see ``stop`` property below).
+        """
+        try:
+            self.logger.info("Stopping RiskManager (sync)...")
+            self._shutdown_event.set()
+            self._stop_risk_monitoring()
+            self._stop_position_monitoring()
+            self.logger.info("RiskManager stopped (sync)")
+        except Exception as e:
+            self.logger.error("RiskManager stop_sync error: %s", e)
+
+    def _start_risk_monitoring(self):
+        """Start risk monitoring thread."""
+        if not self._risk_thread:
+            self._risk_thread = threading.Thread(
+                target=self._risk_monitoring_loop,
+                daemon=True,
+                name="RiskMonitoring"
+            )
+            self._risk_thread.start()
+            self.logger.info("Risk monitoring started")
+
+    def _stop_risk_monitoring(self):
+        """Stop risk monitoring thread."""
+        if self._risk_thread:
+            self._risk_thread.join(timeout=5.0)
+            self._risk_thread = None
+            self.logger.info("Risk monitoring stopped")
+
+    def _risk_monitoring_loop(self):
+        """Risk monitoring loop."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Update risk metrics.
+                with self._risk_lock:
+                    self._risk_metrics = self._calculate_risk_metrics()
+
+                # Check if risk level exceeds notification threshold.
+                if self._risk_metrics and self._risk_metrics.risk_level.value >= self.config.notification_threshold.value:
+                    self.logger.warning("Risk level %s exceeded threshold", self._risk_metrics.risk_level.name)
+                    self._send_risk_notifications(self._risk_metrics)
+
+                # Emit FLATTEN_REQUEST if data has been stale beyond timeout.
+                stale_since = self._stale_since
+                if (
+                    stale_since is not None
+                    and not self._stale_flatten_emitted
+                    and (now_et() - stale_since).total_seconds() >= self._stale_flatten_timeout_s
+                ):
+                    self._stale_flatten_emitted = True
+                    elapsed = (now_et() - stale_since).total_seconds()
+                    self.logger.critical(
+                        "RiskManager: data stale for %.0fs (threshold %.0fs) — emitting FLATTEN_REQUEST",
+                        elapsed, self._stale_flatten_timeout_s,
+                    )
+                    try:
+                        _em = get_event_manager()
+                        _em.emit(
+                            EventType.FLATTEN_REQUEST,
+                            {
+                                "reason": "data_stale",
+                                "stale_seconds": elapsed,
+                                "symbols": sorted(self._stale_symbols),
+                            },
+                        )
+                    except Exception as _fe:
+                        self.logger.error("Failed to emit FLATTEN_REQUEST: %s", _fe)
+
+                # Wait for next check.
+                self._shutdown_event.wait(self.config.risk_check_interval)
+
+            except Exception as e:
+                self.logger.error("Error in risk monitoring loop: %s", e, exc_info=True)
+                self.error_handler.handle_error(e, "_risk_monitoring_loop")
+                self._shutdown_event.wait(1.0)  # Wait before retry.
+
+    def _start_position_monitoring(self):
+        """Start position monitoring thread."""
+        if not self._position_thread:
+            self._position_thread = threading.Thread(
+                target=self._position_monitoring_loop,
+                daemon=True,
+                name="PositionMonitoring"
+            )
+            self._position_thread.start()
+            self.logger.info("Position monitoring started")
+
+    def _stop_position_monitoring(self):
+        """Stop position monitoring thread."""
+        if self._position_thread:
+            self._position_thread.join(timeout=5.0)
+            self._position_thread = None
+            self.logger.info("Position monitoring stopped")
+
+    def _position_monitoring_loop(self):
+        """Position monitoring loop."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Request position updates.
+                asyncio.run(self._request_positions())
+
+                # Wait for next update.
+                self._shutdown_event.wait(self.config.position_update_interval)
+
+            except Exception as e:
+                self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
+                self.error_handler.handle_error(e, "_position_monitoring_loop")
+                self._shutdown_event.wait(1.0)  # Wait before retry.
+
+    def _send_risk_notifications(self, risk_metrics: RiskMetrics):
+        """
+        Send risk notifications.
+
+        Args:
+            risk_metrics: Risk metrics
+        """
+        try:
+            # Log warnings.
+            for warning in risk_metrics.warnings:
+                self.logger.warning("Risk warning: %s", warning)
+
+            # Send structured notifications when breach threshold is met.
+            if risk_metrics.risk_level.value >= self.config.notification_threshold.value:
+                breach_details = {
+                    'severity': risk_metrics.risk_level.name,
+                    'timestamp': risk_metrics.timestamp.isoformat(),
+                    'total_exposure': risk_metrics.total_exposure,
+                    'daily_pnl': risk_metrics.daily_pnl,
+                    'options_exposure': risk_metrics.options_exposure,
+                    'margin_used': risk_metrics.margin_used,
+                    'warnings': risk_metrics.warnings,
+                    'blocked_orders': risk_metrics.blocked_orders,
+                }
+
+                # Attempt AlertManager notification (email/SMS/Telegram channels).
+                try:
+                    from Spyder.SpyderJ_Alerts.SpyderJ01_AlertManager import AlertManager
+                    alert_manager = AlertManager()
+                    alert_message = (
+                        f"RISK BREACH [{risk_metrics.risk_level.name}] "
+                        f"at {risk_metrics.timestamp.strftime('%Y-%m-%d %H:%M:%S')} | "
+                        f"Exposure: {risk_metrics.total_exposure:,.2f} | "
+                        f"Daily PnL: {risk_metrics.daily_pnl:,.2f} | "
+                        f"Warnings: {'; '.join(risk_metrics.warnings)}"
+                    )
+                    alert_manager.generate_predictive_alerts({
+                        'alert_type': 'risk_breach',
+                        'message': alert_message,
+                        'severity': risk_metrics.risk_level.name,
+                        'breach_details': breach_details,
+                    })
+                    self.logger.info(
+                        f"Risk breach notification dispatched via AlertManager: "
+                        f"level={risk_metrics.risk_level.name}"
+                    )
+                except Exception as notify_exc:
+                    self.logger.warning(
+                        "AlertManager notification failed (continuing): %s", notify_exc
+                    )
+
+        except Exception as exc:
+            self.logger.error("Failed to send risk notifications: %s", exc, exc_info=True)
+
     def initialize(self) -> bool:
         """Legacy synchronous startup hook used by older runtime callers."""
         return True
@@ -647,6 +824,75 @@ class RiskManager:
                 order_id=order.order_id,
                 reason=f"Error checking order risk: {str(e)}"
             )
+
+    # ------------------------------------------------------------------
+    # Stage 3: decision-quality SLO gate
+    # ------------------------------------------------------------------
+
+    def _check_decision_quality_slo(self) -> tuple[bool, str, list[str]]:
+        """Check vol-surface, dealer-flow, and lead-lag SLOs via S07.
+
+        Called from validate_signal() as a risk-layer defense-in-depth gate
+        (the primary enforcement point is the D31/F09 entry trust gate).
+
+        Returns:
+            Tuple of (approved, rejection_reason, violations).
+            Fails open when S07 is unavailable so the system can still
+            function in paper/backtest contexts where S07 is not started.
+        """
+        try:
+            from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (
+                get_metrics_orchestrator,
+            )
+        except ImportError:
+            try:
+                from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (  # type: ignore[no-redef]
+                    get_metrics_orchestrator,
+                )
+            except ImportError:
+                return True, "", []
+
+        try:
+            conditions = get_metrics_orchestrator().get_current_market_conditions()
+        except Exception as exc:
+            self.logger.debug("E01 SLO: S07 unreachable (%s) — gate passes", exc)
+            return True, "", []
+
+        def _absent(v: Any) -> bool:
+            return v is None or (isinstance(v, float) and v != v)
+
+        failures: list[str] = []
+
+        # Vol-surface: confidence must be present and above floor
+        # (mirrors F09 market_structure_policy min_surface_confidence=0.55)
+        surface_confidence = conditions.get("surface_confidence")
+        if _absent(surface_confidence):
+            failures.append("vol_surface_absent")
+        elif float(surface_confidence) < 0.55:
+            failures.append(f"vol_surface_confidence_low({float(surface_confidence):.2f})")
+
+        # Dealer-flow: wall confidence must be present and above floor
+        # (mirrors F09 market_structure_policy min_wall_confidence=0.55)
+        wall_confidence = conditions.get("wall_confidence")
+        if _absent(wall_confidence):
+            failures.append("dealer_flow_absent")
+        elif float(wall_confidence) < 0.55:
+            failures.append(f"dealer_flow_confidence_low({float(wall_confidence):.2f})")
+
+        # Lead-lag: either lead_lag_ms or confirm_confidence must be available
+        lead_lag_ms = conditions.get("lead_lag_ms")
+        confirm_confidence = conditions.get("confirm_confidence")
+        if _absent(lead_lag_ms) and _absent(confirm_confidence):
+            failures.append("lead_lag_absent")
+
+        if not failures:
+            return True, "", []
+
+        return (
+            False,
+            f"Decision-quality SLO gate failed: {', '.join(failures)}",
+            ["DECISION_QUALITY_SLO_FAILED"],
+        )
 
     def mark_data_stale(self, stale: bool) -> None:
         """
@@ -880,6 +1126,17 @@ class RiskManager:
                         violations=["AGENT_VETO"],
                     )
 
+                # --- Stage 3: decision-quality SLO gate ---
+                if self._enforce_decision_quality_slo:
+                    slo_ok, slo_reason, slo_violations = self._check_decision_quality_slo()
+                    if not slo_ok:
+                        return RiskValidationResult(
+                            approved=False,
+                            rejection_reason=slo_reason,
+                            risk_score=1.0,
+                            violations=slo_violations,
+                        )
+
                 # Block naked puts — strategy_type is carried in metadata.
                 strategy_type = (request.metadata or {}).get("strategy_type", "")
                 if strategy_type == "naked_put":
@@ -1073,8 +1330,11 @@ class RiskManager:
         """Fetch account balances from Tradier and push through the handler."""
         if self.tradier_client is None:
             self.logger.debug(
-                "RiskManager: tradier_client not configured — skipping account summary sync"
+                "RiskManager: tradier_client not configured — running standalone; "
+                "marking account state synced so signals are not cold-start rejected."
             )
+            with self._risk_lock:
+                self._account_state_synced = True
             return
 
         try:
@@ -1331,6 +1591,48 @@ class RiskManager:
                 blocked_orders=[]
             )
 
+    # ==========================================================================
+    # PUBLIC UTILITY METHODS
+    # ==========================================================================
+
+    def get_status(self) -> dict[str, Any]:
+        """Get current risk manager status."""
+        with self._risk_lock:
+            uptime = now_et() - self.metrics['start_time']
+            risk_metrics = self._risk_metrics
+            return {
+                'monitoring_enabled': self.config.enable_real_time_monitoring,
+                'risk_level': risk_metrics.risk_level.name if risk_metrics else None,
+                'total_exposure': risk_metrics.total_exposure if risk_metrics else 0.0,
+                'daily_pnl': risk_metrics.daily_pnl if risk_metrics else 0.0,
+                'positions_count': len(self._positions),
+                'warnings_count': len(risk_metrics.warnings) if risk_metrics else 0,
+                'blocked_orders_count': len(risk_metrics.blocked_orders) if risk_metrics else 0,
+                'risk_checks': self.metrics['risk_checks'],
+                'warnings': self.metrics['warnings'],
+                'blocks': self.metrics['blocks'],
+                'position_updates': self.metrics.get('position_updates', 0),
+                'uptime_seconds': uptime.total_seconds(),
+                'start_time': self.metrics['start_time'].isoformat(),
+            }
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get risk manager performance metrics."""
+        with self._risk_lock:
+            uptime = now_et() - self.metrics['start_time']
+            check_rate = 0.0
+            if uptime.total_seconds() > 0:
+                check_rate = self.metrics['risk_checks'] / uptime.total_seconds()
+            return {
+                'risk_checks': self.metrics['risk_checks'],
+                'warnings': self.metrics['warnings'],
+                'blocks': self.metrics['blocks'],
+                'position_updates': self.metrics.get('position_updates', 0),
+                'check_rate': check_rate,
+                'uptime_seconds': uptime.total_seconds(),
+                'start_time': self.metrics['start_time'].isoformat(),
+            }
+
 
 def get_risk_manager(
     portfolio_value: float | None = None,
@@ -1371,232 +1673,6 @@ def get_risk_manager(
         order_manager=order_manager,
         tradier_client=tradier_client,
     )
-
-    def _start_risk_monitoring(self):
-        """Start risk monitoring thread"""
-        if not self._risk_thread:
-            self._risk_thread = threading.Thread(
-                target=self._risk_monitoring_loop,
-                daemon=True,
-                name="RiskMonitoring"
-            )
-            self._risk_thread.start()
-            self.logger.info("Risk monitoring started")
-
-    def _stop_risk_monitoring(self):
-        """Stop risk monitoring thread"""
-        if self._risk_thread:
-            self._risk_thread.join(timeout=5.0)
-            self._risk_thread = None
-            self.logger.info("Risk monitoring stopped")
-
-    def _risk_monitoring_loop(self):
-        """Risk monitoring loop"""
-        while not self._shutdown_event.is_set():
-            try:
-                # Update risk metrics
-                with self._risk_lock:
-                    self._risk_metrics = self._calculate_risk_metrics()
-
-                # Check if risk level exceeds notification threshold
-                if self._risk_metrics and self._risk_metrics.risk_level.value >= self.config.notification_threshold.value:
-                    self.logger.warning("Risk level %s exceeded threshold", self._risk_metrics.risk_level.name)
-
-                    # Send notifications
-                    self._send_risk_notifications(self._risk_metrics)
-
-                # P2-2: emit FLATTEN_REQUEST if data has been stale beyond the timeout
-                stale_since = self._stale_since
-                if (
-                    stale_since is not None
-                    and not self._stale_flatten_emitted
-                    and (now_et() - stale_since).total_seconds() >= self._stale_flatten_timeout_s
-                ):
-                    self._stale_flatten_emitted = True
-                    elapsed = (now_et() - stale_since).total_seconds()
-                    self.logger.critical(
-                        "RiskManager: data stale for %.0fs (threshold %.0fs) — emitting FLATTEN_REQUEST",
-                        elapsed, self._stale_flatten_timeout_s,
-                    )
-                    try:
-                        _em = get_event_manager()
-                        _em.emit(
-                            EventType.FLATTEN_REQUEST,
-                            {
-                                "reason": "data_stale",
-                                "stale_seconds": elapsed,
-                                "symbols": sorted(self._stale_symbols),
-                            },
-                        )
-                    except Exception as _fe:
-                        self.logger.error("Failed to emit FLATTEN_REQUEST: %s", _fe)
-
-                # Wait for next check
-                self._shutdown_event.wait(self.config.risk_check_interval)
-
-            except Exception as e:
-                self.logger.error("Error in risk monitoring loop: %s", e, exc_info=True)
-                self.error_handler.handle_error(e, "_risk_monitoring_loop")
-                self._shutdown_event.wait(1.0)  # Wait before retry
-
-    def _start_position_monitoring(self):
-        """Start position monitoring thread"""
-        if not self._position_thread:
-            self._position_thread = threading.Thread(
-                target=self._position_monitoring_loop,
-                daemon=True,
-                name="PositionMonitoring"
-            )
-            self._position_thread.start()
-            self.logger.info("Position monitoring started")
-
-    def _stop_position_monitoring(self):
-        """Stop position monitoring thread"""
-        if self._position_thread:
-            self._position_thread.join(timeout=5.0)
-            self._position_thread = None
-            self.logger.info("Position monitoring stopped")
-
-    def _position_monitoring_loop(self):
-        """Position monitoring loop"""
-        while not self._shutdown_event.is_set():
-            try:
-                # Request position updates
-                asyncio.create_task(self._request_positions())
-
-                # Wait for next update
-                self._shutdown_event.wait(self.config.position_update_interval)
-
-            except Exception as e:
-                self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
-                self.error_handler.handle_error(e, "_position_monitoring_loop")
-                self._shutdown_event.wait(1.0)  # Wait before retry
-
-    def _send_risk_notifications(self, risk_metrics: RiskMetrics):
-        """
-        Send risk notifications.
-
-        Args:
-            risk_metrics: Risk metrics
-        """
-        try:
-            # Log warnings
-            for warning in risk_metrics.warnings:
-                self.logger.warning("Risk warning: %s", warning)
-
-            # Send structured notifications when breach threshold is met
-            if risk_metrics.risk_level.value >= self.config.notification_threshold.value:
-                breach_details = {
-                    'severity': risk_metrics.risk_level.name,
-                    'timestamp': risk_metrics.timestamp.isoformat(),
-                    'total_exposure': risk_metrics.total_exposure,
-                    'daily_pnl': risk_metrics.daily_pnl,
-                    'options_exposure': risk_metrics.options_exposure,
-                    'margin_used': risk_metrics.margin_used,
-                    'warnings': risk_metrics.warnings,
-                    'blocked_orders': risk_metrics.blocked_orders,
-                }
-
-                # Attempt AlertManager notification (email/SMS/Telegram channels)
-                try:
-                    from Spyder.SpyderJ_Alerts.SpyderJ01_AlertManager import AlertManager
-                    alert_manager = AlertManager()
-                    alert_message = (
-                        f"RISK BREACH [{risk_metrics.risk_level.name}] "
-                        f"at {risk_metrics.timestamp.strftime('%Y-%m-%d %H:%M:%S')} | "
-                        f"Exposure: {risk_metrics.total_exposure:,.2f} | "
-                        f"Daily PnL: {risk_metrics.daily_pnl:,.2f} | "
-                        f"Warnings: {'; '.join(risk_metrics.warnings)}"
-                    )
-                    alert_manager.generate_predictive_alerts({
-                        'alert_type': 'risk_breach',
-                        'message': alert_message,
-                        'severity': risk_metrics.risk_level.name,
-                        'breach_details': breach_details,
-                    })
-                    self.logger.info(
-                        f"Risk breach notification dispatched via AlertManager: "
-                        f"level={risk_metrics.risk_level.name}"
-                    )
-                except Exception as alert_exc:
-                    # AlertManager unavailable — emit structured WARNING with full breach context
-                    self.logger.warning(
-                        "RISK_BREACH | severity=%(severity)s | "
-                        "timestamp=%(timestamp)s | "
-                        "total_exposure=%(total_exposure).2f | "
-                        "daily_pnl=%(daily_pnl).2f | "
-                        "options_exposure=%(options_exposure).2f | "
-                        "margin_used=%(margin_used).2f | "
-                        "warnings=%(warnings)s",
-                        breach_details,
-                    )
-                    self.logger.debug(
-                        "AlertManager unavailable for risk breach notification: %s", alert_exc
-                    )
-
-        except Exception as e:
-            self.logger.error("Error sending risk notifications: %s", e, exc_info=True)
-            self.error_handler.handle_error(e, "_send_risk_notifications")
-
-    # ==========================================================================
-    # PUBLIC UTILITY METHODS
-    # ==========================================================================
-
-    def get_status(self) -> dict[str, Any]:
-        """
-        Get current risk manager status.
-
-        Returns:
-            Dictionary containing status information
-        """
-        with self._risk_lock:
-            # Calculate uptime
-            uptime = now_et() - self.metrics['start_time']
-
-            # Get risk metrics
-            risk_metrics = self._risk_metrics
-
-            return {
-                'monitoring_enabled': self.config.enable_real_time_monitoring,
-                'risk_level': risk_metrics.risk_level.name if risk_metrics else None,
-                'total_exposure': risk_metrics.total_exposure if risk_metrics else 0.0,
-                'daily_pnl': risk_metrics.daily_pnl if risk_metrics else 0.0,
-                'positions_count': len(self._positions),
-                'warnings_count': len(risk_metrics.warnings) if risk_metrics else 0,
-                'blocked_orders_count': len(risk_metrics.blocked_orders) if risk_metrics else 0,
-                'risk_checks': self.metrics['risk_checks'],
-                'warnings': self.metrics['warnings'],
-                'blocks': self.metrics['blocks'],
-                'position_updates': self.metrics['position_updates'],
-                'uptime_seconds': uptime.total_seconds(),
-                'start_time': self.metrics['start_time'].isoformat()
-            }
-
-    def get_metrics(self) -> dict[str, Any]:
-        """
-        Get risk manager metrics.
-
-        Returns:
-            Dictionary containing metrics
-        """
-        with self._risk_lock:
-            # Calculate uptime
-            uptime = now_et() - self.metrics['start_time']
-
-            # Calculate check rate
-            check_rate = 0.0
-            if uptime.total_seconds() > 0:
-                check_rate = self.metrics['risk_checks'] / uptime.total_seconds()
-
-            return {
-                'risk_checks': self.metrics['risk_checks'],
-                'warnings': self.metrics['warnings'],
-                'blocks': self.metrics['blocks'],
-                'position_updates': self.metrics['position_updates'],
-                'check_rate': check_rate,
-                'uptime_seconds': uptime.total_seconds(),
-                'start_time': self.metrics['start_time'].isoformat()
-            }
 
 
 # ==============================================================================

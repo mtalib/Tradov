@@ -1056,6 +1056,88 @@ class P113BootSelfTestTest(unittest.TestCase):
         self.assertFalse(result, "Boot self-test must fail when EventManager is None")
 
 
+class P114SessionDbModeWiringTest(unittest.TestCase):
+    """T129-P1-14: SessionSupervisor wires mode-specific H05 DB instances."""
+
+    def _make_supervisor_stub(self, mode: str):
+        import unittest.mock as mock
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+
+        sup = SessionSupervisor.__new__(SessionSupervisor)
+        sup.logger = mock.MagicMock()
+        sup.mode = mode
+        sup.broker = mock.MagicMock()
+        sup.risk = mock.MagicMock()
+        sup.em = mock.MagicMock()
+        sup.reconciler = mock.MagicMock()
+        sup.position_tracker = mock.MagicMock()
+        sup._components = []
+        return sup
+
+    def test_start_live_engine_uses_paper_db_in_paper_mode(self) -> None:
+        import unittest.mock as mock
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+
+        sup = self._make_supervisor_stub(mode="paper")
+        fake_engine = mock.MagicMock()
+        fake_engine.initialize.return_value = True
+        paper_db = object()
+
+        with mock.patch(
+            "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.create_live_engine",
+            return_value=fake_engine,
+        ) as p_create, mock.patch(
+            "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_paper",
+            return_value=paper_db,
+        ) as p_paper, mock.patch(
+            "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_live"
+        ) as p_live:
+            result = SessionSupervisor._start_live_engine(sup)
+
+        self.assertTrue(result)
+        p_create.assert_called_once()
+        cfg = p_create.call_args.args[2]
+        self.assertEqual(cfg["account_id"], "PAPER-ACCOUNT")
+        self.assertFalse(cfg["require_confirmation"])
+        p_paper.assert_called_once()
+        p_live.assert_not_called()
+        fake_engine.set_session_db.assert_called_once_with(paper_db)
+        fake_engine.start_trading.assert_called_once()
+        self.assertIn(fake_engine, sup._components)
+
+    def test_start_live_engine_uses_live_db_in_live_mode(self) -> None:
+        import os
+        import unittest.mock as mock
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+
+        sup = self._make_supervisor_stub(mode="live")
+        fake_engine = mock.MagicMock()
+        fake_engine.initialize.return_value = True
+        live_db = object()
+
+        with mock.patch.dict(os.environ, {"TRADIER_ACCOUNT_ID": "LIVE-TEST-123"}), mock.patch(
+            "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.create_live_engine",
+            return_value=fake_engine,
+        ) as p_create, mock.patch(
+            "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_live",
+            return_value=live_db,
+        ) as p_live, mock.patch(
+            "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_paper"
+        ) as p_paper:
+            result = SessionSupervisor._start_live_engine(sup)
+
+        self.assertTrue(result)
+        p_create.assert_called_once()
+        cfg = p_create.call_args.args[2]
+        self.assertEqual(cfg["account_id"], "LIVE-TEST-123")
+        self.assertTrue(cfg["require_confirmation"])
+        p_live.assert_called_once()
+        p_paper.assert_not_called()
+        fake_engine.set_session_db.assert_called_once_with(live_db)
+        fake_engine.start_trading.assert_called_once()
+        self.assertIn(fake_engine, sup._components)
+
+
 # =============================================================================
 # v14 BLOCKER regression tests (A1–A6)
 # =============================================================================

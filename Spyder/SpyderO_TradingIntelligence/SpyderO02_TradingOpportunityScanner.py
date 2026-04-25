@@ -59,39 +59,39 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Integration with existing analytics modules
 try:
-    from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
-    from SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder
-    from SpyderN_OptionsAnalytics.SpyderN07_OptionsFlowTracker import OptionsFlowTracker
-    from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureAnalyzer
-    from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OptionsFlowTracker import OptionsFlowTracker
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureAnalyzer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
     OPTIONS_ANALYTICS_AVAILABLE = True
 except ImportError:
     OPTIONS_ANALYTICS_AVAILABLE = False
 
 try:
-    from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator  # noqa: F401
-    from SpyderF_Analysis.SpyderF11_GreeksAggregator import GreeksAggregator  # noqa: F401
-    from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer  # noqa: F401
-    from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeDetector  # noqa: F401
+    from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator  # noqa: F401
+    from Spyder.SpyderF_Analysis.SpyderF11_GreeksAggregator import GreeksAggregator  # noqa: F401
+    from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer  # noqa: F401
+    from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeDetector  # noqa: F401
     ANALYSIS_MODULES_AVAILABLE = True
 except ImportError:
     ANALYSIS_MODULES_AVAILABLE = False
 
 try:
-    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
-    from SpyderS_Signals.SpyderS06_SKEWCalculator import SKEWCalculator
+    from Spyder.SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
+    from Spyder.SpyderS_Signals.SpyderS06_SKEWCalculator import SKEWCalculator
     SIGNALS_AVAILABLE = True
 except ImportError:
     SIGNALS_AVAILABLE = False
 
 try:
-    from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import get_unified_regime_engine
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import get_unified_regime_engine
     REGIME_ENGINE_AVAILABLE = True
 except ImportError:
     REGIME_ENGINE_AVAILABLE = False
 
 try:
-    from SpyderE_Risk.SpyderE19_UnifiedRiskCoordinator import get_unified_risk_coordinator
+    from Spyder.SpyderE_Risk.SpyderE19_UnifiedRiskCoordinator import get_unified_risk_coordinator
     RISK_COORDINATOR_AVAILABLE = True
 except ImportError:
     RISK_COORDINATOR_AVAILABLE = False

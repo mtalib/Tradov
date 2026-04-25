@@ -78,13 +78,18 @@ def _make_manager(overrides: dict[str, Any] = None) -> RiskManager:
     return RiskManager(config=config, connect_api=api)
 
 
-def _make_order(symbol="SPY", quantity=10, side="buy", price=100.0, order_id="T51-001"):
+def _make_order(symbol="SPY", quantity=10, side="buy", price=100.0, order_id="T51-001",
+                right=None, order_class="option", legs=None, asset_type="OPT"):
     return _MockOrder(
         symbol=symbol,
         quantity=quantity,
         side=side,
         price=price,
         order_id=order_id,
+        right=right,
+        order_class=order_class,
+        legs=legs,
+        asset_type=asset_type,
     )
 
 

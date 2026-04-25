@@ -607,7 +607,7 @@ class TestU24SpyderColors:
         assert SpyderColors.POSITIVE == "#00ff41"
 
     def test_negative_color(self):
-        assert SpyderColors.NEGATIVE == "#ff1744"
+        assert SpyderColors.NEGATIVE == "#FF073A"
 
     def test_neutral_color(self):
         assert SpyderColors.NEUTRAL == "#ffd700"

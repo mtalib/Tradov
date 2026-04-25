@@ -53,6 +53,7 @@ CONNECTION MONITORING:
 import json
 import sys
 import time
+from collections import deque
 from datetime import datetime
 from datetime import time as dt_time
 from pathlib import Path
@@ -135,6 +136,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+class _GoNoGoCheckWorker(QObject):
+    """Background worker for pre-open readiness evaluation."""
+
+    finished = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, snapshot: dict[str, object], evaluator) -> None:
+        super().__init__()
+        self._snapshot = snapshot
+        self._evaluator = evaluator
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            result = self._evaluator(self._snapshot)
+            if not isinstance(result, dict):
+                raise ValueError("Go/No-Go evaluator returned non-dict result")
+            self.finished.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (
     COLORS,
@@ -166,6 +189,14 @@ from Spyder.SpyderG_GUI.SpyderG21_DashboardSignalHandlers import (
     handle_market_data_updated,
     handle_market_error,
 )
+
+try:
+    from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+    _H05_AVAILABLE = True
+except ImportError:
+    TradingSessionDB = None  # type: ignore
+    _H05_AVAILABLE = False
 
 # Tradier client for API connectivity checks
 try:
@@ -323,6 +354,7 @@ MARKET_SYMBOLS = {
 from Spyder.SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import (
     PaperTradingQtWorker as _PaperTradingWorker,
 )
+from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import StrategyLifecycleState
 
 
 # ==============================================================================
@@ -330,6 +362,8 @@ from Spyder.SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import (
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
     """Complete dashboard with fixed API connection detection and heartbeat monitoring"""
+
+    manual_close_spread_requested = Signal(str)
 
     # ------------------------------------------------------------------
     # S07 metric routing (audit §21 — display-unit adaptation layer)
@@ -389,6 +423,13 @@ class SpyderTradingDashboard(QMainWindow):
         # Initialize logging
         self.logger = SpyderLogger.get_logger(__name__)
 
+        # Suppress verbose INFO-level messages from WRS and PSR signal modules.
+        # These emit multiple per-bar diagnostic lines (basket fetches, bar
+        # counts, etc.) that add noise without actionable information in the
+        # dashboard log.  WARNING and above (actual errors) still pass through.
+        logging.getLogger("SpyderS_Signals.SpyderS12_WRSSignal").setLevel(logging.WARNING)
+        logging.getLogger("SpyderS_Signals.SpyderS13_PSRSignal").setLevel(logging.WARNING)
+
         # Connection info - FIXED: Start disconnected
         self.connection_info = ConnectionInfo(
             api_connected=False,
@@ -403,6 +444,8 @@ class SpyderTradingDashboard(QMainWindow):
         # Paper trading worker (created lazily by _start_paper_trading)
         self._paper_worker = None
         self._paper_thread = None
+        # Unified backend session (single code path for paper/live).
+        self._session_supervisor = None
 
         # Dashboard data
         self.market_data = {}
@@ -419,6 +462,36 @@ class SpyderTradingDashboard(QMainWindow):
             f"[{startup_hms}] {'=' * 56}",
         ])
 
+        # Startup readiness snapshot (A03 config validation outcome) is read
+        # once during launch so safe-mode automation fallback is explicit.
+        self._startup_readiness_state = self._collect_startup_readiness_state()
+        self._last_go_no_go_result = None
+        self._last_go_no_go_ts = None
+        self._go_no_go_ttl_seconds = 120
+        self._go_no_go_worker_thread = None
+        self._go_no_go_worker = None
+        self._go_no_go_reports_dir = project_root / "market_data" / "go_no_go_reports"
+        self._append_startup_readiness_banner(startup_hms)
+
+        # System log verbosity mode (NORMAL suppresses routine signal chatter,
+        # DEBUG restores full stream for diagnostics).
+        self.system_log_mode = "NORMAL"
+        self._signal_noise_loggers = (
+            "SpyderS_Signals.SpyderS01_DIXCalculator",
+            "Spyder.SpyderS_Signals.SpyderS01_DIXCalculator",
+            "SpyderS_Signals.SpyderS02_DIXScheduler",
+            "Spyder.SpyderS_Signals.SpyderS02_DIXScheduler",
+            "SpyderS_Signals.SpyderS03_BlackSwanIndicator",
+            "Spyder.SpyderS_Signals.SpyderS03_BlackSwanIndicator",
+            "SpyderS_Signals.SpyderS06_SKEWCalculator",
+            "Spyder.SpyderS_Signals.SpyderS06_SKEWCalculator",
+            "SpyderS_Signals.SpyderS09_FREDClient",
+            "Spyder.SpyderS_Signals.SpyderS09_FREDClient",
+            "SpyderS_Signals.SpyderS10_SentimentScraper",
+            "Spyder.SpyderS_Signals.SpyderS10_SentimentScraper",
+        )
+        self._set_system_log_verbosity("NORMAL", announce=False)
+
         self.automation_logs = []
         self.trading_mode = TradingMode.PAPER
 
@@ -426,6 +499,7 @@ class SpyderTradingDashboard(QMainWindow):
         # mode's table contents survive while the other mode is active.
         self._pnl_stats_by_mode: dict = {}          # TradingMode → stats dict
         self._positions_snapshot_by_mode: dict = {}  # TradingMode → serialized list
+        self._account_snapshot_by_mode: dict = {}    # TradingMode → account panel values
 
         # api_connected and mkt_data_connected are @property accessors backed
         # by self.connection_info (see ConnectionInfo docstring, audit §16).
@@ -441,6 +515,14 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self._order_manager = DashboardOrderManager(client=None, use_live=False)
 
+        # Per-mode H05 session DB handles for recent-trade rendering.
+        self._live_session_db = None
+        self._paper_session_db = None
+        self._session_db_init_failed_by_mode = {
+            TradingMode.PAPER: False,
+            TradingMode.LIVE: False,
+        }
+
         # H07 PerformanceAnalytics — injected once at construction (audit §9/§20)
         try:
             from Spyder.SpyderH_Storage.SpyderH07_PerformanceAnalytics import (
@@ -454,6 +536,15 @@ class SpyderTradingDashboard(QMainWindow):
         # Risk parameters
         self.current_risk_params = None
         self.risk_monitoring_active = False
+
+        # Event-clock state (Phase 5-A dashboard observability)
+        from Spyder.SpyderG_GUI.SpyderG06_DashboardData import EventClockState
+        self.event_clock_state = EventClockState()
+        self._event_clock_lock = threading.Lock()
+        self._event_clock_handler_id = None
+        self._execution_telemetry_lock = threading.Lock()
+        self._execution_telemetry_events: deque[dict] = deque(maxlen=200)
+        self._execution_telemetry_handler_id = None
 
         # Widget storage
         self.symbol_widgets = {}
@@ -488,6 +579,14 @@ class SpyderTradingDashboard(QMainWindow):
         self.positions_table = None
         self.system_log = None
         self.signal_panel = None
+        self.liquidity_candidates_value = None
+        self.liquidity_pass_ratio_value = None
+        self.liquidity_freshness_value = None
+        self.liquidity_top_failure_value = None
+        self.execution_slippage_bps_value = None
+        self.execution_fill_latency_value = None
+        self.execution_reject_rate_value = None
+        self.execution_partial_fill_value = None
         self.start_btn = None
         self.stop_btn = None
         self.emergency_btn = None
@@ -511,6 +610,12 @@ class SpyderTradingDashboard(QMainWindow):
         self.chart_widget = None
         self.figure = None
         self.canvas = None
+        # Event-clock display UI elements (Phase 5-A)
+        self.event_clock_panel = None
+        self.event_clock_state_label = None
+        self.event_clock_policy_label = None
+        self.event_clock_windows_label = None
+        self.event_clock_strategies_label = None
         # Phase 2: spreads & volatility panel widgets.
         self.spreads_table = None
         self.spreads_group = None
@@ -524,16 +629,24 @@ class SpyderTradingDashboard(QMainWindow):
         self._closed_trades_cache: list = []
         # Decision Log dialog singleton (None when closed).
         self._decision_log_dialog = None
-        # Phase 3: portfolio-aggregate Greeks labels.
+        # Phase 3: portfolio-aggregate Greeks labels (all None — data lives in
+        # _portfolio_summary_cache and is surfaced via the popup dialog).
         self.port_delta_label = None
         self.port_gamma_label = None
+        self.port_theta_label = None
         self.port_vega_label = None
         # Phase 7: higher-order Greeks labels (charm/vanna) from N04.
         self.port_charm_label = None
         self.port_vanna_label = None
+        # Portfolio Strip popup: cache of last-received data and dialog singleton.
+        self._portfolio_summary_cache: dict = {}
+        self._portfolio_summary_dialog = None
+        # Portfolio Strip toggle button reference (set by builder).
+        self.portfolio_strip_btn = None
         self.internal_module_indicators = {}
         self.datetime_timer = None
         self.chart_timer = None
+        self._shutdown_snapshot_saved = False
 
         # Try to connect to real Prometheus collector if available
         if prometheus_available:
@@ -548,6 +661,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.setup_ui()
         self.setup_timers()
         self.load_default_risk_parameters()
+        # Subscribe to system events for real-time event-clock display (Phase 5-A)
+        self._subscribe_to_events()
 
         # Restore previous session's symbol values (if any) — runs after the
         # event loop starts so all widgets are fully initialised.
@@ -555,6 +670,10 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Start market worker with fixed connection detection
         self.start_market_worker()
+
+        # Pre-populate account P&L fields and performance table so the dashboard
+        # shows sensible values immediately — before any trading session starts.
+        QTimer.singleShot(0, self._init_account_display)
 
         # Start custom metrics orchestrator (DIX + Black Swan schedulers)
         # Deferred 1 s so the Qt event loop is fully running before QTimer creation in S07
@@ -568,6 +687,7 @@ class SpyderTradingDashboard(QMainWindow):
         _et_tz = pytz.timezone("US/Eastern")
         init_time = datetime.now(_et_tz).strftime("%H:%M:%S ET")
         self.add_system_log(f"🚀 Dashboard initialized at {init_time}")
+        self._emit_startup_readiness_logs()
 
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
@@ -575,6 +695,14 @@ class SpyderTradingDashboard(QMainWindow):
         # Fetch live balance + quotes shortly after startup (before first 30s heartbeat).
         # Retry once in case the worker's startup API call hasn't completed yet.
         QTimer.singleShot(4000, self._trigger_initial_live_fetch)
+
+        # Ensure snapshot save also runs on full app shutdown paths.
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.aboutToQuit.connect(self._on_app_about_to_quit)
+            except Exception as _quit_hook_err:  # noqa: BLE001
+                logger.debug("Could not connect aboutToQuit snapshot hook: %s", _quit_hook_err)
 
         self.logger.info(
             "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring",
@@ -603,17 +731,19 @@ class SpyderTradingDashboard(QMainWindow):
             self.on_connection_status_changed(False)
             return False
 
-    def _trigger_initial_live_fetch(self):
+    def _trigger_initial_live_fetch(self, _retry: int = 0):
         """Ask the market worker to do an immediate live data + balance fetch.
 
         If the worker's startup API check hasn't completed yet (api_connected still
-        False), retry once in 5 seconds so the initial fetch is never silently skipped.
+        False), retry up to 6 times (every 5 s, covering ~30 s) regardless of the
+        trading window so quotes and balance populate at launch.
         """
         if self.market_worker and self.api_connected:
             self.market_worker.fetch_requested.emit()
-        elif self.market_worker and is_tradier_window():
-            # Worker's startup API check may still be in-flight — retry shortly
-            QTimer.singleShot(5000, self._trigger_initial_live_fetch)
+        elif self.market_worker and _retry < 6:
+            # Worker's startup API check may still be in-flight — retry shortly.
+            # Not gated by is_tradier_window() so balance loads even outside hours.
+            QTimer.singleShot(5000, lambda: self._trigger_initial_live_fetch(_retry + 1))
 
     # ==========================================================================
     # REAL DATA INTEGRATION PATTERN (UNCHANGED)
@@ -771,7 +901,10 @@ class SpyderTradingDashboard(QMainWindow):
 
             # Keep self.market_data in sync with live prices so other code
             # reading self.market_data (e.g. update_chart) gets real values.
+            # Skip metadata keys (e.g. _fetch_time_ms) whose values are not dicts.
             for symbol, data in live_data.items():
+                if not isinstance(data, dict):
+                    continue
                 if symbol not in self.market_data:
                     self.market_data[symbol] = {}
                 self.market_data[symbol]["last"] = data["last"]
@@ -790,6 +923,8 @@ class SpyderTradingDashboard(QMainWindow):
             # symbol-specific formatting and colour logic is applied correctly
             # (e.g. $TICK/$ADD as signed integers, $TRIN colour-coded by value).
             for symbol, data in live_data.items():
+                if not isinstance(data, dict):
+                    continue
                 if symbol in self.symbol_widgets:
                     self.symbol_widgets[symbol].update_data(data)
 
@@ -1010,6 +1145,10 @@ class SpyderTradingDashboard(QMainWindow):
         toolbar = self.create_toolbar()
         main_layout.addWidget(toolbar)
 
+        # Add event-clock status panel (Phase 5-A dashboard observability)
+        event_clock_panel = self._create_event_clock_panel()
+        main_layout.addWidget(event_clock_panel)
+
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_panel = self.create_left_panel()
@@ -1046,6 +1185,63 @@ class SpyderTradingDashboard(QMainWindow):
 
         main_layout.addWidget(content_splitter)
         central_widget.setLayout(main_layout)
+
+    def _create_event_clock_panel(self) -> QGroupBox:
+        """Create event-clock status display panel (Phase 5-A).
+        
+        Returns a compact panel showing:
+        - Current event-clock state (pre/live/post/clear)
+        - Policy configuration (enabled/sources)
+        - Blackout window settings
+        - Allowed strategies
+        """
+        panel = QGroupBox("EVENT-CLOCK STATUS")
+        panel.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 4px;
+                margin-top: 5px;
+                padding-top: 5px;
+                background-color: {COLORS["panel"]};
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }}
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
+        
+        # State label (main indicator)
+        self.event_clock_state_label = QLabel("✓ CLEAR")
+        self.event_clock_state_label.setStyleSheet(f"color: {COLORS['positive']}; font-weight: bold; font-size: 12px;")
+        layout.addWidget(self.event_clock_state_label)
+        
+        # Policy label
+        self.event_clock_policy_label = QLabel("Policy: ✓ Enabled | Sources: calendar+manual")
+        self.event_clock_policy_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        layout.addWidget(self.event_clock_policy_label)
+        
+        # Blackout windows label
+        self.event_clock_windows_label = QLabel("Blackout: -30m / +30m | Size: 25%")
+        self.event_clock_windows_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        layout.addWidget(self.event_clock_windows_label)
+        
+        # Allowed strategies label
+        self.event_clock_strategies_label = QLabel("Allowlist: None")
+        self.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        layout.addWidget(self.event_clock_strategies_label)
+        
+        panel.setLayout(layout)
+        self.event_clock_panel = panel
+        
+        return panel
 
     def create_toolbar(self) -> QWidget:
         """Create top toolbar with FIXED WIDTH status containers and heartbeat monitor."""
@@ -1107,14 +1303,20 @@ class SpyderTradingDashboard(QMainWindow):
             try:
                 with open(chart_file) as _f:
                     candles = json.load(_f)
+                # Only accept bars whose date matches today in ET so the chart
+                # resets correctly at the start of each new trading session.
+                _today_et = datetime.now(pytz.timezone("US/Eastern")).date()
                 for bar in candles:
+                    bar_dt = pd.to_datetime(bar.get("time", ""))
+                    if bar_dt.date() != _today_et:
+                        continue
                     opens_raw.append(float(bar.get("open", 0)))
                     highs_raw.append(float(bar.get("high", 0)))
                     lows_raw.append(float(bar.get("low", 0)))
                     closes_raw.append(float(bar.get("close", 0)))
                     volumes_raw.append(int(bar.get("volume", 0)))
                     # bar["time"] is like "2026-04-09T09:30:00"
-                    dates_raw.append(pd.to_datetime(bar.get("time", "")))
+                    dates_raw.append(bar_dt)
             except Exception:
                 candles = []
 
@@ -1534,6 +1736,277 @@ class SpyderTradingDashboard(QMainWindow):
         self._decision_log_dialog = dlg
         dlg.show()
 
+    # ------------------------------------------------------------------
+    # TODAY'S PORTFOLIO SUMMARY popup
+    # ------------------------------------------------------------------
+
+    def _open_portfolio_summary_dialog(self) -> None:
+        """Open (or raise + refresh) the Today's Portfolio Summary dialog.
+
+        The dialog shows a three-column table:
+            Metric  |  Explanation  |  Colour Logic
+        Values are read from ``_portfolio_summary_cache`` (the last
+        ``position_update`` payload received from the paper/live worker).
+        While the dialog is open it is refreshed automatically each time
+        new data arrives.
+        """
+        existing = self._portfolio_summary_dialog
+        if existing is not None and existing.isVisible():
+            self._populate_portfolio_summary_table(existing)
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import (
+            QDialog as _QDialog,
+            QHBoxLayout as _QHBox,
+            QHeaderView as _QHV,
+            QLabel as _QLabel,
+            QPushButton as _QPB,
+            QTableWidget as _QTW,
+            QTableWidgetItem as _QTWI,
+            QVBoxLayout as _QVBox,
+        )
+
+        dlg = _QDialog(self)
+        dlg.setWindowTitle("TODAY'S PORTFOLIO SUMMARY")
+        dlg.setMinimumSize(1060, 620)
+        dlg.resize(1060, 620)
+        dlg.setStyleSheet(
+            f"background-color: {COLORS['background']}; color: {COLORS['text']};"
+        )
+        layout = _QVBox(dlg)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(10)
+
+        # Sub-title / last-updated line
+        dlg._updated_label = _QLabel("Last updated: —")
+        dlg._updated_label.setStyleSheet(
+            "color: #b8b8b8; font-size: 12px;"
+        )
+        layout.addWidget(dlg._updated_label)
+
+        # Three-column table
+        tbl = _QTW(0, 3)
+        tbl.setHorizontalHeaderLabels(["Metric", "Explanation", "Colour Logic"])
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(_QTW.NoEditTriggers)
+        tbl.setSelectionMode(_QTW.NoSelection)
+        tbl.setFocusPolicy(_Qt.NoFocus)
+        tbl.setStyleSheet(
+            f"QTableWidget {{ background-color: {COLORS['panel']};"
+            f" gridline-color: {COLORS['border']}; border: none; }}"
+            f"QTableWidget::item {{ padding: 6px 10px; font-size: 13px; }}"
+            f"QHeaderView::section {{ background-color: {COLORS['panel']};"
+            f" color: #c8c8c8; font-size: 12px; font-weight: bold;"
+            f" padding: 5px 10px; border: none;"
+            f" border-bottom: 1px solid {COLORS['border']}; }}"
+        )
+        tbl.setVerticalScrollBarPolicy(_Qt.ScrollBarAlwaysOff)
+        tbl.setHorizontalScrollBarPolicy(_Qt.ScrollBarAlwaysOff)
+        hdr = tbl.horizontalHeader()
+        hdr.setSectionResizeMode(0, _QHV.ResizeToContents)
+        hdr.setSectionResizeMode(1, _QHV.Stretch)
+        hdr.setSectionResizeMode(2, _QHV.ResizeToContents)
+        tbl.setWordWrap(True)
+        tbl.setShowGrid(True)
+        dlg._table = tbl
+        layout.addWidget(tbl)
+
+        # Button row
+        btn_row = _QHBox()
+        btn_row.addStretch()
+        refresh_btn = _QPB("⟳ Refresh")
+        refresh_btn.setFixedHeight(28)
+        refresh_btn.setStyleSheet(
+            f"font-size: 13px; padding: 0 12px; background-color: {COLORS['panel']};"
+            f" color: {COLORS['text']}; border: 1px solid {COLORS['border']};"
+            f" border-radius: 3px;"
+        )
+        refresh_btn.clicked.connect(lambda: self._populate_portfolio_summary_table(dlg))
+        close_btn = _QPB("Close")
+        close_btn.setFixedHeight(28)
+        close_btn.setStyleSheet(refresh_btn.styleSheet())
+        close_btn.clicked.connect(dlg.close)
+        btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.finished.connect(lambda *_: setattr(self, "_portfolio_summary_dialog", None))
+        self._portfolio_summary_dialog = dlg
+        self._populate_portfolio_summary_table(dlg)
+        dlg.show()
+
+    def _populate_portfolio_summary_table(self, dlg: "QDialog") -> None:  # noqa: F821
+        """Fill (or refresh) the portfolio summary table inside *dlg*.
+
+        Reads ``_portfolio_summary_cache`` (the raw last ``position_update``
+        payload) and populates each row with a colour-coded value, a plain-
+        English explanation, and the threshold legend for that metric.
+        """
+        from datetime import datetime as _dt
+        from PySide6.QtGui import QColor as _QColor
+        from PySide6.QtWidgets import QTableWidgetItem as _QTWI
+
+        data = self._portfolio_summary_cache
+        now_str = _dt.now().strftime("%H:%M:%S ET")
+        lbl = getattr(dlg, "_updated_label", None)
+        if lbl is not None:
+            lbl.setText(f"Last updated: {now_str}")
+
+        tbl = dlg._table
+
+        # --- derive values from cache ---
+        spreads_detail = data.get("open_spreads_detail") or []
+        spreads_mtm = float(data.get("spreads_unrealized_pnl", 0.0) or 0.0)
+        atm_iv_raw = data.get("atm_iv")
+        iv_rank = data.get("iv_rank")
+        greeks = data.get("portfolio_greeks") or {}
+
+        # Realized P&L
+        realized_raw = data.get("realized_pnl_today") or data.get("realized_pnl", 0.0)
+        try:
+            realized = float(realized_raw)
+        except (TypeError, ValueError):
+            realized = 0.0
+
+        # Buying power
+        bp_used = 0.0
+        for p in spreads_detail:
+            try:
+                bp_used += float(p.get("max_loss_per_contract", 0.0)) * int(p.get("qty", 0))
+            except (TypeError, ValueError):
+                continue
+        cap = float(getattr(self, "_paper_initial_capital", 100_000.0) or 100_000.0)
+        bp_pct = (bp_used / cap * 100.0) if cap > 0 else 0.0
+
+        # Greek values
+        delta = greeks.get("delta")
+        gamma = greeks.get("gamma")
+        theta = greeks.get("theta")
+        vega  = greeks.get("vega")
+
+        # Colour helpers
+        _pos  = COLORS["positive"]
+        _neg  = COLORS["negative"]
+        _warn = COLORS.get("warning", "#e6a817")
+        _neu  = COLORS["text"]
+
+        def _color_sign(v: float) -> str:
+            return _pos if v >= 0 else _neg
+
+        def _iv_color(v: float) -> str:
+            return _neg if v >= 50 else (_warn if v >= 30 else _neu)
+
+        def _ivr_color(v: float) -> str:
+            return _neg if v >= 75 else (_warn if v >= 25 else _pos)
+
+        def _delta_color(v: float) -> str:
+            return _neg if abs(v) >= 60 else (_warn if abs(v) >= 30 else _neu)
+
+        def _gamma_color(v: float) -> str:
+            return _neg if abs(v) >= 0.30 else (_warn if abs(v) >= 0.15 else _neu)
+
+        def _vega_color(v: float) -> str:
+            return _neg if v <= -800 else (_warn if v <= -300 else _neu)
+
+        def _bp_color(v: float) -> str:
+            return _neg if v >= 80 else (_warn if v >= 50 else _pos)
+
+        # Row definitions:
+        #   (display_text, color_hex, explanation, colour_logic_text)
+        atm_iv_pct = atm_iv_raw * 100 if isinstance(atm_iv_raw, (int, float)) else None
+        rows = [
+            (
+                f"OPEN  {len(spreads_detail)}",
+                _neu,
+                "Number of active open positions",
+                "—",
+            ),
+            (
+                f"MTM  ${spreads_mtm:+,.2f}",
+                _color_sign(spreads_mtm),
+                "Mark-to-market unrealised P&L across all open legs",
+                "Green +ve / Red -ve",
+            ),
+            (
+                f"REALIZED  ${realized:+,.2f}",
+                _color_sign(realized),
+                "Closed trade P&L for today's session",
+                "Green +ve / Red -ve",
+            ),
+            (
+                f"ATM IV  {atm_iv_pct:.1f}%" if atm_iv_pct is not None else "ATM IV  —",
+                _iv_color(atm_iv_pct) if atm_iv_pct is not None else _neu,
+                "At-the-money implied volatility of SPY options",
+                "White <30%  │  Amber ≥30%  │  Red ≥50%",
+            ),
+            (
+                f"IVR  {iv_rank:.0f}" if isinstance(iv_rank, (int, float)) else "IVR  —",
+                _ivr_color(iv_rank) if isinstance(iv_rank, (int, float)) else _neu,
+                "IV Rank — where current IV sits vs. the past year (0–100)",
+                "Green <25  │  Amber 25–74  │  Red ≥75",
+            ),
+            (
+                f"Δ DELTA  {delta:+,.1f}" if isinstance(delta, (int, float)) else "Δ DELTA  —",
+                _delta_color(delta) if isinstance(delta, (int, float)) else _neu,
+                "Portfolio net delta: directional exposure per $1 SPY move",
+                "White |Δ|<30  │  Amber |Δ|≥30  │  Red |Δ|≥60",
+            ),
+            (
+                f"Γ GAMMA  {gamma:+,.3f}" if isinstance(gamma, (int, float)) else "Γ GAMMA  —",
+                _gamma_color(gamma) if isinstance(gamma, (int, float)) else _neu,
+                "Portfolio net gamma: rate of delta change per $1 move",
+                "White <0.15  │  Amber ≥0.15  │  Red ≥0.30",
+            ),
+            (
+                f"Θ THETA  ${theta:+,.2f}/day" if isinstance(theta, (int, float)) else "Θ THETA  —",
+                (_pos if isinstance(theta, (int, float)) and theta > 0 else
+                 _neg if isinstance(theta, (int, float)) else _neu),
+                "Daily time decay earned (premium sellers receive positive theta)",
+                "Green >0 (earning)  │  Red <0 (paying)",
+            ),
+            (
+                f"V VEGA  {vega:+,.1f}" if isinstance(vega, (int, float)) else "V VEGA  —",
+                _vega_color(vega) if isinstance(vega, (int, float)) else _neu,
+                "Portfolio vega: P&L impact per 1-point rise in implied volatility",
+                "White ≥−300  │  Amber ≤−300  │  Red ≤−800",
+            ),
+            (
+                f"BP USED  {bp_pct:.0f}%  (${bp_used:,.0f} / ${cap:,.0f})",
+                _bp_color(bp_pct),
+                "Buying power consumed as a % of total paper capital",
+                "Green <50%  │  Amber 50–80%  │  Red ≥80%",
+            ),
+        ]
+
+        tbl.setRowCount(len(rows))
+        _cell_style = (
+            f"background-color: {COLORS['panel']}; padding: 4px 8px;"
+        )
+        for row_idx, (metric_text, metric_color, explanation, logic) in enumerate(rows):
+            for col_idx, text in enumerate((metric_text, explanation, logic)):
+                item = _QTWI(text)
+                item.setTextAlignment(0x0081)  # AlignLeft | AlignVCenter
+                if col_idx == 0:
+                    item.setForeground(_QColor(metric_color))
+                    from PySide6.QtGui import QFont as _QFont
+                    f = _QFont("monospace", 12)
+                    f.setBold(True)
+                    item.setFont(f)
+                elif col_idx == 1:
+                    item.setForeground(_QColor("#e8e8e8"))
+                    from PySide6.QtGui import QFont as _QFont
+                    item.setFont(_QFont("sans-serif", 12))
+                else:
+                    item.setForeground(_QColor("#ffffff"))
+                    from PySide6.QtGui import QFont as _QFont
+                    item.setFont(_QFont("sans-serif", 11))
+                tbl.setItem(row_idx, col_idx, item)
+
+        tbl.resizeRowsToContents()
+
     def _refresh_positions_table(self) -> None:
         """Fetch live orders & positions from Tradier and repopulate the table.
 
@@ -1543,18 +2016,57 @@ class SpyderTradingDashboard(QMainWindow):
         """
         if not self.positions_table:
             return
-        if not getattr(self, "api_connected", False):
-            self.add_system_log("ℹ️ Not connected — showing demo data")
-            return
 
         # In paper trading mode the live account endpoints are not used;
         # paper positions are tracked internally by _PaperTradingWorker.
         if getattr(self, "trading_mode", None) == TradingMode.PAPER:
-            self.positions_table.clear()
-            _empty = QTreeWidgetItem(self.positions_table)
-            _empty.setText(0, "Paper trading mode — positions tracked by paper engine")
-            _empty.setForeground(0, Qt.GlobalColor.gray)
-            self.positions_table.setFirstColumnSpanned(0, QModelIndex(), True)
+            cached = getattr(self, "_portfolio_summary_cache", None)
+            if isinstance(cached, dict) and cached:
+                self._refresh_spreads_panel(cached)
+            else:
+                hydrated = self._load_cached_paper_state_payload()
+                if hydrated:
+                    self._refresh_spreads_panel(hydrated)
+                    # Keep account widgets in sync even before first worker tick.
+                    if self.settled_value:
+                        self.settled_value.setText(f"${float(hydrated.get('equity', 0.0)):,.2f}")
+                    if self.buying_value:
+                        self.buying_value.setText(f"${float(hydrated.get('cash', 0.0)):,.2f}")
+                    if self.unrealized_value:
+                        _u = float(hydrated.get("unrealized_pnl", 0.0) or 0.0)
+                        _uc = COLORS["positive"] if _u >= 0 else COLORS["negative"]
+                        self.unrealized_value.setText(f"${_u:+,.2f}")
+                        self.unrealized_value.setStyleSheet(
+                            f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"
+                        )
+                    if self.realized_value:
+                        _r = float(hydrated.get("realized_pnl", 0.0) or 0.0)
+                        _rc = COLORS["positive"] if _r >= 0 else COLORS["negative"]
+                        self.realized_value.setText(f"${_r:+,.2f}")
+                        self.realized_value.setStyleSheet(
+                            f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"
+                        )
+                    self.add_system_log("♻️ Loaded paper positions from saved session state")
+                else:
+                    # Unified SessionSupervisor paper mode does not depend on
+                    # the legacy Qt paper worker to produce the first table
+                    # snapshot, so render the steady-state empty view instead
+                    # of a stale waiting placeholder.
+                    self._refresh_spreads_panel({
+                        "open_spreads_detail": [],
+                        "spreads_unrealized_pnl": 0.0,
+                        "closed_trades": [],
+                        "equity": 0.0,
+                        "cash": 0.0,
+                        "unrealized_pnl": 0.0,
+                        "realized_pnl": 0.0,
+                    })
+            return
+
+        if not getattr(self, "api_connected", False):
+            self.add_system_log("ℹ️ Not connected — showing demo data")
             return
 
         client = self._get_tradier_client_for_mode()
@@ -1562,7 +2074,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         try:
             self.positions_table.clear()
-            has_rows = False
+            has_rows = self._add_recent_trade_rows(limit=3) > 0
 
             data = self._order_manager.fetch_orders_and_positions()
 
@@ -1636,6 +2148,7 @@ class SpyderTradingDashboard(QMainWindow):
                 child.setText(1, leg.get("option_symbol", "—"))
                 child.setText(2, str(int(leg.get("quantity", 0))))
                 child.setText(3, leg.get("expiration_date", "—"))
+                self._align_positions_data_row(child)
 
     def _add_position_row(self, pos: dict) -> None:
         """Add a single Tradier position dict as a top-level row in positions_table."""
@@ -1657,124 +2170,509 @@ class SpyderTradingDashboard(QMainWindow):
             True,
         )
 
-    def _render_paper_spreads_in_tree(self, spreads_detail: list) -> None:
-        """Populate ``positions_table`` with paper-engine spread rows.
+    def _align_positions_data_row(self, item: QTreeWidgetItem) -> None:
+        """Apply ORDERS & POSITIONS data-column alignment policy.
 
-        Replaces the legacy 'Paper trading mode — positions tracked by paper
-        engine' placeholder with a tree of spread parents (column-spanned
-        header) and per-leg children. Called from ``_refresh_spreads_panel``
-        on every R08 worker emit while in paper mode.
+        LEG/STRIKE/CONT/EXPIRY are centered. COST and P&L are right aligned.
+        """
+        item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(2, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(4, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
 
-        Each spread parent shows: structure label, strikes, qty, credit,
-        live MTM, DTE, and stop-loss arming status. Children show one row
-        per leg with the option symbol, side, qty, expiry, and entry mark.
-        Layout matches the existing 7-col tree (LEG/STRIKE/CONT/EXPIRY/
-        COST/P&L/(close-btn)) so the live-mode flows remain unchanged.
+    def _get_mode_session_db(self):
+        """Return cached H05 session DB for the current trading mode."""
+        if not _H05_AVAILABLE:
+            return None
+
+        mode = getattr(self, "trading_mode", None)
+        is_paper = mode == TradingMode.PAPER
+        if self._session_db_init_failed_by_mode.get(mode, False):
+            return None
+
+        cached = self._paper_session_db if is_paper else self._live_session_db
+        if cached is not None:
+            return cached
+
+        try:
+            db = TradingSessionDB.for_paper() if is_paper else TradingSessionDB.for_live()
+            if is_paper:
+                self._paper_session_db = db
+            else:
+                self._live_session_db = db
+            return db
+        except Exception as exc:
+            self._session_db_init_failed_by_mode[mode] = True
+            self.add_system_log(f"⚠️ Could not initialise session DB for recent trades: {exc}")
+            return None
+
+    def _add_recent_trade_rows(self, limit: int = 3) -> int:
+        """Render most-recent trades for the current mode (paper/live)."""
+        if self.positions_table is None:
+            return 0
+
+        db = self._get_mode_session_db()
+        if db is None:
+            return 0
+
+        try:
+            trades = db.get_recent_trades(limit=limit)
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Could not load recent trades: {exc}")
+            return 0
+
+        count = 0
+        for trade in trades:
+            try:
+                raw_ts = str(trade.get("timestamp", "") or "")
+                try:
+                    ts_text = datetime.fromisoformat(raw_ts).strftime("%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    ts_text = raw_ts[:19].replace("T", " ") if raw_ts else "--"
+
+                symbol = str(trade.get("symbol", "—") or "—")
+                trade_type = str(trade.get("trade_type", "") or "").upper()
+                side = str(trade.get("side", "") or "").upper()
+                qty = int(float(trade.get("quantity", 0) or 0))
+                price = float(trade.get("price", 0.0) or 0.0)
+                realized_pnl = float(trade.get("realized_pnl", 0.0) or 0.0)
+                action = trade_type or side or "TRADE"
+
+                row = QTreeWidgetItem(self.positions_table)
+                row.setText(
+                    0,
+                    (
+                        f"RECENT TRADE | {ts_text} | {symbol} | {action} | "
+                        f"QTY: {qty} | PRICE: ${price:,.2f} | P&L: ${realized_pnl:+,.2f}"
+                    ),
+                )
+
+                if realized_pnl > 0:
+                    color = QColor(COLORS["positive"])
+                elif realized_pnl < 0:
+                    color = QColor(COLORS["negative"])
+                else:
+                    color = QColor(COLORS["text"])
+
+                row.setForeground(0, color)
+                self.positions_table.setFirstColumnSpanned(
+                    self.positions_table.indexOfTopLevelItem(row),
+                    QModelIndex(),
+                    True,
+                )
+                count += 1
+            except Exception:
+                continue
+
+        return count
+
+    def _load_cached_paper_state_payload(self) -> dict | None:
+        """Build a worker-like position payload from persisted paper state."""
+        try:
+            state_file = _PaperTradingWorker.STATE_FILE
+            if not state_file.exists():
+                return None
+            with open(state_file, encoding="utf-8") as fh:
+                state = json.load(fh)
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Could not hydrate paper state cache: {exc}")
+            return None
+
+        open_spreads = state.get("_open_spreads") or []
+        if not isinstance(open_spreads, list) or not open_spreads:
+            return None
+
+        spreads_detail = []
+        spreads_unrealized = 0.0
+        for p in open_spreads:
+            if not isinstance(p, dict):
+                continue
+            qty = int(p.get("qty", 0) or 0)
+            credit_per = float(p.get("credit", 0.0) or 0.0)
+            debit_per = float(p.get("last_debit", credit_per) or credit_per)
+            mtm_pnl = (credit_per - debit_per) * 100.0 * qty
+            spreads_unrealized += mtm_pnl
+            spreads_detail.append(
+                {
+                    "id": p.get("id"),
+                    "expiration": p.get("expiration"),
+                    "short_strike": float(p.get("short_strike", 0.0) or 0.0),
+                    "long_strike": float(p.get("long_strike", 0.0) or 0.0),
+                    "qty": qty,
+                    "credit": credit_per,
+                    "debit": debit_per,
+                    "mtm_pnl": mtm_pnl,
+                    "max_loss_per_contract": float(p.get("max_loss_per_contract", 0.0) or 0.0),
+                    "structure": p.get(
+                        "structure",
+                        "BULL_PUT" if p.get("option_type") == "P" else "BEAR_CALL",
+                    ),
+                    "origin": p.get("origin", "AI"),
+                    "lifecycle_state": p.get(
+                        "lifecycle_state",
+                        StrategyLifecycleState.MANAGED_BY_AI.value,
+                    ),
+                    "opened_at": float(p.get("opened_at") or 0.0),
+                    "option_type": p.get("option_type", "P"),
+                    "direction": p.get("direction", "bullish"),
+                    "short_entry_mid": p.get("short_entry_mid"),
+                    "long_entry_mid": p.get("long_entry_mid"),
+                    "last_short_mid": p.get("last_short_mid"),
+                    "last_long_mid": p.get("last_long_mid"),
+                }
+            )
+
+        cash = float(state.get("_cash", 100_000.0) or 100_000.0)
+        closed_trades = list(state.get("_closed_trades") or [])
+        return {
+            "spy_last": 0.0,
+            "spy_bid": 0.0,
+            "spy_ask": 0.0,
+            "position_qty": 0,
+            "position_avg_price": 0.0,
+            "unrealized_pnl": spreads_unrealized,
+            "realized_pnl": float(state.get("_total_realized_pnl", 0.0) or 0.0),
+            "cash": cash,
+            "equity": cash + spreads_unrealized,
+            "initial_capital": float(state.get("_initial_capital", 100_000.0) or 100_000.0),
+            "open_spreads": len(spreads_detail),
+            "open_spreads_detail": spreads_detail,
+            "spreads_unrealized_pnl": spreads_unrealized,
+            "atm_iv": None,
+            "iv_rank": None,
+            "portfolio_greeks": {},
+            "closed_trades": closed_trades,
+            "closed_trades_count": len(closed_trades),
+            "armed_candidate": None,
+        }
+
+    def _render_paper_spreads_in_tree(
+        self,
+        spreads_detail: list,
+        armed_candidate: dict | None = None,
+    ) -> None:
+        """Render paper spreads as deterministic top-level rows.
+
+        Layout: one cyan strategy header row per spread, followed by explicit
+        leg rows (also top-level items). Avoiding child rows prevents Qt tree
+        decoration edge-cases in the unified table configuration.
         """
         from datetime import date as _date, datetime as _dt
 
+        def _coerce_float(value, default: float | None = None) -> float | None:
+            try:
+                if value in (None, ""):
+                    return default
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _coerce_int(value, default: int = 0) -> int:
+            try:
+                if value in (None, ""):
+                    return default
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
+        def _dte_from_expiration(expiration: str, today: _date) -> str:
+            if not expiration:
+                return "--"
+            try:
+                yyyy, mm, dd = expiration[:10].split("-")
+                return f"{(_date(int(yyyy), int(mm), int(dd)) - today).days:02d}"
+            except (TypeError, ValueError):
+                return "--"
+
+        def _expiry_short(expiration: str) -> str:
+            if not expiration:
+                return "--"
+            parts = expiration[:10].split("-")
+            if len(parts) == 3:
+                return f"{parts[1]}/{parts[2]}"
+            return expiration[:10]
+
         self.positions_table.clear()
+        today = _date.today()
+        recent_trades_count = self._add_recent_trade_rows(limit=3)
+
+        if armed_candidate:
+            ac_structure = str(armed_candidate.get("structure", "SPREAD")).replace("_", " ").upper()
+            ac_reason = str(armed_candidate.get("blocked_reason", "gate check"))
+            ac_lifecycle = str(
+                armed_candidate.get("lifecycle_state")
+                or StrategyLifecycleState.ARMED_BY_AI.value
+            )
+            ac_armed_at = float(armed_candidate.get("armed_at") or 0.0)
+            ac_elapsed = int(time.time() - ac_armed_at) if ac_armed_at > 0 else 0
+            ac_exp = str((armed_candidate.get("spread") or {}).get("expiration", "") or "")
+            ac_dte = _dte_from_expiration(ac_exp, today)
+
+            ac_row = QTreeWidgetItem(self.positions_table)
+            ac_row.setText(
+                0,
+                (
+                    f"WAITING  STRATEGY {ac_lifecycle} : {ac_structure}  |  "
+                    f"DTE: {ac_dte}  |  REASON: {ac_reason}  |  {ac_elapsed}s"
+                ),
+            )
+            for col in range(6):
+                ac_row.setForeground(col, QColor("#FFA500"))
+            self.positions_table.setFirstColumnSpanned(
+                self.positions_table.indexOfTopLevelItem(ac_row),
+                QModelIndex(),
+                True,
+            )
 
         if not spreads_detail:
             empty = QTreeWidgetItem(self.positions_table)
-            empty.setText(0, "Paper trading — no open spreads")
+            empty.setText(0, "Paper trading - no open spreads")
             empty.setForeground(0, Qt.GlobalColor.gray)
-            self.positions_table.setFirstColumnSpanned(0, QModelIndex(), True)
+            self.positions_table.setFirstColumnSpanned(
+                self.positions_table.indexOfTopLevelItem(empty),
+                QModelIndex(),
+                True,
+            )
+            if recent_trades_count <= 0:
+                empty.setText(0, "Paper trading - no open spreads or recent trades")
             return
 
-        today = _date.today()
         for sp in spreads_detail:
-            # ── Parent row: spread summary ───────────────────────────────
-            structure = str(sp.get("structure") or sp.get("type") or "Spread").upper()
-            short_k = sp.get("short_strike", 0.0)
-            long_k = sp.get("long_strike", 0.0)
-            qty = int(sp.get("qty", 0))
-            credit = float(sp.get("credit", 0.0))
-            mtm = float(sp.get("mtm_pnl", 0.0))
-            stop_armed = sp.get("stop_loss_armed", True)  # default True after Phase 2
-            origin = str(sp.get("origin") or "AI").upper()
-            opened_at = float(sp.get("opened_at") or 0.0)
-
-            # Entry timestamp formatted YYYY-MM-DD HH:MM (skip if missing)
+            spread_id = str(sp.get("id", ""))
+            structure = str(sp.get("structure") or sp.get("type") or "SPREAD").replace("_", " ").upper()
+            lifecycle_state = str(
+                sp.get("lifecycle_state") or StrategyLifecycleState.MANAGED_BY_AI.value
+            )
+            qty = _coerce_int(sp.get("qty"), 0)
+            mtm = _coerce_float(sp.get("mtm_pnl"), None)
+            credit = _coerce_float(sp.get("credit"), 0.0) or 0.0
+            if mtm is None:
+                debit_fallback = _coerce_float(sp.get("debit"), None)
+                if debit_fallback is None:
+                    debit_fallback = _coerce_float(sp.get("last_debit"), None)
+                if debit_fallback is not None:
+                    mtm = (credit - debit_fallback) * 100.0 * max(qty, 1)
+                else:
+                    mtm = 0.0
+            short_k = _coerce_float(sp.get("short_strike"), 0.0) or 0.0
+            long_k = _coerce_float(sp.get("long_strike"), 0.0) or 0.0
+            expiration = str(sp.get("expiration", "") or "")
+            dte = _dte_from_expiration(expiration, today)
+            opened_at = _coerce_float(sp.get("opened_at"), 0.0) or 0.0
             ts_str = ""
             if opened_at > 0:
                 try:
                     ts_str = _dt.fromtimestamp(opened_at).strftime("%Y-%m-%d %H:%M")
-                except (OSError, ValueError, OverflowError):
+                except (OSError, OverflowError, ValueError):
                     ts_str = ""
-
-            # DTE from ISO expiration if present.
-            exp_str = str(sp.get("expiration", "") or "")
-            dte_str = "—"
-            if exp_str:
-                try:
-                    yyyy, mm, dd = exp_str[:10].split("-")
-                    dte = (_date(int(yyyy), int(mm), int(dd)) - today).days
-                    dte_str = f"{dte:02d}"
-                except (ValueError, TypeError):
-                    pass
-
-            # Net P&L % of credit received (premium kept).
-            credit_dollars = credit * 100.0 * qty
+            ts_part = f"{ts_str}  |  " if ts_str else ""
+            credit_dollars = credit * 100.0 * max(qty, 1)
             pnl_pct = (mtm / credit_dollars * 100.0) if credit_dollars > 0 else 0.0
-            mtm_sign = "+" if mtm >= 0 else "−"
+            sign = "+" if mtm >= 0 else "-"
 
-            stop_glyph = "🛡" if stop_armed else "•"
-            ts_field = f"{ts_str}  │  " if ts_str else ""
-            header = (
-                f"{stop_glyph}  {ts_field}"
-                f"STRATEGY TRIGGERED BY {origin} : {structure}  │  "
-                f"DTE: {dte_str}  │  STATUS: OPEN  │  "
-                f"NET P&L {mtm_sign}${abs(mtm):,.2f}  ({pnl_pct:+.1f}%)"
+            header_text = (
+                f"{ts_part}STRATEGY {lifecycle_state} : {structure}  |  "
+                f"DTE: {dte}  |  STATUS: OPEN  |  "
+                f"NET P&L {sign}${abs(mtm):,.2f} ({pnl_pct:+.1f}%)"
             )
-            parent = QTreeWidgetItem(self.positions_table)
-            parent.setText(0, header)
-            # Colour by MTM sign.
-            parent_col = (
-                Qt.GlobalColor.green if mtm >= 0 else Qt.GlobalColor.red
-            )
-            parent.setForeground(0, parent_col)
+            header_row = QTreeWidgetItem(self.positions_table)
             self.positions_table.setFirstColumnSpanned(
-                self.positions_table.indexOfTopLevelItem(parent),
+                self.positions_table.indexOfTopLevelItem(header_row),
                 QModelIndex(),
                 True,
             )
-            parent.setExpanded(False)  # collapsed by default — keeps view compact
 
-            # ── Leg children — one row per option leg ───────────────────
-            legs = sp.get("legs") or []
-            if not legs:
-                # Fallback: synthesize from short/long strike when worker
-                # didn't include a per-leg breakdown.
-                legs = [
+            close_btn = QPushButton("X")
+            close_btn.setFixedSize(18, 18)
+            close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            close_btn.setStyleSheet(
+                "QPushButton {"
+                "color: #ff3b30; background: transparent;"
+                "border: 1px solid #ff3b30; border-radius: 3px;"
+                "font-size: 10px; font-weight: bold;"
+                "}"
+                "QPushButton:hover { background: #2a0f0f; }"
+            )
+            if spread_id:
+                close_btn.clicked.connect(
+                    lambda _checked=False, _id=spread_id: self._request_manual_close_spread(_id)
+                )
+            else:
+                close_btn.setEnabled(False)
+            # Compose one full-width strategy row with right-aligned action button.
+            row_widget = QWidget(self.positions_table)
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(4, 0, 4, 0)
+            row_layout.setSpacing(8)
+            row_label = QLabel(header_text, row_widget)
+            row_label.setStyleSheet(
+                f"color: {COLORS.get('cyan', '#00ffff')}; font-family: monospace; font-size: 10pt;"
+            )
+            row_layout.addWidget(row_label, 1)
+            row_layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
+            self.positions_table.setItemWidget(header_row, 0, row_widget)
+
+            legs: list[dict] = []
+            raw_legs = sp.get("legs") or []
+            if isinstance(raw_legs, list):
+                for raw in raw_legs:
+                    if not isinstance(raw, dict):
+                        continue
+                    legs.append(
+                        {
+                            "side": str(
+                                raw.get("side")
+                                or raw.get("action")
+                                or raw.get("position")
+                                or raw.get("name")
+                                or ""
+                            ).strip(),
+                            "strike": _coerce_float(raw.get("strike", raw.get("strike_price")), None),
+                            "qty": _coerce_int(raw.get("qty", raw.get("quantity", qty)), qty),
+                            "type": str(raw.get("type") or raw.get("option_type") or raw.get("right") or ""),
+                            "cost": _coerce_float(raw.get("cost"), None),
+                            "pnl": _coerce_float(raw.get("pnl"), None),
+                        }
+                    )
+
+            normalized = [
+                lg for lg in legs
+                if lg.get("side") or lg.get("strike") is not None
+            ]
+
+            if len(normalized) < 2:
+                option_type = str(sp.get("option_type", "P") or "P").upper()[:1]
+                option_word = "Put" if option_type == "P" else "Call"
+                short_entry = _coerce_float(sp.get("short_entry_mid"), None)
+                long_entry = _coerce_float(sp.get("long_entry_mid"), None)
+                last_short = _coerce_float(sp.get("last_short_mid"), None)
+                last_long = _coerce_float(sp.get("last_long_mid"), None)
+                normalized = [
                     {
-                        "side": "SELL",
+                        "side": f"Sell {option_word}",
                         "strike": short_k,
                         "qty": qty,
-                        "type": "PUT" if "PUT" in structure else "CALL",
+                        "type": option_type,
+                        "cost": -(short_entry * 100.0 * qty) if short_entry is not None else None,
+                        "pnl": (
+                            (short_entry - last_short) * 100.0 * qty
+                            if short_entry is not None and last_short is not None
+                            else None
+                        ),
                     },
                     {
-                        "side": "BUY",
+                        "side": f"Buy {option_word}",
                         "strike": long_k,
                         "qty": qty,
-                        "type": "PUT" if "PUT" in structure else "CALL",
+                        "type": option_type,
+                        "cost": (long_entry * 100.0 * qty) if long_entry is not None else None,
+                        "pnl": (
+                            (last_long - long_entry) * 100.0 * qty
+                            if long_entry is not None and last_long is not None
+                            else None
+                        ),
                     },
                 ]
-            for leg in legs:
-                child = QTreeWidgetItem(parent)
-                side = str(leg.get("side", "—")).upper()
-                strike = leg.get("strike", 0.0)
-                leg_type = str(leg.get("type", "")).upper()
-                child.setText(0, f"  {side}")
-                child.setText(1, f"{strike:.0f}{leg_type[:1]}")
-                child.setText(2, str(int(leg.get("qty", qty))))
-                child.setText(3, exp_str[:10] if exp_str else "—")
-                mark = leg.get("mark") or leg.get("entry_mark")
-                if mark is not None:
-                    try:
-                        child.setText(4, f"${float(mark):.2f}")
-                    except (TypeError, ValueError):
-                        pass
+
+            expiry_display = _expiry_short(expiration)
+            for leg in normalized:
+                leg_row = QTreeWidgetItem(self.positions_table)
+                side = str(leg.get("side") or "LEG")
+                strike = _coerce_float(leg.get("strike"), 0.0) or 0.0
+                leg_type = str(leg.get("type") or "").upper()[:1]
+                leg_row.setText(0, f"  {side}")
+                leg_row.setText(1, f"${strike:.0f}{leg_type}")
+                leg_row.setText(2, str(_coerce_int(leg.get("qty"), qty)))
+                leg_row.setText(3, expiry_display)
+                self._align_positions_data_row(leg_row)
+                for col in range(6):
+                    leg_row.setForeground(col, QColor("#ffffff"))
+
+                cost = _coerce_float(leg.get("cost"), None)
+                pnl = _coerce_float(leg.get("pnl"), None)
+                if cost is not None:
+                    leg_row.setText(4, f"{cost:+,.0f}")
+                    leg_row.setForeground(4, QColor(COLORS["positive"] if cost >= 0 else COLORS["negative"]))
+                if pnl is not None:
+                    leg_row.setText(5, f"{pnl:+,.0f}")
+                    leg_row.setForeground(5, QColor(COLORS["positive"] if pnl >= 0 else COLORS["negative"]))
+
+    def _request_manual_close_spread(self, spread_id: str) -> None:
+        """Queue a manual close request to the paper worker thread.
+
+        If the worker is running the close is forwarded via the Qt signal.
+        If the worker is stopped (or not yet started) the spread is closed
+        directly in the persisted state file so the position is not orphaned.
+        """
+        if not spread_id:
+            return
+        if self._paper_worker is not None:
+            self.add_system_log(f"🖱️ Manual close requested for spread {spread_id}")
+            self.manual_close_spread_requested.emit(str(spread_id))
+            return
+        # ── Fallback: worker not running — close directly in state file ──────
+        self.add_system_log(f"⚠️ Worker not running — closing spread {spread_id} via state file")
+        try:
+            from SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import PaperTradingQtWorker  # noqa: PLC0415
+            state_path = PaperTradingQtWorker.STATE_FILE
+        except Exception:
+            state_path = Path("market_data/paper_trading_state.json")
+        if not state_path.exists():
+            self.add_system_log("❌ State file not found — cannot force-close")
+            return
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            open_spreads = state.get("_open_spreads", [])
+            target = next((s for s in open_spreads if str(s.get("id", "")) == str(spread_id)), None)
+            if target is None:
+                self.add_system_log(f"❌ Spread {spread_id} not found in state file")
+                return
+            credit = float(target.get("credit", 0.0))
+            qty    = int(target.get("qty", 1))
+            debit  = credit * 0.50
+            credit_received = credit * 100.0 * qty
+            debit_paid      = debit  * 100.0 * qty
+            realized_pnl    = credit_received - debit_paid
+            now = time.time()
+            closed_trade = dict(target)
+            closed_trade.update({
+                "debit_to_close":       debit,
+                "debit_paid":           debit_paid,
+                "credit_received":      credit_received,
+                "realized_pnl":         realized_pnl,
+                "max_loss_dollars":     float(target.get("max_loss_per_contract", 0)) * qty * 100,
+                "open_commission":      0.0,
+                "close_commission":     0.0,
+                "return_on_credit_pct": (realized_pnl / credit_received * 100) if credit_received else 0.0,
+                "return_on_risk_pct":   0.0,
+                "closed_at":            now,
+                "hold_seconds":         now - float(target.get("opened_at", now)),
+                "close_reason":         "MANUAL_CLOSE (worker offline)",
+                "lifecycle_state":      "CLOSED BY USER",
+            })
+            state["_open_spreads"] = [s for s in open_spreads if str(s.get("id", "")) != str(spread_id)]
+            state.setdefault("_closed_trades", []).append(closed_trade)
+            state["_cash"]               = float(state.get("_cash", 0)) + debit_paid
+            state["_trades_executed"]    = int(state.get("_trades_executed", 0)) + 1
+            state["_total_realized_pnl"] = float(state.get("_total_realized_pnl", 0)) + realized_pnl
+            if realized_pnl >= 0:
+                state["_winning_trades"] = int(state.get("_winning_trades", 0)) + 1
+            else:
+                state["_losing_trades"] = int(state.get("_losing_trades", 0)) + 1
+            state.setdefault("_spread_pnl_history", []).append(realized_pnl)
+            state["_saved_at"] = now
+            tmp = state_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            tmp.replace(state_path)
+            self.add_system_log(
+                f"✅ Spread {spread_id} force-closed via state file — P&L ${realized_pnl:+.2f}"
+            )
+            # Refresh display so the row disappears
+            self._refresh_positions_table()
+        except Exception as exc:  # pragma: no cover
+            self.add_system_log(f"❌ Force-close failed: {exc}")
 
     def _cancel_order_by_id(self, order_id: int) -> None:
         """Cancel a single order by Tradier order ID (called from row close button)."""
@@ -1998,6 +2896,7 @@ class SpyderTradingDashboard(QMainWindow):
         # ── Snapshot outgoing mode before committing the switch ───────────────
         old_mode = self.trading_mode
         self._positions_snapshot_by_mode[old_mode] = self._snapshot_positions_table()
+        self._remember_current_account_snapshot(old_mode)
 
         self.trading_mode = new_mode
         is_paper = new_mode == TradingMode.PAPER
@@ -2031,8 +2930,40 @@ class SpyderTradingDashboard(QMainWindow):
 
         # ── Restore incoming mode's previously saved table contents ───────────
         saved_positions = self._positions_snapshot_by_mode.get(new_mode)
-        if saved_positions:
+        if saved_positions and new_mode != TradingMode.PAPER:
             self._restore_positions_snapshot(saved_positions)
+        elif new_mode == TradingMode.PAPER:
+            cached = getattr(self, "_portfolio_summary_cache", None)
+            if isinstance(cached, dict) and cached:
+                self._refresh_spreads_panel(cached)
+            else:
+                hydrated = self._load_cached_paper_state_payload()
+                if hydrated:
+                    self._refresh_spreads_panel(hydrated)
+                    if self.settled_value:
+                        self.settled_value.setText(f"${float(hydrated.get('equity', 0.0)):,.2f}")
+                    if self.buying_value:
+                        self.buying_value.setText(f"${float(hydrated.get('cash', 0.0)):,.2f}")
+                    if self.unrealized_value:
+                        _u = float(hydrated.get("unrealized_pnl", 0.0) or 0.0)
+                        _uc = COLORS["positive"] if _u >= 0 else COLORS["negative"]
+                        self.unrealized_value.setText(f"${_u:+,.2f}")
+                        self.unrealized_value.setStyleSheet(
+                            f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"
+                        )
+                    if self.realized_value:
+                        _r = float(hydrated.get("realized_pnl", 0.0) or 0.0)
+                        _rc = COLORS["positive"] if _r >= 0 else COLORS["negative"]
+                        self.realized_value.setText(f"${_r:+,.2f}")
+                        self.realized_value.setStyleSheet(
+                            f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"
+                        )
+        saved_account = self._account_snapshot_by_mode.get(new_mode)
+        if isinstance(saved_account, dict) and saved_account:
+            self._apply_account_snapshot(saved_account)
+
         self._refresh_pnl_table(self._pnl_stats_by_mode.get(new_mode, {}))
 
     def _update_pnl_title(self):
@@ -2211,57 +3142,447 @@ class SpyderTradingDashboard(QMainWindow):
         return dlg.exec() == QDialog.DialogCode.Accepted
 
     def start_trading(self):
-        """Handle start trading button click — mode-aware."""
+        """Handle start trading button click via unified SessionSupervisor path."""
         if self.trading_active:
             self.add_system_log("Trading already active")
             return
 
-        # PAPER mode — launch paper trading worker (manages its own connection)
-        if self.trading_mode == TradingMode.PAPER:
-            self._start_paper_trading()
-            return
-
-        # LIVE mode gates
-        if not self.api_connected:
-            QMessageBox.warning(
-                self,
-                "API Disconnected",
-                "API is disconnected - cannot start trading",
+        if self._startup_readiness_state.get("safe_fallback_applied", False):
+            self.add_system_log(
+                "⚠️ Safe mode reminder: automation fallback is active from startup readiness validation"
             )
-            self.add_system_log("Cannot start trading - API disconnected")
-            return
 
+        # Keep existing live-mode safety gates before backend start.
         if self.trading_mode == TradingMode.LIVE:
+            decision = self._require_fresh_go_no_go_or_block()
+            if decision == "NO-GO":
+                self.add_system_log(
+                    "⛔ Session blocked by NO-GO pre-open check — live trading start rejected"
+                )
+                self._append_go_no_go_bypass_audit("blocked", "NO-GO hard-block", "")
+                return
+            if decision == "CONDITIONAL GO":
+                reason = self._prompt_conditional_go_reason()
+                if reason is None:
+                    self.add_system_log("Live trading start cancelled after CONDITIONAL GO")
+                    return
+                self.add_system_log(
+                    f"⚠️ CONDITIONAL GO override accepted — bypass reason: {reason}"
+                )
+                self._append_go_no_go_bypass_audit("override", "CONDITIONAL GO", reason)
+
+            if not self.api_connected:
+                QMessageBox.warning(
+                    self,
+                    "API Disconnected",
+                    "API is disconnected - cannot start trading",
+                )
+                self.add_system_log("Cannot start trading - API disconnected")
+                return
+
             if not self._confirm_live_trading():
                 self.add_system_log("Live trading start cancelled by user")
                 return
 
-        data_status = self.data_status_label.text()
-        if data_status not in ["LIVE", "LIVE DATA", "LIVE - REAL"]:
-            QMessageBox.warning(
+            data_status = self.data_status_label.text()
+            if data_status not in ["LIVE", "LIVE DATA", "LIVE - REAL"]:
+                QMessageBox.warning(
+                    self,
+                    "No Live Data",
+                    "NO LIVE DATA\n\nCannot start trading without live market data.",
+                )
+                self.add_system_log("Cannot start trading - No live data")
+                return
+
+        if not self._start_unified_session_supervisor():
+            QMessageBox.critical(
                 self,
-                "No Live Data",
-                "NO LIVE DATA\n\nCannot start trading without live market data.",
+                "Start Failed",
+                "Unified backend session failed to start.\n"
+                "Trading remains stopped (fail-closed).",
             )
-            self.add_system_log("Cannot start trading - No live data")
             return
 
         self.trading_active = True
         self.connection_info.trading_active = True
-
         self.start_btn.setStyleSheet(
             f"background-color: {COLORS['automation_active']}; color: white;",
         )
-        self.start_btn.setText("TRADING ACTIVE")
+        self.start_btn.setText("PAPER ACTIVE" if self.trading_mode == TradingMode.PAPER else "TRADING ACTIVE")
 
         mode_label = self.trading_mode.value
-        self.add_system_log(f"{mode_label} trading started successfully")
-        self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Session started")
+        self.add_system_log(f"{mode_label} trading started successfully via SessionSupervisor")
+        self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Unified session started")
 
-        if self.real_data_active:
-            self.add_automation_log("Using live market data feed")
+        # Unified paper mode does not emit the legacy Qt worker's first UI
+        # snapshot, so refresh the positions strip immediately on successful
+        # startup to replace any stale placeholder/restore state.
+        if self.trading_mode == TradingMode.PAPER:
+            self._refresh_positions_table()
+
+    def _require_fresh_go_no_go_or_block(self) -> str:
+        """Ensure a fresh checklist decision exists before LIVE start.
+
+        Returns one of: GO, CONDITIONAL GO, NO-GO.
+        """
+        now = time.time()
+        if isinstance(self._last_go_no_go_ts, (int, float)) and isinstance(self._last_go_no_go_result, dict):
+            age = now - float(self._last_go_no_go_ts)
+            if age <= float(self._go_no_go_ttl_seconds):
+                return str(self._last_go_no_go_result.get("decision", "NO-GO"))
+
+        result = self.run_preopen_go_no_go_check(show_dialog=False)
+        decision = str(result.get("decision", "NO-GO"))
+        if decision == "NO-GO":
+            reasons = result.get("reasons", [])
+            reason_text = "\n".join(f"- {r}" for r in reasons[:6]) or "- Unknown readiness failure"
+            QMessageBox.critical(
+                self,
+                "LIVE Start Blocked (NO-GO)",
+                "Pre-open readiness checklist returned NO-GO.\n\n"
+                f"Reasons:\n{reason_text}",
+            )
+            self.add_system_log("❌ LIVE start blocked by Go/No-Go checklist")
+        return decision
+
+    def run_preopen_go_no_go_check_async(self) -> None:
+        """Run pre-open Go/No-Go check on a worker thread."""
+        if self._go_no_go_worker_thread is not None:
+            self.add_system_log("Pre-open checklist already running")
+            return
+
+        snapshot = self._build_preopen_check_snapshot()
+        self.add_system_log("Running pre-open checklist in background...")
+
+        button = getattr(self, "go_no_go_btn", None)
+        if button is not None:
+            button.setEnabled(False)
+
+        self._go_no_go_worker_thread = QThread(self)
+        self._go_no_go_worker = _GoNoGoCheckWorker(snapshot, self._evaluate_preopen_go_no_go_snapshot)
+        self._go_no_go_worker.moveToThread(self._go_no_go_worker_thread)
+
+        self._go_no_go_worker_thread.started.connect(self._go_no_go_worker.run)
+        self._go_no_go_worker.finished.connect(self._on_go_no_go_worker_finished)
+        self._go_no_go_worker.failed.connect(self._on_go_no_go_worker_failed)
+        self._go_no_go_worker.finished.connect(self._go_no_go_worker_thread.quit)
+        self._go_no_go_worker.failed.connect(self._go_no_go_worker_thread.quit)
+        self._go_no_go_worker_thread.finished.connect(self._cleanup_go_no_go_worker)
+
+        self._go_no_go_worker_thread.start()
+
+    def _on_go_no_go_worker_finished(self, result: dict) -> None:
+        """Handle async Go/No-Go worker success on UI thread."""
+        self._apply_go_no_go_result(result, show_dialog=True)
+
+    def _on_go_no_go_worker_failed(self, error_message: str) -> None:
+        """Handle async Go/No-Go worker failure on UI thread."""
+        self.add_system_log(f"❌ Pre-open checklist failed: {error_message}")
+        QMessageBox.critical(
+            self,
+            "Pre-open Checklist Error",
+            f"Go/No-Go evaluation failed:\n{error_message}",
+        )
+
+    def _cleanup_go_no_go_worker(self) -> None:
+        """Release async Go/No-Go worker resources."""
+        button = getattr(self, "go_no_go_btn", None)
+        if button is not None:
+            button.setEnabled(True)
+
+        if self._go_no_go_worker is not None:
+            try:
+                self._go_no_go_worker.deleteLater()
+            except Exception:
+                pass
+        if self._go_no_go_worker_thread is not None:
+            try:
+                self._go_no_go_worker_thread.deleteLater()
+            except Exception:
+                pass
+
+        self._go_no_go_worker = None
+        self._go_no_go_worker_thread = None
+
+    def _build_preopen_check_snapshot(self) -> dict[str, object]:
+        """Capture UI-safe snapshot used by sync/async Go/No-Go evaluation."""
+        startup_state = self._collect_startup_readiness_state()
+        self._startup_readiness_state = startup_state
+
+        data_label = ""
+        if getattr(self, "data_status_label", None) is not None:
+            try:
+                data_label = str(self.data_status_label.text()).strip().upper()
+            except Exception:
+                data_label = ""
+
+        with self._event_clock_lock:
+            event_state = getattr(self, "event_clock_state", None)
+            event_enabled = bool(getattr(event_state, "enabled", True)) if event_state is not None else True
+            event_name = str(getattr(event_state, "state", "clear")) if event_state is not None else "clear"
+
+        return {
+            "startup_state": startup_state,
+            "api_connected": bool(getattr(self, "api_connected", False)),
+            "mkt_data_connected": bool(getattr(self, "mkt_data_connected", False)),
+            "data_status_label": data_label,
+            "event_clock_enabled": event_enabled,
+            "event_clock_state": event_name,
+            "checked_at_et": datetime.now(pytz.timezone("US/Eastern")).isoformat(),
+        }
+
+    @staticmethod
+    def _evaluate_preopen_go_no_go_snapshot(snapshot: dict[str, object]) -> dict[str, object]:
+        """Evaluate GO/NO-GO decision from an immutable snapshot."""
+        reasons: list[str] = []
+        warnings: list[str] = []
+
+        startup_state = snapshot.get("startup_state", {})
+        if isinstance(startup_state, dict):
+            if startup_state.get("live_blocking", False):
+                reasons.append("A03 readiness validation reports live-blocking configuration errors")
+            if startup_state.get("safe_fallback_applied", False):
+                reasons.append("Automation safe fallback is active from startup readiness validation")
+
+        if not bool(snapshot.get("api_connected", False)):
+            reasons.append("Tradier execution API is disconnected")
+        if not bool(snapshot.get("mkt_data_connected", False)):
+            reasons.append("Market data feed is disconnected")
+
+        data_label = str(snapshot.get("data_status_label", "")).strip().upper()
+        if data_label and data_label not in {"LIVE", "LIVE DATA", "LIVE - REAL", "REAL"}:
+            warnings.append(f"Data status is {data_label} (not explicit LIVE)")
+
+        if bool(snapshot.get("event_clock_enabled", True)):
+            state_name = str(snapshot.get("event_clock_state", "clear"))
+            if state_name in {"pre", "live", "post"}:
+                warnings.append(f"Event-clock state is {state_name}; reduced-risk policy recommended")
+
+        decision = "GO"
+        if reasons:
+            decision = "NO-GO"
+        elif warnings:
+            decision = "CONDITIONAL GO"
+
+        return {
+            "decision": decision,
+            "checked_at_et": str(snapshot.get("checked_at_et", "")),
+            "reasons": reasons,
+            "warnings": warnings,
+            "startup_state": startup_state,
+        }
+
+    def run_preopen_go_no_go_check(self, show_dialog: bool = True) -> dict[str, object]:
+        """Run dashboard-visible pre-open readiness checks and store decision."""
+        snapshot = self._build_preopen_check_snapshot()
+        result = self._evaluate_preopen_go_no_go_snapshot(snapshot)
+        return self._apply_go_no_go_result(result, show_dialog=show_dialog)
+
+    def _apply_go_no_go_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:
+        """Persist, display, and log checklist result."""
+        reasons = list(result.get("reasons", []))
+        warnings = list(result.get("warnings", []))
+        decision = str(result.get("decision", "NO-GO"))
+
+        self._last_go_no_go_result = result
+        self._last_go_no_go_ts = time.time()
+        self._update_go_no_go_status_display(result)
+
+        summary = (
+            f"Pre-open checklist: {decision} "
+            f"(reasons={len(reasons)}, warnings={len(warnings)})"
+        )
+        self.add_system_log(summary)
+
+        report_path = self._export_go_no_go_report(result)
+        if report_path:
+            self.add_system_log(f"Go/No-Go report saved: {report_path}")
+
+        if show_dialog:
+            lines = [summary]
+            if reasons:
+                lines.append("\nBlocking reasons:")
+                lines.extend(f"- {r}" for r in reasons)
+            if warnings:
+                lines.append("\nWarnings:")
+                lines.extend(f"- {w}" for w in warnings)
+
+            icon = QMessageBox.Icon.Information
+            title = f"Pre-open Decision: {decision}"
+            if decision == "NO-GO":
+                icon = QMessageBox.Icon.Critical
+            elif decision == "CONDITIONAL GO":
+                icon = QMessageBox.Icon.Warning
+
+            dialog = QMessageBox(self)
+            dialog.setIcon(icon)
+            dialog.setWindowTitle(title)
+            dialog.setText("\n".join(lines))
+            dialog.exec()
+
+        return result
+
+    def _export_go_no_go_report(self, result: dict[str, object]) -> str:
+        """Persist Go/No-Go decision report to disk as JSON."""
+        try:
+            reports_dir = Path(self._go_no_go_reports_dir)
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y%m%d_%H%M%S")
+            decision = str(result.get("decision", "UNKNOWN")).replace(" ", "_")
+            out_path = reports_dir / f"go_no_go_{stamp}_{decision}.json"
+            with out_path.open("w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2, default=str)
+            return str(out_path)
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Failed to save Go/No-Go report: {exc}")
+            return ""
+
+    def _prompt_conditional_go_reason(self) -> str | None:
+        """Show a modal dialog requiring a typed bypass reason for CONDITIONAL GO.
+
+        Returns the trimmed reason string if the operator confirms, or None if
+        they cancel.  An empty reason is not accepted — the dialog stays open
+        until a non-blank reason is supplied or the user cancels.
+        """
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QLineEdit, QVBoxLayout
+
+        while True:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("CONDITIONAL GO — Bypass Reason Required")
+            dlg.setMinimumWidth(520)
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel(
+                "Pre-open checklist returned <b>CONDITIONAL GO</b>.<br><br>"
+                "Proceeding with LIVE trading requires a documented reason.<br>"
+                "This reason will be written to the session audit log."
+            ))
+            reason_edit = QLineEdit()
+            reason_edit.setPlaceholderText("Enter bypass reason (required)…")
+            layout.addWidget(reason_edit)
+            btns = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            layout.addWidget(btns)
+            btns.accepted.connect(dlg.accept)
+            btns.rejected.connect(dlg.reject)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return None
+            reason = reason_edit.text().strip()
+            if reason:
+                return reason
+            QMessageBox.warning(
+                self,
+                "Reason Required",
+                "You must enter a bypass reason before proceeding.",
+            )
+
+    def _append_go_no_go_bypass_audit(
+        self, action: str, decision: str, reason: str
+    ) -> None:
+        """Append a bypass / block audit record to the most recent Go/No-Go report.
+
+        If no report exists for this session, writes a new audit-only file so
+        that every session start attempt is traceable.
+        """
+        try:
+            reports_dir = Path(self._go_no_go_reports_dir)
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y%m%d_%H%M%S")
+            audit_entry = {
+                "audit_type": "session_start_gate",
+                "action": action,
+                "decision": decision,
+                "bypass_reason": reason,
+                "operator_ts_et": stamp,
+            }
+            # Attach to the cached result so _export_go_no_go_report can persist it.
+            if isinstance(self._last_go_no_go_result, dict):
+                self._last_go_no_go_result.setdefault("bypass_audit", []).append(
+                    audit_entry
+                )
+                self._export_go_no_go_report(self._last_go_no_go_result)
+            else:
+                # No checklist result cached — write a standalone audit file.
+                out_path = reports_dir / f"go_no_go_{stamp}_audit_{action}.json"
+                with out_path.open("w", encoding="utf-8") as handle:
+                    json.dump(audit_entry, handle, indent=2, default=str)
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Failed to write Go/No-Go bypass audit: {exc}")
+
+    def _update_go_no_go_status_display(self, result: dict[str, object] | None) -> None:
+        """Update status label and button style for latest checklist decision."""
+        label = getattr(self, "go_no_go_status_label", None)
+        button = getattr(self, "go_no_go_btn", None)
+        start_btn = getattr(self, "start_btn", None)
+        if label is None or button is None:
+            return
+
+        if not isinstance(result, dict):
+            label.setText("Pre-open: NOT RUN")
+            label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
+            button.setStyleSheet(f"background-color: {COLORS['cyan']}; color: black;")
+            if start_btn is not None:
+                start_btn.setEnabled(True)
+                start_btn.setToolTip("Start automated trading")
+            return
+
+        decision = str(result.get("decision", "NOT RUN"))
+        checked_at = str(result.get("checked_at_et", ""))
+        ts_suffix = checked_at[11:19] if len(checked_at) >= 19 else "--:--:--"
+        label.setText(f"Pre-open: {decision} @ {ts_suffix} ET")
+
+        if decision == "GO":
+            label.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+            button.setStyleSheet(f"background-color: {COLORS['positive']}; color: black;")
+            if start_btn is not None:
+                start_btn.setEnabled(True)
+                if self.trading_mode == TradingMode.PAPER:
+                    start_btn.setToolTip("Start paper trading with simulated fills")
+                else:
+                    start_btn.setToolTip("Start LIVE trading with real order execution")
+        elif decision == "CONDITIONAL GO":
+            label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
+            button.setStyleSheet(f"background-color: {COLORS['warning']}; color: black;")
+            if start_btn is not None:
+                start_btn.setEnabled(True)
+                start_btn.setToolTip("Conditional Go active: reduced-risk confirmation required")
         else:
-            self.add_automation_log("Using current dashboard data source")
+            label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 11px;")
+            button.setStyleSheet(f"background-color: {COLORS['negative']}; color: white;")
+            if start_btn is not None and not self.trading_active:
+                start_btn.setEnabled(False)
+                start_btn.setToolTip("Start blocked: Pre-open checklist is NO-GO")
+
+    def _start_unified_session_supervisor(self) -> bool:
+        """Start SessionSupervisor using the currently selected trading mode."""
+        if self._session_supervisor is not None and getattr(self._session_supervisor, "is_running", False):
+            self.add_system_log("Unified session already running")
+            return True
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import create_session_supervisor
+
+            mode = "live" if self.trading_mode == TradingMode.LIVE else "paper"
+            self._session_supervisor = create_session_supervisor(mode=mode)
+            started = bool(self._session_supervisor.start())
+            if not started:
+                self._session_supervisor = None
+                return False
+            return True
+        except Exception as exc:
+            self.add_system_log(f"❌ Unified session start failed: {exc}")
+            self._session_supervisor = None
+            return False
+
+    def _stop_unified_session_supervisor(self, flatten: bool = False) -> None:
+        """Stop SessionSupervisor when it is active."""
+        supervisor = self._session_supervisor
+        self._session_supervisor = None
+        if supervisor is None:
+            return
+        try:
+            supervisor.stop(flatten=flatten)
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Unified session stop error: {exc}")
 
     def _start_paper_trading(self):
         """Launch the paper trading worker in a background QThread."""
@@ -2339,6 +3660,10 @@ class SpyderTradingDashboard(QMainWindow):
         self._paper_worker.stopped.connect(self._on_paper_stopped)
         self._paper_worker.connection_ready.connect(self._on_paper_connection)
         self._paper_worker.pivot_signal_updated.connect(self._on_pivot_signal_state)
+        self.manual_close_spread_requested.connect(
+            self._paper_worker.request_close_spread,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
         self._paper_thread.start()
         self.add_automation_log("PAPER TRADING — Connecting to Tradier sandbox…")
@@ -2803,14 +4128,23 @@ class SpyderTradingDashboard(QMainWindow):
             )
         # Log to system for visibility
         qty = data.get("position_qty", 0)
+        n_spreads = data.get("open_spreads", 0)
         spy_last = data.get("spy_last", 0.0)
         if qty > 0:
             self.add_system_log(
                 f"Paper: SPY ${spy_last:.2f} | {qty} shares | "
                 f"Unrealized: ${unrealized:+,.2f} | Equity: ${equity:,.2f}"
             )
+        elif n_spreads > 0:
+            self.add_system_log(
+                f"Paper: SPY ${spy_last:.2f} | {n_spreads} spread(s) open | "
+                f"MTM: ${data.get('spreads_unrealized_pnl', 0.0):+,.2f} | Equity: ${equity:,.2f}"
+            )
         else:
             self.add_system_log(f"Paper: SPY ${spy_last:.2f} | No position | Equity: ${equity:,.2f}")
+
+        # Persist most recent account panel values for startup restore.
+        self._remember_current_account_snapshot()
 
         # Phase 2: refresh spreads & volatility panel
         self._refresh_spreads_panel(data)
@@ -2825,26 +4159,41 @@ class SpyderTradingDashboard(QMainWindow):
             atm_iv : float | None            — last sampled ATM IV
             iv_rank : float | None           — rolling 0-100 rank
         """
+        # Cache the raw payload so the Portfolio Summary popup can render
+        # fresh values whenever it is opened or refreshed.
+        self._portfolio_summary_cache = dict(data)
+
         # IV labels
         atm_iv = data.get("atm_iv")
         iv_rank = data.get("iv_rank")
         if self.atm_iv_label is not None:
-            self.atm_iv_label.setText(
-                f"ATM IV: {atm_iv*100:.1f}%" if isinstance(atm_iv, (int, float)) else "ATM IV: —"
-            )
+            if isinstance(atm_iv, (int, float)):
+                iv_pct = atm_iv * 100
+                iv_col = (
+                    COLORS["negative"] if iv_pct >= 50
+                    else COLORS.get("warning", COLORS["text"]) if iv_pct >= 30
+                    else COLORS["text"]
+                )
+                self.atm_iv_label.setText(f"ATM IV  {iv_pct:.1f}%")
+                self.atm_iv_label.setStyleSheet(f"color: {iv_col}; font-size: 11px;")
+            else:
+                self.atm_iv_label.setText("ATM IV  —")
+                self.atm_iv_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
         if self.iv_rank_label is not None:
             if isinstance(iv_rank, (int, float)):
-                # Colour: green ≥50, amber 25-50, red <25
-                if iv_rank >= 50:
-                    col = COLORS["positive"]
+                # Colour: green <25 (low vol = good for sellers), amber 25-50, orange 50-75, red >75
+                if iv_rank >= 75:
+                    col = COLORS["negative"]
+                elif iv_rank >= 50:
+                    col = COLORS.get("warning", COLORS["text"])
                 elif iv_rank >= 25:
                     col = COLORS.get("warning", COLORS["text"])
                 else:
-                    col = COLORS["negative"]
-                self.iv_rank_label.setText(f"IV Rank: {iv_rank:.0f}")
+                    col = COLORS["positive"]
+                self.iv_rank_label.setText(f"IVR  {iv_rank:.0f}")
                 self.iv_rank_label.setStyleSheet(f"color: {col}; font-size: 11px;")
             else:
-                self.iv_rank_label.setText("IV Rank: —")
+                self.iv_rank_label.setText("IVR  —")
                 self.iv_rank_label.setStyleSheet(
                     f"color: {COLORS['text']}; font-size: 11px;"
                 )
@@ -2866,30 +4215,33 @@ class SpyderTradingDashboard(QMainWindow):
                 except Exception:  # noqa: BLE001 — best-effort UI refresh
                     pass
         if self.spreads_summary_label is not None:
-            col = COLORS["positive"] if spreads_mtm >= 0 else COLORS["negative"]
+            mtm_col = COLORS["positive"] if spreads_mtm >= 0 else COLORS["negative"]
+            n_open = len(spreads_detail)
             self.spreads_summary_label.setText(
-                f"Open: {len(spreads_detail)}   MTM: ${spreads_mtm:+,.2f}"
+                f"OPEN  {n_open}   MTM  ${spreads_mtm:+,.2f}"
             )
-            self.spreads_summary_label.setStyleSheet(f"color: {col}; font-size: 11px;")
+            self.spreads_summary_label.setStyleSheet(f"color: {mtm_col}; font-size: 11px;")
 
         # Buying-power gauge (defined-risk: BP used = Σ max_loss × qty)
         if self.bp_used_label is not None:
             bp_used = 0.0
             for p in spreads_detail:
                 try:
-                    bp_used += float(p.get("max_loss_per_contract", 0.0)) * int(p.get("qty", 0)) * 100.0
+                    # max_loss_per_contract is already in dollars (R08 × 100 multiplier
+                    # applied at spread construction time) — do NOT multiply by 100 again.
+                    bp_used += float(p.get("max_loss_per_contract", 0.0)) * int(p.get("qty", 0))
                 except (TypeError, ValueError):
                     continue
             cap = float(getattr(self, "_paper_initial_capital", 100_000.0) or 100_000.0)
             pct = (bp_used / cap * 100.0) if cap > 0 else 0.0
-            self.bp_used_label.setText(f"BP Used: ${bp_used:,.0f} / ${cap:,.0f} ({pct:.1f}%)")
-            # Colour cue when buying-power utilisation is high.
-            if pct >= 50:
+            self.bp_used_label.setText(f"BP  ${bp_used:,.0f} / ${cap:,.0f}  ({pct:.0f}%)")
+            # Colour: green <50%, amber 50-80%, red >80%.
+            if pct >= 80:
                 bp_col = COLORS["negative"]
-            elif pct >= 25:
+            elif pct >= 50:
                 bp_col = COLORS.get("warning", COLORS["text"])
             else:
-                bp_col = COLORS["text"]
+                bp_col = COLORS["positive"]
             self.bp_used_label.setStyleSheet(f"color: {bp_col}; font-size: 11px;")
 
         # Realized today (R08 emits cumulative session realized)
@@ -2902,7 +4254,7 @@ class SpyderTradingDashboard(QMainWindow):
             except (TypeError, ValueError):
                 r = 0.0
             r_col = COLORS["positive"] if r >= 0 else COLORS["negative"]
-            self.realized_today_label.setText(f"Realized: ${r:+,.2f}")
+            self.realized_today_label.setText(f"REALIZED  ${r:+,.2f}")
             self.realized_today_label.setStyleSheet(f"color: {r_col}; font-size: 11px;")
 
         # Populate positions_table tree with paper spreads (paper mode only).
@@ -2911,7 +4263,10 @@ class SpyderTradingDashboard(QMainWindow):
             getattr(self, "trading_mode", None) == TradingMode.PAPER
             and self.positions_table is not None
         ):
-            self._render_paper_spreads_in_tree(spreads_detail)
+            armed_candidate = data.get("armed_candidate")
+            self._render_paper_spreads_in_tree(
+                spreads_detail, armed_candidate=armed_candidate
+            )
 
         # Table rows (legacy spreads_table — None after the unified-strip refactor).
         if self.spreads_table is None:
@@ -2939,23 +4294,50 @@ class SpyderTradingDashboard(QMainWindow):
                         )
                     self.spreads_table.setItem(row, col, item)
 
-        # Phase 3: portfolio-aggregate Greeks labels.
+        # Phase 3: portfolio-aggregate Greeks labels (with colour coding).
         greeks = data.get("portfolio_greeks") or {}
+        _neutral = COLORS["text"]
+        _warn = COLORS.get("warning", COLORS["text"])
+        _pos = COLORS["positive"]
+        _neg = COLORS["negative"]
         if self.port_delta_label is not None:
             d = greeks.get("delta")
-            self.port_delta_label.setText(
-                f"Δ: {d:+,.1f}" if isinstance(d, (int, float)) else "Δ: —"
-            )
+            if isinstance(d, (int, float)):
+                d_col = _neg if abs(d) >= 60 else _warn if abs(d) >= 30 else _neutral
+                self.port_delta_label.setText(f"Δ  {d:+,.1f}")
+                self.port_delta_label.setStyleSheet(f"color: {d_col}; font-size: 11px;")
+            else:
+                self.port_delta_label.setText("Δ  —")
+                self.port_delta_label.setStyleSheet(f"color: {_neutral}; font-size: 11px;")
         if self.port_gamma_label is not None:
             g = greeks.get("gamma")
-            self.port_gamma_label.setText(
-                f"Γ: {g:+,.2f}" if isinstance(g, (int, float)) else "Γ: —"
-            )
+            if isinstance(g, (int, float)):
+                g_col = _neg if abs(g) >= 0.30 else _warn if abs(g) >= 0.15 else _neutral
+                self.port_gamma_label.setText(f"Γ  {g:+,.2f}")
+                self.port_gamma_label.setStyleSheet(f"color: {g_col}; font-size: 11px;")
+            else:
+                self.port_gamma_label.setText("Γ  —")
+                self.port_gamma_label.setStyleSheet(f"color: {_neutral}; font-size: 11px;")
+        if self.port_theta_label is not None:
+            t = greeks.get("theta")
+            if isinstance(t, (int, float)):
+                # For premium sellers theta > 0 = earning time decay (good = green).
+                # Scale theta to $/day: raw BSM theta is per-day already when × 100 multiplier.
+                t_col = _pos if t > 0 else _neg
+                self.port_theta_label.setText(f"Θ  ${t:+,.2f}/day")
+                self.port_theta_label.setStyleSheet(f"color: {t_col}; font-size: 11px;")
+            else:
+                self.port_theta_label.setText("Θ  —")
+                self.port_theta_label.setStyleSheet(f"color: {_neutral}; font-size: 11px;")
         if self.port_vega_label is not None:
             v = greeks.get("vega")
-            self.port_vega_label.setText(
-                f"V: {v:+,.1f}" if isinstance(v, (int, float)) else "V: —"
-            )
+            if isinstance(v, (int, float)):
+                v_col = _neg if v <= -800 else _warn if v <= -300 else _neutral
+                self.port_vega_label.setText(f"V  {v:+,.1f}")
+                self.port_vega_label.setStyleSheet(f"color: {v_col}; font-size: 11px;")
+            else:
+                self.port_vega_label.setText("V  —")
+                self.port_vega_label.setStyleSheet(f"color: {_neutral}; font-size: 11px;")
         # Phase 7: higher-order Greeks (charm / vanna) from N04 portfolio_greeks.
         if self.port_charm_label is not None:
             charm = greeks.get("charm")
@@ -2992,6 +4374,11 @@ class SpyderTradingDashboard(QMainWindow):
                 _status = "HIGH RISK" if _pct >= 0.8 else ("ELEVATED" if _pct >= 0.6 else "NORMAL")
                 _bar.set_value(float(_val), _status)
 
+        # If the Portfolio Summary dialog is open, push refreshed data to it.
+        dlg = self._portfolio_summary_dialog
+        if dlg is not None and dlg.isVisible():
+            self._populate_portfolio_summary_table(dlg)
+
     @Slot(dict)
     def _on_paper_metrics(self, metrics: dict):
         """Handle paper P&L metrics update — push summary figures into account container."""
@@ -3012,8 +4399,184 @@ class SpyderTradingDashboard(QMainWindow):
                 f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"
             )
 
-        # Refresh P&L performance table with whatever stats we have
-        self._refresh_pnl_table(metrics)
+        # Persist most recent account panel values for startup restore.
+        self._remember_current_account_snapshot()
+
+        # Refresh P&L performance table with live TODAY fields.
+        # Worker emits generic keys (realized_pnl/win_rate/etc.), while the
+        # table expects period-scoped keys (today_pnl/today_win_rate/etc.).
+        enriched = dict(metrics)
+        if realized_str and not enriched.get("today_pnl"):
+            enriched["today_pnl"] = str(realized_str)
+
+        win_rate_raw = enriched.get("win_rate")
+        if win_rate_raw is not None and not enriched.get("today_win_rate"):
+            try:
+                win_rate_num = float(str(win_rate_raw).replace("%", ""))
+                if win_rate_num <= 1.0:
+                    win_rate_num *= 100.0
+                enriched["today_win_rate"] = f"{win_rate_num:.1f}%"
+            except (TypeError, ValueError):
+                pass
+
+        if not enriched.get("today_win_loss"):
+            # Prefer explicit counts if present; otherwise infer from
+            # total_trades + win_rate for a live-updating summary.
+            try:
+                wins = int(enriched.get("winning_trades")) if enriched.get("winning_trades") is not None else None
+                losses = int(enriched.get("losing_trades")) if enriched.get("losing_trades") is not None else None
+            except (TypeError, ValueError):
+                wins = None
+                losses = None
+
+            if wins is not None and losses is not None:
+                enriched["today_win_loss"] = f"{wins}/{losses}"
+            else:
+                try:
+                    total_trades = int(str(enriched.get("total_trades", "0")))
+                    wr = enriched.get("today_win_rate")
+                    if wr is None:
+                        wr = win_rate_raw
+                    wr_num = float(str(wr).replace("%", ""))
+                    if wr_num <= 1.0:
+                        wr_num *= 100.0
+                    wins_inf = int(round(total_trades * (wr_num / 100.0)))
+                    losses_inf = max(0, total_trades - wins_inf)
+                    if total_trades > 0:
+                        enriched["today_win_loss"] = f"{wins_inf}/{losses_inf}"
+                except (TypeError, ValueError):
+                    pass
+
+        if not enriched.get("today_profit_factor"):
+            try:
+                et_tz = pytz.timezone("US/Eastern")
+                today_et = datetime.now(et_tz).date()
+                gross_profit = 0.0
+                gross_loss = 0.0
+                for trade in getattr(self, "_closed_trades_cache", []):
+                    if not isinstance(trade, dict):
+                        continue
+                    closed_at = trade.get("closed_at")
+                    if closed_at is None:
+                        continue
+                    try:
+                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)
+                    except (TypeError, ValueError, OSError, OverflowError):
+                        continue
+                    if closed_dt.date() != today_et:
+                        continue
+                    pnl = float(trade.get("realized_pnl", 0.0) or 0.0)
+                    if pnl > 0:
+                        gross_profit += pnl
+                    elif pnl < 0:
+                        gross_loss += abs(pnl)
+
+                if gross_loss > 0:
+                    enriched["today_profit_factor"] = f"{(gross_profit / gross_loss):.2f}"
+                elif gross_profit > 0:
+                    enriched["today_profit_factor"] = "∞"
+            except Exception:
+                pass
+
+        if not enriched.get("today_sharpe") or not enriched.get("today_sortino"):
+            try:
+                import math
+
+                et_tz = pytz.timezone("US/Eastern")
+                today_et = datetime.now(et_tz).date()
+                returns: list[float] = []
+                downside: list[float] = []
+
+                for trade in getattr(self, "_closed_trades_cache", []):
+                    if not isinstance(trade, dict):
+                        continue
+                    closed_at = trade.get("closed_at")
+                    if closed_at is None:
+                        continue
+                    try:
+                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)
+                    except (TypeError, ValueError, OSError, OverflowError):
+                        continue
+                    if closed_dt.date() != today_et:
+                        continue
+
+                    # Prefer stored return_on_risk_pct; fallback to pnl/max_loss.
+                    ret = trade.get("return_on_risk_pct")
+                    if ret is None:
+                        try:
+                            pnl = float(trade.get("realized_pnl", 0.0) or 0.0)
+                            max_loss = float(trade.get("max_loss_dollars", 0.0) or 0.0)
+                            if max_loss <= 0:
+                                continue
+                            ret = (pnl / max_loss) * 100.0
+                        except (TypeError, ValueError):
+                            continue
+                    try:
+                        r = float(ret) / 100.0
+                    except (TypeError, ValueError):
+                        continue
+                    returns.append(r)
+                    if r < 0:
+                        downside.append(r)
+
+                if len(returns) >= 2:
+                    mean_r = sum(returns) / len(returns)
+                    var = sum((x - mean_r) ** 2 for x in returns) / (len(returns) - 1)
+                    std = math.sqrt(max(var, 0.0))
+                    if std > 0:
+                        sharpe = (mean_r / std) * math.sqrt(len(returns))
+                        enriched.setdefault("today_sharpe", f"{sharpe:.2f}")
+
+                    if downside:
+                        target = 0.0
+                        dvar = sum((x - target) ** 2 for x in downside) / len(downside)
+                        dstd = math.sqrt(max(dvar, 0.0))
+                        if dstd > 0:
+                            sortino = (mean_r - target) / dstd * math.sqrt(len(returns))
+                            enriched.setdefault("today_sortino", f"{sortino:.2f}")
+                        elif mean_r > 0:
+                            enriched.setdefault("today_sortino", "∞")
+                    elif mean_r > 0:
+                        enriched.setdefault("today_sortino", "∞")
+            except Exception:
+                pass
+
+        # ── Calmar: cumulative return / max drawdown (session basis) ──────────
+        if not enriched.get("today_calmar"):
+            try:
+                import math
+                # Total return % = realised P&L / initial capital * 100
+                realized_raw = enriched.get("realized_pnl", "")
+                initial_cap  = float(enriched.get("initial_capital", 0.0) or 0.0)
+                if initial_cap <= 0:
+                    # Fallback: read from state file via cached position update
+                    initial_cap = float(
+                        getattr(self, "_paper_initial_capital", 0.0) or 0.0
+                    )
+                realized_pnl = 0.0
+                if isinstance(realized_raw, str):
+                    realized_pnl = float(realized_raw.replace("$", "").replace(",", "").replace("+", "") or 0.0)
+                elif isinstance(realized_raw, (int, float)):
+                    realized_pnl = float(realized_raw)
+
+                max_dd_raw = enriched.get("max_drawdown", "0")
+                max_dd = float(str(max_dd_raw).replace("%", "") or 0.0)
+                # Worker emits max_drawdown as a decimal fraction (e.g. 0.0028)
+                if 0 < max_dd < 1:
+                    max_dd_pct = max_dd * 100.0
+                else:
+                    max_dd_pct = max_dd  # already in percent
+
+                if initial_cap > 0 and max_dd_pct > 0:
+                    total_return_pct = (realized_pnl / initial_cap) * 100.0
+                    calmar = total_return_pct / max_dd_pct
+                    enriched["today_calmar"] = f"{calmar:.2f}"
+                elif initial_cap > 0 and realized_pnl > 0 and max_dd_pct == 0:
+                    enriched["today_calmar"] = "∞"
+            except Exception:
+                pass
+
+        self._refresh_pnl_table(enriched)
 
     def _refresh_pnl_table(self, stats: dict) -> None:
         """Refresh the P&L performance table from trading stats.
@@ -3110,10 +4673,36 @@ class SpyderTradingDashboard(QMainWindow):
         # overwriting live paper P&L with the (potentially zero) sandbox account balance.
         if self.trading_active and self._paper_worker is not None:
             return
-        if self.settled_value and equity:
+        if self.settled_value:
             self.settled_value.setText(f"${equity:,.2f}")
-        if self.buying_value and buying_power:
+        if self.buying_value:
             self.buying_value.setText(f"${buying_power:,.2f}")
+
+        # Persist most recent account panel values for startup restore.
+        self._remember_current_account_snapshot()
+
+    def _init_account_display(self):
+        """Set account P&L fields to $0.00 and load any persisted performance stats.
+
+        Called once on startup (via QTimer.singleShot) after setup_ui() so every
+        label is a real widget rather than None.  Ensures the account section never
+        stays on the placeholder "—" values while waiting for the first trading
+        session to start.
+        """
+        # Show $0.00 for session P&L — no trades have occurred yet.
+        if self.realized_value:
+            self.realized_value.setText("$0.00")
+        if self.unrealized_value:
+            self.unrealized_value.setText("$0.00")
+
+        # Restore persisted account values for the current mode when available.
+        saved_account = self._account_snapshot_by_mode.get(self.trading_mode)
+        if isinstance(saved_account, dict) and saved_account:
+            self._apply_account_snapshot(saved_account)
+
+        # Load any historical performance stats persisted by H07 so the P&L
+        # Performance table shows real data immediately, not all "—".
+        self._refresh_pnl_table(self._pnl_stats_by_mode.get(self.trading_mode, {}))
 
     @Slot(bool)
     def _on_paper_connection(self, connected: bool):
@@ -3130,21 +4719,17 @@ class SpyderTradingDashboard(QMainWindow):
 
     def stop_trading(self):
         """Handle stop trading button click — mode-aware."""
-        # PAPER mode — stop the paper worker
-        if self.trading_mode == TradingMode.PAPER and self._paper_worker:
-            self._stop_paper_trading()
-            return
-        if not self.api_connected:
-            QMessageBox.information(
-                self,
-                "API Disconnected",
-                "API is disconnected - further trading has already stopped, but open orders at Tradier still remain in effect. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
-            )
-            return
-
         if not self.trading_active:
+            if not self.api_connected:
+                QMessageBox.information(
+                    self,
+                    "API Disconnected",
+                    "API is disconnected - further trading has already stopped, but open orders at Tradier still remain in effect. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
+                )
             self.add_system_log("No active trading to stop")
             return
+
+        self._stop_unified_session_supervisor(flatten=False)
 
         self.trading_active = False
         self.connection_info.trading_active = False
@@ -3315,6 +4900,19 @@ class SpyderTradingDashboard(QMainWindow):
         import os
         current = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
         new_provider = "massive" if current == "tradier" else "tradier"
+
+        disable_massive = os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower() in {
+            "1", "true", "yes", "on"
+        }
+        if new_provider == "massive" and disable_massive:
+            os.environ["MARKET_DATA_PROVIDER"] = "tradier"
+            os.environ["ACTIVE_DATA_PROVIDER"] = "tradier"
+            self._apply_mkt_provider_display("tradier")
+            self.add_system_log(
+                "ℹ️ Massive disabled by SPYDER_DISABLE_MASSIVE; staying on TRADIER"
+            )
+            return
+
         try:
             from Spyder.SpyderC_MarketData.SpyderC00_MarketDataProtocol import (
                 switch_market_data_provider,
@@ -3479,10 +5077,19 @@ class SpyderTradingDashboard(QMainWindow):
             prev_attr = f"_cm_prev_{widget_key}"
             prev = getattr(self, prev_attr, value)
             change = value - prev
-            change_pct = (change / prev * 100.0) if prev else 0.0
+            # Use abs(prev) as the denominator so that negative-valued metrics
+            # (e.g. VRP = -1.45, NYMO, $TICK when negative) do not produce a
+            # sign-flipped percentage.  A positive change always yields a positive
+            # percentage regardless of the sign of the level.
+            change_pct = (change / abs(prev) * 100.0) if prev else 0.0
             setattr(self, prev_attr, value)
 
             widget.update_data({"last": value, "change": change, "change_pct": change_pct})
+
+        liquidity_entry = metrics.get("LIQUIDITY_DIAGNOSTICS")
+        if isinstance(liquidity_entry, dict):
+            payload = liquidity_entry.get("value", {})
+            self._update_liquidity_diagnostics_panel(payload)
 
         # Forward TICK/ADD/TRIN/NYMO to the Market Internals dialog if it is open.
         # This ensures the popup always shows the same values as the Market Overview panel.
@@ -3550,6 +5157,71 @@ class SpyderTradingDashboard(QMainWindow):
                 _live_s07[_wk] = _raw * _sc
             if _live_s07:
                 self.signal_panel.update_live_data(_live_s07)
+
+    @staticmethod
+    def _summarize_liquidity_diagnostics(payload: dict) -> dict:
+        """Summarize S07 liquidity diagnostics payload into dashboard-friendly scalars."""
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        candidates = data.get("candidates", []) if isinstance(data, dict) else []
+        if not isinstance(candidates, list):
+            candidates = []
+
+        total = len(candidates)
+        pass_count = 0
+        reason_counts: dict[str, int] = {}
+        freshness_samples: list[float] = []
+
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("pass") is True:
+                pass_count += 1
+            for reason in candidate.get("fail_reasons", []) or []:
+                if isinstance(reason, str) and reason:
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+            snapshot = candidate.get("snapshot", {}) if isinstance(candidate.get("snapshot", {}), dict) else {}
+            quote_age_ms = snapshot.get("quote_age_ms")
+            if isinstance(quote_age_ms, (int, float)):
+                freshness_samples.append(float(quote_age_ms))
+
+        fail_count = max(0, total - pass_count)
+        top_failure = "none"
+        if reason_counts:
+            top_failure = max(reason_counts.items(), key=lambda item: item[1])[0]
+        median_freshness_ms = float(np.median(freshness_samples)) if freshness_samples else float("nan")
+
+        return {
+            "total": total,
+            "pass_count": pass_count,
+            "fail_count": fail_count,
+            "top_failure": top_failure,
+            "median_freshness_ms": median_freshness_ms,
+        }
+
+    def _update_liquidity_diagnostics_panel(self, payload: dict) -> None:
+        """Update right-panel liquidity diagnostics labels from S07 payload."""
+        if self.liquidity_candidates_value is None:
+            return
+
+        summary = self._summarize_liquidity_diagnostics(payload)
+        total = summary["total"]
+        pass_count = summary["pass_count"]
+        fail_count = summary["fail_count"]
+
+        self.liquidity_candidates_value.setText(str(total))
+        self.liquidity_pass_ratio_value.setText(f"{pass_count}/{total}" if total else "0/0")
+
+        freshness = summary["median_freshness_ms"]
+        if isinstance(freshness, float) and np.isnan(freshness):
+            self.liquidity_freshness_value.setText("-")
+        else:
+            self.liquidity_freshness_value.setText(f"{freshness:.0f} ms")
+
+        if fail_count <= 0:
+            self.liquidity_top_failure_value.setText("none")
+        else:
+            self.liquidity_top_failure_value.setText(summary["top_failure"])
 
     def _derive_regime_label(self, metrics: dict) -> tuple[str, str]:
         """Derive a simple market regime label from live S07 metrics.
@@ -3786,6 +5458,204 @@ class SpyderTradingDashboard(QMainWindow):
             "correlation_limit": 0.8,
         }
 
+    def _subscribe_to_events(self) -> None:
+        """Subscribe to system events for real-time dashboard updates (Phase 5-A).
+        
+        Subscribes to RISK events from the event bus so the dashboard can display
+        live event-clock state updates as they occur during trading.
+        """
+        try:
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+                EventManager,
+                EventType,
+            )
+            
+            event_manager = EventManager.get_instance()
+            
+            # Subscribe to RISK events to receive event-clock state updates
+            self._event_clock_handler_id = event_manager.subscribe(
+                EventType.RISK,
+                self._handle_risk_event,
+                name="G05_EventClockDisplay",
+                handler_type=0,  # SYNC handler
+            )
+            self.logger.info("✅ Subscribed to RISK events for event-clock display")
+
+            # Subscribe to TRADE events carrying B02 execution telemetry envelopes.
+            self._execution_telemetry_handler_id = event_manager.subscribe(
+                EventType.TRADE,
+                self._handle_trade_event,
+                name="G05_ExecutionHealth",
+                handler_type=0,
+            )
+            self.logger.info("✅ Subscribed to TRADE events for execution-health display")
+        except Exception as e:
+            self.logger.warning("⚠️ Event subscription failed (non-blocking): %s", e)
+
+    def _handle_trade_event(self, event: dict) -> None:
+        """Handle TRADE events and update execution-health display."""
+        try:
+            event_payload = event
+            if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
+                event_payload = getattr(event, "data")
+
+            if not isinstance(event_payload, dict):
+                return
+
+            telemetry = event_payload.get("execution_telemetry")
+            if not isinstance(telemetry, dict):
+                return
+            if telemetry.get("feed") != "execution":
+                return
+
+            data = telemetry.get("data", {})
+            if not isinstance(data, dict):
+                return
+
+            with self._execution_telemetry_lock:
+                self._execution_telemetry_events.append({
+                    "published_ts": telemetry.get("published_ts"),
+                    "order_id": data.get("order_id"),
+                    "slippage_bps": data.get("slippage_bps"),
+                    "fill_latency_ms": data.get("fill_latency_ms"),
+                    "partial_fill_ratio": data.get("partial_fill_ratio", 0.0),
+                    "reject_flag": bool(data.get("reject_flag", False)),
+                })
+
+            # Update UI from main thread.
+            QTimer.singleShot(0, self._update_execution_health_display)
+        except Exception as e:
+            self.logger.debug("Execution telemetry processing error (non-blocking): %s", e)
+
+    def _update_execution_health_display(self) -> None:
+        """Refresh execution-health labels from rolling telemetry cache."""
+        if self.execution_reject_rate_value is None:
+            return
+
+        with self._execution_telemetry_lock:
+            samples = list(self._execution_telemetry_events)
+
+        if not samples:
+            self.execution_slippage_bps_value.setText("-")
+            self.execution_fill_latency_value.setText("-")
+            self.execution_reject_rate_value.setText("-")
+            self.execution_partial_fill_value.setText("-")
+            return
+
+        latest_slippage = next(
+            (s.get("slippage_bps") for s in reversed(samples) if isinstance(s.get("slippage_bps"), (int, float))),
+            None,
+        )
+        latest_latency = next(
+            (s.get("fill_latency_ms") for s in reversed(samples) if isinstance(s.get("fill_latency_ms"), (int, float))),
+            None,
+        )
+
+        reject_count = sum(1 for s in samples if s.get("reject_flag"))
+        reject_rate = reject_count / len(samples)
+
+        partial_vals = [
+            float(s.get("partial_fill_ratio"))
+            for s in samples
+            if isinstance(s.get("partial_fill_ratio"), (int, float))
+        ]
+        partial_ratio = float(np.mean(partial_vals)) if partial_vals else 0.0
+
+        self.execution_slippage_bps_value.setText(
+            "-" if latest_slippage is None else f"{float(latest_slippage):.1f} bps"
+        )
+        self.execution_fill_latency_value.setText(
+            "-" if latest_latency is None else f"{float(latest_latency):.0f} ms"
+        )
+        self.execution_reject_rate_value.setText(f"{reject_rate * 100.0:.1f}%")
+        self.execution_partial_fill_value.setText(f"{partial_ratio * 100.0:.1f}%")
+
+    def _handle_risk_event(self, event: dict) -> None:
+        """Handle RISK events and update event-clock display.
+        
+        Args:
+            event: Event dict with keys 'type', 'data', 'timestamp', etc.
+        """
+        try:
+            event_payload = event
+            if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
+                event_payload = getattr(event, "data")
+
+            if not isinstance(event_payload, dict):
+                return
+
+            # Event data may arrive as either:
+            # 1) direct event-clock feed dict (contains feed/state/etc)
+            # 2) wrapped scheduler payload: {type, payload, timestamp}
+            event_data = event_payload.get('data', {}) if 'data' in event_payload else event_payload
+            if not isinstance(event_data, dict):
+                return
+
+            # Unwrap A04 scheduler emission shape when present.
+            if event_data.get('feed') != 'event_clock' and isinstance(event_data.get('payload'), dict):
+                wrapped_payload = event_data.get('payload')
+                if isinstance(wrapped_payload.get('data'), dict):
+                    event_data = dict(wrapped_payload.get('data'))
+                    if wrapped_payload.get('feed') and not event_data.get('feed'):
+                        event_data['feed'] = wrapped_payload.get('feed')
+
+            # Check if this is an event-clock state event
+            if event_data.get('feed') != 'event_clock':
+                return
+            
+            # Update event-clock state safely
+            with self._event_clock_lock:
+                from Spyder.SpyderG_GUI.SpyderG06_DashboardData import EventClockState
+                
+                # Build new state from event data
+                new_state = EventClockState(
+                    state=event_data.get('state', 'clear'),
+                    enabled=event_data.get('enabled', True),
+                    sources=event_data.get('sources', 'calendar+manual'),
+                    allowed_strategies=event_data.get('allowed_strategies', []),
+                    blackout_pre_minutes=event_data.get('blackout_pre_minutes', 30),
+                    blackout_post_minutes=event_data.get('blackout_post_minutes', 30),
+                    max_size_multiplier=event_data.get('max_size_multiplier', 0.25),
+                    timestamp=datetime.now(pytz.timezone("US/Eastern")),
+                )
+                self.event_clock_state = new_state
+            
+            # Update UI display (defer to main thread if needed)
+            QTimer.singleShot(0, self._update_event_clock_display)
+        except Exception as e:
+            self.logger.debug("Event processing error (non-blocking): %s", e)
+
+    def _update_event_clock_display(self) -> None:
+        """Update event-clock display panel with current state (main thread)."""
+        try:
+            if self.event_clock_state_label is None:
+                return
+            
+            with self._event_clock_lock:
+                state = self.event_clock_state
+            
+            # Update state label with color
+            state_color = state.state_color
+            self.event_clock_state_label.setText(state.state_label)
+            self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")
+            
+            # Update policy label
+            policy_text = f"Policy: {'✓ Enabled' if state.enabled else '✗ Disabled'} | Sources: {state.sources}"
+            if self.event_clock_policy_label:
+                self.event_clock_policy_label.setText(policy_text)
+            
+            # Update blackout windows label
+            windows_text = f"Blackout: -{state.blackout_pre_minutes}m / +{state.blackout_post_minutes}m | Size: {state.max_size_multiplier:.0%}"
+            if self.event_clock_windows_label:
+                self.event_clock_windows_label.setText(windows_text)
+            
+            # Update allowed strategies label
+            strategies_text = f"Allowlist: {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"
+            if self.event_clock_strategies_label:
+                self.event_clock_strategies_label.setText(strategies_text)
+        except Exception as e:
+            self.logger.debug("Display update error (non-blocking): %s", e)
+
     def update_risk_parameters(self, params: dict) -> None:
         """Receive updated risk parameters from the G09 Risk Levels dialog.
 
@@ -3908,12 +5778,161 @@ class SpyderTradingDashboard(QMainWindow):
         self._append_to_ring_log(self.automation_logs, self.auto_log, message,
                                   max_buffer=100, display_count=100)
 
+    def _set_system_log_verbosity(self, mode: str, announce: bool = True) -> None:
+        """Set system-log verbosity profile and update related logger levels."""
+        selected = "DEBUG" if str(mode).upper() == "DEBUG" else "NORMAL"
+        self.system_log_mode = selected
+
+        logger_level = logging.DEBUG if selected == "DEBUG" else logging.ERROR
+        for logger_name in self._signal_noise_loggers:
+            logging.getLogger(logger_name).setLevel(logger_level)
+
+        if hasattr(self, "system_log_mode_btn") and self.system_log_mode_btn is not None:
+            self.system_log_mode_btn.setText(selected)
+
+        if announce:
+            self.add_system_log(
+                f"ℹ️ System log mode → {selected}"
+            )
+
+    def toggle_system_log_verbosity(self) -> None:
+        """Toggle system-log verbosity between NORMAL and DEBUG, updating button color/text."""
+        new_mode = "DEBUG" if self.system_log_mode == "NORMAL" else "NORMAL"
+        self._set_system_log_verbosity(new_mode, announce=True)
+        
+        # Update button appearance based on new mode
+        if hasattr(self, "system_log_mode_btn") and self.system_log_mode_btn is not None:
+            if new_mode == "DEBUG":
+                self.system_log_mode_btn.setText("DEBUG")
+                self.system_log_mode_btn.setStyleSheet(
+                    getattr(self, "_system_log_mode_btn_debug_stylesheet", "")
+                )
+            else:
+                self.system_log_mode_btn.setText("NORMAL")
+                self.system_log_mode_btn.setStyleSheet(
+                    getattr(self, "_system_log_mode_btn_normal_stylesheet", "")
+                )
+
     def setup_white_tooltips(self):
         """Apply the white-tooltip theme to this window (delegates to module helper)."""
         try:
             apply_tooltip_theme(QApplication.instance(), self)
         except Exception as e:
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
+
+    def _collect_startup_readiness_state(self) -> dict[str, object]:
+        """Read readiness-validation outcome from A03 ConfigManager for startup UX."""
+        state: dict[str, object] = {
+            "checked": False,
+            "mode": "paper",
+            "automation_enabled": True,
+            "warnings": [],
+            "errors": [],
+            "safe_fallback_applied": False,
+            "live_blocking": False,
+            "source": "unknown",
+        }
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            mode = str(cfg.get("trading.mode", "paper")).strip().lower()
+            automation_enabled = bool(cfg.get("automation.enabled", True))
+
+            warnings = []
+            errors = []
+            if hasattr(cfg, "validate_autonomous_readiness_config"):
+                result = cfg.validate_autonomous_readiness_config(cfg.config_data, mode)
+                warnings = list(result.get("warnings", []))
+                errors = list(result.get("errors", []))
+
+            safe_fallback = (mode != "live") and (not automation_enabled) and len(errors) > 0
+            live_blocking = (mode == "live") and len(errors) > 0
+
+            state.update(
+                {
+                    "checked": True,
+                    "mode": mode,
+                    "automation_enabled": automation_enabled,
+                    "warnings": warnings,
+                    "errors": errors,
+                    "safe_fallback_applied": safe_fallback,
+                    "live_blocking": live_blocking,
+                    "source": "A03.ConfigManager",
+                }
+            )
+        except Exception as exc:
+            state["source"] = f"unavailable: {exc}"
+
+        return state
+
+    def _append_startup_readiness_banner(self, startup_hms: str) -> None:
+        """Append readiness banner lines to the startup ring-buffer before UI renders."""
+        state = self._startup_readiness_state
+        if not state.get("checked", False):
+            self.system_logs.append(
+                f"[{startup_hms}] ℹ️ STARTUP READINESS: unavailable ({state.get('source', 'unknown')})"
+            )
+            return
+
+        warnings = state.get("warnings", []) or []
+        errors = state.get("errors", []) or []
+        mode = str(state.get("mode", "paper")).upper()
+
+        if state.get("safe_fallback_applied", False):
+            self.system_logs.extend(
+                [
+                    f"[{startup_hms}] ⚠️ STARTUP READINESS: SAFE MODE ACTIVE ({mode})",
+                    f"[{startup_hms}] ⚠️ automation.enabled=false due to {len(errors)} blocking config error(s)",
+                ]
+            )
+        elif state.get("live_blocking", False):
+            self.system_logs.append(
+                f"[{startup_hms}] ❌ STARTUP READINESS: LIVE BLOCKING ({len(errors)} error(s))"
+            )
+        else:
+            self.system_logs.append(
+                f"[{startup_hms}] ✅ STARTUP READINESS: mode={mode} warnings={len(warnings)} errors={len(errors)}"
+            )
+
+    def _emit_startup_readiness_logs(self) -> None:
+        """Emit readiness state to visible logs and button styling after widgets exist."""
+        state = self._startup_readiness_state
+        if not state.get("checked", False):
+            self.add_system_log(
+                f"ℹ️ Startup readiness state unavailable ({state.get('source', 'unknown')})"
+            )
+            return
+
+        warnings = state.get("warnings", []) or []
+        errors = state.get("errors", []) or []
+        mode = str(state.get("mode", "paper")).upper()
+
+        if state.get("safe_fallback_applied", False):
+            self.add_system_log(
+                f"⚠️ STARTUP SAFE MODE ({mode}): automation disabled by readiness validation"
+            )
+            self.add_system_log(
+                f"⚠️ Readiness issues: {len(errors)} blocking error(s), {len(warnings)} warning(s)"
+            )
+            if self.start_btn is not None:
+                self.start_btn.setText("SAFE MODE (AUTO OFF)")
+                self.start_btn.setStyleSheet(
+                    f"background-color: {COLORS.get('warning', '#e6a817')}; color: black;"
+                )
+                self.start_btn.setToolTip(
+                    "Startup safe mode active: automation.enabled=false due to readiness errors. "
+                    "Fix config and restart to restore normal automation startup behavior."
+                )
+        elif state.get("live_blocking", False):
+            self.add_system_log(
+                "❌ LIVE readiness has blocking errors; startup should be corrected before trading"
+            )
+        else:
+            self.add_system_log(
+                f"✅ Startup readiness validated (mode={mode}, warnings={len(warnings)}, errors={len(errors)})"
+            )
 
     # ------------------------------------------------------------------
     # Snapshot persistence — save symbol values on exit, restore on open
@@ -3925,14 +5944,81 @@ class SpyderTradingDashboard(QMainWindow):
     _SNAPSHOT_STALE_HOURS = 8  # > 8 h → FROZEN badge (red)
     _SNAPSHOT_EOD_HOURS = 0    # anything younger → EOD badge (yellow)
 
+    @staticmethod
+    def _parse_money_text(text: str) -> float:
+        """Parse dashboard money labels like '$100,024.40' or '$+0.00'."""
+        try:
+            cleaned = str(text or "").strip().replace("$", "").replace(",", "")
+            return float(cleaned) if cleaned not in ("", "—") else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _capture_account_snapshot_from_labels(self) -> dict:
+        """Capture current account-panel numeric values from QLabel text."""
+        settled = self._parse_money_text(self.settled_value.text() if self.settled_value else "0")
+        buying = self._parse_money_text(self.buying_value.text() if self.buying_value else "0")
+        realized = self._parse_money_text(self.realized_value.text() if self.realized_value else "0")
+        unrealized = self._parse_money_text(self.unrealized_value.text() if self.unrealized_value else "0")
+        return {
+            "settled_cash": settled,
+            "buying_power": buying,
+            "realized_pnl": realized,
+            "unrealized_pnl": unrealized,
+        }
+
+    def _remember_current_account_snapshot(self, mode: TradingMode | None = None) -> None:
+        """Persist current account labels into in-memory per-mode cache."""
+        mode_key = mode or self.trading_mode
+        self._account_snapshot_by_mode[mode_key] = self._capture_account_snapshot_from_labels()
+
+    def _apply_account_snapshot(self, snapshot: dict) -> None:
+        """Apply account snapshot values back into account panel labels."""
+        settled = float(snapshot.get("settled_cash", 0.0) or 0.0)
+        buying = float(snapshot.get("buying_power", 0.0) or 0.0)
+        realized = float(snapshot.get("realized_pnl", 0.0) or 0.0)
+        unrealized = float(snapshot.get("unrealized_pnl", 0.0) or 0.0)
+
+        if self.settled_value:
+            self.settled_value.setText(f"${settled:,.2f}")
+        if self.buying_value:
+            self.buying_value.setText(f"${buying:,.2f}")
+        if self.realized_value:
+            r_color = COLORS["positive"] if realized >= 0 else COLORS["negative"]
+            self.realized_value.setText(f"${realized:+,.2f}")
+            self.realized_value.setStyleSheet(
+                f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {r_color}; text-align: right;"
+            )
+        if self.unrealized_value:
+            u_color = COLORS["positive"] if unrealized >= 0 else COLORS["negative"]
+            self.unrealized_value.setText(f"${unrealized:+,.2f}")
+            self.unrealized_value.setStyleSheet(
+                f"padding: 2px 5px; background-color: {COLORS['background']}; "
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {u_color}; text-align: right;"
+            )
+
     def _save_snapshot(self) -> None:
         """Persist current market_data values to disk for next launch."""
         try:
-            if not self.market_data:
-                return
             self._SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+            # Ensure latest account labels are captured for the active mode.
+            self._remember_current_account_snapshot()
+
+            account_by_mode = {
+                mode.value: dict(self._account_snapshot_by_mode.get(mode, {}))
+                for mode in TradingMode
+            }
+            pnl_stats_by_mode = {
+                mode.value: dict(self._pnl_stats_by_mode.get(mode, {}))
+                for mode in TradingMode
+            }
+
             payload = {
                 "_saved_at": time.time(),
+                "trading_mode": self.trading_mode.value,
+                "account_by_mode": account_by_mode,
+                "pnl_stats_by_mode": pnl_stats_by_mode,
                 "data": {
                     sym: {
                         "last": entry.get("last", 0.0),
@@ -3969,7 +6055,33 @@ class SpyderTradingDashboard(QMainWindow):
             saved_at = payload.get("_saved_at", 0.0)
             age_hours = (time.time() - saved_at) / 3600
             data: dict = payload.get("data", {})
+
+            # Restore per-mode account snapshots.
+            account_by_mode = payload.get("account_by_mode", {}) or {}
+            if isinstance(account_by_mode, dict):
+                for mode_name, values in account_by_mode.items():
+                    try:
+                        mode = TradingMode(mode_name)
+                    except Exception:
+                        continue
+                    if isinstance(values, dict):
+                        self._account_snapshot_by_mode[mode] = dict(values)
+
+            # Restore per-mode P&L stats snapshots.
+            pnl_by_mode = payload.get("pnl_stats_by_mode", {}) or {}
+            if isinstance(pnl_by_mode, dict):
+                for mode_name, values in pnl_by_mode.items():
+                    try:
+                        mode = TradingMode(mode_name)
+                    except Exception:
+                        continue
+                    if isinstance(values, dict):
+                        self._pnl_stats_by_mode[mode] = dict(values)
+
             if not data:
+                saved_account = self._account_snapshot_by_mode.get(self.trading_mode)
+                if isinstance(saved_account, dict) and saved_account:
+                    self._apply_account_snapshot(saved_account)
                 return
 
             count = 0
@@ -4005,6 +6117,11 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log(
                 f"📦 Restored {count} symbols from {badge} saved at {saved_str}"
             )
+
+            # Apply saved account values for the active mode after symbols restore.
+            saved_account = self._account_snapshot_by_mode.get(self.trading_mode)
+            if isinstance(saved_account, dict) and saved_account:
+                self._apply_account_snapshot(saved_account)
         except Exception as _restore_err:  # noqa: BLE001
             logger.warning("Could not restore dashboard snapshot: %s", _restore_err)
 
@@ -4034,8 +6151,8 @@ class SpyderTradingDashboard(QMainWindow):
             if hasattr(self, "chart_timer") and self.chart_timer:
                 self.chart_timer.stop()
 
-            # Persist symbol values so next launch can restore them
-            self._save_snapshot()
+            # Persist symbol/account/P&L values so next launch can restore them.
+            self._save_snapshot_on_shutdown()
 
             # Log shutdown
             self.add_system_log("🔥 Enhanced Trading Dashboard shutting down...")
@@ -4047,6 +6164,25 @@ class SpyderTradingDashboard(QMainWindow):
         except Exception as e:
             logger.info("Error during enhanced dashboard close: %s", e)
             event.accept()
+
+    def _save_snapshot_on_shutdown(self) -> None:
+        """Persist a single snapshot during shutdown, regardless of quit path."""
+        if self._shutdown_snapshot_saved:
+            return
+        try:
+            self._save_snapshot()
+            logger.info("Dashboard snapshot saved for PAPER+LIVE on exit")
+            try:
+                self.add_system_log("📦 Snapshot saved for PAPER+LIVE")
+            except Exception:  # noqa: BLE001
+                # UI may already be tearing down; logger line above remains authoritative.
+                pass
+        finally:
+            self._shutdown_snapshot_saved = True
+
+    def _on_app_about_to_quit(self) -> None:
+        """Qt application-level shutdown hook for save-on-exit behavior."""
+        self._save_snapshot_on_shutdown()
 
 
 

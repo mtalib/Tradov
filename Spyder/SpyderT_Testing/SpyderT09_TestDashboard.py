@@ -91,7 +91,7 @@ MARKET_SYMBOLS = {
     "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
+    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "WRS", "SWAN"],
 }
 
 # Symbol descriptions for tooltips
@@ -129,6 +129,7 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "WRS": "Walmart Recession Signal - Consumer stress percentile rank (0-100)",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
 }
 
@@ -154,7 +155,7 @@ MEDIUM_UPDATE_SYMBOLS = [
     "QQQ",
     "IWM",
 ]
-SLOW_UPDATE_SYMBOLS = ["TLT", "LQD", "DXY", "GLD", "GEX", "DEX", "OGL", "DIX", "SWAN"]
+SLOW_UPDATE_SYMBOLS = ["TLT", "LQD", "DXY", "GLD", "GEX", "DEX", "OGL", "DIX", "WRS", "SWAN"]
 
 # Color scheme
 COLORS = {
