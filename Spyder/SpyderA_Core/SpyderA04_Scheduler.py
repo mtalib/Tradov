@@ -1074,6 +1074,33 @@ class Scheduler:
                 'timestamp': datetime.now(EASTERN_TZ)
             }
         )
+        # Stage 4 — also generate the structured EOD review (rejects, slippage,
+        # policy blocks, overrides) so operators always have an auditable record.
+        self._on_eod_review()
+
+    def _on_eod_review(self) -> None:
+        """Stage 4 — generate structured EOD review artifact via K02.
+
+        Collects order rejects, slippage, policy blocks, and Go/No-Go overrides
+        for the current trading day and persists to
+        ``market_data/eod_reviews/eod_{date}.json``.
+        """
+        try:
+            from Spyder.SpyderK_Reports.SpyderK02_DailyTradingReport import (
+                create_daily_report_generator,
+            )
+            generator = create_daily_report_generator()
+            review = generator.generate_eod_review()
+            self.logger.info(
+                "EOD review generated: rejects=%d slippage_avg=%.4f "
+                "policy_blocks=%d overrides=%d",
+                review.get("rejects", {}).get("count", 0),
+                review.get("slippage", {}).get("avg_slippage", 0.0),
+                len(review.get("policy_blocks", [])),
+                len(review.get("overrides", [])),
+            )
+        except Exception as exc:
+            self.logger.error("EOD review generation failed: %s", exc)
 
     def _on_heartbeat(self):
         """Scheduler liveness heartbeat — runs every minute for external monitoring"""

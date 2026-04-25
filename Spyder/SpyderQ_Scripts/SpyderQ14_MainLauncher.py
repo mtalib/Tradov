@@ -245,7 +245,9 @@ class SpyderLauncher:
                                 app = self._create_qt_app()
                                 if app:
                                     window = gui_obj()
-                                    if hasattr(window, 'show'):
+                                    if hasattr(window, 'showMaximized'):
+                                        window.showMaximized()
+                                    elif hasattr(window, 'show'):
                                         window.show()
                                     app.exec()
 
@@ -449,7 +451,118 @@ class SpyderLauncher:
             )
             return False
 
+        # 5. Stage 4 — require a successful Go/No-Go today before live start.
+        if not self._check_go_no_go_cleared_today():
+            return False
+
+        # 6. Stage 4 — warn if kill-switch drill is overdue (> 7 days).
+        self._check_kill_switch_test_staleness()
+
         return True
+
+    # ------------------------------------------------------------------
+    # Stage 4 helpers
+    # ------------------------------------------------------------------
+
+    def _check_go_no_go_cleared_today(self) -> bool:
+        """Stage 4 — P0: Block live start if no passed Go/No-Go report exists today.
+
+        Looks for ``market_data/go_no_go_reports/go_no_go_{YYYY-MM-DD}*.json``
+        with ``decision`` != ``"NO-GO"``.  If none is found the operator is
+        instructed to run the Go/No-Go checklist first.
+
+        Returns:
+            True when at least one today-dated report with a passing decision
+            exists; False (and logs the reason) otherwise.
+        """
+        from datetime import date as _date
+        today_str = _date.today().isoformat()
+        # Report files live relative to the workspace root (two levels above Q_Scripts).
+        _root = Path(__file__).resolve().parents[2]
+        reports_dir = _root / "market_data" / "go_no_go_reports"
+        if not reports_dir.exists():
+            self.log_error(
+                "❌ Go/No-Go reports directory not found (%s). "
+                "Run the pre-open Go/No-Go checklist in the dashboard before starting live.",
+                reports_dir,
+            )
+            return False
+
+        passing_files = []
+        for p in reports_dir.glob(f"go_no_go_{today_str}*.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                decision = str(data.get("decision", "")).upper()
+                if decision in ("GO", "CONDITIONAL GO"):
+                    passing_files.append(p.name)
+            except Exception:
+                pass  # malformed file — skip
+
+        if not passing_files:
+            self.log_error(
+                "❌ No passed Go/No-Go report for today (%s) found in %s. "
+                "Open the dashboard, run the pre-open checklist, and obtain "
+                "GO or CONDITIONAL GO before starting a live session.",
+                today_str,
+                reports_dir,
+            )
+            return False
+
+        self.log_info(
+            "✅ Go/No-Go cleared for today — %d passing report(s): %s",
+            len(passing_files),
+            passing_files,
+        )
+        return True
+
+    def _check_kill_switch_test_staleness(self) -> None:
+        """Stage 4 — warn if the kill-switch / emergency-flatten drill is overdue.
+
+        The drill records ``~/.spyder_kill_test.json`` with an ISO timestamp.
+        If that file is absent or the recorded timestamp is > 7 calendar days
+        ago, a WARNING is logged (but startup is NOT blocked — this is an
+        advisory reminder).
+        """
+        import math as _math
+        _KILL_TEST_PATH = Path.home() / ".spyder_kill_test.json"
+        STALE_DAYS = 7
+        try:
+            if not _KILL_TEST_PATH.exists():
+                self.log_warning(
+                    "⚠️  Kill-switch drill has never been recorded (%s absent). "
+                    "Run a controlled kill-switch drill and call "
+                    "LiveEngine.record_kill_switch_drill() to clear this warning.",
+                    _KILL_TEST_PATH,
+                )
+                return
+            test_data = json.loads(_KILL_TEST_PATH.read_text(encoding="utf-8"))
+            last_ts_str = test_data.get("last_test_ts", "")
+            if not last_ts_str:
+                self.log_warning(
+                    "⚠️  Kill-switch drill record has no timestamp — run a drill.",
+                )
+                return
+            from datetime import datetime as _dt, timezone as _tz
+            last_ts = _dt.fromisoformat(last_ts_str)
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=_tz.utc)
+            now = _dt.now(_tz.utc)
+            days_ago = (now - last_ts).total_seconds() / 86400
+            if days_ago > STALE_DAYS:
+                self.log_warning(
+                    "⚠️  Kill-switch drill last recorded %.0f day(s) ago "
+                    "(last: %s). Weekly drill is overdue — schedule a controlled test.",
+                    _math.floor(days_ago),
+                    last_ts_str,
+                )
+            else:
+                self.log_info(
+                    "✅ Kill-switch drill is current (last: %s, %.0f day(s) ago).",
+                    last_ts_str,
+                    _math.floor(days_ago),
+                )
+        except Exception as exc:
+            self.log_warning("⚠️  Could not check kill-switch drill staleness: %s", exc)
 
     def _broker_preflight_check(self) -> bool:
         """P0-7: Verify the broker is reachable and buying power > 0 after start."""
@@ -482,6 +595,7 @@ class SpyderLauncher:
             from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import create_session_supervisor
             self._supervisor = create_session_supervisor(
                 mode=self.args.mode,
+                dry_run=getattr(self.args, "dry_run", False),        # B11 (v15)
                 skip_orphan_sweep=getattr(self.args, "skip_orphan_sweep", False),
             )
             if not self._supervisor.start():
@@ -639,6 +753,20 @@ Examples:
         dest="skip_orphan_sweep",
         help="Skip the boot-time orphan position sweep (P1-3). "
              "Use when restarting on an empty account to avoid misleading orphan alerts.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="Suppress broker order placement — log what would be sent instead. "
+             "Safe for integration rehearsals without live/paper order submission.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="Suppress broker order placement — log what would be sent instead. "
+             "Safe for integration rehearsals without live/paper order submission.",
     )
 
     args = parser.parse_args()

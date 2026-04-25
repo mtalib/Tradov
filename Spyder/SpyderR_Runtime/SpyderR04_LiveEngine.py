@@ -265,7 +265,8 @@ class LiveEngine:
 
         # State management
         self.state = ExecutionState.INITIALIZED
-        self.mode = TradingMode.LIVE
+        account_id = str(getattr(config, "account_id", "") or "").upper()
+        self.mode = TradingMode.PAPER if account_id.startswith("PAPER") else TradingMode.LIVE
         self.current_session: TradingSession | None = None
 
         # Order management
@@ -317,6 +318,12 @@ class LiveEngine:
         # Mirrors the equivalent dict in R08 PaperTradingQtWorker.
         self._regime_metrics: dict[str, Any] = {}
         self._positions_cache_lock = threading.Lock()
+
+        # H05 TradingSessionDB — live database.  Injected by R12
+        # SessionSupervisor via set_session_db() after construction.
+        # Records every confirmed fill so live history is persisted in an
+        # identically-structured DB to the paper database.
+        self._session_db = None  # TradingSessionDB | None
 
         # A24 (v14): hot-reload subscriber — if the A03 configuration manager
         # is importable, register ourselves so operator-initiated config
@@ -442,7 +449,8 @@ class LiveEngine:
             self.state = ExecutionState.TRADING
 
             # Log trading start
-            self.logger.info("Live trading started - Session: %s", self.current_session.session_id)
+            mode_label = "Paper" if self._mode_name() == "paper" else "Live"
+            self.logger.info("%s trading started - Session: %s", mode_label, self.current_session.session_id)
 
             # Emit trading started event
             self._emit_event(
@@ -501,7 +509,8 @@ class LiveEngine:
                 },
             )
 
-            self.logger.info("Live trading stopped successfully")
+            mode_label = "Paper" if self._mode_name() == "paper" else "Live"
+            self.logger.info("%s trading stopped successfully", mode_label)
             return True
 
         except Exception as e:
@@ -544,16 +553,49 @@ class LiveEngine:
 
             # Close broker connection
             if self.broker:
-                self.broker.disconnect()
+                disconnect = getattr(self.broker, "disconnect", None)
+                if callable(disconnect):
+                    disconnect()
+                else:
+                    # TradierClient currently exposes requests session directly.
+                    session = getattr(self.broker, "session", None)
+                    if session is not None and hasattr(session, "close"):
+                        session.close()
 
             self.logger.info("Live engine cleanup completed")
 
         except Exception as e:
             self.logger.error("Error during cleanup: %s", e)
 
+    def stop(self) -> None:
+        """Lifecycle adapter used by SessionSupervisor shutdown.
+
+        Ensures trading is stopped (if active), monitor threads are joined,
+        and broker connections are closed via ``cleanup()``.
+        """
+        try:
+            if self.state in (ExecutionState.TRADING, ExecutionState.PAUSED):
+                self.stop_trading(reason="SessionSupervisor shutdown")
+        except Exception as exc:
+            self.logger.warning("LiveEngine.stop(): stop_trading failed: %s", exc)
+        finally:
+            self.cleanup()
+
     # ==========================================================================
     # PUBLIC METHODS - ORDER EXECUTION
     # ==========================================================================
+    def set_session_db(self, db: Any) -> None:
+        """Inject a TradingSessionDB (H05) instance for live-trade persistence.
+
+        Called by R12 SessionSupervisor after engine construction so that every
+        confirmed fill is written to ``data/spyder_live.db`` using the same
+        schema as the paper database (``data/spyder_paper.db``).
+
+        Args:
+            db: A ``TradingSessionDB`` instance (from SpyderH05_TradingSessionDB).
+        """
+        self._session_db = db
+
     def update_regime_metrics(self, metrics: dict[str, Any]) -> None:
         """Receive a fresh S07 CustomMetricsOrchestrator snapshot.
 
@@ -854,19 +896,49 @@ class LiveEngine:
     def _verify_broker_connection(self) -> bool:
         """Verify broker connection is active."""
         try:
-            return self.broker.is_connected() and self.broker.get_account_info() is not None
+            # Support both broker interfaces:
+            # 1) Paper-like adapters exposing is_connected()/get_account_info()
+            # 2) TradierClient exposing account/balance endpoints directly
+            connected_ok = True
+            if hasattr(self.broker, "is_connected") and callable(getattr(self.broker, "is_connected")):
+                connected_ok = bool(self.broker.is_connected())
+
+            account_ok = False
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+                account_ok = self.broker.get_account_info() is not None
+            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+                balances = self.broker.get_account_balances()
+                account_ok = bool(balances)
+
+            return connected_ok and account_ok
         except Exception:
             return False
 
     def _verify_account_access(self) -> bool:
         """Verify account access and permissions."""
         try:
-            account_info = self.broker.get_account_info()
-            return (
-                account_info is not None
-                and account_info.get("account_id") == self.config.account_id
-                and account_info.get("trading_enabled", False)
-            )
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+                account_info = self.broker.get_account_info()
+                if account_info is None:
+                    return False
+                account_id = account_info.get("account_id")
+                if account_id is None:
+                    account_id = (
+                        account_info.get("account", {}).get("account_id")
+                        if isinstance(account_info.get("account"), dict)
+                        else None
+                    )
+                trading_enabled = account_info.get("trading_enabled", True)
+                return account_id == self.config.account_id and bool(trading_enabled)
+
+            # Tradier compatibility path: successful balance call + matching client
+            # account id implies credentials and account access are valid.
+            if hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+                balances = self.broker.get_account_balances()
+                broker_account_id = getattr(self.broker, "account_id", None)
+                return bool(balances) and broker_account_id == self.config.account_id
+
+            return False
         except Exception:
             return False
 
@@ -874,6 +946,24 @@ class LiveEngine:
         """Load current positions from broker."""
         try:
             positions = self.broker.get_positions()
+            # Tradier may return nested payloads:
+            # {"positions": {"position": [...]}} or {"positions": {"position": {...}}}
+            if isinstance(positions, dict):
+                positions_field = positions.get("positions")
+                if isinstance(positions_field, dict):
+                    raw_positions = positions_field.get("position")
+                elif positions_field in (None, "null"):
+                    raw_positions = []
+                else:
+                    raw_positions = positions_field
+                if isinstance(raw_positions, list):
+                    positions = raw_positions
+                elif isinstance(raw_positions, dict):
+                    positions = [raw_positions]
+                elif raw_positions in (None, "null"):
+                    positions = []
+                else:
+                    positions = []
             if not isinstance(positions, list):
                 self.logger.error(
                     "_load_current_positions: broker returned non-list: %r", type(positions)
@@ -971,6 +1061,24 @@ class LiveEngine:
             ):
                 return self._positions_cache
         positions = self.broker.get_positions()
+        if isinstance(positions, dict):
+            positions_field = positions.get("positions")
+            if isinstance(positions_field, dict):
+                raw_positions = positions_field.get("position")
+            elif positions_field in (None, "null"):
+                raw_positions = []
+            else:
+                raw_positions = positions_field
+            if isinstance(raw_positions, list):
+                positions = raw_positions
+            elif isinstance(raw_positions, dict):
+                positions = [raw_positions]
+            elif raw_positions in (None, "null"):
+                positions = []
+            else:
+                positions = []
+        elif not isinstance(positions, list):
+            positions = []
         with self._positions_cache_lock:
             self._positions_cache = positions
             self._positions_cache_at = datetime.now(_ET).timestamp()
@@ -1390,9 +1498,16 @@ class LiveEngine:
         # Options typically have format: SPY240315C00450000
         return len(symbol) > 10 and any(c in symbol for c in ['C', 'P'])
 
+    def _mode_name(self) -> str:
+        """Return the normalized runtime trading mode name."""
+        mode = getattr(self, "mode", None)
+        value = getattr(mode, "value", mode)
+        return str(value or "").lower()
+
     def _generate_session_id(self) -> str:
         """Generate unique session ID."""
-        return f"LIVE_{datetime.now(_ET).strftime('%Y%m%d_%H%M%S')}"
+        prefix = "PAPER" if self._mode_name() == "paper" else "LIVE"
+        return f"{prefix}_{datetime.now(_ET).strftime('%Y%m%d_%H%M%S')}"
 
     def _generate_order_id(self) -> str:
         """Generate unique order ID."""
@@ -1550,6 +1665,23 @@ class LiveEngine:
             except Exception as exc:
                 self.logger.error("PositionTracker.record_fill error: %s", exc)
 
+        # Persist fill to live DB (H05) for parity with paper DB.
+        if self._session_db is not None:
+            try:
+                fill = event.data or {}
+                self._session_db.record_trade(
+                    symbol=str(fill.get("symbol", "")),
+                    trade_type=str(fill.get("side", "fill")).upper(),
+                    side=str(fill.get("side", "buy")).lower(),
+                    quantity=int(fill.get("quantity", fill.get("qty", 0))),
+                    price=float(fill.get("avg_fill_price", fill.get("price", 0.0))),
+                    commission=float(fill.get("commission", 0.0)),
+                    order_id=str(order_id) if order_id else None,
+                    notes="live fill via FillReconciler",
+                )
+            except Exception as _db_err:
+                self.logger.warning("Live DB trade record failed: %s", _db_err)
+
     def _on_reconciler_partial_fill(self, event) -> None:
         """Update engine metrics when FillReconciler confirms a partial fill.
 
@@ -1662,11 +1794,18 @@ class LiveEngine:
         Writes ~/.spyder_kill_lock containing {reason, ts, account_id}.
         The launcher refuses to start while this file is present.
         """
+        account_id = str(getattr(self.config, "account_id", "unknown") or "unknown")
+        if account_id.upper().startswith("PAPER"):
+            self.logger.critical(
+                "🔓 Paper mode kill-switch: lock file persistence skipped (reason=%s)",
+                reason,
+            )
+            return
         try:
             payload = {
                 "reason": reason,
                 "ts": datetime.now(ZoneInfo("America/New_York")).isoformat(),
-                "account_id": getattr(self.config, "account_id", "unknown"),
+                "account_id": account_id,
             }
             self._KILL_LOCK_PATH.write_text(json.dumps(payload, indent=2))
             self.logger.critical(
@@ -2135,6 +2274,78 @@ class LiveEngine:
                 "daily_trades": self.daily_trades,
             },
         )
+
+    def record_kill_switch_drill(
+        self,
+        operator: str = "operator",
+        notes: str = "",
+    ) -> None:
+        """Stage 4 — record a successful kill-switch / emergency-flatten drill.
+
+        Call this after a controlled drill run (paper-mode or sandbox) to reset
+        the staleness counter checked by Q14's ``_check_kill_switch_test_staleness``.
+        Writes ``~/.spyder_kill_test.json`` with the current timestamp.
+
+        Args:
+            operator: Identifier of the person who ran the drill.
+            notes:    Free-form notes about the drill outcome.
+        """
+        import json as _json
+        from pathlib import Path as _Path
+        _KILL_TEST_PATH = _Path.home() / ".spyder_kill_test.json"
+        payload = {
+            "last_test_ts": datetime.now(_ET).isoformat(),
+            "operator": operator,
+            "notes": notes,
+            "account_id": self.config.account_id,
+        }
+        try:
+            _KILL_TEST_PATH.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+            self.logger.info(
+                "✅ Kill-switch drill recorded (operator=%s notes=%r ts=%s)",
+                operator,
+                notes,
+                payload["last_test_ts"],
+            )
+        except Exception as exc:
+            self.logger.error("Failed to write kill-switch drill record: %s", exc)
+
+    def handle_broker_reconnect(self, reason: str = "broker_disconnect") -> None:
+        """Stage 4 — log a structured reconnect attempt with an audit trail.
+
+        Called whenever the broker layer detects a WebSocket or REST disconnect
+        and is attempting to reconnect.  Writes a timestamped record so the
+        operator / EOD review can see every reconnect that occurred in a session.
+
+        Args:
+            reason: Short token describing why reconnect was triggered.
+        """
+        import json as _json
+        from pathlib import Path as _Path
+        ts = datetime.now(_ET).isoformat()
+        self.logger.warning(
+            "BROKER_RECONNECT_ATTEMPT — reason=%s ts=%s account=%s",
+            reason,
+            ts,
+            self.config.account_id,
+        )
+        # Append to a session-scoped reconnect log in market_data/reconnect_log/
+        try:
+            log_dir = _Path(__file__).resolve().parents[2] / "market_data" / "reconnect_log"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            today = datetime.now(_ET).strftime("%Y-%m-%d")
+            log_path = log_dir / f"reconnect_{today}.jsonl"
+            entry = {
+                "ts": ts,
+                "reason": reason,
+                "account_id": self.config.account_id,
+                "daily_trades": self.daily_trades,
+                "emergency_stop": self.emergency_stop,
+            }
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(_json.dumps(entry) + "\n")
+        except Exception as exc:
+            self.logger.error("handle_broker_reconnect: failed to write audit log: %s", exc)
 
 
 # ==============================================================================
