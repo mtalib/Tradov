@@ -108,17 +108,17 @@ BACKGROUND_COLOR = "#1e1e1e"
 GRID_COLOR = "#3d3d3d"
 TEXT_COLOR = "#ffffff"
 BULL_COLOR = "#00ff00"
-BEAR_COLOR = "#ff0000"
+BEAR_COLOR = "#FF073A"
 VOLUME_COLOR = "#4d4d4d"
 CROSSHAIR_COLOR = "#ffff00"
 
 # Indicator colors
 MA_COLORS = ["#00ffff", "#ff00ff", "#ffff00", "#00ff00"]
 BB_COLOR = "#ffffff"
-RSI_OVERBOUGHT_COLOR = "#ff0000"
+RSI_OVERBOUGHT_COLOR = "#FF073A"
 RSI_OVERSOLD_COLOR = "#00ff00"
 MACD_LINE_COLOR = "#00ff00"
-MACD_SIGNAL_COLOR = "#ff0000"
+MACD_SIGNAL_COLOR = "#FF073A"
 MACD_HISTOGRAM_COLOR = "#4d4d4d"
 
 
@@ -518,7 +518,7 @@ class ChartWidget(QWidget):
             "Install with: pip install pyqtgraph"
         )
         fallback_label.setAlignment(Qt.AlignCenter)
-        fallback_label.setStyleSheet("color: #ff0000; font-size: 14px; padding: 50px;")
+        fallback_label.setStyleSheet("color: #FF073A; font-size: 14px; padding: 50px;")
         layout.addWidget(fallback_label)
 
     # ==========================================================================

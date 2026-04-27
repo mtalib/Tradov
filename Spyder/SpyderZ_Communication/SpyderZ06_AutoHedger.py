@@ -46,9 +46,9 @@ import numpy as np
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ07_MultiProcessManager import SpyderEngineProcess
-from SpyderZ03_TradingCoordinator import EngineType, CommandType
-from SpyderZ02_MessageProtocol import (
+from .SpyderZ07_MultiProcessManager import SpyderEngineProcess
+from .SpyderZ03_TradingCoordinator import EngineType, CommandType
+from .SpyderZ02_MessageProtocol import (
     ProtocolManager, SerializationFormat,
     OrderMessage, OptionOrderMessage
 )

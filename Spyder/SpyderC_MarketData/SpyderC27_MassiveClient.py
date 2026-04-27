@@ -171,6 +171,7 @@ _MASSIVE_INTERNALS_MAP: dict[str, str] = {
     "I:TICK":  "TICK",   # NYSE Tick Index     (also available from Tradier)
     "I:ADD":   "ADD",    # NYSE Advance/Decline (also available from Tradier)
     "I:TRIN":  "TRIN",   # NYSE Arms Index      (also available from Tradier)
+    "I:TNX":   "TNX",    # 10-Year Treasury Yield (fallback; primary is Tradier $TNX)
 }
 
 # ==============================================================================

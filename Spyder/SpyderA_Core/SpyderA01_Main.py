@@ -120,7 +120,7 @@ EventManager: type | None = None
 Event: type | None = None
 
 try:
-    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event  # noqa: F401
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, get_event_manager  # noqa: F401
 
     has_event_manager = True
 except ImportError:
@@ -542,7 +542,7 @@ class SpyderApplication:
             # Initialize event manager (optional)
             if has_event_manager and EventManager:
                 try:
-                    self.event_manager = EventManager()
+                    self.event_manager = get_event_manager()
                     self.logger.info("✅ Event manager initialized")
                 except Exception as e:
                     self.logger.warning("Event manager initialization failed: %s", e, exc_info=True)

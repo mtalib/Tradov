@@ -44,6 +44,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
 import sys
 import time
 import threading
@@ -67,7 +68,17 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event, get_event_manager
+
+
+def _is_massive_disabled() -> bool:
+    """Return whether Massive usage is disabled for the current process."""
+    return os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower().strip() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
 
@@ -108,7 +119,7 @@ SYMBOL_GROUPS = {
     'INTERNALS': ['TICK-NYSE', 'TRIN-NYSE', 'ADD-NYSE', 'CPC', 'PCALL', 'SKEW'],
     'INDICES': ['DIA', 'QQQ', 'IWM'],
     'FIXED_INCOME': ['TLT', 'LQD'],
-    'CORRELATIONS': ['DXY', 'GLD']
+    'CORRELATIONS': ['DXY', 'GLD', 'USO']
 }
 
 
@@ -306,6 +317,12 @@ class MassiveProvider(MarketDataProvider):
 
     def connect(self) -> bool:
         """Create the Massive client and start WebSocket streaming."""
+        if _is_massive_disabled():
+            self._logger.info(
+                "MassiveProvider connect skipped: SPYDER_DISABLE_MASSIVE is enabled"
+            )
+            return False
+
         try:
             self._client = (
                 MassiveClient(api_key=self._api_key)
@@ -462,6 +479,10 @@ def create_provider(
     cfg = config or DataFeedConfig()
 
     if name == "massive":
+        if _is_massive_disabled():
+            raise ValueError(
+                "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE"
+            )
         if not HAS_MASSIVE:
             raise ValueError(
                 "Massive provider requested but massive package is not "
@@ -526,7 +547,7 @@ class DataFeedManager:
             self.config = config or DataFeedConfig()
 
         # Core components
-        self.event_manager = event_manager or EventManager()
+        self.event_manager = event_manager or get_event_manager()
 
         # Provider
         if isinstance(provider, MarketDataProvider):
@@ -611,13 +632,22 @@ class DataFeedManager:
 
     def _setup_event_subscriptions(self) -> None:
         """Setup event subscriptions for custom metric and system events."""
-        @self.event_manager.subscribe(EventType.CUSTOM_METRIC_UPDATE)
         def on_custom_metric(event: Event):
             self._handle_custom_metric_update(event.data)
 
-        @self.event_manager.subscribe(EventType.SYSTEM_ERROR)
         def on_system_error(event: Event):
             self._handle_system_error(event.data)
+
+        self.event_manager.subscribe(
+            EventType.CUSTOM_METRIC_UPDATE,
+            on_custom_metric,
+            name="DataFeedManager._on_custom_metric",
+        )
+        self.event_manager.subscribe(
+            EventType.SYSTEM_ERROR,
+            on_system_error,
+            name="DataFeedManager._on_system_error",
+        )
 
     def _load_custom_handlers(self) -> None:
         """Load custom metric calculation handlers."""
@@ -960,7 +990,7 @@ class DataFeedManager:
 
             # Publish via event manager for cross-module consumption
             self.event_manager.publish(Event(
-                EventType.MARKET_DATA_TICK,
+                EventType.MARKET_DATA,
                 {'symbol': symbol, 'tick': tick.to_dict()},
             ))
 
@@ -1065,4 +1095,63 @@ class DataFeedManager:
                         )
                         if symbol in self.current_data:
                             self.current_data[symbol].quality = "stale"
+
+    def _check_component_health(self) -> None:
+        """Monitor provider/cache health and update feed status."""
+        provider_connected = bool(self._provider and self._provider.is_connected)
+
+        if provider_connected:
+            if self.status in {DataFeedStatus.CONNECTING, DataFeedStatus.DEGRADED, DataFeedStatus.ERROR}:
+                self.status = DataFeedStatus.CONNECTED
+        else:
+            # During runtime, disconnected provider means degraded service.
+            if self.status == DataFeedStatus.CONNECTED:
+                self.status = DataFeedStatus.DEGRADED
+
+
+# ==============================================================================
+# FACTORY  (S-02)
+# ==============================================================================
+
+def create_data_feed(
+    symbols: list[str] | None = None,
+    event_manager: "EventManager | None" = None,
+    provider: "str | MarketDataProvider | None" = None,
+    config: "DataFeedConfig | dict | None" = None,
+) -> DataFeedManager:
+    """
+    Factory convenience function for constructing a ``DataFeedManager``.
+
+    Creates a feed wired to the supplied *event_manager* (or the singleton
+    from ``get_event_manager()`` if not provided) and, optionally, subscribes
+    it to *symbols* before returning.  Callers still need to invoke
+    ``feed.start()`` themselves.
+
+    Args:
+        symbols: Optional list of symbols to subscribe to (e.g. ``["SPY",
+            "SPX", "VIX"]``).  Each is subscribed with a no-op callback so
+            the feed will request data for the symbol on connect.
+        event_manager: Shared EventManager instance. When ``None`` the
+            singleton from ``get_event_manager()`` is used.
+        provider: Provider name (``"massive"``) or pre-built
+            ``MarketDataProvider`` instance.  Defaults to the value in
+            ``config/config.py``.
+        config: ``DataFeedConfig`` or raw dict overrides.
+
+    Returns:
+        A configured (but not yet started) ``DataFeedManager`` instance.
+    """
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem
+
+    em = event_manager or _gem()
+    feed = DataFeedManager(provider=provider, event_manager=em, config=config)
+
+    if symbols:
+        for sym in symbols:
+            # Register a no-op subscriber so the provider knows to pull data
+            # for each symbol.  Real consumers add their own callbacks later.
+            # Pass priority explicitly to avoid the unimplemented _get_symbol_tier.
+            feed.subscribe(sym, lambda _tick: None, priority="HIGH")
+
+    return feed
 

@@ -56,7 +56,7 @@ COLORS = {
     "text": "#ffffff",
     "text_dim": "#888888",
     "positive": "#00ff41",
-    "negative": "#ff1744",
+    "negative": "#FF073A",
     "neutral": "#ffd700",
     "warning": "#ff9800",
     "cyan": "#00ffff",

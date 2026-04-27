@@ -22,6 +22,9 @@ Module Description:
 # ==============================================================================
 import logging
 import sys
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from typing import Any
 from pathlib import Path
 
@@ -37,9 +40,27 @@ if str(project_root) not in sys.path:
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QSlider, QGroupBox, QToolTip, QApplication
+    QApplication,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHeaderView,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
 # Enhanced widgets from superqt
 try:
@@ -55,7 +76,24 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import SpyderColors, get_style_manager
-import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    from Spyder.SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
+
+    signal_dialog_available = True
+    logger.info("✅ Signal Info Dialog module available")
+except ImportError:
+    SignalInfoDialog = None  # type: ignore
+    signal_dialog_available = False
+    logger.info("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
+
+SkewMonitorDialog = None  # type: ignore
+skew_dialog_available = None
+
+MarketInternalsDialog = None  # type: ignore
+internals_dialog_available = None
 
 # ==============================================================================
 # CONSTANTS
@@ -71,6 +109,98 @@ MIN_QUANTITY = 1
 MAX_QUANTITY = 10000
 MIN_OPTION_PREMIUM = 0.01
 MAX_OPTION_PREMIUM = 1000.0
+
+SYMBOL_DESCRIPTIONS = {
+    "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
+    "SPX": "S&P 500 Index - Cash index value",
+    "VIX": "CBOE Volatility Index - 30-day implied volatility",
+    "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
+    "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
+    "VVIX": "VIX of VIX - Volatility of volatility index",
+    "$TICK": "NYSE Tick Index - Upticks minus downticks",
+    "$TRIN": "Arms Index - Advance/Decline volume ratio",
+    "$ADD": "Advance-Decline Line - Net advancing issues",
+    "CPC": "Put/Call Ratio - Computed from SPY options chain volume (nearest expiry)",
+    "SKEW": "CBOE Skew Index - Tail risk measure",
+    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
+    "IWM": "iShares Russell 2000 ETF - Small caps",
+    "10Y": "10-Year Treasury Yield (FRED DGS10 — risk-free rate)",
+    "TLT": "iShares 20+ Year Treasury Bond ETF",
+    "LQD": "iShares Investment Grade Corporate Bond ETF",
+    "DXY": "US Dollar Index (UUP ETF proxy — Tradier has no DXY index)",
+    "GLD": "SPDR Gold Trust ETF - Gold proxy",
+    "NAAIM": "NAAIM Exposure Index - Active manager equity allocation (0-200%)",
+    "AABULL": "AAII Bull% (UMCSENT proxy) - Retail investor bullish sentiment",
+    "GEX": "Gamma Exposure - Market maker hedging pressure",
+    "DEX": "Delta Exposure - Directional hedging flow",
+    "OGL": "Zero Gamma Level - Key support/resistance",
+    "DIX": "Dark Index - Dark pool buying percentage",
+    "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
+    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",
+}
+
+COLORS = {
+    "background": "#0a0a0a",
+    "panel": "#1a1a1a",
+    "border": "#333333",
+    "text": "#ffffff",
+    "text_dim": "#888888",
+    "positive": "#00ff41",
+    "negative": "#FF073A",
+    "neutral": "#ffd700",
+    "warning": "#ff9800",
+    "automation_active": "#00b8d4",
+    "connecting": "#00b8d4",
+    "grid": "#2a2a2a",
+    "orange": "#ff9800",
+    "red": "#FF073A",
+    "cyan": "#00ffff",
+    "yellow": "#ffff00",
+    "blue": "#4169E1",
+    "purple": "#9370DB",
+}
+
+_TOOLTIP_APP_STYLE = """
+QToolTip {
+    color: #ffffff !important;
+    background-color: #1a1a1a !important;
+    border: 2px solid #555555 !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+    font-size: 12px !important;
+    font-weight: normal !important;
+    opacity: 1.0 !important;
+}
+"""
+
+_TOOLTIP_WIDGET_STYLE = """
+QWidget {
+    selection-background-color: #2a2a2a;
+}
+QWidget QToolTip {
+    color: white !important;
+    background-color: #1a1a1a !important;
+    border: 2px solid #555555 !important;
+    padding: 8px !important;
+}
+"""
+
+_TOOLTIP_THEME_MARKER = "/* spyder-tooltip-theme */"
+
+
+def apply_tooltip_theme(app, widget=None) -> None:
+    """Install the dashboard's tooltip theme app-wide; idempotent across calls.
+
+    Callable from the app bootstrap (preferred) or from a window constructor.
+    Re-application is a no-op at the app level because the theme is tagged with
+    a marker comment. The widget-level stylesheet is additive and harmless.
+    """
+    if app is not None:
+        current = app.styleSheet() or ""
+        if _TOOLTIP_THEME_MARKER not in current:
+            app.setStyleSheet(current + _TOOLTIP_THEME_MARKER + _TOOLTIP_APP_STYLE)
+    if widget is not None:
+        widget.setStyleSheet((widget.styleSheet() or "") + _TOOLTIP_WIDGET_STYLE)
 
 # ==============================================================================
 # ENHANCED STRIKE RANGE SLIDER
@@ -682,6 +812,966 @@ class SpyderWidgetFactory:
     def is_superqt_available() -> bool:
         """Check if superqt is available."""
         return SUPERQT_AVAILABLE
+
+
+class TradingMode(Enum):
+    """Two trading modes available in the Spyder system.
+
+    PAPER:    Simulated fills against live market data via Tradier sandbox + SpyderR02_PaperEngine.
+    LIVE:     Real order execution through Tradier production API + SpyderR04_LiveEngine.
+    """
+
+    PAPER = "PAPER"
+    LIVE = "LIVE"
+
+
+@dataclass
+class MarketData:
+    """Lightweight market snapshot for dashboard widgets."""
+
+    symbol: str
+    last: float
+    change: float
+    change_pct: float
+    timestamp: datetime
+
+
+@dataclass
+class GreekRisk:
+    """Current Greek exposure summary."""
+
+    delta: float
+    gamma: float
+    theta: float
+    vega: float
+
+
+@dataclass
+class ConnectionInfo:
+    """Single source of truth for dashboard connection state.
+
+    Per 2026-04-15 audit §16: api_connected and mkt_data_connected used to
+    exist as parallel scalar attributes on SpyderTradingDashboard, mutated
+    independently of this dataclass. They are now @property accessors that
+    read/write the fields below.
+    """
+
+    api_connected: bool = False
+    mkt_data_connected: bool = False
+    bridge_connected: bool = False
+    connection_mode: str = "DISCONNECTED"
+    market_data_status: str = "NONE"
+    trading_active: bool = False
+    last_update: datetime | None = None
+    last_successful_data: datetime | None = None
+    data_was_live: bool = False
+    simulation_mode: bool = False
+
+
+class TrafficLightButton(QPushButton):
+    """Custom button that looks like a traffic light with label"""
+
+    def __init__(self, label: str, parent=None):
+        super().__init__(parent)
+        self.label = label
+        self.status = "green"
+        self.setFixedHeight(24)
+        self.setMinimumWidth(120)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            """
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                text-align: left;
+                padding-left: 25px;
+                color: #ffffff;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2a2a2a;
+                border-radius: 3px;
+            }
+
+            QToolTip {
+                color: white;
+                background-color: #2a2a2a;
+                border: 1px solid #555;
+                padding: 5px;
+                border-radius: 3px;
+                font-size: 12px;
+            }""",
+        )
+        self.setText(label)
+
+    def set_status(self, status: str):
+        """Set traffic light status: green, yellow, red, blue, purple"""
+        self.status = status
+        self.update()
+
+    def paintEvent(self, event):
+        """Custom paint for traffic light indicator"""
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        circle_rect = self.rect().adjusted(5, 5, -self.width() + 19, -5)
+
+        if self.status == "green":
+            color = QColor(COLORS["positive"])
+        elif self.status == "yellow":
+            color = QColor(COLORS["warning"])
+        elif self.status == "red":
+            color = QColor(COLORS["negative"])
+        elif self.status == "blue":
+            color = QColor(COLORS["blue"])
+        elif self.status == "purple":
+            color = QColor(COLORS["purple"])
+        else:
+            color = QColor(COLORS["neutral"])
+
+        painter.setBrush(QBrush(color))
+        painter.setPen(QPen(color.darker(150), 1))
+        painter.drawEllipse(circle_rect)
+
+
+class SignalMonitorPanel(QWidget):
+    """Enhanced Signal Monitor Panel with integrated popup dialogs."""
+
+    def __init__(self, parent=None, *args, **kwargs):
+        super().__init__(parent)
+        self.setFixedHeight(165)
+        self.setMinimumWidth(280)
+        self.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLORS["panel"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 5px;
+            }}
+        """,
+        )
+
+        layout = QGridLayout()
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(3)
+
+        self.vix_button = TrafficLightButton("VIX MONITOR")
+        self.ai_button = TrafficLightButton("AI DECISION")
+        self.gex_button = TrafficLightButton("GEX")
+        self.dix_button = TrafficLightButton("DIX")
+        self.rsi_button = TrafficLightButton("RSI CONFLUENCE")
+        self.risk_button = TrafficLightButton("RISK TRIGGERS")
+        self.ogl_button = TrafficLightButton("OGL")
+        self.div_button = TrafficLightButton("DIVERGENCE")
+        self.dex_button = TrafficLightButton("DEX")
+        self.swan_button = TrafficLightButton("BLACK SWAN")
+        self.hmm_button = TrafficLightButton("HMM")
+        self.skew_button = TrafficLightButton("SKEW")
+        self.internals_button = TrafficLightButton("MKT INTERNALS")
+        self.regime_button = TrafficLightButton("REGIME")
+
+        layout.addWidget(self.vix_button, 0, 0)
+        layout.addWidget(self.ai_button, 0, 1)
+        layout.addWidget(self.gex_button, 1, 0)
+        layout.addWidget(self.dix_button, 1, 1)
+        layout.addWidget(self.rsi_button, 2, 0)
+        layout.addWidget(self.risk_button, 2, 1)
+        layout.addWidget(self.ogl_button, 3, 0)
+        layout.addWidget(self.div_button, 3, 1)
+        layout.addWidget(self.dex_button, 4, 0)
+        layout.addWidget(self.swan_button, 4, 1)
+        layout.addWidget(self.hmm_button, 5, 0)
+        layout.addWidget(self.skew_button, 5, 1)
+        layout.addWidget(self.internals_button, 6, 0)
+        layout.addWidget(self.regime_button, 6, 1)
+
+        self.vix_button.clicked.connect(self.show_vix_dialog)
+        self.ai_button.clicked.connect(self.show_ai_dialog)
+        self.gex_button.clicked.connect(self.show_gex_dialog)
+        self.dix_button.clicked.connect(self.show_dix_dialog)
+        self.rsi_button.clicked.connect(self.show_rsi_dialog)
+        self.risk_button.clicked.connect(self.show_risk_dialog)
+        self.ogl_button.clicked.connect(self.show_ogl_dialog)
+        self.div_button.clicked.connect(self.show_div_dialog)
+        self.dex_button.clicked.connect(self.show_dex_dialog)
+        self.swan_button.clicked.connect(self.show_swan_dialog)
+        self.hmm_button.clicked.connect(self.show_hmm_dialog)
+        self.skew_button.clicked.connect(self.show_skew_dialog)
+        self.internals_button.clicked.connect(self.show_internals_dialog)
+        self.regime_button.clicked.connect(self.show_regime_dialog)
+
+        self.setLayout(layout)
+
+        self.current_dialog = None
+
+        self._regime_label = "—"
+        self._regime_swan = 1.9
+        self._regime_dix = 42.0
+        self._regime_skew = 120.0
+        self._regime_gex = 0.0
+        self.regime_button.set_status("yellow")
+
+        self._live: dict = {}
+
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_button_states)
+        self.update_timer.start(5000)
+
+    def update_live_data(self, data: dict) -> None:
+        self._live.update(data)
+
+    def update_button_states(self):
+        for button in [
+            self.vix_button,
+            self.ai_button,
+            self.gex_button,
+            self.dix_button,
+            self.rsi_button,
+            self.risk_button,
+            self.ogl_button,
+            self.div_button,
+            self.dex_button,
+        ]:
+            button.set_status("yellow")
+
+        self.swan_button.set_status("green")
+        self.hmm_button.set_status("green")
+        self.skew_button.set_status("green")
+        self.internals_button.set_status("yellow")
+
+    def close_current_dialog(self):
+        if (
+            self.current_dialog
+            and hasattr(self.current_dialog, "isVisible")
+            and self.current_dialog.isVisible()
+        ):
+            self.current_dialog.close()
+            self.current_dialog = None
+
+    def show_signal_dialog(self, signal_type: str):
+        self.close_current_dialog()
+
+        if signal_dialog_available and SignalInfoDialog:
+            self.current_dialog = SignalInfoDialog(signal_type, self, live_data=self._live)
+            parent_pos = self.mapToGlobal(self.rect().topRight())
+            self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
+            self.current_dialog.closed.connect(
+                lambda: setattr(self, "current_dialog", None),
+            )
+            self.current_dialog.show()
+
+    def show_vix_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("VIX MONITOR")
+        else:
+            QMessageBox.information(
+                self, "VIX Monitor", "VIX: 15.32\nStatus: Normal\nImplied Move: ±0.96%",
+            )
+
+    def show_ai_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("AI DECISION")
+        else:
+            QMessageBox.information(
+                self,
+                "AI Decision",
+                "Current Signal: NEUTRAL\nConfidence: 72%\nNext Decision: 5 min",
+            )
+
+    def show_gex_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("GEX")
+        else:
+            QMessageBox.information(
+                self,
+                "GEX Monitor",
+                "GEX: -$2.5B\nGamma Flip: 590\nRegime: Negative Gamma",
+            )
+
+    def show_dix_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("DIX")
+        else:
+            QMessageBox.information(
+                self, "DIX Monitor", "DIX: 42.5%\nDark Pool: Normal\nSentiment: Neutral",
+            )
+
+    def show_rsi_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("RSI CONFLUENCE")
+        else:
+            QMessageBox.information(
+                self, "RSI Confluence", "RSI(14): 52\nRSI(5): 48\nStatus: Neutral Range",
+            )
+
+    def show_risk_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("RISK TRIGGERS")
+        else:
+            QMessageBox.information(
+                self,
+                "Risk Triggers",
+                "Active Triggers: 0\nRisk Level: LOW\nMax Loss Today: -$125",
+            )
+
+    def show_ogl_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("OGL")
+        else:
+            QMessageBox.information(
+                self,
+                "OGL Monitor",
+                "OGL: 585.50\nCurrent SPY: 585.39\nPosition: Below OGL",
+            )
+
+    def show_div_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("DIVERGENCE")
+        else:
+            QMessageBox.information(
+                self,
+                "Divergence Monitor",
+                "Price/RSI: None\nPrice/MACD: None\nStatus: No Divergence",
+            )
+
+    def show_dex_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("DEX")
+        else:
+            QMessageBox.information(
+                self, "DEX Monitor", "DEX: $850M\nDelta Neutral: 585\nFlow: Bullish",
+            )
+
+    def show_swan_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("BLACK SWAN")
+        else:
+            QMessageBox.information(
+                self,
+                "BLACK SWAN Monitor",
+                "SWAN Score: 1.85\nRisk Level: LOW\nTail Risk: Minimal",
+            )
+
+    def show_hmm_dialog(self):
+        if signal_dialog_available:
+            self.show_signal_dialog("HMM REGIME")
+        else:
+            QMessageBox.information(
+                self,
+                "HMM Regime Detector",
+                "The HMM regime dialog is unavailable.\n\n"
+                "Connect a supported analytics source or open the signal dialog "
+                "when it is available to view live regime data.",
+            )
+
+    def show_skew_dialog(self):
+        global skew_dialog_available, SkewMonitorDialog
+        if skew_dialog_available is None:
+            try:
+                from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import (
+                    SkewMonitorDialog as _Skew,
+                )
+
+                SkewMonitorDialog = _Skew
+                skew_dialog_available = True
+                logger.info("✅ SKEW Monitor Dialog loaded (lazy)")
+            except ImportError:
+                SkewMonitorDialog = None
+                skew_dialog_available = False
+                logger.info("⚠️ SKEW Monitor Dialog not available")
+
+        if skew_dialog_available and SkewMonitorDialog:
+            self.close_current_dialog()
+            self.current_dialog = SkewMonitorDialog(self)
+            self.current_dialog.show()
+        elif signal_dialog_available:
+            self.show_signal_dialog("SKEW")
+        else:
+            QMessageBox.information(
+                self,
+                "SKEW Monitor",
+                "The SKEW monitor is unavailable.\n\n"
+                "Connect a supported market-data source or open the signal dialog "
+                "when it is available to view live SKEW data.",
+            )
+
+    def show_internals_dialog(self):
+        global internals_dialog_available, MarketInternalsDialog
+        if internals_dialog_available is None:
+            try:
+                from Spyder.SpyderG_GUI.SpyderG17_MarketInternalsWidget import (
+                    MarketInternalsDialog as _MID,
+                )
+
+                MarketInternalsDialog = _MID
+                internals_dialog_available = True
+                logger.info("✅ Market Internals Dialog loaded (lazy)")
+            except ImportError as exc:
+                MarketInternalsDialog = None
+                internals_dialog_available = False
+                logger.warning("⚠️ Market Internals Dialog not available: %s", exc)
+
+        if internals_dialog_available and MarketInternalsDialog:
+            self.close_current_dialog()
+            client = getattr(self, "_tradier_client", None)
+            if client is None:
+                client = getattr(self, "tradier_client", None) or getattr(self, "client", None)
+            orch = getattr(self, "_metrics_orchestrator", None)
+            self.current_dialog = MarketInternalsDialog(
+                tradier_client=client,
+                orchestrator=orch,
+                parent=self,
+            )
+            self.current_dialog.show()
+        else:
+            QMessageBox.information(
+                self,
+                "Market Internals",
+                "TICK / ADD / TRIN monitor unavailable.\n"
+                "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",
+            )
+
+    def update_regime(
+        self,
+        label: str,
+        swan: float,
+        dix: float,
+        skew: float,
+        gex: float,
+    ) -> None:
+        self._regime_label = label
+        self._regime_swan = swan
+        self._regime_dix = dix
+        self._regime_skew = skew
+        self._regime_gex = gex
+
+        self.update_live_data({
+            "HMM_LABEL": label,
+            "HMM_SWAN": swan,
+            "HMM_DIX": dix,
+            "HMM_SKEW": skew,
+            "HMM_GEX": gex,
+        })
+
+        if label in ("EXTREME RISK", "HIGH RISK", "BEARISH"):
+            self.regime_button.set_status("red")
+        elif label in ("BULLISH", "NEUTRAL BULL"):
+            self.regime_button.set_status("green")
+        else:
+            self.regime_button.set_status("yellow")
+
+    def show_regime_dialog(self) -> None:
+        self.close_current_dialog()
+
+        conditions = [
+            ("SWAN ≥ 2.0", "EXTREME RISK", COLORS["negative"]),
+            ("SWAN ≥ 1.95  or  SKEW ≥ 150", "HIGH RISK", COLORS["negative"]),
+            ("SKEW ≥ 140  and  DIX < 42", "CAUTIOUS", COLORS["warning"]),
+            ("DIX ≥ 46,  GEX ≥ 0,  SWAN < 1.9", "BULLISH", COLORS["positive"]),
+            ("DIX ≤ 40  and  SWAN ≥ 1.85", "BEARISH", COLORS["negative"]),
+            ("DIX ≥ 43  and  SWAN < 1.92", "NEUTRAL BULL", COLORS["positive"]),
+            ("else", "NEUTRAL", COLORS["warning"]),
+        ]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Market Regime Classifier")
+        dlg.setFixedSize(660, 540)
+        dlg.setStyleSheet(
+            f"""
+            QDialog {{
+                background-color: {COLORS["background"]};
+                color: {COLORS["text"]};
+            }}
+            QLabel {{
+                color: {COLORS["text"]};
+            }}
+            QTableWidget {{
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text"]};
+                gridline-color: {COLORS["border"]};
+                border: 1px solid {COLORS["border"]};
+                font-size: 12px;
+            }}
+            QHeaderView::section {{
+                background-color: #2a2a2a;
+                color: {COLORS["text"]};
+                padding: 5px;
+                border: 1px solid {COLORS["border"]};
+                font-weight: bold;
+            }}
+            QPushButton {{
+                background-color: #2a2a2a;
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 4px;
+                padding: 6px 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #3a3a3a;
+            }}
+            """
+        )
+
+        outer = QVBoxLayout(dlg)
+        outer.setSpacing(10)
+        outer.setContentsMargins(16, 14, 16, 14)
+
+        title = QLabel("Market Regime Classifier")
+        title.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #ffffff; padding-bottom: 2px;"
+        )
+        outer.addWidget(title)
+
+        subtitle = QLabel(
+            "Conditions are evaluated top-to-bottom; the first match wins."
+        )
+        subtitle.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; padding-bottom: 4px;"
+        )
+        outer.addWidget(subtitle)
+
+        table = QTableWidget(len(conditions), 3)
+        table.setHorizontalHeaderLabels(["Condition", "Label", "Colour"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(False)
+        table.verticalHeader().setDefaultSectionSize(38)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setFixedHeight(len(conditions) * 38 + 34)
+
+        active_row = -1
+        bold_font = QFont()
+        bold_font.setBold(True)
+
+        for row, (cond_text, label_text, label_color) in enumerate(conditions):
+            is_active = label_text == self._regime_label
+            if is_active:
+                active_row = row
+            row_bg = "#1e2e1e" if is_active else COLORS["panel"]
+
+            cond_item = QTableWidgetItem(f"  {cond_text}")
+            cond_item.setForeground(QColor(COLORS["text"]))
+            cond_item.setBackground(QColor(row_bg))
+            if is_active:
+                cond_item.setFont(bold_font)
+            table.setItem(row, 0, cond_item)
+
+            label_item = QTableWidgetItem(f"  {label_text}")
+            label_item.setForeground(QColor(label_color))
+            label_item.setBackground(QColor(row_bg))
+            if is_active:
+                label_item.setFont(bold_font)
+            table.setItem(row, 1, label_item)
+
+            if label_color == COLORS["positive"]:
+                colour_name = "Green"
+            elif label_color == COLORS["negative"]:
+                colour_name = "Red"
+            else:
+                colour_name = "Yellow"
+            colour_item = QTableWidgetItem(colour_name)
+            colour_item.setForeground(QColor(label_color))
+            colour_item.setBackground(QColor(row_bg))
+            if is_active:
+                colour_item.setFont(bold_font)
+            table.setItem(row, 2, colour_item)
+
+        outer.addWidget(table)
+
+        readings = QLabel(
+            f"Current readings:  "
+            f"SWAN = {self._regime_swan:.2f}   "
+            f"DIX = {self._regime_dix:.1f}%   "
+            f"SKEW = {self._regime_skew:.0f}   "
+            f"GEX = {self._regime_gex:+.2f}"
+        )
+        readings.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; padding-top: 4px;"
+        )
+        outer.addWidget(readings)
+
+        regime_color = conditions[active_row][2] if active_row >= 0 else COLORS["warning"]
+        active_lbl = QLabel(
+            f"Active regime: "
+            f"<b style='color: {regime_color};'>{self._regime_label}</b>"
+        )
+        active_lbl.setTextFormat(Qt.TextFormat.RichText)
+        active_lbl.setStyleSheet("font-size: 12px; padding-bottom: 2px;")
+        outer.addWidget(active_lbl)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedWidth(90)
+        close_btn.clicked.connect(dlg.close)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        outer.addLayout(btn_row)
+
+        self.current_dialog = dlg
+        dlg.finished.connect(lambda _: setattr(self, "current_dialog", None))
+        dlg.show()
+
+
+class MarketSymbolWidget(QWidget):
+    """Widget for displaying a single market symbol."""
+
+    clicked = Signal(str)  # emits the symbol on left-click
+
+    def __init__(self, symbol: str, category: str):
+        super().__init__()
+        self.symbol = symbol
+        self.category = category
+        self._last_pmr_state: dict | None = None
+        self.setup_ui()
+
+        if symbol in SYMBOL_DESCRIPTIONS:
+            self.setToolTip(SYMBOL_DESCRIPTIONS[symbol])
+        # Make the row click-targetable for detail dialogs (e.g. PMR).
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt override)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.symbol)
+        super().mousePressEvent(event)
+
+    def setup_ui(self):
+        layout = QHBoxLayout()
+        layout.setContentsMargins(10, 1, 5, 1)
+
+        self.symbol_label = QLabel(self.symbol)
+        self.symbol_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
+        self.symbol_label.setFixedWidth(60)
+
+        self.price_label = QLabel("---.--")
+        self.price_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
+        self.price_label.setFixedWidth(70)
+        self.price_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.change_label = QLabel("+0.00")
+        self.change_label.setStyleSheet("font-size: 11px;")
+        self.change_label.setFixedWidth(55)
+        self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.pct_label = QLabel("0.00%")
+        self.pct_label.setStyleSheet("font-size: 11px;")
+        self.pct_label.setFixedWidth(55)
+        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        layout.addWidget(self.symbol_label)
+        layout.addWidget(self.price_label)
+        layout.addWidget(self.change_label)
+        layout.addWidget(self.pct_label)
+
+        self.setLayout(layout)
+
+    def update_data(self, data):
+        if isinstance(data, dict):
+            last = data.get("last", 0.0)
+            change = data.get("change", 0.0)
+            change_pct = data.get("change_pct", 0.0)
+        else:
+            last = data.last
+            change = data.change
+            change_pct = data.change_pct
+
+        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN", "NAAIM", "AABULL"]:
+            self._update_custom_indicator(last, change, change_pct)
+        else:
+            self._update_standard_symbol(last, change, change_pct)
+
+    def update_pmr_state(self, state: dict) -> None:
+        """Render the S08 Pivot MR signal state in the LAST/CHG/CHG% columns.
+
+        State payload is emitted by R08 every poll. Display modes:
+          * DIS    -- producer disabled (SPYDER_PIVOT_MR_ENABLED != 1)
+          * N/A    -- S08 module not importable
+          * ARMED  -- enabled, watching, signal not yet fired
+          * fired  -- arrow + score (e.g. "v R1 72")
+        Tooltip shows reasons / penalties for the fired signal.
+        """
+        if not isinstance(state, dict):
+            return
+        self._last_pmr_state = dict(state)  # cache for the details dialog
+        enabled = bool(state.get("enabled"))
+        available = bool(state.get("available"))
+        fired = bool(state.get("fired"))
+        direction = state.get("direction")
+        score = state.get("score")
+        level_name = state.get("level_name")
+        level_price = state.get("level_price")
+
+        if not available:
+            self.price_label.setText("N/A")
+            self.price_label.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 11px;"
+            )
+            self.change_label.setText("\u2014")
+            self.change_label.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 11px;"
+            )
+            self.pct_label.setText("")
+            self.pct_label.setStyleSheet("font-size: 11px;")
+            self.setToolTip("S08 PivotMeanReversionSignal module not importable")
+            return
+
+        if not enabled:
+            self.price_label.setText("DIS")
+            self.price_label.setStyleSheet(
+                f"color: {COLORS['negative']}; font-size: 11px;"
+            )
+            self.change_label.setText("\u2014")
+            self.change_label.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 11px;"
+            )
+            self.pct_label.setText("")
+            self.pct_label.setStyleSheet("font-size: 11px;")
+            self.setToolTip(
+                "Pivot MR producer disabled. Set SPYDER_PIVOT_MR_ENABLED=1 to enable."
+            )
+            return
+
+        if not fired:
+            self.price_label.setText("ARMED")
+            self.price_label.setStyleSheet(
+                f"color: {COLORS['warning']}; font-size: 11px;"
+            )
+            self.change_label.setText("\u2014")
+            self.change_label.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 11px;"
+            )
+            self.pct_label.setText("")
+            self.pct_label.setStyleSheet("font-size: 11px;")
+            self.setToolTip(
+                "Pivot MR armed \u2014 watching for fade-resistance / fade-support setup."
+            )
+            return
+
+        # Fired \u2014 render direction arrow + level + score
+        if direction == "fade_resistance":
+            arrow = "\u25bc"
+            color = COLORS["negative"]
+        elif direction == "fade_support":
+            arrow = "\u25b2"
+            color = COLORS["positive"]
+        else:
+            arrow = "\u25cf"
+            color = COLORS["text"]
+
+        try:
+            score_str = f"{float(score):.0f}" if score is not None else "?"
+        except (TypeError, ValueError):
+            score_str = "?"
+
+        last_text = f"{arrow} {score_str}"
+        self.price_label.setText(last_text)
+        self.price_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+        if level_name and level_price is not None:
+            try:
+                self.change_label.setText(f"{level_name}@{float(level_price):.1f}")
+            except (TypeError, ValueError):
+                self.change_label.setText(str(level_name))
+        else:
+            self.change_label.setText("\u2014")
+        self.change_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+        self.pct_label.setText("")
+        self.pct_label.setStyleSheet("font-size: 11px;")
+
+        # Build tooltip from reasons / penalties for hover detail.
+        reasons = state.get("reasons") or []
+        penalties = state.get("penalties") or []
+        tip_lines: list[str] = []
+        if direction:
+            tip_lines.append(f"Direction: {direction}")
+        if reasons:
+            tip_lines.append("Reasons:")
+            tip_lines.extend(f"  {r}" for r in reasons)
+        if penalties:
+            tip_lines.append("Penalties:")
+            tip_lines.extend(f"  {p}" for p in penalties)
+        self.setToolTip("\n".join(tip_lines) if tip_lines else "Pivot MR fired")
+
+    def _update_standard_symbol(self, last, change, change_pct):
+        change_text: str | None = None  # None → use default f"{sign}{change:.2f}"
+        if self.symbol.startswith("$"):
+            if self.symbol in ("$TICK", "$ADD"):
+                self.price_label.setText(f"{last:+.0f}")
+                int_color = COLORS["positive"] if last >= 0 else COLORS["negative"]
+                self.price_label.setStyleSheet(f"color: {int_color}; font-size: 11px;")
+            elif self.symbol == "$TRIN":
+                self.price_label.setText(f"{last:.2f}")
+                trin_color = COLORS["positive"] if last < 1.0 else COLORS["negative"]
+                self.price_label.setStyleSheet(f"color: {trin_color}; font-size: 11px;")
+            elif self.symbol == "$VOLD":
+                value_m = last / 1_000_000
+                sign = "+" if last >= 0 else ""
+                self.price_label.setText(f"{sign}{value_m:.1f}M")
+                vold_color = COLORS["positive"] if last >= 0 else COLORS["negative"]
+                self.price_label.setStyleSheet(f"color: {vold_color}; font-size: 11px;")
+                # Scale CHG to M to match the LAST column (same fix as GEX/DEX)
+                change_text = self._fmt_compact(change)
+            else:
+                self.price_label.setText(f"{last:.2f}")
+        elif self.symbol in ["SPX", "/ES"]:
+            self.price_label.setText(f"{last:.2f}")
+        else:
+            self.price_label.setText(f"{last:.2f}")
+
+        color = COLORS["positive"] if change >= 0 else COLORS["negative"]
+        sign = "+" if change >= 0 else ""
+
+        if change_text is not None:
+            self.change_label.setText(change_text)
+        else:
+            self.change_label.setText(f"{sign}{change:.2f}")
+        self.change_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+        pct_sign = "+" if change_pct >= 0 else ""
+        self.pct_label.setText(f"{pct_sign}{change_pct:.2f}%")
+        self.pct_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+    @staticmethod
+    def _fmt_compact(value: float) -> str:
+        """Format a large dollar value compactly with B/M/K suffix."""
+        sign = "+" if value >= 0 else ""
+        abs_v = abs(value)
+        if abs_v >= 1_000_000_000:
+            return f"{sign}{value / 1_000_000_000:.2f}B"
+        if abs_v >= 1_000_000:
+            return f"{sign}{value / 1_000_000:.1f}M"
+        if abs_v >= 1_000:
+            return f"{sign}{value / 1_000:.0f}K"
+        return f"{sign}{value:.2f}"
+
+    def _update_custom_indicator(self, last, change, change_pct):
+        color = COLORS["neutral"]
+        change_text: str | None = None  # None → use default f"{sign}{change:.2f}"
+        if self.symbol == "GEX":
+            value_b = last / 1_000_000_000
+            self.price_label.setText(f"{value_b:.1f}B")
+            color = COLORS["positive"] if last > 0 else COLORS["negative"]
+            change_text = self._fmt_compact(change)
+        elif self.symbol == "DEX":
+            value_m = last / 1_000_000
+            self.price_label.setText(f"{value_m:.0f}M")
+            color = COLORS["positive"] if change >= 0 else COLORS["negative"]
+            change_text = self._fmt_compact(change)
+        elif self.symbol == "OGL":
+            self.price_label.setText(f"{last:.2f}")
+            color = COLORS["warning"]
+        elif self.symbol == "DIX":
+            self.price_label.setText(f"{last:.1f}%")
+            if last > 45:
+                color = COLORS["positive"]
+            elif last < 40:
+                color = COLORS["negative"]
+            else:
+                color = COLORS["neutral"]
+        elif self.symbol == "SWAN":
+            self.price_label.setText(f"{last:.2f}")
+            if last < 1.9:
+                color = COLORS["positive"]
+            elif last < 2.0:
+                color = COLORS["warning"]
+            else:
+                color = COLORS["negative"]
+            self.symbol_label.setText("SWAN")
+        elif self.symbol == "NAAIM":
+            self.price_label.setText(f"{last:.1f}%")
+            if last > 90:
+                color = COLORS["negative"]
+            elif last < 40:
+                color = COLORS["warning"]
+            else:
+                color = COLORS["positive"]
+        elif self.symbol == "AABULL":
+            self.price_label.setText(f"{last:.1f}%")
+            if last < 30:
+                color = COLORS["warning"]
+            elif last > 50:
+                color = COLORS["negative"]
+            else:
+                color = COLORS["positive"]
+
+        sign = "+" if change >= 0 else ""
+        pct_sign = "+" if change_pct >= 0 else ""
+        if change_text is not None:
+            self.change_label.setText(change_text)
+        else:
+            self.change_label.setText(f"{sign}{change:.2f}")
+        self.change_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+        self.pct_label.setText(f"{pct_sign}{change_pct:.2f}%")
+        self.pct_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+
+class GreekBar(QWidget):
+    """Custom widget for Greek risk display."""
+
+    def __init__(self, name: str, min_val: float, max_val: float):
+        super().__init__()
+        self.name = name
+        self.min_val = min_val
+        self.max_val = max_val
+        self.current_val = 0
+        self.percentage = 0
+        self.status = "NORMAL"
+        self.setFixedHeight(22)
+
+    def set_value(self, value: float, status: str = "NORMAL"):
+        self.current_val = value
+        # Risk percentage = distance from zero (safe) toward max exposure.
+        # This correctly handles asymmetric ranges like Theta (-400, 0) and
+        # Vega (-600, 0) where 0 means NO risk and the negative extreme is MAX risk.
+        _scale = max(abs(self.min_val), abs(self.max_val))
+        self.percentage = abs(value) / _scale if _scale else 0.0
+        self.percentage = min(max(self.percentage, 0), 1)
+        self.status = status
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        painter.fillRect(self.rect(), QColor(COLORS["background"]))
+
+        bar_rect = QRect(110, 6, self.width() - 300, 10)
+        painter.fillRect(bar_rect, QColor(COLORS["panel"]))
+
+        if self.percentage < 0.6:
+            color = QColor(COLORS["positive"])
+        elif self.percentage < 0.8:
+            color = QColor(COLORS["warning"])
+        else:
+            color = QColor(COLORS["negative"])
+
+        fill_width = int(bar_rect.width() * self.percentage)
+        fill_rect = QRect(bar_rect.x(), bar_rect.y(), fill_width, bar_rect.height())
+        painter.fillRect(fill_rect, color)
+
+        painter.setPen(QPen(QColor(COLORS["border"]), 1))
+        painter.drawRect(bar_rect)
+
+        painter.setPen(QColor(COLORS["text"]))
+        font = QFont()
+        font.setPointSize(10)
+        painter.setFont(font)
+
+        text = f"{self.name}: {self.current_val:.2f}"
+        painter.drawText(10, 16, text)
+
+        status_rect = QRect(self.width() - 190, 0, 180, 22)
+        painter.drawText(
+            status_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+            self.status,
+        )
 
 # ==============================================================================
 # TESTING AND DEMONSTRATION

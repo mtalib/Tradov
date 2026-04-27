@@ -104,7 +104,7 @@ DEFAULT_SYMBOL_CONFIG = {
             "priority": "MEDIUM",
         },
         "BONDS_CREDIT": {"symbols": ["TLT", "LQD"], "update_frequency": 15, "priority": "LOW"},
-        "CORRELATIONS": {"symbols": ["DXY", "GLD"], "update_frequency": 15, "priority": "LOW"},
+        "CORRELATIONS": {"symbols": ["DXY", "GLD", "USO"], "update_frequency": 15, "priority": "LOW"},
     },
     "hidden_symbols": {
         "VIX_FUTURES": {"symbols": ["VX"], "update_frequency": 5, "priority": "MEDIUM"},

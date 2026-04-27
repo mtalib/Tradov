@@ -43,6 +43,7 @@ from plotly.subplots import make_subplots
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 INTRADAY_BINS = {
     'pre_market': ('04:00', '09:30'),
@@ -170,7 +171,65 @@ class ExecutionAnalytics:
         self.metrics_cache: dict[str, ExecutionMetrics] = {}
         self.time_window_cache: dict[str, TimeWindowAnalysis] = {}
 
+        # Subscribe to execution telemetry events from B02 OrderManager (Phase 5-C)
+        try:
+            event_manager = get_event_manager()
+            event_manager.subscribe(
+                EventType.TRADE,
+                self._handle_execution_telemetry,
+                name="K04_ExecutionAnalytics",
+            )
+            self.logger.info("K04 subscribed to TRADE events for execution telemetry")
+        except Exception as e:
+            self.logger.warning("Failed to subscribe to execution telemetry: %s", e)
+
         self.logger.info("ExecutionAnalytics initialized")
+
+    def _handle_execution_telemetry(self, event: dict[str, Any]) -> None:
+        """
+        Handle incoming execution telemetry from B02 OrderManager (Phase 5-C).
+        
+        Args:
+            event: Event dictionary containing execution_telemetry payload
+        """
+        try:
+            # EventManager handlers may receive either a raw dict payload or an
+            # Event dataclass instance with the payload in .data.
+            event_payload = event
+            if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
+                event_payload = getattr(event, "data")
+
+            if not isinstance(event_payload, dict):
+                self.logger.debug("Skipping non-dict telemetry event payload")
+                return
+
+            telemetry = event_payload.get("execution_telemetry")
+            if not telemetry or not isinstance(telemetry, dict):
+                self.logger.debug("Skipping invalid telemetry event")
+                return
+
+            data = telemetry.get("data", {})
+            order_id = data.get("order_id")
+            
+            if not order_id:
+                self.logger.warning("Telemetry missing order_id")
+                return
+
+            # Cache the telemetry for aggregation
+            self.metrics_cache[order_id] = data
+            
+            # Log significant telemetry (rejections, poor executions)
+            if data.get("reject_flag"):
+                self.logger.info(
+                    f"Telemetry: Order {order_id} REJECTED — {data.get('reject_reason')}"
+                )
+            elif data.get("slippage_bps") is not None and data.get("slippage_bps") > 25:
+                self.logger.warning(
+                    f"Telemetry: Order {order_id} high slippage — {data.get('slippage_bps'):.1f} bps"
+                )
+                
+        except Exception as e:
+            self.logger.error("Error processing execution telemetry: %s", e)
 
     # ==========================================================================
     # CORE ANALYSIS METHODS

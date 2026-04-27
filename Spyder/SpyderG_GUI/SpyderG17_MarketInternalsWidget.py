@@ -91,7 +91,7 @@ _TEXT      = "#e0e0e0"
 _TEXT_DIM  = "#888888"
 _CYAN      = "#00bcd4"
 _GREEN     = "#4caf50"
-_RED       = "#f44336"
+_RED       = "#FF073A"
 _YELLOW    = "#ffeb3b"
 _ORANGE    = "#ff9800"
 
@@ -100,11 +100,13 @@ _HISTORY_MAXLEN = 2_000
 
 # Default alert thresholds
 _DEFAULTS = {
-    "TICK": {"high": 800,  "low": -800,  "unit": "",  "scale": 1},
-    "ADD":  {"high": 1000, "low": -1000, "unit": "",  "scale": 1},
-    "TRIN": {"high": 150,  "low": 50,    "unit": "×0.01", "scale": 100},
+    "TICK": {"high": 800,  "low": -800,  "unit": "",       "scale": 1},
+    "ADD":  {"high": 1000, "low": -1000, "unit": "",       "scale": 1},
+    "TRIN": {"high": 150,  "low": 50,    "unit": "×0.01",  "scale": 100},
+    "NYMO": {"high": 40,   "low": -40,   "unit": "",       "scale": 1},
     # TRIN slider is integer×0.01 so we can use QSlider (integers only).
     # Displayed as value/100.  Thresholds: high=150→1.50, low=50→0.50.
+    # NYMO: NYSE McClellan Oscillator; >+40 overbought, <−40 oversold.
 }
 
 # Colour thresholds for TICK
@@ -132,7 +134,7 @@ class _FetchWorker(QThread):
 
     def run(self):
         # Data comes from S07 → S11 (TradingView/Playwright); nothing to fetch here.
-        self.data_ready.emit({"TICK": None, "ADD": None, "TRIN": None})
+        self.data_ready.emit({"TICK": None, "ADD": None, "TRIN": None, "NYMO": None})
 
 
 # ==============================================================================
@@ -144,7 +146,7 @@ class _HistoryWorker(QThread):
     history_ready = Signal(dict)  # {"TICK": [(ts, val),...], ...}
 
     def run(self):
-        out = {"TICK": [], "ADD": [], "TRIN": []}
+        out = {"TICK": [], "ADD": [], "TRIN": [], "NYMO": []}
         # History bars unavailable — TradingView Playwright scraper returns current value only.
         self.history_ready.emit(out)
 
@@ -405,8 +407,8 @@ class _InternalPanel(QGroupBox):
 # ==============================================================================
 class MarketInternalsDialog(QDialog):
     """
-    Non-modal dialog window: three side-by-side InternalPanel widgets for
-    TICK, ADD, and TRIN with a shared auto-refresh timer.
+    Non-modal dialog window: four side-by-side InternalPanel widgets for
+    TICK, ADD, TRIN, and NYMO with a shared auto-refresh timer.
 
     Data is pushed in via on_breadth_updated(snap) which should be connected
     to SpyderS07_CustomMetricsOrchestrator.breadth_updated at construction time.
@@ -422,8 +424,8 @@ class MarketInternalsDialog(QDialog):
         self._hist_worker:  Optional[_HistoryWorker] = None
         self._orchestrator = orchestrator
 
-        self.setWindowTitle("Market Internals Monitor — TICK | ADD | TRIN")
-        self.setMinimumSize(820, 560)
+        self.setWindowTitle("Market Internals Monitor — TICK | ADD | TRIN | NYMO")
+        self.setMinimumSize(1060, 560)
         self.setStyleSheet(f"""
             QDialog  {{ background-color: {_BG}; }}
             QLabel   {{ color: {_TEXT}; }}
@@ -474,7 +476,7 @@ class MarketInternalsDialog(QDialog):
         panels_row.setSpacing(8)
 
         self._panels = {}
-        for sym in ("TICK", "ADD", "TRIN"):
+        for sym in ("TICK", "ADD", "TRIN", "NYMO"):
             panel = _InternalPanel(sym, self)
             panel.alert_triggered.connect(self._on_alert)
             self._panels[sym] = panel
@@ -559,15 +561,17 @@ class MarketInternalsDialog(QDialog):
         tick = cm.get("TICK", float("nan"))
         add  = cm.get("ADD",  float("nan"))
         trin = cm.get("TRIN", float("nan"))
+        nymo = cm.get("NYMO", float("nan"))
         has_data = any(
             not (isinstance(v, float) and math.isnan(v))
-            for v in (tick, add, trin)
+            for v in (tick, add, trin, nymo)
         )
         if has_data:
             self.on_breadth_updated({
                 "tick": tick,
                 "add":  add,
                 "trin": trin,
+                "nymo": nymo,
                 "breadth_regime": cm.get("BREADTH_REGIME", ""),
             })
 
@@ -588,12 +592,12 @@ class MarketInternalsDialog(QDialog):
     # ------------------------------------------------------------------
     @Slot(dict)
     def on_breadth_updated(self, snap: dict):
-        """Receive live TICK/ADD/TRIN values from S07 (TradingView via Playwright).
+        """Receive live TICK/ADD/TRIN/NYMO values from S07 (TradingView via Playwright).
 
         Connect S07.breadth_updated to this slot when constructing the dialog.
 
         Args:
-            snap: dict with keys 'tick', 'add', 'trin' (floats) and optionally
+            snap: dict with keys 'tick', 'add', 'trin', 'nymo' (floats) and optionally
                   'breadth_regime' (str) emitted by SpyderS07_CustomMetricsOrchestrator.
         """
         import math
@@ -601,6 +605,7 @@ class MarketInternalsDialog(QDialog):
             "TICK": snap.get("tick"),
             "ADD":  snap.get("add"),
             "TRIN": snap.get("trin"),
+            "NYMO": snap.get("nymo"),
         }
         any_updated = False
         for sym, panel in self._panels.items():

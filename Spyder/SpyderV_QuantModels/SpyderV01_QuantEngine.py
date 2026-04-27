@@ -50,8 +50,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Import consolidated V-series modules
 try:
-    from SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics  # noqa: F401
-    from SpyderV05_PricingEngine import (
+    from .SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics  # noqa: F401
+    from .SpyderV05_PricingEngine import (
         SpyderPricingEngine,
         OptionContract,
         PricingParameters,
@@ -540,7 +540,7 @@ class SpyderQuantEngine:
         self, contract_data: dict[str, Any]
     ) -> "OptionContract":
         """Convert dictionary to OptionContract."""
-        from SpyderV05_PricingEngine import OptionType, ExerciseStyle, OptionContract
+        from Spyder.SpyderV_QuantModels.SpyderV05_PricingEngine import OptionType, ExerciseStyle, OptionContract
 
         return OptionContract(
             underlying_price=contract_data["underlying_price"],
@@ -559,7 +559,7 @@ class SpyderQuantEngine:
         self, params_data: dict[str, Any]
     ) -> "PricingParameters":
         """Convert dictionary to PricingParameters."""
-        from SpyderV05_PricingEngine import PricingModel, PricingParameters
+        from Spyder.SpyderV_QuantModels.SpyderV05_PricingEngine import PricingModel, PricingParameters
 
         return PricingParameters(
             model=PricingModel(params_data.get("model", "auto")),
@@ -573,7 +573,7 @@ class SpyderQuantEngine:
         self, params_data: dict[str, Any]
     ) -> "RiskParameters":
         """Convert dictionary to RiskParameters."""
-        from SpyderV04_RiskManager import RiskMethod
+        from Spyder.SpyderV_QuantModels.SpyderV04_RiskManager import RiskMethod
 
         return RiskParameters(
             confidence_level=params_data.get("confidence_level", 0.95),

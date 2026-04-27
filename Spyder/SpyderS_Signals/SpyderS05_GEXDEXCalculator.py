@@ -544,3 +544,6 @@ def get_gex_calculator() -> GEXDEXCalculator:
         _gex_calculator = GEXDEXCalculator()
     return _gex_calculator
 
+
+# Alias for backward compatibility with P01 and N09
+GammaExposureCalculator = GEXDEXCalculator

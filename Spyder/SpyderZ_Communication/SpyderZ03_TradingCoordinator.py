@@ -44,13 +44,11 @@ import zmq
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ01_ZeroMQIntegration import (
-
-    CircuitBreaker, PRIORITY_HIGH, PRIORITY_NORMAL
-)
-from SpyderZ02_MessageProtocol import (
+from .SpyderZ01_ZeroMQIntegration import CircuitBreaker
+from .SpyderZ02_MessageProtocol import (
     MessageCategory, ProtocolManager,
-    ProtocolMessage, SerializationFormat, ValidationLevel
+    ProtocolMessage, SerializationFormat, ValidationLevel,
+    PRIORITY_HIGH, PRIORITY_NORMAL,
 )
 
 # Import from utilities (these would be actual imports in production)

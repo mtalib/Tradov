@@ -62,7 +62,7 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
 # Integration with consolidated multi-leg coordinator
 try:
@@ -247,6 +247,54 @@ class IronButterflyStrategy(BaseStrategy):
         }
 
         self.logger.info("Iron Butterfly Strategy initialized with D26 integration")
+
+    def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
+        """Legacy adapter for BaseStrategy contract.
+
+        Iron Butterfly entry logic is currently routed through dedicated async
+        analysis and coordinator workflows; this sync hook emits no direct signal.
+        """
+        return []
+
+    def validate_signal(self, signal: Any) -> bool:
+        """Basic safety gate for external signals."""
+        if signal is None:
+            return False
+        if hasattr(signal, "is_valid") and not signal.is_valid():
+            return False
+        return float(getattr(signal, "confidence", 0.0) or 0.0) > 0.0
+
+    def calculate_position_size(self, signal: Any) -> int:
+        """Use provided size when available, otherwise default to one contract."""
+        size = int(getattr(signal, "position_size", 0) or 0)
+        return size if size > 0 else 1
+
+    def should_exit_position(self, position: Any,
+                             market_data: pd.DataFrame) -> tuple[bool, str]:
+        """Generic stop/take-profit exit adapter for BaseStrategy contract."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
 
     # ==========================================================================
     # IRON BUTTERFLY SPECIFIC MARKET ANALYSIS

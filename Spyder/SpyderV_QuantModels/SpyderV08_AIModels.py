@@ -52,8 +52,12 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.distributions import Categorical
 from sklearn.preprocessing import StandardScaler
-import gym
-from gym import spaces
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+except ImportError:
+    import gym
+    from gym import spaces
 
 # ==============================================================================
 # LOCAL IMPORTS

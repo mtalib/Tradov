@@ -160,7 +160,7 @@ class TrendDetector:
 
     def _load_config(self):
         """Load configuration."""
-        config = self.config_manager.get_config('trend_detection', {})
+        config = self.config_manager.get_config('trend_detection', {}) or {}
 
         # Detection parameters
         self.min_trend_strength = config.get('min_trend_strength', 0.2)
@@ -177,7 +177,11 @@ class TrendDetector:
         })
 
         # Feature flags
-        self.use_ml_prediction = self.config_manager.is_feature_enabled('ml_trend_prediction')
+        is_feature_enabled = getattr(self.config_manager, 'is_feature_enabled', None)
+        if callable(is_feature_enabled):
+            self.use_ml_prediction = is_feature_enabled('ml_trend_prediction')
+        else:
+            self.use_ml_prediction = False
         self.use_advanced_smoothing = config.get('use_advanced_smoothing', True)
         self.use_momentum_confirmation = config.get('use_momentum_confirmation', True)
 

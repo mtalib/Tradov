@@ -25,7 +25,6 @@ Change Log:
 import threading
 import uuid
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -47,6 +46,12 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (MAX_DAILY_TRADES,
 
                                                 MAX_PORTFOLIO_RISK)
+from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+    EventManager,
+    Event,
+    EventType,
+    get_event_manager,
+)
 import logging
 
 # ==============================================================================
@@ -144,6 +149,10 @@ class TradingSignal:
     timestamp: datetime
     expires_at: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Quote at signal-generation time — used by D31 for mid-price walk execution
+    bid: float = 0.0
+    ask: float = 0.0
+    option_symbol: str = ""  # OCC-format symbol for single-leg options
 
     def is_valid(self) -> bool:
         """Check if signal is still valid"""
@@ -151,6 +160,19 @@ class TradingSignal:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
+        metadata = self.metadata or {}
+        strategy_id = (
+            metadata.get("strategy_id")
+            or metadata.get("strategy_type")
+            or metadata.get("strategy")
+            or metadata.get("strategy_tag")
+            or ""
+        )
+        action = str(
+            metadata.get("action")
+            or metadata.get("side")
+            or self.signal_type.value
+        ).lower()
         return {
             "signal_id": self.signal_id,
             "signal_type": self.signal_type.value,
@@ -158,12 +180,22 @@ class TradingSignal:
             "strength": self.strength.value,
             "confidence": self.confidence,
             "entry_price": self.entry_price,
+            "price": self.entry_price,
             "stop_loss": self.stop_loss,
             "take_profit": self.take_profit,
             "position_size": self.position_size,
+            "quantity": self.position_size,
+            "action": action,
+            "side": action,
+            "strategy_id": strategy_id,
+            "strategy_type": metadata.get("strategy_type") or strategy_id,
+            "direction": metadata.get("direction", ""),
             "timestamp": self.timestamp.isoformat(),
             "expires_at": self.expires_at.isoformat(),
             "metadata": self.metadata,
+            "bid": self.bid,
+            "ask": self.ask,
+            "option_symbol": self.option_symbol,
         }
 
 
@@ -300,92 +332,6 @@ class PerformanceMetrics:
 
 
 # ==============================================================================
-# EVENT MANAGEMENT
-# ==============================================================================
-
-
-class EventType(Enum):
-    """Event types for strategy communication"""
-
-    SIGNAL_GENERATED = "signal_generated"
-    POSITION_OPENED = "position_opened"
-    POSITION_CLOSED = "position_closed"
-    POSITION_ADJUSTED = "position_adjusted"
-    RISK_ALERT = "risk_alert"
-    STRATEGY_STATUS = "strategy_status"
-    PERFORMANCE_UPDATE = "performance_update"
-    ERROR_OCCURRED = "error_occurred"
-
-
-@dataclass
-class Event:
-    """Event data structure"""
-
-    event_id: str
-    event_type: EventType
-    source: str
-    timestamp: datetime
-    data: dict[str, Any]
-
-    @staticmethod
-    def create(event_type: EventType, source: str, data: dict[str, Any]) -> "Event":
-        """Factory method to create events"""
-        return Event(
-            event_id=str(uuid.uuid4()),
-            event_type=event_type,
-            source=source,
-            timestamp=datetime.now(),
-            data=data,
-        )
-
-
-class EventManager:
-    """Event management system"""
-
-    def __init__(self):
-        self.subscribers: dict[EventType, list[Callable]] = defaultdict(list)
-        self.event_history: list[Event] = []
-        self.max_history_size = 1000
-        self._lock = threading.Lock()
-
-    def subscribe(self, event_type: EventType, callback: Callable) -> None:
-        """Subscribe to event type"""
-        with self._lock:
-            self.subscribers[event_type].append(callback)
-
-    def unsubscribe(self, event_type: EventType, callback: Callable) -> None:
-        """Unsubscribe from event type"""
-        with self._lock:
-            if callback in self.subscribers[event_type]:
-                self.subscribers[event_type].remove(callback)
-
-    def publish(self, event: Event) -> None:
-        """Publish event to subscribers"""
-        with self._lock:
-            # Add to history
-            self.event_history.append(event)
-            if len(self.event_history) > self.max_history_size:
-                self.event_history = self.event_history[-self.max_history_size :]
-
-            # Notify subscribers
-            for callback in self.subscribers[event.event_type]:
-                try:
-                    callback(event)
-                except Exception as e:
-                    logging.info("Error in event callback: %s", e)
-
-    def get_recent_events(
-        self, event_type: EventType | None = None, limit: int = 100
-    ) -> list[Event]:
-        """Get recent events"""
-        with self._lock:
-            events = self.event_history
-            if event_type:
-                events = [e for e in events if e.event_type == event_type]
-            return events[-limit:]
-
-
-# ==============================================================================
 # BASE STRATEGY CLASS
 # ==============================================================================
 
@@ -404,7 +350,8 @@ class BaseStrategy(ABC):
         name: str,
         event_manager: EventManager,
         risk_profile: RiskProfile,
-        config: dict[str, Any],
+        config: dict[str, Any] | None,
+        strategy_type: str | None = None,
     ):
         """
         Initialize base strategy.
@@ -414,13 +361,15 @@ class BaseStrategy(ABC):
             event_manager: Event management system
             risk_profile: Risk management profile
             config: Strategy-specific configuration
+            strategy_type: Optional legacy strategy type identifier
         """
         # Core attributes
         self.name = name
         self.strategy_id = str(uuid.uuid4())
         self.event_manager = event_manager
         self.risk_profile = risk_profile
-        self.config = config
+        self.config = config or {}
+        self.strategy_type = strategy_type or self.name.lower().replace(" ", "_")
 
         # Logging and error handling
         self.logger = SpyderLogger.get_logger(f"Strategy.{name}")
@@ -434,7 +383,7 @@ class BaseStrategy(ABC):
         # Position tracking
         self.positions: dict[str, StrategyPosition] = {}
         self.position_history: list[StrategyPosition] = []
-        self.max_positions = config.get("max_positions", DEFAULT_MAX_POSITIONS)
+        self.max_positions = self.config.get("max_positions", DEFAULT_MAX_POSITIONS)
 
         # Signal management
         self.active_signals: dict[str, TradingSignal] = {}
@@ -670,8 +619,10 @@ class BaseStrategy(ABC):
             self.positions[position.position_id] = position
 
             # Publish event
-            self.event_manager.publish(
-                Event.create(EventType.POSITION_OPENED, self.name, position.__dict__)
+            self.event_manager.emit(
+                EventType.POSITION_OPENED,
+                dict(position.__dict__),
+                source=self.name,
             )
 
             self.logger.info("Position opened: %s", position.position_id)
@@ -712,8 +663,10 @@ class BaseStrategy(ABC):
             del self.positions[position_id]
 
             # Publish event
-            self.event_manager.publish(
-                Event.create(EventType.POSITION_CLOSED, self.name, position.__dict__)
+            self.event_manager.emit(
+                EventType.POSITION_CLOSED,
+                dict(position.__dict__),
+                source=self.name,
             )
 
             self.logger.info("Position closed: %s, PnL: %s", position_id, position.realized_pnl)
@@ -771,8 +724,8 @@ class BaseStrategy(ABC):
 
     def _setup_event_subscriptions(self) -> None:
         """Setup event subscriptions"""
-        # Subscribe to risk alerts
-        self.event_manager.subscribe(EventType.RISK_ALERT, self._handle_risk_alert)
+        # Subscribe to risk alerts from the shared event bus
+        self.event_manager.subscribe(EventType.ALERT, self._handle_risk_alert)
 
     def _can_trade(self) -> bool:
         """Check if strategy can trade"""
@@ -798,16 +751,27 @@ class BaseStrategy(ABC):
             # Calculate position size
             signal.position_size = self.calculate_position_size(signal)
 
-            # Validate and potentially execute
+            # Validate and emit on the shared bus so D31 StrategyOrchestrator receives it
             if self.validate_signal(signal):
-                # Publish signal event
-                self.event_manager.publish(
-                    Event.create(EventType.SIGNAL_GENERATED, self.name, signal.to_dict())
+                self.event_manager.emit(
+                    EventType.STRATEGY_SIGNAL,
+                    signal.to_dict(),
+                    source=self.name,
                 )
 
-                # Optionally auto-execute (depending on configuration)
+                # D01-B1: auto_execute is intentionally NOT supported in
+                # production.  Calling add_position() directly bypasses the
+                # D31 → E01 pre-trade risk pathway.  The signal has already
+                # been emitted above; D31 (when wired) will validate it
+                # through E01 and dispatch the order.  Any callers that set
+                # auto_execute=True in config should migrate to the event-bus
+                # pathway.  We emit a warning so the operator is aware.
                 if self.config.get("auto_execute", False):
-                    self.add_position(signal)
+                    self.logger.warning(
+                        "D01 auto_execute=True bypasses E01 risk gate — "
+                        "signal emitted on bus; direct add_position() call suppressed. "
+                        "Set auto_execute=False and wire a LiveEngine to D31."
+                    )
 
         except Exception as e:
             self.error_handler.handle_error(
@@ -834,6 +798,26 @@ class BaseStrategy(ABC):
         # Close positions
         for position_id, exit_price, reason in positions_to_close:
             self.close_position(position_id, exit_price, reason)
+
+    def check_exit(self, position: Any) -> Any:
+        """C2 (v18): Determine whether a position should be closed by ExitMonitor.
+
+        Called once per sweep cycle by ``SpyderR14_ExitMonitor._check_position``.
+        The default implementation returns ``None`` (hold the position).
+        Subclasses should override this method to implement strategy-specific
+        profit-target and stop-loss logic without relying solely on E01/E03.
+
+        Args:
+            position: A ``_PositionView`` namedtuple supplied by ExitMonitor,
+                with fields: symbol, quantity, avg_cost, current_price,
+                unrealised_pnl, strategy_id.
+
+        Returns:
+            ``None`` to hold the position, or an ``ExitDecision`` object
+            (or any truthy dict with ``{"action": "close", ...}``) to trigger
+            an exit signal via the event bus.
+        """
+        return None  # Default: hold all positions
 
     def _close_all_positions(self, reason: str) -> None:
         """Close all open positions"""
@@ -878,12 +862,10 @@ class BaseStrategy(ABC):
 
     def _publish_status_event(self, message: str) -> None:
         """Publish strategy status event"""
-        self.event_manager.publish(
-            Event.create(
-                EventType.STRATEGY_STATUS,
-                self.name,
-                {"message": message, "state": self.state, "timestamp": datetime.now().isoformat()},
-            )
+        self.event_manager.emit(
+            EventType.ALERT,
+            {"message": message, "state": self.state, "timestamp": datetime.now().isoformat()},
+            source=self.name,
         )
 
     def _handle_risk_alert(self, event: Event) -> None:

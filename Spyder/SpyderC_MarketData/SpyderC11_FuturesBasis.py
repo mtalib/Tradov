@@ -498,6 +498,108 @@ class FuturesBasisAnalyzer:
     # PUBLIC METHODS - UTILITY
     # ==========================================================================
 
+    def get_lead_lag_snapshot(self) -> dict[str, Any]:
+        """
+        Return a lightweight lead-lag snapshot for S07 / F09 consumption.
+
+        Computes an ES-leads-SPY proxy from the current basis and recent
+        basis-history.  All values degrade gracefully to NaN when data is
+        unavailable so callers never need to guard against missing keys.
+
+        Returns:
+            Dictionary with keys:
+                es_price          - Last ES futures price
+                spy_price         - Last SPY price
+                basis_bps         - Current raw basis in basis-points
+                lead_lag_ms       - Signed proxy for ES-lead in milliseconds
+                                    (positive = ES leading higher, negative = lower)
+                es_impulse_score  - Normalised rate of change of basis [-1, 1]
+                                    (positive = basis expanding → ES accelerating)
+                confirm_direction - "up" / "down" / "neutral"
+                confirm_confidence - [0, 1] confidence in confirm_direction
+                snapshot_ts       - ISO-8601 timestamp
+        """
+        _nan = float("nan")
+
+        # Ensure data is loaded; if not available yet try a fetch
+        if not all([self.current_es_data, self.current_spy_data, self.current_basis]):
+            try:
+                self.update_market_data()
+            except Exception:
+                pass
+
+        if not all([self.current_es_data, self.current_spy_data, self.current_basis]):
+            return {
+                "es_price": _nan,
+                "spy_price": _nan,
+                "basis_bps": _nan,
+                "lead_lag_ms": _nan,
+                "es_impulse_score": _nan,
+                "confirm_direction": "unknown",
+                "confirm_confidence": _nan,
+                "snapshot_ts": datetime.now().isoformat(),
+            }
+
+        try:
+            es_price = float(self.current_es_data.price)
+            spy_price = float(self.current_spy_data.price)
+            basis_bps = float(self.current_basis.basis_points)
+
+            # ── lead_lag_ms proxy ──────────────────────────────────────────
+            # A positive basis (ES premium) means ES is pulling SPY higher,
+            # modelled as a lead in milliseconds.  5 bps ≈ 2.5 ms.
+            lead_lag_ms = float(np.clip(basis_bps * 0.5, -250.0, 250.0))
+
+            # ── es_impulse_score ───────────────────────────────────────────
+            # Rate of change of basis over the last 5 samples, normalised by
+            # rolling std so 1.0 == "one-std move in one update interval".
+            es_impulse_score: float = _nan
+            history = list(self.basis_history)
+            if len(history) >= 5:
+                recent_bp = [b.basis_points for b in history[-20:]]
+                delta = recent_bp[-1] - recent_bp[-5]
+                std = float(np.std(recent_bp)) if len(recent_bp) > 1 else 1.0
+                denom = std if std > 1e-9 else 1.0
+                es_impulse_score = float(np.clip(delta / denom, -1.0, 1.0))
+
+            # ── confirm_direction and confidence ───────────────────────────
+            if not np.isnan(es_impulse_score):
+                if es_impulse_score > 0.10:
+                    confirm_direction = "up"
+                elif es_impulse_score < -0.10:
+                    confirm_direction = "down"
+                else:
+                    confirm_direction = "neutral"
+                confirm_confidence = float(min(1.0, abs(es_impulse_score)))
+            else:
+                # Fall back to static basis magnitude
+                confirm_direction = "up" if basis_bps > 2.0 else ("down" if basis_bps < -2.0 else "neutral")
+                confirm_confidence = float(min(1.0, abs(basis_bps) / 10.0))
+
+            return {
+                "es_price": es_price,
+                "spy_price": spy_price,
+                "basis_bps": basis_bps,
+                "lead_lag_ms": lead_lag_ms,
+                "es_impulse_score": es_impulse_score,
+                "confirm_direction": confirm_direction,
+                "confirm_confidence": confirm_confidence,
+                "snapshot_ts": datetime.now().isoformat(),
+            }
+
+        except Exception as e:
+            self.error_handler.handle_error(e, "get_lead_lag_snapshot")
+            return {
+                "es_price": _nan,
+                "spy_price": _nan,
+                "basis_bps": _nan,
+                "lead_lag_ms": _nan,
+                "es_impulse_score": _nan,
+                "confirm_direction": "unknown",
+                "confirm_confidence": _nan,
+                "snapshot_ts": datetime.now().isoformat(),
+            }
+
     def get_monitoring_summary(self) -> dict[str, Any]:
         """
         Get comprehensive monitoring summary.

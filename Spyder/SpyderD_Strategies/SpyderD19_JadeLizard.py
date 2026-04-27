@@ -201,12 +201,13 @@ class JadeLizardStrategy(BaseStrategy):
     def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
                  config: dict[str, Any] = None):
         """Initialize Jade Lizard strategy"""
+        resolved_config = config or {}
         super().__init__(
             name="Jade Lizard Strategy",
             strategy_type="jade_lizard",
             event_manager=event_manager,
             risk_profile=risk_profile,
-            config=config or {}
+            config=resolved_config
         )
 
         # Initialize components
@@ -223,9 +224,10 @@ class JadeLizardStrategy(BaseStrategy):
         self.upcoming_events: list[dict] = []
 
         # Configuration
-        self.max_positions = config.get('max_positions', MAX_JADE_POSITIONS)
-        self.min_credit = config.get('min_credit', MIN_CREDIT_REQUIREMENT)
-        self.enforce_no_upside_risk = config.get('enforce_no_upside_risk', NO_UPSIDE_RISK_CHECK)
+        self.max_positions = resolved_config.get('max_positions', MAX_JADE_POSITIONS)
+        self.min_credit = resolved_config.get('min_credit', MIN_CREDIT_REQUIREMENT)
+        self.enforce_no_upside_risk = resolved_config.get('enforce_no_upside_risk', NO_UPSIDE_RISK_CHECK)
+        self.signal_symbol = str(resolved_config.get('symbol', 'SPY'))
 
         # Performance tracking
         self.performance_stats = {
@@ -370,6 +372,48 @@ class JadeLizardStrategy(BaseStrategy):
         except Exception as e:
             self.error_handler.handle_error(e, market_data)
             return []
+
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Apply a minimal validity gate compatible with BaseStrategy."""
+        if signal is None:
+            return False
+        if hasattr(signal, "is_valid") and not signal.is_valid():
+            return False
+        if len(self.active_positions) >= self.max_positions:
+            return False
+        return float(getattr(signal, "confidence", 0.0) or 0.0) > 0.0
+
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Use provided size when available, otherwise default to one contract."""
+        size = int(getattr(signal, "position_size", 0) or 0)
+        return size if size > 0 else 1
+
+    def should_exit_position(self, position: Any,
+                             market_data: pd.DataFrame) -> tuple[bool, str]:
+        """Generic stop/take-profit exit adapter for BaseStrategy contract."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
 
     def _calculate_iv_rank(self, market_data: pd.DataFrame) -> float:
         """Calculate IV rank"""
@@ -662,17 +706,29 @@ class JadeLizardStrategy(BaseStrategy):
             if setup.probability_profit > 0.75 and setup.no_upside_risk:
                 strength = SignalStrength.STRONG
             elif setup.probability_profit > 0.65:
-                strength = SignalStrength.MEDIUM
+                strength = SignalStrength.MODERATE
             else:
                 strength = SignalStrength.WEAK
 
+            signal_timestamp = datetime.now()
+            current_price = float(market_data['close'].iloc[-1])
             signal = TradingSignal(
-                timestamp=datetime.now(),
-                signal_type=SignalType.ENTRY,
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY,
+                symbol=self.signal_symbol,
                 strength=strength,
                 confidence=setup.probability_profit,
+                entry_price=current_price,
+                stop_loss=current_price * 0.98,
+                take_profit=current_price * 1.02,
+                position_size=1,
+                timestamp=signal_timestamp,
+                expires_at=signal_timestamp + timedelta(minutes=15),
                 metadata={
                     'strategy': 'jade_lizard',
+                    'strategy_id': 'JadeLizard',
+                    'strategy_type': 'JadeLizard',
+                    'action': 'buy',
                     'setup': setup.__dict__,
                     'strikes': {
                         'short_put': setup.short_put.strike,
@@ -891,13 +947,23 @@ class JadeLizardStrategy(BaseStrategy):
         # Update performance stats
         self._update_performance_stats(position)
 
+        signal_timestamp = datetime.now()
         signal = TradingSignal(
-            timestamp=datetime.now(),
-            signal_type=SignalType.EXIT,
+            signal_id=str(uuid.uuid4()),
+            signal_type=SignalType.CLOSE,
+            symbol=self.signal_symbol,
             strength=SignalStrength.STRONG,
             confidence=0.95,
+            entry_price=float(position.current_value or 0.0),
+            stop_loss=float(position.current_value or 0.0),
+            take_profit=float(position.current_value or 0.0),
+            position_size=1,
+            timestamp=signal_timestamp,
+            expires_at=signal_timestamp + timedelta(minutes=10),
             metadata={
                 'position_id': position.position_id,
+                'strategy_id': 'JadeLizard',
+                'strategy_type': 'JadeLizard',
                 'exit_reason': reason,
                 'days_held': position.days_held,
                 'unrealized_pnl': position.unrealized_pnl,

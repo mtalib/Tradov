@@ -130,7 +130,7 @@ def RSI(close: object, timeperiod: int = 14) -> np.ndarray:
     rsi = 100.0 - (100.0 / (1.0 + rs))
 
     # NaN out the first timeperiod values (no complete period yet)
-    result = rsi.to_numpy()
+    result = rsi.to_numpy().copy()
     result[:timeperiod] = np.nan
     return result
 
@@ -223,7 +223,7 @@ def ATR(
         axis=1,
     ).max(axis=1)
     atr = _rma(tr, timeperiod)
-    result = atr.to_numpy()
+    result = atr.to_numpy().copy()
     result[:timeperiod] = np.nan
     return result
 
@@ -327,7 +327,7 @@ def PLUS_DI(
     close = _arr(close)
     sm_plus, _, sm_tr = _directional_indicators(high, low, close, timeperiod)
     di_plus = 100.0 * sm_plus / sm_tr.replace(0, np.nan)
-    result = di_plus.to_numpy()
+    result = di_plus.to_numpy().copy()
     result[:timeperiod] = np.nan
     return result
 
@@ -355,7 +355,7 @@ def MINUS_DI(
     close = _arr(close)
     _, sm_minus, sm_tr = _directional_indicators(high, low, close, timeperiod)
     di_minus = 100.0 * sm_minus / sm_tr.replace(0, np.nan)
-    result = di_minus.to_numpy()
+    result = di_minus.to_numpy().copy()
     result[:timeperiod] = np.nan
     return result
 
@@ -386,6 +386,6 @@ def ADX(
     di_minus = 100.0 * sm_minus / sm_tr.replace(0, np.nan)
     dx = 100.0 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, np.nan)
     adx = _rma(dx, timeperiod)
-    result = adx.to_numpy()
+    result = adx.to_numpy().copy()
     result[: 2 * timeperiod] = np.nan
     return result

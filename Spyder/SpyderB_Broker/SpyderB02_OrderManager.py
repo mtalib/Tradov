@@ -72,6 +72,7 @@ from threading import RLock, Event as ThreadEvent
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 # Import TradierClient and its enums — the actual execution layer
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
@@ -92,6 +93,18 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
 # ==============================================================================
 DEFAULT_ORDER_TIMEOUT = 30.0
 ORDER_STATE_PERSISTENCE_INTERVAL = 60  # seconds
+EXECUTION_FEED_VERSION = "1.0"
+LIQUIDITY_FEED_VERSION = "1.0"
+
+_DEFAULT_LIQUIDITY_THRESHOLDS: dict[str, float] = {
+    "max_spread_pct": 0.12,
+    "max_spread_abs": 0.20,
+    "max_quote_age_ms": 1500,
+    "min_top_of_book_size": 10,
+    "min_open_interest": 500,
+    "min_volume": 50,
+    "min_oi_change_pct": -0.20,
+}
 
 # Tradier order status string → OrderState mapping
 TRADIER_STATUS_MAP: dict[str, "OrderState"] = {}  # populated after OrderState defined
@@ -214,6 +227,8 @@ class Order:
     # Metadata
     strategy_name: str | None = None
     tag: str | None = None               # Tradier order tag
+    decision_mid_price: float | None = None
+    liquidity_snapshot: dict[str, Any] | None = None
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.now)
@@ -335,6 +350,13 @@ class OrderManager:
             "start_time": datetime.now(),
         }
 
+        # Execution telemetry feed envelope cache (newest last).
+        self._execution_feed_events: list[dict[str, Any]] = []
+        self._execution_feed_max = 1000
+        self._execution_session_id = str(uuid.uuid4())
+        self._liquidity_feed_events: list[dict[str, Any]] = []
+        self._liquidity_feed_max = 1000
+
         self.logger.info("OrderManager initialized (Tradier API)")
 
     # ==========================================================================
@@ -395,6 +417,30 @@ class OrderManager:
                 f"@ {order.price or 'MKT'}"
             )
 
+            blocked, reasons = self._evaluate_liquidity_gate(order)
+            if blocked:
+                with self._order_lock:
+                    order.state = OrderState.REJECTED
+                    order.error_message = "; ".join(reasons)
+                    order.updated_at = datetime.now()
+                    self.metrics["orders_rejected"] += 1
+
+                self._record_liquidity_feed(order, gate_passed=False, reasons=reasons)
+                self._record_execution_feed(
+                    order=order,
+                    lifecycle_event=EventType.ORDER_REJECTED,
+                    reject_reason=f"liquidity_gate_block: {'; '.join(reasons)}",
+                )
+                return OrderResult(
+                    success=False,
+                    order_id=order.order_id,
+                    operation="submit",
+                    message="Liquidity gate blocked order",
+                    error_code="LIQUIDITY_GATE_BLOCK",
+                )
+
+            self._record_liquidity_feed(order, gate_passed=True, reasons=[])
+
             # Route to correct Tradier method
             response = self._route_order(order)
 
@@ -414,6 +460,18 @@ class OrderManager:
                 order.updated_at = datetime.now()
 
             success = tradier_id is not None
+            if success:
+                self._record_execution_feed(
+                    order=order,
+                    lifecycle_event=EventType.ORDER_SUBMITTED,
+                )
+            else:
+                self._record_execution_feed(
+                    order=order,
+                    lifecycle_event=EventType.ORDER_REJECTED,
+                    reject_reason=order.error_message or "missing_tradier_order_id",
+                )
+
             return OrderResult(
                 success=success,
                 order_id=order.order_id,
@@ -482,6 +540,11 @@ class OrderManager:
                 order.state = OrderState.CANCELLED
                 order.updated_at = datetime.now()
                 self.metrics["orders_cancelled"] += 1
+
+            self._record_execution_feed(
+                order=order,
+                lifecycle_event=EventType.ORDER_CANCELLED,
+            )
 
             return OrderResult(
                 success=True,
@@ -936,35 +999,68 @@ class OrderManager:
         duration: str = "day",
         strategy_name: str | None = None,
         max_slippage_pct: float = 0.05,
-        tick_size: float = 0.01,
-        tick_interval_secs: float = 5.0,
+        min_tick_size: float = 0.01,
+        tick_interval_secs: float = 0.5,
         max_walk_ticks: int = 10,
+        underlying_entry_price: float | None = None,
+        underlying_spot_fn: Callable[[], float] | None = None,
+        underlying_abort_pct: float = 0.0015,
+        vix: float | None = None,
     ) -> OrderResult:
         """
         Submit a limit order starting at the mid-price, then walk toward the
-        natural (ask for buys, bid for sells) by ``tick_size`` increments every
-        ``tick_interval_secs`` seconds until filled or ``max_walk_ticks`` is
-        exhausted.
+        natural ask (buys) or bid (sells) using spread-proportional steps until
+        filled or the walk budget is exhausted.
 
-        This eliminates the worst slippage scenario (crossing the full spread)
-        while still guaranteeing execution within a bounded price range.
+        Four improvements over a naive fixed-penny walk:
+
+        1. **Spread-proportional steps** — step size is
+           ``max(min_tick_size, (ask - bid) / max_walk_ticks)`` so the walk
+           always traverses the full spread in at most ``max_walk_ticks`` steps,
+           regardless of spread width.
+
+        2. **IOC-ping behaviour** — after each ``tick_interval_secs`` wait the
+           unfilled order is *cancelled* and a fresh limit is submitted at the
+           next price level (instead of modifying a resting order).  This avoids
+           signalling intent to HFT algorithms that monitor slowly-creeping
+           resting limit queues.
+
+        3. **Underlying price abort** — if ``underlying_spot_fn`` and
+           ``underlying_entry_price`` are supplied, the walk is aborted whenever
+           ``|SPY_now - SPY_entry| / SPY_entry > underlying_abort_pct``.  This
+           prevents buying the top of a bounce that has already completed before
+           the fill.
+
+        4. **VIX-scaled slippage budget** — when ``vix`` is supplied the
+           effective slippage cap scales up smoothly above VIX 15 so that
+           ordinarily wide spreads in high-volatility regimes do not cause every
+           trade to be abandoned:
+           ``effective = min(0.10, max_slippage_pct * (1 + max(0, (vix-15)/25)))``.
 
         Args:
             symbol: Underlying or option symbol (equity or options root).
             side: Tradier order side string (``"buy_to_open"``, ``"sell_to_open"``, etc.).
             quantity: Number of contracts / shares.
-            bid: Current best bid.
-            ask: Current best ask.
+            bid: Current best bid at signal generation time.
+            ask: Current best ask at signal generation time.
             option_symbol: OCC-format option symbol (for single-leg options).
             duration: ``"day"`` or ``"gtc"``.
             strategy_name: Strategy tag for tracking.
-            max_slippage_pct: Maximum acceptable slippage fraction of mid before
-                aborting (default 5 %).  Orders are cancelled if the walk would
-                exceed this limit.
-            tick_size: Price increment per walk step (default $0.01).
-            tick_interval_secs: Seconds to wait between price walks (default 5 s).
+            max_slippage_pct: Base slippage fraction of mid before aborting
+                (default 5 %).  Scaled dynamically when ``vix`` is supplied.
+            min_tick_size: Floor for the spread-proportional step (default $0.01).
+            tick_interval_secs: Seconds between ping attempts (default 0.5 s).
             max_walk_ticks: Maximum number of price walks before giving up
-                (default 10, i.e. up to $0.10 total walk).
+                (default 10).
+            underlying_entry_price: SPY price at signal generation time.  Required
+                together with ``underlying_spot_fn`` to enable the underlying-move
+                abort guard.
+            underlying_spot_fn: Zero-argument callable that returns the current
+                SPY price.  Called once per tick inside the walk loop.
+            underlying_abort_pct: Fractional move in the underlying that triggers
+                an abort (default 0.15 %).
+            vix: Current VIX level.  Enables dynamic slippage scaling when
+                supplied.
 
         Returns:
             ``OrderResult`` from the final (or only) submission attempt.
@@ -979,15 +1075,27 @@ class OrderManager:
             )
 
         mid = (bid + ask) / 2.0
-        max_walk_distance = mid * max_slippage_pct
+        spread = ask - bid
 
-        # Determine walk direction: buys walk UP toward the ask; sells walk DOWN toward the bid.
+        # ── 1. Spread-proportional step size ─────────────────────────────────
+        step = max(min_tick_size, spread / max(max_walk_ticks, 1))
+
+        # ── 4. VIX-scaled slippage budget ─────────────────────────────────────
+        if vix is not None and vix > 15.0:
+            effective_slippage = min(0.10, max_slippage_pct * (1.0 + (vix - 15.0) / 25.0))
+        else:
+            effective_slippage = max_slippage_pct
+        max_walk_distance = mid * effective_slippage
+
+        # Walk direction: buys walk UP toward the ask; sells walk DOWN toward the bid.
         is_buy = side.startswith("buy")
         limit_price = round(mid, 2)  # Always start at mid
 
         self.logger.info(
             f"MidWalk: {side} {quantity} {option_symbol or symbol} "
             f"bid={bid:.2f} ask={ask:.2f} mid={limit_price:.2f} "
+            f"spread={spread:.3f} step={step:.3f} "
+            f"slippage_budget={effective_slippage:.1%} "
             f"max_walk_ticks={max_walk_ticks}"
         )
 
@@ -996,7 +1104,7 @@ class OrderManager:
         walk_start_time = datetime.now()
 
         for tick in range(max_walk_ticks + 1):
-            # Enforce DEFAULT_ORDER_TIMEOUT across the full walk sequence
+            # ── Timeout guard ─────────────────────────────────────────────────
             elapsed = (datetime.now() - walk_start_time).total_seconds()
             if elapsed > DEFAULT_ORDER_TIMEOUT:
                 self.logger.warning(
@@ -1017,7 +1125,35 @@ class OrderManager:
                     error_code="ORDER_TIMEOUT",
                 )
 
-            # Safety: abort if we've walked beyond the allowed slippage budget
+            # ── 3. Underlying price abort ─────────────────────────────────────
+            if (
+                underlying_spot_fn is not None
+                and underlying_entry_price is not None
+                and underlying_entry_price > 0
+            ):
+                try:
+                    current_underlying = underlying_spot_fn()
+                    drift = abs(current_underlying - underlying_entry_price) / underlying_entry_price
+                    if drift > underlying_abort_pct:
+                        self.logger.warning(
+                            f"MidWalk: underlying moved {drift:.3%} "
+                            f"(>{underlying_abort_pct:.3%}) — thesis invalidated, aborting"
+                        )
+                        if current_order_id:
+                            self.cancel_order(current_order_id)
+                        return OrderResult(
+                            success=False,
+                            order_id=current_order_id or "",
+                            operation="submit_limit_with_walk",
+                            message=f"Underlying moved {drift:.3%} — walk aborted",
+                            error_code="UNDERLYING_MOVED",
+                        )
+                except Exception as exc:
+                    self.logger.warning(
+                        "MidWalk: underlying_spot_fn raised %s — skipping abort check", exc
+                    )
+
+            # ── Slippage budget guard ─────────────────────────────────────────
             walk_distance = abs(limit_price - mid)
             if walk_distance > max_walk_distance:
                 self.logger.warning(
@@ -1035,7 +1171,7 @@ class OrderManager:
                 )
 
             if tick == 0:
-                # First submission
+                # First submission — always at mid-price
                 order = Order(
                     symbol=symbol,
                     side=side,
@@ -1053,28 +1189,41 @@ class OrderManager:
                     return result
                 current_order_id = result.order_id
             else:
-                # Walk: modify the existing order's limit price
-                limit_price = round(
-                    limit_price + (tick_size if is_buy else -tick_size), 2
-                )
+                # ── 2. IOC-ping: cancel the resting order, advance price, resubmit ──
+                # Cancelling rather than modifying prevents HFT algorithms from
+                # detecting a slowly-creeping resting order and stepping in front.
+                if current_order_id:
+                    self.cancel_order(current_order_id)
+
+                limit_price = round(limit_price + (step if is_buy else -step), 2)
                 self.logger.info(
-                    f"MidWalk tick {tick}: walking limit to {limit_price:.2f}"
+                    "MidWalk tick %s: pinging limit at %.2f (step=%.3f)",
+                    tick, limit_price, step,
                 )
-                modify_result = self.modify_order(current_order_id, price=limit_price)
-                if not modify_result.success:
-                    self.logger.warning(
-                        "MidWalk: modify failed on tick %s: %s", tick, modify_result.message
-                    )
-                    # Return last known result — order may still be open
-                    return result  # type: ignore[return-value]
+                order = Order(
+                    symbol=symbol,
+                    side=side,
+                    order_type="limit",
+                    quantity=quantity,
+                    price=limit_price,
+                    duration=duration,
+                    security_type=SecurityType.OPTION if option_symbol else SecurityType.EQUITY,
+                    order_class="option" if option_symbol else "equity",
+                    option_symbol=option_symbol,
+                    strategy_name=strategy_name,
+                )
+                result = self.submit_order(order)
+                if not result.success:
+                    return result
+                current_order_id = result.order_id
 
             # Wait, then check fill status
-            time.sleep(tick_interval_secs)  # thread-safe: time.sleep() intentional
+            time.sleep(tick_interval_secs)  # intentional: thread-safe blocking wait
             refreshed = self.refresh_order(current_order_id)
             if refreshed and refreshed.state == OrderState.FILLED:
                 self.logger.info(
                     f"MidWalk: filled at {refreshed.average_fill_price:.2f} "
-                    f"(tick {tick}, mid was {mid:.2f})"
+                    f"(tick {tick}, mid was {mid:.2f}, step={step:.3f})"
                 )
                 return OrderResult(
                     success=True,
@@ -1087,7 +1236,7 @@ class OrderManager:
                     ),
                 )
 
-        # Exhausted all ticks — cancel the unfilled order
+        # Exhausted all ticks — cancel the last unfilled ping
         self.logger.warning(
             "MidWalk: exhausted %s ticks without fill — cancelling", max_walk_ticks
         )
@@ -1386,6 +1535,12 @@ class OrderManager:
             order.updated_at = datetime.now()
             self.metrics["orders_rejected"] += 1
 
+        self._record_execution_feed(
+            order=order,
+            lifecycle_event=EventType.ORDER_REJECTED,
+            reject_reason=str(error),
+        )
+
         return OrderResult(
             success=False,
             order_id=order.order_id,
@@ -1438,6 +1593,18 @@ class OrderManager:
                 elif new_state == OrderState.REJECTED:
                     self.metrics["orders_rejected"] += 1
 
+        if new_state == OrderState.REJECTED and old_state != OrderState.REJECTED:
+            self._record_execution_feed(
+                order=order,
+                lifecycle_event=EventType.ORDER_REJECTED,
+                reject_reason=str(tradier_data.get("reject_reason") or tradier_data.get("reason") or "rejected"),
+            )
+        elif new_state == OrderState.CANCELLED and old_state != OrderState.CANCELLED:
+            self._record_execution_feed(
+                order=order,
+                lifecycle_event=EventType.ORDER_CANCELLED,
+            )
+
     def _process_fill(self, order: Order, report: ExecutionReport):
         """Process a fill report and notify listeners."""
         with self._order_lock:
@@ -1476,6 +1643,49 @@ class OrderManager:
             f"Fill: {order.order_id} — {report.quantity} @ {report.price} "
             f"({order.filled_quantity}/{order.quantity} filled)"
         )
+
+        # P2-3: emit ORDER_PARTIALLY_FILLED synchronously when a partial fill is recorded
+        if order.state == OrderState.PARTIALLY_FILLED:
+            feed_payload = self._record_execution_feed(
+                order=order,
+                lifecycle_event=EventType.ORDER_PARTIALLY_FILLED,
+                report=report,
+            )
+            try:
+                get_event_manager().emit(
+                    EventType.ORDER_PARTIALLY_FILLED,
+                    {
+                        "order_id": order.order_id,
+                        "symbol": order.symbol,
+                        "filled_quantity": order.filled_quantity,
+                        "remaining_quantity": order.remaining_quantity,
+                        "last_fill_price": report.price,
+                        "average_fill_price": order.average_fill_price,
+                        "execution_feed": feed_payload,
+                    },
+                )
+            except Exception as _e:
+                self.logger.error("ORDER_PARTIALLY_FILLED emit failed: %s", _e)
+
+        if order.state == OrderState.FILLED:
+            feed_payload = self._record_execution_feed(
+                order=order,
+                lifecycle_event=EventType.ORDER_FILLED,
+                report=report,
+            )
+            try:
+                get_event_manager().emit(
+                    EventType.ORDER_FILLED,
+                    {
+                        "order_id": order.order_id,
+                        "symbol": order.symbol,
+                        "filled_quantity": order.filled_quantity,
+                        "average_fill_price": order.average_fill_price,
+                        "execution_feed": feed_payload,
+                    },
+                )
+            except Exception as _e:
+                self.logger.error("ORDER_FILLED emit failed: %s", _e)
 
         # Notify fill listeners
         for cb in list(self._on_fill_callbacks):  # snapshot copy for thread safety
@@ -1592,6 +1802,205 @@ class OrderManager:
             "active_orders": len(self.get_active_orders()),
             "metrics": self.get_metrics(),
         }
+
+    def get_recent_execution_feeds(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recent execution telemetry envelopes (newest last)."""
+        with self._order_lock:
+            if limit <= 0:
+                return []
+            return list(self._execution_feed_events[-limit:])
+
+    def get_recent_liquidity_feeds(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recent liquidity gate telemetry envelopes (newest last)."""
+        with self._order_lock:
+            if limit <= 0:
+                return []
+            return list(self._liquidity_feed_events[-limit:])
+
+    def _record_execution_feed(
+        self,
+        order: Order,
+        lifecycle_event: EventType,
+        report: ExecutionReport | None = None,
+        reject_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Create and store unified execution telemetry envelope, then publish to event bus."""
+        payload = self._build_execution_feed_payload(
+            order=order,
+            lifecycle_event=lifecycle_event,
+            report=report,
+            reject_reason=reject_reason,
+        )
+
+        with self._order_lock:
+            self._execution_feed_events.append(payload)
+            if len(self._execution_feed_events) > self._execution_feed_max:
+                del self._execution_feed_events[:-self._execution_feed_max]
+
+        # Publish execution telemetry to event bus (Phase 5-C)
+        try:
+            event_manager = get_event_manager()
+            event_manager.emit(
+                EventType.TRADE,
+                {
+                    "execution_telemetry": payload,
+                    "order_id": order.order_id,
+                    "symbol": order.symbol,
+                    "event": lifecycle_event.value,
+                },
+                priority="high" if lifecycle_event == EventType.ORDER_REJECTED else "normal",
+            )
+        except Exception as e:
+            self.logger.warning("Failed to publish execution telemetry: %s", e)
+
+        return payload
+
+    def _build_execution_feed_payload(
+        self,
+        order: Order,
+        lifecycle_event: EventType,
+        report: ExecutionReport | None = None,
+        reject_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Build execution telemetry envelope for order lifecycle events."""
+        decision_mid = order.decision_mid_price
+        avg_fill_price = order.average_fill_price or (report.price if report else 0.0)
+
+        slippage_bps = None
+        if decision_mid and decision_mid > 0 and avg_fill_price > 0:
+            slippage_bps = ((avg_fill_price - decision_mid) / decision_mid) * 10000.0
+
+        fill_latency_ms = None
+        if order.submitted_time and (order.last_fill_time or (report.timestamp if report else None)):
+            fill_ts = order.last_fill_time or (report.timestamp if report else None)
+            if fill_ts is not None:
+                fill_latency_ms = max(
+                    0.0,
+                    (fill_ts - order.submitted_time).total_seconds() * 1000.0,
+                )
+
+        partial_fill_ratio = 0.0
+        if order.quantity > 0:
+            partial_fill_ratio = min(1.0, max(0.0, float(order.filled_quantity) / float(order.quantity)))
+
+        data = {
+            "event": lifecycle_event.value,
+            "order_id": order.order_id,
+            "strategy_id": order.strategy_name,
+            "symbol": order.symbol,
+            "decision_ts": order.created_at.isoformat() if order.created_at else None,
+            "submit_ts": order.submitted_time.isoformat() if order.submitted_time else None,
+            "ack_ts": order.updated_at.isoformat() if order.updated_at else None,
+            "fill_ts": (order.last_fill_time.isoformat() if order.last_fill_time else (report.timestamp.isoformat() if report else None)),
+            "decision_mid": decision_mid,
+            "submit_limit": order.price,
+            "avg_fill_price": avg_fill_price if avg_fill_price > 0 else None,
+            "slippage_bps": slippage_bps,
+            "fill_latency_ms": fill_latency_ms,
+            "partial_fill_ratio": partial_fill_ratio,
+            "reject_flag": lifecycle_event == EventType.ORDER_REJECTED,
+            "reject_reason": reject_reason,
+            "cancel_replace_count": 0,
+            "session_id": self._execution_session_id,
+        }
+
+        return {
+            "feed": "execution",
+            "version": EXECUTION_FEED_VERSION,
+            "mode": self.tradier.environment.value if self.tradier else "unknown",
+            "session_id": self._execution_session_id,
+            "published_ts": datetime.now().isoformat(),
+            "data": data,
+        }
+
+    def _evaluate_liquidity_gate(self, order: Order) -> tuple[bool, list[str]]:
+        """Evaluate liquidity thresholds and return (blocked, reasons)."""
+        if order.security_type not in {SecurityType.OPTION, SecurityType.MULTILEG} and not order.legs:
+            return False, []
+
+        snapshot = order.liquidity_snapshot or {}
+        if not snapshot:
+            # No snapshot: do not block here to avoid accidental hard-fail on missing upstream wiring.
+            return False, []
+
+        t = dict(_DEFAULT_LIQUIDITY_THRESHOLDS)
+        custom_thresholds = snapshot.get("thresholds")
+        if isinstance(custom_thresholds, dict):
+            for key, val in custom_thresholds.items():
+                if key in t and isinstance(val, (int, float)):
+                    t[key] = float(val)
+
+        reasons: list[str] = []
+
+        spread_pct = snapshot.get("spread_pct")
+        if isinstance(spread_pct, (int, float)) and float(spread_pct) > t["max_spread_pct"]:
+            reasons.append(
+                f"spread_pct {float(spread_pct):.4f} > max_spread_pct {t['max_spread_pct']:.4f}"
+            )
+
+        spread_abs = snapshot.get("spread_abs")
+        if isinstance(spread_abs, (int, float)) and float(spread_abs) > t["max_spread_abs"]:
+            reasons.append(
+                f"spread_abs {float(spread_abs):.4f} > max_spread_abs {t['max_spread_abs']:.4f}"
+            )
+
+        quote_age_ms = snapshot.get("quote_age_ms")
+        if isinstance(quote_age_ms, (int, float)) and float(quote_age_ms) > t["max_quote_age_ms"]:
+            reasons.append(
+                f"quote_age_ms {float(quote_age_ms):.0f} > max_quote_age_ms {t['max_quote_age_ms']:.0f}"
+            )
+
+        top_of_book_size = snapshot.get("top_of_book_size")
+        if isinstance(top_of_book_size, (int, float)) and float(top_of_book_size) < t["min_top_of_book_size"]:
+            reasons.append(
+                f"top_of_book_size {float(top_of_book_size):.0f} < min_top_of_book_size {t['min_top_of_book_size']:.0f}"
+            )
+
+        open_interest = snapshot.get("open_interest")
+        if isinstance(open_interest, (int, float)) and float(open_interest) < t["min_open_interest"]:
+            reasons.append(
+                f"open_interest {float(open_interest):.0f} < min_open_interest {t['min_open_interest']:.0f}"
+            )
+
+        volume = snapshot.get("volume")
+        if isinstance(volume, (int, float)) and float(volume) < t["min_volume"]:
+            reasons.append(f"volume {float(volume):.0f} < min_volume {t['min_volume']:.0f}")
+
+        oi_change_pct = snapshot.get("oi_change_pct")
+        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < t["min_oi_change_pct"]:
+            reasons.append(
+                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {t['min_oi_change_pct']:.4f}"
+            )
+
+        return len(reasons) > 0, reasons
+
+    def _record_liquidity_feed(self, order: Order, gate_passed: bool, reasons: list[str]) -> dict[str, Any]:
+        """Create and store unified liquidity telemetry envelope."""
+        snapshot = dict(order.liquidity_snapshot or {})
+        snapshot.pop("thresholds", None)
+
+        payload = {
+            "feed": "liquidity",
+            "version": LIQUIDITY_FEED_VERSION,
+            "mode": self.tradier.environment.value if self.tradier else "unknown",
+            "session_id": self._execution_session_id,
+            "published_ts": datetime.now().isoformat(),
+            "data": {
+                "order_id": order.order_id,
+                "strategy_id": order.strategy_name,
+                "symbol": order.symbol,
+                "gate_passed": gate_passed,
+                "reasons": list(reasons),
+                "snapshot": snapshot,
+            },
+        }
+
+        with self._order_lock:
+            self._liquidity_feed_events.append(payload)
+            if len(self._liquidity_feed_events) > self._liquidity_feed_max:
+                del self._liquidity_feed_events[:-self._liquidity_feed_max]
+
+        return payload
 
 
 # ==============================================================================

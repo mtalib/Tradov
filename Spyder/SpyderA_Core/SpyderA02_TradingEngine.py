@@ -357,6 +357,10 @@ class TradingEngine:
         self.position_tracker = None
         self.has_position_tracker = False
 
+        # Entry trust gate (F09 + S07) is resolved lazily to avoid startup hard dependencies.
+        self._entry_filter_gate: Any | None = None
+        self._metrics_orchestrator: Any | None = None
+
         # Worker threads
         self._monitor_thread = None
         self._cleanup_thread = None
@@ -1150,6 +1154,15 @@ class TradingEngine:
                 self.logger.error("Invalid signal from strategy %s", strategy_id)
                 return False
 
+            gate_ok, gate_reason = self._passes_entry_trust_gate(strategy_id, signal)
+            if not gate_ok:
+                self.logger.warning(
+                    "Signal rejected by entry trust gate (%s): %s",
+                    strategy_id,
+                    gate_reason,
+                )
+                return False
+
             # Risk check
             if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
                 self.logger.warning("Signal rejected by risk manager: %s", signal)
@@ -1267,6 +1280,125 @@ class TradingEngine:
             self.logger.error("Risk check error: %s", e)
             # Fail safe — reject on error
             return False
+
+    def _get_entry_filter_gate(self) -> Any | None:
+        """Lazily build the F09 gate used for market-structure trust checks."""
+        if self._entry_filter_gate is not None:
+            return self._entry_filter_gate
+
+        try:
+            from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+        except ImportError:
+            try:
+                from SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters  # type: ignore[no-redef]
+            except ImportError:
+                self.logger.debug("A02: EntryFilters unavailable for trust gate")
+                return None
+
+        config_manager = None
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            config_manager = get_config_manager()
+        except Exception:
+            config_manager = None
+
+        if config_manager is None:
+            class _ConfigAdapter:
+                def __init__(self, config: dict[str, Any]):
+                    self._config = config or {}
+
+                def get_config(self, key: str, default: Any = None) -> Any:
+                    value: Any = self._config
+                    for part in key.split('.'):
+                        if not isinstance(value, dict) or part not in value:
+                            return default
+                        value = value[part]
+                    return value
+
+                def is_feature_enabled(self, key: str) -> bool:
+                    features = self._config.get('features', {})
+                    if isinstance(features, dict):
+                        return bool(features.get(key, False))
+                    return False
+
+                def get(self, key: str, default: Any = None) -> Any:
+                    return self.get_config(key, default)
+
+            config_manager = _ConfigAdapter(self.config)
+
+        try:
+            self._entry_filter_gate = EntryFilters(config_manager)
+        except Exception as exc:
+            self.logger.debug("A02: failed to initialize EntryFilters trust gate: %s", exc)
+            self._entry_filter_gate = None
+        return self._entry_filter_gate
+
+    def _get_current_market_conditions(self) -> dict[str, Any]:
+        """Fetch the latest S07 market conditions for trust-policy gating."""
+        if self._metrics_orchestrator is None:
+            try:
+                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator
+            except ImportError:
+                try:
+                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]
+                except ImportError:
+                    self.logger.debug("A02: S07 metrics orchestrator unavailable")
+                    return {}
+
+            try:
+                self._metrics_orchestrator = get_metrics_orchestrator()
+            except Exception as exc:
+                self.logger.debug("A02: failed to get S07 metrics orchestrator: %s", exc)
+                return {}
+
+        try:
+            conditions = self._metrics_orchestrator.get_current_market_conditions()
+        except Exception as exc:
+            self.logger.debug("A02: failed to read S07 market conditions: %s", exc)
+            return {}
+
+        return conditions if isinstance(conditions, dict) else {}
+
+    def _passes_entry_trust_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Apply F09 trust-policy checks to direct A02 signal processing."""
+        entry_gate = self._get_entry_filter_gate()
+        if entry_gate is None:
+            return True, ""
+
+        market_conditions = self._get_current_market_conditions()
+        if not market_conditions:
+            return True, ""
+
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        action = str(signal.get('action') or signal.get('side') or metadata.get('action') or '').strip().lower()
+        params = {
+            'strategy_type': signal.get('strategy_type') or metadata.get('strategy_type') or strategy_id,
+            'position_type': signal.get('position_type') or metadata.get('position_type') or '',
+            'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,
+            'action': action,
+            'market_conditions': market_conditions,
+        }
+
+        try:
+            checks = []
+            checks.extend(entry_gate._check_data_quality_filter(params))
+            checks.extend(entry_gate._check_vol_surface_structure_filter(params))
+            checks.extend(entry_gate._check_dealer_flow_filter(params))
+            checks.extend(entry_gate._check_lead_lag_confirmation_filter(params))
+        except Exception as exc:
+            self.logger.debug("A02: trust gate failed open: %s", exc, exc_info=True)
+            return True, ""
+
+        failures = []
+        for check in checks:
+            result = getattr(check, 'result', None)
+            if getattr(result, 'value', result) == 'fail':
+                failures.append(check)
+
+        if not failures:
+            return True, ""
+
+        return False, '; '.join(str(check.message) for check in failures)
 
     def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:
         """Create order object from signal"""

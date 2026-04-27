@@ -45,7 +45,7 @@ import numpy as np
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ03_TradingCoordinator import (
+from .SpyderZ03_TradingCoordinator import (
     EngineType, COORDINATOR_MONITOR_PORT, create_engine_client
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

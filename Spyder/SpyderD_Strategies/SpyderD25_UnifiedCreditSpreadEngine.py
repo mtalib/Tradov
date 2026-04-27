@@ -55,6 +55,19 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+# Pivot mean-reversion confluence signal (Tier-1+3 composite scorer).
+# Optional input on MarketEnvironment; engine degrades gracefully when absent.
+try:
+    from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
+        PivotDirection,
+        PivotMRSignal,
+    )
+    PIVOT_MR_SIGNAL_AVAILABLE = True
+except Exception:  # noqa: BLE001 — keep engine usable even if signal module missing
+    PivotDirection = None  # type: ignore[assignment,misc]
+    PivotMRSignal = None   # type: ignore[assignment,misc]
+    PIVOT_MR_SIGNAL_AVAILABLE = False
+
 # Base strategy framework
 try:
     from SpyderD_Strategies.SpyderD01_BaseStrategy import (
@@ -262,9 +275,15 @@ class MarketEnvironment:
     put_call_ratio: float = 1.0
     options_volume: float = 0.0
 
+    # Pivot mean-reversion confluence signal (optional). When `fired` is True,
+    # the construction engine biases spread-type selection AND short-strike
+    # placement to the pivot level. When None or not fired, legacy logic runs
+    # unchanged.
+    pivot_signal: Any = None  # PivotMRSignal | None — Any to keep import optional
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
-        return {
+        out = {
             'timestamp': self.timestamp.isoformat(),
             'current_price': self.current_price,
             'price_change': self.price_change,
@@ -279,6 +298,16 @@ class MarketEnvironment:
             'put_call_ratio': self.put_call_ratio,
             'options_volume': self.options_volume
         }
+        if self.pivot_signal is not None:
+            out['pivot_signal'] = {
+                'direction': getattr(self.pivot_signal.direction, 'value',
+                                     str(self.pivot_signal.direction)),
+                'score': self.pivot_signal.score,
+                'fired': self.pivot_signal.fired,
+                'level_name': self.pivot_signal.nearest_level_name,
+                'level_price': self.pivot_signal.nearest_level_price,
+            }
+        return out
 
 # ==============================================================================
 # MARKET ANALYSIS ENGINE
@@ -531,13 +560,13 @@ class MarketAnalysisEngine:
             return 1.0
 
     def _get_current_regime(self) -> str | None:
-        """Get current market regime from unified engine"""
+        """Get current market regime from the unified engine."""
         if not REGIME_ENGINE_AVAILABLE:
             return None
-
         try:
-            # Would integrate with regime engine - placeholder for now
-            return "bull_trending"  # Example
+            engine = get_unified_regime_engine()
+            current = getattr(engine, "current_regime", None)
+            return current.value if current is not None else None
         except Exception:
             return None
 
@@ -576,6 +605,27 @@ class SpreadConstructionEngine:
     def _select_optimal_spread_type(self, market_env: MarketEnvironment) -> CreditSpreadType:
         """Intelligently select optimal spread type"""
         try:
+            # ----- Pivot mean-reversion override (highest priority when fired) -----
+            # When SpyderS08 emits a fired signal, that's a high-conviction
+            # mean-reversion setup with regime + GEX + RSI + ATR-distance
+            # confluence. Trust it over the trend-following bias logic below.
+            ps = getattr(market_env, 'pivot_signal', None)
+            if (PIVOT_MR_SIGNAL_AVAILABLE and ps is not None
+                    and getattr(ps, 'fired', False)):
+                direction = getattr(ps, 'direction', None)
+                if PivotDirection is not None and direction == PivotDirection.FADE_RESISTANCE:
+                    self.logger.info(
+                        "Pivot MR signal: FADE_RESISTANCE @ %s=%.2f score=%d \u2192 BEAR_CALL",
+                        ps.nearest_level_name, ps.nearest_level_price, ps.score,
+                    )
+                    return CreditSpreadType.BEAR_CALL_SPREAD
+                if PivotDirection is not None and direction == PivotDirection.FADE_SUPPORT:
+                    self.logger.info(
+                        "Pivot MR signal: FADE_SUPPORT @ %s=%.2f score=%d \u2192 BULL_PUT",
+                        ps.nearest_level_name, ps.nearest_level_price, ps.score,
+                    )
+                    return CreditSpreadType.BULL_PUT_SPREAD
+
             bias = market_env.market_bias
             abs(market_env.trend_strength)
 
@@ -700,6 +750,27 @@ class SpreadConstructionEngine:
                                       spread_type: CreditSpreadType) -> float:
         """Calculate optimal short strike based on market conditions"""
         try:
+            # ----- Pivot MR signal anchor (highest priority when fired) -----
+            # Anchor the short strike directly to the pivot level the signal
+            # is fading. This is the whole point of the confluence — sell the
+            # call vertical with its short leg AT the resistance pivot, sell
+            # the put vertical with its short leg AT the support pivot.
+            ps = getattr(market_env, 'pivot_signal', None)
+            if (PIVOT_MR_SIGNAL_AVAILABLE and ps is not None
+                    and getattr(ps, 'fired', False)
+                    and ps.nearest_level_price > 0):
+                lvl = float(ps.nearest_level_price)
+                if (spread_type == CreditSpreadType.BEAR_CALL_SPREAD
+                        and PivotDirection is not None
+                        and ps.direction == PivotDirection.FADE_RESISTANCE
+                        and lvl > current_price):
+                    return lvl
+                if (spread_type == CreditSpreadType.BULL_PUT_SPREAD
+                        and PivotDirection is not None
+                        and ps.direction == PivotDirection.FADE_SUPPORT
+                        and lvl < current_price):
+                    return lvl
+
             if spread_type == CreditSpreadType.BULL_PUT_SPREAD:
                 # Bull put: short strike below current price
                 # Use support levels if available
@@ -1233,13 +1304,12 @@ class UnifiedCreditSpreadEngine:
             return False
 
     async def _get_current_regime(self) -> str | None:
-        """Get current market regime"""
+        """Get current market regime from the unified engine."""
         if not self.regime_engine:
             return None
-
         try:
-            # Would integrate with actual regime engine
-            return "bull_trending"  # Placeholder
+            current = getattr(self.regime_engine, "current_regime", None)
+            return current.value if current is not None else None
         except Exception:
             return None
 

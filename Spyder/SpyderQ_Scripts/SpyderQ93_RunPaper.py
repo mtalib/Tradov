@@ -97,6 +97,20 @@ except ImportError as exc:
         "Run from the repository root with the venv activated."
     )
 
+_import_err: Exception | None = None
+try:
+    from Spyder.SpyderR_Runtime.SpyderR11_PaperStrategyRunner import (
+        PaperStrategyRunner,  # noqa: F401  (exposed for type hints / downstream)
+        create_paper_strategy_runner_from_env,
+    )
+
+    _HAS_STRATEGY_RUNNER = True
+except ImportError as exc:
+    PaperStrategyRunner = None  # type: ignore[assignment,misc]
+    create_paper_strategy_runner_from_env = None  # type: ignore[assignment]
+    _HAS_STRATEGY_RUNNER = False
+    _import_err = exc
+
 try:
     from Spyder.SpyderA_Core.SpyderA04_Scheduler import MarketCalendar
 
@@ -191,6 +205,7 @@ def run_session(
     verbose: bool,
     stop_flag: list,
     calendar=None,
+    strategy_runner=None,
 ) -> None:
     """
     Drive one full market session.
@@ -202,6 +217,9 @@ def run_session(
         verbose:          Whether to log extra detail.
         stop_flag:        Single-element list; set [0]=True to abort.
         calendar:         Optional MarketCalendar; None = always-open.
+        strategy_runner:  Optional PaperStrategyRunner. When provided, its
+                          ``tick()`` is invoked on every heartbeat so the
+                          session actually places and closes paper trades.
     """
     _logger.info(
         "Starting paper session — day %d / remaining %d",
@@ -237,6 +255,22 @@ def run_session(
             )
             break
 
+        # Autonomous strategy tick (entries + exits) — only when runner attached
+        if strategy_runner is not None:
+            try:
+                result = strategy_runner.tick()
+                if verbose or result.get("opens_this_tick") or result.get("closes_this_tick"):
+                    _logger.info(
+                        "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f",
+                        result.get("spy_price", 0.0),
+                        result.get("open_positions", 0),
+                        result.get("opens_this_tick", 0),
+                        result.get("closes_this_tick", 0),
+                        result.get("sim_pnl", 0.0),
+                    )
+            except Exception as exc:  # pylint: disable=broad-except
+                _logger.exception("Strategy runner tick failed: %s", exc)
+
         if verbose:
             m = harness.get_current_metrics()
             _logger.info(
@@ -248,6 +282,15 @@ def run_session(
             )
 
         _interruptible_sleep(heartbeat, stop_flag)
+
+    # Force-close any still-open sim positions before snapshotting
+    if strategy_runner is not None:
+        try:
+            closed = strategy_runner.close_all_positions(reason="session_end")
+            if closed:
+                _logger.info("Session-end: force-closed %d open sim position(s)", closed)
+        except Exception as exc:  # pylint: disable=broad-except
+            _logger.exception("Strategy runner shutdown failed: %s", exc)
 
     snapshot = harness.end_session()
     _logger.info(
@@ -275,6 +318,7 @@ def market_hours_loop(
     once: bool,
     stop_flag: list,
     calendar=None,
+    strategy_runner=None,
 ) -> None:
     """
     Main loop: wait for market open, run session, wait for next day.
@@ -305,6 +349,7 @@ def market_hours_loop(
             verbose=verbose,
             stop_flag=stop_flag,
             calendar=calendar,
+            strategy_runner=strategy_runner,
         )
         sessions_run += 1
         _print_summary(harness, verbose)
@@ -358,6 +403,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print verbose progress on each heartbeat",
     )
+    parser.add_argument(
+        "--with-strategies",
+        action="store_true",
+        help=(
+            "Enable the autonomous PaperStrategyRunner (SpyderR11): "
+            "BullPutCreditSpread + ZeroDTE IronCondor. Uses live Tradier "
+            "quotes for data; all fills are simulated locally."
+        ),
+    )
     return parser
 
 
@@ -375,6 +429,15 @@ def main() -> int:
         args.once,
     )
 
+    # P1-8: Safety gate — refuse to run if env is misconfigured to target live
+    import os as _os
+    _trading_mode = _os.environ.get("TRADING_MODE", "paper").lower()
+    if _trading_mode not in ("paper", "sandbox"):
+        sys.exit(
+            f"[ERROR] SpyderQ93_RunPaper requires TRADING_MODE=paper or sandbox, "
+            f"got '{_trading_mode}'.  Refusing to start to prevent accidental live trading."
+        )
+
     # Build harness from environment
     harness = create_paper_trading_harness_from_env(snapshot_dir=snapshot_dir)
     _logger.info(
@@ -391,6 +454,25 @@ def main() -> int:
             _logger.info("MarketCalendar loaded — NYSE schedule active")
         except Exception as exc:
             _logger.warning("MarketCalendar unavailable: %s — continuing without", exc)
+
+    # Optional autonomous strategy runner
+    strategy_runner = None
+    if args.with_strategies:
+        if not _HAS_STRATEGY_RUNNER:
+            _logger.error(
+                "--with-strategies requested but SpyderR11_PaperStrategyRunner "
+                "could not be imported: %s",
+                _import_err,
+            )
+            return 2
+        try:
+            strategy_runner = create_paper_strategy_runner_from_env(harness=harness)
+            _logger.info(
+                "PaperStrategyRunner attached — autonomous entries + exits ENABLED"
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            _logger.exception("Failed to build PaperStrategyRunner: %s", exc)
+            return 2
 
     # Graceful shutdown on SIGINT / SIGTERM
     stop_flag: list = [False]
@@ -411,6 +493,7 @@ def main() -> int:
             once=args.once,
             stop_flag=stop_flag,
             calendar=calendar,
+            strategy_runner=strategy_runner,
         )
     except Exception as exc:
         _logger.exception("Unhandled exception in market loop: %s", exc)

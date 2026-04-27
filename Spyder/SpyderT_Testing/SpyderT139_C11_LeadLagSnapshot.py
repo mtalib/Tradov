@@ -5,6 +5,7 @@ import math
 import os
 import sys
 import types
+from contextlib import contextmanager
 from collections import deque
 from datetime import datetime, timedelta, date
 from unittest.mock import MagicMock
@@ -27,10 +28,33 @@ def _ensure_mod(key: str):
     return sys.modules[key]
 
 
-# ---------------------------------------------------------------------------
-# Bootstrap — stub heavy C11 deps before loading the module
-# ---------------------------------------------------------------------------
-for _pkg in [
+@contextmanager
+def _scoped_module_stubs(module_names: list[str]):
+    """Temporarily inject stubs into sys.modules and restore after use."""
+    original: dict[str, types.ModuleType] = {}
+    injected: set[str] = set()
+    for name in module_names:
+        if name in sys.modules:
+            original[name] = sys.modules[name]
+        else:
+            injected.add(name)
+        sys.modules[name] = _AnyAttr(name)
+
+    try:
+        yield
+    finally:
+        for name in module_names:
+            if name in original:
+                sys.modules[name] = original[name]
+            else:
+                sys.modules.pop(name, None)
+
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+_C11_PATH = os.path.join(_ROOT, "Spyder", "SpyderC_MarketData", "SpyderC11_FuturesBasis.py")
+_C11_STUBS = [
     "Spyder", "Spyder.SpyderU_Utilities",
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
@@ -41,38 +65,34 @@ for _pkg in [
     "Spyder.SpyderC_MarketData.SpyderC02_HistoricalData",
     "Spyder.SpyderA_Core",
     "Spyder.SpyderA_Core.SpyderA05_EventManager",
-]:
-    sys.modules.setdefault(_pkg, _AnyAttr(_pkg))
+]
 
-# Concrete logger stub
-_u01 = sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"]
-_u01.SpyderLogger = MagicMock()
-_u01.SpyderLogger.get_logger = MagicMock(return_value=MagicMock())
+with _scoped_module_stubs(_C11_STUBS):
+    # Concrete logger stub
+    _u01 = sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"]
+    _u01.SpyderLogger = MagicMock()
+    _u01.SpyderLogger.get_logger = MagicMock(return_value=MagicMock())
 
-# get_data_feed_manager returns None (simulated mode)
-sys.modules["Spyder.SpyderC_MarketData.SpyderC01_DataFeed"].get_data_feed_manager = MagicMock(return_value=None)
-sys.modules["Spyder.SpyderC_MarketData.SpyderC02_HistoricalData"].HistoricalDataManager = MagicMock
+    # get_data_feed_manager returns None (simulated mode)
+    sys.modules["Spyder.SpyderC_MarketData.SpyderC01_DataFeed"].get_data_feed_manager = MagicMock(return_value=None)
+    sys.modules["Spyder.SpyderC_MarketData.SpyderC02_HistoricalData"].HistoricalDataManager = MagicMock
 
-# EventManager stub with emit_event no-op
-_event_mod = sys.modules["Spyder.SpyderA_Core.SpyderA05_EventManager"]
-_mock_em = MagicMock()
-_mock_em.emit_event = MagicMock()
-_event_mod.get_event_manager = MagicMock(return_value=_mock_em)
+    # EventManager stub with emit_event no-op
+    _event_mod = sys.modules["Spyder.SpyderA_Core.SpyderA05_EventManager"]
+    _mock_em = MagicMock()
+    _mock_em.emit_event = MagicMock()
+    _event_mod.get_event_manager = MagicMock(return_value=_mock_em)
 
-# EventType / Event stubs
-class _FakeEventType:
-    DATA_UPDATE = "DATA_UPDATE"
-_event_mod.EventType = _FakeEventType
-_event_mod.Event = MagicMock(return_value=MagicMock())
+    # EventType / Event stubs (scoped; no global pollution after module load)
+    class _FakeEventType:
+        DATA_UPDATE = "DATA_UPDATE"
 
-_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+    _event_mod.EventType = _FakeEventType
+    _event_mod.Event = MagicMock(return_value=MagicMock())
 
-_C11_PATH = os.path.join(_ROOT, "Spyder", "SpyderC_MarketData", "SpyderC11_FuturesBasis.py")
-_spec = _ilu.spec_from_file_location("_c11_test_module", _C11_PATH)
-_c11_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_c11_mod)  # type: ignore[union-attr]
+    _spec = _ilu.spec_from_file_location("_c11_test_module", _C11_PATH)
+    _c11_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _spec.loader.exec_module(_c11_mod)  # type: ignore[union-attr]
 
 FuturesBasisAnalyzer = _c11_mod.FuturesBasisAnalyzer
 BasisData = _c11_mod.BasisData

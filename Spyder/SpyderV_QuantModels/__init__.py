@@ -52,9 +52,10 @@ __status__ = "Production"
 # Quant Engine
 try:
     from .SpyderV01_QuantEngine import (
-        QuantEngine,
-        # Add main classes from QuantEngine when inspected
+        SpyderQuantEngine,
+        OrchestrationMetrics,
     )
+    QuantEngine = SpyderQuantEngine  # backward-compat alias
 
     QUANT_ENGINE_AVAILABLE = True
 except ImportError as e:
@@ -64,9 +65,11 @@ except ImportError as e:
 # Model Manager
 try:
     from .SpyderV02_ModelManager import (
-        ModelManager,
-        # Add main classes from ModelManager when inspected
+        SpyderModelManager,
+        ModelSelector,
+        MarketRegimeDetector,
     )
+    ModelManager = SpyderModelManager  # backward-compat alias
 
     MODEL_MANAGER_AVAILABLE = True
 except ImportError as e:
@@ -76,9 +79,11 @@ except ImportError as e:
 # Data Interface
 try:
     from .SpyderV03_DataInterface import (
-        DataInterface,
-        # Add main classes from DataInterface when inspected
+        SpyderDataInterface,
+        MarketDataPoint,
+        OptionData,
     )
+    DataInterface = SpyderDataInterface  # backward-compat alias
 
     DATA_INTERFACE_AVAILABLE = True
 except ImportError as e:
@@ -88,11 +93,13 @@ except ImportError as e:
 # Risk Manager
 try:
     from .SpyderV04_RiskManager import (
-        RiskManager,
+        SpyderRiskManager,
         RiskMetrics,
-        PortfolioRisk,
-        # Add main classes from RiskManager when inspected
+        StressTestResult,
+        PositionRisk,
     )
+    RiskManager = SpyderRiskManager  # backward-compat alias
+    PortfolioRisk = SpyderRiskManager  # alias — PortfolioRisk class does not exist
 
     RISK_MANAGER_AVAILABLE = True
 except ImportError as e:
@@ -121,11 +128,11 @@ except ImportError as e:
 # Volatility Engine
 try:
     from .SpyderV06_VolatilityEngine import (
-        VolatilityEngine,
+        SpyderVolatilityEngine,
         VolatilitySurface,
         VolatilityForecast,
-        # Add main classes from VolatilityEngine when inspected
     )
+    VolatilityEngine = SpyderVolatilityEngine  # backward-compat alias
 
     VOLATILITY_ENGINE_AVAILABLE = True
 except ImportError as e:
@@ -135,11 +142,14 @@ except ImportError as e:
 # Advanced Models
 try:
     from .SpyderV07_AdvancedModels import (
-        AdvancedModels,
-        HestonModel,
-        StochasticVolatilityModel,
-        # Add main classes from AdvancedModels when inspected
+        SpyderAdvancedModelsEngine,
+        MertonParameters,
+        CrisisAssessment,
+        AdvancedModelResults,
     )
+    AdvancedModels = SpyderAdvancedModelsEngine  # backward-compat alias
+    HestonModel = SpyderAdvancedModelsEngine  # alias — no separate HestonModel class
+    StochasticVolatilityModel = SpyderAdvancedModelsEngine  # alias
 
     ADVANCED_MODELS_AVAILABLE = True
 except ImportError as e:
@@ -200,17 +210,17 @@ if OPTIONS_MODELS_AVAILABLE:
     BlackScholesModel = SpyderPricingEngine
 
 if RISK_MODELS_AVAILABLE:
-    RiskModels = RiskManager
-    VaRCalculator = RiskManager
-    StressTestEngine = RiskManager
+    RiskModels = SpyderRiskManager
+    VaRCalculator = SpyderRiskManager
+    StressTestEngine = SpyderRiskManager
 
 if VOLATILITY_MODELS_AVAILABLE:
-    VolatilityModels = VolatilityEngine
+    VolatilityModels = SpyderVolatilityEngine
     VolatilitySmile = VolatilitySurface
 
 if CORRELATION_MODELS_AVAILABLE:
-    CorrelationModels = AdvancedModels
-    CovarianceMatrix = AdvancedModels
+    CorrelationModels = SpyderAdvancedModelsEngine
+    CovarianceMatrix = SpyderAdvancedModelsEngine
 
 # ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
@@ -283,18 +293,17 @@ def create_quantitative_suite():
     suite = {}
 
     if QUANT_ENGINE_AVAILABLE:
-        suite["quant_engine"] = QuantEngine()
+        suite["quant_engine"] = SpyderQuantEngine()
 
     if MODEL_MANAGER_AVAILABLE:
-        suite["model_manager"] = ModelManager()
+        suite["model_manager"] = SpyderModelManager()
 
     if DATA_INTERFACE_AVAILABLE:
-        suite["data_interface"] = DataInterface()
+        suite["data_interface"] = SpyderDataInterface()
 
     if OPTIONS_MODELS_AVAILABLE:
         suite["options_models"] = OptionsModels()
         suite["black_scholes"] = BlackScholesModel()
-        suite["heston_model"] = HestonModel()
 
     if RISK_MODELS_AVAILABLE:
         suite["risk_models"] = RiskModels()
@@ -340,7 +349,6 @@ def create_options_pricing_engine():
     return {
         "options_models": OptionsModels(),
         "black_scholes": BlackScholesModel(),
-        "heston_model": HestonModel(),
     }
 
 

@@ -23,6 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
 
@@ -56,7 +57,11 @@ class SpyderLogger:
         # Setup file handler if specified
         if log_file:
             log_file.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(log_file)
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=50 * 1024 * 1024,  # 50 MB per file
+                backupCount=10,
+            )
             file_handler.setFormatter(formatter)
             cls._root_logger.addHandler(file_handler)
 

@@ -23,6 +23,7 @@ Symbols
     USI:TICK   — NYSE Cumulative Tick Index
     USI:TRIN.NY — NYSE Arms Index (TRIN)
     USI:ADD    — NYSE Advance-Decline
+    USI:NYMO   — NYSE McClellan Oscillator
 
 Requirements
 ------------
@@ -75,6 +76,9 @@ _SYMBOLS: Dict[str, str] = {
     "tick": "https://www.tradingview.com/symbols/USI-TICK/",
     "trin": "https://www.tradingview.com/symbols/USI-TRIN.NY/",
     "add":  "https://www.tradingview.com/symbols/USI-ADD/",
+    "vold": "https://www.tradingview.com/symbols/USI-VOLD/",
+    # NOTE: USI-NYMO does not have a TradingView symbol page (returns 404).
+    # NYMO is computed as an ADD-EMA oscillator proxy in SpyderS07.
 }
 
 _CSS_PRICE = 'span[class*="last-"]'
@@ -104,10 +108,20 @@ _ADD_BULL        =  500
 _ADD_BEAR        = -500
 _ADD_STRONG_BEAR = -1500
 
+# NYMO (NYSE McClellan Oscillator) thresholds.
+# NYMO oscillates roughly –100 to +100; > 40 is overbought, <– 40 is oversold
+# on an intraday basis.  Extremes (±80) signal strong mean-reversion setups.
+_NYMO_STRONG_BULL =  60.0
+_NYMO_BULL        =  20.0
+_NYMO_BEAR        = -20.0
+_NYMO_STRONG_BEAR = -60.0
+
 # Page load / selector timeouts (ms)
-_NAV_TIMEOUT_MS  = 15_000
-_SEL_TIMEOUT_MS  = 10_000
-_TEXT_TIMEOUT_MS  =  3_000
+# NYMO can take 15-20 s to render its price element after domcontentloaded;
+# keep _SEL_TIMEOUT_MS generous to avoid aborting the entire launch.
+_NAV_TIMEOUT_MS  = 20_000
+_SEL_TIMEOUT_MS  = 25_000
+_TEXT_TIMEOUT_MS  =  5_000
 
 
 # ==============================================================================
@@ -158,6 +172,7 @@ class TradingViewInternals:
                 tick          — float  (NYSE TICK)
                 trin          — float  (NYSE TRIN / Arms Index)
                 add           — float  (NYSE Advance − Decline)
+                nymo          — float  (NYSE McClellan Oscillator)
                 breadth_regime — str   (strong_bull|bull|neutral|bear|strong_bear)
                 as_of         — datetime (UTC timestamp of the scrape)
         """
@@ -217,13 +232,21 @@ class TradingViewInternals:
             browser = pw.chromium.launch(headless=True)
             ctx = browser.new_context(user_agent=_USER_AGENT)
             for name, url in _SYMBOLS.items():
-                pg = ctx.new_page()
-                pg.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
-                pages[name] = pg
-                logger.debug("TradingView tab opened: %s → %s", name.upper(), url)
+                try:
+                    pg = ctx.new_page()
+                    pg.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                    pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
+                    pages[name] = pg
+                    logger.debug("TradingView tab opened: %s → %s", name.upper(), url)
+                except Exception as page_exc:
+                    logger.warning(
+                        "TradingView: failed to open tab for %s (%s) — symbol will show NaN.",
+                        name.upper(), page_exc,
+                    )
+            if not pages:
+                raise RuntimeError("TradingView: all symbol pages failed to open — browser unusable.")
             initialised = True
-            logger.debug("TradingView headless browser launched with %d tabs.", len(pages))
+            logger.debug("TradingView headless browser launched with %d/%d tabs.", len(pages), len(_SYMBOLS))
 
         def close_browser() -> None:
             nonlocal pw, browser, ctx, pages, initialised
@@ -363,6 +386,20 @@ class TradingViewInternals:
             else:
                 votes["neutral"] += 1
 
+        # NYMO vote (NYSE McClellan Oscillator)
+        nymo = data.get("nymo", float("nan"))
+        if not math.isnan(nymo):
+            if nymo >= _NYMO_STRONG_BULL:
+                votes["strong_bull"] += 1
+            elif nymo >= _NYMO_BULL:
+                votes["bull"] += 1
+            elif nymo <= _NYMO_STRONG_BEAR:
+                votes["strong_bear"] += 1
+            elif nymo <= _NYMO_BEAR:
+                votes["bear"] += 1
+            else:
+                votes["neutral"] += 1
+
         return max(votes, key=votes.get)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
@@ -388,6 +425,8 @@ class TradingViewInternals:
             "tick": float("nan"),
             "trin": float("nan"),
             "add":  float("nan"),
+            "vold": float("nan"),
+            "nymo": float("nan"),
             "breadth_regime": "neutral",
             "as_of": datetime.now(timezone.utc),
         }

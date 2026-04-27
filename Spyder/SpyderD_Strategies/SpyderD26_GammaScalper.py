@@ -1060,6 +1060,48 @@ class GammaScalperStrategy(BaseStrategy):
             'market_condition': self.market_condition.value
         }
 
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def generate_signals(self, market_data) -> list:
+        """Bridge BaseStrategy.generate_signals to analyze_market_conditions."""
+        import pandas as pd
+        if isinstance(market_data, pd.DataFrame):
+            data_dict = market_data.to_dict('list') if not market_data.empty else {}
+        else:
+            data_dict = market_data if isinstance(market_data, dict) else {}
+        signal = self.analyze_market_conditions(data_dict)
+        if signal and getattr(signal, 'action', 'HOLD') != 'HOLD':
+            from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import TradingSignal
+            from uuid import uuid4
+            ts = TradingSignal(
+                signal_id=str(uuid4()),
+                symbol=self.config.get('symbol', 'SPY'),
+                action=signal.action,
+                quantity=1,
+                entry_price=0.0,
+                strategy_id='GammaScalper',
+            )
+            return [ts]
+        return []
+
+    def validate_signal(self, signal, account_value: float = 0) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+
+    def calculate_position_size(self, signal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
+
 
 # ==============================================================================
 # FACTORY FUNCTION

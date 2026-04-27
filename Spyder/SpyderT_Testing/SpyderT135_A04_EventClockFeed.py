@@ -24,6 +24,15 @@ def test_event_clock_transitions_pre_to_clear_emit_on_change():
     em = _DummyEventManager()
     scheduler = Scheduler(event_manager=em)
 
+    # Scheduler.__init__ adds default tasks which emit task_added SYSTEM
+    # events.  This test cares only about event_clock_state transitions,
+    # so we filter to those when counting.
+    def _clock_events() -> list:
+        return [
+            (et, payload) for (et, payload) in em.events
+            if isinstance(payload, dict) and payload.get("type") == "event_clock_state"
+        ]
+
     now = _et_now()
     scheduler.set_event_clock_events(
         [
@@ -40,15 +49,15 @@ def test_event_clock_transitions_pre_to_clear_emit_on_change():
     first = scheduler.publish_event_clock_state(now=now)
     assert first["feed"] == "event_clock"
     assert first["data"]["state"] == "pre"
-    assert len(em.events) == 1
+    assert len(_clock_events()) == 1
 
     # Same state should not re-emit unless force_emit=True.
     scheduler.publish_event_clock_state(now=now + timedelta(minutes=1))
-    assert len(em.events) == 1
+    assert len(_clock_events()) == 1
 
     later = scheduler.publish_event_clock_state(now=now + timedelta(minutes=80))
     assert later["data"]["state"] == "clear"
-    assert len(em.events) == 2
+    assert len(_clock_events()) == 2
 
 
 def test_event_clock_loads_effective_config_from_a03(monkeypatch):

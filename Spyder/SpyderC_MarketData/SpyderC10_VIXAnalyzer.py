@@ -295,8 +295,9 @@ class VIXAnalyzer:
         self.risk_premium: VolatilityRiskPremium | None = None
 
         # Technical indicators
-        self.rsi_calculator = RSI(period=14)
-        self.bb_calculator = BollingerBands(period=20, std_dev=2.0)
+        import inspect
+        self.rsi_calculator = RSI(period=14) if RSI is not None and inspect.isclass(RSI) else None
+        self.bb_calculator = BollingerBands(period=20, std_dev=2.0) if BollingerBands is not None and inspect.isclass(BollingerBands) else None
 
         # Analysis state
         self.is_analyzing = False

@@ -121,6 +121,10 @@ class ValidationLevel(Enum):
     CUSTOM = auto()
 
 
+class StartupValidationError(RuntimeError):
+    """Raised when blocking startup validation fails."""
+
+
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
@@ -324,6 +328,8 @@ class ConfigManager:
         except Exception as e:
             self.logger.error("Configuration loading failed: %s", e)
             self.error_handler.handle_error(e, "load_all_configurations")
+            if isinstance(e, StartupValidationError) or e.__class__.__name__ == "ConfigurationError":
+                raise
             # Use defaults on error
             self._load_defaults()
 
@@ -402,6 +408,45 @@ class ConfigManager:
                 "metrics_collection_interval": 30,
                 "performance_window_size": 1000,
                 "alert_cooldown_minutes": 15,
+            },
+            "automation": {
+                "enabled": True,
+            },
+            "autonomous_readiness": {
+                "liquidity": {
+                    "enabled": True,
+                    "max_spread_pct": 0.12,
+                    "max_spread_abs": 0.20,
+                    "max_quote_age_ms": 1500,
+                    "min_top_of_book_size": 10,
+                    "min_open_interest": 500,
+                    "min_volume": 50,
+                    "min_oi_change_pct": -0.20,
+                },
+                "execution": {
+                    "enabled": True,
+                    "max_slippage_bps": 25,
+                    "max_fill_latency_ms": 2500,
+                    "max_partial_fill_ratio": 0.40,
+                    "max_reject_rate_5m": 0.08,
+                    "degrade_size_multiplier": 0.50,
+                    "halt_on_quality_breach": True,
+                },
+                "event_clock": {
+                    "enabled": True,
+                    "sources": "calendar+manual",
+                    "high_impact_only": True,
+                    "blackout_pre_minutes": 30,
+                    "blackout_post_minutes": 30,
+                    "max_size_multiplier_during_event": 0.25,
+                    "allowlist_strategies": [],
+                },
+                "escalation": {
+                    "warn_on_single_breach": True,
+                    "degrade_on_two_breaches": True,
+                    "halt_on_three_breaches": True,
+                    "sustained_breach_minutes": 10,
+                },
             },
             "api": {
                 "enabled": False,
@@ -963,6 +1008,53 @@ class ConfigManager:
                 )
                 raise  # Propagate so the application does not silently start
 
+        mode = "paper"
+        if hasattr(self, "get"):
+            try:
+                mode = str(self.get("trading.mode", "paper")).strip().lower()
+            except Exception:
+                mode = "paper"
+
+        config_for_validation = getattr(self, "config_data", {})
+        readiness_result = ConfigManager.validate_autonomous_readiness_config(
+            self,
+            config_for_validation,
+            mode,
+        )
+
+        if hasattr(self, "config_data"):
+            self.config_data = readiness_result["effective"]
+
+        if readiness_result["warnings"]:
+            self.logger.warning(
+                "Autonomous readiness validation warnings: %s",
+                len(readiness_result["warnings"]),
+            )
+            for warning in readiness_result["warnings"]:
+                self.logger.warning("  - %s", warning)
+
+        if readiness_result["errors"]:
+            self.logger.error(
+                "Autonomous readiness validation errors: %s",
+                len(readiness_result["errors"]),
+            )
+            for error in readiness_result["errors"]:
+                self.logger.error("  - %s", error)
+
+        if not readiness_result["ok"] and mode == "live":
+            raise StartupValidationError(
+                "autonomous readiness validation failed in live mode: "
+                + "; ".join(readiness_result["errors"])
+            )
+
+        self.logger.info(
+            "Autonomous readiness startup report | mode=%s ok=%s warnings=%s errors=%s",
+            mode,
+            readiness_result["ok"],
+            len(readiness_result["warnings"]),
+            len(readiness_result["errors"]),
+        )
+
         # --- Schema / value validation via ConfigManager.validate() ----------
         errors = self.validate()
 
@@ -972,6 +1064,226 @@ class ConfigManager:
                 self.logger.warning("  - %s", error)
         else:
             self.logger.info("Configuration validation passed")
+
+    def validate_autonomous_readiness_config(
+        self,
+        config: dict[str, Any],
+        mode: str,
+    ) -> dict[str, Any]:
+        """Validate autonomous readiness config and return effective startup settings."""
+        effective = copy.deepcopy(config)
+        warnings: list[str] = []
+        errors: list[str] = []
+
+        effective = self._apply_autonomous_readiness_env_overrides(effective)
+
+        def require_bool(path: str):
+            value = self._get_nested_path_value(effective, path)
+            if not isinstance(value, bool):
+                errors.append(f"{path} must be bool")
+
+        def require_int_range(
+            path: str,
+            lo: int,
+            hi: int,
+            severity: str = "ERROR",
+            fallback: int | None = None,
+        ):
+            value = self._get_nested_path_value(effective, path)
+            is_valid = isinstance(value, int) and not isinstance(value, bool) and lo <= value <= hi
+            if not is_valid:
+                message = f"{path} out of range [{lo}, {hi}]"
+                if severity == "WARN" and fallback is not None:
+                    warnings.append(f"{message}; fallback={fallback}")
+                    self._set_nested_value(effective, path, fallback)
+                elif severity == "WARN":
+                    warnings.append(message)
+                else:
+                    errors.append(message)
+
+        def require_float_range(
+            path: str,
+            lo: float,
+            hi: float,
+            severity: str = "ERROR",
+            fallback: float | None = None,
+        ):
+            value = self._get_nested_path_value(effective, path)
+            valid_numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+            if not valid_numeric or float(value) < lo or float(value) > hi:
+                message = f"{path} out of range [{lo}, {hi}]"
+                if severity == "WARN" and fallback is not None:
+                    warnings.append(f"{message}; fallback={fallback}")
+                    self._set_nested_value(effective, path, fallback)
+                elif severity == "WARN":
+                    warnings.append(message)
+                else:
+                    errors.append(message)
+
+        require_float_range("autonomous_readiness.liquidity.max_spread_pct", 0.01, 0.50)
+        require_float_range("autonomous_readiness.liquidity.max_spread_abs", 0.01, 2.00)
+        require_int_range("autonomous_readiness.liquidity.max_quote_age_ms", 100, 10000)
+        require_int_range(
+            "autonomous_readiness.liquidity.min_top_of_book_size",
+            1,
+            1000,
+            severity="WARN",
+            fallback=10,
+        )
+        require_int_range("autonomous_readiness.liquidity.min_open_interest", 0, 1_000_000)
+        require_int_range("autonomous_readiness.liquidity.min_volume", 0, 1_000_000)
+        require_float_range(
+            "autonomous_readiness.liquidity.min_oi_change_pct",
+            -1.00,
+            1.00,
+            severity="WARN",
+            fallback=-0.20,
+        )
+
+        require_float_range("autonomous_readiness.execution.max_slippage_bps", 1, 200)
+        require_int_range("autonomous_readiness.execution.max_fill_latency_ms", 100, 20000)
+        require_float_range("autonomous_readiness.execution.max_partial_fill_ratio", 0.00, 1.00)
+        require_float_range("autonomous_readiness.execution.max_reject_rate_5m", 0.00, 1.00)
+        require_float_range("autonomous_readiness.execution.degrade_size_multiplier", 0.10, 1.00)
+        require_bool("autonomous_readiness.execution.halt_on_quality_breach")
+
+        require_bool("autonomous_readiness.event_clock.enabled")
+        sources = self._get_nested_path_value(effective, "autonomous_readiness.event_clock.sources")
+        if sources not in {"calendar", "manual", "calendar+manual"}:
+            warnings.append("autonomous_readiness.event_clock.sources invalid; fallback=manual")
+            self._set_nested_value(effective, "autonomous_readiness.event_clock.sources", "manual")
+
+        require_bool("autonomous_readiness.event_clock.high_impact_only")
+        require_int_range("autonomous_readiness.event_clock.blackout_pre_minutes", 0, 240)
+        require_int_range("autonomous_readiness.event_clock.blackout_post_minutes", 0, 240)
+        require_float_range(
+            "autonomous_readiness.event_clock.max_size_multiplier_during_event",
+            0.00,
+            1.00,
+        )
+
+        allowlist_path = "autonomous_readiness.event_clock.allowlist_strategies"
+        allowlist = self._get_nested_path_value(effective, allowlist_path)
+        if allowlist is not None:
+            if isinstance(allowlist, list):
+                filtered = [item for item in allowlist if isinstance(item, str) and item.strip()]
+                if len(filtered) != len(allowlist):
+                    warnings.append(
+                        "autonomous_readiness.event_clock.allowlist_strategies contains invalid items; dropping invalid values"
+                    )
+                self._set_nested_value(effective, allowlist_path, filtered)
+            else:
+                warnings.append(
+                    "autonomous_readiness.event_clock.allowlist_strategies must be list[str]; fallback=[]"
+                )
+                self._set_nested_value(effective, allowlist_path, [])
+
+        degrade = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.execution.degrade_size_multiplier",
+        )
+        event_mult = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.event_clock.max_size_multiplier_during_event",
+        )
+        if isinstance(degrade, (int, float)) and isinstance(event_mult, (int, float)):
+            if float(degrade) < float(event_mult):
+                errors.append(
+                    "autonomous_readiness.execution.degrade_size_multiplier should be >= autonomous_readiness.event_clock.max_size_multiplier_during_event"
+                )
+
+        pre = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.event_clock.blackout_pre_minutes",
+        )
+        post = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.event_clock.blackout_post_minutes",
+        )
+        event_enabled = self._get_nested_path_value(effective, "autonomous_readiness.event_clock.enabled")
+        if event_enabled is True and pre == 0 and post == 0:
+            errors.append(
+                "autonomous_readiness.event_clock.enabled=true requires non-zero pre or post blackout window"
+            )
+
+        halt_on_quality_breach = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.execution.halt_on_quality_breach",
+        )
+        execution_cfg = self._get_nested_path_value(effective, "autonomous_readiness.execution")
+        if halt_on_quality_breach is True and isinstance(execution_cfg, dict):
+            required_keys = {
+                "max_slippage_bps",
+                "max_fill_latency_ms",
+                "max_reject_rate_5m",
+            }
+            if not required_keys.issubset(set(execution_cfg.keys())):
+                errors.append(
+                    "autonomous_readiness.execution.halt_on_quality_breach=true requires max_slippage_bps, max_fill_latency_ms, and max_reject_rate_5m"
+                )
+
+        normalized_mode = mode.strip().lower() if isinstance(mode, str) else "paper"
+        ok = len(errors) == 0
+
+        if not ok and normalized_mode != "live":
+            self._set_nested_value(effective, "automation.enabled", False)
+            warnings.append("paper/sandbox mode: blocking errors present, automation disabled")
+            ok = True
+
+        return {
+            "ok": ok,
+            "effective": effective,
+            "warnings": warnings,
+            "errors": errors,
+        }
+
+    def _apply_autonomous_readiness_env_overrides(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Apply documented env overrides for autonomous readiness settings."""
+        effective = copy.deepcopy(config)
+        env_key_to_path = {
+            "SPYDER_LIQUIDITY_ENABLED": "autonomous_readiness.liquidity.enabled",
+            "SPYDER_LIQUIDITY_MAX_SPREAD_PCT": "autonomous_readiness.liquidity.max_spread_pct",
+            "SPYDER_LIQUIDITY_MAX_SPREAD_ABS": "autonomous_readiness.liquidity.max_spread_abs",
+            "SPYDER_LIQUIDITY_MAX_QUOTE_AGE_MS": "autonomous_readiness.liquidity.max_quote_age_ms",
+            "SPYDER_LIQUIDITY_MIN_TOP_OF_BOOK_SIZE": "autonomous_readiness.liquidity.min_top_of_book_size",
+            "SPYDER_LIQUIDITY_MIN_OPEN_INTEREST": "autonomous_readiness.liquidity.min_open_interest",
+            "SPYDER_LIQUIDITY_MIN_VOLUME": "autonomous_readiness.liquidity.min_volume",
+            "SPYDER_LIQUIDITY_MIN_OI_CHANGE_PCT": "autonomous_readiness.liquidity.min_oi_change_pct",
+            "SPYDER_EXECUTION_ENABLED": "autonomous_readiness.execution.enabled",
+            "SPYDER_EXECUTION_MAX_SLIPPAGE_BPS": "autonomous_readiness.execution.max_slippage_bps",
+            "SPYDER_EXECUTION_MAX_FILL_LATENCY_MS": "autonomous_readiness.execution.max_fill_latency_ms",
+            "SPYDER_EXECUTION_MAX_PARTIAL_FILL_RATIO": "autonomous_readiness.execution.max_partial_fill_ratio",
+            "SPYDER_EXECUTION_MAX_REJECT_RATE_5M": "autonomous_readiness.execution.max_reject_rate_5m",
+            "SPYDER_EXECUTION_DEGRADE_SIZE_MULTIPLIER": "autonomous_readiness.execution.degrade_size_multiplier",
+            "SPYDER_EXECUTION_HALT_ON_QUALITY_BREACH": "autonomous_readiness.execution.halt_on_quality_breach",
+            "SPYDER_EVENT_CLOCK_ENABLED": "autonomous_readiness.event_clock.enabled",
+            "SPYDER_EVENT_CLOCK_SOURCES": "autonomous_readiness.event_clock.sources",
+            "SPYDER_EVENT_CLOCK_HIGH_IMPACT_ONLY": "autonomous_readiness.event_clock.high_impact_only",
+            "SPYDER_EVENT_CLOCK_BLACKOUT_PRE_MINUTES": "autonomous_readiness.event_clock.blackout_pre_minutes",
+            "SPYDER_EVENT_CLOCK_BLACKOUT_POST_MINUTES": "autonomous_readiness.event_clock.blackout_post_minutes",
+            "SPYDER_EVENT_CLOCK_MAX_SIZE_MULTIPLIER_DURING_EVENT": "autonomous_readiness.event_clock.max_size_multiplier_during_event",
+            "SPYDER_EVENT_CLOCK_ALLOWLIST_STRATEGIES": "autonomous_readiness.event_clock.allowlist_strategies",
+            "SPYDER_ESCALATION_WARN_ON_SINGLE_BREACH": "autonomous_readiness.escalation.warn_on_single_breach",
+            "SPYDER_ESCALATION_DEGRADE_ON_TWO_BREACHES": "autonomous_readiness.escalation.degrade_on_two_breaches",
+            "SPYDER_ESCALATION_HALT_ON_THREE_BREACHES": "autonomous_readiness.escalation.halt_on_three_breaches",
+            "SPYDER_ESCALATION_SUSTAINED_BREACH_MINUTES": "autonomous_readiness.escalation.sustained_breach_minutes",
+        }
+
+        for env_key, path in env_key_to_path.items():
+            if env_key in os.environ:
+                self._set_nested_value(effective, path, self._parse_env_value(os.environ[env_key]))
+
+        return effective
+
+    def _get_nested_path_value(self, config: dict[str, Any], path: str, default: Any = None) -> Any:
+        """Get a nested configuration value from an arbitrary config dictionary."""
+        current: Any = config
+        for key in path.split("."):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return default
+        return current
 
     # ==========================================================================
     # HOT RELOAD
@@ -1263,7 +1575,12 @@ class ConfigManager:
 
     def __del__(self):
         """Cleanup on deletion"""
-        self._stop_file_observer()
+        try:
+            if hasattr(self, "file_observer"):
+                self._stop_file_observer()
+        except Exception:
+            # Destructors should never raise during interpreter shutdown or tests.
+            pass
 
 
 # ==============================================================================

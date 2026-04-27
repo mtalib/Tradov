@@ -69,6 +69,22 @@ HTTP_TEST_URLS = [
     "https://httpbin.org/get"
 ]
 
+# Interactive Brokers test endpoints (backward-compatible public constant).
+# Kept here because multiple legacy test suites and utilities import this name.
+# Ports follow common local-paper defaults:
+#   - TWS paper: 7497
+#   - IB Gateway paper: 4002
+IB_ENDPOINTS = {
+    "TWS": {
+        "host": "127.0.0.1",
+        "port": 7497,
+    },
+    "GATEWAY": {
+        "host": "127.0.0.1",
+        "port": 4002,
+    },
+}
+
 # ==============================================================================
 # ENUMS
 # ==============================================================================

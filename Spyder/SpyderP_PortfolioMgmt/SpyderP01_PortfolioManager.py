@@ -743,6 +743,11 @@ class PortfolioManager:
     # PUBLIC METHODS - REPORTING
     # ==========================================================================
 
+    @property
+    def state(self) -> "PortfolioState":
+        """Alias for portfolio_state for backward compatibility."""
+        return self.portfolio_state
+
     def get_portfolio_summary(self) -> dict[str, Any]:
         """
         Get comprehensive portfolio summary.
@@ -821,22 +826,59 @@ class PortfolioManager:
     # ==========================================================================
 
     def _initialize_portfolio(self) -> None:
-        """Initialize portfolio components"""
+        """Initialize portfolio components.
+
+        State stays INITIALIZING until ``start_management()`` flips it to ACTIVE
+        once the management/rebalancing threads are actually running.  Avoids
+        false-positive ACTIVE state before the portfolio is wired to the
+        broker.
+        """
         try:
-            # Initialize performance tracking
             self.portfolio_metrics_history.clear()
-
-            # Initialize market analysis components
-            if hasattr(self, 'vix_analyzer'):
-                self.vix_analyzer.update_vix_data()
-
-            # Set initial state
-            self.portfolio_state = PortfolioState.ACTIVE
-
+            self._refresh_vix_snapshot()
             self.logger.info("Portfolio components initialized")
 
         except Exception as e:
             self.error_handler.handle_error(e, "_initialize_portfolio")
+
+    def _refresh_vix_snapshot(self) -> float | None:
+        """Refresh VIX data and return the current spot level when available."""
+        try:
+            analyzer = getattr(self, 'vix_analyzer', None)
+            if analyzer is None:
+                return None
+
+            snapshot = None
+            if hasattr(analyzer, 'update_vix_data'):
+                snapshot = analyzer.update_vix_data()
+            else:
+                # Compatibility path for analyzers exposing only granular update methods.
+                if hasattr(analyzer, '_update_realtime_data'):
+                    analyzer._update_realtime_data()
+                if hasattr(analyzer, '_update_volatility_metrics'):
+                    analyzer._update_volatility_metrics()
+                if hasattr(analyzer, 'get_current_metrics'):
+                    snapshot = analyzer.get_current_metrics()
+
+            if snapshot is None:
+                return None
+
+            for attr_name in ('vix_spot', 'vix', 'value'):
+                value = getattr(snapshot, attr_name, None)
+                if isinstance(value, int | float):
+                    return float(value)
+
+            if isinstance(snapshot, dict):
+                for key in ('vix_spot', 'vix', 'value'):
+                    value = snapshot.get(key)
+                    if isinstance(value, int | float):
+                        return float(value)
+
+            return None
+
+        except Exception as e:
+            self.error_handler.handle_error(e, "_refresh_vix_snapshot")
+            return None
 
     def _portfolio_management_loop(self) -> None:
         """Main portfolio management loop"""
@@ -1733,10 +1775,9 @@ class PortfolioManager:
                 self._consider_delta_hedge(metrics.portfolio_delta)
 
             # Volatility hedging
-            if hasattr(self, 'vix_analyzer'):
-                vix_data = self.vix_analyzer.update_vix_data()
-                if vix_data and vix_data.vix_spot > 25:  # High VIX
-                    self._consider_volatility_hedge()
+            vix_spot = self._refresh_vix_snapshot()
+            if vix_spot is not None and vix_spot > 25:  # High VIX
+                self._consider_volatility_hedge()
 
         except Exception as e:
             self.error_handler.handle_error(e, "_update_hedge_positions")
@@ -1997,6 +2038,10 @@ def get_global_portfolio_manager() -> PortfolioManager | None:
     """Get global portfolio manager instance"""
     with _global_portfolio_manager_lock:
         return _global_portfolio_manager
+
+def get_portfolio_manager() -> PortfolioManager | None:
+    """Backward-compatible accessor for the global portfolio manager."""
+    return get_global_portfolio_manager()
 
 def set_global_portfolio_manager(portfolio_manager: PortfolioManager) -> None:
     """Set global portfolio manager instance"""

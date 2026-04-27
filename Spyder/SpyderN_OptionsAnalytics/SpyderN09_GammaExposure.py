@@ -46,6 +46,26 @@ from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGree
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
+
+class _NullIBClient:
+    """Minimal IB-like stub for OptionChainManager compatibility."""
+
+    def __init__(self) -> None:
+        # OptionChainManager assigns callback attributes onto ib.*
+        self.ib = type("_IBStub", (), {})()
+
+    def is_connected(self) -> bool:
+        return False
+
+
+def _build_option_chain_manager(event_manager: Any) -> OptionChainManager:
+    """Construct OptionChainManager across legacy and current signatures."""
+    try:
+        return OptionChainManager()
+    except TypeError:
+        # Newer C03 signature requires (ib_client, event_manager).
+        return OptionChainManager(_NullIBClient(), event_manager)
+
 SPOT_RANGE_PERCENTAGE = 0.20  # Calculate GEX for +/- 20% of spot
 SPOT_INCREMENTS = 0.50  # $0.50 increments for GEX profile
 MIN_OPEN_INTEREST = 100  # Minimum OI to include in calculations
@@ -218,11 +238,11 @@ class GammaExposureCalculator:
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        self.event_manager = get_event_manager()
 
         # Data sources
         self.opra_handler = opra_handler or OPRAGreeksHandler()
-        self.option_chain_mgr = option_chain_mgr or OptionChainManager()
-        self.event_manager = get_event_manager()
+        self.option_chain_mgr = option_chain_mgr or _build_option_chain_manager(self.event_manager)
 
         # Current state
         self.current_profile: GEXProfile | None = None
@@ -446,6 +466,67 @@ class GammaExposureCalculator:
                 })
 
         return sorted(levels, key=lambda x: abs(x['gamma']), reverse=True)
+
+    def get_dealer_walls_snapshot(self) -> dict:
+        """
+        Return a lightweight dealer-wall snapshot for S07 publication.
+
+        Attempts to use the cached GEX profile when available; falls back to
+        calling calculate_gex_profile() once, or to empty defaults on failure.
+
+        Returns:
+            Dict with keys: zero_gamma_level, spot_to_zero_gamma_pct,
+            call_wall_levels, put_wall_levels, wall_confidence, net_gex,
+            regime, snapshot_ts.
+        """
+        ts = datetime.now().isoformat()
+
+        if self.current_profile is None:
+            try:
+                self.calculate_gex_profile()
+            except Exception:
+                pass
+
+        if self.current_profile is None:
+            return {
+                "zero_gamma_level": float("nan"),
+                "spot_to_zero_gamma_pct": float("nan"),
+                "call_wall_levels": [],
+                "put_wall_levels": [],
+                "wall_confidence": 0.0,
+                "net_gex": float("nan"),
+                "regime": "unknown",
+                "snapshot_ts": ts,
+            }
+
+        profile = self.current_profile
+
+        # Distance from spot to zero-gamma as percentage of spot
+        zg = profile.zero_gamma_level
+        if zg is not None and profile.spot_price > 0:
+            spot_to_zg_pct = (profile.spot_price - zg) / profile.spot_price * 100.0
+        else:
+            spot_to_zg_pct = float("nan")
+
+        # Separate call walls (resistance = positive gamma) from put walls (support)
+        major = self.get_major_gamma_levels(threshold_pct=0.05)
+        call_walls = [float(lvl["price"]) for lvl in major if lvl["type"] == "resistance"][:3]
+        put_walls  = [float(lvl["price"]) for lvl in major if lvl["type"] == "support"][:3]
+
+        # Confidence: 1.0 when at least 4 walls identified
+        n_walls = len(call_walls) + len(put_walls)
+        wall_confidence = min(1.0, n_walls / 4.0)
+
+        return {
+            "zero_gamma_level": float(zg) if zg is not None else float("nan"),
+            "spot_to_zero_gamma_pct": float(spot_to_zg_pct),
+            "call_wall_levels": call_walls,
+            "put_wall_levels": put_walls,
+            "wall_confidence": float(wall_confidence),
+            "net_gex": float(profile.current_gex),
+            "regime": profile.regime.value,
+            "snapshot_ts": ts,
+        }
 
     def analyze_dealer_positioning(self) -> DealerPositioning:
         """

@@ -35,6 +35,8 @@ Module Description:
 # ==============================================================================
 import os
 import random
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -50,9 +52,19 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
     TRADIER_CONNECT_TIME,
     LogThrottle,
-    is_dashboard_session as is_market_hours,
+    is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
+
+
+def is_market_hours(now_et: datetime | None = None) -> bool:
+    """Return True only when ET time is in session and weekday is Mon-Fri."""
+    eastern = pytz.timezone("US/Eastern")
+    current_et = now_et or datetime.now(eastern)
+    if current_et.weekday() >= 5:
+        return False
+    return bool(_is_dashboard_session(current_et))
+
 
 try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
@@ -85,17 +97,91 @@ HEARTBEAT_INTERVAL = 30000        # 30 seconds in milliseconds — check frequen
 HEARTBEAT_WARNING_TIME = 20000    # 20 seconds before next check (blue heart)
 HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 
-REALTIME_QUOTE_MAX_AGE_SECONDS = 15.0   # Must exceed the 10-second fast-fetch interval
+REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cycles + Tradier timeout
 REALTIME_SENTINEL_SYMBOLS = ("SPY", "SPX", "QQQ")
+
+# Options-chain fetch deduplication.
+# The SPY chain is expensive (~200-400ms, Tradier rate-limited).  Multiple
+# callers (heartbeat trigger + fast-fetch overlap, S07 options analytics) can
+# request the chain within the same polling window.  We guard with:
+#   _CHAIN_LOCK  — only one thread fetches at a time; others wait and read cache.
+#   _CHAIN_CACHE — stores (contracts, put_vol, call_vol, expiry) with a TTL.
+#   _CHAIN_TTL   — 30 s: safe margin between the ~60 s slow-fetch cycle.
+_CHAIN_LOCK: threading.Lock = threading.Lock()
+_CHAIN_TTL: float = 30.0
+_CHAIN_CACHE: dict = {}  # keys: "contracts", "put_vol", "call_vol", "expiry", "ts"
+
+
+def _get_cached_chain(
+    client: "TradierClient",
+) -> "tuple[list, float, float, str] | None":
+    """Return (contracts, put_vol, call_vol, expiry) from cache or fresh fetch.
+
+    Thread-safe: at most one thread fetches at a time; others block and then
+    read the result that was written by the fetching thread.
+
+    Returns:
+        Tuple of (contracts, put_vol, call_vol, expiry_date_str), or None if
+        the fetch fails or no valid expiry is found.
+    """
+    global _CHAIN_CACHE
+
+    with _CHAIN_LOCK:
+        # Serve from cache when fresh
+        if _CHAIN_CACHE and (time.monotonic() - _CHAIN_CACHE.get("ts", 0.0)) < _CHAIN_TTL:
+            return (
+                _CHAIN_CACHE["contracts"],
+                _CHAIN_CACHE["put_vol"],
+                _CHAIN_CACHE["call_vol"],
+                _CHAIN_CACHE["expiry"],
+            )
+
+        # Cache is stale — fetch fresh chain
+        try:
+            from datetime import date as _date2  # noqa: PLC0415
+            exps_raw = client.get_option_expirations("SPY")
+            exp_dates = exps_raw.get("expirations", {}).get("date", [])
+            if isinstance(exp_dates, str):
+                exp_dates = [exp_dates]
+            target_exp = next(
+                (d for d in exp_dates if d >= _date2.today().isoformat()),
+                exp_dates[0] if exp_dates else None,
+            )
+            if not target_exp:
+                return None
+            chain_resp = client.get_option_chain("SPY", target_exp)
+            contracts = chain_resp.get("options", {}).get("option", [])
+            if isinstance(contracts, dict):
+                contracts = [contracts]
+            put_vol = sum(
+                float(c.get("volume") or 0)
+                for c in contracts if c.get("option_type") == "put"
+            )
+            call_vol = sum(
+                float(c.get("volume") or 0)
+                for c in contracts if c.get("option_type") == "call"
+            )
+            _CHAIN_CACHE = {
+                "contracts": contracts,
+                "put_vol": put_vol,
+                "call_vol": call_vol,
+                "expiry": target_exp,
+                "ts": time.monotonic(),
+            }
+            return contracts, put_vol, call_vol, target_exp
+        except Exception:
+            return None
 
 # Single canonical remap: Tradier symbol → dashboard widget key.
 # §1c: Consolidated from two inline dicts that previously lived independently
 # inside _fetch_live_data_from_tradier and _fetch_quotes_fast.
 _SYMBOL_REMAP: dict[str, str] = {
-    "VIX9D": "VXV",   # VIX9D is the closest available proxy for VXV (3-month vol)
     "UUP":   "DXY",   # Invesco USD ETF (~27) proxies DXY (~104) for display
     # NDX, RUT are already the correct widget key names — no remap needed.
     # $DJI confirmed ~15 min delayed on Tradier; DIA*100 used for display instead.
+    # NOTE: VIX9D is now a first-class dashboard widget; it stores as "VIX9D" directly.
+    # VXV (3-month CBOE vol) is fetched directly from Tradier; falls back to "---" if
+    # unavailable on the current data subscription.
 }
 
 
@@ -133,7 +219,20 @@ def _freshest_quote_timestamp_ms(quote: dict) -> int | None:
 
 
 def _freshest_live_data_timestamp(live_data: dict) -> datetime | None:
-    """Return the freshest quote timestamp from sentinel symbols or any live symbol."""
+    """Return the freshest timestamp from live data.
+
+    Prefers the wall-clock fetch timestamp written by the worker on each
+    successful Tradier call (``_fetch_time_ms``).  This decouples the
+    REAL-TIME badge from Tradier's quote timestamps, which can legitimately
+    lag behind in quiet markets even with a freshly fetched response.
+    Falls back to sentinel-symbol quote timestamps for backward compatibility
+    with data files that pre-date the ``_fetch_time_ms`` field.
+    """
+    # Wall-clock time of last successful Tradier fetch — most reliable indicator.
+    fetch_time = _datetime_from_epoch_ms(live_data.get("_fetch_time_ms"))
+    if fetch_time is not None:
+        return fetch_time
+
     for symbol in REALTIME_SENTINEL_SYMBOLS:
         quote = live_data.get(symbol)
         if isinstance(quote, dict):
@@ -295,9 +394,11 @@ class ThreadSafeMarketDataWorker(QObject):
                 if _circuit_breakers_available and _tradier_breaker is not None:
                     if _tradier_breaker.reset_if_open():
                         logger.info("🔄 Tradier circuit breaker auto-reset (API confirmed healthy)")
-                # Refresh Tradier quotes every heartbeat (30 s) while real data is active
-                if getattr(self, "real_data_active", False) and self.market_worker:
-                    self.market_worker.fetch_requested.emit()
+                # Refresh Tradier quotes every heartbeat (30 s) during market hours.
+                # This keeps live_data.json fresh (→ EOD label transitions to REAL-TIME)
+                # and rewrites spy_5min_chart.json (→ candlestick chart updates).
+                if _mkt_open:
+                    self.fetch_requested.emit()
             else:
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
                 if previous_status:
@@ -324,6 +425,57 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_status_changed.emit("warning")  # Blue heart
         if self.heartbeat_warning_timer:
             self.heartbeat_warning_timer.stop()
+
+    def _fetch_balance_only(self):
+        """Fetch account balance from Tradier without touching quotes or market-hours guards.
+
+        Called at startup (both inside and outside trading window) so the account
+        section (SETTLED CASH, BUYING POWER) is populated as soon as credentials
+        are available, regardless of whether the market is open.
+        """
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+            if not TRADIER_AVAILABLE:
+                return
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
+            if not api_key or not account_id:
+                return
+            env_enum = (
+                TradingEnvironment.LIVE
+                if env_str.lower() == "live"
+                else TradingEnvironment.SANDBOX
+            )
+            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
+
+            # Prefer sandbox-specific creds in paper mode; fall back to main creds.
+            if trading_mode == "paper":
+                paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
+                paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
+                client = TradierClient(
+                    api_key=paper_key,
+                    account_id=paper_acct,
+                    environment=TradingEnvironment.SANDBOX,
+                )
+            else:
+                client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+
+            bal = client.get_account_balances()
+            account_data = bal.get("balances", {})
+            equity = float(account_data.get("total_equity") or 0)
+            cash = float(account_data.get("total_cash") or 0)
+            margin = account_data.get("margin", {})
+            option_bp = float(
+                margin.get("option_buying_power")
+                or account_data.get("buying_power")
+                or cash
+            )
+            # Always emit — even a zero balance is valid data (new account).
+            self.balance_updated.emit(equity, option_bp)
+        except Exception:
+            pass
 
     def _fetch_live_data_from_tradier(self):
         """Fetch live quotes and account balance from Tradier, write to data_file."""
@@ -352,26 +504,27 @@ class ThreadSafeMarketDataWorker(QObject):
             trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
             try:
                 if trading_mode == "paper":
-                    paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "")
-                    paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "")
-                    if paper_key and paper_acct:
-                        paper_client = TradierClient(
-                            api_key=paper_key,
-                            account_id=paper_acct,
-                            environment=TradingEnvironment.SANDBOX,
-                        )
-                        bal = paper_client.get_account_balances()
-                        account_data = bal.get("balances", {})
-                        equity = float(account_data.get("total_equity") or 0)
-                        cash = float(account_data.get("total_cash") or 0)
-                        margin = account_data.get("margin", {})
-                        option_bp = float(
-                            margin.get("option_buying_power")
-                            or account_data.get("buying_power")
-                            or cash
-                        )
-                        if equity or cash:
-                            self.balance_updated.emit(equity, option_bp)
+                    # Prefer sandbox-specific creds; fall back to main creds so the
+                    # balance always loads even when TRADIER_SANDBOX_* vars are absent.
+                    paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
+                    paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
+                    paper_client = TradierClient(
+                        api_key=paper_key,
+                        account_id=paper_acct,
+                        environment=TradingEnvironment.SANDBOX,
+                    )
+                    bal = paper_client.get_account_balances()
+                    account_data = bal.get("balances", {})
+                    equity = float(account_data.get("total_equity") or 0)
+                    cash = float(account_data.get("total_cash") or 0)
+                    margin = account_data.get("margin", {})
+                    option_bp = float(
+                        margin.get("option_buying_power")
+                        or account_data.get("buying_power")
+                        or cash
+                    )
+                    # Always emit — a zero balance is valid for a new/empty account.
+                    self.balance_updated.emit(equity, option_bp)
                 else:
                     # Live trading: fetch from live account
                     bal = client.get_account_balances()
@@ -384,18 +537,18 @@ class ThreadSafeMarketDataWorker(QObject):
                         or account_data.get("buying_power")
                         or cash
                     )
-                    if equity or cash:
-                        self.balance_updated.emit(equity, option_bp)
+                    # Always emit — a zero balance is valid for a new/empty account.
+                    self.balance_updated.emit(equity, option_bp)
             except Exception:
                 pass
 
             # --- Fetch live quotes and write to data_file ---
             symbols = [
-                "SPY", "SPX", "VIX", "VIX9D",           # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)
+                "SPY", "SPX", "VIX", "VIX9D", "VXV",   # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)
                 "VVIX", "UVXY",                           # Volatility ETFs
                 "SKEW",                                   # CBOE SKEW index
                 "DIA", "QQQ", "IWM",                      # Major index ETFs
-                "TLT", "LQD", "GLD",                      # Bonds & credit + correlations
+                "TLT", "HYG", "LQD", "GLD", "USO",         # Bonds & credit + correlations
                 "UUP",                                    # USD Index ETF (DXY proxy; Tradier: no DXY)
                 # NOTE: $DJI confirmed ~15 min delayed on Tradier (April 2026 testing).
                 # DIA ETF * 100 is used instead — real-time, tracks within 0.3%.
@@ -405,6 +558,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 # NDX (NASDAQ 100, ~25,358) is a different, unrelated index.
                 # NOTE: $TICK, $ADD, $TRIN all confirmed unmatched on Tradier LIVE API (April 2026).
                 # NYSE market internals are not available on current Tradier data subscription.
+                "XLK", "XLF",                            # Sector ETFs for 0-DTE abort gates
             ]
             try:
                 raw = client.get_quotes(symbols)
@@ -412,6 +566,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 if isinstance(quotes_raw, dict):
                     quotes_raw = [quotes_raw]
                 live_data = {}
+                _spy_q_slow: dict = {}
                 # Remap Tradier symbols to dashboard widget keys where needed
                 for q in quotes_raw:
                     sym = q.get("symbol", "")
@@ -427,41 +582,57 @@ class ThreadSafeMarketDataWorker(QObject):
                             "change_pct": change_pct,
                             "timestamp_ms": timestamp_ms,
                         }
+                    if sym == "SPY":
+                        _spy_q_slow = q
+                # --- RVOL: relative volume vs expected volume at this session fraction ---
+                try:
+                    _vol = float(_spy_q_slow.get("volume") or 0.0)
+                    _adv = float(_spy_q_slow.get("average_volume") or 0.0)
+                    if _vol > 0 and _adv > 0:
+                        _now = datetime.now()
+                        _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
+                        _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
+                        _session_frac = min(_elapsed_min / 390.0, 1.0)
+                        _rvol = round(_vol / (_adv * _session_frac), 2)
+                        live_data["RVOL"] = {
+                            "last": _rvol,
+                            "change": 0.0,
+                            "change_pct": 0.0,
+                            "timestamp_ms": None,
+                        }
+                except Exception:
+                    pass
                 if live_data:
+                    import json as _json
+                    import time as _time
+                    # Stamp wall-clock fetch time so the REAL-TIME badge uses the
+                    # time we successfully called Tradier, not Tradier's quote
+                    # timestamps (which can lag in quiet markets).
+                    live_data["_fetch_time_ms"] = int(_time.time() * 1000)
                     self.data_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(self.data_file, "w") as f:
-                        import json as _json
                         _json.dump(live_data, f)
+                    # Keep the EOD snapshot current so closing prices are always
+                    # preserved for next-morning startup display.
+                    _snapshot_file = self.data_file.parent / "eod_snapshot.json"
+                    _snapshot_meta = {
+                        "_eod_date": datetime.now().strftime("%Y-%m-%d"),
+                        "_eod_fetched_ts": int(_time.time()),
+                    }
+                    with open(_snapshot_file, "w") as _sf:
+                        _json.dump({**live_data, **_snapshot_meta}, _sf)
             except Exception:
                 pass
 
             # --- Compute put/call ratio (CPC) from SPY options chain ---
             # CBOE does not publish CPC via Tradier; we compute it from SPY chain volume.
             # CPC = total put volume / total call volume for the nearest expiration.
+            # Uses the module-level _get_cached_chain() so concurrent callers share
+            # one API round-trip per _CHAIN_TTL window (30 s).
             try:
-                from datetime import date as _date2
-                exps_raw = client.get_option_expirations("SPY")
-                exp_dates = exps_raw.get("expirations", {}).get("date", [])
-                if isinstance(exp_dates, str):
-                    exp_dates = [exp_dates]
-                # Use next trading day's expiry (skip same-day if already late)
-                target_exp = next(
-                    (d for d in exp_dates if d >= _date2.today().isoformat()),
-                    exp_dates[0] if exp_dates else None,
-                )
-                if target_exp:
-                    chain_resp = client.get_option_chain("SPY", target_exp)
-                    contracts = chain_resp.get("options", {}).get("option", [])
-                    if isinstance(contracts, dict):
-                        contracts = [contracts]
-                    put_vol = sum(
-                        float(c.get("volume") or 0)
-                        for c in contracts if c.get("option_type") == "put"
-                    )
-                    call_vol = sum(
-                        float(c.get("volume") or 0)
-                        for c in contracts if c.get("option_type") == "call"
-                    )
+                chain_result = _get_cached_chain(client)
+                if chain_result is not None:
+                    _contracts, put_vol, call_vol, _target_exp = chain_result
                     if call_vol > 0:
                         cpc = put_vol / call_vol
                         prev_cpc = live_data.get("CPC", {}).get("last", cpc)
@@ -473,7 +644,7 @@ class ThreadSafeMarketDataWorker(QObject):
                         }
                         # PCALL: same ratio — SPY is the primary equity index proxy.
                         live_data["PCALL"] = live_data["CPC"]
-                        # Persist updated live_data with CPC
+                        # Persist updated live_data with CPC (_fetch_time_ms already set above)
                         self.data_file.parent.mkdir(parents=True, exist_ok=True)
                         with open(self.data_file, "w") as f:
                             import json as _json3
@@ -508,6 +679,32 @@ class ThreadSafeMarketDataWorker(QObject):
                 pass  # before 9:30 ET — no bars yet
             except Exception:
                 pass
+
+            # --- Fetch previous trading day's daily OHLC for pivot anchoring ---
+            # Pivots must use yesterday's H/L/C (fixed for the whole session).
+            # We try a 5-day lookback so weekends/holidays are handled correctly.
+            try:
+                from datetime import date as _date2, timedelta as _td
+                _prev_start = (_date2.today() - _td(days=5)).isoformat()
+                _prev_end   = (_date2.today() - _td(days=1)).isoformat()
+                _hist_resp = client.get_historical_quotes(
+                    "SPY", interval="daily", start=_prev_start, end=_prev_end,
+                )
+                _hist_day = _hist_resp.get("history", {}).get("day", None)
+                if isinstance(_hist_day, list) and _hist_day:
+                    _hist_day = _hist_day[-1]   # most recent completed session
+                if isinstance(_hist_day, dict) and _hist_day.get("high"):
+                    _prev_day_file = self.data_file.parent / "spy_prev_day.json"
+                    with open(_prev_day_file, "w") as _pf:
+                        import json as _json4
+                        _json4.dump({
+                            "date":  _hist_day.get("date", ""),
+                            "high":  float(_hist_day["high"]),
+                            "low":   float(_hist_day["low"]),
+                            "close": float(_hist_day["close"]),
+                        }, _pf)
+            except Exception:
+                pass  # non-critical — pivot fallback is today's intraday range
         except Exception:
             pass
 
@@ -535,13 +732,14 @@ class ThreadSafeMarketDataWorker(QObject):
             )
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
             symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VVIX", "UVXY", "SKEW",
-                "DIA", "QQQ", "IWM", "TLT", "LQD", "GLD", "UUP",
+                "SPY", "SPX", "VIX", "VIX9D", "VXV", "VVIX", "UVXY", "SKEW",
+                "DIA", "QQQ", "IWM", "TLT", "HYG", "LQD", "GLD", "UUP",
                 # $DJI excluded: ~15 min delayed on Tradier; DIA*100 used for display
                 "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
                 # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
                 # $TICK/$ADD/$TRIN: Yahoo Finance removed ^TICK/^ADD/^TRIN (404 as of 2025);
                 # Tradier requires an index data add-on; route via SpyderC27_MassiveClient once enabled
+                "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
             ]
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -558,6 +756,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     pass
 
             updated = False
+            _spy_q_raw: dict = {}
             for q in quotes_raw:
                 sym = q.get("symbol", "")
                 last = float(q.get("last") or q.get("close") or 0.0)
@@ -573,25 +772,42 @@ class ThreadSafeMarketDataWorker(QObject):
                         "timestamp_ms": timestamp_ms,
                     }
                     updated = True
+                if sym == "SPY":
+                    _spy_q_raw = q
+
+            # --- RVOL: relative volume = current session volume / expected volume ---
+            # Expected volume = ADV × fraction of trading session elapsed (390 min total).
+            try:
+                _vol = float(_spy_q_raw.get("volume") or 0.0)
+                _adv = float(_spy_q_raw.get("average_volume") or 0.0)
+                if _vol > 0 and _adv > 0:
+                    _now = datetime.now()
+                    _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
+                    _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
+                    _session_frac = min(_elapsed_min / 390.0, 1.0)
+                    _rvol = round(_vol / (_adv * _session_frac), 2)
+                    existing["RVOL"] = {
+                        "last": _rvol,
+                        "change": 0.0,
+                        "change_pct": 0.0,
+                        "timestamp_ms": None,
+                    }
+                    updated = True
+            except Exception:
+                pass
+
             if updated:
+                import time as _time_fast
+                existing["_fetch_time_ms"] = int(_time_fast.time() * 1000)
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.data_file, "w") as _f:
                     _json.dump(existing, _f)
 
-            # --- Market internals ($TICK, $ADD, $TRIN) ---
-            # These NYSE breadth indicators are unavailable on current data subscriptions:
-            #   • Yahoo Finance removed ^TICK/^ADD/^TRIN (404 Not Found as of 2025)
-            #   • Tradier returns unmatched_symbols (requires index data add-on)
-            #   • Polygon/Massive requires a paid Indices plan (I:TICK/I:ADD/I:TRIN)
-            # SpyderC27_MassiveClient.get_market_internals() is ready to use once
-            # the Polygon Indices subscription is activated.
-            if not getattr(self, "_internals_unavailable_logged", False):
-                logger.warning(
-                    "Market internals ($TICK/$ADD/$TRIN) unavailable: requires Tradier "
-                    "index data add-on or Polygon paid Indices plan. "
-                    "Route via SpyderC27_MassiveClient.get_market_internals() once enabled."
-                )
-                self._internals_unavailable_logged = True
+            # --- Market internals ($TICK, $ADD, $TRIN, $VOLD) ---
+            # Sourced via Playwright/TradingView scraping in SpyderS11_TradingViewInternals.py
+            # (USI:TICK, USI:ADD, USI:TRIN.NY, USI:VOLD).  Values are published through
+            # SpyderS07_CustomMetricsOrchestrator and written to live_data.json;
+            # this worker does not need to fetch them separately.
         except Exception:
             pass
 
@@ -626,8 +842,9 @@ class ThreadSafeMarketDataWorker(QObject):
             )
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
             symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VVIX", "UVXY", "SKEW",
-                "DIA", "QQQ", "IWM", "TLT", "LQD", "GLD", "UUP", "RUT",
+                "SPY", "SPX", "VIX", "VIX9D", "VXV", "VVIX", "UVXY", "SKEW",
+                "DIA", "QQQ", "IWM", "TLT", "HYG", "LQD", "GLD", "USO", "UUP", "RUT",
+                "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
             ]
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -649,10 +866,21 @@ class ThreadSafeMarketDataWorker(QObject):
                         "timestamp_ms": timestamp_ms,
                     }
             if live_data:
+                import time as _time
+                _snapshot_meta = {
+                    "_eod_date": datetime.now().strftime("%Y-%m-%d"),
+                    "_eod_fetched_ts": int(_time.time()),
+                }
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.data_file, "w") as _f:
                     _json.dump(live_data, _f)
-                logger.info("📊 EOD snapshot: %d symbols fetched from Tradier", len(live_data))
+                # Write a dedicated EOD snapshot so the dashboard can display
+                # yesterday's closing prices immediately at next startup,
+                # before the Tradier API call completes.
+                _snapshot_file = self.data_file.parent / "eod_snapshot.json"
+                with open(_snapshot_file, "w") as _sf:
+                    _json.dump({**live_data, **_snapshot_meta}, _sf)
+                logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])
                 self.market_data_status_changed.emit("EOD")
                 self.eod_snapshot_fetched.emit(True)
             else:
@@ -684,6 +912,7 @@ class ThreadSafeMarketDataWorker(QObject):
             "QQQ": 485.92,
             "IWM": 225.18,
             "TLT": 92.45,
+            "HYG": 78.50,
             "LQD": 105.32,
             "DXY": 103.25,
             "GLD": 195.67,
@@ -692,6 +921,9 @@ class ThreadSafeMarketDataWorker(QObject):
             "OGL": 585.50,
             "DIX": 42.5,
             "SWAN": 1.85,
+            "IVR": 45.0,
+            "ATM_IV": 15.5,
+            "VRP": 2.3,
         }
 
         with QMutexLocker(self.data_mutex):
@@ -756,6 +988,9 @@ class ThreadSafeMarketDataWorker(QObject):
             # rather than hardcoded simulation values.  Run after a short delay so
             # all Qt signal connections are established before the emit fires.
             QTimer.singleShot(500, self._fetch_eod_snapshot)
+            # Also fetch account balance — not gated by market hours so the
+            # account section populates even when launched before/after market.
+            QTimer.singleShot(2000, self._fetch_balance_only)
             return
 
         try:
@@ -865,9 +1100,13 @@ __all__ = [
     "REALTIME_QUOTE_MAX_AGE_SECONDS",
     "REALTIME_SENTINEL_SYMBOLS",
     "ThreadSafeMarketDataWorker",
+    "_CHAIN_CACHE",
+    "_CHAIN_LOCK",
+    "_CHAIN_TTL",
     "_coerce_epoch_ms",
     "_datetime_from_epoch_ms",
     "_freshest_live_data_timestamp",
     "_freshest_quote_timestamp_ms",
+    "_get_cached_chain",
     "check_api_connection",
 ]

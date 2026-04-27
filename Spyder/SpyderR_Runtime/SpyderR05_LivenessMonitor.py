@@ -110,6 +110,7 @@ class LivenessMonitor:
         self._deadman_fired = False
         self._last_event_ts: float = time.time()
         self._subscribed = False
+        self._paper_deadman_logged = False
 
     def start(self) -> bool:
         if self._thread is not None and self._thread.is_alive():
@@ -229,12 +230,42 @@ class LivenessMonitor:
             hhmm = now.hour * 60 + now.minute
             return 9 * 60 + 30 <= hhmm <= 16 * 60
 
+    def _is_paper_mode(self) -> bool:
+        """Best-effort paper-mode detection used for deadman gating."""
+        try:
+            engine = self._engine
+            if engine is None:
+                return False
+
+            config = getattr(engine, "config", None)
+            account_id = str(getattr(config, "account_id", "") or "").upper()
+            if account_id.startswith("PAPER"):
+                return True
+
+            broker = getattr(engine, "broker", None)
+            broker_name = type(broker).__name__.lower() if broker is not None else ""
+            if "paper" in broker_name:
+                return True
+
+            return False
+        except Exception:
+            return False
+
     def _maybe_fire_deadman(self) -> None:
         if self._deadman_fired or self._em is None:
             return
+        lag = time.time() - self._last_event_ts
+        if self._is_paper_mode():
+            if (lag > self._deadman_seconds) and (not self._paper_deadman_logged):
+                self.logger.debug(
+                    "DEADMAN advisory (paper mode): no events for %.1fs (threshold=%.1fs); kill-switch emission suppressed",
+                    lag,
+                    self._deadman_seconds,
+                )
+                self._paper_deadman_logged = True
+            return
         if not self._is_market_hours():
             return
-        lag = time.time() - self._last_event_ts
         if lag <= self._deadman_seconds:
             return
         self.logger.error(

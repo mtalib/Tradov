@@ -157,7 +157,7 @@ class SpyderToPlotlyConverter:
     def create_volume_update(data_point: MarketDataPoint) -> PlotlyUpdatePacket:
         """Create volume chart update packet."""
         # Color based on price movement
-        color = "#00ff41" if data_point.close >= data_point.open else "#ff1744"
+        color = "#00ff41" if data_point.close >= data_point.open else "#FF073A"
 
         return PlotlyUpdatePacket(
             action="extend",

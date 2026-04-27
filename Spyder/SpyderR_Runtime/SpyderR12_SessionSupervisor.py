@@ -48,6 +48,7 @@ import signal
 import threading
 import time
 import uuid
+import asyncio
 from typing import Any, List, Literal, Optional
 
 # ==============================================================================
@@ -155,7 +156,8 @@ class SessionSupervisor:
             return self._abort("DataFeed")
 
         # 3. DataFreshnessMonitor ── writes DATA_STALE / DATA_FRESH (fixes H-05)
-        self._start_freshness_monitor()  # non-fatal
+        if not self._start_freshness_monitor():
+            return self._abort("DataFreshnessMonitor")
 
         # 4. FillReconciler ── background fill poller (needs broker, built below)
         # Broker must exist first.
@@ -170,15 +172,17 @@ class SessionSupervisor:
         # 6.5 PositionTracker — must exist before LiveEngine so fills are recorded
         self._start_position_tracker()  # non-fatal
 
-        # 7. RiskManager ── singleton, just ensure it exists
-        self._start_risk_manager()  # non-fatal
+        # 7. RiskManager ── mandatory fail-closed startup
+        if not self._start_risk_manager():
+            return self._abort("RiskManager")
 
         # 8. LiveEngine
         if not self._start_live_engine():
             return self._abort("LiveEngine")
 
         # 9. StrategyOrchestrator
-        self._start_orchestrator()  # non-fatal
+        if not self._start_orchestrator():
+            return self._abort("StrategyOrchestrator")
 
         # 10. ExitMonitor — must come after orchestrator so strategy_map is populated
         self._start_exit_monitor()  # non-fatal
@@ -245,6 +249,17 @@ class SessionSupervisor:
         self.logger.info("SHUTDOWN_PHASE_4_PROCESS_END")
 
         self.logger.info("SessionSupervisor stopped.")
+        try:
+            from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                reset_global_portfolio_manager,
+            )
+            reset_global_portfolio_manager()
+        except Exception:
+            pass
+        # C3 (v18): clear the singleton so get_session_supervisor() returns None
+        # once this instance is stopped.  Prevents stale references from
+        # accumulating in long-running processes that start multiple sessions.
+        set_session_supervisor(None)
 
     def block_until_signal(self) -> None:
         """
@@ -290,8 +305,27 @@ class SessionSupervisor:
 
     def _start_data_feed(self) -> bool:
         try:
+            provider_name = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower().strip()
+            disable_massive = os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower() in {
+                "1", "true", "yes", "on"
+            }
+
+            # Massive websocket is optional; skip C01 startup unless explicitly enabled.
+            if provider_name != "massive" or disable_massive:
+                self.feed = None
+                self.logger.info(
+                    "⏭️ DataFeed startup skipped (provider=%s, SPYDER_DISABLE_MASSIVE=%s)",
+                    provider_name,
+                    disable_massive,
+                )
+                return True
+
             from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import create_data_feed
-            self.feed = create_data_feed(symbols=self.symbols, event_manager=self.em)
+            self.feed = create_data_feed(
+                symbols=self.symbols,
+                event_manager=self.em,
+                provider="massive",
+            )
             if not self.feed.start():
                 self.logger.error("❌ DataFeed.start() returned False")
                 return False
@@ -302,7 +336,7 @@ class SessionSupervisor:
             self.logger.error("❌ DataFeed failed: %s", exc)
             return False
 
-    def _start_freshness_monitor(self) -> None:
+    def _start_freshness_monitor(self) -> bool:
         try:
             from Spyder.SpyderE_Risk.SpyderE24_DataFreshnessMonitor import create_freshness_monitor
             self.freshness_monitor = create_freshness_monitor(
@@ -311,8 +345,10 @@ class SessionSupervisor:
             self.freshness_monitor.start()
             self._components.append(self.freshness_monitor)
             self.logger.info("✅ DataFreshnessMonitor started")
+            return True
         except Exception as exc:
-            self.logger.warning("⚠️ DataFreshnessMonitor non-fatal: %s", exc)
+            self.logger.error("❌ DataFreshnessMonitor failed: %s", exc)
+            return False
 
     def _start_broker(self) -> bool:
         if self.mode == "live":
@@ -351,10 +387,8 @@ class SessionSupervisor:
             self.logger.info("✅ PaperBroker started for paper mode")
             return True
         except Exception as exc:
-            self.logger.warning("⚠️ PaperBroker unavailable (%s) — using null broker stub", exc)
-            self.broker = _NullBroker()
-            self.logger.info("✅ NullBroker stub created for paper mode")
-            return True
+            self.logger.error("❌ PaperBroker failed in paper mode: %s", exc)
+            return False
 
     def _start_fill_reconciler(self) -> None:
         try:
@@ -379,19 +413,48 @@ class SessionSupervisor:
         except Exception as exc:
             self.logger.warning("⚠️ PositionTracker non-fatal: %s", exc)
 
-    def _start_risk_manager(self) -> None:
+    def _run_coroutine_sync(self, coro: Any) -> Any:
+        """Run an async coroutine from this synchronous supervisor context."""
+        try:
+            return asyncio.run(coro)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+
+    def _start_risk_manager(self) -> bool:
         try:
             from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-            self.risk = get_risk_manager()
-            self.logger.info("✅ RiskManager ready")
+            self.risk = get_risk_manager(tradier_client=self.broker)
+            started = bool(self._run_coroutine_sync(self.risk.start()))
+            if not started:
+                self.logger.error("❌ RiskManager.start() returned False")
+                return False
+            # R12-B1: register a sync stop shim so the component loop can
+            # signal shutdown and join threads (RiskManager.stop is async).
+            _risk = self.risk
+            class _RiskStopper:
+                def stop(self):
+                    _risk.stop_sync()
+            self._components.append(_RiskStopper())
+            self.logger.info("✅ RiskManager ready and started")
+            return True
         except Exception as exc:
-            self.logger.warning("⚠️ RiskManager non-fatal: %s", exc)
+            self.logger.error("❌ RiskManager failed: %s", exc)
+            return False
 
     def _start_live_engine(self) -> bool:
         try:
             from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import create_live_engine
+            account_id = (
+                os.environ.get("TRADIER_ACCOUNT_ID")
+                if self.mode == "live"
+                else "PAPER-ACCOUNT"
+            )
             config = {
-                "account_id": os.environ.get("TRADIER_ACCOUNT_ID"),
+                "account_id": account_id,
                 "max_daily_trades": int(os.environ.get("MAX_DAILY_TRADES", 100)),
                 "max_daily_loss": float(os.environ.get("MAX_DAILY_LOSS_USD", 10_000)),
                 "require_confirmation": (self.mode == "live"),
@@ -405,7 +468,34 @@ class SessionSupervisor:
             if not self.engine.initialize():
                 self.logger.error("❌ LiveEngine.initialize() returned False")
                 return False
+
+            # H05: inject mode-specific session DB so confirmed fills are
+            # persisted to the correct file with identical live/paper schema.
+            try:
+                from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+                _session_db = (
+                    TradingSessionDB.for_live()
+                    if self.mode == "live"
+                    else TradingSessionDB.for_paper()
+                )
+                self.engine.set_session_db(_session_db)
+                self.logger.info(
+                    "✅ Session DB (H05) attached to LiveEngine (mode=%s)",
+                    self.mode,
+                )
+            except Exception as _h05_err:
+                self.logger.warning("H05 session DB unavailable: %s", _h05_err)
+
             self.engine.start_trading()
+            try:
+                from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                    set_global_portfolio_manager,
+                )
+                _pm = getattr(self.engine, "portfolio_manager", None)
+                if _pm is not None:
+                    set_global_portfolio_manager(_pm)
+            except Exception as _pm_err:
+                self.logger.debug("Could not publish global portfolio manager: %s", _pm_err)
             self._components.append(self.engine)
             self.logger.info("✅ LiveEngine started")
             return True
@@ -413,7 +503,7 @@ class SessionSupervisor:
             self.logger.error("❌ LiveEngine failed: %s", exc)
             return False
 
-    def _start_orchestrator(self) -> None:
+    def _start_orchestrator(self) -> bool:
         try:
             from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import (
                 StrategyOrchestrator,
@@ -421,18 +511,37 @@ class SessionSupervisor:
                 AllocationMethod,
             )
             base_capital = float(os.environ.get("BASE_CAPITAL", 100_000))
+            # B10 (v15): orchestration mode and allocation method driven by env
+            # vars so operators can tune without changing code.
+            _mode_map = {
+                "adaptive": OrchestrationMode.ADAPTIVE,
+                "conservative": OrchestrationMode.CONSERVATIVE,
+                "aggressive": OrchestrationMode.AGGRESSIVE,
+            }
+            _alloc_map = {
+                "risk_parity": AllocationMethod.RISK_PARITY,
+                "equal_weight": AllocationMethod.EQUAL_WEIGHT,
+                "performance_based": AllocationMethod.PERFORMANCE_BASED,
+                "kelly_criterion": AllocationMethod.KELLY_CRITERION,
+            }
+            _mode_key = os.environ.get("ORCHESTRATION_MODE", "adaptive").lower()
+            _alloc_key = os.environ.get("ALLOCATION_METHOD", "risk_parity").lower()
+            orchestration_mode = _mode_map.get(_mode_key, OrchestrationMode.ADAPTIVE)
+            allocation_method = _alloc_map.get(_alloc_key, AllocationMethod.RISK_PARITY)
             self.orchestrator = StrategyOrchestrator(
                 base_capital=base_capital,
-                orchestration_mode=OrchestrationMode.ADAPTIVE,
-                allocation_method=AllocationMethod.RISK_PARITY,
+                orchestration_mode=orchestration_mode,
+                allocation_method=allocation_method,
                 event_manager=self.em,
             )
             self.orchestrator.set_live_engine(self.engine)
             self.orchestrator.start_orchestration()
             self._components.append(self.orchestrator)
             self.logger.info("✅ StrategyOrchestrator started")
+            return True
         except Exception as exc:
-            self.logger.warning("⚠️ StrategyOrchestrator non-fatal: %s", exc)
+            self.logger.error("❌ StrategyOrchestrator failed: %s", exc)
+            return False
 
     def _start_liveness_monitor(self) -> None:
         """Start the LivenessMonitor (v14 O1/O9/A13)."""
@@ -453,9 +562,32 @@ class SessionSupervisor:
     def _start_exit_monitor(self) -> None:
         try:
             from Spyder.SpyderR_Runtime.SpyderR14_ExitMonitor import create_exit_monitor
-            from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import get_portfolio_manager
+            from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                get_global_portfolio_manager,
+            )
 
-            portfolio_manager = get_portfolio_manager()
+            portfolio_manager = get_global_portfolio_manager()
+            if portfolio_manager is None and self.engine is not None:
+                portfolio_manager = getattr(self.engine, "portfolio_manager", None)
+
+            if portfolio_manager is None:
+                try:
+                    from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                        create_portfolio_manager,
+                        set_global_portfolio_manager,
+                    )
+                    portfolio_manager = create_portfolio_manager(
+                        initial_capital=float(os.environ.get("BASE_CAPITAL", 100_000))
+                    )
+                    set_global_portfolio_manager(portfolio_manager)
+                    self.logger.info("ℹ️ ExitMonitor using fallback PortfolioManager instance")
+                except Exception as pm_exc:
+                    self.logger.warning("⚠️ ExitMonitor fallback portfolio manager failed: %s", pm_exc)
+
+            if portfolio_manager is None:
+                self.logger.warning("⚠️ ExitMonitor skipped: portfolio manager unavailable")
+                return
+
             strategy_map = (
                 getattr(self.orchestrator, "active_strategies", {})
                 if self.orchestrator is not None
@@ -796,8 +928,13 @@ def create_session_supervisor(
     Returns:
         A new, not-yet-started ``SessionSupervisor``.
     """
-    return SessionSupervisor(mode=mode, symbols=symbols, dry_run=dry_run,
-                             skip_orphan_sweep=skip_orphan_sweep)
+    supervisor = SessionSupervisor(mode=mode, symbols=symbols, dry_run=dry_run,
+                                   skip_orphan_sweep=skip_orphan_sweep)
+    # C3 (v18): register the instance as the module-level singleton so that
+    # other modules (e.g. D31.add_strategy) can look it up via
+    # get_session_supervisor() without a circular import.
+    set_session_supervisor(supervisor)
+    return supervisor
 
 
 # Module-level reference to the active supervisor instance, set by the caller

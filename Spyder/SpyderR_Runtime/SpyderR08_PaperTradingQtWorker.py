@@ -34,7 +34,7 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Slot
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -43,6 +43,9 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierClient,
     TradingEnvironment,
     build_option_symbol,
+)
+from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import (
+    StrategyLifecycleState,
 )
 
 # Optional pivot mean-reversion signal (S08). When the module is missing we
@@ -103,6 +106,14 @@ class PaperTradingQtWorker(QObject):
     DEFAULT_COMMISSION_PER_CONTRACT = 0.0
     SPREAD_LEG_COUNT = 2  # bull-put spread = 1 short + 1 long = 2 legs
 
+    # Persistent state file: survives dashboard restarts so open positions and
+    # account balance are restored on the next session.  Stored next to the
+    # live market data files so a single `market_data/` directory cleanup wipes
+    # everything consistently.
+    STATE_FILE = (
+        Path.home() / "Projects/Spyder/market_data/paper_trading_state.json"
+    )
+
     # Kelly sizing window: number of recent closed-spread P&Ls retained for
     # win-rate / payoff-ratio estimation. ~30 trades is the smallest window
     # that produces a stable Kelly fraction without lagging regime changes.
@@ -112,6 +123,11 @@ class PaperTradingQtWorker(QObject):
     # Audit log retention — closed-trade rows kept in memory for the Trade
     # Audit dialog. Each row is ~500 bytes so 500 entries ≈ 250 KB.
     CLOSED_TRADES_MAX = 500
+
+    # Armed-candidate TTL: how long (seconds) a blocked setup is held before
+    # being discarded as stale. 120 s = 2 minutes; after that the market
+    # conditions that produced the signal are assumed to have changed.
+    ARMED_CANDIDATE_TTL_SECONDS = 120
 
     def __init__(self, initial_capital: float = 100_000.0):
         super().__init__()
@@ -170,6 +186,19 @@ class PaperTradingQtWorker(QObject):
         # Each row is a self-contained dict — no references into _open_spreads.
         self._closed_trades: list[dict] = []
 
+        # H05 TradingSessionDB — paper database (identical schema to live DB).
+        # Persists trades, positions, and account snapshots so paper history
+        # survives restarts and can be compared against live performance.
+        try:
+            from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+            self._session_db = TradingSessionDB.for_paper()
+        except Exception as _h05_err:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "H05 TradingSessionDB unavailable for paper DB: %s", _h05_err
+            )
+            self._session_db = None
+
         # Decision audit log: monotonic poll counter used as a sequence number
         # in logs/decisions/YYYY-MM-DD.jsonl for EOD gate-by-gate review.
         self._poll_seq: int = 0
@@ -193,6 +222,13 @@ class PaperTradingQtWorker(QObject):
             PivotMeanReversionSignal() if PIVOT_MR_SIGNAL_AVAILABLE else None
         )
         self._last_pivot_signal = None  # PivotMRSignal | None
+
+        # Armed-candidate: a single setup that passed signal + regime gates
+        # but was blocked by IV or Greeks. Persists across poll cycles until
+        # the blocking gate clears (→ ENTERED_BY_AI) or the TTL expires.
+        # Only IV-gate and Greeks-gate blocks produce an armed candidate;
+        # cooldown / cap / dedup blocks do not (they self-resolve next poll).
+        self._armed_candidate: dict | None = None
 
     def set_risk_params(self, params: dict) -> None:
         """Update risk limits from the G09 Risk Levels dialog.
@@ -636,6 +672,148 @@ class PaperTradingQtWorker(QObject):
             self.status_update.emit(f"⚠️ Risk manager error: {exc} — using local checks")
             return True, ""
 
+    # -------------------------------------------------------------------------
+    # Session persistence — save / restore open positions across restarts
+    # -------------------------------------------------------------------------
+
+    def _save_state(self) -> None:
+        """Persist worker state to STATE_FILE so restarts can resume open trades."""
+        try:
+            self.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            state = {
+                "_schema": 1,
+                "_saved_at": time.time(),
+                "_cash": self._cash,
+                "_initial_capital": self._initial_capital,
+                "_total_realized_pnl": self._total_realized_pnl,
+                "_total_commissions": self._total_commissions,
+                "_trades_executed": self._trades_executed,
+                "_winning_trades": self._winning_trades,
+                "_losing_trades": self._losing_trades,
+                "_peak_equity": self._peak_equity,
+                "_max_drawdown": self._max_drawdown,
+                "_spread_seq": self._spread_seq,
+                "_consecutive_losses": self._consecutive_losses,
+                "_cooldown_until_ts": self._cooldown_until_ts,
+                "_spread_pnl_history": list(self._spread_pnl_history),
+                "_open_spreads": list(self._open_spreads),
+                "_closed_trades": list(self._closed_trades),
+            }
+            tmp = self.STATE_FILE.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(state, fh, indent=2, default=str)
+            tmp.replace(self.STATE_FILE)
+
+            # Mirror account snapshot to paper DB (H05) for parity with live DB.
+            if self._session_db is not None:
+                try:
+                    spreads_unrealized = self._spreads_unrealized_pnl()
+                    equity = self._cash + self._position_qty * 0.0 + spreads_unrealized
+                    self._session_db.record_account_snapshot(
+                        cash=float(state["_cash"]),
+                        equity=equity,
+                        buying_power=float(state["_cash"]),
+                        realized_pnl=float(state["_total_realized_pnl"]),
+                        unrealized_pnl=spreads_unrealized,
+                        total_trades=int(state["_trades_executed"]),
+                        winning_trades=int(state["_winning_trades"]),
+                        losing_trades=int(state["_losing_trades"]),
+                        max_drawdown=float(state["_max_drawdown"]),
+                    )
+                except Exception as _snap_err:
+                    self.status_update.emit(f"⚠️ DB snapshot failed: {_snap_err}")
+        except Exception as exc:
+            self.status_update.emit(f"⚠️ State save failed: {exc}")
+
+    def _load_state(self) -> bool:
+        """Restore worker state from STATE_FILE.  Returns True if state was loaded.
+
+        Only loads if the file exists *and* contains open spreads that have not
+        yet expired (DTE > 0) as of today.  Stale files (all spreads past
+        expiry, or saved from a different calendar date with no open spreads)
+        are silently discarded.
+        """
+        if not self.STATE_FILE.exists():
+            return False
+        try:
+            with open(self.STATE_FILE, encoding="utf-8") as fh:
+                state = json.load(fh)
+        except Exception as exc:
+            self.status_update.emit(f"⚠️ Could not read state file: {exc}")
+            return False
+
+        open_spreads: list[dict] = state.get("_open_spreads", [])
+        today = datetime.now(timezone.utc).date().isoformat()
+
+        # Drop spreads that have already expired.
+        live_spreads = [
+            s for s in open_spreads
+            if str(s.get("expiration", "")) >= today
+        ]
+
+        # Determine whether there is any meaningful accounting to restore.
+        has_history = (
+            int(state.get("_trades_executed", 0)) > 0
+            or float(state.get("_total_realized_pnl", 0.0)) != 0.0
+            or len(state.get("_closed_trades", [])) > 0
+        )
+
+        if not live_spreads and not has_history:
+            # Truly empty state — nothing to restore.
+            return False
+
+        if not live_spreads and open_spreads:
+            # All saved spreads are past expiry — keep accounting but clear open positions.
+            self.status_update.emit(
+                "⚠️ Saved spreads are all past expiry — positions cleared, accounting retained"
+            )
+
+        # Restore scalars.
+        self._cash                  = float(state.get("_cash", self._initial_capital))
+        self._initial_capital       = float(state.get("_initial_capital", self._initial_capital))
+        self._total_realized_pnl    = float(state.get("_total_realized_pnl", 0.0))
+        self._total_commissions     = float(state.get("_total_commissions", 0.0))
+        self._trades_executed       = int(state.get("_trades_executed", 0))
+        self._winning_trades        = int(state.get("_winning_trades", 0))
+        self._losing_trades         = int(state.get("_losing_trades", 0))
+        self._peak_equity           = float(state.get("_peak_equity", self._initial_capital))
+        self._max_drawdown          = float(state.get("_max_drawdown", 0.0))
+        self._spread_seq            = int(state.get("_spread_seq", 0))
+        self._consecutive_losses    = int(state.get("_consecutive_losses", 0))
+        self._cooldown_until_ts     = float(state.get("_cooldown_until_ts", 0.0))
+        self._spread_pnl_history    = list(state.get("_spread_pnl_history", []))
+        self._open_spreads          = live_spreads
+        self._closed_trades         = list(state.get("_closed_trades", []))
+
+        saved_at = state.get("_saved_at", 0)
+        saved_ts = (
+            datetime.fromtimestamp(float(saved_at)).strftime("%H:%M:%S")
+            if saved_at else "unknown"
+        )
+        count = len(live_spreads)
+        trades = self._trades_executed
+        pnl    = self._total_realized_pnl
+        if count > 0:
+            spread_ids = ", ".join(f"#{s['id']}" for s in live_spreads)
+            self.status_update.emit(
+                f"♻️ Restored {count} open spread(s) from previous session "
+                f"(saved {saved_ts}): {spread_ids}"
+            )
+        else:
+            self.status_update.emit(
+                f"♻️ Restored paper session (saved {saved_ts}) — "
+                f"{trades} trade(s) | realised P&L ${pnl:+.2f} | cash ${self._cash:,.2f}"
+            )
+        return True
+
+    def _clear_state(self) -> None:
+        """Delete the persisted state file (call when paper trading stops normally)."""
+        try:
+            if self.STATE_FILE.exists():
+                self.STATE_FILE.unlink()
+        except Exception:
+            pass  # Non-critical; silently swallow
+
     def run(self):
         """Main paper trading loop — called when QThread starts."""
         try:
@@ -680,6 +858,26 @@ class PaperTradingQtWorker(QObject):
             self.connection_ready.emit(True)
             mode_label = "SANDBOX" if env == "sandbox" else "LIVE"
             self.status_update.emit(f"✅ Connected to Tradier ({mode_label})")
+
+            # Restore any open positions from the previous session before
+            # printing the "started" banner so the UI immediately shows the
+            # correct capital and equity figures on startup.
+            restored = self._load_state()
+            if restored:
+                # Emit a snapshot immediately so the dashboard can render open
+                # spreads even when market quotes are temporarily unavailable
+                # (e.g., pre-market/off-hours where last=0 on first polls).
+                self._emit_position_update(0.0, 0.0, 0.0)
+                self._emit_metrics()
+                self.status_update.emit("♻️ Emitted startup snapshot from saved paper state")
+            else:
+                # Emit an explicit empty-session snapshot so the dashboard can
+                # replace its startup placeholder before the first successful
+                # quote poll arrives.
+                self._emit_position_update(0.0, 0.0, 0.0)
+                self._emit_metrics()
+                self.status_update.emit("📭 Emitted startup snapshot for empty paper session")
+
             self.status_update.emit(
                 f"Paper trading started — ${self._initial_capital:,.0f} capital | "
                 f"Polling every {self.POLL_INTERVAL}s",
@@ -702,6 +900,11 @@ class PaperTradingQtWorker(QObject):
 
             self._emit_metrics()
             self.status_update.emit("Paper trading stopped")
+            # Always save state on clean shutdown so accounting history
+            # (cash, realized P&L, trade count) survives restarts even when
+            # there are no open spreads.  Only delete the file when the user
+            # explicitly resets the paper session.
+            self._save_state()
             self.stopped.emit()
 
         except Exception as e:
@@ -748,6 +951,11 @@ class PaperTradingQtWorker(QObject):
         # itself stays gated by SPYDER_PIVOT_MR_ENABLED inside the entry path.
         self._emit_pivot_signal_state(last_price)
 
+        # Armed-candidate promotion: re-check a previously parked setup before
+        # running the normal signal logic. If it fires, the open_spreads count
+        # will naturally block new entries via the position cap check.
+        self._poll_armed_candidate(last_price)
+
         # ---- Decision audit record (written at end of every poll) -----------
         self._poll_seq += 1
         _dec: dict = {
@@ -789,10 +997,11 @@ class PaperTradingQtWorker(QObject):
             daily_loss_limit = self._session_start_equity * (daily_loss_pct / 100.0)
             daily_loss_actual = self._session_start_equity - current_equity
 
-            # ---- Decision log: MA + signal + S08 snapshot ---------------
+            # ---- Decision log: MA + RSI + signal + S08 snapshot --------
             _p = self._price_history
             _sma = sum(_p[-self.SHORT_MA_WINDOW:]) / self.SHORT_MA_WINDOW
             _lma = sum(_p[-self.LONG_MA_WINDOW:]) / self.LONG_MA_WINDOW
+            _rsi_val = self._rsi_from_prices(_p)
             _dec.update({
                 "signal": signal,
                 "ma5": round(_sma, 4),
@@ -800,6 +1009,7 @@ class PaperTradingQtWorker(QObject):
                 "ma_gap_pct": round(
                     ((_sma - _lma) / _lma) * 100 if _lma else 0, 4
                 ),
+                "rsi": round(_rsi_val, 2) if _rsi_val is not None else None,
                 "daily_loss_pct": round(
                     (daily_loss_actual / self._session_start_equity) * 100, 4
                 ) if self._session_start_equity else 0.0,
@@ -976,7 +1186,11 @@ class PaperTradingQtWorker(QObject):
         self._emit_metrics()
 
     def _generate_signal(self) -> str | None:
-        """Simple dual moving average crossover on poll-interval prices."""
+        """Dual moving average crossover with RSI confirmation.
+
+        BUY  requires MA crossover AND RSI ≤ 72 (not overbought).
+        SELL requires MA crossover AND RSI ≥ 28 (not oversold).
+        """
         prices = self._price_history
         if len(prices) < self.LONG_MA_WINDOW:
             return None
@@ -988,11 +1202,18 @@ class PaperTradingQtWorker(QObject):
             return None
 
         ratio = (short_ma - long_ma) / long_ma
+        rsi = self._rsi_from_prices(prices)
 
         if ratio > self.MOMENTUM_THRESHOLD:
-            return "BUY"
+            # Suppress BUY when overbought (RSI > 72)
+            if rsi is None or rsi <= 72:
+                return "BUY"
+            return None
         if ratio < -self.MOMENTUM_THRESHOLD:
-            return "SELL"
+            # Suppress SELL when oversold (RSI < 28)
+            if rsi is None or rsi >= 28:
+                return "SELL"
+            return None
         return None
 
     def _get_risk_limit(self, key: str, default: float) -> float:
@@ -1511,6 +1732,8 @@ class PaperTradingQtWorker(QObject):
             "long_strike": long_strike,
             "wing_width": wing_width,
             "credit": credit,
+            "short_entry_mid": short_mid,   # individual leg entry prices for P&L display
+            "long_entry_mid": long_mid,
             "max_loss_per_contract": max_loss_per_contract,
             "leg_greeks": leg_greeks,
         }
@@ -1625,6 +1848,23 @@ class PaperTradingQtWorker(QObject):
         """
         label = "bull-put" if direction == "bullish" else "bear-call"
 
+        # Time-of-day gate: block new entries after 3:45 PM ET (no point
+        # opening a multi-day position in the final 15 min of the session).
+        try:
+            from zoneinfo import ZoneInfo
+            et_now = datetime.now(ZoneInfo("America/New_York"))
+            entry_cutoff = et_now.replace(hour=15, minute=45, second=0, microsecond=0)
+            # Only apply during regular market hours (9:30–16:00 window)
+            market_open = et_now.replace(hour=9, minute=30, second=0, microsecond=0)
+            if market_open <= et_now >= entry_cutoff:
+                self.status_update.emit(
+                    f"⛔ {label} blocked — no new entries after 3:45 PM ET "
+                    f"(current {et_now.strftime('%H:%M')} ET)"
+                )
+                return False
+        except Exception:
+            pass  # ZoneInfo unavailable — skip time gate
+
         # Consecutive-loss cooldown: refuse new entries while active. Exits
         # are not routed through this helper, so they are unaffected.
         if self._cooldown_until_ts and time.time() < self._cooldown_until_ts:
@@ -1650,6 +1890,7 @@ class PaperTradingQtWorker(QObject):
             self.status_update.emit(
                 f"⛔ {label} blocked by IV gate — {iv_reason}"
             )
+            self._arm_candidate(direction, spread, f"IV: {iv_reason}")
             return False
 
         max_open = int(self._get_risk_limit("max_open_positions", 1))
@@ -1677,8 +1918,107 @@ class PaperTradingQtWorker(QObject):
             self.status_update.emit(
                 f"⛔ {label} blocked by Greeks gate — {greeks_reason}"
             )
+            self._arm_candidate(direction, spread, f"Greeks: {greeks_reason}")
             return False
 
+        # All gates passed — any parked armed candidate is superseded.
+        self._armed_candidate = None
+        return self._execute_paper_credit_spread(spread, qty=sized_qty)
+
+    def _arm_candidate(self, direction: str, spread: dict, reason: str) -> None:
+        """Park a gate-blocked spread entry as an ARMED_BY_AI candidate.
+
+        Called by ``_try_open_spread`` when only the IV or Greeks gate blocks
+        an otherwise-valid setup. The candidate is held across poll cycles and
+        re-evaluated by ``_poll_armed_candidate`` each tick.
+
+        If a candidate for a *different* direction already exists it is
+        discarded first (conflicting market opinion — stale signal).
+        If a candidate for the *same* direction exists it is refreshed with
+        the current spread and reset timestamp so the TTL restarts.
+        """
+        existing = self._armed_candidate
+        if existing is not None and existing["direction"] != direction:
+            self.status_update.emit(
+                f"🔄 ARMED {existing['direction']} candidate discarded — "
+                f"new {direction} signal conflicts"
+            )
+
+        is_new = existing is None or existing["direction"] != direction
+        self._armed_candidate = {
+            "direction": direction,
+            "spread": dict(spread),
+            "blocked_reason": reason,
+            "armed_at": time.time(),
+            "lifecycle_state": StrategyLifecycleState.ARMED_BY_AI.value,
+        }
+        if is_new:
+            label = "bull-put" if direction == "bullish" else "bear-call"
+            self.status_update.emit(
+                f"🎯 ARMED BY AI — {label} parked ({reason}), "
+                "re-checking each poll"
+            )
+
+    def _poll_armed_candidate(self, spy_price: float) -> bool:
+        """Re-evaluate the parked ARMED_BY_AI candidate; promote or discard.
+
+        Returns True if the candidate was promoted and a spread opened.
+        Called once per poll cycle, before the normal signal logic, so a
+        clearing gate triggers entry without waiting for the next MA crossover.
+        """
+        if self._armed_candidate is None:
+            return False
+
+        elapsed = time.time() - self._armed_candidate["armed_at"]
+        direction = self._armed_candidate["direction"]
+        spread = self._armed_candidate["spread"]
+        label = "bull-put" if direction == "bullish" else "bear-call"
+
+        if elapsed > self.ARMED_CANDIDATE_TTL_SECONDS:
+            self.status_update.emit(
+                f"⏱ ARMED {label} expired — discarded after "
+                f"{int(elapsed)}s (TTL={self.ARMED_CANDIDATE_TTL_SECONDS}s)"
+            )
+            self._armed_candidate = None
+            return False
+
+        # Re-check the two gates that triggered the arm.
+        iv_ok, iv_reason = self._iv_gate_allows_entry(
+            spread["expiration"], spy_price
+        )
+        if not iv_ok:
+            self.status_update.emit(
+                f"⏳ ARMED {label} waiting — IV gate: {iv_reason} "
+                f"({int(elapsed)}s elapsed)"
+            )
+            return False
+
+        sized_qty = self._size_spread_qty(spread)
+        greeks_ok, greeks_reason = self._greeks_gate_allows_entry(
+            spread, sized_qty
+        )
+        if not greeks_ok:
+            self.status_update.emit(
+                f"⏳ ARMED {label} waiting — Greeks gate: {greeks_reason} "
+                f"({int(elapsed)}s elapsed)"
+            )
+            return False
+
+        # Also guard the position cap — a different path may have filled it.
+        max_open = int(self._get_risk_limit("max_open_positions", 1))
+        if len(self._open_spreads) >= max_open:
+            self.status_update.emit(
+                f"⏳ ARMED {label} waiting — position cap "
+                f"({len(self._open_spreads)}/{max_open})"
+            )
+            return False
+
+        # All gates clear — promote to ENTERED_BY_AI.
+        self.status_update.emit(
+            f"🚀 ARMED → ENTERED — {label} gates cleared after "
+            f"{int(elapsed)}s, opening spread"
+        )
+        self._armed_candidate = None
         return self._execute_paper_credit_spread(spread, qty=sized_qty)
 
     def _try_open_iron_condor(self, spy_price: float) -> bool:
@@ -1767,6 +2107,9 @@ class PaperTradingQtWorker(QObject):
             "opened_at": time.time(),
             "wing_width": spread["wing_width"],
             "max_loss_per_contract": spread["max_loss_per_contract"],
+            # Per-leg entry prices for the Orders & Positions panel COST column.
+            "short_entry_mid": spread.get("short_entry_mid"),
+            "long_entry_mid": spread.get("long_entry_mid"),
             # Phase 3: snapshot per-contract Greeks so _portfolio_greeks() can
             # aggregate without re-fetching the chain every poll.
             "leg_greeks": spread.get("leg_greeks"),
@@ -1777,6 +2120,7 @@ class PaperTradingQtWorker(QObject):
                 "BULL_PUT" if spread["option_type"] == "P" else "BEAR_CALL",
             ),
             "origin": spread.get("origin", "AI"),
+            "lifecycle_state": StrategyLifecycleState.ENTERED_BY_AI.value,
             "entry_atm_iv": self._last_atm_iv,
             "entry_iv_rank": self._last_iv_rank,
             "entry_spy": self._price_history[-1] if self._price_history else None,
@@ -1789,7 +2133,9 @@ class PaperTradingQtWorker(QObject):
         self._open_spreads.append(position)
         self._cash += credit_dollars - open_commission
         self._total_commissions += open_commission
-        self._trades_executed += 1
+        # NOTE: _trades_executed is incremented at CLOSE, not here, so that
+        # win_rate = winning_trades / trades_executed is always meaningful
+        # and total_trades matches the count in the Trade Audit.
 
         commission_note = (
             f" commission=${open_commission:.2f}" if open_commission > 0 else ""
@@ -1804,10 +2150,15 @@ class PaperTradingQtWorker(QObject):
             f"×{qty} credit=${credit_dollars:,.2f} max_loss=${max_loss_dollars:,.0f}"
             f"{commission_note}"
         )
+        self._save_state()
         return True
 
     def _close_paper_credit_spread(
-        self, position: dict, debit_to_close: float, reason: str
+        self,
+        position: dict,
+        debit_to_close: float,
+        reason: str,
+        closer: str = "",
     ) -> None:
         """Close an open spread at *debit_to_close* (per contract, dollars)."""
         qty = position["qty"]
@@ -1826,6 +2177,7 @@ class PaperTradingQtWorker(QObject):
         self._spread_pnl_history.append(realized)
         if len(self._spread_pnl_history) > self.KELLY_HISTORY_MAX:
             self._spread_pnl_history.pop(0)
+        self._trades_executed += 1
         if realized > 0:
             self._winning_trades += 1
             self._consecutive_losses = 0
@@ -1897,6 +2249,15 @@ class PaperTradingQtWorker(QObject):
             "closed_at": closed_at,
             "hold_seconds": hold_seconds,
             "close_reason": reason,
+            "lifecycle_state": (
+                closer
+                if closer
+                else (
+                    StrategyLifecycleState.CLOSED_BY_RISK.value
+                    if "stop-loss" in reason
+                    else StrategyLifecycleState.CLOSED_BY_AI.value
+                )
+            ),
             "entry_atm_iv": position.get("entry_atm_iv"),
             "entry_iv_rank": position.get("entry_iv_rank"),
             "entry_spy": position.get("entry_spy"),
@@ -1904,6 +2265,26 @@ class PaperTradingQtWorker(QObject):
         })
         if len(self._closed_trades) > self.CLOSED_TRADES_MAX:
             self._closed_trades.pop(0)
+
+        # Persist closed spread to paper DB (H05).
+        if self._session_db is not None:
+            try:
+                self._session_db.record_trade(
+                    symbol="SPY",
+                    trade_type="BTC",
+                    side="buy",
+                    quantity=int(qty),
+                    price=float(debit_to_close),
+                    commission=float(close_commission),
+                    realized_pnl=float(realized),
+                    strategy=structure,
+                    expiration=str(position.get("expiration", "")),
+                    strike=float(position.get("short_strike", 0.0)),
+                    option_type=str(position.get("option_type", "P")).lower(),
+                    notes=reason,
+                )
+            except Exception as _db_err:
+                self.status_update.emit(f"⚠️ DB trade record failed: {_db_err}")
 
         commission_note = (
             f" commission=${close_commission:.2f}" if close_commission > 0 else ""
@@ -1914,6 +2295,7 @@ class PaperTradingQtWorker(QObject):
             f"{leg_letter}{position['short_strike']:.0f}/{position['long_strike']:.0f} "
             f"P&L=${realized:+,.2f}{commission_note}"
         )
+        self._save_state()
 
     def _mark_spreads_mtm(self) -> None:
         """MTM all open spreads against live mids; auto-close on exit rules.
@@ -1927,7 +2309,11 @@ class PaperTradingQtWorker(QObject):
              position is underwater with ``DTE <= SPYDER_SPREAD_ROLL_DTE``
              (default 2), close the current spread and attempt to open a new
              same-direction spread at the next listed expiration.
-          4. Force close when DTE <= 1 to avoid expiration risk.
+          4. EOD force-close: any 0-DTE spread still open at or after 3:55 PM
+             ET on its expiry day is closed immediately to avoid pin risk and
+             automatic exercise/assignment at the 4:15 PM options close.
+          5. Force close when DTE <= 1 to avoid expiration risk (calendar guard
+             that catches any position that survived through overnight).
         """
         if not self._open_spreads:
             return
@@ -1967,6 +2353,15 @@ class PaperTradingQtWorker(QObject):
             debit_to_close = max(0.0, short_mid - long_mid)
             # Cache so _spreads_unrealized_pnl() can report without a refetch.
             position["last_debit"] = debit_to_close
+            # Cache individual leg current mids for per-leg P&L in the display.
+            position["last_short_mid"] = short_mid
+            position["last_long_mid"] = long_mid
+            # Transition ENTERED → MANAGED after first successful MTM cycle.
+            if (
+                position.get("lifecycle_state")
+                == StrategyLifecycleState.ENTERED_BY_AI.value
+            ):
+                position["lifecycle_state"] = StrategyLifecycleState.MANAGED_BY_AI.value
             unrealized_per_contract = position["credit"] - debit_to_close
             take_profit_threshold = 0.5 * position["credit"]
             stop_loss_threshold = (
@@ -2014,9 +2409,25 @@ class PaperTradingQtWorker(QObject):
                             f"DTE={dte}"
                         )
             elif dte <= 1:
-                self._close_paper_credit_spread(
-                    position, debit_to_close, reason=f"(DTE={dte} force-close)"
-                )
+                # EOD intraday guard for 0-DTE: force-close by 3:55 PM ET on
+                # expiry day to avoid pin risk and auto exercise at 4:15 PM.
+                # For 1-DTE positions (expiring tomorrow) this remains a
+                # calendar-day guard — they are not affected by the time check.
+                if dte == 0:
+                    from zoneinfo import ZoneInfo
+                    et_now = datetime.now(ZoneInfo("America/New_York"))
+                    eod_cutoff = et_now.replace(hour=15, minute=55, second=0, microsecond=0)
+                    if et_now >= eod_cutoff:
+                        self._close_paper_credit_spread(
+                            position,
+                            debit_to_close,
+                            reason=f"(0-DTE EOD force-close {et_now.strftime('%H:%M')} ET)",
+                        )
+                    # Before 3:55 PM the position is allowed to keep running.
+                else:
+                    self._close_paper_credit_spread(
+                        position, debit_to_close, reason=f"(DTE={dte} force-close)"
+                    )
 
     def _spreads_unrealized_pnl(self) -> float:
         """Best-effort unrealized P&L across all open spreads (last MTM refs)."""
@@ -2106,6 +2517,22 @@ class PaperTradingQtWorker(QObject):
         else:
             self._losing_trades += 1
 
+        # Persist equity sell to paper DB (H05).
+        if self._session_db is not None:
+            try:
+                self._session_db.record_trade(
+                    symbol="SPY",
+                    trade_type="SELL",
+                    side="sell",
+                    quantity=shares,
+                    price=fill_price,
+                    commission=commission,
+                    realized_pnl=pnl,
+                    strategy="EquityMA",
+                )
+            except Exception as _db_err:
+                pass  # Non-critical; do not interrupt execution flow
+
         self.status_update.emit(
             f"📉 SELL {shares} SPY @ ${fill_price:.2f} | "
             f"P&L: ${pnl:+,.2f} | Cash: ${self._cash:,.2f}",
@@ -2159,9 +2586,18 @@ class PaperTradingQtWorker(QObject):
                     "BULL_PUT" if p.get("option_type") == "P" else "BEAR_CALL",
                 ),
                 "origin": p.get("origin", "AI"),
+                "lifecycle_state": p.get(
+                    "lifecycle_state",
+                    StrategyLifecycleState.MANAGED_BY_AI.value,
+                ),
                 "opened_at": float(p.get("opened_at") or 0.0),
                 "option_type": p.get("option_type", "P"),
                 "direction": p.get("direction", "bullish"),
+                # Per-leg entry/current mids for the Orders & Positions COST/P&L columns.
+                "short_entry_mid": p.get("short_entry_mid"),
+                "long_entry_mid": p.get("long_entry_mid"),
+                "last_short_mid": p.get("last_short_mid"),
+                "last_long_mid": p.get("last_long_mid"),
             })
 
         self.position_update.emit({
@@ -2187,7 +2623,58 @@ class PaperTradingQtWorker(QObject):
             # Trade Audit dialog. Capped at CLOSED_TRADES_MAX entries.
             "closed_trades": list(self._closed_trades),
             "closed_trades_count": len(self._closed_trades),
+            # Armed-candidate: a blocked-but-waiting setup shown in the
+            # dashboard as ARMED BY AI until gates clear or TTL expires.
+            "armed_candidate": (
+                {
+                    "direction": self._armed_candidate["direction"],
+                    "structure": (
+                        "BULL_PUT"
+                        if self._armed_candidate["direction"] == "bullish"
+                        else "BEAR_CALL"
+                    ),
+                    "spread": dict(self._armed_candidate["spread"]),
+                    "blocked_reason": self._armed_candidate["blocked_reason"],
+                    "armed_at": self._armed_candidate["armed_at"],
+                    "lifecycle_state": StrategyLifecycleState.ARMED_BY_AI.value,
+                }
+                if self._armed_candidate is not None
+                else None
+            ),
         })
+
+    @Slot(str)
+    def request_close_spread(self, spread_id: str) -> None:
+        """Close an open spread by ID on request from the GUI (manual close).
+
+        Finds the spread with the matching ID and closes it at the current
+        last-mid debit (best estimate of cost-to-close).  Emits a status
+        update so the operator can see the manual close in the log.
+
+        This method is called via Qt's invokeMethod / direct connection from
+        the dashboard; it runs in the worker's thread because the worker lives
+        in its own QThread.
+        """
+        target = next(
+            (s for s in self._open_spreads if str(s.get("id", "")) == str(spread_id)),
+            None,
+        )
+        if target is None:
+            self.status_update.emit(f"⚠️ Manual close: spread {spread_id} not found")
+            return
+        # Estimate debit to close as last_short_mid + last_long_mid (buy back short,
+        # sell back long).  Fall back to credit * 0.5 if marks are unavailable.
+        last_short = target.get("last_short_mid") or 0.0
+        last_long  = target.get("last_long_mid")  or 0.0
+        debit = last_short - last_long if (last_short > 0 and last_long > 0) else (
+            float(target.get("credit", 0.0)) * 0.50
+        )
+        debit = max(0.0, debit)
+        structure = str(target.get("structure") or "SPREAD")
+        self.status_update.emit(
+            f"🖱️ Manual close requested — {structure} id={spread_id} debit=${debit:.2f}"
+        )
+        self._close_paper_credit_spread(target, debit, reason="MANUAL_CLOSE", closer="USER")
 
     def _emit_metrics(self):
         """Emit performance metrics for the paper P&L widget."""
@@ -2208,7 +2695,10 @@ class PaperTradingQtWorker(QObject):
             "max_drawdown": f"{self._max_drawdown:.4f}",
             "win_rate": f"{win_rate:.4f}",
             "total_trades": str(self._trades_executed),
+            "winning_trades": str(self._winning_trades),
+            "losing_trades": str(self._losing_trades),
             "realized_pnl": f"${self._total_realized_pnl:+,.2f}",
+            "initial_capital": f"{self._initial_capital:.2f}",
             "equity": f"${equity:,.2f}",
         })
 

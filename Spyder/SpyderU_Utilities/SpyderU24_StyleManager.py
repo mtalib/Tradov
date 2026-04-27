@@ -74,14 +74,14 @@ class SpyderColors:
 
     # Trading colors
     POSITIVE = "#00ff41"      # Green for profits/buy
-    NEGATIVE = "#ff1744"      # Red for losses/sell
+    NEGATIVE = "#FF073A"      # Electric Crimson — losses/sell
     NEUTRAL = "#ffd700"       # Gold for neutral/warning
     WARNING = "#ff9800"       # Orange for caution
     INFO = "#00ffff"          # Cyan for information
 
     # Status colors
     SUCCESS = "#4caf50"
-    ERROR = "#f44336"
+    ERROR = "#FF073A"
     DISABLED = "#666666"
 
     # Chart colors
@@ -90,7 +90,7 @@ class SpyderColors:
 
     # Special trading colors
     BID_COLOR = "#00ff41"
-    ASK_COLOR = "#ff1744"
+    ASK_COLOR = "#FF073A"
     SPREAD_COLOR = "#ffd700"
 
     # Option chain colors
@@ -303,7 +303,7 @@ class SpyderStyleManager:
         }}
 
         QPushButton#SellButton:hover {{
-            background-color: #e01530;
+            background-color: #CC062E;
         }}
 
         /* Status Indicators */
@@ -582,7 +582,7 @@ class SpyderStyleManager:
                     border-radius: 5px;
                 }}
                 QPushButton#SellButton:hover {{
-                    background-color: #e01530;
+                    background-color: #CC062E;
                 }}
             """)
         else:

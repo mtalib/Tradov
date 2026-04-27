@@ -50,6 +50,24 @@ from Spyder.SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalcu
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+
+class _NullIBClient:
+    """Minimal IB-like stub for OptionChainManager compatibility."""
+
+    def __init__(self) -> None:
+        self.ib = type("_IBStub", (), {})()
+
+    def is_connected(self) -> bool:
+        return False
+
+
+def _build_option_chain_manager(event_manager: Any) -> OptionChainManager:
+    """Construct OptionChainManager across legacy and current signatures."""
+    try:
+        return OptionChainManager()
+    except TypeError:
+        return OptionChainManager(_NullIBClient(), event_manager)
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -208,7 +226,7 @@ class OptionsGreeksFlowAnalyzer:
         self.config = config or {}
 
         # Component integration
-        self.option_chain_mgr = OptionChainManager()
+        self.option_chain_mgr = _build_option_chain_manager(self.event_manager)
         self.greeks_calculator = GreeksCalculator()
         self.gex_calculator = GammaExposureCalculator()
 
@@ -549,6 +567,49 @@ class OptionsGreeksFlowAnalyzer:
             "key_strikes": self._identify_expiry_key_strikes(expiry_options),
             "expected_volatility": self._estimate_expiry_volatility(expiry_gamma, days_to_expiry),
         }
+
+    # ==========================================================================
+    # PUBLIC METHODS - SNAPSHOT FOR S07 PUBLICATION
+    # ==========================================================================
+    def get_vanna_charm_snapshot(self) -> dict:
+        """
+        Return a lightweight vanna/charm flow snapshot for S07 publication.
+
+        Calls get_greeks_flow_profile() and normalises the outputs into a
+        flat dict.  On any failure returns NaN defaults so S07 can fail
+        gracefully without interrupting the rest of the metrics pipeline.
+
+        Returns:
+            Dict with keys: vanna_pressure, charm_pressure,
+            flow_imbalance_score, dealer_position, snapshot_ts.
+        """
+        ts = datetime.now().isoformat()
+        try:
+            profile = self.get_greeks_flow_profile()
+            vanna_flow = profile.vanna_flow
+            charm_flow = profile.charm_flow
+            gamma_flow = profile.gamma_flow
+
+            # Normalise total expected flow to [-1, 1] using LARGE_GAMMA_FLOW
+            raw = profile.total_expected_flow
+            denom = max(abs(raw), float(LARGE_GAMMA_FLOW))
+            flow_imbalance = float(np.clip(raw / denom, -1.0, 1.0))
+
+            return {
+                "vanna_pressure": float(vanna_flow.expected_flow),
+                "charm_pressure": float(charm_flow.overnight_flow),
+                "flow_imbalance_score": flow_imbalance,
+                "dealer_position": gamma_flow.dealer_position.value,
+                "snapshot_ts": ts,
+            }
+        except Exception:
+            return {
+                "vanna_pressure": float("nan"),
+                "charm_pressure": float("nan"),
+                "flow_imbalance_score": float("nan"),
+                "dealer_position": "unknown",
+                "snapshot_ts": ts,
+            }
 
     # ==========================================================================
     # PRIVATE METHODS - GAMMA ANALYSIS

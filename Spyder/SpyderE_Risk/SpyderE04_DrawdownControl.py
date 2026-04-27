@@ -191,7 +191,7 @@ class DrawdownController:
         ...     # Apply risk adjustments
     """
 
-    def __init__(self, initial_equity: float, config: dict[str, Any] | None = None):
+    def __init__(self, initial_equity: float = 100_000.0, config: dict[str, Any] | None = None):
         """
         Initialize drawdown controller.
 

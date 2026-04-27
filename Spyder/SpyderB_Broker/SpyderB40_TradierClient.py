@@ -953,7 +953,7 @@ class TradierClient:
         logger.info("Fetching order %s", order_id)
         return self._make_request("GET", f"/accounts/{self.account_id}/orders/{order_id}")
 
-    def cancel_order(self, order_id: int) -> dict[str, Any]:
+    def cancel_order(self, order_id: int) -> bool:
         """
         Cancel an order.
 
@@ -961,10 +961,19 @@ class TradierClient:
             order_id: Order ID to cancel
 
         Returns:
-            Cancellation response
+            True if the cancellation was accepted by the API, False otherwise.
+
+        Note (C7 v18): BrokerProtocol declares ``cancel_order -> bool``.  The
+        raw Tradier response is a JSON dict; we coerce it to bool here so the
+        return type matches the protocol contract.  Call sites that previously
+        relied on the raw dict should use ``_cancel_order_raw()`` instead.
         """
         logger.info("Canceling order %s", order_id)
-        return self._make_request("DELETE", f"/accounts/{self.account_id}/orders/{order_id}")
+        raw: dict[str, Any] = self._make_request(
+            "DELETE", f"/accounts/{self.account_id}/orders/{order_id}"
+        )
+        # Tradier returns {"order": {"id": <int>, "status": "ok"}} on success.
+        return bool((raw or {}).get("order", {}).get("id"))
 
     def get_orders(self) -> dict[str, Any]:
         """

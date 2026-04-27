@@ -74,12 +74,16 @@ sys.path.insert(0, str(project_root))
 
 # Import pricing engine if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
 
     PRICER_AVAILABLE = True
 except ImportError:
-    PRICER_AVAILABLE = False
-    logging.info("⚠️ OptionsPricer not available - using internal calculations")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        PRICER_AVAILABLE = True
+    except ImportError:
+        PRICER_AVAILABLE = False
+        logging.info("⚠️ OptionsPricer not available - using internal calculations")
 
 # ==============================================================================
 # CONSTANTS

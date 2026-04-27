@@ -761,13 +761,6 @@ Examples:
         help="Suppress broker order placement — log what would be sent instead. "
              "Safe for integration rehearsals without live/paper order submission.",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        dest="dry_run",
-        help="Suppress broker order placement — log what would be sent instead. "
-             "Safe for integration rehearsals without live/paper order submission.",
-    )
 
     args = parser.parse_args()
 

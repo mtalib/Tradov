@@ -66,6 +66,17 @@ try:
 except ImportError:
     logging.info("Warning: SpyderH08_TradeJournal not available")
 
+# H05 — Dual-mode trading session database (live + paper, identical schema)
+try:
+    from .SpyderH05_TradingSessionDB import (
+        TradingSessionDB,
+        LIVE_DB_PATH,
+        PAPER_DB_PATH,
+    )
+    __all__.extend(["TradingSessionDB", "LIVE_DB_PATH", "PAPER_DB_PATH"])
+except ImportError:
+    logging.info("Warning: SpyderH05_TradingSessionDB not available")
+
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================

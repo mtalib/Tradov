@@ -92,8 +92,23 @@ class GreeksCalculator:
     def _load_config(self):
         """Load configuration from ConfigManager."""
         try:
-            # Get config section for Greeks calculation
-            config = self.config_manager.get_config('greeks_calculator', {})
+            # Get config section for Greeks calculation.
+            # ConfigManager.get_config(name, decrypt=True) logs a warning when
+            # the section is absent, so check the in-memory registry first and
+            # quietly fall back to defaults when this optional section is missing.
+            config_registry = getattr(self.config_manager, 'configs', {})
+            config = (
+                config_registry.get('greeks_calculator', {})
+                if isinstance(config_registry, dict)
+                else {}
+            )
+
+            if not isinstance(config, dict):
+                self.logger.warning(
+                    "Invalid greeks_calculator config type (%s); using defaults",
+                    type(config).__name__,
+                )
+                config = {}
 
             # Model parameters
             self.binomial_steps = config.get('binomial_steps', 100)

@@ -26,6 +26,8 @@ from datetime import datetime, time
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
+from datetime import timedelta
+import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -50,7 +52,7 @@ from Spyder.SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
 from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 import logging
 
 # ==============================================================================
@@ -166,12 +168,12 @@ class MACrossoverStrategy(BaseStrategy):
     def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
                  config: dict[str, Any] = None):
         """Initialize MA Crossover strategy"""
+        resolved_config = config or {}
         super().__init__(
             name="MA Crossover Strategy",
-            strategy_type="ma_crossover",
             event_manager=event_manager,
             risk_profile=risk_profile,
-            config=config or {}
+            config=resolved_config
         )
 
         # Initialize components
@@ -190,10 +192,11 @@ class MACrossoverStrategy(BaseStrategy):
         self.crossover_history: list[dict] = []
 
         # Configuration
-        self.fast_period = config.get('fast_period', FAST_EMA_PERIOD)
-        self.slow_period = config.get('slow_period', SLOW_EMA_PERIOD)
-        self.max_positions = config.get('max_positions', MAX_CROSSOVER_POSITIONS)
-        self.use_volume_filter = config.get('use_volume_filter', True)
+        self.fast_period = resolved_config.get('fast_period', FAST_EMA_PERIOD)
+        self.slow_period = resolved_config.get('slow_period', SLOW_EMA_PERIOD)
+        self.max_positions = resolved_config.get('max_positions', MAX_CROSSOVER_POSITIONS)
+        self.use_volume_filter = resolved_config.get('use_volume_filter', True)
+        self.signal_symbol = str(resolved_config.get('symbol', 'SPY'))
 
         # Performance tracking
         self.performance_stats = {
@@ -415,6 +418,59 @@ class MACrossoverStrategy(BaseStrategy):
             self.error_handler.handle_error(e, market_data)
             return []
 
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Apply a minimal validity gate compatible with BaseStrategy."""
+        try:
+            if signal is None:
+                return False
+            if hasattr(signal, "is_valid") and not signal.is_valid():
+                return False
+            if len(self.active_positions) >= self.max_positions:
+                return False
+            return getattr(signal, "confidence", 0.0) > 0.0
+        except Exception as e:
+            self.logger.error("Error validating MA crossover signal: %s", e)
+            return False
+
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Adapt legacy spread sizing to BaseStrategy's abstract contract."""
+        confidence = getattr(signal, "confidence", 0.0)
+        if confidence >= 0.8:
+            return 3
+        if confidence >= 0.6:
+            return 2
+        return 1
+
+    def should_exit_position(
+        self,
+        position: Any,
+        market_data: pd.DataFrame,
+    ) -> tuple[bool, str]:
+        """Provide a generic exit policy for BaseStrategy-managed positions."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
+
     def _is_valid_trading_time(self) -> bool:
         """Check if current time is valid for trading"""
         current_time = datetime.now().time()
@@ -534,6 +590,9 @@ class MACrossoverStrategy(BaseStrategy):
             # Create metadata
             metadata = {
                 'strategy': 'ma_crossover',
+                'strategy_id': 'MACrossover',
+                'strategy_type': 'MACrossover',
+                'action': 'sell',
                 'direction': direction,
                 'crossover_signal': crossover_signal.__dict__,
                 'spread_type': spread_type,
@@ -544,11 +603,20 @@ class MACrossoverStrategy(BaseStrategy):
                 'volume_surge': crossover_signal.volume_surge
             }
 
+            signal_timestamp = datetime.now()
+
             signal = TradingSignal(
-                timestamp=datetime.now(),
-                signal_type=SignalType.ENTRY,
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.SELL,
+                symbol=self.signal_symbol,
                 strength=strength,
                 confidence=confidence,
+                entry_price=float(current_price),
+                stop_loss=float(current_price + (STOP_LOSS_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),
+                take_profit=float(current_price - (PROFIT_TARGET_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),
+                position_size=self.calculate_position_size(None),
+                timestamp=signal_timestamp,
+                expires_at=signal_timestamp + timedelta(minutes=15),
                 metadata=metadata
             )
 
@@ -788,7 +856,7 @@ def test_ma_crossover():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(

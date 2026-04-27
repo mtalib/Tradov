@@ -131,6 +131,47 @@ class PaperBroker:
     def is_running(self) -> bool:
         return self._running
 
+    def connect(self) -> bool:
+        """Compatibility shim for broker clients that require explicit connect."""
+        return self.start()
+
+    def disconnect(self) -> None:
+        """Compatibility shim for broker clients that expose disconnect()."""
+        self.stop()
+
+    def is_connected(self) -> bool:
+        """Return connection state expected by LiveEngine checks."""
+        return self._running
+
+    def get_account_info(self) -> dict[str, Any]:
+        """Return Tradier-like account metadata used by LiveEngine guards."""
+        return {
+            "account_id": "PAPER-ACCOUNT",
+            "trading_enabled": True,
+            "status": "active",
+            "type": "paper",
+        }
+
+    async def get_positions_async(self) -> dict[str, Any]:
+        """Async compatibility shim matching Tradier response shape."""
+        positions = self.get_positions()
+        if not positions:
+            return {"positions": "null"}
+        return {"positions": {"position": positions}}
+
+    async def get_account_balances_async(self) -> dict[str, Any]:
+        """Async compatibility shim matching Tradier balances response shape."""
+        account = (self.get_account_balances() or {}).get("account") or {}
+        equity = float(account.get("balance", self._account_balance) or self._account_balance)
+        return {
+            "balances": {
+                "total_equity": equity,
+                "total_cash": equity,
+                "margin": {"option_buying_power": 0.0},
+                "option_short_value": equity,
+            }
+        }
+
     # --------------------------------------------------------------------------
     # MARKET DATA SUBSCRIPTION
     # --------------------------------------------------------------------------
@@ -308,7 +349,23 @@ class PaperBroker:
             Tradier-shaped order response dict, or ``{}`` on no-op.
         """
         self.logger.info("PaperBroker.close_position: %s (force=%s)", symbol, force)
-        is_option = len(symbol) > 6 and any(c in symbol for c in ("C", "P"))
+        # C8 (v18): use OCC shape validation instead of a naive single-char
+        # membership test which false-positives on equity tickers like "PG",
+        # "CP", "PCG" etc.  OCC option symbols are at least 15 chars long and
+        # follow the pattern: <underlying><YYMMDD><C|P><8-digit-strike>.
+        # We reuse the same offset logic from _validate_option_symbol_strike().
+        def _is_occ_option(sym: str) -> bool:
+            idx = 0
+            while idx < len(sym) and not sym[idx].isdigit():
+                idx += 1
+            # Underlying must be ≥1 char; tail must have room for 6+1+8 chars.
+            if idx == 0 or idx + 15 > len(sym):
+                return False
+            if sym[idx:idx + 6].isdigit() and sym[idx + 6] in "CP" and sym[idx + 7:idx + 15].isdigit():
+                return True
+            return False
+
+        is_option = _is_occ_option(symbol)
         side = "buy_to_close" if is_option else "sell"
         return self.place_order(
             symbol=symbol,

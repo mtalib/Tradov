@@ -274,22 +274,55 @@ if SpyderX13_MarketAnalysisAgent is not None:
 
 # X14–X16 — additional agent modules
 try:
-    from .SpyderX14_OrchestratorAgent import SpyderX14_OrchestratorAgent
-    __all__.extend(["SpyderX14_OrchestratorAgent"])
-except ImportError as e:
-    logging.info("Warning: SpyderX14_OrchestratorAgent not available: %s", e)
+    from .SpyderX14_OrchestratorAgent import (
+        SpyderX14_OrchestratorAgent,
+        create_orchestrator_agent,
+        get_orchestrator_agent,
+    )
+    __all__.extend(["SpyderX14_OrchestratorAgent", "create_orchestrator_agent", "get_orchestrator_agent"])
+    if SpyderX14_OrchestratorAgent is not None:
+        AGENT_REGISTRY["orchestrator"] = {
+            "class": SpyderX14_OrchestratorAgent,
+            "factory": create_orchestrator_agent,
+            "description": "Multi-agent orchestration and coordination",
+            "capabilities": ["agent_coordination", "workflow_management", "rl_optimization"],
+        }
+except Exception as _e:
+    _logger.warning("Agent import failed: X14: %s", _e)
+    SpyderX14_OrchestratorAgent = None  # type: ignore
+    create_orchestrator_agent = None  # type: ignore
+    get_orchestrator_agent = None  # type: ignore
 
 try:
     from .SpyderX15_StrategyGeneratorAgent import SimplifiedStrategyGenerator
-    __all__.extend(["SimplifiedStrategyGenerator"])
-except ImportError as e:
-    logging.info("Warning: SpyderX15_StrategyGeneratorAgent not available: %s", e)
+    SpyderX15_StrategyGeneratorAgent = SimplifiedStrategyGenerator
+    __all__.extend(["SpyderX15_StrategyGeneratorAgent", "SimplifiedStrategyGenerator"])
+    AGENT_REGISTRY["strategy_generator"] = {
+        "class": SimplifiedStrategyGenerator,
+        "factory": None,
+        "description": "AI-driven strategy generation and ideation",
+        "capabilities": ["strategy_creation", "parameter_suggestion"],
+    }
+except Exception as _e:
+    _logger.warning("Agent import failed: X15: %s", _e)
+    SpyderX15_StrategyGeneratorAgent = None  # type: ignore
+    SimplifiedStrategyGenerator = None  # type: ignore
 
 try:
-    from .SpyderX16_MetaCoordinator import MetaCoordinator
-    __all__.extend(["MetaCoordinator"])
-except ImportError as e:
-    logging.info("Warning: SpyderX16_MetaCoordinator not available: %s", e)
+    from .SpyderX16_MetaCoordinator import MetaCoordinator, create_meta_coordinator
+    SpyderX16_MetaCoordinator = MetaCoordinator
+    __all__.extend(["SpyderX16_MetaCoordinator", "MetaCoordinator", "create_meta_coordinator"])
+    AGENT_REGISTRY["meta_coordinator"] = {
+        "class": MetaCoordinator,
+        "factory": create_meta_coordinator,
+        "description": "Meta-coordinator: arbitrates conflicting agent signals",
+        "capabilities": ["signal_arbitration", "agent_monitoring", "conflict_resolution"],
+    }
+except Exception as _e:
+    _logger.warning("Agent import failed: X16: %s", _e)
+    SpyderX16_MetaCoordinator = None  # type: ignore
+    MetaCoordinator = None  # type: ignore
+    create_meta_coordinator = None  # type: ignore
 
 # ==============================================================================
 # PACKAGE INITIALIZATION

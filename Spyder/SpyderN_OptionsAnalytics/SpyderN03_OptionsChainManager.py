@@ -51,12 +51,17 @@ import logging
 
 # Import pricing and IV engines if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
     PRICING_AVAILABLE = True
 except ImportError:
-    PRICING_AVAILABLE = False
-    logging.info("⚠️ Options pricing modules not available - some features disabled")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+        PRICING_AVAILABLE = True
+    except ImportError:
+        PRICING_AVAILABLE = False
+        logging.info("⚠️ Options pricing modules not available - some features disabled")
 
 # ==============================================================================
 # CONSTANTS

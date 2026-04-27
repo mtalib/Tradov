@@ -54,7 +54,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
 from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
 from Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor import get_migration_monitor
-from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import OptionsFlowAnalyzer
+from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import AdvancedOptionsFlowAnalyzer as OptionsFlowAnalyzer
 try:
     from Spyder.SpyderS_Signals.SpyderS08_ShortSqueezeDetector import (
         ShortSqueezeDetector,

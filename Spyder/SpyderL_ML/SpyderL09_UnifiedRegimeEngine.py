@@ -627,7 +627,7 @@ class SignalRegimeDetector:
                     'dix':            current_metrics.get('DIX',  conditions.dix_score),
                     'gex':            current_metrics.get('GEX',  conditions.gex_level),
                     'swan':           current_metrics.get('SWAN', conditions.swan_score),
-                    'skew':           current_metrics.get('SKEW', conditions.skew_level),
+                    'skew':           current_metrics.get('OPT_SKEW', conditions.skew_level),
                     # Second-order Greeks (S05 Vanna/Charm)
                     'vex':            current_metrics.get('VEX',  conditions.vex),
                     'chex':           current_metrics.get('CHEX', conditions.chex),

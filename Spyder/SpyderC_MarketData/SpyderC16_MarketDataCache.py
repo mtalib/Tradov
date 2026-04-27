@@ -736,7 +736,8 @@ class MarketDataCache:
                     (cutoff.timestamp(),)
                 )
 
-                # Vacuum to reclaim space
+                # VACUUM cannot run inside a transaction.
+                conn.commit()
                 conn.execute('VACUUM')
 
         except Exception as e:
@@ -844,8 +845,9 @@ class MarketDataCache:
 
         # Publish stats event if event manager available
         if self.event_manager:
+            metrics_event_type = getattr(EventType, 'SYSTEM_METRICS', EventType.INFO)
             event = Event(
-                EventType.SYSTEM_METRICS,
+                metrics_event_type,
                 {
                     'component': 'MarketDataCache',
                     'stats': self.get_stats()

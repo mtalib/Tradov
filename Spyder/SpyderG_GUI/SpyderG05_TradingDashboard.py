@@ -52,6 +52,7 @@ CONNECTION MONITORING:
 # ==============================================================================
 import json
 import sys
+import threading
 import time
 from collections import deque
 from datetime import datetime
@@ -137,8 +138,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class _GoNoGoCheckWorker(QObject):
-    """Background worker for pre-open readiness evaluation."""
+class _ReadinessCheckWorker(QObject):
+    """Background worker for trading readiness evaluation."""
 
     finished = Signal(dict)
     failed = Signal(str)
@@ -153,7 +154,7 @@ class _GoNoGoCheckWorker(QObject):
         try:
             result = self._evaluator(self._snapshot)
             if not isinstance(result, dict):
-                raise ValueError("Go/No-Go evaluator returned non-dict result")
+                raise ValueError("Trading readiness evaluator returned non-dict result")
             self.finished.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -309,9 +310,18 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
     TRADIER_CONNECT_TIME,
     TRADIER_DISCONNECT_TIME,
     LogThrottle,
-    is_dashboard_session as is_market_hours,
+    is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
+
+
+def is_market_hours(now_et: datetime | None = None) -> bool:
+    """Return True only when ET time is in session and weekday is Mon-Fri."""
+    current_et = now_et or datetime.now(pytz.timezone("US/Eastern"))
+    if current_et.weekday() >= 5:
+        return False
+    return bool(_is_dashboard_session(current_et))
+
 
 # Market data worker, heartbeat constants, quote-freshness helpers, and
 # check_api_connection now live in SpyderG18_MarketDataWorker (audit §1/§14/§23).
@@ -465,12 +475,12 @@ class SpyderTradingDashboard(QMainWindow):
         # Startup readiness snapshot (A03 config validation outcome) is read
         # once during launch so safe-mode automation fallback is explicit.
         self._startup_readiness_state = self._collect_startup_readiness_state()
-        self._last_go_no_go_result = None
-        self._last_go_no_go_ts = None
-        self._go_no_go_ttl_seconds = 120
-        self._go_no_go_worker_thread = None
-        self._go_no_go_worker = None
-        self._go_no_go_reports_dir = project_root / "market_data" / "go_no_go_reports"
+        self._last_readiness_result = None
+        self._last_readiness_ts = None
+        self._readiness_ttl_seconds = 120
+        self._readiness_worker_thread = None
+        self._readiness_worker = None
+        self._readiness_reports_dir = project_root / "market_data" / "trading_readiness_reports"
         self._append_startup_readiness_banner(startup_hms)
 
         # System log verbosity mode (NORMAL suppresses routine signal chatter,
@@ -605,13 +615,19 @@ class SpyderTradingDashboard(QMainWindow):
         self.unrealized_value = None
         self.pnl_table = None
         self.refresh_orders_btn = None
+        self.trade_audit_btn = None
+        self.decision_log_btn = None
+        self.readiness_btn = None
+        self.readiness_status_label = None
         self.greek_bars = None
         self.auto_log = None
         self.chart_widget = None
+        self.chart_hidden_controls_panel = None
         self.figure = None
         self.canvas = None
         # Event-clock display UI elements (Phase 5-A)
         self.event_clock_panel = None
+        self.event_clock_compact_label = None
         self.event_clock_state_label = None
         self.event_clock_policy_label = None
         self.event_clock_windows_label = None
@@ -1145,10 +1161,6 @@ class SpyderTradingDashboard(QMainWindow):
         toolbar = self.create_toolbar()
         main_layout.addWidget(toolbar)
 
-        # Add event-clock status panel (Phase 5-A dashboard observability)
-        event_clock_panel = self._create_event_clock_panel()
-        main_layout.addWidget(event_clock_panel)
-
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_panel = self.create_left_panel()
@@ -1260,12 +1272,16 @@ class SpyderTradingDashboard(QMainWindow):
         if self.chart_visible:
             # Hide chart
             self.chart_widget.hide()
+            if self.chart_hidden_controls_panel is not None:
+                self.chart_hidden_controls_panel.show()
             self.chart_visible = False
             self.chart_toggle_btn.setToolTip("Show SPY Chart (5-min)")
-            self.log_system_message("Chart hidden - Positions table expanded")
+            self.log_system_message("Chart hidden - Advanced controls shown")
         else:
             # Show chart
             self.chart_widget.show()
+            if self.chart_hidden_controls_panel is not None:
+                self.chart_hidden_controls_panel.hide()
             self.chart_visible = True
             self.chart_toggle_btn.setToolTip("Hide SPY Chart (5-min)")
             self.log_system_message("Chart visible")
@@ -3152,24 +3168,29 @@ class SpyderTradingDashboard(QMainWindow):
                 "⚠️ Safe mode reminder: automation fallback is active from startup readiness validation"
             )
 
+        # Apply the same readiness evaluation gate to both PAPER and LIVE starts.
+        decision = self._require_fresh_readiness_or_block(self.trading_mode)
+        if decision == "NO":
+            mode_label = self.trading_mode.value
+            self.add_system_log(
+                f"⛔ Session blocked by readiness check (NO) — {mode_label} trading start rejected"
+            )
+            self._append_readiness_bypass_audit("blocked", "NO hard-block", "")
+            return
+
+        latest_result = self._last_readiness_result if isinstance(self._last_readiness_result, dict) else {}
+        if bool(latest_result.get("conditional", False)):
+            reason = self._prompt_conditional_readiness_reason()
+            if reason is None:
+                self.add_system_log("Trading start cancelled after OK-CONDITIONAL readiness result")
+                return
+            self.add_system_log(
+                f"⚠️ OK-CONDITIONAL override accepted — bypass reason: {reason}"
+            )
+            self._append_readiness_bypass_audit("override", "OK - CONDITIONAL", reason)
+
         # Keep existing live-mode safety gates before backend start.
         if self.trading_mode == TradingMode.LIVE:
-            decision = self._require_fresh_go_no_go_or_block()
-            if decision == "NO-GO":
-                self.add_system_log(
-                    "⛔ Session blocked by NO-GO pre-open check — live trading start rejected"
-                )
-                self._append_go_no_go_bypass_audit("blocked", "NO-GO hard-block", "")
-                return
-            if decision == "CONDITIONAL GO":
-                reason = self._prompt_conditional_go_reason()
-                if reason is None:
-                    self.add_system_log("Live trading start cancelled after CONDITIONAL GO")
-                    return
-                self.add_system_log(
-                    f"⚠️ CONDITIONAL GO override accepted — bypass reason: {reason}"
-                )
-                self._append_go_no_go_bypass_audit("override", "CONDITIONAL GO", reason)
 
             if not self.api_connected:
                 QMessageBox.warning(
@@ -3220,94 +3241,97 @@ class SpyderTradingDashboard(QMainWindow):
         if self.trading_mode == TradingMode.PAPER:
             self._refresh_positions_table()
 
-    def _require_fresh_go_no_go_or_block(self) -> str:
-        """Ensure a fresh checklist decision exists before LIVE start.
+    def _require_fresh_readiness_or_block(self, mode: TradingMode | None = None) -> str:
+        """Ensure a fresh readiness decision exists before trading start.
 
-        Returns one of: GO, CONDITIONAL GO, NO-GO.
+        Returns one of: OK, NO.
         """
+        mode_label = (mode or self.trading_mode).value.upper()
         now = time.time()
-        if isinstance(self._last_go_no_go_ts, (int, float)) and isinstance(self._last_go_no_go_result, dict):
-            age = now - float(self._last_go_no_go_ts)
-            if age <= float(self._go_no_go_ttl_seconds):
-                return str(self._last_go_no_go_result.get("decision", "NO-GO"))
+        if isinstance(self._last_readiness_ts, (int, float)) and isinstance(self._last_readiness_result, dict):
+            age = now - float(self._last_readiness_ts)
+            if age <= float(self._readiness_ttl_seconds):
+                return str(self._last_readiness_result.get("decision", "NO"))
 
-        result = self.run_preopen_go_no_go_check(show_dialog=False)
-        decision = str(result.get("decision", "NO-GO"))
-        if decision == "NO-GO":
+        result = self.run_trading_readiness_check(show_dialog=False)
+        decision = str(result.get("decision", "NO"))
+        if decision == "NO":
             reasons = result.get("reasons", [])
             reason_text = "\n".join(f"- {r}" for r in reasons[:6]) or "- Unknown readiness failure"
             QMessageBox.critical(
                 self,
-                "LIVE Start Blocked (NO-GO)",
-                "Pre-open readiness checklist returned NO-GO.\n\n"
+                f"{mode_label} Start Blocked (NO)",
+                "Trading readiness evaluation returned NO.\n\n"
                 f"Reasons:\n{reason_text}",
             )
-            self.add_system_log("❌ LIVE start blocked by Go/No-Go checklist")
+            self.add_system_log(f"❌ {mode_label} start blocked by readiness evaluation")
         return decision
 
-    def run_preopen_go_no_go_check_async(self) -> None:
-        """Run pre-open Go/No-Go check on a worker thread."""
-        if self._go_no_go_worker_thread is not None:
-            self.add_system_log("Pre-open checklist already running")
+    def run_trading_readiness_check_async(self) -> None:
+        """Run trading readiness check on a worker thread."""
+        if self._readiness_worker_thread is not None:
+            self.add_system_log("Trading readiness evaluation already running")
             return
 
         snapshot = self._build_preopen_check_snapshot()
-        self.add_system_log("Running pre-open checklist in background...")
+        self.add_system_log("Running trading readiness evaluation in background...")
 
-        button = getattr(self, "go_no_go_btn", None)
+        button = getattr(self, "readiness_btn", None)
         if button is not None:
             button.setEnabled(False)
 
-        self._go_no_go_worker_thread = QThread(self)
-        self._go_no_go_worker = _GoNoGoCheckWorker(snapshot, self._evaluate_preopen_go_no_go_snapshot)
-        self._go_no_go_worker.moveToThread(self._go_no_go_worker_thread)
+        self._readiness_worker_thread = QThread(self)
+        self._readiness_worker = _ReadinessCheckWorker(snapshot, self._evaluate_trading_readiness_snapshot)
+        self._readiness_worker.moveToThread(self._readiness_worker_thread)
 
-        self._go_no_go_worker_thread.started.connect(self._go_no_go_worker.run)
-        self._go_no_go_worker.finished.connect(self._on_go_no_go_worker_finished)
-        self._go_no_go_worker.failed.connect(self._on_go_no_go_worker_failed)
-        self._go_no_go_worker.finished.connect(self._go_no_go_worker_thread.quit)
-        self._go_no_go_worker.failed.connect(self._go_no_go_worker_thread.quit)
-        self._go_no_go_worker_thread.finished.connect(self._cleanup_go_no_go_worker)
+        self._readiness_worker_thread.started.connect(self._readiness_worker.run)
+        self._readiness_worker.finished.connect(self._on_readiness_worker_finished)
+        self._readiness_worker.failed.connect(self._on_readiness_worker_failed)
+        self._readiness_worker.finished.connect(self._readiness_worker_thread.quit)
+        self._readiness_worker.failed.connect(self._readiness_worker_thread.quit)
+        self._readiness_worker_thread.finished.connect(self._cleanup_readiness_worker)
 
-        self._go_no_go_worker_thread.start()
+        self._readiness_worker_thread.start()
 
-    def _on_go_no_go_worker_finished(self, result: dict) -> None:
-        """Handle async Go/No-Go worker success on UI thread."""
-        self._apply_go_no_go_result(result, show_dialog=True)
+    def _on_readiness_worker_finished(self, result: dict) -> None:
+        """Handle async trading-readiness worker success on UI thread."""
+        self._apply_readiness_result(result, show_dialog=True)
 
-    def _on_go_no_go_worker_failed(self, error_message: str) -> None:
-        """Handle async Go/No-Go worker failure on UI thread."""
-        self.add_system_log(f"❌ Pre-open checklist failed: {error_message}")
+    def _on_readiness_worker_failed(self, error_message: str) -> None:
+        """Handle async trading-readiness worker failure on UI thread."""
+        self.add_system_log(f"❌ Trading readiness evaluation failed: {error_message}")
         QMessageBox.critical(
             self,
-            "Pre-open Checklist Error",
-            f"Go/No-Go evaluation failed:\n{error_message}",
+            "Trading Readiness Error",
+            f"Trading readiness evaluation failed:\n{error_message}",
         )
 
-    def _cleanup_go_no_go_worker(self) -> None:
-        """Release async Go/No-Go worker resources."""
-        button = getattr(self, "go_no_go_btn", None)
+    def _cleanup_readiness_worker(self) -> None:
+        """Release async trading-readiness worker resources."""
+        button = getattr(self, "readiness_btn", None)
         if button is not None:
             button.setEnabled(True)
 
-        if self._go_no_go_worker is not None:
+        if self._readiness_worker is not None:
             try:
-                self._go_no_go_worker.deleteLater()
+                self._readiness_worker.deleteLater()
             except Exception:
                 pass
-        if self._go_no_go_worker_thread is not None:
+        if self._readiness_worker_thread is not None:
             try:
-                self._go_no_go_worker_thread.deleteLater()
+                self._readiness_worker_thread.deleteLater()
             except Exception:
                 pass
 
-        self._go_no_go_worker = None
-        self._go_no_go_worker_thread = None
+        self._readiness_worker = None
+        self._readiness_worker_thread = None
 
     def _build_preopen_check_snapshot(self) -> dict[str, object]:
-        """Capture UI-safe snapshot used by sync/async Go/No-Go evaluation."""
-        startup_state = self._collect_startup_readiness_state()
-        self._startup_readiness_state = startup_state
+        """Capture UI-safe snapshot used by sync/async readiness evaluation."""
+        startup_state = self._startup_readiness_state
+        if not isinstance(startup_state, dict) or not startup_state:
+            startup_state = self._collect_startup_readiness_state()
+            self._startup_readiness_state = startup_state
 
         data_label = ""
         if getattr(self, "data_status_label", None) is not None:
@@ -3321,6 +3345,8 @@ class SpyderTradingDashboard(QMainWindow):
             event_enabled = bool(getattr(event_state, "enabled", True)) if event_state is not None else True
             event_name = str(getattr(event_state, "state", "clear")) if event_state is not None else "clear"
 
+        et_now = datetime.now(pytz.timezone("US/Eastern"))
+
         return {
             "startup_state": startup_state,
             "api_connected": bool(getattr(self, "api_connected", False)),
@@ -3328,14 +3354,18 @@ class SpyderTradingDashboard(QMainWindow):
             "data_status_label": data_label,
             "event_clock_enabled": event_enabled,
             "event_clock_state": event_name,
-            "checked_at_et": datetime.now(pytz.timezone("US/Eastern")).isoformat(),
+            "is_weekend": et_now.weekday() >= 5,
+            "checked_at_et": et_now.isoformat(),
         }
 
     @staticmethod
-    def _evaluate_preopen_go_no_go_snapshot(snapshot: dict[str, object]) -> dict[str, object]:
-        """Evaluate GO/NO-GO decision from an immutable snapshot."""
+    def _evaluate_trading_readiness_snapshot(snapshot: dict[str, object]) -> dict[str, object]:
+        """Evaluate trading readiness decision from an immutable snapshot."""
         reasons: list[str] = []
         warnings: list[str] = []
+
+        if bool(snapshot.get("is_weekend", False)):
+            reasons.append("Market is closed (weekend)")
 
         startup_state = snapshot.get("startup_state", {})
         if isinstance(startup_state, dict):
@@ -3358,87 +3388,74 @@ class SpyderTradingDashboard(QMainWindow):
             if state_name in {"pre", "live", "post"}:
                 warnings.append(f"Event-clock state is {state_name}; reduced-risk policy recommended")
 
-        decision = "GO"
+        decision = "OK"
+        conditional = False
         if reasons:
-            decision = "NO-GO"
+            decision = "NO"
         elif warnings:
-            decision = "CONDITIONAL GO"
+            conditional = True
 
         return {
             "decision": decision,
+            "conditional": conditional,
             "checked_at_et": str(snapshot.get("checked_at_et", "")),
             "reasons": reasons,
             "warnings": warnings,
             "startup_state": startup_state,
         }
 
-    def run_preopen_go_no_go_check(self, show_dialog: bool = True) -> dict[str, object]:
-        """Run dashboard-visible pre-open readiness checks and store decision."""
+    def run_trading_readiness_check(self, show_dialog: bool = True) -> dict[str, object]:
+        """Run dashboard-visible trading-readiness checks and store decision."""
         snapshot = self._build_preopen_check_snapshot()
-        result = self._evaluate_preopen_go_no_go_snapshot(snapshot)
-        return self._apply_go_no_go_result(result, show_dialog=show_dialog)
+        result = self._evaluate_trading_readiness_snapshot(snapshot)
+        return self._apply_readiness_result(result, show_dialog=show_dialog)
 
-    def _apply_go_no_go_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:
-        """Persist, display, and log checklist result."""
+    def _apply_readiness_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:
+        """Persist, display, and log readiness result."""
         reasons = list(result.get("reasons", []))
         warnings = list(result.get("warnings", []))
-        decision = str(result.get("decision", "NO-GO"))
+        decision = str(result.get("decision", "NO"))
+        conditional = bool(result.get("conditional", False))
 
-        self._last_go_no_go_result = result
-        self._last_go_no_go_ts = time.time()
-        self._update_go_no_go_status_display(result)
+        self._last_readiness_result = result
+        self._last_readiness_ts = time.time()
+        self._update_readiness_status_display(result)
 
-        summary = (
-            f"Pre-open checklist: {decision} "
-            f"(reasons={len(reasons)}, warnings={len(warnings)})"
-        )
+        if decision == "NO":
+            reason_text = "; ".join(str(r) for r in reasons) if reasons else "Unknown reason"
+            summary = f"NO - {reason_text}"
+            for r in (reasons if reasons else ["Unknown reason"]):
+                self.add_system_log(f"  ✗ {r}")
+        elif conditional:
+            warning_text = "; ".join(str(w) for w in warnings) if warnings else "Warnings present"
+            summary = f"OK - CONDITIONAL: {warning_text}"
+        else:
+            summary = "OK - READY"
         self.add_system_log(summary)
 
-        report_path = self._export_go_no_go_report(result)
+        report_path = self._export_readiness_report(result)
         if report_path:
-            self.add_system_log(f"Go/No-Go report saved: {report_path}")
-
-        if show_dialog:
-            lines = [summary]
-            if reasons:
-                lines.append("\nBlocking reasons:")
-                lines.extend(f"- {r}" for r in reasons)
-            if warnings:
-                lines.append("\nWarnings:")
-                lines.extend(f"- {w}" for w in warnings)
-
-            icon = QMessageBox.Icon.Information
-            title = f"Pre-open Decision: {decision}"
-            if decision == "NO-GO":
-                icon = QMessageBox.Icon.Critical
-            elif decision == "CONDITIONAL GO":
-                icon = QMessageBox.Icon.Warning
-
-            dialog = QMessageBox(self)
-            dialog.setIcon(icon)
-            dialog.setWindowTitle(title)
-            dialog.setText("\n".join(lines))
-            dialog.exec()
+            self.add_system_log(f"Trading readiness report saved: {report_path}")
 
         return result
 
-    def _export_go_no_go_report(self, result: dict[str, object]) -> str:
-        """Persist Go/No-Go decision report to disk as JSON."""
+    def _export_readiness_report(self, result: dict[str, object]) -> str:
+        """Persist trading-readiness decision report to disk as JSON."""
         try:
-            reports_dir = Path(self._go_no_go_reports_dir)
+            reports_dir = Path(self._readiness_reports_dir)
             reports_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y%m%d_%H%M%S")
             decision = str(result.get("decision", "UNKNOWN")).replace(" ", "_")
-            out_path = reports_dir / f"go_no_go_{stamp}_{decision}.json"
+            out_path = reports_dir / f"trading_readiness_{stamp}_{decision}.json"
             with out_path.open("w", encoding="utf-8") as handle:
                 json.dump(result, handle, indent=2, default=str)
             return str(out_path)
         except Exception as exc:
-            self.add_system_log(f"⚠️ Failed to save Go/No-Go report: {exc}")
+            self.add_system_log(f"⚠️ Failed to save trading readiness report: {exc}")
             return ""
 
-    def _prompt_conditional_go_reason(self) -> str | None:
-        """Show a modal dialog requiring a typed bypass reason for CONDITIONAL GO.
+    def _prompt_conditional_readiness_reason(self) -> str | None:
+        """Show a modal dialog requiring a typed bypass reason for OK-CONDITIONAL.
 
         Returns the trimmed reason string if the operator confirms, or None if
         they cancel.  An empty reason is not accepted — the dialog stays open
@@ -3448,12 +3465,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         while True:
             dlg = QDialog(self)
-            dlg.setWindowTitle("CONDITIONAL GO — Bypass Reason Required")
+            dlg.setWindowTitle("OK-CONDITIONAL — Bypass Reason Required")
             dlg.setMinimumWidth(520)
             layout = QVBoxLayout(dlg)
             layout.addWidget(QLabel(
-                "Pre-open checklist returned <b>CONDITIONAL GO</b>.<br><br>"
-                "Proceeding with LIVE trading requires a documented reason.<br>"
+                "Trading readiness returned <b>OK - CONDITIONAL</b>.<br><br>"
+                "Proceeding requires a documented reason.<br>"
                 "This reason will be written to the session audit log."
             ))
             reason_edit = QLineEdit()
@@ -3476,16 +3493,16 @@ class SpyderTradingDashboard(QMainWindow):
                 "You must enter a bypass reason before proceeding.",
             )
 
-    def _append_go_no_go_bypass_audit(
+    def _append_readiness_bypass_audit(
         self, action: str, decision: str, reason: str
     ) -> None:
-        """Append a bypass / block audit record to the most recent Go/No-Go report.
+        """Append a bypass / block audit record to the most recent readiness report.
 
         If no report exists for this session, writes a new audit-only file so
         that every session start attempt is traceable.
         """
         try:
-            reports_dir = Path(self._go_no_go_reports_dir)
+            reports_dir = Path(self._readiness_reports_dir)
             reports_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y%m%d_%H%M%S")
             audit_entry = {
@@ -3495,63 +3512,99 @@ class SpyderTradingDashboard(QMainWindow):
                 "bypass_reason": reason,
                 "operator_ts_et": stamp,
             }
-            # Attach to the cached result so _export_go_no_go_report can persist it.
-            if isinstance(self._last_go_no_go_result, dict):
-                self._last_go_no_go_result.setdefault("bypass_audit", []).append(
+            # Attach to the cached result so _export_readiness_report can persist it.
+            if isinstance(self._last_readiness_result, dict):
+                self._last_readiness_result.setdefault("bypass_audit", []).append(
                     audit_entry
                 )
-                self._export_go_no_go_report(self._last_go_no_go_result)
+                self._export_readiness_report(self._last_readiness_result)
             else:
                 # No checklist result cached — write a standalone audit file.
-                out_path = reports_dir / f"go_no_go_{stamp}_audit_{action}.json"
+                out_path = reports_dir / f"trading_readiness_{stamp}_audit_{action}.json"
                 with out_path.open("w", encoding="utf-8") as handle:
                     json.dump(audit_entry, handle, indent=2, default=str)
         except Exception as exc:
-            self.add_system_log(f"⚠️ Failed to write Go/No-Go bypass audit: {exc}")
+            self.add_system_log(f"⚠️ Failed to write readiness bypass audit: {exc}")
 
-    def _update_go_no_go_status_display(self, result: dict[str, object] | None) -> None:
-        """Update status label and button style for latest checklist decision."""
-        label = getattr(self, "go_no_go_status_label", None)
-        button = getattr(self, "go_no_go_btn", None)
+    def _update_readiness_status_display(self, result: dict[str, object] | None) -> None:
+        """Update status label and button style for latest readiness decision."""
+        label = getattr(self, "readiness_status_label", None)
+        button = getattr(self, "readiness_btn", None)
         start_btn = getattr(self, "start_btn", None)
         if label is None or button is None:
             return
 
+        # Keep wording anchored to LIVE to simulate production readiness even in PAPER mode.
+        trading_mode_text = "LIVE"
+        readiness_button_style = (
+            "background-color: #0066CC; color: white; font-size: 12px; "
+            "padding: 0 12px; border: 1px solid #2A7BD6; border-radius: 3px;"
+        )
+
         if not isinstance(result, dict):
-            label.setText("Pre-open: NOT RUN")
-            label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
-            button.setStyleSheet(f"background-color: {COLORS['cyan']}; color: black;")
+            label.setText("<<READINESS PENDING>>")
+            label.setStyleSheet("color: white; font-size: 13px; font-weight: 600;")
+            button.setText("RE-EVALUATE TRADING READINESS")
+            button.setStyleSheet(readiness_button_style)
             if start_btn is not None:
                 start_btn.setEnabled(True)
                 start_btn.setToolTip("Start automated trading")
             return
 
         decision = str(result.get("decision", "NOT RUN"))
+        conditional = bool(result.get("conditional", False))
+        reasons = [str(r) for r in (result.get("reasons") or [])]
+        warnings = [str(w) for w in (result.get("warnings") or [])]
         checked_at = str(result.get("checked_at_et", ""))
         ts_suffix = checked_at[11:19] if len(checked_at) >= 19 else "--:--:--"
-        label.setText(f"Pre-open: {decision} @ {ts_suffix} ET")
 
-        if decision == "GO":
-            label.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
-            button.setStyleSheet(f"background-color: {COLORS['positive']}; color: black;")
+        detail_text = ""
+        if decision == "NO":
+            if reasons:
+                detail_text = "; ".join(reasons)
+            else:
+                detail_text = "Reason unavailable"
+            status_text = (
+                f"@ {ts_suffix} ET - NOT READY FOR {trading_mode_text} TRADING "
+                f"| Reasons: {detail_text}"
+            )
+        elif conditional:
+            if warnings:
+                detail_text = "; ".join(warnings)
+                status_text = (
+                    f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING "
+                    f"(CONDITIONAL) | Warnings: {detail_text}"
+                )
+            else:
+                status_text = f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING (CONDITIONAL)"
+        else:
+            status_text = f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING"
+        label.setText(status_text)
+
+        if decision == "OK" and not conditional:
+            label.setStyleSheet(f"color: {COLORS['positive']}; font-size: 13px; font-weight: 600;")
+            button.setText("RE-EVALUATE TRADING READINESS")
+            button.setStyleSheet(readiness_button_style)
             if start_btn is not None:
                 start_btn.setEnabled(True)
                 if self.trading_mode == TradingMode.PAPER:
                     start_btn.setToolTip("Start paper trading with simulated fills")
                 else:
                     start_btn.setToolTip("Start LIVE trading with real order execution")
-        elif decision == "CONDITIONAL GO":
-            label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
-            button.setStyleSheet(f"background-color: {COLORS['warning']}; color: black;")
+        elif decision == "OK" and conditional:
+            label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 13px; font-weight: 600;")
+            button.setText("RE-EVALUATE TRADING READINESS")
+            button.setStyleSheet(readiness_button_style)
             if start_btn is not None:
                 start_btn.setEnabled(True)
-                start_btn.setToolTip("Conditional Go active: reduced-risk confirmation required")
+                start_btn.setToolTip("OK-CONDITIONAL active: reduced-risk confirmation required")
         else:
-            label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 11px;")
-            button.setStyleSheet(f"background-color: {COLORS['negative']}; color: white;")
+            label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 13px; font-weight: 600;")
+            button.setText("RE-EVALUATE TRADING READINESS")
+            button.setStyleSheet(readiness_button_style)
             if start_btn is not None and not self.trading_active:
                 start_btn.setEnabled(False)
-                start_btn.setToolTip("Start blocked: Pre-open checklist is NO-GO")
+                start_btn.setToolTip("Start blocked: trading readiness is NO")
 
     def _start_unified_session_supervisor(self) -> bool:
         """Start SessionSupervisor using the currently selected trading mode."""
@@ -4792,13 +4845,20 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     def update_data_status(self, status_type: str):
         """Update data status display — 4 states: REAL-TIME, EOD, SIMULATED, FROZEN."""
-        if status_type in ("LIVE", "REAL-TIME", "PAPER"):
+        if status_type in ("LIVE", "REAL-TIME", "PAPER") and is_market_hours():
             self.data_status_label.setText("REAL-TIME")
             self.data_status_label.setStyleSheet(
                 "color: " + COLORS["positive"] + "; font-size: 14px;",
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
             self.data_status_container.setToolTip("Real-time market data — live prices")
+        elif status_type in ("LIVE", "REAL-TIME", "PAPER"):
+            self.data_status_label.setText("EOD")
+            self.data_status_label.setStyleSheet(
+                "color: " + COLORS["warning"] + "; font-size: 14px;",
+            )
+            self.data_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.data_status_container.setToolTip("Market closed — showing EOD data")
         elif status_type == "EOD":
             self.data_status_label.setText("EOD")
             self.data_status_label.setStyleSheet(
@@ -4936,8 +4996,10 @@ class SpyderTradingDashboard(QMainWindow):
         """
         if not hasattr(self, "mkt_provider_label"):
             return
-        if getattr(self, "mkt_data_connected", False):
+        if getattr(self, "mkt_data_connected", False) and is_market_hours():
             color = COLORS["positive"]
+        elif getattr(self, "mkt_data_connected", False):
+            color = COLORS["warning"]
         else:
             color = COLORS["negative"]
         self.mkt_provider_label.setText(provider.upper() + " DATA")
@@ -5628,7 +5690,7 @@ class SpyderTradingDashboard(QMainWindow):
     def _update_event_clock_display(self) -> None:
         """Update event-clock display panel with current state (main thread)."""
         try:
-            if self.event_clock_state_label is None:
+            if self.event_clock_state_label is None and self.event_clock_compact_label is None:
                 return
             
             with self._event_clock_lock:
@@ -5636,8 +5698,16 @@ class SpyderTradingDashboard(QMainWindow):
             
             # Update state label with color
             state_color = state.state_color
-            self.event_clock_state_label.setText(state.state_label)
-            self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")
+            if self.event_clock_state_label:
+                self.event_clock_state_label.setText(state.state_label)
+                self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")
+
+            if self.event_clock_compact_label:
+                compact_text = f"EC: {state.state_label.replace('✓ ', '').replace('✗ ', '')}"
+                self.event_clock_compact_label.setText(compact_text)
+                self.event_clock_compact_label.setStyleSheet(
+                    f"color: {state_color}; font-size: 13px; font-weight: normal;"
+                )
             
             # Update policy label
             policy_text = f"Policy: {'✓ Enabled' if state.enabled else '✗ Disabled'} | Sources: {state.sources}"
@@ -5772,6 +5842,17 @@ class SpyderTradingDashboard(QMainWindow):
         """Add message to system log."""
         self._append_to_ring_log(self.system_logs, self.system_log, message,
                                   max_buffer=200, display_count=200)
+
+    def log_system_message(self, message: str) -> None:
+        """Compatibility wrapper for legacy call sites using the old log method name."""
+        try:
+            if getattr(self, "system_log", None) is not None:
+                self.add_system_log(message)
+            elif hasattr(self, "logger") and self.logger is not None:
+                self.logger.info(message)
+        except Exception:
+            if hasattr(self, "logger") and self.logger is not None:
+                self.logger.exception("Failed to write system message: %s", message)
 
     def add_automation_log(self, message: str):
         """Add message to automation log."""

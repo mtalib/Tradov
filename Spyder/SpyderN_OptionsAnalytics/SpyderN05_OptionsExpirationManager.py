@@ -53,12 +53,17 @@ import logging
 
 # Import pricing modules if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
     ANALYTICS_AVAILABLE = True
 except ImportError:
-    ANALYTICS_AVAILABLE = False
-    logging.info("⚠️ Options analytics modules not available")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+        ANALYTICS_AVAILABLE = True
+    except ImportError:
+        ANALYTICS_AVAILABLE = False
+        logging.info("⚠️ Options analytics modules not available")
 
 # ==============================================================================
 # CONSTANTS

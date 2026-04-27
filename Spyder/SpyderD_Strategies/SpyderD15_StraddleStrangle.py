@@ -50,9 +50,14 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from Spyder.SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
+try:
+    from Spyder.SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
+    _HAS_NEWS_MANAGER = True
+except Exception:
+    NewsManager = None  # type: ignore[assignment,misc]
+    _HAS_NEWS_MANAGER = False
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 import logging
 
 # ==============================================================================
@@ -207,7 +212,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         self.greeks_calculator = GreeksCalculator()
         self.volatility_analyzer = VolatilityAnalyzer()
         self.volatility_regime = VolatilityRegimeAnalyzer()
-        self.news_manager = NewsManager()
+        self.news_manager = NewsManager() if _HAS_NEWS_MANAGER else None
 
         # Strategy state
         self.active_positions: dict[str, VolatilityPosition] = {}
@@ -1211,6 +1216,26 @@ class StraddleStrangleStrategy(BaseStrategy):
             'upcoming_events': len(self.upcoming_events)
         }
 
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
+
 
 # ==============================================================================
 # TESTING
@@ -1222,7 +1247,7 @@ def test_straddle_strangle():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(

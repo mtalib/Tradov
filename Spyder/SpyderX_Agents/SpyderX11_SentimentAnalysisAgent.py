@@ -48,7 +48,12 @@ from transformers import (
     pipeline,
 )
 import torch
-import spacy
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    spacy = None  # type: ignore
+    SPACY_AVAILABLE = False
 from textblob import TextBlob
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -63,12 +68,33 @@ except ImportError:
     WHISPER_AVAILABLE = False
 
 # Web Scraping
-import praw  # Reddit API
-import tweepy  # Twitter API
+# Web Scraping (optional — requires credentials)
+try:
+    import praw  # Reddit API
+    PRAW_AVAILABLE = True
+except ImportError:
+    praw = None  # type: ignore
+    PRAW_AVAILABLE = False
+try:
+    import tweepy  # Twitter API
+    TWEEPY_AVAILABLE = True
+except ImportError:
+    tweepy = None  # type: ignore
+    TWEEPY_AVAILABLE = False
 
-# Language Detection and Translation
-from langdetect import detect
-from googletrans import Translator
+# Language Detection and Translation (optional)
+try:
+    from langdetect import detect
+    LANGDETECT_AVAILABLE = True
+except ImportError:
+    detect = None  # type: ignore
+    LANGDETECT_AVAILABLE = False
+try:
+    from googletrans import Translator
+    GOOGLETRANS_AVAILABLE = True
+except ImportError:
+    Translator = None  # type: ignore
+    GOOGLETRANS_AVAILABLE = False
 
 # Topic Modeling
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -79,9 +105,10 @@ from sklearn.decomposition import LatentDirichletAllocation
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-    MAX_SENTIMENT_HISTORY,
-)
+try:
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import MAX_SENTIMENT_HISTORY
+except ImportError:
+    MAX_SENTIMENT_HISTORY = 1000
 import logging
 
 # ==============================================================================
@@ -290,7 +317,10 @@ class EnhancedSentimentAnalysisAgent:
             )
 
             # SpaCy for linguistic analysis
-            self.nlp = spacy.load("en_core_web_lg")
+            if SPACY_AVAILABLE:
+                self.nlp = spacy.load("en_core_web_lg")
+            else:
+                self.nlp = None
 
             # Whisper for audio transcription
             if WHISPER_AVAILABLE:
@@ -307,7 +337,7 @@ class EnhancedSentimentAnalysisAgent:
         """Initialize API clients for data sources"""
         try:
             # Reddit API
-            if all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):
+            if PRAW_AVAILABLE and all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):
                 self.reddit_client = praw.Reddit(
                     client_id=self.config["reddit_client_id"],
                     client_secret=self.config["reddit_secret"],
@@ -316,7 +346,7 @@ class EnhancedSentimentAnalysisAgent:
                 self.logger.info("Reddit API initialized")
 
             # Twitter API
-            if "twitter_bearer_token" in self.config:
+            if TWEEPY_AVAILABLE and "twitter_bearer_token" in self.config:
                 self.twitter_client = tweepy.Client(
                     bearer_token=self.config["twitter_bearer_token"]
                 )

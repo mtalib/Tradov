@@ -212,10 +212,10 @@ Gates 1–3 were delivered in Phases 1–3. Gate 4 was added in this cycle (0eff
 
 ## 6) Remaining Open Items
 
-The following items from audit v18 are explicitly **deferred** as separate workstreams (not part of the hotfix remediation scope):
+The following items from audit v18 remain outside the hotfix remediation scope; Tier 4 has now started as a separate follow-up workstream, while Tier 5 remains deferred:
 
-**Mega-module decomposition (Tier 4 — deferred):**
-- `SpyderG05_TradingDashboard.py` (~4,500 lines) — full separation of concerns refactor.
+**Mega-module decomposition (Tier 4 — active follow-up workstream):**
+- `SpyderG05_TradingDashboard.py` — Step A has now started on branch `refactor/g05-widget-extraction`. The file was 5,543 lines at refactor start; standalone widget/helpers were extracted into `SpyderG13_EnhancedWidgets.py`, reducing G05 to 4,548 lines. Full builder/controller separation remains open.
 - `SpyderB40_TradierClient.py` (~1,900 lines) — decompose into sub-clients.
 
 **Feature / enhancement backlog (Tier 5 — deferred):**

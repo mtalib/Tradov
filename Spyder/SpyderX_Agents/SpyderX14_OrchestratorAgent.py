@@ -39,7 +39,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import gym
+try:
+    import gymnasium as gym
+except ImportError:
+    import gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 

@@ -52,7 +52,7 @@ from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnaly
 from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
 # ==============================================================================
 # CONSTANTS
@@ -1395,6 +1395,26 @@ class DoubleCalendarStrategy(BaseStrategy):
         self.logger.info("Double Calendar Strategy Final Performance: %s", self.analyze_performance())
 
         super().cleanup()
+
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
 
 
 # ==============================================================================

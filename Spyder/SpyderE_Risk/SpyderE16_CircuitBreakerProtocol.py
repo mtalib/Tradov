@@ -133,6 +133,12 @@ class SpyderCircuitBreakerProtocol:
         self.market_open_price = None
         self.monitoring_active = True
         self.action_history = []
+        self.event_clock_blackout_active = False
+        self.event_clock_state: dict[str, Any] = {
+            'state': 'clear',
+            'allowed_strategies': [],
+            'max_size_multiplier': 1.0,
+        }
     async def monitor_market_conditions(self, current_price: float,
                                       market_open: float) -> CircuitBreakerStatus:
         """
@@ -330,14 +336,39 @@ class SpyderCircuitBreakerProtocol:
                 )
         except Exception as e:
             logger.error("Failed to execute action %s: %s", action.action, str(e))
-    async def check_order_restrictions(self, order_type: str) -> tuple[bool, str]:
+    def update_event_clock_state(self, state_payload: dict[str, Any] | None) -> None:
+        """Update event-clock blackout state consumed from scheduler feed."""
+        payload = state_payload or {}
+        state = str(payload.get('state', 'clear')).lower()
+        self.event_clock_state = {
+            'state': state,
+            'event_type': payload.get('event_type'),
+            'event_id': payload.get('event_id'),
+            'allowed_strategies': payload.get('allowed_strategies', []),
+            'max_size_multiplier': payload.get('max_size_multiplier', 1.0),
+        }
+        self.event_clock_blackout_active = state in {'pre', 'live', 'post'}
+
+    async def check_order_restrictions(self, order_type: str, strategy_id: str | None = None) -> tuple[bool, str]:
         """
         Check if an order type is allowed under current conditions.
         Args:
             order_type: Type of order (MARKET, LIMIT, etc.)
+            strategy_id: Optional strategy identifier for blackout allowlist
         Returns:
             Tuple of (allowed, reason)
         """
+        if self.event_clock_blackout_active:
+            allowlist = {
+                str(s).strip() for s in self.event_clock_state.get('allowed_strategies', [])
+                if str(s).strip()
+            }
+            strategy = str(strategy_id or '').strip()
+            if not (strategy and strategy in allowlist):
+                event_type = self.event_clock_state.get('event_type') or 'macro_event'
+                state = self.event_clock_state.get('state', 'pre')
+                return False, f"Event-clock blackout ({state}) active for {event_type}"
+
         restrictions = self.ORDER_RESTRICTIONS.get(self.current_level, [])
         # Check if all orders restricted
         if 'ALL' in restrictions:

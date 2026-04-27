@@ -48,14 +48,14 @@ COLORS = {
     "text": "#ffffff",
     "text_dim": "#888888",
     "positive": "#00ff41",
-    "negative": "#ff1744",
+    "negative": "#FF073A",
     "neutral": "#ffd700",
     "warning": "#ff9800",
     "automation_active": "#00b8d4",
     "connecting": "#00b8d4",
     "grid": "#2a2a2a",
     "orange": "#ff9800",
-    "red": "#ff0000",
+    "red": "#FF073A",
     "cyan": "#00ffff",
     "yellow": "#ffff00",
     "blue": "#4169E1",
@@ -65,12 +65,13 @@ COLORS = {
 # Market symbols organized by category
 MARKET_SYMBOLS = {
     "S&P CORE": ["SPY", "SPX"],
-    "VOLATILITY": ["VIX", "VXV", "VVIX"],
+    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
     "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
     "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["TLT", "LQD"],
-    "CORRELATIONS": ["DXY", "GLD"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
+    "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
+    "CORRELATIONS": ["DXY", "GLD", "USO"],
+    "OPTIONS ANALYTICS": ["IVR", "ATM_IV", "VRP"],
+    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN", "PMR"],
 }
 
 # Symbol descriptions for tooltips
@@ -80,7 +81,7 @@ SYMBOL_DESCRIPTIONS = {
     "SPX": "S&P 500 Index - Cash index value",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
-    "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
+    "VIX9D": "CBOE 9-Day Volatility Index - Short-term IV; leads VIX turns by 1–2 sessions",
     "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
     "VVIX": "VIX of VIX - Volatility of volatility index",
     # Market Internals
@@ -94,16 +95,23 @@ SYMBOL_DESCRIPTIONS = {
     "IWM": "iShares Russell 2000 ETF - Small caps",
     # Bonds & Credit
     "TLT": "iShares 20+ Year Treasury Bond ETF",
+    "HYG": "iShares High Yield Corporate Bond ETF - Credit stress indicator; widens before LQD",
     "LQD": "iShares Investment Grade Corporate Bond ETF",
     # Correlations
     "DXY": "US Dollar Index - Dollar strength",
     "GLD": "SPDR Gold Trust ETF - Gold proxy",
+    "USO": "United States Oil Fund ETF - WTI crude oil proxy",
     # Custom Metrics
     "GEX": "Gamma Exposure - Market maker hedging pressure",
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
+    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",
+    # Options Analytics
+    "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
+    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",
+    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",
 }
 
 
@@ -315,6 +323,55 @@ class SignalData:
             'WARNING': COLORS['warning'],
         }
         return status_colors.get(self.status, COLORS['text_dim'])
+
+
+@dataclass
+class EventClockState:
+    """Event-clock state and policy display for dashboard"""
+    state: str = "clear"  # pre/live/post/clear
+    enabled: bool = True
+    sources: str = "calendar+manual"  # manual, calendar, calendar+manual
+    allowed_strategies: list[str] = field(default_factory=list)
+    blackout_pre_minutes: int = 30
+    blackout_post_minutes: int = 30
+    max_size_multiplier: float = 0.25
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    @property
+    def state_color(self) -> str:
+        """Get color based on event-clock state"""
+        state_colors = {
+            'clear': COLORS['positive'],      # Green
+            'pre': COLORS['warning'],          # Orange
+            'live': COLORS['negative'],        # Red
+            'post': COLORS['warning'],         # Orange
+        }
+        return state_colors.get(self.state, COLORS['text_dim'])
+
+    @property
+    def state_label(self) -> str:
+        """Get human-readable state label"""
+        state_labels = {
+            'clear': '✓ CLEAR',
+            'pre': '⊕ PRE-EVENT',
+            'live': '◆ LIVE EVENT',
+            'post': '⊖ POST-EVENT',
+        }
+        return state_labels.get(self.state, 'UNKNOWN')
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for display"""
+        return {
+            'state': self.state,
+            'state_label': self.state_label,
+            'enabled': self.enabled,
+            'sources': self.sources,
+            'allowed_strategies': ', '.join(self.allowed_strategies) if self.allowed_strategies else 'None',
+            'blackout_pre_minutes': self.blackout_pre_minutes,
+            'blackout_post_minutes': self.blackout_post_minutes,
+            'max_size_multiplier': f'{self.max_size_multiplier:.2%}',
+            'timestamp': self.timestamp.strftime('%H:%M:%S'),
+        }
 
 
 # ==============================================================================

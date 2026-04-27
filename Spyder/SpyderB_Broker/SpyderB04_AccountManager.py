@@ -158,7 +158,7 @@ except ImportError:
 
 # Event Manager - SAFE IMPORT (optional dependency)
 try:
-    from SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType
+    from SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType, get_event_manager
     HAS_EVENT_MANAGER = True
 except ImportError:
     HAS_EVENT_MANAGER = False
@@ -442,9 +442,9 @@ class AccountManager:
         if event_manager:
             self.event_manager = event_manager
         elif HAS_EVENT_MANAGER:
-            self.event_manager = EventManager()
+            self.event_manager = get_event_manager()
         else:
-            self.event_manager = EventManager()  # Use fallback
+            self.event_manager = EventManager()  # local stub fallback
 
         # Configuration
         self.config = config or {}

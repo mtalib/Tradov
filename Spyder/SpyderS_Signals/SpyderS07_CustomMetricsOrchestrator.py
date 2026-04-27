@@ -39,9 +39,14 @@ Removed Functions:
 # STANDARD IMPORTS
 # ==============================================================================
 import sys
+import os
+import json
 import logging
+import math
 import threading
 import time
+import importlib
+import pathlib
 from datetime import datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
@@ -175,6 +180,30 @@ class MetricSnapshot:
     trin: float = float("nan")
     nymo: float = float("nan")
     breadth_regime: str = "neutral"
+    ivr: float = float("nan")
+    atm_iv: float = float("nan")
+    vrp: float = float("nan")
+    atm_iv_0dte: float = float("nan")
+    atm_iv_1dte: float = float("nan")
+    atm_iv_7dte: float = float("nan")
+    atm_iv_30dte: float = float("nan")
+    term_slope_0_7: float = float("nan")
+    term_slope_7_30: float = float("nan")
+    rr_25d: float = float("nan")
+    fly_25d: float = float("nan")
+    surface_confidence: float = float("nan")
+    surface_age_ms: float = float("nan")
+    zero_gamma: float = float("nan")
+    wall_confidence: float = float("nan")
+    vanna_pressure: float = float("nan")
+    charm_pressure: float = float("nan")
+    flow_imbalance: float = float("nan")
+    es_price: float = float("nan")
+    spy_price: float = float("nan")
+    basis_bps: float = float("nan")
+    lead_lag_ms: float = float("nan")
+    es_impulse_score: float = float("nan")
+    confirm_confidence: float = float("nan")
     timestamp: datetime = field(default_factory=datetime.now)
     update_frequency: int = UPDATE_INTERVAL
 
@@ -259,7 +288,50 @@ class CustomMetricsOrchestrator(QObject):
             "TRIN": float("nan"),
             "NYMO": float("nan"),
             "BREADTH_REGIME": "neutral",
+            "BREADTH_DEFENSIVE": float("nan"),
+            "BREADTH_CYCLICAL": float("nan"),
+            "BREADTH_SPREAD": float("nan"),
+            "SECTOR_ADV_DEC": float("nan"),
+            "SECTOR_MOMENTUM_DISPERSION": float("nan"),
+            "PARTICIPATION_SCORE": float("nan"),
+            "SECTOR_BREADTH": {},
+            "IVR": float("nan"),
+            "ATM_IV": float("nan"),
+            "VRP": float("nan"),
+            "ATM_IV_0DTE": float("nan"),
+            "ATM_IV_1DTE": float("nan"),
+            "ATM_IV_7DTE": float("nan"),
+            "ATM_IV_30DTE": float("nan"),
+            "TERM_SLOPE_0_7": float("nan"),
+            "TERM_SLOPE_7_30": float("nan"),
+            "RR_25D": float("nan"),
+            "FLY_25D": float("nan"),
+            "SURFACE_CONFIDENCE": float("nan"),
+            "SURFACE_AGE_MS": float("nan"),
+            "ZERO_GAMMA": float("nan"),
+            "WALL_CONFIDENCE": float("nan"),
+            "VANNA_PRESSURE": float("nan"),
+            "CHARM_PRESSURE": float("nan"),
+            "FLOW_IMBALANCE": float("nan"),
+            "DEALER_FLOW": {},
+            "ES_PRICE": float("nan"),
+            "SPY_PRICE": float("nan"),
+            "BASIS_BPS": float("nan"),
+            "LEAD_LAG_MS": float("nan"),
+            "ES_IMPULSE_SCORE": float("nan"),
+            "CONFIRM_DIRECTION": "unknown",
+            "CONFIRM_CONFIDENCE": float("nan"),
+            "LEAD_LAG": {},
+            "LIQUIDITY_DIAGNOSTICS": {},
+            "DATA_QUALITY_FEED": {},
         }
+
+        self._options_tradier_client = None
+        self._options_tradier_env = None
+        self._vol_surface_builder = None
+        self._n09_gex_analyzer = None
+        self._n11_flow_analyzer = None
+        self._c11_futures_basis = None
 
         # Metrics history for trend analysis
         self.metrics_history: list[MetricSnapshot] = []
@@ -401,7 +473,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH']
+        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG']
 
         for metric in metrics:
             self.metric_quality[metric] = MetricQuality(
@@ -557,11 +629,33 @@ class CustomMetricsOrchestrator(QObject):
                 # S11 - TradingView Breadth Internals (TICK, TRIN, ADD)
                 breadth_success = self._update_tv_breadth_metrics(updated_metrics, update_errors)
 
+                # Options analytics metrics (ATM IV, IV rank, volatility risk premium)
+                options_success = self._update_options_analytics_metrics(updated_metrics, update_errors)
+
+                # Volatility surface term-structure metrics
+                vol_surface_success = self._update_vol_surface_metrics(updated_metrics, update_errors)
+
+                # Dealer-flow structure: N09 gamma walls + N11 vanna/charm pressure
+                dealer_flow_success = self._update_dealer_flow_metrics(updated_metrics, update_errors)
+
+                # ES/SPY lead-lag context from C11 FuturesBasis
+                lead_lag_success = self._update_lead_lag_metrics(updated_metrics, update_errors)
+
+                # Observe-only liquidity diagnostics for candidate contracts
+                liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)
+
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
 
                 # Update quality tracking
                 self._update_quality_metrics(updated_metrics, update_errors)
+
+                # Unified SLO/data-quality feed built after quality updates.
+                updated_metrics["DATA_QUALITY_FEED"] = self._build_data_quality_feed(
+                    updated_metrics,
+                    update_errors,
+                )
+                self.current_metrics["DATA_QUALITY_FEED"] = updated_metrics["DATA_QUALITY_FEED"]
 
                 # Create metrics snapshot for history
                 snapshot = MetricSnapshot(
@@ -583,6 +677,30 @@ class CustomMetricsOrchestrator(QObject):
                     trin=updated_metrics.get('TRIN', float('nan')),
                     nymo=updated_metrics.get('NYMO', float('nan')),
                     breadth_regime=updated_metrics.get('BREADTH_REGIME', 'neutral'),
+                    ivr=updated_metrics.get('IVR', float('nan')),
+                    atm_iv=updated_metrics.get('ATM_IV', float('nan')),
+                    vrp=updated_metrics.get('VRP', float('nan')),
+                    atm_iv_0dte=updated_metrics.get('ATM_IV_0DTE', float('nan')),
+                    atm_iv_1dte=updated_metrics.get('ATM_IV_1DTE', float('nan')),
+                    atm_iv_7dte=updated_metrics.get('ATM_IV_7DTE', float('nan')),
+                    atm_iv_30dte=updated_metrics.get('ATM_IV_30DTE', float('nan')),
+                    term_slope_0_7=updated_metrics.get('TERM_SLOPE_0_7', float('nan')),
+                    term_slope_7_30=updated_metrics.get('TERM_SLOPE_7_30', float('nan')),
+                    rr_25d=updated_metrics.get('RR_25D', float('nan')),
+                    fly_25d=updated_metrics.get('FLY_25D', float('nan')),
+                    surface_confidence=updated_metrics.get('SURFACE_CONFIDENCE', float('nan')),
+                    surface_age_ms=updated_metrics.get('SURFACE_AGE_MS', float('nan')),
+                    zero_gamma=updated_metrics.get('ZERO_GAMMA', float('nan')),
+                    wall_confidence=updated_metrics.get('WALL_CONFIDENCE', float('nan')),
+                    vanna_pressure=updated_metrics.get('VANNA_PRESSURE', float('nan')),
+                    charm_pressure=updated_metrics.get('CHARM_PRESSURE', float('nan')),
+                    flow_imbalance=updated_metrics.get('FLOW_IMBALANCE', float('nan')),
+                    es_price=updated_metrics.get('ES_PRICE', float('nan')),
+                    spy_price=updated_metrics.get('SPY_PRICE', float('nan')),
+                    basis_bps=updated_metrics.get('BASIS_BPS', float('nan')),
+                    lead_lag_ms=updated_metrics.get('LEAD_LAG_MS', float('nan')),
+                    es_impulse_score=updated_metrics.get('ES_IMPULSE_SCORE', float('nan')),
+                    confirm_confidence=updated_metrics.get('CONFIRM_CONFIDENCE', float('nan')),
                     update_frequency=self.current_update_interval
                 )
 
@@ -599,12 +717,16 @@ class CustomMetricsOrchestrator(QObject):
                 calculation_time = time.time() - start_time
                 success_count = sum([
                     gex_success, dix_success, swan_success, skew_success,
-                    fred_success, sentiment_success, breadth_success,
+                    fred_success, sentiment_success, breadth_success, options_success,
+                    vol_surface_success,
+                    dealer_flow_success,
+                    lead_lag_success,
+                    liquidity_success,
                 ])
 
                 # Only log at INFO when key values change; use DEBUG for unchanged cycles.
                 _summary = (
-                    f"{success_count}/7 | "
+                    f"{success_count}/12 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}% "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
@@ -614,13 +736,14 @@ class CustomMetricsOrchestrator(QObject):
                 _last = getattr(self, "_last_metrics_summary", None)
                 _log = self.logger.info if _summary != _last else self.logger.debug
                 _log(
-                    f"📊 Metrics updated: {success_count}/7 sources successful "
+                    f"📊 Metrics updated: {success_count}/12 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
                     f"SKEW={updated_metrics.get('SKEW', 100):.1f}, "
                     f"TICK={updated_metrics.get('TICK', float('nan'))}, "
-                    f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%) "
+                    f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%, "
+                    f"BASIS={updated_metrics.get('BASIS_BPS', float('nan')):.1f}bps) "
                     f"[{calculation_time:.2f}s]"
                 )
                 self._last_metrics_summary = _summary
@@ -794,6 +917,33 @@ class CustomMetricsOrchestrator(QObject):
 
     def _update_tv_breadth_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update TICK, TRIN, ADD breadth internals from TradingView."""
+        def _coerce_float(value: Any, default: float = float("nan")) -> float:
+            try:
+                if value is None:
+                    return default
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _first_from(snapshot: dict[str, Any], keys: tuple[str, ...], default: float = float("nan")) -> float:
+            for key in keys:
+                if key in snapshot and snapshot.get(key) is not None:
+                    return _coerce_float(snapshot.get(key), default)
+            return default
+
+        # Keep the expanded sector breadth keys stable on failures.
+        sector_defaults = {
+            "BREADTH_DEFENSIVE": self.current_metrics.get("BREADTH_DEFENSIVE", float("nan")),
+            "BREADTH_CYCLICAL": self.current_metrics.get("BREADTH_CYCLICAL", float("nan")),
+            "BREADTH_SPREAD": self.current_metrics.get("BREADTH_SPREAD", float("nan")),
+            "SECTOR_ADV_DEC": self.current_metrics.get("SECTOR_ADV_DEC", float("nan")),
+            "SECTOR_MOMENTUM_DISPERSION": self.current_metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")),
+            "PARTICIPATION_SCORE": self.current_metrics.get("PARTICIPATION_SCORE", float("nan")),
+        }
+        for key, value in sector_defaults.items():
+            updated_metrics.setdefault(key, value)
+        updated_metrics.setdefault("SECTOR_BREADTH", self.current_metrics.get("SECTOR_BREADTH", {}))
+
         try:
             if self.tv_client:
                 snap = self.tv_client.get_snapshot()
@@ -801,12 +951,79 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics["ADD"]  = snap.get("add",  float("nan"))
                 updated_metrics["TRIN"] = snap.get("trin", float("nan"))
                 updated_metrics["BREADTH_REGIME"] = snap.get("breadth_regime", "neutral")
+
+                defensive = _first_from(
+                    snap,
+                    (
+                        "breadth_defensive",
+                        "sector_defensive_breadth",
+                        "defensive_breadth",
+                        "defensive_score",
+                    ),
+                    updated_metrics["BREADTH_DEFENSIVE"],
+                )
+                cyclical = _first_from(
+                    snap,
+                    (
+                        "breadth_cyclical",
+                        "sector_cyclical_breadth",
+                        "cyclical_breadth",
+                        "cyclical_score",
+                    ),
+                    updated_metrics["BREADTH_CYCLICAL"],
+                )
+                spread = cyclical - defensive
+                adv_dec = _first_from(
+                    snap,
+                    ("sector_adv_dec", "adv_dec", "sector_ad_line", "add"),
+                    _coerce_float(updated_metrics.get("ADD", float("nan"))),
+                )
+                momentum_dispersion = _first_from(
+                    snap,
+                    ("sector_momentum_dispersion", "breadth_dispersion", "dispersion"),
+                    abs(spread) if not math.isnan(spread) else float("nan"),
+                )
+                participation = _first_from(
+                    snap,
+                    ("participation_score", "breadth_participation", "sector_participation"),
+                    float("nan"),
+                )
+                if math.isnan(participation):
+                    tick = _coerce_float(updated_metrics.get("TICK", float("nan")))
+                    trin = _coerce_float(updated_metrics.get("TRIN", float("nan")))
+                    if not math.isnan(tick) and not math.isnan(trin):
+                        participation = max(0.0, min(100.0, 50.0 + (tick / 40.0) - (trin - 1.0) * 20.0))
+
+                updated_metrics["BREADTH_DEFENSIVE"] = defensive
+                updated_metrics["BREADTH_CYCLICAL"] = cyclical
+                updated_metrics["BREADTH_SPREAD"] = spread
+                updated_metrics["SECTOR_ADV_DEC"] = adv_dec
+                updated_metrics["SECTOR_MOMENTUM_DISPERSION"] = momentum_dispersion
+                updated_metrics["PARTICIPATION_SCORE"] = participation
+                updated_metrics["SECTOR_BREADTH"] = {
+                    "defensive": defensive,
+                    "cyclical": cyclical,
+                    "spread": spread,
+                    "adv_dec": adv_dec,
+                    "momentum_dispersion": momentum_dispersion,
+                    "participation_score": participation,
+                    "breadth_regime": updated_metrics["BREADTH_REGIME"],
+                    "snapshot_ts": snap.get("snapshot_ts") or datetime.now().isoformat(),
+                    "source": "SpyderS11_TradingViewInternals",
+                }
+
+                if "SECTOR_BREADTH" in self.metric_quality:
+                    q = self.metric_quality["SECTOR_BREADTH"]
+                    q.last_successful_update = datetime.now()
+                    q.data_points += 1
+                    q.quality_score = min(1.0, q.quality_score + 0.01)
                 self.breadth_updated.emit(snap)
                 return True
             else:
                 for key in ("TICK", "ADD", "TRIN"):
                     updated_metrics[key] = self.current_metrics.get(key, float("nan"))
                 updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
+                updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
                 return False
         except Exception as e:
             errors.append(f"Breadth update error: {e}")
@@ -814,6 +1031,575 @@ class CustomMetricsOrchestrator(QObject):
             for key in ("TICK", "ADD", "TRIN"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
+            updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
+            return False
+
+    def _build_data_quality_feed(self, updated_metrics: dict[str, Any], errors: list[str]) -> dict[str, Any]:
+        """Build a normalized data-quality/SLO envelope for downstream consumers."""
+        now = datetime.now()
+        stale_threshold_sec = int(self.config.get("data_quality", {}).get("stale_after_sec", 180))
+        buckets: dict[str, dict[str, Any]] = {}
+        stale_count = 0
+
+        for name, quality in self.metric_quality.items():
+            age_sec = (now - quality.last_successful_update).total_seconds()
+            stale = age_sec > stale_threshold_sec
+            if stale:
+                stale_count += 1
+            buckets[name] = {
+                "quality_score": quality.quality_score,
+                "data_points": quality.data_points,
+                "error_count": quality.error_count,
+                "last_successful_update": quality.last_successful_update.isoformat(),
+                "age_sec": round(age_sec, 1),
+                "source_available": quality.source_available,
+                "stale": stale,
+            }
+
+        overall_quality = float(np.mean([q.quality_score for q in self.metric_quality.values()])) if self.metric_quality else 0.0
+        total_buckets = len(buckets)
+        freshness_score = 1.0 if total_buckets == 0 else max(0.0, 1.0 - (stale_count / total_buckets))
+
+        slo_targets = {
+            "overall_quality_min": float(self.config.get("data_quality", {}).get("overall_quality_min", 0.75)),
+            "freshness_min": float(self.config.get("data_quality", {}).get("freshness_min", 0.70)),
+        }
+        slo_status = {
+            "overall_quality_ok": overall_quality >= slo_targets["overall_quality_min"],
+            "freshness_ok": freshness_score >= slo_targets["freshness_min"],
+        }
+        slo_status["all_ok"] = all(slo_status.values())
+
+        return {
+            "feed": "data_quality",
+            "version": "1.0",
+            "published_ts": now.isoformat(),
+            "data": {
+                "overall_quality": overall_quality,
+                "freshness_score": freshness_score,
+                "stale_bucket_count": stale_count,
+                "total_bucket_count": total_buckets,
+                "error_count": len(errors),
+                "slo_targets": slo_targets,
+                "slo_status": slo_status,
+                "quality_buckets": buckets,
+                "last_update_interval_sec": self.current_update_interval,
+                "update_keys": sorted(updated_metrics.keys()),
+            },
+        }
+
+    def _get_spy_spot(self) -> float | None:
+        """Return the best available SPY spot estimate."""
+        spot = self.current_metrics.get("OGL")
+        if isinstance(spot, (int, float)) and spot > 0:
+            return float(spot)
+        return None
+
+    def _get_liquidity_thresholds(self) -> dict[str, float]:
+        """Return the configured liquidity gate thresholds."""
+        liquidity_cfg = self.config.get("autonomous_readiness", {}).get("liquidity", {})
+        return {
+            "max_spread_pct": float(liquidity_cfg.get("max_spread_pct", 0.12)),
+            "max_spread_abs": float(liquidity_cfg.get("max_spread_abs", 0.20)),
+            "max_quote_age_ms": int(liquidity_cfg.get("max_quote_age_ms", 1500)),
+            "min_top_of_book_size": int(liquidity_cfg.get("min_top_of_book_size", 10)),
+            "min_open_interest": int(liquidity_cfg.get("min_open_interest", 500)),
+            "min_volume": int(liquidity_cfg.get("min_volume", 50)),
+            "min_oi_change_pct": float(liquidity_cfg.get("min_oi_change_pct", -0.20)),
+        }
+
+    def _evaluate_liquidity_snapshot(self, snapshot: dict[str, Any], thresholds: dict[str, float]) -> list[str]:
+        """Evaluate a liquidity snapshot using the same contract as F09/B02."""
+        reasons: list[str] = []
+
+        spread_pct = snapshot.get("spread_pct")
+        if isinstance(spread_pct, (int, float)) and float(spread_pct) > thresholds["max_spread_pct"]:
+            reasons.append(
+                f"spread_pct {float(spread_pct):.4f} > max_spread_pct {thresholds['max_spread_pct']:.4f}"
+            )
+
+        spread_abs = snapshot.get("spread_abs")
+        if isinstance(spread_abs, (int, float)) and float(spread_abs) > thresholds["max_spread_abs"]:
+            reasons.append(
+                f"spread_abs {float(spread_abs):.4f} > max_spread_abs {thresholds['max_spread_abs']:.4f}"
+            )
+
+        quote_age_ms = snapshot.get("quote_age_ms")
+        if isinstance(quote_age_ms, (int, float)) and float(quote_age_ms) > thresholds["max_quote_age_ms"]:
+            reasons.append(
+                f"quote_age_ms {float(quote_age_ms):.0f} > max_quote_age_ms {thresholds['max_quote_age_ms']:.0f}"
+            )
+
+        top_of_book_size = snapshot.get("top_of_book_size")
+        if isinstance(top_of_book_size, (int, float)) and float(top_of_book_size) < thresholds["min_top_of_book_size"]:
+            reasons.append(
+                f"top_of_book_size {float(top_of_book_size):.0f} < min_top_of_book_size {thresholds['min_top_of_book_size']:.0f}"
+            )
+
+        open_interest = snapshot.get("open_interest")
+        if isinstance(open_interest, (int, float)) and float(open_interest) < thresholds["min_open_interest"]:
+            reasons.append(
+                f"open_interest {float(open_interest):.0f} < min_open_interest {thresholds['min_open_interest']:.0f}"
+            )
+
+        volume = snapshot.get("volume")
+        if isinstance(volume, (int, float)) and float(volume) < thresholds["min_volume"]:
+            reasons.append(f"volume {float(volume):.0f} < min_volume {thresholds['min_volume']:.0f}")
+
+        oi_change_pct = snapshot.get("oi_change_pct")
+        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < thresholds["min_oi_change_pct"]:
+            reasons.append(
+                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {thresholds['min_oi_change_pct']:.4f}"
+            )
+
+        return reasons
+
+    def _load_options_chain_dataframe(self):
+        """Load the live SPY options chain as a DataFrame from the nearest owner."""
+        try:
+            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")
+        except ImportError:
+            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")
+
+        chain_manager = chain_module.OptionsChainManager()
+        return chain_manager.get_chain("SPY")
+
+    def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:
+        """Convert one option-chain row into an observe-mode liquidity payload."""
+        bid = float(row.get("bid") or 0.0)
+        ask = float(row.get("ask") or 0.0)
+        mid_price = float(row.get("mid_price") or 0.0)
+        if mid_price <= 0 and bid > 0 and ask > 0:
+            mid_price = (bid + ask) / 2.0
+        spread_abs = float(row.get("spread") or max(0.0, ask - bid))
+        spread_pct = (spread_abs / mid_price) if mid_price > 0 else None
+
+        quote_ts = row.get("timestamp")
+        if hasattr(quote_ts, "to_pydatetime"):
+            quote_ts = quote_ts.to_pydatetime()
+        if not isinstance(quote_ts, datetime):
+            quote_ts = now
+
+        bid_size = row.get("bid_size")
+        ask_size = row.get("ask_size")
+        if bid_size is not None and ask_size is not None:
+            try:
+                top_of_book_size = min(int(bid_size), int(ask_size))
+            except (TypeError, ValueError):
+                top_of_book_size = None
+        else:
+            top_of_book_size = None
+
+        snapshot = {
+            "spread_abs": spread_abs,
+            "spread_pct": spread_pct,
+            "quote_age_ms": max(0, int((now - quote_ts).total_seconds() * 1000)),
+            "bid_size": int(bid_size) if isinstance(bid_size, (int, float)) else None,
+            "ask_size": int(ask_size) if isinstance(ask_size, (int, float)) else None,
+            "top_of_book_size": top_of_book_size,
+            "open_interest": int(row.get("open_interest") or 0),
+            "volume": int(row.get("volume") or 0),
+            "oi_change_pct": row.get("oi_change_pct"),
+            "snapshot_ts": quote_ts.isoformat(),
+        }
+        reasons = self._evaluate_liquidity_snapshot(snapshot, thresholds)
+
+        return {
+            "symbol": row.get("symbol", "SPY"),
+            "strike": float(row.get("strike") or 0.0),
+            "expiry": row.get("expiry").isoformat() if isinstance(row.get("expiry"), datetime) else str(row.get("expiry")),
+            "option_type": str(row.get("option_type", "")).lower(),
+            "snapshot": snapshot,
+            "gate_passed": len(reasons) == 0,
+            "reasons": reasons,
+        }
+
+    def _update_liquidity_diagnostics_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Publish observe-mode liquidity diagnostics for nearby SPY option candidates."""
+        updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))
+
+        try:
+            chain_df = self._load_options_chain_dataframe()
+            if chain_df is None or chain_df.empty:
+                raise ValueError("SPY options chain unavailable")
+
+            anchor = self.current_metrics.get("OGL")
+            if not isinstance(anchor, (int, float)) or anchor <= 0:
+                spot = self._get_spy_spot()
+                anchor = spot if spot is not None else float(chain_df["strike"].median())
+
+            now = datetime.now()
+            candidate_df = chain_df.copy()
+            candidate_df["_distance"] = (candidate_df["strike"].astype(float) - float(anchor)).abs()
+            candidate_df = candidate_df.sort_values(["_distance", "expiry", "option_type"]).head(6)
+
+            thresholds = self._get_liquidity_thresholds()
+            candidates = [
+                self._build_liquidity_candidate(row, now, thresholds)
+                for _, row in candidate_df.iterrows()
+            ]
+
+            updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {
+                "feed": "liquidity_diagnostics",
+                "version": "1.0",
+                "mode": "observe",
+                "session_id": f"s07-{self.client_id}",
+                "published_ts": now.isoformat(),
+                "data": {
+                    "symbol": "SPY",
+                    "source": "SpyderN03_OptionsChainManager",
+                    "anchor_strike": float(anchor),
+                    "candidate_count": len(candidates),
+                    "candidates": candidates,
+                },
+            }
+            return True
+        except Exception as e:
+            errors.append(f"liquidity diagnostics update failed: {e}")
+            self.logger.warning("Liquidity diagnostics unavailable: %s", e)
+            updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {}
+            return False
+
+    def _compute_atm_iv(self, contracts: list, spot: float) -> float | None:
+        """Compute ATM implied volatility as a percent using the nearest strikes."""
+        if not contracts or spot <= 0:
+            return None
+
+        candidates: list[tuple[float, float]] = []
+        for contract in contracts:
+            strike = getattr(contract, "strike", None)
+            iv = getattr(contract, "iv", None)
+            if strike is None or iv is None or iv <= 0:
+                continue
+            candidates.append((abs(float(strike) - spot), float(iv)))
+
+        if not candidates:
+            return None
+
+        nearest_ivs = [iv for _distance, iv in sorted(candidates, key=lambda item: item[0])[:6]]
+        if not nearest_ivs:
+            return None
+
+        return float(np.mean(nearest_ivs) * 100.0)
+
+    def _compute_ivr(self, current_iv: float) -> float:
+        """Compute IV rank from the persisted SPY IV history."""
+        cache_path = pathlib.Path("data/cache/spy_iv_history.json")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        history: list[dict[str, Any]] = []
+        if cache_path.exists():
+            try:
+                history = json.loads(cache_path.read_text())
+            except Exception:
+                history = []
+
+        history.append({
+            "date": datetime.now().date().isoformat(),
+            "iv": float(current_iv),
+        })
+        history = history[-252:]
+        cache_path.write_text(json.dumps(history))
+
+        iv_values = [float(entry["iv"]) for entry in history if entry.get("iv") is not None]
+        if len(iv_values) < 5:
+            return float("nan")
+
+        low_iv = min(iv_values)
+        high_iv = max(iv_values)
+        if math.isclose(high_iv, low_iv):
+            return 100.0 if math.isclose(current_iv, high_iv) else float("nan")
+
+        return max(0.0, min(100.0, ((current_iv - low_iv) / (high_iv - low_iv)) * 100.0))
+
+    def _compute_hv20(self, tradier_client: Any) -> float | None:
+        """Compute 20-day historical volatility as an annualized percent."""
+        try:
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=40)
+            response = tradier_client.get_historical_quotes(
+                "SPY",
+                interval="daily",
+                start=start_date.isoformat(),
+                end=end_date.isoformat(),
+            )
+        except Exception:
+            return None
+
+        days = response.get("history", {}).get("day", [])
+        closes = []
+        for day in days:
+            close = day.get("close")
+            if close is None or close <= 0:
+                continue
+            closes.append(float(close))
+
+        if len(closes) < 20:
+            return None
+
+        log_returns = np.diff(np.log(np.asarray(closes, dtype=float)))
+        if log_returns.size == 0:
+            return None
+
+        return float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
+
+    def _get_options_tradier_client(self):
+        """Return a cached Tradier client for options analytics calls."""
+        api_key = os.getenv("TRADIER_API_KEY", "").strip()
+        account_id = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
+        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
+
+        if not api_key or not account_id:
+            return None
+
+        if self._options_tradier_client is not None:
+            if self._options_tradier_env is None:
+                self._options_tradier_env = environment_name
+                return self._options_tradier_client
+            if self._options_tradier_env == environment_name:
+                return self._options_tradier_client
+
+        try:
+            tradier_module = importlib.import_module("Spyder.SpyderB_Broker.SpyderB40_TradierClient")
+        except ImportError:
+            tradier_module = importlib.import_module("SpyderB_Broker.SpyderB40_TradierClient")
+
+        environment_enum = getattr(tradier_module.TradingEnvironment, environment_name.upper(), None)
+        if environment_enum is None:
+            environment_enum = tradier_module.TradingEnvironment.SANDBOX
+
+        self._options_tradier_client = tradier_module.TradierClient(
+            api_key=api_key,
+            account_id=account_id,
+            environment=environment_enum,
+        )
+        self._options_tradier_env = environment_name
+        return self._options_tradier_client
+
+    def _get_vol_surface_builder(self):
+        """Return a cached volatility surface builder."""
+        if self._vol_surface_builder is not None:
+            return self._vol_surface_builder
+
+        try:
+            vol_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")
+        except ImportError:
+            vol_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")
+
+        self._vol_surface_builder = vol_module.VolatilitySurfaceBuilder(config={"smoothing": 0.0})
+        return self._vol_surface_builder
+
+    def _get_n09_gex_analyzer(self):
+        """Return a cached N09 GammaExposureCalculator instance."""
+        if self._n09_gex_analyzer is not None:
+            return self._n09_gex_analyzer
+        try:
+            mod = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN09_GammaExposure")
+        except ImportError:
+            mod = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN09_GammaExposure")
+        self._n09_gex_analyzer = mod.GammaExposureCalculator()
+        return self._n09_gex_analyzer
+
+    def _get_n11_flow_analyzer(self):
+        """Return a cached N11 OptionsGreeksFlowAnalyzer instance."""
+        if self._n11_flow_analyzer is not None:
+            return self._n11_flow_analyzer
+        try:
+            mod = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow")
+        except ImportError:
+            mod = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow")
+        self._n11_flow_analyzer = mod.OptionsGreeksFlowAnalyzer()
+        return self._n11_flow_analyzer
+
+    def _update_dealer_flow_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update dealer-flow structure metrics from N09 (gamma walls) and N11 (vanna/charm)."""
+        # Seed keys with existing cached values as defaults
+        scalar_defaults = {
+            "ZERO_GAMMA": self.current_metrics.get("ZERO_GAMMA", float("nan")),
+            "WALL_CONFIDENCE": self.current_metrics.get("WALL_CONFIDENCE", float("nan")),
+            "VANNA_PRESSURE": self.current_metrics.get("VANNA_PRESSURE", float("nan")),
+            "CHARM_PRESSURE": self.current_metrics.get("CHARM_PRESSURE", float("nan")),
+            "FLOW_IMBALANCE": self.current_metrics.get("FLOW_IMBALANCE", float("nan")),
+        }
+        for key, val in scalar_defaults.items():
+            updated_metrics.setdefault(key, val)
+        updated_metrics.setdefault("DEALER_FLOW", self.current_metrics.get("DEALER_FLOW", {}))
+
+        ok_n09 = False
+        ok_n11 = False
+
+        # --- N09: gamma walls + zero-gamma level ---
+        try:
+            gex = self._get_n09_gex_analyzer()
+            walls = gex.get_dealer_walls_snapshot()
+            updated_metrics["ZERO_GAMMA"] = float(walls.get("zero_gamma_level", float("nan")))
+            updated_metrics["WALL_CONFIDENCE"] = float(walls.get("wall_confidence", float("nan")))
+            updated_metrics.setdefault("DEALER_FLOW", {})
+            updated_metrics["DEALER_FLOW"].update({
+                "zero_gamma_level": walls.get("zero_gamma_level"),
+                "spot_to_zero_gamma_pct": walls.get("spot_to_zero_gamma_pct"),
+                "call_wall_levels": walls.get("call_wall_levels", []),
+                "put_wall_levels": walls.get("put_wall_levels", []),
+                "wall_confidence": walls.get("wall_confidence"),
+                "net_gex": walls.get("net_gex"),
+                "regime": walls.get("regime"),
+                "walls_snapshot_ts": walls.get("snapshot_ts"),
+            })
+            ok_n09 = True
+        except Exception as e:
+            errors.append(f"dealer walls update failed: {e}")
+
+        # --- N11: vanna/charm pressure ---
+        try:
+            flow = self._get_n11_flow_analyzer()
+            vc = flow.get_vanna_charm_snapshot()
+            updated_metrics["VANNA_PRESSURE"] = float(vc.get("vanna_pressure", float("nan")))
+            updated_metrics["CHARM_PRESSURE"] = float(vc.get("charm_pressure", float("nan")))
+            updated_metrics["FLOW_IMBALANCE"] = float(vc.get("flow_imbalance_score", float("nan")))
+            updated_metrics.setdefault("DEALER_FLOW", {})
+            updated_metrics["DEALER_FLOW"].update({
+                "vanna_pressure": vc.get("vanna_pressure"),
+                "charm_pressure": vc.get("charm_pressure"),
+                "flow_imbalance_score": vc.get("flow_imbalance_score"),
+                "dealer_position": vc.get("dealer_position"),
+                "flow_snapshot_ts": vc.get("snapshot_ts"),
+            })
+            ok_n11 = True
+        except Exception as e:
+            errors.append(f"vanna charm update failed: {e}")
+
+        # Update quality bucket
+        if ok_n09 or ok_n11:
+            if "DEALER_FLOW" in self.metric_quality:
+                q = self.metric_quality["DEALER_FLOW"]
+                q.last_successful_update = datetime.now()
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
+
+        return ok_n09 and ok_n11
+
+    def _get_c11_futures_basis(self):
+        """Return a cached C11 FuturesBasisAnalyzer instance."""
+        if self._c11_futures_basis is not None:
+            return self._c11_futures_basis
+        try:
+            mod = importlib.import_module("Spyder.SpyderC_MarketData.SpyderC11_FuturesBasis")
+        except ImportError:
+            mod = importlib.import_module("SpyderC_MarketData.SpyderC11_FuturesBasis")
+        self._c11_futures_basis = mod.FuturesBasisAnalyzer()
+        return self._c11_futures_basis
+
+    def _update_lead_lag_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update ES/SPY lead-lag context metrics from C11 FuturesBasis."""
+        scalar_defaults = {
+            "ES_PRICE": self.current_metrics.get("ES_PRICE", float("nan")),
+            "SPY_PRICE": self.current_metrics.get("SPY_PRICE", float("nan")),
+            "BASIS_BPS": self.current_metrics.get("BASIS_BPS", float("nan")),
+            "LEAD_LAG_MS": self.current_metrics.get("LEAD_LAG_MS", float("nan")),
+            "ES_IMPULSE_SCORE": self.current_metrics.get("ES_IMPULSE_SCORE", float("nan")),
+            "CONFIRM_DIRECTION": self.current_metrics.get("CONFIRM_DIRECTION", "unknown"),
+            "CONFIRM_CONFIDENCE": self.current_metrics.get("CONFIRM_CONFIDENCE", float("nan")),
+        }
+        for k, v in scalar_defaults.items():
+            updated_metrics.setdefault(k, v)
+        updated_metrics.setdefault("LEAD_LAG", self.current_metrics.get("LEAD_LAG", {}))
+
+        try:
+            analyzer = self._get_c11_futures_basis()
+            snap = analyzer.get_lead_lag_snapshot()
+            updated_metrics["ES_PRICE"] = float(snap.get("es_price", float("nan")))
+            updated_metrics["SPY_PRICE"] = float(snap.get("spy_price", float("nan")))
+            updated_metrics["BASIS_BPS"] = float(snap.get("basis_bps", float("nan")))
+            updated_metrics["LEAD_LAG_MS"] = float(snap.get("lead_lag_ms", float("nan")))
+            updated_metrics["ES_IMPULSE_SCORE"] = float(snap.get("es_impulse_score", float("nan")))
+            updated_metrics["CONFIRM_DIRECTION"] = snap.get("confirm_direction", "unknown")
+            updated_metrics["CONFIRM_CONFIDENCE"] = float(snap.get("confirm_confidence", float("nan")))
+            updated_metrics["LEAD_LAG"] = {
+                "es_price": snap.get("es_price"),
+                "spy_price": snap.get("spy_price"),
+                "basis_bps": snap.get("basis_bps"),
+                "lead_lag_ms": snap.get("lead_lag_ms"),
+                "es_impulse_score": snap.get("es_impulse_score"),
+                "confirm_direction": snap.get("confirm_direction"),
+                "confirm_confidence": snap.get("confirm_confidence"),
+                "snapshot_ts": snap.get("snapshot_ts"),
+            }
+            if "LEAD_LAG" in self.metric_quality:
+                q = self.metric_quality["LEAD_LAG"]
+                q.last_successful_update = datetime.now()
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
+            return True
+        except Exception as e:
+            errors.append(f"lead-lag update failed: {e}")
+            return False
+
+    def _update_options_analytics_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update ATM IV, IV rank, and volatility risk premium metrics."""
+        updated_metrics.setdefault("IVR", self.current_metrics.get("IVR", float("nan")))
+        updated_metrics.setdefault("ATM_IV", self.current_metrics.get("ATM_IV", float("nan")))
+        updated_metrics.setdefault("VRP", self.current_metrics.get("VRP", float("nan")))
+
+        client = self._get_options_tradier_client()
+        if client is None:
+            return False
+
+        try:
+            spot = self._get_spy_spot()
+            if spot is None or spot <= 0:
+                raise ValueError("SPY spot unavailable for options analytics")
+
+            expirations_response = client.get_option_expirations("SPY")
+            expirations = expirations_response.get("expirations", {}).get("date", [])
+            if not expirations:
+                raise ValueError("No SPY option expirations available")
+
+            contracts = client.get_option_chain_with_greeks("SPY", expirations[0])
+            atm_iv = self._compute_atm_iv(contracts, spot)
+            if atm_iv is None:
+                raise ValueError("ATM IV unavailable from option chain")
+
+            hv20 = self._compute_hv20(client)
+            updated_metrics["ATM_IV"] = atm_iv
+            updated_metrics["IVR"] = self._compute_ivr(atm_iv)
+            updated_metrics["VRP"] = atm_iv - hv20 if hv20 is not None else float("nan")
+            return True
+        except Exception as e:
+            errors.append(f"options analytics update failed: {e}")
+            return False
+
+    def _update_vol_surface_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update volatility-surface term nodes and smile structure metrics."""
+        metric_defaults = {
+            "ATM_IV_0DTE": self.current_metrics.get("ATM_IV_0DTE", float("nan")),
+            "ATM_IV_1DTE": self.current_metrics.get("ATM_IV_1DTE", float("nan")),
+            "ATM_IV_7DTE": self.current_metrics.get("ATM_IV_7DTE", float("nan")),
+            "ATM_IV_30DTE": self.current_metrics.get("ATM_IV_30DTE", float("nan")),
+            "TERM_SLOPE_0_7": self.current_metrics.get("TERM_SLOPE_0_7", float("nan")),
+            "TERM_SLOPE_7_30": self.current_metrics.get("TERM_SLOPE_7_30", float("nan")),
+            "RR_25D": self.current_metrics.get("RR_25D", float("nan")),
+            "FLY_25D": self.current_metrics.get("FLY_25D", float("nan")),
+            "SURFACE_CONFIDENCE": self.current_metrics.get("SURFACE_CONFIDENCE", float("nan")),
+            "SURFACE_AGE_MS": self.current_metrics.get("SURFACE_AGE_MS", float("nan")),
+        }
+        updated_metrics.update({key: updated_metrics.get(key, value) for key, value in metric_defaults.items()})
+
+        try:
+            builder = self._get_vol_surface_builder()
+            snapshot = builder.get_term_structure_snapshot("SPY")
+            updated_metrics["ATM_IV_0DTE"] = float(snapshot.get("atm_iv_0dte", float("nan")))
+            updated_metrics["ATM_IV_1DTE"] = float(snapshot.get("atm_iv_1dte", float("nan")))
+            updated_metrics["ATM_IV_7DTE"] = float(snapshot.get("atm_iv_7dte", float("nan")))
+            updated_metrics["ATM_IV_30DTE"] = float(snapshot.get("atm_iv_30dte", float("nan")))
+            updated_metrics["TERM_SLOPE_0_7"] = float(snapshot.get("term_slope_0_7", float("nan")))
+            updated_metrics["TERM_SLOPE_7_30"] = float(snapshot.get("term_slope_7_30", float("nan")))
+            updated_metrics["RR_25D"] = float(snapshot.get("rr_25d", float("nan")))
+            updated_metrics["FLY_25D"] = float(snapshot.get("fly_25d", float("nan")))
+            updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))
+            updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
+            return True
+        except Exception as e:
+            errors.append(f"vol surface update failed: {e}")
             return False
 
     def _update_quality_metrics(self, updated_metrics: dict, errors: list):
@@ -871,6 +1657,21 @@ class CustomMetricsOrchestrator(QObject):
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
         timestamp = datetime.now()
+
+        def _is_nan(value: Any) -> bool:
+            return isinstance(value, float) and math.isnan(value)
+
+        def _format_ivr(value: Any) -> str:
+            return "---" if _is_nan(value) else f"{float(value):.0f}"
+
+        def _format_atm_iv(value: Any) -> str:
+            return "---" if _is_nan(value) else f"{float(value):.1f}%"
+
+        def _format_vrp(value: Any) -> str:
+            return "---" if _is_nan(value) else f"{float(value):+.1f}"
+
+        def _format_float(value: Any, digits: int = 2, suffix: str = "") -> str:
+            return "---" if _is_nan(value) else f"{float(value):.{digits}f}{suffix}"
 
         return {
             "GEX": {
@@ -974,6 +1775,216 @@ class CustomMetricsOrchestrator(QObject):
                 "formatted": metrics.get("BREADTH_REGIME", "neutral").replace("_", " ").title(),
                 "timestamp": timestamp,
                 "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "BREADTH_DEFENSIVE": {
+                "value": metrics.get("BREADTH_DEFENSIVE", float("nan")),
+                "formatted": _format_float(metrics.get("BREADTH_DEFENSIVE", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "BREADTH_CYCLICAL": {
+                "value": metrics.get("BREADTH_CYCLICAL", float("nan")),
+                "formatted": _format_float(metrics.get("BREADTH_CYCLICAL", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "BREADTH_SPREAD": {
+                "value": metrics.get("BREADTH_SPREAD", float("nan")),
+                "formatted": _format_float(metrics.get("BREADTH_SPREAD", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "SECTOR_ADV_DEC": {
+                "value": metrics.get("SECTOR_ADV_DEC", float("nan")),
+                "formatted": _format_float(metrics.get("SECTOR_ADV_DEC", float("nan")), 0),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "SECTOR_MOMENTUM_DISPERSION": {
+                "value": metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")),
+                "formatted": _format_float(metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "PARTICIPATION_SCORE": {
+                "value": metrics.get("PARTICIPATION_SCORE", float("nan")),
+                "formatted": _format_float(metrics.get("PARTICIPATION_SCORE", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "SECTOR_BREADTH": {
+                "value": metrics.get("SECTOR_BREADTH", {}),
+                "formatted": str(metrics.get("SECTOR_BREADTH", {}).get("breadth_regime", "---")),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
+            },
+            "IVR": {
+                "value": metrics.get("IVR", float("nan")),
+                "formatted": _format_ivr(metrics.get("IVR", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['OPTIONS'].quality_score
+            },
+            "ATM_IV": {
+                "value": metrics.get("ATM_IV", float("nan")),
+                "formatted": _format_atm_iv(metrics.get("ATM_IV", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['OPTIONS'].quality_score
+            },
+            "VRP": {
+                "value": metrics.get("VRP", float("nan")),
+                "formatted": _format_vrp(metrics.get("VRP", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['OPTIONS'].quality_score
+            },
+            "ATM_IV_0DTE": {
+                "value": metrics.get("ATM_IV_0DTE", float("nan")),
+                "formatted": _format_atm_iv(metrics.get("ATM_IV_0DTE", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "ATM_IV_1DTE": {
+                "value": metrics.get("ATM_IV_1DTE", float("nan")),
+                "formatted": _format_atm_iv(metrics.get("ATM_IV_1DTE", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "ATM_IV_7DTE": {
+                "value": metrics.get("ATM_IV_7DTE", float("nan")),
+                "formatted": _format_atm_iv(metrics.get("ATM_IV_7DTE", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "ATM_IV_30DTE": {
+                "value": metrics.get("ATM_IV_30DTE", float("nan")),
+                "formatted": _format_atm_iv(metrics.get("ATM_IV_30DTE", float("nan"))),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "TERM_SLOPE_0_7": {
+                "value": metrics.get("TERM_SLOPE_0_7", float("nan")),
+                "formatted": _format_float(metrics.get("TERM_SLOPE_0_7", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "TERM_SLOPE_7_30": {
+                "value": metrics.get("TERM_SLOPE_7_30", float("nan")),
+                "formatted": _format_float(metrics.get("TERM_SLOPE_7_30", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "RR_25D": {
+                "value": metrics.get("RR_25D", float("nan")),
+                "formatted": _format_float(metrics.get("RR_25D", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "FLY_25D": {
+                "value": metrics.get("FLY_25D", float("nan")),
+                "formatted": _format_float(metrics.get("FLY_25D", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "SURFACE_CONFIDENCE": {
+                "value": metrics.get("SURFACE_CONFIDENCE", float("nan")),
+                "formatted": _format_float(metrics.get("SURFACE_CONFIDENCE", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['VOL_SURFACE'].quality_score
+            },
+            "ZERO_GAMMA": {
+                "value": metrics.get("ZERO_GAMMA", float("nan")),
+                "formatted": _format_float(metrics.get("ZERO_GAMMA", float("nan")), 2, ""),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "WALL_CONFIDENCE": {
+                "value": metrics.get("WALL_CONFIDENCE", float("nan")),
+                "formatted": _format_float(metrics.get("WALL_CONFIDENCE", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "VANNA_PRESSURE": {
+                "value": metrics.get("VANNA_PRESSURE", float("nan")),
+                "formatted": _format_float(metrics.get("VANNA_PRESSURE", float("nan")), 0),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "CHARM_PRESSURE": {
+                "value": metrics.get("CHARM_PRESSURE", float("nan")),
+                "formatted": _format_float(metrics.get("CHARM_PRESSURE", float("nan")), 0),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "FLOW_IMBALANCE": {
+                "value": metrics.get("FLOW_IMBALANCE", float("nan")),
+                "formatted": _format_float(metrics.get("FLOW_IMBALANCE", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "DEALER_FLOW": {
+                "value": metrics.get("DEALER_FLOW", {}),
+                "formatted": metrics.get("DEALER_FLOW", {}).get("dealer_position", "---"),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['DEALER_FLOW'].quality_score
+            },
+            "ES_PRICE": {
+                "value": metrics.get("ES_PRICE", float("nan")),
+                "formatted": _format_float(metrics.get("ES_PRICE", float("nan")), 2, ""),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "SPY_PRICE": {
+                "value": metrics.get("SPY_PRICE", float("nan")),
+                "formatted": _format_float(metrics.get("SPY_PRICE", float("nan")), 2, ""),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "BASIS_BPS": {
+                "value": metrics.get("BASIS_BPS", float("nan")),
+                "formatted": _format_float(metrics.get("BASIS_BPS", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "LEAD_LAG_MS": {
+                "value": metrics.get("LEAD_LAG_MS", float("nan")),
+                "formatted": _format_float(metrics.get("LEAD_LAG_MS", float("nan")), 1),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "ES_IMPULSE_SCORE": {
+                "value": metrics.get("ES_IMPULSE_SCORE", float("nan")),
+                "formatted": _format_float(metrics.get("ES_IMPULSE_SCORE", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "CONFIRM_DIRECTION": {
+                "value": metrics.get("CONFIRM_DIRECTION", "unknown"),
+                "formatted": str(metrics.get("CONFIRM_DIRECTION", "---")),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "CONFIRM_CONFIDENCE": {
+                "value": metrics.get("CONFIRM_CONFIDENCE", float("nan")),
+                "formatted": _format_float(metrics.get("CONFIRM_CONFIDENCE", float("nan")), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "LEAD_LAG": {
+                "value": metrics.get("LEAD_LAG", {}),
+                "formatted": metrics.get("LEAD_LAG", {}).get("confirm_direction", "---"),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LEAD_LAG'].quality_score
+            },
+            "LIQUIDITY_DIAGNOSTICS": {
+                "value": metrics.get("LIQUIDITY_DIAGNOSTICS", {}),
+                "formatted": f"{len(metrics.get('LIQUIDITY_DIAGNOSTICS', {}).get('data', {}).get('candidates', []))} candidates",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['LIQUIDITY'].quality_score
+            },
+            "DATA_QUALITY_FEED": {
+                "value": metrics.get("DATA_QUALITY_FEED", {}),
+                "formatted": f"{(metrics.get('DATA_QUALITY_FEED', {}).get('data', {}).get('overall_quality', float('nan')) * 100.0):.0f}% healthy",
+                "timestamp": timestamp,
+                "quality": 1.0
             },
             "meta": {
                 "update_frequency": self.current_update_interval,
@@ -1088,9 +2099,44 @@ class CustomMetricsOrchestrator(QObject):
                 'trin': self.current_metrics.get('TRIN', float('nan')),
                 'nymo': self.current_metrics.get('NYMO', float('nan')),
                 'breadth_regime': self.current_metrics.get('BREADTH_REGIME', 'neutral'),
+                'breadth_defensive': self.current_metrics.get('BREADTH_DEFENSIVE', float('nan')),
+                'breadth_cyclical': self.current_metrics.get('BREADTH_CYCLICAL', float('nan')),
+                'breadth_spread': self.current_metrics.get('BREADTH_SPREAD', float('nan')),
+                'sector_adv_dec': self.current_metrics.get('SECTOR_ADV_DEC', float('nan')),
+                'sector_momentum_dispersion': self.current_metrics.get('SECTOR_MOMENTUM_DISPERSION', float('nan')),
+                'participation_score': self.current_metrics.get('PARTICIPATION_SCORE', float('nan')),
+                'sector_breadth': self.current_metrics.get('SECTOR_BREADTH', {}),
+                'ivr': self.current_metrics.get('IVR', float('nan')),
+                'atm_iv': self.current_metrics.get('ATM_IV', float('nan')),
+                'vrp': self.current_metrics.get('VRP', float('nan')),
+                'atm_iv_0dte': self.current_metrics.get('ATM_IV_0DTE', float('nan')),
+                'atm_iv_1dte': self.current_metrics.get('ATM_IV_1DTE', float('nan')),
+                'atm_iv_7dte': self.current_metrics.get('ATM_IV_7DTE', float('nan')),
+                'atm_iv_30dte': self.current_metrics.get('ATM_IV_30DTE', float('nan')),
+                'term_slope_0_7': self.current_metrics.get('TERM_SLOPE_0_7', float('nan')),
+                'term_slope_7_30': self.current_metrics.get('TERM_SLOPE_7_30', float('nan')),
+                'rr_25d': self.current_metrics.get('RR_25D', float('nan')),
+                'fly_25d': self.current_metrics.get('FLY_25D', float('nan')),
+                'surface_confidence': self.current_metrics.get('SURFACE_CONFIDENCE', float('nan')),
+                'surface_age_ms': self.current_metrics.get('SURFACE_AGE_MS', float('nan')),
+                'zero_gamma': self.current_metrics.get('ZERO_GAMMA', float('nan')),
+                'wall_confidence': self.current_metrics.get('WALL_CONFIDENCE', float('nan')),
+                'vanna_pressure': self.current_metrics.get('VANNA_PRESSURE', float('nan')),
+                'charm_pressure': self.current_metrics.get('CHARM_PRESSURE', float('nan')),
+                'flow_imbalance': self.current_metrics.get('FLOW_IMBALANCE', float('nan')),
+                'dealer_flow': self.current_metrics.get('DEALER_FLOW', {}),
+                'es_price': self.current_metrics.get('ES_PRICE', float('nan')),
+                'spy_price': self.current_metrics.get('SPY_PRICE', float('nan')),
+                'basis_bps': self.current_metrics.get('BASIS_BPS', float('nan')),
+                'lead_lag_ms': self.current_metrics.get('LEAD_LAG_MS', float('nan')),
+                'es_impulse_score': self.current_metrics.get('ES_IMPULSE_SCORE', float('nan')),
+                'confirm_direction': self.current_metrics.get('CONFIRM_DIRECTION', 'unknown'),
+                'confirm_confidence': self.current_metrics.get('CONFIRM_CONFIDENCE', float('nan')),
+                'lead_lag': self.current_metrics.get('LEAD_LAG', {}),
                 'stress_level': self.current_stress_level.value,
                 'update_frequency': self.current_update_interval,
                 'timestamp': datetime.now(),
+                'data_quality_feed': self.current_metrics.get('DATA_QUALITY_FEED', {}),
                 'data_quality': {
                     name: quality.quality_score
                     for name, quality in self.metric_quality.items()

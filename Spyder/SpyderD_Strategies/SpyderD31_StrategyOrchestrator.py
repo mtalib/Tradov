@@ -35,6 +35,7 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
+import inspect
 import threading
 import uuid
 from collections import deque
@@ -74,31 +75,73 @@ except ImportError:
 # ==============================================================================
 try:
     # Core imports
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError  # noqa: F401
-    from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError  # noqa: F401
+    from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
-    # Strategy imports
-    from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: F401
-    from SpyderD_Strategies.SpyderD02_IronCondor import IronCondorStrategy
-    from SpyderD_Strategies.SpyderD03_CreditSpread import CreditSpreadStrategy
-    from SpyderD_Strategies.SpyderD04_ZeroDTE import ZeroDTEStrategy
-    from SpyderD_Strategies.SpyderD05_Straddle import StraddleStrategy
-    from SpyderD_Strategies.SpyderD11_SpecializedZeroDTE import SpecializedZeroDTEStrategy
+    # Strategy imports (optional per strategy; do not disable orchestrator wiring)
+    try:
+        from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: F401
+    except ImportError:
+        BaseStrategy = object  # type: ignore[assignment,misc]
+
+    def _optional_strategy(import_path: str, symbol: str) -> Any:
+        try:
+            module = __import__(import_path, fromlist=[symbol])
+            return getattr(module, symbol)
+        except Exception as err:
+            logging.warning("D31 optional strategy unavailable: %s (%s)", symbol, err)
+            return None
+
+    IronCondorStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD02_IronCondor", "IronCondorStrategy"
+    )
+    CreditSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD03_CreditSpread", "CreditSpreadStrategy"
+    )
+    ZeroDTEStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD04_ZeroDTE", "ZeroDTEStrategy"
+    )
+    StraddleStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD05_Straddle", "StraddleStrategy"
+    )
+    SpecializedZeroDTEStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"
+    )
     # Phase 3: strategies referenced in regime weights but previously unregistered
-    from SpyderD_Strategies.SpyderD10_IronButterfly import IronButterflyStrategy
-    from SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpreadStrategy
-    from SpyderD_Strategies.SpyderD19_JadeLizard import JadeLizardStrategy
-    from SpyderD_Strategies.SpyderD26_GammaScalper import GammaScalperStrategy
+    IronButterflyStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD10_IronButterfly", "IronButterflyStrategy"
+    )
+    CalendarSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread", "CalendarSpreadStrategy"
+    )
+    JadeLizardStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD19_JadeLizard", "JadeLizardStrategy"
+    )
+    GammaScalperStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD26_GammaScalper", "GammaScalperStrategy"
+    )
+    RSIMeanReversionStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD12_RSIMeanReversion", "RSIMeanReversionStrategy"
+    )
+    MACrossoverStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD13_MACrossover", "MACrossoverStrategy"
+    )
+    RenaissanceMeanReversionStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"
+    )
+    PivotMeanReversionStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion", "PivotMeanReversionStrategy"
+    )
 
     # Event management
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
 
     # Connectivity integration
-    from SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState
+    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState
 
     # Prometheus rejection telemetry
-    from SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection
+    from Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -445,6 +488,10 @@ class StrategyOrchestrator:
         self._vix_analyzer: Any | None = None
         # RiskManager — resolved once and cached to avoid per-signal import overhead
         self.risk_manager: Any | None = None
+        # EntryFilters + S07 market conditions are resolved lazily on the hot path
+        # so D31 can apply trust-policy gating without widening startup failures.
+        self._entry_filter_gate: Any | None = None
+        self._metrics_orchestrator: Any | None = None
 
         # B5: Two distinct pause flags so DATA_FRESH can clear the stale-data
         # pause without also clearing a KILL_SWITCH halt (which is sticky and
@@ -599,6 +646,14 @@ class StrategyOrchestrator:
             self.logger.error("❌ Error stopping orchestration: %s", e, exc_info=True)
             return False
 
+    def stop(self) -> None:
+        """Lifecycle adapter used by SessionSupervisor.
+
+        SessionSupervisor expects components to expose a no-arg ``stop()``.
+        Delegate to ``stop_orchestration(graceful=True)`` for compatibility.
+        """
+        self.stop_orchestration(graceful=True)
+
     def add_strategy(self, strategy_class: type, config: dict[str, Any],
                      initial_allocation: float | None = None) -> str:
         """
@@ -614,19 +669,47 @@ class StrategyOrchestrator:
         """
         try:
             # Validate strategy class
+            if not inspect.isclass(strategy_class):
+                raise ValueError(f"Strategy reference is not a class: {strategy_class!r}")
             if not issubclass(strategy_class, BaseStrategy):
                 raise ValueError("Strategy class must inherit from BaseStrategy")
+            if inspect.isabstract(strategy_class):
+                raise ValueError(
+                    f"Strategy class is abstract and cannot be instantiated: {strategy_class.__name__}"
+                )
 
             # Generate strategy ID
             strategy_id = f"{strategy_class.__name__}_{uuid.uuid4().hex[:8]}"
 
-            # Create strategy instance
-            strategy = strategy_class(
-                name=strategy_id,
-                event_manager=self.event_manager,
-                risk_profile=self._get_risk_profile_for_strategy(strategy_class),
-                config=config
-            )
+            # Create strategy instance (constructor signatures vary across D-series).
+            risk_profile = self._get_risk_profile_for_strategy(strategy_class)
+            ctor_attempts = [
+                {
+                    "name": strategy_id,
+                    "event_manager": self.event_manager,
+                    "risk_profile": risk_profile,
+                    "config": config,
+                },
+                {
+                    "event_manager": self.event_manager,
+                    "risk_profile": risk_profile,
+                    "config": config,
+                },
+            ]
+
+            strategy = None
+            last_error: Exception | None = None
+            for kwargs in ctor_attempts:
+                try:
+                    strategy = strategy_class(**kwargs)
+                    break
+                except TypeError as exc:
+                    last_error = exc
+
+            if strategy is None:
+                raise TypeError(
+                    f"Could not instantiate {strategy_class.__name__}; unsupported constructor signature"
+                ) from last_error
 
             # Calculate initial allocation
             if initial_allocation is None:
@@ -1531,6 +1614,7 @@ class StrategyOrchestrator:
                 'Straddle': 0.1,
                 'CalendarSpread': 0.1,
                 'JadeLizard': 0.05,
+                'MACrossover': 0.05,
             },
             MarketRegime.BULL_HIGH_VOL: {
                 'CreditSpread': 0.35,
@@ -1538,6 +1622,7 @@ class StrategyOrchestrator:
                 'ZeroDTE': 0.2,
                 'IronCondor': 0.1,
                 'GammaScalper': 0.1,
+                'RSIMeanReversion': 0.05,
             },
             MarketRegime.BEAR_LOW_VOL: {
                 'CreditSpread': 0.3,
@@ -1545,12 +1630,14 @@ class StrategyOrchestrator:
                 'IronButterfly': 0.2,
                 'ZeroDTE': 0.1,
                 'CalendarSpread': 0.15,
+                'RenaissanceMeanReversion': 0.05,
             },
             MarketRegime.BEAR_HIGH_VOL: {
                 'Straddle': 0.35,
                 'CreditSpread': 0.3,
                 'ZeroDTE': 0.2,
                 'GammaScalper': 0.15,
+                'RSIMeanReversion': 0.1,
             },
             MarketRegime.SIDEWAYS_LOW_VOL: {
                 'IronCondor': 0.35,
@@ -1558,6 +1645,7 @@ class StrategyOrchestrator:
                 'CalendarSpread': 0.15,
                 'CreditSpread': 0.15,
                 'JadeLizard': 0.1,
+                'PivotMeanReversion': 0.1,
             },
             MarketRegime.SIDEWAYS_HIGH_VOL: {
                 'IronCondor': 0.25,
@@ -1565,10 +1653,12 @@ class StrategyOrchestrator:
                 'CreditSpread': 0.2,
                 'GammaScalper': 0.15,
                 'ZeroDTE': 0.15,
+                'PivotMeanReversion': 0.1,
             },
             MarketRegime.CRISIS: {
                 'CreditSpread': 0.6,
-                'Straddle': 0.4
+                'Straddle': 0.4,
+                'RSIMeanReversion': 0.1,
             }
         }
 
@@ -1874,7 +1964,7 @@ class StrategyOrchestrator:
     def _initialize_strategy_registry(self) -> None:
         """Initialize available strategy registry"""
         if SPYDER_MODULES_AVAILABLE:
-            self.available_strategies = {
+            candidate_strategies = {
                 'IronCondor': IronCondorStrategy,
                 'CreditSpread': CreditSpreadStrategy,
                 'ZeroDTE': ZeroDTEStrategy,
@@ -1885,6 +1975,17 @@ class StrategyOrchestrator:
                 'CalendarSpread': CalendarSpreadStrategy,
                 'JadeLizard': JadeLizardStrategy,
                 'GammaScalper': GammaScalperStrategy,
+                'RSIMeanReversion': RSIMeanReversionStrategy,
+                'MACrossover': MACrossoverStrategy,
+                'RenaissanceMeanReversion': RenaissanceMeanReversionStrategy,
+                'PivotMeanReversion': PivotMeanReversionStrategy,
+            }
+            self.available_strategies = {
+                name: cls
+                for name, cls in candidate_strategies.items()
+                if inspect.isclass(cls)
+                and not inspect.isabstract(cls)
+                and issubclass(cls, BaseStrategy)
             }
         else:
             self.available_strategies = {}
@@ -1933,6 +2034,45 @@ class StrategyOrchestrator:
 
         except Exception as e:
             self.logger.error("Error setting up event subscriptions: %s", e, exc_info=True)
+
+    def _check_concentration_conflicts(self) -> list[StrategyConflict]:
+        """Detect concentration conflicts by strategy-type allocation."""
+        conflicts: list[StrategyConflict] = []
+        try:
+            with self._strategies_lock:
+                allocs = list(self.strategy_allocations.values())
+
+            if not allocs:
+                return conflicts
+
+            by_type: dict[str, list[StrategyAllocation]] = {}
+            for alloc in allocs:
+                by_type.setdefault(alloc.strategy_type, []).append(alloc)
+
+            for strategy_type, items in by_type.items():
+                concentration = sum(max(0.0, a.current_allocation) for a in items)
+                if concentration <= CONCENTRATION_LIMIT:
+                    continue
+
+                strategy_ids = [a.strategy_id for a in items]
+                severity = "high" if concentration >= (CONCENTRATION_LIMIT + 0.2) else "medium"
+                conflicts.append(
+                    StrategyConflict(
+                        strategy_ids=strategy_ids,
+                        conflict_type="concentration",
+                        severity=severity,
+                        description=(
+                            f"Strategy type '{strategy_type}' concentration {concentration:.1%} "
+                            f"exceeds limit {CONCENTRATION_LIMIT:.1%}"
+                        ),
+                        resolution_action="Reduce allocation across concentrated strategies",
+                        detected_at=datetime.now(),
+                    )
+                )
+        except Exception as e:
+            self.logger.error("Error checking concentration conflicts: %s", e, exc_info=True)
+
+        return conflicts
 
     def subscribe_agent_bus(self, bus: Any) -> None:
         """Subscribe D31 to Y01/Y02 regime updates on the agent message bus.
@@ -2056,7 +2196,17 @@ class StrategyOrchestrator:
             if isinstance(data, pd.DataFrame):
                 market_df = data
             elif isinstance(data, dict) and data:
-                market_df = pd.DataFrame([data])
+                # C01 emits {'symbol': str, 'tick': dict} where tick contains OHLCV
+                # fields. Expand the tick payload so strategies receive proper columns
+                # (open, high, low, close, volume, bid, ask, last, symbol) instead of
+                # a DataFrame with literal columns ['symbol', 'tick'].
+                tick_payload = data.get("tick")
+                if isinstance(tick_payload, dict):
+                    row = dict(tick_payload)
+                    row.setdefault("symbol", data.get("symbol", row.get("symbol", "")))
+                    market_df = pd.DataFrame([row])
+                else:
+                    market_df = pd.DataFrame([data])
         except Exception:
             pass
 
@@ -2105,6 +2255,25 @@ class StrategyOrchestrator:
                 )
             except Exception as exc:
                 self.logger.error("Failed to emit dry-run ORDER_REJECTED: %s", exc, exc_info=True)
+            return
+
+        market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
+        if not market_gate_ok:
+            _count_drop("pre_risk", "entry_trust_gate")
+            self.logger.warning("Strategy signal rejected by entry trust gate: %s", market_gate_reason)
+            if self.event_manager:
+                try:
+                    self.event_manager.publish(
+                        EventType.RISK_ALERT,
+                        {
+                            "severity": "warning",
+                            "reason": "entry_trust_gate_rejected",
+                            "message": market_gate_reason,
+                            "signal": signal,
+                        },
+                    )
+                except Exception:
+                    pass
             return
 
         # P1-03: risk_manager is cached on self; lazy-resolve once if not yet wired.
@@ -2202,6 +2371,111 @@ class StrategyOrchestrator:
 
         if approved:
             self._dispatch_approved_signal(signal)
+
+    def _get_entry_filter_gate(self) -> Any | None:
+        """Lazily build the F09 gate used for market-structure trust checks."""
+        if self._entry_filter_gate is not None:
+            return self._entry_filter_gate
+
+        try:
+            from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+        except ImportError:
+            try:
+                from SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters  # type: ignore[no-redef]
+            except ImportError:
+                self.logger.debug("D31: EntryFilters unavailable for entry trust gate")
+                return None
+
+        config_manager = None
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            config_manager = get_config_manager()
+        except Exception:
+            try:
+                from SpyderA_Core.SpyderA03_Configuration import get_config_manager  # type: ignore[no-redef]
+                config_manager = get_config_manager()
+            except Exception:
+                config_manager = None
+
+        if config_manager is None:
+            self.logger.debug("D31: config manager unavailable for entry trust gate")
+            return None
+
+        try:
+            self._entry_filter_gate = EntryFilters(config_manager)
+        except Exception as exc:
+            self.logger.debug("D31: failed to initialize EntryFilters gate: %s", exc)
+            self._entry_filter_gate = None
+        return self._entry_filter_gate
+
+    def _get_current_market_conditions(self) -> dict[str, Any]:
+        """Fetch the latest S07 market conditions for trust-policy gating."""
+        if self._metrics_orchestrator is None:
+            try:
+                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator
+            except ImportError:
+                try:
+                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]
+                except ImportError:
+                    self.logger.debug("D31: S07 metrics orchestrator unavailable")
+                    return {}
+
+            try:
+                self._metrics_orchestrator = get_metrics_orchestrator()
+            except Exception as exc:
+                self.logger.debug("D31: failed to get S07 metrics orchestrator: %s", exc)
+                return {}
+
+        try:
+            conditions = self._metrics_orchestrator.get_current_market_conditions()
+        except Exception as exc:
+            self.logger.debug("D31: failed to read S07 market conditions: %s", exc)
+            return {}
+
+        return conditions if isinstance(conditions, dict) else {}
+
+    def _passes_entry_trust_gate(self, signal: Any) -> tuple[bool, str]:
+        """Apply F09's trust-policy checks to the live D31 signal path."""
+        if not isinstance(signal, dict):
+            return True, ""
+
+        entry_gate = self._get_entry_filter_gate()
+        if entry_gate is None:
+            return True, ""
+
+        market_conditions = self._get_current_market_conditions()
+        if not market_conditions:
+            return True, ""
+
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        action = str(signal.get("action") or signal.get("side") or metadata.get("action") or "").strip().lower()
+        params = {
+            "strategy_type": signal.get("strategy_type") or metadata.get("strategy_type") or signal.get("strategy_id") or metadata.get("strategy_id") or "",
+            "position_type": signal.get("position_type") or metadata.get("position_type") or "",
+            "direction": signal.get("direction") or metadata.get("direction") or signal.get("bias") or metadata.get("bias") or action,
+            "action": action,
+            "market_conditions": market_conditions,
+        }
+
+        try:
+            checks = []
+            checks.extend(entry_gate._check_data_quality_filter(params))
+            checks.extend(entry_gate._check_vol_surface_structure_filter(params))
+            checks.extend(entry_gate._check_dealer_flow_filter(params))
+            checks.extend(entry_gate._check_lead_lag_confirmation_filter(params))
+        except Exception as exc:
+            self.logger.debug("D31: entry trust gate failed open: %s", exc, exc_info=True)
+            return True, ""
+
+        failures = []
+        for check in checks:
+            result = getattr(check, "result", None)
+            if getattr(result, "value", result) == "fail":
+                failures.append(check)
+        if not failures:
+            return True, ""
+
+        return False, "; ".join(str(check.message) for check in failures)
 
     def set_live_engine(self, engine: Any) -> None:
         """Wire a LiveEngine instance so approved signals are dispatched as orders.
@@ -2407,6 +2681,8 @@ class StrategyOrchestrator:
             # C1 (v18): snapshot to avoid RuntimeError from concurrent add/remove.
             with self._strategies_lock:
                 _alloc_vals = list(self.strategy_allocations.values())
+                _active_strategies = list(self.active_strategies.items())
+            _perf_history = list(self.performance_history)
             # Calculate total allocated capital
             total_allocated = sum(alloc.allocated_capital for alloc in _alloc_vals)
 
@@ -2417,15 +2693,32 @@ class StrategyOrchestrator:
 
             # Calculate portfolio PnL (sum of all strategy PnL)
             total_pnl = 0.0
-            for _strategy_id, strategy in self.active_strategies.items():
+            for _strategy_id, strategy in _active_strategies:
                 strategy_pnl = getattr(strategy, 'total_pnl', 0.0)
                 total_pnl += strategy_pnl
 
             self.portfolio_metrics.total_pnl = total_pnl
 
             # Calculate other metrics if we have enough data
-            if len(self.performance_history) > 10:
-                returns = [entry['daily_return'] for entry in self.performance_history]
+            if len(_perf_history) > 10:
+                returns: list[float] = []
+                capital_base = self.base_capital if self.base_capital > 0 else 1.0
+
+                for entry in _perf_history:
+                    if not isinstance(entry, dict):
+                        continue
+
+                    if 'daily_return' in entry:
+                        value = entry.get('daily_return')
+                    elif 'daily_pnl' in entry:
+                        value = float(entry.get('daily_pnl', 0.0)) / capital_base
+                    else:
+                        continue
+
+                    try:
+                        returns.append(float(value))
+                    except (TypeError, ValueError):
+                        continue
 
                 if returns and len(returns) > 1:
                     self.portfolio_metrics.portfolio_sharpe = self._calculate_sharpe_ratio(returns)

@@ -33,6 +33,16 @@ from typing import Any
 # ==============================================================================
 logger = logging.getLogger(__name__)
 
+
+def _is_massive_disabled() -> bool:
+    """Return whether Massive usage is disabled for the current process."""
+    return os.environ.get("SPYDER_DISABLE_MASSIVE", "1").lower().strip() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
 # ==============================================================================
 # PROVIDER ENUM
 # ==============================================================================
@@ -62,8 +72,18 @@ class DataProvider(StrEnum):
         ).lower().strip()
 
         if raw == "massive":
+            if _is_massive_disabled():
+                logger.info(
+                    "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"
+                )
+                return cls.TRADIER
             return cls.MASSIVE
         if raw == "polygon":
+            if _is_massive_disabled():
+                logger.info(
+                    "Polygon/Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"
+                )
+                return cls.TRADIER
             return cls.MASSIVE
         if raw == "tradier":
             return cls.TRADIER
@@ -160,6 +180,11 @@ class DataProviderRouter:
 
     def _build_massive_client(self) -> Any:
         """Construct a MassiveClient from env or the provided api_key."""
+        if _is_massive_disabled():
+            raise RuntimeError(
+                "Massive client construction blocked by SPYDER_DISABLE_MASSIVE"
+            )
+
         from SpyderC_MarketData.SpyderC27_MassiveClient import (  # type: ignore[import]
             MassiveClient,
             create_massive_client_from_env,
