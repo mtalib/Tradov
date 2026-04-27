@@ -372,6 +372,31 @@ class PivotMeanReversionStrategy(BaseStrategy):
             self._time_stop_m, self._stop_pct * 100,
         )
 
+    def _resolve_position_id(self, position: Any) -> Optional[str]:
+        """Resolve a strategy position identifier across runtime adapters."""
+        position_id = getattr(position, "position_id", None)
+        if position_id:
+            return str(position_id)
+
+        raw = getattr(position, "raw", None)
+        if isinstance(raw, dict):
+            for key in ("position_id", "id", "spread_id"):
+                raw_position_id = raw.get(key)
+                if raw_position_id:
+                    return str(raw_position_id)
+
+            strategy_positions = raw.get("strategy_positions")
+            if isinstance(strategy_positions, dict):
+                for strategy_position in strategy_positions.values():
+                    if not isinstance(strategy_position, dict):
+                        continue
+                    for key in ("position_id", "id", "spread_id"):
+                        raw_position_id = strategy_position.get(key)
+                        if raw_position_id:
+                            return str(raw_position_id)
+
+        return None
+
     # ==========================================================================
     # CONTEXT INJECTION (called once per bar before generate_signals)
     # ==========================================================================
@@ -530,8 +555,12 @@ class PivotMeanReversionStrategy(BaseStrategy):
         Returns:
             (True, reason) if any exit is triggered, else (False, "").
         """
+        position_id = self._resolve_position_id(position)
+        if not position_id:
+            return False, ""
+
         with self._trade_lock:
-            state = self._open_trade_states.get(position.position_id)
+            state = self._open_trade_states.get(position_id)
         if state is None:
             return False, ""
 
@@ -570,14 +599,19 @@ class PivotMeanReversionStrategy(BaseStrategy):
         Returns:
             None to hold, or dict {"action": "close", "reason": str} to exit.
         """
+        position_id = self._resolve_position_id(position)
+        if not position_id:
+            return None
+
         with self._trade_lock:
-            state = self._open_trade_states.get(position.position_id)
+            state = self._open_trade_states.get(position_id)
         if state is None:
             return None
 
         spot = float(position.current_price)
         now  = datetime.now(tz=ET)
         vwap = _compute_session_vwap(self._bar_session_bars())
+        state.update_five_min_close(spot)
 
         for check in (
             state.check_vwap_target(spot, vwap),

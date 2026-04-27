@@ -98,6 +98,7 @@ class DataFreshnessMonitor:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._handler_ids: list[str] = []
         self._running = False
 
     # ------------------------------------------------------------------
@@ -114,8 +115,10 @@ class DataFreshnessMonitor:
             self.logger.warning("DataFreshnessMonitor already running")
             return True
 
-        self._em.subscribe(EventType.MARKET_DATA, self._on_market_data)
-        self._em.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data)
+        self._handler_ids = [
+            self._em.subscribe(EventType.MARKET_DATA, self._on_market_data),
+            self._em.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data),
+        ]
 
         self._stop_event.clear()
         self._thread = threading.Thread(
@@ -139,6 +142,12 @@ class DataFreshnessMonitor:
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
+        for handler_id in self._handler_ids:
+            try:
+                self._em.unsubscribe(handler_id)
+            except Exception as exc:
+                self.logger.warning("Failed to unsubscribe freshness handler %s: %s", handler_id, exc)
+        self._handler_ids.clear()
         self.logger.info("DataFreshnessMonitor stopped")
 
     # ------------------------------------------------------------------

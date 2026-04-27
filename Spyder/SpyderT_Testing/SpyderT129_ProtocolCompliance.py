@@ -289,6 +289,62 @@ class EndToEndHappyPathTest(unittest.TestCase):
         # The orphan should have been recorded in _orphan_alerted
         self.assertIn("ghost_strategy", monitor._orphan_alerted)
 
+    def test_d34_check_exit_accepts_exit_monitor_position_view(self) -> None:
+        """D34 must resolve position ids from ExitMonitor raw strategy positions."""
+        import threading
+        import types
+        import unittest.mock as mock
+        from Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion import (
+            PivotMeanReversionStrategy,
+        )
+
+        strategy = PivotMeanReversionStrategy.__new__(PivotMeanReversionStrategy)
+        strategy._trade_lock = threading.Lock()
+        strategy._bar_session_bars = lambda: []
+
+        state = mock.Mock()
+        state.check_vwap_target.return_value = None
+        state.check_time_stop.return_value = "time stop"
+        state.check_underlying_stop.return_value = None
+
+        strategy._open_trade_states = {"pmr-123": state}
+
+        position = types.SimpleNamespace(
+            current_price=502.25,
+            raw={
+                "strategy_positions": {
+                    "PivotMeanReversion": {"position_id": "pmr-123"}
+                }
+            },
+        )
+
+        result = strategy.check_exit(position)
+
+        self.assertEqual(result, {"action": "close", "reason": "time stop"})
+        state.update_five_min_close.assert_called_once_with(502.25)
+
+    def test_data_freshness_monitor_stop_unsubscribes_handlers(self) -> None:
+        """E24 stop() must detach event handlers so restarts do not duplicate callbacks."""
+        import unittest.mock as mock
+        from Spyder.SpyderE_Risk.SpyderE24_DataFreshnessMonitor import DataFreshnessMonitor
+
+        fake_em = mock.Mock()
+        monitor = DataFreshnessMonitor(event_manager=fake_em, symbols=["SPY"])
+        monitor._running = True
+        fake_thread = mock.Mock()
+        monitor._thread = fake_thread
+        monitor._handler_ids = ["h-market", "h-tick"]
+
+        monitor.stop()
+
+        self.assertEqual(
+            fake_em.unsubscribe.call_args_list,
+            [mock.call("h-market"), mock.call("h-tick")],
+        )
+        fake_thread.join.assert_called_once_with(timeout=5)
+        self.assertFalse(monitor._running)
+        self.assertEqual(monitor._handler_ids, [])
+
     def test_strategy_orchestrator_instantiates_and_has_registry(self) -> None:
         """P0-1 regression — StrategyOrchestrator must instantiate and expose available_strategies."""
         from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
