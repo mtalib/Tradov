@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from datetime import time, datetime, timedelta, date
+from datetime import time, datetime, timedelta, date, timezone
 from typing import Any
 
 # ==============================================================================
@@ -98,6 +98,17 @@ def is_tradier_active_window(now_et: datetime | None = None) -> bool:
     except Exception:
         current = (now_et or datetime.now()).time()
     return TRADIER_CONNECT_TIME <= current <= TRADIER_DISCONNECT_TIME
+
+
+def now_utc() -> datetime:
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
+
+def now_et() -> datetime:
+    """Return the current US/Eastern time as a timezone-aware datetime."""
+    eastern = pytz.timezone(US_EASTERN)
+    return datetime.now(eastern)
 
 
 class LogThrottle:
@@ -1566,7 +1577,7 @@ class TradingCalendar:
             from_date = datetime.now()
 
         # FOMC meetings are typically held 8 times per year
-        # Generally: Late January/Early February, March, May, June, July, September, November, December
+        # Generally: Late January/Early February, March, May, June, July, September, November, December  # noqa: E501
         # This is a simplified approximation - in practice you'd use the actual Fed calendar
 
         current_year = from_date.year
@@ -1585,7 +1596,7 @@ class TradingCalendar:
 
                     if fomc_date > from_date:
                         return fomc_date
-                except BaseException:
+                except Exception:
                     continue
 
         return None
@@ -1616,7 +1627,7 @@ class TradingCalendar:
             week_end = week_start + timedelta(days=6)
 
             return week_start <= check_date <= week_end
-        except BaseException:
+        except Exception:
             return False
 
     @staticmethod

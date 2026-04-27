@@ -212,7 +212,7 @@ class TradeRepository:
             self._ensure_table_exists()
 
         self.logger.info(
-            "TradeRepository initialized (mode: %s)", 'in-memory' if self._use_memory else 'database'
+            "TradeRepository initialized (mode: %s)", 'in-memory' if self._use_memory else 'database'  # noqa: E501
         )
 
     def _ensure_table_exists(self) -> None:
@@ -254,8 +254,8 @@ class TradeRepository:
             # Create indexes for common queries
             self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_id)")
             self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
-            self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy_name)")
-            self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_executed ON trades(executed_at)")
+            self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy_name)")  # noqa: E501
+            self._dal.execute("CREATE INDEX IF NOT EXISTS idx_trades_executed ON trades(executed_at)")  # noqa: E501
         except Exception as e:
             self.logger.error("Error creating trades table: %s", e)
 
@@ -375,8 +375,8 @@ class TradeRepository:
             commission=row.get('commission', 0.0),
             fees=row.get('fees', 0.0),
             status=TradeStatus(row.get('status', 'pending')),
-            executed_at=datetime.fromisoformat(row['executed_at']) if row.get('executed_at') else None,
-            created_at=datetime.fromisoformat(row['created_at']) if row.get('created_at') else datetime.now(),
+            executed_at=datetime.fromisoformat(row['executed_at']) if row.get('executed_at') else None,  # noqa: E501
+            created_at=datetime.fromisoformat(row['created_at']) if row.get('created_at') else datetime.now(),  # noqa: E501
             realized_pnl=row.get('realized_pnl', 0.0),
             cost_basis=row.get('cost_basis', 0.0),
             strategy_name=row.get('strategy_name', ''),
@@ -612,7 +612,7 @@ class TradeRepository:
         summary.net_pnl = summary.total_pnl - summary.total_commission - summary.total_fees
 
         summary.avg_pnl_per_trade = summary.total_pnl / summary.total_trades
-        summary.win_rate = summary.winning_trades / summary.total_trades if summary.total_trades > 0 else 0
+        summary.win_rate = summary.winning_trades / summary.total_trades if summary.total_trades > 0 else 0  # noqa: E501
 
         summary.avg_win = sum(winning) / len(winning) if winning else 0
         summary.avg_loss = abs(sum(losing) / len(losing)) if losing else 0
@@ -708,9 +708,9 @@ class TradeRepository:
         for trade in trades:
             record = asdict(trade)
             # Convert enums to strings
-            record['trade_type'] = record['trade_type'].value if hasattr(record['trade_type'], 'value') else record['trade_type']
-            record['side'] = record['side'].value if hasattr(record['side'], 'value') else record['side']
-            record['status'] = record['status'].value if hasattr(record['status'], 'value') else record['status']
+            record['trade_type'] = record['trade_type'].value if hasattr(record['trade_type'], 'value') else record['trade_type']  # noqa: E501
+            record['side'] = record['side'].value if hasattr(record['side'], 'value') else record['side']  # noqa: E501
+            record['status'] = record['status'].value if hasattr(record['status'], 'value') else record['status']  # noqa: E501
             records.append(record)
 
         return pd.DataFrame(records)

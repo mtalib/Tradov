@@ -69,6 +69,7 @@ def compute_chart_indicators(
     lows: list[float],
     closes: list[float],
     volumes: list[int],
+    prev_day: tuple[float, float, float] | None = None,
 ) -> ChartIndicators:
     """Compute pivot levels, MA(20), and session VWAP for an OHLCV dataset.
 
@@ -77,10 +78,16 @@ def compute_chart_indicators(
     at least one element.
 
     Args:
-        highs:   List of bar high prices.
-        lows:    List of bar low prices.
-        closes:  List of bar closing prices.
-        volumes: List of bar volumes (integer tick counts or share counts).
+        highs:    List of bar high prices.
+        lows:     List of bar low prices.
+        closes:   List of bar closing prices.
+        volumes:  List of bar volumes (integer tick counts or share counts).
+        prev_day: Optional ``(prev_high, prev_low, prev_close)`` tuple from
+                  the previous trading session.  When supplied, pivot levels
+                  are anchored to yesterday's range so they remain fixed
+                  throughout the current session (correct floor-trader
+                  convention).  When ``None``, today's intraday extremes are
+                  used as a fallback (legacy behaviour).
 
     Returns:
         ChartIndicators dataclass containing pivot levels, MA(20) series,
@@ -98,7 +105,7 @@ def compute_chart_indicators(
             "highs, lows, closes, and volumes must all have the same length"
         )
 
-    pivots = _compute_pivot_levels(highs, lows, closes)
+    pivots = _compute_pivot_levels(highs, lows, closes, prev_day=prev_day)
     ma20 = _compute_ma(closes, period=20)
     vwap = _compute_vwap(highs, lows, closes, volumes)
 
@@ -113,15 +120,27 @@ def _compute_pivot_levels(
     highs: list[float],
     lows: list[float],
     closes: list[float],
+    prev_day: tuple[float, float, float] | None = None,
 ) -> PivotLevels:
-    """Derive floor-trader pivot levels from the session range.
+    """Derive floor-trader pivot levels from the previous session's range.
 
-    The range is taken from the full OHLCV dataset (max high, min low, last
-    close) as a proxy for the previous session when intraday bars are loaded.
+    Args:
+        highs:    Today's intraday high prices (fallback only).
+        lows:     Today's intraday low prices (fallback only).
+        closes:   Today's intraday close prices (fallback only).
+        prev_day: ``(prev_high, prev_low, prev_close)`` from yesterday's
+                  daily bar.  When supplied these anchor the pivot levels
+                  for the entire session so they never drift with new
+                  intraday extremes — the correct floor-trader convention.
+                  When ``None``, today's intraday range is used as a
+                  fallback (pre-fix legacy behaviour).
     """
-    prev_high = max(highs)
-    prev_low = min(lows)
-    prev_close = closes[-1]
+    if prev_day is not None:
+        prev_high, prev_low, prev_close = prev_day
+    else:
+        prev_high = max(highs)
+        prev_low = min(lows)
+        prev_close = closes[-1]
 
     pivot = (prev_high + prev_low + prev_close) / 3
     rng = prev_high - prev_low
@@ -137,13 +156,17 @@ def _compute_pivot_levels(
 
 
 def _compute_ma(prices: list[float], period: int = 20) -> list[float | None]:
-    """Simple moving average.  Returns None for the first (period-1) bars."""
+    """Moving average with expanding window for the first (period-1) bars.
+
+    Returns the average of all available bars until *period* bars have
+    accumulated, then switches to a true rolling window.  This ensures the
+    line is always visible from the first intraday bar rather than staying
+    blank until 100 minutes of data have been collected.
+    """
     result: list[float | None] = []
     for i in range(len(prices)):
-        if i < period - 1:
-            result.append(None)
-        else:
-            result.append(sum(prices[i - period + 1 : i + 1]) / period)
+        window = prices[max(0, i - period + 1) : i + 1]
+        result.append(sum(window) / len(window))
     return result
 
 

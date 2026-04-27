@@ -355,7 +355,7 @@ class ModelDataPipeline:
             # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")  # noqa: E501
 
             # Connect to C22 Factor Data Provider
             if C22_AVAILABLE:
@@ -418,7 +418,7 @@ class ModelDataPipeline:
 
                     if category_features is not None and not category_features.empty:
                         # Add category prefix to feature names
-                        category_features.columns = [f"{category}_{col}" for col in category_features.columns]
+                        category_features.columns = [f"{category}_{col}" for col in category_features.columns]  # noqa: E501
 
                         # Merge with all features
                         all_features = pd.concat([all_features, category_features], axis=1)
@@ -427,7 +427,7 @@ class ModelDataPipeline:
                         feature_metadata[category] = {
                             'feature_count': len(category_features.columns),
                             'generation_time': datetime.now(),
-                            'data_range': (category_features.index.min(), category_features.index.max())
+                            'data_range': (category_features.index.min(), category_features.index.max())  # noqa: E501
                         }
 
             # Remove features with too many NaN values
@@ -452,7 +452,7 @@ class ModelDataPipeline:
 
         except Exception as e:
             self.error_handler.handle_error(e, context="engineer_features")
-            return FeatureSet(feature_names=[], feature_values=np.array([]), timestamps=pd.DatetimeIndex([]))
+            return FeatureSet(feature_names=[], feature_values=np.array([]), timestamps=pd.DatetimeIndex([]))  # noqa: E501
 
     def batch_normalize_polars(
         self,
@@ -499,14 +499,14 @@ class ModelDataPipeline:
                 ])
             else:
                 pl_df = pl_df.with_columns([
-                    ((pl.col(c) - pl.col(c).min()) / (pl.col(c).max() - pl.col(c).min() + 1e-9)).alias(c)
+                    ((pl.col(c) - pl.col(c).min()) / (pl.col(c).max() - pl.col(c).min() + 1e-9)).alias(c)  # noqa: E501
                     for c in cols
                 ])
             result = data.copy()
             result[cols] = pl_df.to_pandas().values
             return result
         except Exception as exc:
-            self.logger.warning("polars batch normalisation failed, using pandas fallback: %s", exc, exc_info=True)
+            self.logger.warning("polars batch normalisation failed, using pandas fallback: %s", exc, exc_info=True)  # noqa: E501
             result = data.copy()
             if method == "zscore":
                 result[cols] = (result[cols] - result[cols].mean()) / (result[cols].std() + 1e-9)
@@ -538,20 +538,20 @@ class ModelDataPipeline:
 
                     # Momentum indicators
                     features['rsi'] = talib.RSI(data['close'], 14)
-                    features['macd'], features['macd_signal'], features['macd_hist'] = talib.MACD(data['close'])
+                    features['macd'], features['macd_signal'], features['macd_hist'] = talib.MACD(data['close'])  # noqa: E501
                     features['atr'] = talib.ATR(data['high'], data['low'], data['close'], 14)
 
                     # Bollinger Bands
-                    features['bb_upper'], features['bb_middle'], features['bb_lower'] = talib.BBANDS(data['close'])
+                    features['bb_upper'], features['bb_middle'], features['bb_lower'] = talib.BBANDS(data['close'])  # noqa: E501
                     features['bb_width'] = features['bb_upper'] - features['bb_lower']
 
                     # Stochastic
-                    features['stoch_k'], features['stoch_d'] = talib.STOCH(data['high'], data['low'], data['close'])
+                    features['stoch_k'], features['stoch_d'] = talib.STOCH(data['high'], data['low'], data['close'])  # noqa: E501
 
                     # ADX
                     features['adx'] = talib.ADX(data['high'], data['low'], data['close'], 14)
-                    features['di_plus'] = talib.PLUS_DI(data['high'], data['low'], data['close'], 14)
-                    features['di_minus'] = talib.MINUS_DI(data['high'], data['low'], data['close'], 14)
+                    features['di_plus'] = talib.PLUS_DI(data['high'], data['low'], data['close'], 14)  # noqa: E501
+                    features['di_minus'] = talib.MINUS_DI(data['high'], data['low'], data['close'], 14)  # noqa: E501
 
                 else:
                     # Fallback: basic indicators
@@ -590,8 +590,8 @@ class ModelDataPipeline:
                 features['resistance_level'] = data['high'].rolling(20, center=True).max()
 
                 # Distance from support/resistance
-                features['distance_to_support'] = (data['close'] - features['support_level']) / data['close']
-                features['distance_to_resistance'] = (features['resistance_level'] - data['close']) / data['close']
+                features['distance_to_support'] = (data['close'] - features['support_level']) / data['close']  # noqa: E501
+                features['distance_to_resistance'] = (features['resistance_level'] - data['close']) / data['close']  # noqa: E501
 
                 # Trend detection
                 features['price_trend'] = np.where(
@@ -601,7 +601,7 @@ class ModelDataPipeline:
                 # Market regime features
                 short_vol = data['close'].rolling(5).std()
                 long_vol = data['close'].rolling(20).std()
-                features['volatility_regime'] = np.where(short_vol > long_vol * 1.5, 1, 0)  # High vol regime
+                features['volatility_regime'] = np.where(short_vol > long_vol * 1.5, 1, 0)  # High vol regime  # noqa: E501
 
                 # Volume profile features
                 features['volume_profile'] = data['volume'] / data['volume'].rolling(50).mean()
@@ -633,7 +633,7 @@ class ModelDataPipeline:
 
                 # VIX-related features (would use actual VIX data)
                 features['vix_level'] = 20 + np.random.normal(0, 5, len(data))  # Simulated
-                features['vix_term_structure'] = np.random.normal(0.02, 0.05, len(data))  # Simulated
+                features['vix_term_structure'] = np.random.normal(0.02, 0.05, len(data))  # Simulated  # noqa: E501
 
                 # Put/Call ratio features
                 features['put_call_ratio'] = np.random.uniform(0.5, 1.5, len(data))  # Simulated
@@ -696,9 +696,9 @@ class ModelDataPipeline:
                 features['quarter'] = data.index.quarter
 
                 # Market session features
-                features['is_market_open'] = ((data.index.hour >= 9) & (data.index.hour < 16)).astype(int)
-                features['is_morning'] = ((data.index.hour >= 9) & (data.index.hour < 12)).astype(int)
-                features['is_afternoon'] = ((data.index.hour >= 12) & (data.index.hour < 16)).astype(int)
+                features['is_market_open'] = ((data.index.hour >= 9) & (data.index.hour < 16)).astype(int)  # noqa: E501
+                features['is_morning'] = ((data.index.hour >= 9) & (data.index.hour < 12)).astype(int)  # noqa: E501
+                features['is_afternoon'] = ((data.index.hour >= 12) & (data.index.hour < 16)).astype(int)  # noqa: E501
 
                 # Lag features
                 for lag in [1, 2, 3, 5, 10]:
@@ -707,8 +707,8 @@ class ModelDataPipeline:
 
                 # Rolling statistics
                 for window in [5, 10, 20]:
-                    features[f'return_mean_{window}'] = data['close'].pct_change().rolling(window).mean()
-                    features[f'return_std_{window}'] = data['close'].pct_change().rolling(window).std()
+                    features[f'return_mean_{window}'] = data['close'].pct_change().rolling(window).mean()  # noqa: E501
+                    features[f'return_std_{window}'] = data['close'].pct_change().rolling(window).std()  # noqa: E501
                     features[f'volume_mean_{window}'] = data['volume'].rolling(window).mean()
 
                 return features.dropna()
@@ -770,7 +770,7 @@ class ModelDataPipeline:
 
             for col in numeric_cols:
                 z_scores = np.abs(stats.zscore(data[col].dropna()))
-                outlier_ratio = (z_scores > QUALITY_THRESHOLDS['outlier_z_threshold']).sum() / len(z_scores)
+                outlier_ratio = (z_scores > QUALITY_THRESHOLDS['outlier_z_threshold']).sum() / len(z_scores)  # noqa: E501
                 outlier_ratios.append(outlier_ratio)
 
             avg_outlier_ratio = np.mean(outlier_ratios) if outlier_ratios else 0
@@ -786,7 +786,7 @@ class ModelDataPipeline:
             validity_checks = []
 
             # Check for negative prices (if price columns exist)
-            price_cols = [col for col in data.columns if 'price' in col.lower() or col in ['open', 'high', 'low', 'close']]
+            price_cols = [col for col in data.columns if 'price' in col.lower() or col in ['open', 'high', 'low', 'close']]  # noqa: E501
             for col in price_cols:
                 if col in data.columns:
                     negative_ratio = (data[col] < 0).sum() / len(data)
@@ -909,7 +909,7 @@ class ModelDataPipeline:
 
             # Create drift report
             drift_report = DataDriftReport(
-                report_id=hashlib.md5(f"{datetime.now()}".encode(), usedforsecurity=False).hexdigest()[:8],
+                report_id=hashlib.md5(f"{datetime.now()}".encode(), usedforsecurity=False).hexdigest()[:8],  # noqa: E501
                 timestamp=datetime.now(),
                 drift_detected=drift_detected,
                 drift_score=overall_drift_score,
@@ -939,7 +939,7 @@ class ModelDataPipeline:
                 drift_details={}
             )
 
-    def _detect_drift_ks_test(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:
+    def _detect_drift_ks_test(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:  # noqa: E501
         """Kolmogorov-Smirnov test for drift detection."""
         try:
             drift_scores = {}
@@ -957,7 +957,7 @@ class ModelDataPipeline:
                         if p_value < 0.05:  # Significant drift
                             drifted_features.append(column)
 
-            overall_drift_score = np.mean([result['ks_statistic'] for result in drift_scores.values()]) if drift_scores else 0
+            overall_drift_score = np.mean([result['ks_statistic'] for result in drift_scores.values()]) if drift_scores else 0  # noqa: E501
 
             return {
                 'method': 'ks_test',
@@ -1001,7 +1001,7 @@ class ModelDataPipeline:
             self.error_handler.handle_error(e, context="_detect_drift_psi")
             return {'method': 'psi', 'drift_score': 0.0, 'drifted_features': []}
 
-    def _detect_drift_wasserstein(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:
+    def _detect_drift_wasserstein(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:  # noqa: E501
         """Wasserstein distance for drift detection."""
         try:
             wasserstein_scores = {}
@@ -1021,7 +1021,7 @@ class ModelDataPipeline:
                         if normalized_dist > 0.1:
                             drifted_features.append(column)
 
-            overall_drift_score = np.mean(list(wasserstein_scores.values())) if wasserstein_scores else 0
+            overall_drift_score = np.mean(list(wasserstein_scores.values())) if wasserstein_scores else 0  # noqa: E501
 
             return {
                 'method': 'wasserstein',
@@ -1034,7 +1034,7 @@ class ModelDataPipeline:
             self.error_handler.handle_error(e, context="_detect_drift_wasserstein")
             return {'method': 'wasserstein', 'drift_score': 0.0, 'drifted_features': []}
 
-    def _detect_drift_chi_square(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:
+    def _detect_drift_chi_square(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:  # noqa: E501
         """Chi-square test for categorical drift detection."""
         try:
             chi_square_scores = {}
@@ -1042,7 +1042,7 @@ class ModelDataPipeline:
 
             for column in ref_data.columns:
                 # Only for categorical or discrete numeric columns
-                if ref_data[column].dtype in ['object', 'category'] or ref_data[column].nunique() < 50:
+                if ref_data[column].dtype in ['object', 'category'] or ref_data[column].nunique() < 50:  # noqa: E501
                     ref_counts = ref_data[column].value_counts()
                     cur_counts = cur_data[column].value_counts()
 
@@ -1053,12 +1053,12 @@ class ModelDataPipeline:
 
                     if len(all_categories) > 1 and ref_aligned.sum() > 0 and cur_aligned.sum() > 0:
                         chi2_stat, p_value = stats.chisquare(cur_aligned, ref_aligned)
-                        chi_square_scores[column] = {'chi2_statistic': chi2_stat, 'p_value': p_value}
+                        chi_square_scores[column] = {'chi2_statistic': chi2_stat, 'p_value': p_value}  # noqa: E501
 
                         if p_value < 0.05:
                             drifted_features.append(column)
 
-            overall_drift_score = np.mean([result['chi2_statistic'] for result in chi_square_scores.values()]) if chi_square_scores else 0
+            overall_drift_score = np.mean([result['chi2_statistic'] for result in chi_square_scores.values()]) if chi_square_scores else 0  # noqa: E501
 
             return {
                 'method': 'chi_square',
@@ -1071,7 +1071,7 @@ class ModelDataPipeline:
             self.error_handler.handle_error(e, context="_detect_drift_chi_square")
             return {'method': 'chi_square', 'drift_score': 0.0, 'drifted_features': []}
 
-    def _detect_drift_statistical_moments(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:
+    def _detect_drift_statistical_moments(self, ref_data: pd.DataFrame, cur_data: pd.DataFrame) -> dict[str, Any]:  # noqa: E501
         """Statistical moments comparison for drift detection."""
         try:
             moment_scores = {}
@@ -1084,7 +1084,7 @@ class ModelDataPipeline:
 
                     if len(ref_values) > 0 and len(cur_values) > 0:
                         # Compare means, stds, skewness, kurtosis
-                        mean_diff = abs(cur_values.mean() - ref_values.mean()) / (ref_values.std() + 1e-8)
+                        mean_diff = abs(cur_values.mean() - ref_values.mean()) / (ref_values.std() + 1e-8)  # noqa: E501
                         std_ratio = cur_values.std() / (ref_values.std() + 1e-8)
                         std_diff = abs(std_ratio - 1)
 
@@ -1096,7 +1096,7 @@ class ModelDataPipeline:
                             kurt_diff = 0
 
                         # Combine differences
-                        combined_score = (mean_diff + std_diff + skew_diff * 0.1 + kurt_diff * 0.1) / 2.2
+                        combined_score = (mean_diff + std_diff + skew_diff * 0.1 + kurt_diff * 0.1) / 2.2  # noqa: E501
                         moment_scores[column] = combined_score
 
                         if combined_score > 0.1:
@@ -1192,7 +1192,7 @@ class ModelDataPipeline:
                 variance_score = 0.0
 
             # Finite values score
-            finite_score = np.isfinite(numeric_features).all().mean() if not numeric_features.empty else 0.0
+            finite_score = np.isfinite(numeric_features).all().mean() if not numeric_features.empty else 0.0  # noqa: E501
 
             overall_quality = (completeness + variance_score + finite_score) / 3
             return min(1.0, max(0.0, overall_quality))
@@ -1307,10 +1307,10 @@ class ModelDataPipeline:
 
             # Update data quality score
             if hasattr(self, 'last_quality_scores'):
-                self.pipeline_metrics.data_quality_score = self.last_quality_scores.get('overall', 0.0)
+                self.pipeline_metrics.data_quality_score = self.last_quality_scores.get('overall', 0.0)  # noqa: E501
 
             # Calculate uptime
-            uptime_seconds = (datetime.now() - datetime.now().replace(hour=0, minute=0, second=0)).total_seconds()
+            uptime_seconds = (datetime.now() - datetime.now().replace(hour=0, minute=0, second=0)).total_seconds()  # noqa: E501
             self.pipeline_metrics.uptime_percent = min(100.0, uptime_seconds / 86400 * 100)
 
         except Exception as e:
@@ -1433,7 +1433,7 @@ async def main():
         }, index=dates)
 
         logging.info("   Generated market data: %s days", len(market_data))
-        logging.info(f"   Price range: ${market_data['close'].min():.2f} - ${market_data['close'].max():.2f}")
+        logging.info(f"   Price range: ${market_data['close'].min():.2f} - ${market_data['close'].max():.2f}")  # noqa: E501
 
         # Test feature engineering
         logging.info("🔧 Testing feature engineering...")

@@ -52,7 +52,7 @@ from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnaly
 from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
 # ==============================================================================
 # CONSTANTS
@@ -483,7 +483,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             current_price = market_data['close'].iloc[-1]
 
             # Get optimal strikes
-            call_strike = iv_analysis.optimal_strikes.get('call', current_price + CALL_STRIKE_OFFSET)
+            call_strike = iv_analysis.optimal_strikes.get('call', current_price + CALL_STRIKE_OFFSET)  # noqa: E501
             put_strike = iv_analysis.optimal_strikes.get('put', current_price - PUT_STRIKE_OFFSET)
 
             # Select expiries
@@ -566,9 +566,9 @@ class DoubleCalendarStrategy(BaseStrategy):
         # Ensure within range
         near_dte = (near_expiry - current_date).days
         if near_dte < MIN_NEAR_EXPIRY_DTE:
-            near_expiry = self._next_expiry_after(current_date + timedelta(days=MIN_NEAR_EXPIRY_DTE))
+            near_expiry = self._next_expiry_after(current_date + timedelta(days=MIN_NEAR_EXPIRY_DTE))  # noqa: E501
         elif near_dte > MAX_NEAR_EXPIRY_DTE:
-            near_expiry = self._prev_expiry_before(current_date + timedelta(days=MAX_NEAR_EXPIRY_DTE))
+            near_expiry = self._prev_expiry_before(current_date + timedelta(days=MAX_NEAR_EXPIRY_DTE))  # noqa: E501
 
         # Far expiry with optimal spread
         far_target = near_expiry + timedelta(days=OPTIMAL_TIME_SPREAD)
@@ -645,7 +645,7 @@ class DoubleCalendarStrategy(BaseStrategy):
         if option_type == OptionType.CALL:
             premium = spot * stats.norm.cdf(d1) - strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2)
         else:
-            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)
+            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)  # noqa: E501
 
         return max(0.10, premium)
 
@@ -658,7 +658,7 @@ class DoubleCalendarStrategy(BaseStrategy):
         far_dte = (far_expiry - datetime.now()).days / 365.0
 
         # Near option Greeks (short)
-        near_d1 = (np.log(spot / strike) + (0.02 + near_iv**2/2) * near_dte) / (near_iv * np.sqrt(near_dte))
+        near_d1 = (np.log(spot / strike) + (0.02 + near_iv**2/2) * near_dte) / (near_iv * np.sqrt(near_dte))  # noqa: E501
 
         if option_type == OptionType.CALL:
             near_delta = -stats.norm.cdf(near_d1)  # Negative because short
@@ -670,7 +670,7 @@ class DoubleCalendarStrategy(BaseStrategy):
         near_theta = (spot * stats.norm.pdf(near_d1) * near_iv / (2 * np.sqrt(near_dte))) / 365
 
         # Far option Greeks (long)
-        far_d1 = (np.log(spot / strike) + (0.02 + far_iv**2/2) * far_dte) / (far_iv * np.sqrt(far_dte))
+        far_d1 = (np.log(spot / strike) + (0.02 + far_iv**2/2) * far_dte) / (far_iv * np.sqrt(far_dte))  # noqa: E501
 
         if option_type == OptionType.CALL:
             far_delta = stats.norm.cdf(far_d1)
@@ -783,7 +783,7 @@ class DoubleCalendarStrategy(BaseStrategy):
         """Convert setup to trading signal"""
         try:
             # Determine signal strength
-            if setup.expected_theta_decay > self.target_theta and setup.iv_regime == IVRegime.NORMAL:
+            if setup.expected_theta_decay > self.target_theta and setup.iv_regime == IVRegime.NORMAL:  # noqa: E501
                 strength = SignalStrength.STRONG
             elif setup.expected_theta_decay > self.target_theta * 0.7:
                 strength = SignalStrength.MEDIUM
@@ -1117,7 +1117,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             self.logger.error("Error creating roll signal: %s", e)
             return None
 
-    def _create_delta_adjustment_signal(self, position: DoubleCalendarPosition) -> TradingSignal | None:
+    def _create_delta_adjustment_signal(self, position: DoubleCalendarPosition) -> TradingSignal | None:  # noqa: E501
         """Create delta neutrality adjustment signal"""
         try:
             # Determine which side to adjust
@@ -1392,9 +1392,29 @@ class DoubleCalendarStrategy(BaseStrategy):
             self._close_position(position)
 
         # Log final performance
-        self.logger.info("Double Calendar Strategy Final Performance: %s", self.analyze_performance())
+        self.logger.info("Double Calendar Strategy Final Performance: %s", self.analyze_performance())  # noqa: E501
 
         super().cleanup()
+
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
 
 
 # ==============================================================================

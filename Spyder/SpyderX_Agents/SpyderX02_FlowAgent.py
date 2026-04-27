@@ -54,7 +54,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
 from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
 from Spyder.SpyderM_Monitoring.SpyderM07_MigrationMonitor import get_migration_monitor
-from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import OptionsFlowAnalyzer
+from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import AdvancedOptionsFlowAnalyzer as OptionsFlowAnalyzer  # noqa: E501
 try:
     from Spyder.SpyderS_Signals.SpyderS08_ShortSqueezeDetector import (
         ShortSqueezeDetector,
@@ -726,7 +726,7 @@ class SpyderX02_FlowAgent:
                         "content": """You are an expert options flow analyst.
                         Analyze flow patterns to identify smart money movements and institutional activity.
                         Focus on actionable insights and specific trade setups.
-                        Be precise about entry levels, position sizing, and risk management."""
+                        Be precise about entry levels, position sizing, and risk management."""  # noqa: E501
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -872,7 +872,7 @@ key_observations, trade_setups, risk_assessment, confidence"""
 
         # Check for far OTM options with high premium
         moneyness = flow.strike / flow.underlying_price
-        if flow.option_type == 'call' and moneyness > 1.05 or flow.option_type == 'put' and moneyness < 0.95:  # 5% OTM calls
+        if flow.option_type == 'call' and moneyness > 1.05 or flow.option_type == 'put' and moneyness < 0.95:  # 5% OTM calls  # noqa: E501
             return flow.premium > MIN_PREMIUM_THRESHOLD * 2
 
         return False
@@ -1032,10 +1032,10 @@ key_observations, trade_setups, risk_assessment, confidence"""
 
         if call_premium > put_premium * 1.5:
             metric_sentiment = 'bullish'
-            sentiment_score = min(1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))
+            sentiment_score = min(1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))  # noqa: E501
         elif put_premium > call_premium * 1.5:
             metric_sentiment = 'bearish'
-            sentiment_score = max(-1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))
+            sentiment_score = max(-1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))  # noqa: E501
         else:
             metric_sentiment = 'neutral'
             sentiment_score = (call_premium - put_premium) / (call_premium + put_premium + 1)

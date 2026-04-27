@@ -16,6 +16,7 @@ Module Description:
 import pytest
 import os
 import sys
+import importlib
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
 from datetime import datetime, timedelta
@@ -25,6 +26,38 @@ import json
 # Add project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+
+
+def _is_workspace_module(module_obj) -> bool:
+    """Return True when a module resolves to a file inside this workspace."""
+    module_file = getattr(module_obj, "__file__", None)
+    if not module_file:
+        return False
+    try:
+        return os.path.abspath(module_file).startswith(str(project_root))
+    except Exception:
+        return False
+
+
+def _cleanup_polluted_spyder_modules() -> None:
+    """Remove in-memory stub modules that can poison later test collection."""
+    watched_prefixes = (
+        "SpyderU_Utilities",
+        "Spyder.SpyderU_Utilities",
+        "SpyderA_Core",
+        "Spyder.SpyderA_Core",
+        "SpyderG_GUI",
+        "Spyder.SpyderG_GUI",
+        "SpyderI_Integration",
+        "Spyder.SpyderI_Integration",
+    )
+
+    for mod_name, mod_obj in list(sys.modules.items()):
+        if not mod_name.startswith(watched_prefixes):
+            continue
+        if _is_workspace_module(mod_obj):
+            continue
+        sys.modules.pop(mod_name, None)
 
 
 # ==============================================================================
@@ -40,6 +73,46 @@ def pytest_configure(config):
     # Set environment variables for testing
     os.environ['SPYDER_TEST_MODE'] = 'true'
     os.environ['SPYDER_ENV'] = 'test'
+
+    # Prime canonical packages so test bootstraps don't replace them with stubs.
+    for module_name in (
+        "Spyder",
+        "Spyder.SpyderU_Utilities",
+        "Spyder.SpyderA_Core",
+    ):
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            pass
+
+
+def pytest_collectstart(collector):
+    """Keep collection isolated by removing polluted module stubs between files."""
+    _cleanup_polluted_spyder_modules()
+
+    # Re-prime canonical utility modules commonly clobbered by test bootstraps.
+    for module_name in (
+        "Spyder",
+        "Spyder.SpyderU_Utilities",
+        "Spyder.SpyderU_Utilities.SpyderU01_Logger",
+        "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
+        "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
+        "Spyder.SpyderA_Core",
+        "Spyder.SpyderA_Core.SpyderA05_EventManager",
+        "Spyder.SpyderG_GUI",
+        "Spyder.SpyderG_GUI.SpyderG05_TradingDashboard",
+        "Spyder.SpyderI_Integration",
+        "Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus",
+    ):
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            pass
+
+
+def pytest_runtest_setup(item):
+    """Reset polluted module aliases before each test item runs."""
+    pytest_collectstart(item)
 
 
 def pytest_collection_modifyitems(config, items):

@@ -158,7 +158,7 @@ except ImportError:
 
 # Event Manager - SAFE IMPORT (optional dependency)
 try:
-    from SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType
+    from SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType, get_event_manager  # noqa: E501
     HAS_EVENT_MANAGER = True
 except ImportError:
     HAS_EVENT_MANAGER = False
@@ -442,9 +442,9 @@ class AccountManager:
         if event_manager:
             self.event_manager = event_manager
         elif HAS_EVENT_MANAGER:
-            self.event_manager = EventManager()
+            self.event_manager = get_event_manager()
         else:
-            self.event_manager = EventManager()  # Use fallback
+            self.event_manager = EventManager()  # local stub fallback
 
         # Configuration
         self.config = config or {}
@@ -491,7 +491,7 @@ class AccountManager:
 
         self.logger.info("AccountManager initialized successfully")
         self.logger.info(f"Module availability - SpyderClient: {HAS_SPYDER_CLIENT}, "
-                        f"EventManager: {HAS_EVENT_MANAGER}, NumPy: {HAS_NUMPY}, Pandas: {HAS_PANDAS}")
+                        f"EventManager: {HAS_EVENT_MANAGER}, NumPy: {HAS_NUMPY}, Pandas: {HAS_PANDAS}")  # noqa: E501
 
     # ==========================================================================
     # LIFECYCLE MANAGEMENT
@@ -690,16 +690,16 @@ class AccountManager:
                 old_net_liquidation = account.net_liquidation
 
                 # Parse key account values (with fallbacks for missing data)
-                account.net_liquidation = float(account_values.get('NetLiquidation', account.net_liquidation))
+                account.net_liquidation = float(account_values.get('NetLiquidation', account.net_liquidation))  # noqa: E501
                 account.total_cash = float(account_values.get('TotalCashValue', account.total_cash))
-                account.buying_power = float(account_values.get('BuyingPower', account.buying_power))
-                account.day_trading_buying_power = float(account_values.get('DayTradingBuyingPower', account.day_trading_buying_power))
-                account.equity_with_loan = float(account_values.get('EquityWithLoanValue', account.equity_with_loan))
-                account.excess_liquidity = float(account_values.get('ExcessLiquidity', account.excess_liquidity))
+                account.buying_power = float(account_values.get('BuyingPower', account.buying_power))  # noqa: E501
+                account.day_trading_buying_power = float(account_values.get('DayTradingBuyingPower', account.day_trading_buying_power))  # noqa: E501
+                account.equity_with_loan = float(account_values.get('EquityWithLoanValue', account.equity_with_loan))  # noqa: E501
+                account.excess_liquidity = float(account_values.get('ExcessLiquidity', account.excess_liquidity))  # noqa: E501
                 account.sma = float(account_values.get('SMA', account.sma))
-                account.initial_margin = float(account_values.get('InitMarginReq', account.initial_margin))
-                account.maintenance_margin = float(account_values.get('MaintMarginReq', account.maintenance_margin))
-                account.available_funds = float(account_values.get('AvailableFunds', account.available_funds))
+                account.initial_margin = float(account_values.get('InitMarginReq', account.initial_margin))  # noqa: E501
+                account.maintenance_margin = float(account_values.get('MaintMarginReq', account.maintenance_margin))  # noqa: E501
+                account.available_funds = float(account_values.get('AvailableFunds', account.available_funds))  # noqa: E501
                 account.cushion = float(account_values.get('Cushion', account.cushion))
 
                 # Calculate daily P&L
@@ -726,7 +726,7 @@ class AccountManager:
                     })
 
         except Exception as e:
-            self.logger.error("Error updating account data for %s: %s", account_id, e, exc_info=True)
+            self.logger.error("Error updating account data for %s: %s", account_id, e, exc_info=True)  # noqa: E501
 
     # ==========================================================================
     # ACCOUNT QUERIES
@@ -830,7 +830,7 @@ class AccountManager:
             # Check PDT status
             if account.is_pdt and account.day_trading_buying_power < PDT_EQUITY_REQUIREMENT:
                 new_restrictions.append(RestrictionType.PDT)
-                self._emit_risk_alert(account_id, "PDT equity requirement not met", RiskLevel.MEDIUM)
+                self._emit_risk_alert(account_id, "PDT equity requirement not met", RiskLevel.MEDIUM)  # noqa: E501
 
             # Update restrictions
             account.restrictions = new_restrictions
@@ -849,7 +849,7 @@ class AccountManager:
 
     def _emit_risk_alert(self, account_id: str, message: str, risk_level: RiskLevel):
         """Emit a risk alert event"""
-        self.logger.warning("Risk alert for %s: %s (Level: %s)", account_id, message, risk_level.value)
+        self.logger.warning("Risk alert for %s: %s (Level: %s)", account_id, message, risk_level.value)  # noqa: E501
 
         # Notify callbacks
         for callback in self._risk_callbacks:
@@ -1030,7 +1030,7 @@ class AccountManager:
                     try:
                         account = AccountInfo(
                             account_id=raw["account_id"],
-                            account_type=AccountType(raw.get("account_type", AccountType.MARGIN.value)),
+                            account_type=AccountType(raw.get("account_type", AccountType.MARGIN.value)),  # noqa: E501
                             status=AccountStatus(raw.get("status", AccountStatus.ACTIVE.value)),
                             net_liquidation=raw.get("net_liquidation", 0.0),
                             total_cash=raw.get("total_cash", 0.0),
@@ -1186,7 +1186,7 @@ class AccountManager:
                             f"Return: {total_return:.2%}, Sharpe: {sharpe_ratio:.2f}")
 
         except Exception as e:
-            self.logger.error("Error calculating performance for %s: %s", account_id, e, exc_info=True)
+            self.logger.error("Error calculating performance for %s: %s", account_id, e, exc_info=True)  # noqa: E501
 
     # ==========================================================================
     # EVENT HANDLING

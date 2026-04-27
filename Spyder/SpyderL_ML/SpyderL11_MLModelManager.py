@@ -62,10 +62,10 @@ MODEL_EXTENSIONS = {
 
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderL_ML.SpyderL01_MLPredictor import ModelConfig
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderL_ML.SpyderL01_MLPredictor import ModelConfig  # noqa: E402
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType  # noqa: E402
 try:
     from Spyder.SpyderH_Storage.SpyderH02_DatabaseManager import get_database_manager
 except ImportError:
@@ -824,7 +824,7 @@ class MLModelManager:
         """Validate status transition"""
         valid_transitions = {
             ModelStatus.DEVELOPMENT: [ModelStatus.STAGING, ModelStatus.DEPRECATED],
-            ModelStatus.STAGING: [ModelStatus.PRODUCTION, ModelStatus.SHADOW, ModelStatus.DEPRECATED],
+            ModelStatus.STAGING: [ModelStatus.PRODUCTION, ModelStatus.SHADOW, ModelStatus.DEPRECATED],  # noqa: E501
             ModelStatus.PRODUCTION: [ModelStatus.SHADOW, ModelStatus.DEPRECATED],
             ModelStatus.SHADOW: [ModelStatus.PRODUCTION, ModelStatus.DEPRECATED],
             ModelStatus.DEPRECATED: [ModelStatus.ARCHIVED],

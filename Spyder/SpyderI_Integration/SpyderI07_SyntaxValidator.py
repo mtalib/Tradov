@@ -429,7 +429,7 @@ class SyntaxValidator:
                                         suggestion="Use VolumeWeightedAveragePrice instead",
                                     )
                                 )
-        except BaseException:
+        except Exception:
             pass  # If we can't parse, syntax check will catch it
 
         return issues
@@ -523,7 +523,7 @@ class SyntaxValidator:
                 fixed_content, options={"aggressive": 2, "max_line_length": 100}
             )
             fixes_applied += 1
-        except BaseException:
+        except Exception:
             pass
 
         # Apply black formatting if available
@@ -531,7 +531,7 @@ class SyntaxValidator:
             try:
                 fixed_content = black.format_str(fixed_content, mode=black.Mode(line_length=100))
                 fixes_applied += 1
-            except BaseException:
+            except Exception:
                 pass
 
         # Apply isort for import sorting if available
@@ -539,7 +539,7 @@ class SyntaxValidator:
             try:
                 fixed_content = isort.code(fixed_content)
                 fixes_applied += 1
-            except BaseException:
+            except Exception:
                 pass
 
         # Custom fixes for specific issues
@@ -678,7 +678,7 @@ class SyntaxValidator:
             "SUMMARY",
             "-" * 40,
             f"Total Files Scanned: {report.total_files}",
-            f"Valid Files: {report.valid_files} ({report.valid_files/max(report.total_files, 1)*100:.1f}%)",
+            f"Valid Files: {report.valid_files} ({report.valid_files/max(report.total_files, 1)*100:.1f}%)",  # noqa: E501
             f"Files with Errors: {report.files_with_errors}",
             f"Total Issues Found: {report.total_issues}",
             f"Issues Fixed: {report.fixed_issues}",
@@ -704,7 +704,7 @@ class SyntaxValidator:
                     lines.append(f"\n{file_path}:")
                     for issue in result.issues[:3]:  # Show first 3 issues
                         lines.append(
-                            f"  Line {issue.line_number}: {issue.error_type.value} - {issue.message}"
+                            f"  Line {issue.line_number}: {issue.error_type.value} - {issue.message}"  # noqa: E501
                         )
                     if len(result.issues) > 3:
                         lines.append(f"  ... and {len(result.issues) - 3} more issues")

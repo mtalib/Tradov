@@ -157,7 +157,7 @@ class VIXSnapshot:
 
     @property
     def is_in_backwardation(self) -> bool:
-        return self.term_structure in [TermStructure.BACKWARDATION, TermStructure.STEEP_BACKWARDATION]
+        return self.term_structure in [TermStructure.BACKWARDATION, TermStructure.STEEP_BACKWARDATION]  # noqa: E501
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -770,8 +770,8 @@ class VIXHedgingStrategy:
         # Estimate premium
         iv = 1.0  # VIX options have high IV
         time_to_expiry = 45 / 365
-        d1 = (math.log(snapshot.vix_spot / strike) + 0.5 * iv**2 * time_to_expiry) / (iv * math.sqrt(time_to_expiry))
-        premium_estimate = snapshot.vix_spot * norm.cdf(d1) - strike * norm.cdf(d1 - iv * math.sqrt(time_to_expiry))
+        d1 = (math.log(snapshot.vix_spot / strike) + 0.5 * iv**2 * time_to_expiry) / (iv * math.sqrt(time_to_expiry))  # noqa: E501
+        premium_estimate = snapshot.vix_spot * norm.cdf(d1) - strike * norm.cdf(d1 - iv * math.sqrt(time_to_expiry))  # noqa: E501
         premium_estimate = max(0.5, premium_estimate)
 
         # Calculate position size
@@ -826,7 +826,7 @@ class VIXHedgingStrategy:
             >>> signal = strategy.get_mean_reversion_trade()
             >>> if signal and signal.trade_type == "sell_vix":
             ...     print(f"Sell VIX, expect reversion from {signal.current_vix} to {signal.target_vix}")
-        """
+        """  # noqa: E501
         snapshot = self.get_vix_snapshot()
 
         # Check for spike (sell opportunity)
@@ -952,7 +952,7 @@ class VIXHedgingStrategy:
                 warnings=["Backwardation can persist - use time stop"]
             )
 
-        elif snapshot.term_structure == TermStructure.STEEP_CONTANGO and snapshot.regime == VIXRegime.LOW:
+        elif snapshot.term_structure == TermStructure.STEEP_CONTANGO and snapshot.regime == VIXRegime.LOW:  # noqa: E501
             # Steep contango + low VIX = short vol opportunity
             return VIXTradeSetup(
                 strategy_name="Contango Short",

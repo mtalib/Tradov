@@ -42,9 +42,9 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from .SpyderZ07_MultiProcessManager import SpyderEngineProcess
-from .SpyderZ03_TradingCoordinator import EngineType
-from .SpyderZ02_MessageProtocol import (
+from .SpyderZ07_MultiProcessManager import SpyderEngineProcess  # noqa: E402
+from .SpyderZ03_TradingCoordinator import EngineType  # noqa: E402
+from .SpyderZ02_MessageProtocol import (  # noqa: E402
     MessageCategory, ProtocolMessage, PRIORITY_HIGH
 )
 
@@ -497,8 +497,8 @@ class VolatilityEngine(SpyderEngineProcess):
         metrics.update({
             "calculation_count": self.calculation_count,
             "avg_calculation_time": avg_calc_time,
-            "cache_hit_rate": self.greeks_calculator.cache.get_hit_rate() if hasattr(self.greeks_calculator.cache, 'get_hit_rate') else 0,
-            "surface_age": time.time() - self.last_surface_update if self.last_surface_update else None,
+            "cache_hit_rate": self.greeks_calculator.cache.get_hit_rate() if hasattr(self.greeks_calculator.cache, 'get_hit_rate') else 0,  # noqa: E501
+            "surface_age": time.time() - self.last_surface_update if self.last_surface_update else None,  # noqa: E501
             "surface_available": self.current_surface is not None
         })
 

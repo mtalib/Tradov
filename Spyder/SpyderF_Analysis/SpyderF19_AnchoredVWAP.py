@@ -1094,7 +1094,7 @@ class AnchoredVWAPCalculator:
 
         # Calculate confidence
         confidence = 0.6
-        if analysis.momentum_strength > 0.5 and direction == "long" or analysis.momentum_strength < -0.5 and direction == "short":
+        if analysis.momentum_strength > 0.5 and direction == "long" or analysis.momentum_strength < -0.5 and direction == "short":  # noqa: E501
             confidence += 0.2
 
         rationale = (

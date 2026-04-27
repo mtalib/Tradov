@@ -210,7 +210,7 @@ class SupportResistanceAnalyzer:
     # PUBLIC METHODS
     # ==========================================================================
 
-    def analyze(self, data: pd.DataFrame, current_volatility: float | None = None) -> SupportResistanceAnalysis:
+    def analyze(self, data: pd.DataFrame, current_volatility: float | None = None) -> SupportResistanceAnalysis:  # noqa: E501
         """
         Perform complete support/resistance analysis.
 
@@ -291,7 +291,7 @@ class SupportResistanceAnalyzer:
             # Record performance
             elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
             self.monitor.record_metric('sr_analysis.execution_ms', elapsed_ms)
-            self.monitor.record_metric('sr_analysis.levels_found', len(support_levels) + len(resistance_levels))
+            self.monitor.record_metric('sr_analysis.levels_found', len(support_levels) + len(resistance_levels))  # noqa: E501
 
             # Update history
             self.last_analysis_time = datetime.now()
@@ -625,7 +625,7 @@ class SupportResistanceAnalyzer:
             volume_at_level=total_volume
         )
 
-    def _identify_key_levels(self, levels: list[PriceLevel], max_key_levels: int = 5) -> list[float]:
+    def _identify_key_levels(self, levels: list[PriceLevel], max_key_levels: int = 5) -> list[float]:  # noqa: E501
         """Identify the most important levels."""
         if not levels:
             return []

@@ -28,13 +28,13 @@ Module Description:
 
     The GUI (SpyderG05) calls these methods and receives plain Python data
     structures or raises typed exceptions.  No Qt imports live here.
-"""
+"""  # noqa: W291
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
-import os
+import logging  # noqa: F401
+import os  # noqa: F401
 from datetime import datetime
 
 # ==============================================================================

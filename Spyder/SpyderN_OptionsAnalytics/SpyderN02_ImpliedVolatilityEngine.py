@@ -421,14 +421,14 @@ class ImpliedVolatilityEngine:
         self.min_open_interest = 100  # Minimum OI
         self.max_bid_ask_spread = 0.50  # Maximum spread
 
-        self.logger.info("ImpliedVolatilityEngine initialized")
+        self.logger.debug("ImpliedVolatilityEngine initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - IV CALCULATION
     # ==========================================================================
 
     def calculate_iv_snapshot(self, underlying: str, chain_data: list[dict],
-                             spot_price: float, risk_free_rate: float = DEFAULT_RISK_FREE_RATE) -> IVSnapshot:
+                             spot_price: float, risk_free_rate: float = DEFAULT_RISK_FREE_RATE) -> IVSnapshot:  # noqa: E501
         """
         Calculate complete IV snapshot from option chain
 
@@ -490,7 +490,7 @@ class ImpliedVolatilityEngine:
             self.error_handler.handle_error(e, {"underlying": underlying})
             return self._create_empty_snapshot(underlying, spot_price)
 
-    def calculate_iv_analytics(self, underlying: str, snapshot: IVSnapshot | None = None) -> IVAnalytics:
+    def calculate_iv_analytics(self, underlying: str, snapshot: IVSnapshot | None = None) -> IVAnalytics:  # noqa: E501
         """
         Calculate comprehensive IV analytics
 
@@ -533,7 +533,7 @@ class ImpliedVolatilityEngine:
         mean_reversion_target = self._calculate_mean_reversion_target(underlying, snapshot.atm_iv)
 
         # Volatility forecasts
-        forecast_1d, forecast_5d, confidence = self._forecast_volatility(underlying, snapshot.atm_iv)
+        forecast_1d, forecast_5d, confidence = self._forecast_volatility(underlying, snapshot.atm_iv)  # noqa: E501
 
         # Regime analysis
         regime_confidence = self._calculate_regime_confidence(snapshot.regime, snapshot.atm_iv)
@@ -728,7 +728,7 @@ class ImpliedVolatilityEngine:
             return False
 
         # Check bid-ask spread
-        if iv_point.bid_ask_spread is not None and iv_point.bid_ask_spread > self.max_bid_ask_spread:
+        if iv_point.bid_ask_spread is not None and iv_point.bid_ask_spread > self.max_bid_ask_spread:  # noqa: E501
             return False
 
         # Check IV bounds
@@ -748,7 +748,7 @@ class ImpliedVolatilityEngine:
             # Use all points weighted by moneyness distance
             weights = [1.0 / (1.0 + abs(p.moneyness - 1.0)) for p in iv_points]
             total_weight = sum(weights)
-            weighted_iv = sum(p.implied_volatility * w for p, w in zip(iv_points, weights, strict=False))
+            weighted_iv = sum(p.implied_volatility * w for p, w in zip(iv_points, weights, strict=False))  # noqa: E501
             return weighted_iv / total_weight
 
         # Average ATM points
@@ -829,7 +829,7 @@ class ImpliedVolatilityEngine:
     # PRIVATE METHODS - SMILE ANALYSIS
     # ==========================================================================
 
-    def _calculate_smile_parameters(self, iv_points: list[IVPoint], spot_price: float) -> dict[str, float]:
+    def _calculate_smile_parameters(self, iv_points: list[IVPoint], spot_price: float) -> dict[str, float]:  # noqa: E501
         """Calculate volatility smile parameters"""
         params = {
             'skew': 0,
@@ -984,7 +984,7 @@ class ImpliedVolatilityEngine:
     # PRIVATE METHODS - REGIME DETECTION
     # ==========================================================================
 
-    def _detect_volatility_regime(self, current_iv: float, term_structure: dict[int, float]) -> VolatilityRegime:
+    def _detect_volatility_regime(self, current_iv: float, term_structure: dict[int, float]) -> VolatilityRegime:  # noqa: E501
         """Detect current volatility regime"""
         if current_iv < LOW_VOL_THRESHOLD:
             return VolatilityRegime.LOW
@@ -1068,7 +1068,7 @@ class ImpliedVolatilityEngine:
 
         return np.average(ivs, weights=weights)
 
-    def _forecast_volatility(self, underlying: str, current_iv: float) -> tuple[float, float, float]:
+    def _forecast_volatility(self, underlying: str, current_iv: float) -> tuple[float, float, float]:  # noqa: E501
         """
         Forecast future volatility
 
@@ -1216,7 +1216,7 @@ def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> li
                 price = intrinsic + time_value
 
                 chain_data.append({
-                    'symbol': f"{underlying}{expiry.strftime('%y%m%d')}{option_type[0]}{int(strike*1000):08d}",
+                    'symbol': f"{underlying}{expiry.strftime('%y%m%d')}{option_type[0]}{int(strike*1000):08d}",  # noqa: E501
                     'strike': strike,
                     'expiry': expiry,
                     'type': option_type,

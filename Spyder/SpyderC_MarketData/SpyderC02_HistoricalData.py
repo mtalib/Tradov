@@ -47,10 +47,10 @@ Contract = None  # type: ignore
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar  # noqa: E402
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType  # noqa: E402
 
 # B01_SpyderClient removed (legacy broker) — Tradier via SpyderB40_TradierClient
 SpyderClient = None  # type: ignore
@@ -562,7 +562,7 @@ class HistoricalDataManager:
                             all_data.append(filtered_df)
 
                 except Exception as e:
-                    self.logger.warning("Error loading cache file %s: %s", cache_file, e, exc_info=True)
+                    self.logger.warning("Error loading cache file %s: %s", cache_file, e, exc_info=True)  # noqa: E501
                     continue
 
             if all_data:
@@ -641,11 +641,11 @@ class HistoricalDataManager:
 
             self.logger.debug(
                 f"Submitted historical data request {request.request_id} "
-                f"({len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} in last 10min)"
+                f"({len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} in last 10min)"  # noqa: E501
             )
 
         except Exception as e:
-            self.logger.error("Error processing request %s: %s", request.request_id, e, exc_info=True)
+            self.logger.error("Error processing request %s: %s", request.request_id, e, exc_info=True)  # noqa: E501
 
             # Create error response
             response = HistoricalDataResponse(
@@ -684,7 +684,7 @@ class HistoricalDataManager:
         # Check if we're under the 10-minute limit
         if len(self.request_history) >= MAX_HISTORICAL_REQUESTS_PER_10_MINUTES:
             self.logger.warning(
-                f"Historical data rate limit: {len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} "
+                f"Historical data rate limit: {len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} "  # noqa: E501
                 f"requests in last 10 minutes. Waiting..."
             )
             return False
@@ -822,7 +822,7 @@ class HistoricalDataManager:
                 self.responses[req_id].bars.append(bar_data)
 
         except Exception as e:
-            self.logger.error("Error processing historical data for %s: %s", req_id, e, exc_info=True)
+            self.logger.error("Error processing historical data for %s: %s", req_id, e, exc_info=True)  # noqa: E501
 
     def _on_historical_data_end(self, req_id: int, start: str, end: str):
         """Handle end of historical data"""
@@ -859,7 +859,7 @@ class HistoricalDataManager:
                 del self.active_requests[req_id]
 
         except Exception as e:
-            self.logger.error("Error completing historical data for %s: %s", req_id, e, exc_info=True)
+            self.logger.error("Error completing historical data for %s: %s", req_id, e, exc_info=True)  # noqa: E501
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
         """Handle data provider errors"""
@@ -934,4 +934,4 @@ def bars_to_dataframe(bars: list[HistoricalBarData]) -> pd.DataFrame:
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    logging.info("HistoricalDataManager: Use provider-routed Tradier or Massive historical data retrieval")
+    logging.info("HistoricalDataManager: Use provider-routed Tradier or Massive historical data retrieval")  # noqa: E501

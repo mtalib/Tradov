@@ -93,7 +93,7 @@ MAX_FLOW_HISTORY = 1000  # max flow entries to keep
 logger = SpyderLogger.get_logger(__name__)
 
 
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod  # noqa: E402
 
 # ==============================================================================
 # ENUMS
@@ -1000,8 +1000,8 @@ class OrderFlowAnalyzer:
 
             # Calculate pain at each strike
             strikes = chain['strike'].unique()
-            call_oi = chain[chain['contract_type'].str.lower() == 'call'].set_index('strike')['open_interest']
-            put_oi = chain[chain['contract_type'].str.lower() == 'put'].set_index('strike')['open_interest']
+            call_oi = chain[chain['contract_type'].str.lower() == 'call'].set_index('strike')['open_interest']  # noqa: E501
+            put_oi = chain[chain['contract_type'].str.lower() == 'put'].set_index('strike')['open_interest']  # noqa: E501
 
             call_pain: dict[float, float] = {}
             put_pain: dict[float, float] = {}
@@ -1354,11 +1354,11 @@ class OrderFlowAnalyzer:
                 if isinstance(dates, str):
                     dates = [dates]
                 today = date.today()
-                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)  # noqa: E501
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)
+                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)  # noqa: E501
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1448,7 +1448,7 @@ class OrderFlowAnalyzer:
                 })
             return results
         except Exception as exc:
-            logger.warning("Order flow matrix-profile anomaly detection failed: %s", exc, exc_info=True)
+            logger.warning("Order flow matrix-profile anomaly detection failed: %s", exc, exc_info=True)  # noqa: E501
             return []
 
     def _run_realtime(self):

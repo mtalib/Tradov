@@ -307,7 +307,7 @@ class TradingCalendar:
                 return True
 
             # Check afterhours
-            return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)
+            return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error checking extended hours: %s", e)
@@ -492,6 +492,21 @@ class TradingCalendar:
             current_date += timedelta(days=1)
 
         return trading_days
+
+    def get_market_close(self, for_date: date | None = None) -> time:
+        """Return the actual market close time for a date, early-close aware.
+
+        Args:
+            for_date: Date to check. Defaults to today.
+
+        Returns:
+            Market close time in ET.  Falls back to ``self.regular_close``
+            (16:00 ET) when the date is a holiday / non-trading day.
+        """
+        hours = self.get_market_hours(for_date)
+        if hours.market_close is not None:
+            return hours.market_close
+        return self.regular_close
 
     def get_market_hours(self, for_date: date | None = None) -> MarketHours:
         """

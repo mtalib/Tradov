@@ -62,20 +62,28 @@ INTERNET_TEST_HOSTS = [
     "208.67.222.222"     # OpenDNS
 ]
 
-# Legacy IB_ENDPOINTS — deprecated, retained for backward compatibility.
-# Spyder now uses Tradier REST API; these endpoints are no longer active.
-IB_ENDPOINTS = {
-    "GATEWAY": {"host": "127.0.0.1", "port": 4001, "deprecated": True},
-    "TWS": {"host": "127.0.0.1", "port": 7496, "deprecated": True},
-}
-
-
 # HTTP test URLs
 HTTP_TEST_URLS = [
     "https://www.google.com",
     "https://www.interactivebrokers.com",
     "https://httpbin.org/get"
 ]
+
+# Interactive Brokers test endpoints (backward-compatible public constant).
+# Kept here because multiple legacy test suites and utilities import this name.
+# Ports follow common local-paper defaults:
+#   - TWS paper: 7497
+#   - IB Gateway paper: 4002
+IB_ENDPOINTS = {
+    "TWS": {
+        "host": "127.0.0.1",
+        "port": 7497,
+    },
+    "GATEWAY": {
+        "host": "127.0.0.1",
+        "port": 4002,
+    },
+}
 
 # ==============================================================================
 # ENUMS

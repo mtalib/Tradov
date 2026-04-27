@@ -500,7 +500,7 @@ class ModelValidationEngine:
     async def validate_model(self, model_id: str,
                            validation_data: pd.DataFrame,
                            target_data: pd.Series,
-                           validation_method: ValidationMethod = ValidationMethod.CROSS_VALIDATION) -> ValidationResult:
+                           validation_method: ValidationMethod = ValidationMethod.CROSS_VALIDATION) -> ValidationResult:  # noqa: E501
         """
         Perform comprehensive model validation.
 
@@ -542,16 +542,16 @@ class ModelValidationEngine:
             if validation_method == ValidationMethod.CROSS_VALIDATION:
                 result = await self._perform_cross_validation(model, metadata, X_val, y_val, result)
             elif validation_method == ValidationMethod.HOLDOUT:
-                result = await self._perform_holdout_validation(model, metadata, X_val, y_val, result)
+                result = await self._perform_holdout_validation(model, metadata, X_val, y_val, result)  # noqa: E501
             elif validation_method == ValidationMethod.TIME_SERIES_SPLIT:
-                result = await self._perform_time_series_validation(model, metadata, X_val, y_val, result)
+                result = await self._perform_time_series_validation(model, metadata, X_val, y_val, result)  # noqa: E501
             elif validation_method == ValidationMethod.BOOTSTRAP:
-                result = await self._perform_bootstrap_validation(model, metadata, X_val, y_val, result)
+                result = await self._perform_bootstrap_validation(model, metadata, X_val, y_val, result)  # noqa: E501
             else:
                 result = await self._perform_cross_validation(model, metadata, X_val, y_val, result)
 
             # Feature importance analysis
-            feature_importance = await self._analyze_feature_importance(model, metadata, X_val, y_val)
+            feature_importance = await self._analyze_feature_importance(model, metadata, X_val, y_val)  # noqa: E501
             result.feature_importance = feature_importance
 
             # Prediction quality analysis
@@ -568,11 +568,11 @@ class ModelValidationEngine:
 
             # Drift detection
             drift_results = await self._detect_model_drift(model_id, X_val, y_val)
-            result.drift_detection_results = {drift.drift_type: drift.drift_detected for drift in drift_results}
-            result.drift_statistics = {f"{drift.drift_type.value}_score": drift.drift_score for drift in drift_results}
+            result.drift_detection_results = {drift.drift_type: drift.drift_detected for drift in drift_results}  # noqa: E501
+            result.drift_statistics = {f"{drift.drift_type.value}_score": drift.drift_score for drift in drift_results}  # noqa: E501
 
             # Determine validation status
-            result.status, result.passed_validation = self._determine_validation_status(result, metadata)
+            result.status, result.passed_validation = self._determine_validation_status(result, metadata)  # noqa: E501
 
             # Calculate validation time
             result.validation_time = time.time() - start_time
@@ -586,7 +586,7 @@ class ModelValidationEngine:
             # Update performance tracking
             self._update_performance_tracking(model_id, result)
 
-            self.logger.info("Model validation completed: %s - Status: %s", model_id, result.status.value)
+            self.logger.info("Model validation completed: %s - Status: %s", model_id, result.status.value)  # noqa: E501
             return result
 
         except Exception as e:
@@ -684,11 +684,11 @@ class ModelValidationEngine:
 
             # Calculate feature importance
             if method == "permutation":
-                importance_scores = await self._calculate_permutation_importance(model, data, target)
+                importance_scores = await self._calculate_permutation_importance(model, data, target)  # noqa: E501
             elif method == "shap" and self._shap_available():
                 importance_scores = await self._calculate_shap_importance(model, data)
             elif hasattr(model, 'feature_importances_'):
-                importance_scores = dict(zip(data.columns, model.feature_importances_, strict=False))
+                importance_scores = dict(zip(data.columns, model.feature_importances_, strict=False))  # noqa: E501
             else:
                 importance_scores = {}
 
@@ -713,7 +713,7 @@ class ModelValidationEngine:
             # Generate recommendations
             analysis.features_to_remove = self._identify_features_to_remove(analysis)
             analysis.features_to_engineer = self._identify_features_to_engineer(analysis)
-            analysis.feature_selection_suggestions = self._generate_feature_selection_suggestions(analysis)
+            analysis.feature_selection_suggestions = self._generate_feature_selection_suggestions(analysis)  # noqa: E501
 
             # Store analysis
             self.feature_analyzers[model_id] = analysis
@@ -722,7 +722,7 @@ class ModelValidationEngine:
             return analysis
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="ModelValidationEngine.analyze_feature_importance")
+            self.error_handler.handle_error(e, context="ModelValidationEngine.analyze_feature_importance")  # noqa: E501
 
             # Return empty analysis on error
             return FeatureAnalysis(
@@ -766,24 +766,24 @@ class ModelValidationEngine:
             health_status = {
                 'model_id': model_id,
                 'model_name': self.model_metadata[model_id].model_name,
-                'overall_status': latest_validation.status.value if latest_validation else 'unknown',
+                'overall_status': latest_validation.status.value if latest_validation else 'unknown',  # noqa: E501
                 'health_score': health_score,
-                'last_validation': latest_validation.timestamp.isoformat() if latest_validation else None,
+                'last_validation': latest_validation.timestamp.isoformat() if latest_validation else None,  # noqa: E501
                 'active_alerts': len(recent_alerts),
-                'critical_alerts': len([a for a in recent_alerts if a.severity == AlertSeverity.CRITICAL]),
+                'critical_alerts': len([a for a in recent_alerts if a.severity == AlertSeverity.CRITICAL]),  # noqa: E501
                 'performance_trends': performance_trends,
-                'last_monitoring': self._last_monitoring_time.get(model_id, datetime.now()).isoformat()
+                'last_monitoring': self._last_monitoring_time.get(model_id, datetime.now()).isoformat()  # noqa: E501
             }
 
             # Add latest metrics if available
             if latest_validation:
                 health_status['latest_metrics'] = latest_validation.metrics
-                health_status['drift_detected'] = any(latest_validation.drift_detection_results.values())
+                health_status['drift_detected'] = any(latest_validation.drift_detection_results.values())  # noqa: E501
 
             return health_status
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="ModelValidationEngine.get_model_health_status")
+            self.error_handler.handle_error(e, context="ModelValidationEngine.get_model_health_status")  # noqa: E501
             return {'error': f'Error getting health status: {e}'}
 
     def generate_model_health_report(self, model_id: str) -> str:
@@ -859,7 +859,7 @@ class ModelValidationEngine:
                     latest_drifts = list(self.drift_history[model_id])[-5:]  # Last 5
                     for drift in latest_drifts:
                         if drift.drift_detected:
-                            report_lines.append(f"    {drift.drift_type.value}: Score {drift.drift_score:.3f}")
+                            report_lines.append(f"    {drift.drift_type.value}: Score {drift.drift_score:.3f}")  # noqa: E501
                 report_lines.append("")
 
             # Active Alerts
@@ -889,9 +889,9 @@ class ModelValidationEngine:
 
                 # Recommendations
                 if analysis.features_to_remove:
-                    report_lines.append(f"  Features to Consider Removing: {len(analysis.features_to_remove)}")
+                    report_lines.append(f"  Features to Consider Removing: {len(analysis.features_to_remove)}")  # noqa: E501
                 if analysis.features_to_engineer:
-                    report_lines.append(f"  Features to Engineer: {len(analysis.features_to_engineer)}")
+                    report_lines.append(f"  Features to Engineer: {len(analysis.features_to_engineer)}")  # noqa: E501
                 report_lines.append("")
 
             # Validation History
@@ -902,7 +902,7 @@ class ModelValidationEngine:
                     report_lines.append("RECENT VALIDATION HISTORY:")
                     for validation in reversed(recent_validations):
                         status_icon = "✅" if validation.passed_validation else "❌"
-                        report_lines.append(f"  {status_icon} {validation.timestamp.strftime('%Y-%m-%d %H:%M')} - {validation.status.value}")
+                        report_lines.append(f"  {status_icon} {validation.timestamp.strftime('%Y-%m-%d %H:%M')} - {validation.status.value}")  # noqa: E501
                     report_lines.append("")
 
             # Recommendations
@@ -920,7 +920,7 @@ class ModelValidationEngine:
             return "\n".join(report_lines)
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="ModelValidationEngine.generate_model_health_report")
+            self.error_handler.handle_error(e, context="ModelValidationEngine.generate_model_health_report")  # noqa: E501
             return f"Error generating health report: {e}"
 
     def get_ensemble_performance(self, ensemble_id: str) -> dict[str, Any]:
@@ -964,7 +964,7 @@ class ModelValidationEngine:
             }
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="ModelValidationEngine.get_ensemble_performance")
+            self.error_handler.handle_error(e, context="ModelValidationEngine.get_ensemble_performance")  # noqa: E501
             return {'error': f'Error getting ensemble performance: {e}'}
 
     # ==========================================================================
@@ -1020,8 +1020,8 @@ class ModelValidationEngine:
                                target: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
         """Prepare data for validation."""
         # Handle missing values
-        features_clean = features.fillna(features.mean() if features.select_dtypes(include=[np.number]).columns.any() else 0)
-        target_clean = target.fillna(target.mean() if target.dtype in [np.number] else target.mode()[0])
+        features_clean = features.fillna(features.mean() if features.select_dtypes(include=[np.number]).columns.any() else 0)  # noqa: E501
+        target_clean = target.fillna(target.mean() if target.dtype in [np.number] else target.mode()[0])  # noqa: E501
 
         # Ensure indices match
         common_index = features_clean.index.intersection(target_clean.index)
@@ -1053,7 +1053,7 @@ class ModelValidationEngine:
 
                 result.metrics = {
                     'accuracy': accuracy_score(y, predictions),
-                    'precision': precision_score(y, predictions, average='weighted', zero_division=0),
+                    'precision': precision_score(y, predictions, average='weighted', zero_division=0),  # noqa: E501
                     'recall': recall_score(y, predictions, average='weighted', zero_division=0),
                     'f1_score': f1_score(y, predictions, average='weighted', zero_division=0),
                     'cv_mean': cv_scores.mean(),
@@ -1103,8 +1103,8 @@ class ModelValidationEngine:
             if metadata.model_type == ModelType.CLASSIFICATION:
                 result.metrics = {
                     'accuracy': accuracy_score(y_test, predictions),
-                    'precision': precision_score(y_test, predictions, average='weighted', zero_division=0),
-                    'recall': recall_score(y_test, predictions, average='weighted', zero_division=0),
+                    'precision': precision_score(y_test, predictions, average='weighted', zero_division=0),  # noqa: E501
+                    'recall': recall_score(y_test, predictions, average='weighted', zero_division=0),  # noqa: E501
                     'f1_score': f1_score(y_test, predictions, average='weighted', zero_division=0)
                 }
 
@@ -1338,7 +1338,7 @@ async def main():
         )
 
         drift_detected = any(result.drift_detected for result in drift_results)
-        logging.info("   Drift Detection: %s", '🔴 DETECTED' if drift_detected else '🟢 None detected')
+        logging.info("   Drift Detection: %s", '🔴 DETECTED' if drift_detected else '🟢 None detected')  # noqa: E501
 
         if drift_detected:
             for result in drift_results:
@@ -1362,7 +1362,7 @@ async def main():
         await asyncio.sleep(2)
 
         monitoring_stopped = validator.stop_monitoring()
-        logging.info("   Monitoring: %s", '✅ Stopped' if monitoring_stopped else '❌ Failed to stop')
+        logging.info("   Monitoring: %s", '✅ Stopped' if monitoring_stopped else '❌ Failed to stop')  # noqa: E501
 
         # Generate comprehensive health report
         logging.info("\n📋 Generating model health report...")

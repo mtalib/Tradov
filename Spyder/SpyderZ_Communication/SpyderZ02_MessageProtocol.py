@@ -563,7 +563,7 @@ class VersionManager:
         # Try multi-step migration
         return self._multi_step_migration(message_dict, message_version)
 
-    def _multi_step_migration(self, message_dict: dict[str, Any], from_version: str) -> dict[str, Any]:
+    def _multi_step_migration(self, message_dict: dict[str, Any], from_version: str) -> dict[str, Any]:  # noqa: E501
         """Perform multi-step migration."""
         current = from_version
         result = message_dict.copy()
@@ -890,6 +890,32 @@ class ErrorMessage:
     timestamp: float = field(default_factory=time.time)
     stack_trace: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
+
+# ==============================================================================
+# EXAMPLE USAGE
+@dataclass
+class OrderMessage:
+    """Normalized equity / option order message crossing the Z-series boundary."""
+    order_id: str = ""
+    symbol: str = ""
+    quantity: int = 0
+    side: str = "buy"             # "buy" | "sell" | options sides
+    order_type: str = "market"    # "market" | "limit" | "stop" …
+    price: float | None = None
+    time_in_force: str = "DAY"
+    status: str = "pending"
+    timestamp: float = field(default_factory=time.time)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OptionOrderMessage(OrderMessage):
+    """Option-specific order message; extends OrderMessage with contract fields."""
+    underlying: str = ""
+    strike: float = 0.0
+    expiry: str = ""              # YYYYMMDD
+    option_type: str = "CALL"     # "CALL" | "PUT"
+
 
 # ==============================================================================
 # EXAMPLE USAGE

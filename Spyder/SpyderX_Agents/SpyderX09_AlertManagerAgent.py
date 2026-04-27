@@ -381,7 +381,7 @@ class SpyderX09_AlertManagerAgent:
             'by_channel': defaultdict(lambda: {'success': 0, 'failed': 0})
         }
 
-        for delivery, result in zip(self.delivery_queue[-len(delivery_tasks):], results, strict=False):
+        for delivery, result in zip(self.delivery_queue[-len(delivery_tasks):], results, strict=False):  # noqa: E501
             if result is True:
                 summary['by_channel'][delivery.channel.value]['success'] += 1
             else:
@@ -584,8 +584,8 @@ Provide a JSON response with:
                 else:
                     # Enhance each alert with group context
                     for alert in alerts:
-                        alert.metadata['group_context'] = group_analysis.get('group_interpretation', '')
-                        alert.metadata['group_action'] = group_analysis.get('recommended_action', '')
+                        alert.metadata['group_context'] = group_analysis.get('group_interpretation', '')  # noqa: E501
+                        alert.metadata['group_action'] = group_analysis.get('recommended_action', '')  # noqa: E501
                         alert.ai_enhanced = True
                     return alerts
             else:
@@ -970,7 +970,7 @@ Provide a JSON response with:
 
         # Factor 1: High frequency of low-severity alerts
         low_severity_ratio = sum(1 for a in alerts
-                               if a.severity in [AlertSeverity.LOW, AlertSeverity.INFO]) / len(alerts)
+                               if a.severity in [AlertSeverity.LOW, AlertSeverity.INFO]) / len(alerts)  # noqa: E501
         noise_factors.append(low_severity_ratio * 0.4)
 
         # Factor 2: Repeated similar alerts
@@ -1017,7 +1017,7 @@ Provide a JSON response with:
 # ==============================================================================
 
 def create_alert_manager_agent(model_name: str = DEFAULT_MODEL,
-                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX09_AlertManagerAgent:
+                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX09_AlertManagerAgent:  # noqa: E501
     """
     Factory function to create Alert Manager Agent instance.
 
@@ -1142,7 +1142,7 @@ async def test_alert_manager():
         logging.info("  Failed: %s", delivery_summary['failed'])
         logging.info("  By Channel:")
         for channel, stats in delivery_summary['by_channel'].items():
-            logging.info("    %s: %s success, %s failed", channel, stats['success'], stats['failed'])
+            logging.info("    %s: %s success, %s failed", channel, stats['success'], stats['failed'])  # noqa: E501
 
     # Test alert pattern analysis
     logging.info("\n\nTest 4: Alert Pattern Analysis")

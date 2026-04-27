@@ -43,7 +43,7 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
 
                                                        SignalStrength,
                                                        TradingSignal)
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
@@ -1177,6 +1177,26 @@ class DiagonalSpreadStrategy(BaseStrategy):
             "worst_trade": self.performance_stats["worst_trade"],
         }
 
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
+
 
 # ==============================================================================
 # TESTING
@@ -1188,7 +1208,7 @@ def test_diagonal_spread():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(
@@ -1300,7 +1320,7 @@ def test_diagonal_spread():
                         if signal.signal_type == SignalType.ADJUST:
                             logging.info("\nRoll Signal Day %s", i)
                             logging.info("Action: %s", signal.metadata['action'])
-                            logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")
+                            logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")  # noqa: E501
                             logging.info("Short DTE: %s", signal.metadata['current_short_dte'])
                             logging.info("Roll Count: %s", signal.metadata['roll_count'])
                         elif signal.signal_type == SignalType.EXIT:
@@ -1308,7 +1328,7 @@ def test_diagonal_spread():
                             logging.info("Reason: %s", signal.metadata['exit_reason'])
                             logging.info("Days Held: %s", signal.metadata['days_held'])
                             logging.info(f"Total P&L: ${signal.metadata['total_pnl']:.2f}")
-                            logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")
+                            logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")  # noqa: E501
 
     # Print position summary
     positions = strategy.get_position_summary()

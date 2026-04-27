@@ -251,12 +251,13 @@ class TestOrderPlacement:
         """Test order cancellation."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"order": {"status": "cancelled"}}
+        mock_response.json.return_value = {"order": {"id": 123456, "status": "cancelled"}}
         mock_request.return_value = mock_response
 
         result = tradier_client.cancel_order(order_id=123456)
 
-        assert result["order"]["status"] == "cancelled"
+        # cancel_order() returns bool (True when API confirms the id)
+        assert result is True
         assert mock_request.call_args.kwargs["method"] == "DELETE"
 
     @patch('requests.Session.request')

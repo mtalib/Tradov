@@ -698,7 +698,7 @@ class CreditSpreadStrategy(BaseStrategy):
             score += 10
 
         # Market condition alignment
-        if self.market_condition in [MarketCondition.MODERATELY_BULLISH, MarketCondition.MODERATELY_BEARISH]:
+        if self.market_condition in [MarketCondition.MODERATELY_BULLISH, MarketCondition.MODERATELY_BEARISH]:  # noqa: E501
             score += 20
         elif self.market_condition == MarketCondition.NEUTRAL:
             score += 10
@@ -778,8 +778,8 @@ class CreditSpreadStrategy(BaseStrategy):
                 expiry=short_leg.expiry,
                 quantity=signal.position_size,
                 state=SpreadState.ACTIVE,
-                credit_received=spread_data['credit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
-                max_profit=spread_data['max_profit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                credit_received=spread_data['credit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
+                max_profit=spread_data['max_profit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
                 max_loss=spread_data['max_loss'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
                 breakeven=spread_data['breakeven'],
                 probability_profit=spread_data['probability_profit']
@@ -939,7 +939,7 @@ class CreditSpreadStrategy(BaseStrategy):
             'exposure': {
                 'total_credit': total_credit,
                 'total_risk': total_risk,
-                'net_credit': total_credit - sum(s.unrealized_pnl for s in self.active_spreads.values())
+                'net_credit': total_credit - sum(s.unrealized_pnl for s in self.active_spreads.values())  # noqa: E501
             },
             'performance': self.spread_metrics,
             'support_resistance': self.support_resistance

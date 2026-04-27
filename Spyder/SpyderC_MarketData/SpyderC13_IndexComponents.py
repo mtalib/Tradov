@@ -369,7 +369,7 @@ class IndexComponentAnalyzer:
 
         return sorted(sector_metrics, key=lambda x: x.performance_1d, reverse=True)
 
-    def get_momentum_leaders_laggards(self, count: int = 20) -> tuple[list[ComponentStock], list[ComponentStock]]:
+    def get_momentum_leaders_laggards(self, count: int = 20) -> tuple[list[ComponentStock], list[ComponentStock]]:  # noqa: E501
         """
         Get momentum leaders and laggards.
 
@@ -423,7 +423,7 @@ class IndexComponentAnalyzer:
             'risk_assessment': risk_assessment,
             'strongest_sectors': [s.sector for s in rankings['relative'][:3]],
             'weakest_sectors': [s.sector for s in rankings['relative'][-3:]],
-            'recommendation': self._generate_rotation_recommendation(rotation_pattern, risk_assessment)
+            'recommendation': self._generate_rotation_recommendation(rotation_pattern, risk_assessment)  # noqa: E501
         }
 
     # ==========================================================================

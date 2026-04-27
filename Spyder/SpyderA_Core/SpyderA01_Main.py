@@ -30,7 +30,7 @@ try:
 except ImportError:
     pass  # Falls back to default asyncio event loop
 
-# Add project root to path (now need to go up 3 levels: SpyderA01_Main.py -> SpyderA_Core -> Spyder -> project_root)
+# Add project root to path (now need to go up 3 levels: SpyderA01_Main.py -> SpyderA_Core -> Spyder -> project_root)  # noqa: E501
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -86,7 +86,7 @@ setup_logging_func: Any = None
 get_logger_func: Any = None
 
 try:
-    from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator as _get_coordinator
+    from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator as _get_coordinator  # noqa: E501
     _HAS_COORDINATOR = True
 except ImportError:
     _get_coordinator = None
@@ -120,7 +120,7 @@ EventManager: type | None = None
 Event: type | None = None
 
 try:
-    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event  # noqa: F401
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, get_event_manager  # noqa: F401
 
     has_event_manager = True
 except ImportError:
@@ -301,7 +301,7 @@ class SpyderMainWindow(_BaseWidget):  # type: ignore[misc]
                     "✅ CONNECTED with PROVEN race condition fix!"
                 )
                 self.status_label.setStyleSheet(
-                    "font-size: 14px; margin: 10px; padding: 10px; background-color: #d4edda; color: #155724;"
+                    "font-size: 14px; margin: 10px; padding: 10px; background-color: #d4edda; color: #155724;"  # noqa: E501
                 )
 
                 # Update connection info
@@ -321,7 +321,7 @@ GUI Status: VISIBLE (proving connection is stable!)
             else:
                 self.status_label.setText("❌ DISCONNECTED")
                 self.status_label.setStyleSheet(
-                    "font-size: 14px; margin: 10px; padding: 10px; background-color: #f8d7da; color: #721c24;"
+                    "font-size: 14px; margin: 10px; padding: 10px; background-color: #f8d7da; color: #721c24;"  # noqa: E501
                 )
                 self.connection_info.setText("Not connected to broker")
         except Exception as e:
@@ -420,15 +420,15 @@ class SpyderApplication:
         # ── package → (display_name, critical, notes_if_missing) ──────────────
         _CAPABILITIES: list[tuple[str, str, bool, str]] = [
             # package_name             display_name                       critical  note_if_missing
-            ("PySide6",                "GUI Dashboard (PySide6)",          True,  "run: pip install PySide6"),
-            ("sklearn",                "ML Regime Detection (scikit-learn)",False, "run: pip install scikit-learn"),
-            ("hmmlearn",               "HMM Regime Models (hmmlearn)",     False, "run: pip install hmmlearn"),
-            ("requests",               "Massive Market Data (HTTP)",       False, "set MASSIVE_API_KEY in .env when enabling Massive"),
-            ("zmq",                    "ZeroMQ Messaging (pyzmq)",         False, "run: pip install pyzmq"),
-            ("prometheus_client",      "Prometheus Metrics",               False, "run: pip install prometheus-client"),
-            ("QuantLib",               "QuantLib Pricing Engine",          False, "run: pip install QuantLib"),
-            ("uvloop",                 "uvloop Event Loop (2-4x faster)",  False, "run: pip install uvloop"),
-            ("asyncio",                "asyncio (stdlib)",                 True,  "stdlib — should always be present"),
+            ("PySide6",                "GUI Dashboard (PySide6)",          True,  "run: pip install PySide6"),  # noqa: E501
+            ("sklearn",                "ML Regime Detection (scikit-learn)",False, "run: pip install scikit-learn"),  # noqa: E501
+            ("hmmlearn",               "HMM Regime Models (hmmlearn)",     False, "run: pip install hmmlearn"),  # noqa: E501
+            ("requests",               "Massive Market Data (HTTP)",       False, "set MASSIVE_API_KEY in .env when enabling Massive"),  # noqa: E501
+            ("zmq",                    "ZeroMQ Messaging (pyzmq)",         False, "run: pip install pyzmq"),  # noqa: E501
+            ("prometheus_client",      "Prometheus Metrics",               False, "run: pip install prometheus-client"),  # noqa: E501
+            ("QuantLib",               "QuantLib Pricing Engine",          False, "run: pip install QuantLib"),  # noqa: E501
+            ("uvloop",                 "uvloop Event Loop (2-4x faster)",  False, "run: pip install uvloop"),  # noqa: E501
+            ("asyncio",                "asyncio (stdlib)",                 True,  "stdlib — should always be present"),  # noqa: E501
         ]
 
         # Build rows: check each package with importlib.util.find_spec()
@@ -542,7 +542,7 @@ class SpyderApplication:
             # Initialize event manager (optional)
             if has_event_manager and EventManager:
                 try:
-                    self.event_manager = EventManager()
+                    self.event_manager = get_event_manager()
                     self.logger.info("✅ Event manager initialized")
                 except Exception as e:
                     self.logger.warning("Event manager initialization failed: %s", e, exc_info=True)
@@ -675,7 +675,7 @@ class SpyderApplication:
                             self.main_window,
                             log_level=gui_log_level
                         )
-                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
+                        self.logger.debug("✅ GUI logging handler connected (level: %s)", gui_log_level)  # noqa: E501
                 except Exception as e:
                     self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             elif has_working_dashboard and WorkingSpyderDashboard:
@@ -702,7 +702,7 @@ class SpyderApplication:
                             self.main_window,
                             log_level=gui_log_level
                         )
-                        self.logger.info("✅ GUI logging handler connected (level: %s)", gui_log_level)
+                        self.logger.debug("✅ GUI logging handler connected (level: %s)", gui_log_level)  # noqa: E501
                 except Exception as e:
                     self.logger.warning("⚠️ Could not setup GUI logging: %s", e, exc_info=True)
             else:
@@ -712,7 +712,7 @@ class SpyderApplication:
                 self.main_window = SpyderMainWindow(self)
                 self.main_window.show()
 
-            self.logger.info("✅ GUI started successfully")
+            self.logger.debug("✅ GUI started successfully")
 
             return True
 
@@ -742,7 +742,7 @@ class SpyderApplication:
                 validate_startup_config()
                 self.logger.info("✅ Startup configuration validated successfully")
             except ImportError:
-                self.logger.warning("⚠️ config.config not importable — skipping startup config validation")
+                self.logger.warning("⚠️ config.config not importable — skipping startup config validation")  # noqa: E501
             except Exception as cfg_err:  # ConfigurationError or anything unexpected
                 self.logger.error("❌ Startup configuration invalid:\n%s", cfg_err)
                 return 1
@@ -759,9 +759,9 @@ class SpyderApplication:
                     return 1
 
                 # Run GUI event loop
-                self.logger.info("🔄 Running GUI event loop...")
+                self.logger.debug("🔄 Running GUI event loop...")
                 exit_code = self.gui_app.exec()
-                self.logger.info("GUI event loop ended with code: %s", exit_code)
+                self.logger.debug("GUI event loop ended with code: %s", exit_code)
                 return exit_code
             else:
                 # Headless mode
@@ -866,7 +866,7 @@ def main() -> int:
     _startup_log.info("Starting SPYDER with PROVEN race condition fix...")
     exit_code = app.run()
 
-    _startup_log.info("SPYDER exited with code: %s (%s)", exit_code, 'success' if exit_code == 0 else 'failure')
+    _startup_log.info("SPYDER exited with code: %s (%s)", exit_code, 'success' if exit_code == 0 else 'failure')  # noqa: E501
     return exit_code
 
 

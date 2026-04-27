@@ -556,14 +556,7 @@ def main():
 
     # Create and show main window
     dashboard = SPYDERTradingDashboard()
-    dashboard.show()
-
-    # Center window on screen
-    screen = app.primaryScreen().geometry()
-    size = dashboard.geometry()
-    dashboard.move(
-        (screen.width() - size.width()) // 2, (screen.height() - size.height()) // 2
-    )
+    dashboard.showMaximized()
 
     print("✅ Dashboard launched successfully")
     print("💡 Click 'Connect' button to test the Tradier API connection")

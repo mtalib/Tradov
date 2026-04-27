@@ -509,7 +509,7 @@ class VolumeProfileAnalyzer:
             direction = self._determine_flow_direction(recent_trades, price)
 
             # Calculate strength and confidence
-            strength = min(1.0, (avg_trade_size / BLOCK_SIZE_THRESHOLD) * 0.5 + (block_count / len(recent_trades)))
+            strength = min(1.0, (avg_trade_size / BLOCK_SIZE_THRESHOLD) * 0.5 + (block_count / len(recent_trades)))  # noqa: E501
             confidence = min(1.0, total_volume / (LARGE_TRADE_THRESHOLD * 10))
 
             # Update flow analysis
@@ -638,8 +638,8 @@ class VolumeProfileAnalyzer:
                 value_area_high=value_area_high,
                 value_area_low=value_area_low,
                 total_volume=total_volume,
-                period_start=min(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),
-                period_end=max(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),
+                period_start=min(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),  # noqa: E501
+                period_end=max(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),  # noqa: E501
                 session=self.current_session
             )
 

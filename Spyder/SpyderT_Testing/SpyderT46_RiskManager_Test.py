@@ -100,11 +100,13 @@ def _make_connect_api_mock():
     return _MockConnectAPI()
 
 
-def _make_order(symbol="SPY", quantity=10, side="buy", price=100.0, order_id="ORD-001"):
+def _make_order(symbol="SPY", quantity=10, side="buy", price=100.0, order_id="ORD-001",
+                right=None, order_class="equity", legs=None):
     """Create a mock Order object with required attributes."""
     return _MockOrder(
         symbol=symbol, quantity=quantity, side=side,
-        price=price, order_id=order_id
+        price=price, order_id=order_id,
+        right=right, order_class=order_class, legs=legs,
     )
 
 

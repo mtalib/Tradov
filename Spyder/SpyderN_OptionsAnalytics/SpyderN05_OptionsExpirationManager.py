@@ -35,30 +35,35 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats
-import holidays
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from scipy import stats  # noqa: E402
+import holidays  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from pathlib import Path
+from pathlib import Path  # noqa: E402
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+import logging  # noqa: E402
 
 # Import pricing modules if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
     ANALYTICS_AVAILABLE = True
 except ImportError:
-    ANALYTICS_AVAILABLE = False
-    logging.info("⚠️ Options analytics modules not available")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
+        ANALYTICS_AVAILABLE = True
+    except ImportError:
+        ANALYTICS_AVAILABLE = False
+        logging.info("⚠️ Options analytics modules not available")
 
 # ==============================================================================
 # CONSTANTS
@@ -484,7 +489,7 @@ class OptionsExpirationManager:
         time_to_expiry = 1/365  # 1 day
         std_dev = underlying * volatility * np.sqrt(time_to_expiry)
         prob_of_pin = 2 * stats.norm.cdf(strike + strike * PIN_RISK_THRESHOLD, underlying, std_dev) - \
-                     2 * stats.norm.cdf(strike - strike * PIN_RISK_THRESHOLD, underlying, std_dev)
+                     2 * stats.norm.cdf(strike - strike * PIN_RISK_THRESHOLD, underlying, std_dev)  # noqa: E501
 
         # Hedge recommendation for high risk
         hedge_rec = None
@@ -817,9 +822,9 @@ class OptionsExpirationManager:
         # Calculate economic benefit to counterparty
         economic_benefit = 0.0
         if position.option_type == 'CALL':
-            economic_benefit = max(0, position.intrinsic_value + div_amount - position.extrinsic_value - interest_cost)
+            economic_benefit = max(0, position.intrinsic_value + div_amount - position.extrinsic_value - interest_cost)  # noqa: E501
         else:  # PUT
-            economic_benefit = max(0, position.intrinsic_value - position.extrinsic_value + interest_cost)
+            economic_benefit = max(0, position.intrinsic_value - position.extrinsic_value + interest_cost)  # noqa: E501
 
         # Calculate probability
         if economic_benefit > 0:
@@ -861,7 +866,7 @@ class OptionsExpirationManager:
                                          underlying: float) -> float:
         """Calculate probability of assignment"""
         # Simplified calculation
-        moneyness = (underlying - strike) / strike if option_type == 'CALL' else (strike - underlying) / strike
+        moneyness = (underlying - strike) / strike if option_type == 'CALL' else (strike - underlying) / strike  # noqa: E501
 
         if moneyness > 0.05:  # Deep ITM
             return 0.95
@@ -946,7 +951,7 @@ class OptionsExpirationManager:
                 symbols=[position.symbol],
                 total_positions=1,
                 total_exposure=abs(position.quantity * 100 * position.current_price),
-                actions_required=1 if position.recommended_action != ExpirationAction.MONITOR else 0,
+                actions_required=1 if position.recommended_action != ExpirationAction.MONITOR else 0,  # noqa: E501
                 last_trading_day=self._get_last_trading_day(exp_date),
                 exercise_cutoff=datetime.combine(exp_date, OPTIONS_CUTOFF)
             )

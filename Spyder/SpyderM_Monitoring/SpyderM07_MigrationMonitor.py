@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -123,7 +123,7 @@ class MigrationMonitor:
             Tuple of (result, comparison_metrics)
         """
         comparison = ComparisonResult(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             module_name=module_name,
             spyderf_result=None,
             spyderx_result=None,
@@ -284,7 +284,7 @@ class MigrationMonitor:
     def get_migration_report(self) -> dict[str, Any]:
         """Generate comprehensive migration report"""
         report = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'modules': {},
             'summary': {
                 'total_modules': len(self.metrics),
@@ -356,7 +356,7 @@ class MigrationMonitor:
         logging.info("  🚫 Critical Issues: %s", len(report['summary']['critical_issues']))
 
         if report['summary']['ready_for_migration']:
-            logging.info("\n🚀 Ready for migration: %s", ', '.join(report['summary']['ready_for_migration']))
+            logging.info("\n🚀 Ready for migration: %s", ', '.join(report['summary']['ready_for_migration']))  # noqa: E501
 
 
 # ==============================================================================

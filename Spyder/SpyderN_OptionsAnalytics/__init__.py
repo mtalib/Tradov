@@ -58,6 +58,11 @@ except ImportError:
     logging.info("Warning: SpyderN07_OptionsFlowTracker not available")
 
 try:
+    from .SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
+except ImportError:
+    logging.info("Warning: SpyderN07_OPRAGreeksHandler not available")
+
+try:
     from .SpyderN09_GammaExposure import GammaExposureCalculator
 except ImportError:
     logging.info("Warning: SpyderN09_GammaExposure not available")
@@ -95,6 +100,7 @@ __all__ = [
     "OptionsExpirationManager",
     "VolatilitySurfaceBuilder",
     "OptionsFlowTracker",
+    "OPRAGreeksHandler",
     "GammaExposureCalculator",
     "AdvancedOptionsFlowAnalyzer",
     "OptionsGreeksFlowAnalyzer",

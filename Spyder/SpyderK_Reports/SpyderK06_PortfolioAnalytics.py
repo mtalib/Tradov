@@ -336,7 +336,7 @@ class PortfolioAnalytics:
 
             analysis = CorrelationAnalysis(
                 correlation_matrix=corr_matrix,
-                average_correlation=corr_matrix.values[np.triu_indices_from(corr_matrix.values, k=1)].mean(),
+                average_correlation=corr_matrix.values[np.triu_indices_from(corr_matrix.values, k=1)].mean(),  # noqa: E501
                 max_correlation_pair=max_corr_pair,
                 clustering_groups=clustering_groups,
                 eigenvalues=eigenvalues,
@@ -403,8 +403,8 @@ class PortfolioAnalytics:
             sorted_contributions = sorted(risk_percentages.values(), reverse=True)
             concentration_metrics = {
                 'top_1_concentration': sorted_contributions[0] if sorted_contributions else 0,
-                'top_3_concentration': sum(sorted_contributions[:3]) if len(sorted_contributions) >= 3 else sum(sorted_contributions),
-                'top_5_concentration': sum(sorted_contributions[:5]) if len(sorted_contributions) >= 5 else sum(sorted_contributions),
+                'top_3_concentration': sum(sorted_contributions[:3]) if len(sorted_contributions) >= 3 else sum(sorted_contributions),  # noqa: E501
+                'top_5_concentration': sum(sorted_contributions[:5]) if len(sorted_contributions) >= 5 else sum(sorted_contributions),  # noqa: E501
                 'herfindahl_index': sum(c**2 for c in risk_percentages.values())
             }
 
@@ -449,17 +449,17 @@ class PortfolioAnalytics:
             # Delta exposure (market direction)
             delta_exposure = FactorExposure(
                 factor_loadings={'SPY': portfolio_greeks.get('delta', 0)},
-                factor_contributions={'directional_risk': abs(portfolio_greeks.get('delta', 0)) * 0.01},  # 1% move
+                factor_contributions={'directional_risk': abs(portfolio_greeks.get('delta', 0)) * 0.01},  # 1% move  # noqa: E501
                 r_squared=0.0,  # Would need regression analysis
                 specific_risk=0.0,
-                systematic_risk=abs(portfolio_greeks.get('delta', 0)) * 0.15  # Assume 15% annual vol
+                systematic_risk=abs(portfolio_greeks.get('delta', 0)) * 0.15  # Assume 15% annual vol  # noqa: E501
             )
             factor_exposures['delta'] = delta_exposure
 
             # Gamma exposure (convexity)
             gamma_exposure = FactorExposure(
                 factor_loadings={'SPY_squared': portfolio_greeks.get('gamma', 0)},
-                factor_contributions={'convexity_risk': abs(portfolio_greeks.get('gamma', 0)) * 0.0001},  # 1% move squared
+                factor_contributions={'convexity_risk': abs(portfolio_greeks.get('gamma', 0)) * 0.0001},  # 1% move squared  # noqa: E501
                 r_squared=0.0,
                 specific_risk=0.0,
                 systematic_risk=abs(portfolio_greeks.get('gamma', 0)) * 0.01
@@ -469,7 +469,7 @@ class PortfolioAnalytics:
             # Vega exposure (volatility)
             vega_exposure = FactorExposure(
                 factor_loadings={'VIX': portfolio_greeks.get('vega', 0)},
-                factor_contributions={'volatility_risk': abs(portfolio_greeks.get('vega', 0)) * 0.01},  # 1 vol point
+                factor_contributions={'volatility_risk': abs(portfolio_greeks.get('vega', 0)) * 0.01},  # 1 vol point  # noqa: E501
                 r_squared=0.0,
                 specific_risk=0.0,
                 systematic_risk=abs(portfolio_greeks.get('vega', 0)) * 0.05
@@ -479,7 +479,7 @@ class PortfolioAnalytics:
             # Theta exposure (time decay)
             theta_exposure = FactorExposure(
                 factor_loadings={'time': portfolio_greeks.get('theta', 0)},
-                factor_contributions={'time_decay': portfolio_greeks.get('theta', 0)},  # Daily decay
+                factor_contributions={'time_decay': portfolio_greeks.get('theta', 0)},  # Daily decay  # noqa: E501
                 r_squared=1.0,  # Time decay is deterministic
                 specific_risk=0.0,
                 systematic_risk=0.0
@@ -577,7 +577,7 @@ class PortfolioAnalytics:
             if concentrated_positions:
                 suggestion = OptimizationSuggestion(
                     suggestion_type="Reduce Concentration",
-                    description=f"Found {len(concentrated_positions)} positions exceeding {MAX_SINGLE_POSITION_WEIGHT*100}% weight limit",
+                    description=f"Found {len(concentrated_positions)} positions exceeding {MAX_SINGLE_POSITION_WEIGHT*100}% weight limit",  # noqa: E501
                     expected_improvement={
                         'concentration_risk': -0.15,
                         'portfolio_volatility': -0.05
@@ -597,7 +597,7 @@ class PortfolioAnalytics:
             if correlation.max_correlation_pair[2] > CORRELATION_EXTREME_THRESHOLD:
                 suggestion = OptimizationSuggestion(
                     suggestion_type="Reduce Correlation",
-                    description=f"Extreme correlation ({correlation.max_correlation_pair[2]:.2f}) between {correlation.max_correlation_pair[0]} and {correlation.max_correlation_pair[1]}",
+                    description=f"Extreme correlation ({correlation.max_correlation_pair[2]:.2f}) between {correlation.max_correlation_pair[0]} and {correlation.max_correlation_pair[1]}",  # noqa: E501
                     expected_improvement={
                         'correlation_risk': -0.20,
                         'diversification_ratio': 0.10
@@ -617,7 +617,7 @@ class PortfolioAnalytics:
             if len(positions) < MIN_POSITION_COUNT:
                 suggestion = OptimizationSuggestion(
                     suggestion_type="Increase Diversification",
-                    description=f"Portfolio has only {len(positions)} positions, below minimum of {MIN_POSITION_COUNT}",
+                    description=f"Portfolio has only {len(positions)} positions, below minimum of {MIN_POSITION_COUNT}",  # noqa: E501
                     expected_improvement={
                         'diversification_ratio': 0.25,
                         'specific_risk': -0.10
@@ -661,7 +661,7 @@ class PortfolioAnalytics:
                 if theta_income < 0:  # Paying theta
                     suggestion = OptimizationSuggestion(
                         suggestion_type="Optimize Theta Income",
-                        description=f"Portfolio is paying time decay (Theta: ${theta_income:.2f}/day)",
+                        description=f"Portfolio is paying time decay (Theta: ${theta_income:.2f}/day)",  # noqa: E501
                         expected_improvement={
                             'income_generation': 0.20,
                             'theta_capture': abs(theta_income) * 252
@@ -785,7 +785,7 @@ class PortfolioAnalytics:
             # Scale by position size
             scaled_greeks = {}
             for greek, value in greeks.items():
-                scaled_greeks[greek] = value * position_data['quantity'] * 100  # Options are 100 shares
+                scaled_greeks[greek] = value * position_data['quantity'] * 100  # Options are 100 shares  # noqa: E501
 
             return scaled_greeks
 
@@ -887,7 +887,7 @@ class PortfolioAnalytics:
 
             # Volatility impact
             if position.greeks and 'vega' in position.greeks:
-                vega_impact = position.greeks['vega'] * (scenario['vix_spike'] - 1) * 10  # 10 vol points
+                vega_impact = position.greeks['vega'] * (scenario['vix_spike'] - 1) * 10  # 10 vol points  # noqa: E501
                 impact += vega_impact
 
             # Gamma impact (second order)
@@ -924,12 +924,12 @@ class PortfolioAnalytics:
             risk_free_rate = 0.05 / 252  # Daily
             excess_returns = returns - risk_free_rate
 
-            metrics['sharpe_ratio'] = (excess_returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
+            metrics['sharpe_ratio'] = (excess_returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0  # noqa: E501
 
             # Downside deviation for Sortino
             downside_returns = returns[returns < 0]
             downside_std = downside_returns.std() if len(downside_returns) > 0 else returns.std()
-            metrics['sortino_ratio'] = (excess_returns.mean() / downside_std) * np.sqrt(252) if downside_std > 0 else 0
+            metrics['sortino_ratio'] = (excess_returns.mean() / downside_std) * np.sqrt(252) if downside_std > 0 else 0  # noqa: E501
 
             # Maximum drawdown
             cumulative = (1 + returns).cumprod()
@@ -1027,8 +1027,8 @@ class PortfolioAnalytics:
 
                 fig_stress = go.Figure(go.Waterfall(
                     x=[p[0] for p in worst_positions] + ['Portfolio Total'],
-                    y=[p[1] * 100 for p in worst_positions] + [worst_scenario.portfolio_impact * 100],
-                    text=[f'{p[1]*100:.1f}%' for p in worst_positions] + [f'{worst_scenario.portfolio_impact*100:.1f}%'],
+                    y=[p[1] * 100 for p in worst_positions] + [worst_scenario.portfolio_impact * 100],  # noqa: E501
+                    text=[f'{p[1]*100:.1f}%' for p in worst_positions] + [f'{worst_scenario.portfolio_impact*100:.1f}%'],  # noqa: E501
                     textposition="outside",
                     connector={"line": {"color": "rgb(63, 63, 63)"}}
                 ))
@@ -1190,7 +1190,7 @@ class PortfolioAnalytics:
                 </div>
             </body>
             </html>
-            """
+            """  # noqa: E501
 
             # Extract metrics
             metrics = report_data['portfolio_summary'].get('metrics', {})
@@ -1199,7 +1199,7 @@ class PortfolioAnalytics:
             stress_test_html = self._format_stress_tests_html(report_data.get('stress_tests', []))
 
             # Format suggestions
-            suggestions_html = self._format_suggestions_html(report_data.get('optimization_suggestions', []))
+            suggestions_html = self._format_suggestions_html(report_data.get('optimization_suggestions', []))  # noqa: E501
 
             # Format positions table
             positions_table = self._format_positions_table_html(report_data.get('positions', []))
@@ -1269,11 +1269,11 @@ class PortfolioAnalytics:
         if not stress_tests:
             return "<p>No stress test results available.</p>"
 
-        html = "<table><tr><th>Scenario</th><th>Portfolio Impact</th><th>Worst Position</th><th>VaR Impact</th></tr>"
+        html = "<table><tr><th>Scenario</th><th>Portfolio Impact</th><th>Worst Position</th><th>VaR Impact</th></tr>"  # noqa: E501
 
         for test in stress_tests:
             worst_pos = test['worst_positions'][0] if test['worst_positions'] else ('N/A', 0)
-            impact_class = 'risk-high' if test['portfolio_impact'] < -0.1 else 'risk-medium' if test['portfolio_impact'] < -0.05 else 'risk-low'
+            impact_class = 'risk-high' if test['portfolio_impact'] < -0.1 else 'risk-medium' if test['portfolio_impact'] < -0.05 else 'risk-low'  # noqa: E501
 
             html += f"""
             <tr>

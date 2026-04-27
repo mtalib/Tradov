@@ -353,7 +353,7 @@ Provide a JSON response with:
     "timing": "optimal timing approach",
     "risk_factors": ["key risks"],
     "confidence": 0.0-1.0
-}}"""
+}}"""  # noqa: E501
 
         try:
             response = await asyncio.to_thread(
@@ -502,7 +502,7 @@ Provide a JSON response with:
             fill_price = market.ask if slice_order.get('side', 'BUY') == 'BUY' else market.bid
             # Add random slippage
             slippage = random.uniform(0, market.spread_bps / 10000)
-            fill_price *= (1 + slippage) if slice_order.get('side', 'BUY') == 'BUY' else (1 - slippage)
+            fill_price *= (1 + slippage) if slice_order.get('side', 'BUY') == 'BUY' else (1 - slippage)  # noqa: E501
         else:
             # Limit order - might get better price
             fill_price = market.last
@@ -798,7 +798,7 @@ Provide a JSON response with:
 # ==============================================================================
 
 def create_execution_strategy_agent(model_name: str = DEFAULT_MODEL,
-                                  temperature: float = DEFAULT_TEMPERATURE) -> SpyderX07_ExecutionStrategyAgent:
+                                  temperature: float = DEFAULT_TEMPERATURE) -> SpyderX07_ExecutionStrategyAgent:  # noqa: E501
     """
     Factory function to create Execution Strategy Agent instance.
 

@@ -42,6 +42,15 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 import logging
 
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+        get_n04_calculator as _e17_get_n04_calculator,
+    )
+    _E17_N04_AVAILABLE = True
+except ImportError:
+    _e17_get_n04_calculator = None  # type: ignore[assignment]
+    _E17_N04_AVAILABLE = False
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -172,7 +181,7 @@ class StressResult:
     theta_change: float = 0.0
 
     # Risk Metrics
-    var_impact: dict[float, float] = field(default_factory=dict)  # VaR at different confidence levels
+    var_impact: dict[float, float] = field(default_factory=dict)  # VaR at different confidence levels  # noqa: E501
     expected_shortfall: float = 0.0       # Conditional VaR
     maximum_drawdown: float = 0.0         # Max drawdown
     correlation_impact: float = 0.0       # Correlation change impact
@@ -294,11 +303,82 @@ class RealTimeStressTesting:
         self._running = False
         self._stop_event = threading.Event()
 
+        # N04 OptionsGreeksCalculator — feeds live Greeks into PortfolioSnapshot
+        self._n04_calculator: Any | None = None
+        if _E17_N04_AVAILABLE:
+            try:
+                self._n04_calculator = _e17_get_n04_calculator()
+            except Exception as _exc:
+                self.logger.debug("N04 not yet available at E17 init: %s", _exc)
+
         self.logger.info("RealTimeStressTesting engine initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - Engine Management
     # ==========================================================================
+    def _get_n04(self) -> Any | None:
+        """Lazy-resolve the N04 OptionsGreeksCalculator singleton."""
+        if not _E17_N04_AVAILABLE:
+            return None
+        if self._n04_calculator is None:
+            try:
+                self._n04_calculator = _e17_get_n04_calculator()
+            except Exception as exc:
+                self.logger.debug("N04 calculator unavailable: %s", exc)
+        return self._n04_calculator
+
+    def build_portfolio_snapshot(
+        self,
+        positions: dict[str, Any] | None = None,
+        portfolio_value: float = 0.0,
+        cash_balance: float = 0.0,
+    ) -> PortfolioSnapshot:
+        """
+        Build a PortfolioSnapshot seeded with live N04 portfolio Greeks.
+
+        Greeks fields (total_delta, total_gamma, total_vega, total_theta,
+        total_rho) are read from the N04 OptionsGreeksCalculator singleton
+        when available, providing accurate BSM-derived portfolio exposure for
+        stress scenario P&L calculations.
+
+        Args:
+            positions: Mapping of position_id -> position data dict.
+            portfolio_value: Current portfolio market value.
+            cash_balance: Current cash balance.
+
+        Returns:
+            PortfolioSnapshot with Greeks populated from N04 (or zeroed).
+        """
+        delta = gamma = vega = theta = rho = 0.0
+
+        n04 = self._get_n04()
+        if n04 is not None:
+            try:
+                pg = n04.portfolio_greeks
+                delta = pg.total_delta
+                gamma = pg.total_gamma
+                vega = pg.total_vega
+                theta = pg.total_theta
+                rho = pg.total_rho
+                self.logger.debug(
+                    "E17 snapshot Greeks (N04): δ=%.2f Γ=%.4f V=%.2f Θ=%.2f ρ=%.4f",
+                    delta, gamma, vega, theta, rho,
+                )
+            except Exception as exc:
+                self.logger.debug("N04 portfolio_greeks unavailable for snapshot: %s", exc)
+
+        return PortfolioSnapshot(
+            timestamp=datetime.now(),
+            positions=positions or {},
+            portfolio_value=portfolio_value,
+            cash_balance=cash_balance,
+            total_delta=delta,
+            total_gamma=gamma,
+            total_vega=vega,
+            total_theta=theta,
+            total_rho=rho,
+        )
+
     def initialize(self) -> bool:
         """
         Initialize the stress testing engine with default scenarios.
@@ -317,7 +397,7 @@ class RealTimeStressTesting:
             self._initialize_computation_engine()
 
             self.status = TestingStatus.STOPPED
-            self.logger.info("Stress testing engine initialized with %s scenarios", len(self.scenarios))
+            self.logger.info("Stress testing engine initialized with %s scenarios", len(self.scenarios))  # noqa: E501
             return True
 
         except Exception as e:
@@ -454,7 +534,7 @@ class RealTimeStressTesting:
     # ==========================================================================
     # PUBLIC METHODS - Stress Testing Execution
     # ==========================================================================
-    async def run_single_scenario(self, scenario_id: str, portfolio: PortfolioSnapshot) -> StressResult | None:
+    async def run_single_scenario(self, scenario_id: str, portfolio: PortfolioSnapshot) -> StressResult | None:  # noqa: E501
         """
         Run a single stress scenario on the portfolio.
 
@@ -594,13 +674,13 @@ class RealTimeStressTesting:
                     'var_95': float(np.percentile(pnl_array, 5)),    # 95% VaR
                     'var_99': float(np.percentile(pnl_array, 1)),    # 99% VaR
                     'var_999': float(np.percentile(pnl_array, 0.1)), # 99.9% VaR
-                    'expected_shortfall_95': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])),
-                    'expected_shortfall_99': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 1)]))
+                    'expected_shortfall_95': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])),  # noqa: E501
+                    'expected_shortfall_99': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 1)]))  # noqa: E501
                 },
                 'distribution_data': pnl_distribution
             }
 
-            self.logger.info(f"Monte Carlo simulation completed in {results['simulation_stats']['computation_time']:.2f}s")
+            self.logger.info(f"Monte Carlo simulation completed in {results['simulation_stats']['computation_time']:.2f}s")  # noqa: E501
             return results
 
         except Exception as e:
@@ -621,7 +701,7 @@ class RealTimeStressTesting:
             summary = {
                 'engine_status': {
                     'status': self.status.value,
-                    'last_test_time': self.last_test_time.isoformat() if self.last_test_time else None,
+                    'last_test_time': self.last_test_time.isoformat() if self.last_test_time else None,  # noqa: E501
                     'total_scenarios': len(self.scenarios),
                     'enabled_scenarios': sum(1 for s in self.scenarios.values() if s.enabled)
                 },
@@ -630,7 +710,7 @@ class RealTimeStressTesting:
                 'alert_summary': {
                     'total_alerts': len(self.alerts),
                     'unacknowledged_alerts': sum(1 for a in self.alerts if not a.acknowledged),
-                    'critical_alerts': sum(1 for a in self.alerts if a.priority in [AlertPriority.CRITICAL, AlertPriority.EMERGENCY])
+                    'critical_alerts': sum(1 for a in self.alerts if a.priority in [AlertPriority.CRITICAL, AlertPriority.EMERGENCY])  # noqa: E501
                 }
             }
 
@@ -723,8 +803,8 @@ class RealTimeStressTesting:
             perf_metrics = summary.get('performance_metrics', {})
             report_lines.append("PERFORMANCE METRICS:")
             report_lines.append(f"  Total Tests Run: {perf_metrics.get('total_tests', 0)}")
-            report_lines.append(f"  Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")
-            report_lines.append(f"  Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")
+            report_lines.append(f"  Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")  # noqa: E501
+            report_lines.append(f"  Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")  # noqa: E501
             report_lines.append("")
 
             # Worst case scenarios
@@ -862,7 +942,7 @@ class RealTimeStressTesting:
 
         self.logger.info("Stress testing monitoring loop stopped")
 
-    async def _execute_stress_test(self, scenario: StressScenario, portfolio: PortfolioSnapshot) -> StressResult:
+    async def _execute_stress_test(self, scenario: StressScenario, portfolio: PortfolioSnapshot) -> StressResult:  # noqa: E501
         """Execute a single stress test scenario."""
         start_time = time.time()
 
@@ -877,7 +957,7 @@ class RealTimeStressTesting:
 
         # Calculate portfolio P&L under stress
         portfolio_pnl = self._calculate_scenario_pnl(portfolio, scenario_params)
-        pnl_percentage = (portfolio_pnl / portfolio.portfolio_value) if portfolio.portfolio_value > 0 else 0.0
+        pnl_percentage = (portfolio_pnl / portfolio.portfolio_value) if portfolio.portfolio_value > 0 else 0.0  # noqa: E501
 
         # Calculate position-level P&L
         position_pnl = self._calculate_position_pnl(portfolio, scenario_params)
@@ -916,7 +996,7 @@ class RealTimeStressTesting:
 
         return result
 
-    def _calculate_scenario_pnl(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> float:
+    def _calculate_scenario_pnl(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> float:  # noqa: E501
         """Calculate portfolio P&L under stress scenario."""
         # Simplified P&L calculation - in production would use more sophisticated models
 
@@ -940,7 +1020,7 @@ class RealTimeStressTesting:
 
         return total_pnl
 
-    def _calculate_position_pnl(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[str, float]:
+    def _calculate_position_pnl(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[str, float]:  # noqa: E501
         """Calculate individual position P&L under stress."""
         position_pnl = {}
 
@@ -957,7 +1037,7 @@ class RealTimeStressTesting:
 
         return position_pnl
 
-    def _calculate_greeks_impact(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[str, float]:
+    def _calculate_greeks_impact(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[str, float]:  # noqa: E501
         """Calculate impact on portfolio Greeks under stress."""
         equity_shock = scenario_params.get('equity_shock', 0.0)
         vol_shock = scenario_params.get('vol_surface_shift', {}).get('short_term', 1.0)
@@ -966,13 +1046,13 @@ class RealTimeStressTesting:
         # Simplified calculation - production would use more sophisticated models
 
         return {
-            'delta': portfolio.total_delta * (1 + equity_shock * 0.1),  # Delta changes with underlying
-            'gamma': portfolio.total_gamma * (1 + equity_shock * 0.2),  # Gamma changes with underlying
+            'delta': portfolio.total_delta * (1 + equity_shock * 0.1),  # Delta changes with underlying  # noqa: E501
+            'gamma': portfolio.total_gamma * (1 + equity_shock * 0.2),  # Gamma changes with underlying  # noqa: E501
             'vega': portfolio.total_vega * vol_shock,                   # Vega scales with vol
-            'theta': portfolio.total_theta * (1 + abs(equity_shock) * 0.1),  # Theta changes with stress
+            'theta': portfolio.total_theta * (1 + abs(equity_shock) * 0.1),  # Theta changes with stress  # noqa: E501
         }
 
-    def _calculate_var_impact(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[float, float]:
+    def _calculate_var_impact(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> dict[float, float]:  # noqa: E501
         """Calculate VaR impact at different confidence levels."""
         equity_shock = scenario_params.get('equity_shock', 0.0)
         portfolio_value = portfolio.portfolio_value
@@ -986,7 +1066,7 @@ class RealTimeStressTesting:
             0.999: base_var * 2.0   # 99.9% VaR
         }
 
-    def _calculate_expected_shortfall(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> float:
+    def _calculate_expected_shortfall(self, portfolio: PortfolioSnapshot, scenario_params: dict[str, Any]) -> float:  # noqa: E501
         """Calculate Expected Shortfall (Conditional VaR)."""
         equity_shock = scenario_params.get('equity_shock', 0.0)
         portfolio_value = portfolio.portfolio_value
@@ -994,7 +1074,7 @@ class RealTimeStressTesting:
         # Simplified ES calculation
         return abs(equity_shock) * portfolio_value * 1.3  # ES typically 30% higher than VaR
 
-    def _generate_random_scenarios(self, iterations: int, time_horizon_days: int) -> list[dict[str, Any]]:
+    def _generate_random_scenarios(self, iterations: int, time_horizon_days: int) -> list[dict[str, Any]]:  # noqa: E501
         """Generate random scenarios for Monte Carlo simulation."""
         scenarios = []
 
@@ -1072,7 +1152,7 @@ class RealTimeStressTesting:
                 alert_id="",
                 priority=AlertPriority.CRITICAL,
                 scenario_name=result.scenario_name,
-                message=f"Critical stress loss: {result.pnl_percentage:.1%} in scenario {result.scenario_name}",
+                message=f"Critical stress loss: {result.pnl_percentage:.1%} in scenario {result.scenario_name}",  # noqa: E501
                 portfolio_impact=result.pnl_percentage,
                 threshold_breached="Critical Stress Threshold"
             )
@@ -1084,7 +1164,7 @@ class RealTimeStressTesting:
                 alert_id="",
                 priority=AlertPriority.EMERGENCY,
                 scenario_name=result.scenario_name,
-                message=f"EXTREME stress loss: {result.pnl_percentage:.1%} in scenario {result.scenario_name}",
+                message=f"EXTREME stress loss: {result.pnl_percentage:.1%} in scenario {result.scenario_name}",  # noqa: E501
                 portfolio_impact=result.pnl_percentage,
                 threshold_breached="Extreme Stress Threshold"
             )
@@ -1096,7 +1176,7 @@ class RealTimeStressTesting:
                 alert_id="",
                 priority=AlertPriority.HIGH,
                 scenario_name=result.scenario_name,
-                message=f"Stress threshold exceeded: {result.pnl_percentage:.1%} in {result.scenario_name}",
+                message=f"Stress threshold exceeded: {result.pnl_percentage:.1%} in {result.scenario_name}",  # noqa: E501
                 portfolio_impact=result.pnl_percentage,
                 threshold_breached="Scenario Threshold"
             )
@@ -1125,7 +1205,7 @@ class RealTimeStressTesting:
 
         # Count unacknowledged critical alerts
         critical_count = sum(1 for a in self.alerts
-                           if not a.acknowledged and a.priority in [AlertPriority.CRITICAL, AlertPriority.EMERGENCY])
+                           if not a.acknowledged and a.priority in [AlertPriority.CRITICAL, AlertPriority.EMERGENCY])  # noqa: E501
 
         if critical_count > 0:
             self.logger.warning("%s unacknowledged critical stress alerts", critical_count)
@@ -1135,7 +1215,7 @@ class RealTimeStressTesting:
     # ==========================================================================
     def _generate_cache_key(self, scenario_id: str, portfolio: PortfolioSnapshot) -> str:
         """Generate cache key for result caching."""
-        portfolio_hash = hash(f"{portfolio.portfolio_value}_{portfolio.total_delta}_{portfolio.total_gamma}")
+        portfolio_hash = hash(f"{portfolio.portfolio_value}_{portfolio.total_delta}_{portfolio.total_gamma}")  # noqa: E501
         return f"{scenario_id}_{portfolio_hash}"
 
     def _is_cache_valid(self, cache_key: str) -> bool:
@@ -1317,13 +1397,13 @@ class RealTimeStressTesting:
                 'var_95': float(np.percentile(pnl_array, 5)),
                 'var_99': float(np.percentile(pnl_array, 1)),
                 'var_999': float(np.percentile(pnl_array, 0.1)),
-                'expected_shortfall_95': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])),
-                'expected_shortfall_99': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 1)])),
+                'expected_shortfall_95': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])),  # noqa: E501
+                'expected_shortfall_99': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 1)])),  # noqa: E501
             },
             'distribution_data': pnl_distribution,
         }
 
-        self.logger.info(f"Ray Monte Carlo complete: {iterations} iterations in {computation_time:.2f}s, "
+        self.logger.info(f"Ray Monte Carlo complete: {iterations} iterations in {computation_time:.2f}s, "  # noqa: E501
                           f"VaR99=${results['risk_metrics']['var_99']:,.0f}")
         return results
 
@@ -1355,7 +1435,7 @@ class RealTimeStressTesting:
         scenario_data = [
             {
                 'scenario_id': sid,
-                'equity_shock': self.scenarios[sid].equity_shock if sid in self.scenarios else -0.05,
+                'equity_shock': self.scenarios[sid].equity_shock if sid in self.scenarios else -0.05,  # noqa: E501
                 'vix_level': self.scenarios[sid].vix_level if sid in self.scenarios else 30,
                 'name': self.scenarios[sid].name if sid in self.scenarios else sid,
             }
@@ -1380,7 +1460,7 @@ class RealTimeStressTesting:
                 'scenario_id': scenario['scenario_id'],
                 'scenario_name': scenario['name'],
                 'portfolio_pnl': float(pnl),
-                'pnl_percentage': float(pnl / pdata['portfolio_value']) if pdata['portfolio_value'] else 0,
+                'pnl_percentage': float(pnl / pdata['portfolio_value']) if pdata['portfolio_value'] else 0,  # noqa: E501
                 'status': 'completed',
             }
 
@@ -1492,7 +1572,7 @@ async def main():
             risk_metrics = mc_results.get('risk_metrics', {})
             logging.info(f"   Mean P&L: ${pnl_stats.get('mean', 0):,.2f}")
             logging.info(f"   99% VaR: ${risk_metrics.get('var_99', 0):,.2f}")
-            logging.info(f"   Expected Shortfall: ${risk_metrics.get('expected_shortfall_99', 0):,.2f}")
+            logging.info(f"   Expected Shortfall: ${risk_metrics.get('expected_shortfall_99', 0):,.2f}")  # noqa: E501
 
         # Generate comprehensive report
         logging.info("\n📋 Generating stress testing report...")
@@ -1510,8 +1590,8 @@ async def main():
         perf_metrics = summary.get('performance_metrics', {})
         logging.info("\n⚡ PERFORMANCE METRICS:")
         logging.info("   Total Tests: %s", perf_metrics.get('total_tests', 0))
-        logging.info(f"   Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")
-        logging.info(f"   Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")
+        logging.info(f"   Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")  # noqa: E501
+        logging.info(f"   Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")  # noqa: E501
 
         # Cleanup
         stress_engine.cleanup()

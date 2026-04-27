@@ -75,7 +75,7 @@ class VWAPCalculator:
     def vwap(self) -> float:
         if not self.volumes or sum(self.volumes) == 0:
             return 0.0
-        return sum(p * v for p, v in zip(self.prices, self.volumes, strict=False)) / sum(self.volumes)
+        return sum(p * v for p, v in zip(self.prices, self.volumes, strict=False)) / sum(self.volumes)  # noqa: E501
 
 
 class VolumeTracker:
@@ -497,11 +497,11 @@ class SPYFeedProcessor:
     def _classify_order_flow(self, size: int, direction: TradeDirection) -> OrderFlowType:
         """Classify order flow based on size and direction."""
         if size >= BLOCK_SIZE:
-            return OrderFlowType.BLOCK_BUY if direction == TradeDirection.BUY else OrderFlowType.BLOCK_SELL
+            return OrderFlowType.BLOCK_BUY if direction == TradeDirection.BUY else OrderFlowType.BLOCK_SELL  # noqa: E501
         elif size >= INSTITUTIONAL_SIZE:
-            return OrderFlowType.INSTITUTIONAL_BUY if direction == TradeDirection.BUY else OrderFlowType.INSTITUTIONAL_SELL
+            return OrderFlowType.INSTITUTIONAL_BUY if direction == TradeDirection.BUY else OrderFlowType.INSTITUTIONAL_SELL  # noqa: E501
         else:
-            return OrderFlowType.RETAIL_BUY if direction == TradeDirection.BUY else OrderFlowType.RETAIL_SELL
+            return OrderFlowType.RETAIL_BUY if direction == TradeDirection.BUY else OrderFlowType.RETAIL_SELL  # noqa: E501
 
     def _calculate_liquidity_score(self) -> float:
         """Calculate current liquidity score."""
@@ -811,7 +811,7 @@ class SPYFeedProcessor:
                         'type': 'imbalance',
                         'direction': 'bullish' if microstructure.order_imbalance > 0 else 'bearish',
                         'strength': abs(microstructure.order_imbalance),
-                        'message': f"Order book {'skewed to bids' if microstructure.order_imbalance > 0 else 'skewed to asks'}"
+                        'message': f"Order book {'skewed to bids' if microstructure.order_imbalance > 0 else 'skewed to asks'}"  # noqa: E501
                     })
 
             # Volatility signal

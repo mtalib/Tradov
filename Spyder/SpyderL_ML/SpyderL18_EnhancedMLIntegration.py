@@ -39,12 +39,12 @@ import joblib
 warnings.filterwarnings('ignore')
 
 # Machine Learning Libraries
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, VotingRegressor
-from sklearn.preprocessing import StandardScaler, RobustScaler
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, VotingRegressor  # noqa: E402
+from sklearn.preprocessing import StandardScaler, RobustScaler  # noqa: E402
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+import torch.optim as optim  # noqa: E402
+from torch.utils.data import DataLoader, TensorDataset  # noqa: E402
 
 # ==================================================================================
 # LOGGING CONFIGURATION
@@ -428,7 +428,7 @@ class EnhancedMLEngine:
             confidence = regime_probs[regime_idx]
 
             # Create probability distribution
-            regime_dist = {str(cls): float(prob) for cls, prob in zip(regime_classes, regime_probs, strict=False)}
+            regime_dist = {str(cls): float(prob) for cls, prob in zip(regime_classes, regime_probs, strict=False)}  # noqa: E501
         else:
             regime = "NORMAL"
             confidence = 0.5

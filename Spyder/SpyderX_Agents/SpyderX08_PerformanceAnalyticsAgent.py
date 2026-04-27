@@ -357,7 +357,7 @@ class PerformanceAnalyticsAgent:
         parts = [
             f"Performance Summary ({snapshot.timestamp:%Y-%m-%d %H:%M}):",
             f"  Total P&L: ${snapshot.total_pnl:,.2f}",
-            f"  Trades: {snapshot.total_trades} (W: {snapshot.winning_trades} / L: {snapshot.losing_trades})",
+            f"  Trades: {snapshot.total_trades} (W: {snapshot.winning_trades} / L: {snapshot.losing_trades})",  # noqa: E501
             f"  Win Rate: {snapshot.win_rate:.1%}",
             f"  Sharpe: {snapshot.sharpe_ratio:.2f}",
             f"  Max Drawdown: {snapshot.max_drawdown:.1%}",

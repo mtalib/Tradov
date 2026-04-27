@@ -59,8 +59,8 @@ SPYDER_HOME = Path(__file__).parent.parent
 sys.path.insert(0, str(SPYDER_HOME))
 
 # Import the enhanced dashboard (our new G05)
-from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
-import logging
+from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard  # noqa: E402
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -451,7 +451,7 @@ class SpyderLiveDashboardLauncher:
         try:
             # Add startup logs
             self.dashboard.add_system_log("🚀 Spyder R07 Live Dashboard Launcher")
-            self.dashboard.add_system_log(f"Startup completed: {datetime.now().strftime('%H:%M:%S')}")
+            self.dashboard.add_system_log(f"Startup completed: {datetime.now().strftime('%H:%M:%S')}")  # noqa: E501
 
             # Log Tradier API status
             tradier_result = self.system_results.get('tradier_api', {})

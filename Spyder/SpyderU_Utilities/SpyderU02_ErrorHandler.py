@@ -232,7 +232,7 @@ class SpyderErrorHandler:
         # Component references (weak to avoid circular refs)
         self.components: dict[str, weakref.ref] = {}
 
-        self.logger.info("SpyderErrorHandler initialized")
+        self.logger.debug("SpyderErrorHandler initialized")
 
     # ==========================================================================
     # INITIALIZATION
@@ -638,7 +638,7 @@ class SpyderErrorHandler:
             log_message += f" (Strategy: {error_context.strategy_name})"
 
         if error_context.module_name and error_context.function_name:
-            log_message += f" (Location: {error_context.module_name}::{error_context.function_name})"
+            log_message += f" (Location: {error_context.module_name}::{error_context.function_name})"  # noqa: E501
 
         # Log based on severity
         if error_context.severity == ErrorSeverity.CRITICAL:

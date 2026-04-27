@@ -1114,7 +1114,7 @@ class GreeksAgent:
             risk_level = self._determine_risk_level(risk_assessment["score"])
 
             # Position description
-            position_desc = f"{'Long' if greeks_data.position_size > 0 else 'Short'} {abs(greeks_data.position_size)} {greeks_data.option_type.title()} options on {greeks_data.symbol}"
+            position_desc = f"{'Long' if greeks_data.position_size > 0 else 'Short'} {abs(greeks_data.position_size)} {greeks_data.option_type.title()} options on {greeks_data.symbol}"  # noqa: E501
 
             # Risk description
             risk_descriptions = {
@@ -1146,7 +1146,7 @@ class GreeksAgent:
                 )
 
             # Market context
-            market_desc = f"In the current {context.market_regime.value.replace('_', ' ')} environment with VIX at {context.vix_level:.1f}"
+            market_desc = f"In the current {context.market_regime.value.replace('_', ' ')} environment with VIX at {context.vix_level:.1f}"  # noqa: E501
 
             # Time sensitivity
             if greeks_data.time_to_expiration < 30:
@@ -1181,7 +1181,7 @@ class GreeksAgent:
 
         except Exception as e:
             self.logger.error("Natural language summary generation failed: %s", e)
-            return f"Analysis of {greeks_data.symbol} position shows {risk_assessment['score']:.0f}% risk score."
+            return f"Analysis of {greeks_data.symbol} position shows {risk_assessment['score']:.0f}% risk score."  # noqa: E501
 
     async def _extract_key_insights(
         self, greeks_data: GreeksData, risk_assessment: dict[str, float]
@@ -1215,7 +1215,7 @@ class GreeksAgent:
             # Vega insights
             if abs(greeks_data.vega) > 0.3:
                 insights.append(
-                    f"High vega ({greeks_data.vega:.2f}) makes position vulnerable to volatility changes"
+                    f"High vega ({greeks_data.vega:.2f}) makes position vulnerable to volatility changes"  # noqa: E501
                 )
 
             # Time-based insights
@@ -1282,12 +1282,12 @@ class GreeksAgent:
             if abs(greeks_data.delta) > 0.6:
                 direction = "upward" if greeks_data.delta > 0 else "downward"
                 explanations.append(
-                    f"High delta exposure means significant losses on {direction} moves in {greeks_data.symbol}."
+                    f"High delta exposure means significant losses on {direction} moves in {greeks_data.symbol}."  # noqa: E501
                 )
 
             if greeks_data.gamma > 0.03:
                 explanations.append(
-                    "High gamma creates non-linear risk where small moves can cause large delta changes."
+                    "High gamma creates non-linear risk where small moves can cause large delta changes."  # noqa: E501
                 )
 
             if greeks_data.theta < -0.05:
@@ -1301,20 +1301,20 @@ class GreeksAgent:
                     greeks_data.vega * greeks_data.position_size * 5
                 )  # 5% vol move
                 explanations.append(
-                    f"Volatility risk: 5% change in implied volatility impacts position by ~${vol_impact:.0f}."
+                    f"Volatility risk: 5% change in implied volatility impacts position by ~${vol_impact:.0f}."  # noqa: E501
                 )
 
             # Time-based risks
             if greeks_data.time_to_expiration < 14:
                 explanations.append(
-                    "Short time to expiration amplifies all Greek risks, especially gamma and theta."
+                    "Short time to expiration amplifies all Greek risks, especially gamma and theta."  # noqa: E501
                 )
 
             return " ".join(explanations)
 
         except Exception as e:
             self.logger.error("Risk explanation generation failed: %s", e)
-            return f"Position carries {risk_assessment['score']:.0f}% risk score based on current Greeks values."
+            return f"Position carries {risk_assessment['score']:.0f}% risk score based on current Greeks values."  # noqa: E501
 
     # ==========================================================================
     # PREDICTIVE ANALYSIS
@@ -1482,7 +1482,7 @@ class GreeksAgent:
                         * greeks_data.underlying_price
                         * 0.001,  # Simplified
                         "effectiveness": "high",
-                        "description": f"{'Buy' if hedge_shares > 0 else 'Sell'} {abs(hedge_shares):.0f} shares to neutralize delta exposure",
+                        "description": f"{'Buy' if hedge_shares > 0 else 'Sell'} {abs(hedge_shares):.0f} shares to neutralize delta exposure",  # noqa: E501
                     }
                 )
 
@@ -1497,7 +1497,7 @@ class GreeksAgent:
                         "quantity": abs(greeks_data.gamma) / 0.05 * 10,  # Simplified
                         "cost_estimate": 500,  # Simplified
                         "effectiveness": "medium",
-                        "description": f"{'Sell' if greeks_data.gamma > 0 else 'Buy'} options to reduce gamma exposure",
+                        "description": f"{'Sell' if greeks_data.gamma > 0 else 'Buy'} options to reduce gamma exposure",  # noqa: E501
                     }
                 )
 
@@ -1511,7 +1511,7 @@ class GreeksAgent:
                         "quantity": abs(greeks_data.vega) * 100,
                         "cost_estimate": abs(greeks_data.vega) * 100 * 0.01,
                         "effectiveness": "medium",
-                        "description": f"{'Sell' if greeks_data.vega > 0 else 'Buy'} volatility to hedge vega exposure",
+                        "description": f"{'Sell' if greeks_data.vega > 0 else 'Buy'} volatility to hedge vega exposure",  # noqa: E501
                     }
                 )
 
@@ -1852,7 +1852,7 @@ class GreeksAgent:
                 recommendations.append(
                     {
                         "type": "delta_rebalancing",
-                        "description": f"Reduce directional exposure by {abs(total_delta):.0f} delta",
+                        "description": f"Reduce directional exposure by {abs(total_delta):.0f} delta",  # noqa: E501
                         "priority": "high" if abs(total_delta) > 100 else "medium",
                     }
                 )
@@ -1891,7 +1891,7 @@ class GreeksAgent:
                         "instrument": "SPY_shares",
                         "quantity": -total_delta,
                         "cost_estimate": abs(total_delta) * 450 * 0.001,  # Simplified
-                        "description": f"Hedge portfolio delta with {'long' if total_delta < 0 else 'short'} SPY position",
+                        "description": f"Hedge portfolio delta with {'long' if total_delta < 0 else 'short'} SPY position",  # noqa: E501
                     }
                 )
 
@@ -1948,7 +1948,7 @@ class GreeksAgent:
                 f"Portfolio of {total_positions} positions with net delta of {total_delta:.0f} "
                 f"presents {risk_score:.0f}% risk score. "
                 f"{'High' if risk_score > 60 else 'Moderate' if risk_score > 30 else 'Low'} "
-                f"risk profile requiring {'immediate attention' if risk_score > 75 else 'monitoring'}."
+                f"risk profile requiring {'immediate attention' if risk_score > 75 else 'monitoring'}."  # noqa: E501
             )
         except Exception:
             return "Portfolio summary unavailable"

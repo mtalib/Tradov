@@ -489,6 +489,229 @@ class TestA03StartupValidatorIntegration(unittest.TestCase):
                 sys.modules["config.config"] = original
 
 
+class TestA03AutonomousReadinessValidation(unittest.TestCase):
+    """Focused tests for autonomous readiness config validation logic."""
+
+    def _load_a03(self):
+        path = (
+            _REPO_ROOT
+            / "Spyder"
+            / "SpyderA_Core"
+            / "SpyderA03_Configuration.py"
+        )
+        spec = importlib.util.spec_from_file_location("_a03_t54_readiness", path)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod
+
+    def _base_config(self):
+        return {
+            "automation": {"enabled": True},
+            "autonomous_readiness": {
+                "liquidity": {
+                    "max_spread_pct": 0.12,
+                    "max_spread_abs": 0.20,
+                    "max_quote_age_ms": 1500,
+                    "min_top_of_book_size": 10,
+                    "min_open_interest": 500,
+                    "min_volume": 50,
+                    "min_oi_change_pct": -0.20,
+                },
+                "execution": {
+                    "max_slippage_bps": 25,
+                    "max_fill_latency_ms": 2500,
+                    "max_partial_fill_ratio": 0.40,
+                    "max_reject_rate_5m": 0.08,
+                    "degrade_size_multiplier": 0.50,
+                    "halt_on_quality_breach": True,
+                },
+                "event_clock": {
+                    "enabled": True,
+                    "sources": "calendar+manual",
+                    "high_impact_only": True,
+                    "blackout_pre_minutes": 30,
+                    "blackout_post_minutes": 30,
+                    "max_size_multiplier_during_event": 0.25,
+                    "allowlist_strategies": [],
+                },
+            },
+        }
+
+    def test_paper_mode_disables_automation_on_blocking_error(self):
+        a03 = self._load_a03()
+        cm = a03.ConfigManager.__new__(a03.ConfigManager)
+
+        cfg = self._base_config()
+        cfg["autonomous_readiness"]["execution"]["degrade_size_multiplier"] = 0.10
+        cfg["autonomous_readiness"]["event_clock"]["max_size_multiplier_during_event"] = 0.25
+
+        result = cm.validate_autonomous_readiness_config(cfg, "paper")
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["effective"]["automation"]["enabled"])
+        self.assertGreaterEqual(len(result["errors"]), 1)
+        self.assertTrue(any("automation disabled" in w for w in result["warnings"]))
+
+    def test_live_mode_blocks_on_blocking_error(self):
+        a03 = self._load_a03()
+        cm = a03.ConfigManager.__new__(a03.ConfigManager)
+
+        cfg = self._base_config()
+        cfg["autonomous_readiness"]["execution"]["degrade_size_multiplier"] = 0.10
+        cfg["autonomous_readiness"]["event_clock"]["max_size_multiplier_during_event"] = 0.25
+
+        result = cm.validate_autonomous_readiness_config(cfg, "live")
+
+        self.assertFalse(result["ok"])
+        self.assertGreaterEqual(len(result["errors"]), 1)
+
+    def test_invalid_event_source_falls_back_to_manual(self):
+        a03 = self._load_a03()
+        cm = a03.ConfigManager.__new__(a03.ConfigManager)
+
+        cfg = self._base_config()
+        cfg["autonomous_readiness"]["event_clock"]["sources"] = "invalid-source"
+
+        result = cm.validate_autonomous_readiness_config(cfg, "paper")
+
+        self.assertEqual(
+            result["effective"]["autonomous_readiness"]["event_clock"]["sources"],
+            "manual",
+        )
+        self.assertTrue(any("fallback=manual" in w for w in result["warnings"]))
+
+    def test_env_override_applies_before_validation(self):
+        a03 = self._load_a03()
+        cm = a03.ConfigManager.__new__(a03.ConfigManager)
+
+        cfg = self._base_config()
+        with patch.dict(os.environ, {"SPYDER_EVENT_CLOCK_BLACKOUT_PRE_MINUTES": "45"}, clear=False):
+            result = cm.validate_autonomous_readiness_config(cfg, "paper")
+
+        self.assertEqual(
+            result["effective"]["autonomous_readiness"]["event_clock"]["blackout_pre_minutes"],
+            45,
+        )
+
+    def test_invalid_allowlist_items_are_removed(self):
+        a03 = self._load_a03()
+        cm = a03.ConfigManager.__new__(a03.ConfigManager)
+
+        cfg = self._base_config()
+        cfg["autonomous_readiness"]["event_clock"]["allowlist_strategies"] = ["D03", 7, "", None]
+
+        result = cm.validate_autonomous_readiness_config(cfg, "paper")
+
+        self.assertEqual(
+            result["effective"]["autonomous_readiness"]["event_clock"]["allowlist_strategies"],
+            ["D03"],
+        )
+        self.assertTrue(any("allowlist_strategies" in w for w in result["warnings"]))
+
+
+class _DummyStartButton:
+    """Lightweight start button test double for dashboard helper tests."""
+
+    def __init__(self):
+        self.text = ""
+        self.stylesheet = ""
+        self.tooltip = ""
+
+    def setText(self, text: str) -> None:
+        self.text = text
+
+    def setStyleSheet(self, stylesheet: str) -> None:
+        self.stylesheet = stylesheet
+
+    def setToolTip(self, tooltip: str) -> None:
+        self.tooltip = tooltip
+
+
+class TestG05StartupReadinessHelpers(unittest.TestCase):
+    """Focused tests for G05 startup readiness helper behavior."""
+
+    def _load_g05(self):
+        path = (
+            _REPO_ROOT
+            / "Spyder"
+            / "SpyderG_GUI"
+            / "SpyderG05_TradingDashboard.py"
+        )
+        spec = importlib.util.spec_from_file_location("_g05_t54_readiness", path)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod
+
+    def test_collect_state_marks_safe_fallback_in_paper_mode(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        fake_cfg = MagicMock()
+        fake_cfg.get.side_effect = lambda key, default=None: {
+            "trading.mode": "paper",
+            "automation.enabled": False,
+        }.get(key, default)
+        fake_cfg.config_data = {}
+        fake_cfg.validate_autonomous_readiness_config.return_value = {
+            "warnings": ["paper mode fallback"],
+            "errors": ["execution.degrade_size_multiplier out of bounds"],
+        }
+        fake_cfg_module = MagicMock()
+        fake_cfg_module.get_config_manager.return_value = fake_cfg
+
+        with patch.dict(
+            sys.modules,
+            {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
+            clear=False,
+        ):
+            state = dashboard._collect_startup_readiness_state()
+
+        self.assertTrue(state["checked"])
+        self.assertEqual(state["mode"], "paper")
+        self.assertFalse(state["automation_enabled"])
+        self.assertTrue(state["safe_fallback_applied"])
+        self.assertFalse(state["live_blocking"])
+        self.assertEqual(state["source"], "A03.ConfigManager")
+
+    def test_emit_logs_styles_button_for_safe_mode(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        dashboard._startup_readiness_state = {
+            "checked": True,
+            "mode": "paper",
+            "warnings": ["warn-a"],
+            "errors": ["err-a"],
+            "safe_fallback_applied": True,
+            "live_blocking": False,
+        }
+        log_messages = []
+        dashboard.add_system_log = lambda msg: log_messages.append(msg)
+        dashboard.start_btn = _DummyStartButton()
+
+        dashboard._emit_startup_readiness_logs()
+
+        self.assertTrue(any("STARTUP SAFE MODE" in msg for msg in log_messages))
+        self.assertEqual(dashboard.start_btn.text, "SAFE MODE (AUTO OFF)")
+        self.assertIn("background-color", dashboard.start_btn.stylesheet)
+        self.assertIn("automation.enabled=false", dashboard.start_btn.tooltip)
+
+    def test_append_banner_unavailable_when_readiness_not_checked(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        dashboard.system_logs = []
+        dashboard._startup_readiness_state = {
+            "checked": False,
+            "source": "unavailable: mock failure",
+        }
+
+        dashboard._append_startup_readiness_banner("09:30:00")
+
+        self.assertEqual(len(dashboard.system_logs), 1)
+        self.assertIn("STARTUP READINESS: unavailable", dashboard.system_logs[0])
+
+
 # ==============================================================================
 # MAIN
 # ==============================================================================

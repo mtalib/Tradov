@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -241,7 +241,7 @@ class RiskReportGenerator:
 
                 report = RiskReportData(
                     report_date=date.today(),
-                    report_time=datetime.now(),
+                    report_time=datetime.now(timezone.utc),
                     account_id=account_id,
                     portfolio_value=portfolio_value
                 )
@@ -625,13 +625,13 @@ class RiskReportGenerator:
             if check.is_breached:
                 alerts.append(f"LIMIT BREACH: {check.message}")
             elif check.utilization_percent > 80:
-                alerts.append(f"WARNING: {check.limit_name} approaching limit ({check.utilization_percent:.1f}%)")
+                alerts.append(f"WARNING: {check.limit_name} approaching limit ({check.utilization_percent:.1f}%)")  # noqa: E501
 
         # Check drawdown
         if report.drawdown_analysis:
             if report.drawdown_analysis.current_drawdown < -5:
                 alerts.append(
-                    f"DRAWDOWN ALERT: Current drawdown {report.drawdown_analysis.current_drawdown:.2f}%"
+                    f"DRAWDOWN ALERT: Current drawdown {report.drawdown_analysis.current_drawdown:.2f}%"  # noqa: E501
                 )
 
         # Check VaR
@@ -652,9 +652,9 @@ class RiskReportGenerator:
             if abs(ge.total_delta) > self.thresholds['delta_limit'] * 0.8:
                 recommendations.append("Consider hedging delta exposure with SPY shares or futures")
             if ge.total_theta < self.thresholds['theta_limit'] * 0.8:
-                recommendations.append("High negative theta - consider closing time-decay positions")
+                recommendations.append("High negative theta - consider closing time-decay positions")  # noqa: E501
             if abs(ge.total_vega) > self.thresholds['vega_limit'] * 0.8:
-                recommendations.append("High vega exposure - consider reducing volatility sensitivity")
+                recommendations.append("High vega exposure - consider reducing volatility sensitivity")  # noqa: E501
 
         # Concentration recommendations
         for symbol, conc in report.concentration_by_symbol.items():

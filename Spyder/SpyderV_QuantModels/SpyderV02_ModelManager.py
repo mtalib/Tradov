@@ -51,9 +51,9 @@ import uuid
 # ==============================================================================
 try:
     from SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics
-    from SpyderV05_PricingEngine import SpyderPricingEngine, OptionContract, PricingParameters, PricingResult
-    from SpyderV06_VolatilityEngine import SpyderVolatilityEngine, VolatilityRequest, VolatilityResult
-    from SpyderV07_AdvancedModels import SpyderAdvancedModels, AdvancedModelRequest, AdvancedModelResult
+    from SpyderV05_PricingEngine import SpyderPricingEngine, OptionContract, PricingParameters, PricingResult  # noqa: E501
+    from SpyderV06_VolatilityEngine import SpyderVolatilityEngine, VolatilityRequest, VolatilityResult  # noqa: E501
+    from SpyderV07_AdvancedModels import SpyderAdvancedModels, AdvancedModelRequest, AdvancedModelResult  # noqa: E501
     from SpyderV08_AIModels import SpyderAIModels, PricingRequest, TradingSignal
 
     CONSOLIDATED_MODULES_AVAILABLE = True
@@ -289,7 +289,7 @@ class SpyderModelManager:
             successful_engines = sum(initialization_results.values())
             total_engines = len(initialization_results)
 
-            self.logger.info("Engine initialization complete: %s/%s engines ready", successful_engines, total_engines)
+            self.logger.info("Engine initialization complete: %s/%s engines ready", successful_engines, total_engines)  # noqa: E501
 
             return initialization_results
 
@@ -445,7 +445,7 @@ class SpyderModelManager:
             return response
 
         except Exception as e:
-            self.logger.error("Error executing operation %s: %s", request.operation, e, exc_info=True)
+            self.logger.error("Error executing operation %s: %s", request.operation, e, exc_info=True)  # noqa: E501
             return ConsolidatedResponse(
                 request_id=request.request_id,
                 engine_type=request.engine_type,
@@ -462,7 +462,7 @@ class SpyderModelManager:
     # ==========================================================================
     async def calculate_risk_metrics(self,
                                    risk_params: RiskParameters,
-                                   context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
+                                   context: ModelSelectionContext | None = None) -> ConsolidatedResponse:  # noqa: E501
         """Calculate risk metrics using V04 RiskManager."""
         if context is None:
             context = self._create_default_context()
@@ -499,7 +499,7 @@ class SpyderModelManager:
 
     async def calculate_volatility(self,
                                  volatility_request: Any,
-                                 context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
+                                 context: ModelSelectionContext | None = None) -> ConsolidatedResponse:  # noqa: E501
         """Calculate volatility using V06 VolatilityEngine."""
         if context is None:
             context = self._create_default_context()
@@ -517,7 +517,7 @@ class SpyderModelManager:
 
     async def analyze_market_regime(self,
                                   market_data: dict[str, Any],
-                                  context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
+                                  context: ModelSelectionContext | None = None) -> ConsolidatedResponse:  # noqa: E501
         """Analyze market regime using V07 AdvancedModels."""
         if context is None:
             context = self._create_default_context()
@@ -535,7 +535,7 @@ class SpyderModelManager:
 
     async def generate_ai_signal(self,
                                market_state: dict[str, Any],
-                               context: ModelSelectionContext | None = None) -> ConsolidatedResponse:
+                               context: ModelSelectionContext | None = None) -> ConsolidatedResponse:  # noqa: E501
         """Generate AI trading signal using V08 AIModels."""
         if context is None:
             context = self._create_default_context()
@@ -554,13 +554,13 @@ class SpyderModelManager:
     # ==========================================================================
     # PERFORMANCE AND MONITORING
     # ==========================================================================
-    def get_engine_performance(self, engine_type: EngineType | None = None) -> dict[EngineType, EnginePerformance]:
+    def get_engine_performance(self, engine_type: EngineType | None = None) -> dict[EngineType, EnginePerformance]:  # noqa: E501
         """Get performance metrics for engines."""
         if engine_type:
             return {engine_type: self.current_performance.get(engine_type)}
         return self.current_performance.copy()
 
-    def get_engine_status(self, engine_type: EngineType | None = None) -> dict[EngineType, EngineStatus]:
+    def get_engine_status(self, engine_type: EngineType | None = None) -> dict[EngineType, EngineStatus]:  # noqa: E501
         """Get status of engines."""
         if engine_type:
             return {engine_type: self.engine_status.get(engine_type)}
@@ -589,7 +589,7 @@ class SpyderModelManager:
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================
-    def _create_default_engine_configs(self, config: dict[str, Any] | None) -> dict[EngineType, EngineConfig]:
+    def _create_default_engine_configs(self, config: dict[str, Any] | None) -> dict[EngineType, EngineConfig]:  # noqa: E501
         """Create default engine configurations."""
         default_configs = {
             EngineType.RISK_MANAGER: EngineConfig(
@@ -699,18 +699,18 @@ class SpyderModelManager:
     async def _dispatch_operation(self, engine: Any, request: ConsolidatedRequest) -> Any:
         """Dispatch operation to appropriate engine method."""
         operation_map = {
-            (EngineType.RISK_MANAGER, "calculate_risk_metrics"): lambda e, p: e.calculate_portfolio_var(p["risk_params"]),
-            (EngineType.PRICING_ENGINE, "price_option"): lambda e, p: e.price_option(p["contract"], p["params"]),
-            (EngineType.VOLATILITY_ENGINE, "calculate_volatility"): lambda e, p: e.calculate_volatility(p["volatility_request"]),
-            (EngineType.ADVANCED_MODELS, "analyze_market_regime"): lambda e, p: e.detect_market_regime(p["market_data"]),
-            (EngineType.AI_MODELS, "generate_trading_signal"): lambda e, p: e.generate_trading_signal(p["market_state"])
+            (EngineType.RISK_MANAGER, "calculate_risk_metrics"): lambda e, p: e.calculate_portfolio_var(p["risk_params"]),  # noqa: E501
+            (EngineType.PRICING_ENGINE, "price_option"): lambda e, p: e.price_option(p["contract"], p["params"]),  # noqa: E501
+            (EngineType.VOLATILITY_ENGINE, "calculate_volatility"): lambda e, p: e.calculate_volatility(p["volatility_request"]),  # noqa: E501
+            (EngineType.ADVANCED_MODELS, "analyze_market_regime"): lambda e, p: e.detect_market_regime(p["market_data"]),  # noqa: E501
+            (EngineType.AI_MODELS, "generate_trading_signal"): lambda e, p: e.generate_trading_signal(p["market_state"])  # noqa: E501
         }
 
         operation_key = (request.engine_type, request.operation)
         if operation_key in operation_map:
             return await operation_map[operation_key](engine, request.parameters)
         else:
-            raise ValueError(f"Unsupported operation: {request.operation} for engine {request.engine_type.value}")
+            raise ValueError(f"Unsupported operation: {request.operation} for engine {request.engine_type.value}")  # noqa: E501
 
     async def _request_processor(self):
         """Background task to process queued requests."""
@@ -749,7 +749,7 @@ class SpyderModelManager:
         total_requests = perf.success_count + perf.error_count
         if total_requests > 0:
             perf.response_time_avg_ms = (
-                (perf.response_time_avg_ms * (total_requests - 1) + response.execution_time_ms) / total_requests
+                (perf.response_time_avg_ms * (total_requests - 1) + response.execution_time_ms) / total_requests  # noqa: E501
             )
             perf.error_rate = perf.error_count / total_requests
 
@@ -771,7 +771,7 @@ class ModelSelector:
         self.model_manager = model_manager
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
 
-    async def select_engine(self, operation: str, context: ModelSelectionContext) -> EngineRecommendation:
+    async def select_engine(self, operation: str, context: ModelSelectionContext) -> EngineRecommendation:  # noqa: E501
         """Select optimal engine based on context and performance."""
 
         # Default engine mapping
@@ -795,7 +795,7 @@ class ModelSelector:
                     confidence=0.9,
                     reasoning=f"Default engine {default_engine.value} is performing well",
                     fallback_engines=[],
-                    expected_performance={"accuracy": performance.accuracy, "response_time": performance.response_time_avg_ms}
+                    expected_performance={"accuracy": performance.accuracy, "response_time": performance.response_time_avg_ms}  # noqa: E501
                 )
 
         # If default engine has issues, recommend fallback
@@ -873,7 +873,7 @@ class EngineHealthChecker:
                         self.model_manager.engine_status[engine_type] = EngineStatus.DEGRADED
 
             except Exception as e:
-                self.logger.error("Health check failed for %s: %s", engine_type.value, e, exc_info=True)
+                self.logger.error("Health check failed for %s: %s", engine_type.value, e, exc_info=True)  # noqa: E501
                 self.model_manager.engine_status[engine_type] = EngineStatus.ERROR
 
 class PerformanceMonitor:
@@ -942,7 +942,7 @@ async def main():
     logging.info("Engine Initialization Results:")
     for engine_type, success in initialization_results.items():
         status_icon = "✅" if success else "❌"
-        logging.info("   %s %s: %s", status_icon, engine_type.value, 'Ready' if success else 'Failed')
+        logging.info("   %s %s: %s", status_icon, engine_type.value, 'Ready' if success else 'Failed')  # noqa: E501
 
     # Test 2: Model Selection Intelligence
     logging.info("\n--- Test 2: Intelligent Model Selection ---")
@@ -974,12 +974,12 @@ async def main():
 
         # Test pricing operation selection
         recommendation = await model_manager.select_optimal_engine("price_option", context)
-        logging.info(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
+        logging.info(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")  # noqa: E501
         logging.info("   Reasoning: %s", recommendation.reasoning)
 
         # Test risk analysis selection
-        recommendation = await model_manager.select_optimal_engine("calculate_risk_metrics", context)
-        logging.info(f"   Risk: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
+        recommendation = await model_manager.select_optimal_engine("calculate_risk_metrics", context)  # noqa: E501
+        logging.info(f"   Risk: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")  # noqa: E501
 
     # Test 3: Performance Monitoring
     logging.info("\n--- Test 3: Performance Monitoring ---")

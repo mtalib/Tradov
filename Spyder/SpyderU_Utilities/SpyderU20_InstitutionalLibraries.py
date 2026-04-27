@@ -98,7 +98,7 @@ try:
     PYFOLIO_AVAILABLE = True
 except ImportError:
     PYFOLIO_AVAILABLE = False
-    warnings.warn("PyFolio not available. Install with: pip install pyfolio-reloaded empyrical-reloaded", stacklevel=2)
+    warnings.warn("PyFolio not available. Install with: pip install pyfolio-reloaded empyrical-reloaded", stacklevel=2)  # noqa: E501
 
 # RiskFolio-Lib for advanced portfolio optimization
 try:
@@ -106,7 +106,7 @@ try:
     RISKFOLIO_AVAILABLE = True
 except ImportError:
     RISKFOLIO_AVAILABLE = False
-    warnings.warn("RiskFolio-Lib not available. Install with: pip install riskfolio-lib", stacklevel=2)
+    warnings.warn("RiskFolio-Lib not available. Install with: pip install riskfolio-lib", stacklevel=2)  # noqa: E501
 
 # Stable Baselines3 for RL
 try:
@@ -115,7 +115,7 @@ try:
     SB3_AVAILABLE = True
 except ImportError:
     SB3_AVAILABLE = False
-    warnings.warn("Stable-Baselines3 not available. Install with: pip install stable-baselines3[extra]", stacklevel=2)
+    warnings.warn("Stable-Baselines3 not available. Install with: pip install stable-baselines3[extra]", stacklevel=2)  # noqa: E501
 
 # Ray for distributed computing
 try:
@@ -195,7 +195,7 @@ class OptionPricing:
     def __post_init__(self):
         """Calculate derived values."""
         if self.theoretical_price and self.delta:
-            self.intrinsic_value = max(0, self.theoretical_price - self.time_value) if self.time_value else None
+            self.intrinsic_value = max(0, self.theoretical_price - self.time_value) if self.time_value else None  # noqa: E501
             self.time_value = self.theoretical_price - (self.intrinsic_value or 0)
 
 @dataclass
@@ -271,7 +271,7 @@ class InstitutionalLibraries:
         self._calculation_cache = {}
         self._calculation_cache_maxsize = 512
 
-        self.logger.info("Institutional libraries initialized. Available: %s/%s", sum(self.available_libraries.values()), len(self.available_libraries))
+        self.logger.info("Institutional libraries initialized. Available: %s/%s", sum(self.available_libraries.values()), len(self.available_libraries))  # noqa: E501
 
     def _initialize_quantlib(self):
         """Initialize QuantLib with proper configuration."""
@@ -395,7 +395,7 @@ class InstitutionalLibraries:
             rho = option.rho() / 100      # Convert to per 1% rate change
 
             # Calculate additional metrics
-            intrinsic_value = max(0, spot - strike if option_type == OptionType.CALL else strike - spot)
+            intrinsic_value = max(0, spot - strike if option_type == OptionType.CALL else strike - spot)  # noqa: E501
             time_value = price - intrinsic_value
             moneyness = spot / strike
 
@@ -468,9 +468,9 @@ class InstitutionalLibraries:
 
             # Breakeven calculation
             if option_type == OptionType.PUT:
-                breakeven = short_strike - net_credit if net_credit > 0 else long_strike + abs(net_credit)
+                breakeven = short_strike - net_credit if net_credit > 0 else long_strike + abs(net_credit)  # noqa: E501
             else:  # CALL
-                breakeven = short_strike + net_credit if net_credit > 0 else long_strike - abs(net_credit)
+                breakeven = short_strike + net_credit if net_credit > 0 else long_strike - abs(net_credit)  # noqa: E501
 
             return {
                 'net_credit': net_credit,
@@ -500,7 +500,7 @@ class InstitutionalLibraries:
     def calculate_institutional_metrics(self,
                                       returns: pd.Series | np.ndarray | list[float],
                                       benchmark_returns: pd.Series | np.ndarray | None = None,
-                                      risk_free_rate: float | None = None) -> InstitutionalMetrics | None:
+                                      risk_free_rate: float | None = None) -> InstitutionalMetrics | None:  # noqa: E501
         """
         Calculate comprehensive institutional-grade performance metrics.
 
@@ -532,7 +532,7 @@ class InstitutionalLibraries:
 
             # Downside metrics
             downside_returns = returns[returns < 0]
-            downside_std = downside_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR) if len(downside_returns) > 0 else volatility
+            downside_std = downside_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR) if len(downside_returns) > 0 else volatility  # noqa: E501
             sortino_ratio = excess_returns / downside_std if downside_std > 0 else 0
 
             # Drawdown analysis
@@ -551,7 +551,7 @@ class InstitutionalLibraries:
 
             avg_win = winning_returns.mean() if len(winning_returns) > 0 else 0
             avg_loss = losing_returns.mean() if len(losing_returns) > 0 else 0
-            profit_factor = abs(avg_win * len(winning_returns) / (avg_loss * len(losing_returns))) if len(losing_returns) > 0 and avg_loss != 0 else 0
+            profit_factor = abs(avg_win * len(winning_returns) / (avg_loss * len(losing_returns))) if len(losing_returns) > 0 and avg_loss != 0 else 0  # noqa: E501
 
             recovery_factor = total_return / abs(max_drawdown) if max_drawdown != 0 else 0
 
@@ -563,7 +563,7 @@ class InstitutionalLibraries:
 
             if SCIPY_AVAILABLE:
                 var_95 = np.percentile(returns, 5)
-                cvar_95 = returns[returns <= var_95].mean() if len(returns[returns <= var_95]) > 0 else var_95
+                cvar_95 = returns[returns <= var_95].mean() if len(returns[returns <= var_95]) > 0 else var_95  # noqa: E501
                 skewness = stats.skew(returns)
                 kurtosis = stats.kurtosis(returns)
 
@@ -577,7 +577,7 @@ class InstitutionalLibraries:
 
                 excess_returns_vs_benchmark = returns - benchmark_returns
                 tracking_error = excess_returns_vs_benchmark.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-                information_ratio = excess_returns_vs_benchmark.mean() * TRADING_DAYS_PER_YEAR / tracking_error if tracking_error > 0 else 0
+                information_ratio = excess_returns_vs_benchmark.mean() * TRADING_DAYS_PER_YEAR / tracking_error if tracking_error > 0 else 0  # noqa: E501
 
                 # Beta calculation for Treynor ratio
                 if SCIPY_AVAILABLE and len(returns) > 1:
@@ -638,7 +638,7 @@ class InstitutionalLibraries:
 
             # Use RiskFolio if available (preferred)
             if RISKFOLIO_AVAILABLE:
-                return self._optimize_with_riskfolio(returns_data, method, constraints, risk_free_rate)
+                return self._optimize_with_riskfolio(returns_data, method, constraints, risk_free_rate)  # noqa: E501
             else:
                 return self._optimize_with_scipy(returns_data, method, constraints, risk_free_rate)
 
@@ -658,23 +658,23 @@ class InstitutionalLibraries:
 
             # Set optimization method
             if method == "max_sharpe":
-                weights = port.optimization(model='Classic', rm='MV', obj='Sharpe', rf=risk_free_rate)
+                weights = port.optimization(model='Classic', rm='MV', obj='Sharpe', rf=risk_free_rate)  # noqa: E501
             elif method == "min_vol":
                 weights = port.optimization(model='Classic', rm='MV', obj='MinRisk')
             elif method == "max_diversification":
                 weights = port.optimization(model='Classic', rm='MV', obj='MaxDiversification')
             else:
-                weights = port.optimization(model='Classic', rm='MV', obj='Sharpe', rf=risk_free_rate)
+                weights = port.optimization(model='Classic', rm='MV', obj='Sharpe', rf=risk_free_rate)  # noqa: E501
 
             if weights is None or weights.empty:
                 return None
 
             # Calculate portfolio metrics
             weights_dict = weights.iloc[:, 0].to_dict()
-            expected_return = np.sum(port.mu.values * weights.values.flatten()) * TRADING_DAYS_PER_YEAR
-            portfolio_variance = np.dot(weights.values.flatten(), np.dot(port.cov.values, weights.values.flatten()))
+            expected_return = np.sum(port.mu.values * weights.values.flatten()) * TRADING_DAYS_PER_YEAR  # noqa: E501
+            portfolio_variance = np.dot(weights.values.flatten(), np.dot(port.cov.values, weights.values.flatten()))  # noqa: E501
             expected_volatility = np.sqrt(portfolio_variance * TRADING_DAYS_PER_YEAR)
-            sharpe_ratio = (expected_return - risk_free_rate) / expected_volatility if expected_volatility > 0 else 0
+            sharpe_ratio = (expected_return - risk_free_rate) / expected_volatility if expected_volatility > 0 else 0  # noqa: E501
 
             return PortfolioOptimization(
                 weights=weights_dict,
@@ -721,22 +721,22 @@ class InstitutionalLibraries:
 
             # Optimize based on method
             if method == "max_sharpe":
-                result = minimize(negative_sharpe, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)
+                result = minimize(negative_sharpe, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)  # noqa: E501
             elif method == "min_vol":
-                result = minimize(portfolio_volatility, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)
+                result = minimize(portfolio_volatility, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)  # noqa: E501
             else:
-                result = minimize(negative_sharpe, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)
+                result = minimize(negative_sharpe, x0, method='SLSQP', bounds=bounds, constraints=constraints_list)  # noqa: E501
 
             if not result.success:
                 return None
 
             # Create weights dictionary
-            weights_dict = {asset: weight for asset, weight in zip(returns_data.columns, result.x, strict=False)}
+            weights_dict = {asset: weight for asset, weight in zip(returns_data.columns, result.x, strict=False)}  # noqa: E501
 
             # Calculate metrics
             expected_return = portfolio_return(result.x)
             expected_volatility = portfolio_volatility(result.x)
-            sharpe_ratio = (expected_return - risk_free_rate) / expected_volatility if expected_volatility > 0 else 0
+            sharpe_ratio = (expected_return - risk_free_rate) / expected_volatility if expected_volatility > 0 else 0  # noqa: E501
 
             return PortfolioOptimization(
                 weights=weights_dict,
@@ -864,7 +864,7 @@ def test_institutional_libraries():
 
             if pricing:
                 logging.info(f"✅ Options pricing: ${pricing.theoretical_price:.2f}")
-                logging.info(f"   Greeks: Δ={pricing.delta:.3f}, Γ={pricing.gamma:.3f}, Θ={pricing.theta:.3f}")
+                logging.info(f"   Greeks: Δ={pricing.delta:.3f}, Γ={pricing.gamma:.3f}, Θ={pricing.theta:.3f}")  # noqa: E501
             else:
                 logging.info("❌ Options pricing returned None")
 

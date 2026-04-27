@@ -91,9 +91,12 @@ except ImportError:
 
 try:
     from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
+    from SpyderE_Risk.SpyderE00_RiskProtocol import RiskValidationRequest, BoundarySignalType
 except ImportError:
     get_risk_manager = None
     RiskProfile = None
+    RiskValidationRequest = None  # type: ignore[assignment,misc]
+    BoundarySignalType = None  # type: ignore[assignment,misc]
 
 try:
     from SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
@@ -354,6 +357,10 @@ class TradingEngine:
         self.position_tracker = None
         self.has_position_tracker = False
 
+        # Entry trust gate (F09 + S07) is resolved lazily to avoid startup hard dependencies.
+        self._entry_filter_gate: Any | None = None
+        self._metrics_orchestrator: Any | None = None
+
         # Worker threads
         self._monitor_thread = None
         self._cleanup_thread = None
@@ -558,7 +565,7 @@ class TradingEngine:
                     # Submit order
                     self.process_signal(position.strategy_id, reduce_order)
 
-                    self.logger.info("Reducing position %s by %s units", position_id, reduce_quantity)
+                    self.logger.info("Reducing position %s by %s units", position_id, reduce_quantity)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Failed to reduce position for risk: %s", e)
@@ -594,6 +601,10 @@ class TradingEngine:
                         if self.risk_manager and self.risk_manager.initialize():
                             self.has_risk_manager = True
                             self.logger.info("Risk manager initialized")
+                            # Wire Y03 RiskSentinelAgent veto channel if message bus is available
+                            message_bus = getattr(self, 'message_bus', None)
+                            if message_bus is not None and hasattr(self.risk_manager, 'wire_agent_bus'):  # noqa: E501
+                                self.risk_manager.wire_agent_bus(message_bus)
                         else:
                             self.logger.warning("Risk manager not available")
                     except Exception as e:
@@ -684,8 +695,6 @@ class TradingEngine:
             self.logger.error("TradingEngine start failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
-                        # Set up event handlers
-                        self._setup_event_handlers()
 
     def stop(self, reason: str = "Manual stop") -> bool:
         """
@@ -961,7 +970,7 @@ class TradingEngine:
                 # Check for open positions
                 open_positions = self._get_strategy_positions(strategy_id)
                 if open_positions and not force:
-                    self.logger.error("Cannot unregister strategy %s with %s open positions", strategy_id, len(open_positions))
+                    self.logger.error("Cannot unregister strategy %s with %s open positions", strategy_id, len(open_positions))  # noqa: E501
                     return False
 
                 # Stop strategy if active
@@ -1145,6 +1154,15 @@ class TradingEngine:
                 self.logger.error("Invalid signal from strategy %s", strategy_id)
                 return False
 
+            gate_ok, gate_reason = self._passes_entry_trust_gate(strategy_id, signal)
+            if not gate_ok:
+                self.logger.warning(
+                    "Signal rejected by entry trust gate (%s): %s",
+                    strategy_id,
+                    gate_reason,
+                )
+                return False
+
             # Risk check
             if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
                 self.logger.warning("Signal rejected by risk manager: %s", signal)
@@ -1163,7 +1181,7 @@ class TradingEngine:
             priority = 1 if signal.get('urgent', False) else 5
             self.order_queue.put((priority, order.order_id, order))
 
-            self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))
+            self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))  # noqa: E501
 
             # Emit signal event
             if self.event_manager:
@@ -1209,39 +1227,180 @@ class TradingEngine:
         return True
 
     def _check_signal_risk(self, strategy_id: str, signal: dict[str, Any]) -> bool:
-        """Check signal against risk limits"""
+        """Check signal against risk limits using the typed E00 Protocol boundary."""
         if not self.risk_manager:
             return True
 
         try:
-            # Create risk check request
-            risk_check = {
-                'strategy_id': strategy_id,
-                'symbol': signal['symbol'],
-                'action': signal['action'],
-                'quantity': signal['quantity'],
-                'price': signal.get('price'),
-                'type': signal.get('type', 'stock'),
-                'value': signal.get('value', 0),
-                'metadata': signal.get('metadata', {}),
-                'existing_positions': len(self._get_strategy_positions(strategy_id))
-            }
-
-            # Perform risk check
-            result = self.risk_manager.check_trade(risk_check)
-
-            if not result.get('approved', False):
-                self.logger.warning("Risk check failed: %s", result.get('reason', 'Unknown'))
-                return False
-
-            return True
+            if RiskValidationRequest is not None and hasattr(self.risk_manager, 'validate_signal'):
+                # Typed path: E00 Protocol boundary
+                action_str = str(signal.get('action', 'BUY')).upper()
+                signal_type = (
+                    BoundarySignalType.SELL
+                    if action_str in ('SELL', 'SELL_TO_OPEN', 'SELL_TO_CLOSE')
+                    else BoundarySignalType.BUY
+                )
+                request = RiskValidationRequest(
+                    symbol=signal['symbol'],
+                    quantity=int(signal['quantity']),
+                    signal_type=signal_type,
+                    strategy_id=strategy_id,
+                    entry_price=float(signal.get('price') or 0.0),
+                    confidence=float(signal.get('confidence', 0.0)),
+                    metadata={
+                        **signal.get('metadata', {}),
+                        'type': signal.get('type', 'stock'),
+                        'value': signal.get('value', 0),
+                        'existing_positions': len(self._get_strategy_positions(strategy_id)),
+                    },
+                )
+                result = self.risk_manager.validate_signal(request)
+                approved = bool(result.approved) if hasattr(result, 'approved') else bool(result.get('approved', False))  # noqa: E501
+                if not approved:
+                    reason = getattr(result, 'rejection_reason', None) or result.get('reason', 'Unknown')  # noqa: E501
+                    self.logger.warning("Risk check failed: %s", reason)
+                return approved
+            else:
+                # Fallback: legacy dict adapter for environments missing E00
+                risk_check = {
+                    'strategy_id': strategy_id,
+                    'symbol': signal['symbol'],
+                    'action': signal['action'],
+                    'quantity': signal['quantity'],
+                    'price': signal.get('price'),
+                    'metadata': signal.get('metadata', {}),
+                }
+                result = self.risk_manager.check_trade(risk_check)
+                if not result.get('approved', False):
+                    self.logger.warning("Risk check failed: %s", result.get('reason', 'Unknown'))
+                    return False
+                return True
 
         except Exception as e:
             self.logger.error("Risk check error: %s", e)
-            # Fail safe - reject on error
+            # Fail safe — reject on error
             return False
 
-    def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:
+    def _get_entry_filter_gate(self) -> Any | None:
+        """Lazily build the F09 gate used for market-structure trust checks."""
+        if self._entry_filter_gate is not None:
+            return self._entry_filter_gate
+
+        try:
+            from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+        except ImportError:
+            try:
+                from SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters  # type: ignore[no-redef]
+            except ImportError:
+                self.logger.debug("A02: EntryFilters unavailable for trust gate")
+                return None
+
+        config_manager = None
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            config_manager = get_config_manager()
+        except Exception:
+            config_manager = None
+
+        if config_manager is None:
+            class _ConfigAdapter:
+                def __init__(self, config: dict[str, Any]):
+                    self._config = config or {}
+
+                def get_config(self, key: str, default: Any = None) -> Any:
+                    value: Any = self._config
+                    for part in key.split('.'):
+                        if not isinstance(value, dict) or part not in value:
+                            return default
+                        value = value[part]
+                    return value
+
+                def is_feature_enabled(self, key: str) -> bool:
+                    features = self._config.get('features', {})
+                    if isinstance(features, dict):
+                        return bool(features.get(key, False))
+                    return False
+
+                def get(self, key: str, default: Any = None) -> Any:
+                    return self.get_config(key, default)
+
+            config_manager = _ConfigAdapter(self.config)
+
+        try:
+            self._entry_filter_gate = EntryFilters(config_manager)
+        except Exception as exc:
+            self.logger.debug("A02: failed to initialize EntryFilters trust gate: %s", exc)
+            self._entry_filter_gate = None
+        return self._entry_filter_gate
+
+    def _get_current_market_conditions(self) -> dict[str, Any]:
+        """Fetch the latest S07 market conditions for trust-policy gating."""
+        if self._metrics_orchestrator is None:
+            try:
+                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # noqa: E501
+            except ImportError:
+                try:
+                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]  # noqa: E501
+                except ImportError:
+                    self.logger.debug("A02: S07 metrics orchestrator unavailable")
+                    return {}
+
+            try:
+                self._metrics_orchestrator = get_metrics_orchestrator()
+            except Exception as exc:
+                self.logger.debug("A02: failed to get S07 metrics orchestrator: %s", exc)
+                return {}
+
+        try:
+            conditions = self._metrics_orchestrator.get_current_market_conditions()
+        except Exception as exc:
+            self.logger.debug("A02: failed to read S07 market conditions: %s", exc)
+            return {}
+
+        return conditions if isinstance(conditions, dict) else {}
+
+    def _passes_entry_trust_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:  # noqa: E501
+        """Apply F09 trust-policy checks to direct A02 signal processing."""
+        entry_gate = self._get_entry_filter_gate()
+        if entry_gate is None:
+            return True, ""
+
+        market_conditions = self._get_current_market_conditions()
+        if not market_conditions:
+            return True, ""
+
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        action = str(signal.get('action') or signal.get('side') or metadata.get('action') or '').strip().lower()  # noqa: E501
+        params = {
+            'strategy_type': signal.get('strategy_type') or metadata.get('strategy_type') or strategy_id,  # noqa: E501
+            'position_type': signal.get('position_type') or metadata.get('position_type') or '',
+            'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,  # noqa: E501
+            'action': action,
+            'market_conditions': market_conditions,
+        }
+
+        try:
+            checks = []
+            checks.extend(entry_gate._check_data_quality_filter(params))
+            checks.extend(entry_gate._check_vol_surface_structure_filter(params))
+            checks.extend(entry_gate._check_dealer_flow_filter(params))
+            checks.extend(entry_gate._check_lead_lag_confirmation_filter(params))
+        except Exception as exc:
+            self.logger.debug("A02: trust gate failed open: %s", exc, exc_info=True)
+            return True, ""
+
+        failures = []
+        for check in checks:
+            result = getattr(check, 'result', None)
+            if getattr(result, 'value', result) == 'fail':
+                failures.append(check)
+
+        if not failures:
+            return True, ""
+
+        return False, '; '.join(str(check.message) for check in failures)
+
+    def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:  # noqa: E501
         """Create order object from signal"""
         try:
             order_id = f"{strategy_id}_{uuid.uuid4().hex[:8]}"
@@ -1328,7 +1487,7 @@ class TradingEngine:
         while not self._shutdown_event.is_set():
             try:
                 # Perform health check
-                if (datetime.now() - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:
+                if (datetime.now() - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:  # noqa: E501
                     self._perform_health_check()
                     self.last_health_check = datetime.now()
 
@@ -1435,7 +1594,7 @@ class TradingEngine:
             if not event:
                 return
 
-            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')
+            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')  # noqa: E501
 
             order = self.orders.get(order_id)
             if order:
@@ -1454,7 +1613,7 @@ class TradingEngine:
             if not event:
                 return
 
-            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')
+            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')  # noqa: E501
 
             order = self.orders.get(order_id)
             if order:
@@ -1513,7 +1672,7 @@ class TradingEngine:
         self._order_processor_thread.start()
 
     def _order_processor_loop(self):
-        """Main order processing loop"""
+        """Main order processing loop — dequeues OrderInfo items and submits them to the broker."""
         self.logger.info("Order processor started")
 
         while not self._shutdown_event.is_set():
@@ -1521,13 +1680,131 @@ class TradingEngine:
                 # Get order from queue with timeout
                 priority, order_id, order = self.order_queue.get(timeout=1.0)
 
-                # Process order (simplified)
-                self.logger.info("Processing order %s", order_id)
+                self.logger.info(
+                    "Processing order %s: %s %d x %s",
+                    order_id, order.action.value, order.quantity, order.symbol,
+                )
+                self._submit_order_to_broker(order)
 
             except queue.Empty:
                 continue
             except Exception as e:
-                self.logger.error("Order processor error: %s", e)
+                self.logger.error("Order processor error: %s", e, exc_info=True)
+
+    def _submit_order_to_broker(self, order: "OrderInfo") -> None:
+        """Convert an internal OrderInfo and submit it to the broker layer.
+
+        Tries self.order_manager (B02 OrderManager) first; falls back to
+        self.spyder_client (B40 TradierClient) if order_manager is unavailable.
+
+        Args:
+            order: The OrderInfo instance to submit.
+        """
+        try:
+            # ------------------------------------------------------------------
+            # Path 1: B02 OrderManager (preferred — wraps B40, handles retries)
+            # ------------------------------------------------------------------
+            if self.order_manager is not None and hasattr(self.order_manager, "submit_order"):
+                try:
+                    try:
+                        from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order as B02Order
+                    except ImportError:
+                        from SpyderB_Broker.SpyderB02_OrderManager import Order as B02Order
+
+                    b02_order = B02Order(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.action.value.lower(),        # "buy" | "sell"
+                        order_type=order.order_type.value.lower(),  # "market" | "limit" | "stop"
+                        quantity=order.quantity,
+                        price=order.price,
+                        strategy_name=order.strategy_id,
+                    )
+                    result = self.order_manager.submit_order(b02_order)
+                    if result.success:
+                        self.logger.info(
+                            "Order %s submitted — Tradier id=%s",
+                            order.order_id, result.tradier_order_id,
+                        )
+                        order.state = OrderState.SUBMITTED
+                        order.submitted_at = datetime.now()
+                    else:
+                        self.logger.error(
+                            "Order %s rejected by broker: %s",
+                            order.order_id, result.message,
+                        )
+                        order.state = OrderState.REJECTED
+                        order.error_message = result.message
+                    return
+                except Exception as b02_exc:
+                    self.logger.warning(
+                        "B02 submission failed for %s — falling back to spyder_client: %s",
+                        order.order_id, b02_exc,
+                    )
+
+            # ------------------------------------------------------------------
+            # Path 2: B40 TradierClient direct (fallback)
+            # ------------------------------------------------------------------
+            if self.spyder_client is not None and hasattr(self.spyder_client, "place_order"):
+                try:
+                    try:
+                        from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                            OrderSide, OrderType as B40OrderType,
+                        )
+                    except ImportError:
+                        from SpyderB_Broker.SpyderB40_TradierClient import (
+                            OrderSide, OrderType as B40OrderType,
+                        )
+
+                    side_map = {
+                        "BUY": OrderSide.BUY,
+                        "SELL": OrderSide.SELL,
+                    }
+                    otype_map = {
+                        "MARKET": B40OrderType.MARKET,
+                        "LIMIT": B40OrderType.LIMIT,
+                        "STOP": B40OrderType.STOP,
+                    }
+                    side = side_map.get(order.action.value, OrderSide.BUY)
+                    otype = otype_map.get(order.order_type.value, B40OrderType.MARKET)
+                    limit_price = (
+                        order.price if order.order_type.value in ("LIMIT", "STOP_LIMIT") else None
+                    )
+
+                    response = self.spyder_client.place_order(
+                        symbol=order.symbol,
+                        side=side,
+                        quantity=order.quantity,
+                        order_type=otype,
+                        limit_price=limit_price,
+                    )
+                    self.logger.info(
+                        "Order %s submitted via B40: %s", order.order_id, response,
+                    )
+                    order.state = OrderState.SUBMITTED
+                    order.submitted_at = datetime.now()
+                    return
+                except Exception as b40_exc:
+                    self.logger.error(
+                        "B40 direct submission failed for %s: %s",
+                        order.order_id, b40_exc, exc_info=True,
+                    )
+
+            # ------------------------------------------------------------------
+            # No broker client available
+            # ------------------------------------------------------------------
+            self.logger.error(
+                "No broker client available — cannot submit order %s", order.order_id,
+            )
+            order.state = OrderState.ERROR
+            order.error_message = "No broker client configured"
+
+        except Exception as exc:
+            self.logger.error(
+                "Failed to submit order %s: %s", order.order_id, exc, exc_info=True,
+            )
+            order.state = OrderState.ERROR
+            order.error_message = str(exc)
 
     def _stop_worker_threads(self):
         """Stop all worker threads"""

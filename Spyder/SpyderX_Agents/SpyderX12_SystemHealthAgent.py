@@ -405,7 +405,7 @@ class SpyderX12_SystemHealthAgent:
     # AI INTEGRATION METHODS
     # ==========================================================================
 
-    async def _get_ai_system_analysis(self, component_health: dict[SystemComponent, ComponentHealth],
+    async def _get_ai_system_analysis(self, component_health: dict[SystemComponent, ComponentHealth],  # noqa: E501
                                     anomalies: list[dict[str, Any]],
                                     predictions: list[dict[str, Any]]) -> dict[str, Any]:
         """Get AI analysis of system health."""
@@ -682,7 +682,7 @@ Provide a JSON response:
         )
 
     def _calculate_component_health_score(self, component: SystemComponent,
-                                        metrics: dict[MetricType, float]) -> tuple[float, list[str]]:
+                                        metrics: dict[MetricType, float]) -> tuple[float, list[str]]:  # noqa: E501
         """Calculate health score for component."""
         issues = []
         scores = []
@@ -830,7 +830,7 @@ Provide a JSON response:
         return metrics
 
     def _calculate_overall_health(self,
-                                component_health: dict[SystemComponent, ComponentHealth]) -> tuple[HealthStatus, float]:
+                                component_health: dict[SystemComponent, ComponentHealth]) -> tuple[HealthStatus, float]:  # noqa: E501
         """Calculate overall system health."""
         if not component_health:
             return HealthStatus.FAILED, 0.0
@@ -1108,7 +1108,7 @@ Provide a JSON response:
 # ==============================================================================
 
 def create_system_health_agent(model_name: str = DEFAULT_MODEL,
-                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX12_SystemHealthAgent:
+                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX12_SystemHealthAgent:  # noqa: E501
     """
     Factory function to create System Health Agent instance.
 

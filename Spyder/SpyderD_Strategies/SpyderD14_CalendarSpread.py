@@ -44,7 +44,7 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
 
                                                        SignalStrength,
                                                        TradingSignal)
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -206,12 +206,13 @@ class CalendarSpreadStrategy(BaseStrategy):
         self, event_manager: EventManager, risk_profile: RiskProfile, config: dict[str, Any] = None
     ):
         """Initialize Calendar Spread strategy"""
+        resolved_config = config or {}
         super().__init__(
             name="Calendar Spread Strategy",
             strategy_type="calendar_spread",
             event_manager=event_manager,
             risk_profile=risk_profile,
-            config=config or {},
+            config=resolved_config,
         )
 
         # Initialize components
@@ -228,10 +229,11 @@ class CalendarSpreadStrategy(BaseStrategy):
         self.term_structure_history: list[TermStructure] = []
 
         # Configuration
-        self.max_positions = config.get("max_positions", MAX_CALENDAR_POSITIONS)
-        self.use_calls = config.get("use_calls", True)
-        self.use_puts = config.get("use_puts", True)
-        self.allow_diagonal = config.get("allow_diagonal", False)
+        self.max_positions = resolved_config.get("max_positions", MAX_CALENDAR_POSITIONS)
+        self.use_calls = resolved_config.get("use_calls", True)
+        self.use_puts = resolved_config.get("use_puts", True)
+        self.allow_diagonal = resolved_config.get("allow_diagonal", False)
+        self.signal_symbol = str(resolved_config.get("symbol", "SPY"))
 
         # Performance tracking
         self.performance_stats = {
@@ -503,6 +505,49 @@ class CalendarSpreadStrategy(BaseStrategy):
             self.error_handler.handle_error(e, market_data)
             return []
 
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Apply a minimal validity gate compatible with BaseStrategy."""
+        if signal is None:
+            return False
+        if hasattr(signal, "is_valid") and not signal.is_valid():
+            return False
+        if len(self.active_positions) >= self.max_positions:
+            return False
+        return float(getattr(signal, "confidence", 0.0) or 0.0) > 0.0
+
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Use provided size when available, otherwise default to one contract."""
+        size = int(getattr(signal, "position_size", 0) or 0)
+        return size if size > 0 else 1
+
+    def should_exit_position(
+        self, position: Any, market_data: pd.DataFrame
+    ) -> tuple[bool, str]:
+        """Generic stop/take-profit exit adapter for BaseStrategy contract."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
+
     def _create_calendar_setup(
         self,
         calendar_type: CalendarType,
@@ -749,17 +794,29 @@ class CalendarSpreadStrategy(BaseStrategy):
             if setup.probability_profit > 0.65 and setup.iv_skew > 0.05:
                 strength = SignalStrength.STRONG
             elif setup.probability_profit > 0.55:
-                strength = SignalStrength.MEDIUM
+                strength = SignalStrength.MODERATE
             else:
                 strength = SignalStrength.WEAK
 
+            signal_timestamp = datetime.now()
+            current_price = float(market_data["close"].iloc[-1])
             signal = TradingSignal(
-                timestamp=datetime.now(),
-                signal_type=SignalType.ENTRY,
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY,
+                symbol=self.signal_symbol,
                 strength=strength,
                 confidence=setup.probability_profit,
+                entry_price=current_price,
+                stop_loss=current_price * 0.98,
+                take_profit=current_price * 1.02,
+                position_size=1,
+                timestamp=signal_timestamp,
+                expires_at=signal_timestamp + timedelta(minutes=15),
                 metadata={
                     "strategy": "calendar_spread",
+                    "strategy_id": "CalendarSpread",
+                    "strategy_type": "CalendarSpread",
+                    "action": "buy",
                     "setup": setup.__dict__,
                     "calendar_type": setup.calendar_type.value,
                     "strike": setup.near_leg.strike,
@@ -873,14 +930,24 @@ class CalendarSpreadStrategy(BaseStrategy):
             return self._create_exit_signal(position, "unfavorable_conditions")
 
         # Create roll signal
+        signal_timestamp = datetime.now()
         signal = TradingSignal(
-            timestamp=datetime.now(),
+            signal_id=str(uuid.uuid4()),
             signal_type=SignalType.ADJUST,
-            strength=SignalStrength.MEDIUM,
+            symbol=self.signal_symbol,
+            strength=SignalStrength.MODERATE,
             confidence=0.7,
+            entry_price=float(market_data["close"].iloc[-1]),
+            stop_loss=float(market_data["close"].iloc[-1]) * 0.99,
+            take_profit=float(market_data["close"].iloc[-1]) * 1.01,
+            position_size=1,
+            timestamp=signal_timestamp,
+            expires_at=signal_timestamp + timedelta(minutes=10),
             metadata={
                 "position_id": position.position_id,
                 "action": "roll",
+                "strategy_id": "CalendarSpread",
+                "strategy_type": "CalendarSpread",
                 "current_pnl": position.unrealized_pnl,
                 "near_expiry_dte": position.near_expiry_dte,
                 "roll_count": position.roll_count + 1,
@@ -928,13 +995,23 @@ class CalendarSpreadStrategy(BaseStrategy):
         position.exit_reason = reason
         position.state = CalendarState.CLOSING
 
+        signal_timestamp = datetime.now()
         signal = TradingSignal(
-            timestamp=datetime.now(),
-            signal_type=SignalType.EXIT,
+            signal_id=str(uuid.uuid4()),
+            signal_type=SignalType.CLOSE,
+            symbol=self.signal_symbol,
             strength=SignalStrength.STRONG,
             confidence=0.95,
+            entry_price=float(position.current_value or 0.0),
+            stop_loss=float(position.current_value or 0.0),
+            take_profit=float(position.current_value or 0.0),
+            position_size=1,
+            timestamp=signal_timestamp,
+            expires_at=signal_timestamp + timedelta(minutes=10),
             metadata={
                 "position_id": position.position_id,
+                "strategy_id": "CalendarSpread",
+                "strategy_type": "CalendarSpread",
                 "exit_reason": reason,
                 "days_held": position.days_held,
                 "unrealized_pnl": position.unrealized_pnl,
@@ -1060,7 +1137,7 @@ def test_calendar_spread():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(
@@ -1104,7 +1181,7 @@ def test_calendar_spread():
     logging.info(f"Current IV: {iv_analysis.get('current_iv', 0):.1%}")
     logging.info(f"IV Rank: {iv_analysis.get('iv_rank', 0):.1f}")
     logging.info("IV Regime: %s", iv_analysis.get('iv_regime', IVRegime.NORMAL).value)
-    logging.info("Term Structure: %s", iv_analysis.get('term_structure', TermStructure.CONTANGO).value)
+    logging.info("Term Structure: %s", iv_analysis.get('term_structure', TermStructure.CONTANGO).value)  # noqa: E501
     logging.info("Calendar Favorable: %s", iv_analysis.get('calendar_favorable', False))
 
     # Test expiry selection
@@ -1112,10 +1189,10 @@ def test_calendar_spread():
     near_expiry, far_expiry = strategy._select_optimal_expiries(iv_analysis)
     if near_expiry and far_expiry:
         logging.info(
-            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now()).days
+            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now()).days  # noqa: E501
         )
         logging.info(
-            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now()).days
+            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now()).days  # noqa: E501
         )
         logging.info("Time Spread: %s days", (far_expiry - near_expiry).days)
 
@@ -1167,7 +1244,7 @@ def test_calendar_spread():
                         logging.info("Action: %s", signal.metadata['action'])
                         logging.info(f"Current P&L: ${signal.metadata['current_pnl']:.2f}")
                         logging.info("Near DTE: %s", signal.metadata['near_expiry_dte'])
-                    elif signal.signal_type == SignalType.EXIT:
+                    elif signal.signal_type == SignalType.CLOSE:
                         logging.info("\nExit Signal Day %s", i)
                         logging.info("Reason: %s", signal.metadata['exit_reason'])
                         logging.info("Days Held: %s", signal.metadata['days_held'])

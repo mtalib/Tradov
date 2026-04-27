@@ -49,7 +49,7 @@ COLORS = {
     "text": "#ffffff",
     "text_dim": "#888888",
     "positive": "#00ff41",
-    "negative": "#ff1744",
+    "negative": "#FF073A",
     "neutral": "#ffd700",
     "warning": "#ff9800",
     "cyan": "#00ffff",
@@ -635,7 +635,7 @@ class RiskParametersDialog(QDialog):
         return layout
 
     def setup_styling(self):
-        """Apply enhanced dark theme styling with smaller radio buttons that turn green when selected"""
+        """Apply enhanced dark theme styling with smaller radio buttons that turn green when selected"""  # noqa: E501
         self.setStyleSheet(
             f"""
             QDialog {{

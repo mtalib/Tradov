@@ -49,7 +49,7 @@ from pathlib import Path
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501, F401
 
 # ==============================================================================
 # CONSTANTS
@@ -149,7 +149,7 @@ class LossLimit:
     @property
     def effective_limit(self) -> float:
         """Get the effective limit (smaller of percentage or dollar)"""
-        return min(self.percentage_limit, self.dollar_limit) if self.dollar_limit > 0 else self.percentage_limit
+        return min(self.percentage_limit, self.dollar_limit) if self.dollar_limit > 0 else self.percentage_limit  # noqa: E501
 
     @property
     def utilization(self) -> float:
@@ -212,7 +212,7 @@ class MaxLossProtection:
         self.config = config or {}
 
         # Event manager for notifications
-        self.event_manager = EventManager()
+        self.event_manager = get_event_manager()
 
         # Threading
         self._lock = threading.RLock()

@@ -136,16 +136,18 @@ except ImportError:
     SpyderDataAccess = None
     SPYDER_INTEGRATION = False
 
-# Import Black Swan modules
+# Import Black Swan modules (current implementation)
 try:
-    from SpyderS_Signals.SpyderS06_BlackSwanDataCollector import BlackSwanDataCollector
-    from SpyderS_Signals.SpyderS07_BlackSwanCalculator import (
-        BlackSwanCalculator, BlackSwanIndicatorResult, RiskStatus
+    from SpyderS_Signals.SpyderS03_BlackSwanIndicator import (
+        BlackSwanResult,
+        RiskStatus,
+        get_black_swan_indicator,
     )
 except ImportError:
-    from SpyderS06_BlackSwanDataCollector import BlackSwanDataCollector
-    from SpyderS07_BlackSwanCalculator import (
-        BlackSwanCalculator, BlackSwanIndicatorResult, RiskStatus
+    from SpyderS03_BlackSwanIndicator import (  # type: ignore[no-redef]
+        BlackSwanResult,
+        RiskStatus,
+        get_black_swan_indicator,
     )
 
 # ==============================================================================
@@ -190,6 +192,14 @@ class NotificationChannel(Enum):
     SLACK = "slack"
     TELEGRAM = "telegram"
     LOG = "log"
+
+
+class AlertLevel(Enum):
+    """Backward-compatible alert levels derived from risk status."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -240,8 +250,7 @@ class BlackSwanScheduler:
     Attributes:
         logger: Module logger instance
         error_handler: Error handling instance
-        collector: Data collector instance
-        calculator: Risk calculator instance
+        indicator: Black Swan indicator instance
         scheduled_tasks: Dictionary of scheduled tasks
         alert_history: Recent alert history
         running: Scheduler running state
@@ -271,9 +280,8 @@ class BlackSwanScheduler:
         self.config = config or {}
         self._load_configuration()
 
-        # Initialize components
-        self.collector = BlackSwanDataCollector(self.config)
-        self.calculator = BlackSwanCalculator(self.config)
+        # Initialize indicator
+        self.indicator = get_black_swan_indicator()
 
         # Spyder integration
         self.spyder_scheduler = None
@@ -288,7 +296,7 @@ class BlackSwanScheduler:
         # Scheduler state
         self.scheduled_tasks: dict[str, ScheduledTask] = {}
         self.alert_history: list[AlertRecord] = []
-        self.daily_results: list[BlackSwanIndicatorResult] = []
+        self.daily_results: list[BlackSwanResult] = []
         self.running = False
         self.scheduler_thread: threading.Thread | None = None
 
@@ -433,7 +441,7 @@ class BlackSwanScheduler:
                 try:
                     self.spyder_scheduler.remove_task(task_id)
                 except Exception as e:
-                    self.logger.debug("Failed to remove task %s from Spyder scheduler: %s", task_id, e)
+                    self.logger.debug("Failed to remove task %s from Spyder scheduler: %s", task_id, e)  # noqa: E501
 
             del self.scheduled_tasks[task_id]
             self.logger.info("Removed task: %s", task_id)
@@ -578,9 +586,9 @@ class BlackSwanScheduler:
         try:
             self.logger.info("Performing scheduled market check")
 
-            # Collect data and calculate indicator
-            market_data = self.collector.collect_all_data()
-            result = self.calculator.calculate_indicator(market_data)
+            # Calculate indicator using the unified S03 implementation.
+            result = self.indicator.calculate_swan_score()
+            self._attach_alert_level(result)
 
             # Store result
             self.daily_results.append(result)
@@ -605,7 +613,7 @@ class BlackSwanScheduler:
             if self.error_handler:
                 self.error_handler.handle_error(e)
 
-    def _check_and_send_alerts(self, result: BlackSwanIndicatorResult):
+    def _check_and_send_alerts(self, result: BlackSwanResult):
         """Check if alerts should be sent based on result."""
         # Check if we should send an alert
         should_alert = False
@@ -660,7 +668,7 @@ class BlackSwanScheduler:
         if len(self.alert_history) > 100:
             self.alert_history = self.alert_history[-100:]
 
-    def _send_alerts(self, result: BlackSwanIndicatorResult, reason: str):
+    def _send_alerts(self, result: BlackSwanResult, reason: str):
         """Send alerts through configured channels."""
         # Build alert message
         message = self._build_alert_message(result, reason)
@@ -684,7 +692,7 @@ class BlackSwanScheduler:
             except Exception as e:
                 self.logger.error("Failed to send alert via %s: %s", channel.value, e)
 
-    def _build_alert_message(self, result: BlackSwanIndicatorResult, reason: str) -> str:
+    def _build_alert_message(self, result: BlackSwanResult, reason: str) -> str:
         """Build detailed alert message."""
         message = f"""
 BLACK SWAN INDICATOR ALERT
@@ -694,13 +702,13 @@ BLACK SWAN INDICATOR ALERT
 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S ET')}
 Status: {result.status.value}
 Overall Score: {result.overall_score:.2f}
-Alert Level: {result.alert_level.name}
+Alert Level: {self._get_alert_level(result).name}
 
 Component Breakdown:
 """
 
         for name, score in result.component_scores.items():
-            message += f"- {name.replace('_', ' ').title()}: {score.raw_score:.2f} - {score.description}\n"
+            message += f"- {name.replace('_', ' ').title()}: {score.raw_score:.2f} - {score.description}\n"  # noqa: E501
 
         message += f"""
 Data Quality: {result.data_quality.value}
@@ -827,7 +835,7 @@ Please review market conditions and adjust positions accordingly.
             from SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
             bot = TelegramBot()
             last_status = getattr(self, "_last_alert_status", None)
-            severity = "critical" if last_status and getattr(last_status, "value", "") == "RED" else "warning"
+            severity = "critical" if last_status and getattr(last_status, "value", "") == "RED" else "warning"  # noqa: E501
             bot.send_alert(title="Black Swan Alert", message=message, severity=severity)
             self.logger.info("Telegram alert dispatched via SpyderJ05_TelegramBot")
             return
@@ -940,7 +948,7 @@ STATUS DISTRIBUTION
 """
 
         for status, count in report.status_distribution.items():
-            percentage = (count / report.checks_performed * 100) if report.checks_performed > 0 else 0
+            percentage = (count / report.checks_performed * 100) if report.checks_performed > 0 else 0  # noqa: E501
             content += f"{status:6}: {count:3d} ({percentage:5.1f}%)\n"
 
         # Add detailed results
@@ -953,7 +961,7 @@ STATUS DISTRIBUTION
             content += (f"{result.timestamp.strftime('%H:%M:%S')} | "
                        f"{result.status.value:6} | "
                        f"{result.overall_score:5.2f} | "
-                       f"{result.alert_level.value:5} | ")
+                       f"{self._get_alert_level(result).value:5} | ")
 
             # Add component summary
             components = []
@@ -984,7 +992,7 @@ STATUS DISTRIBUTION
                     'timestamp': r.timestamp.isoformat(),
                     'status': r.status.value,
                     'score': r.overall_score,
-                    'alert_level': r.alert_level.value,
+                    'alert_level': self._get_alert_level(r).value,
                     'components': {
                         name: score.raw_score
                         for name, score in r.component_scores.items()
@@ -1020,7 +1028,7 @@ STATUS DISTRIBUTION
                 'timestamp': result.timestamp,
                 'status': result.status.value,
                 'overall_score': result.overall_score,
-                'alert_level': result.alert_level.value,
+                'alert_level': self._get_alert_level(result).value,
                 'data_quality': result.data_quality.value
             }
 
@@ -1171,6 +1179,46 @@ Status Distribution:
         # Add cleanup task
         self._add_cleanup_task()
 
+        # Fire any check times that were already missed today (e.g. late startup)
+        self._run_missed_startup_checks()
+
+    def _run_missed_startup_checks(self) -> None:
+        """
+        Run any market-check tasks whose scheduled time has already passed today.
+
+        Called once at startup so that a late start (e.g. 8 AM instead of 4 AM)
+        still produces at least one risk snapshot before the first future check fires.
+        Only MARKET_CHECK tasks are considered; report/cleanup tasks are skipped.
+        """
+        now = datetime.now()
+        today = now.date()
+
+        missed: list[str] = []
+        for task_id, task in self.scheduled_tasks.items():
+            if task.task_type != ScheduleType.MARKET_CHECK:
+                continue
+            if not task.enabled:
+                continue
+            # schedule_time is "HH:MM" for daily checks; skip interval tasks
+            try:
+                scheduled_dt = datetime.strptime(
+                    f"{today} {task.schedule_time}", "%Y-%m-%d %H:%M"
+                )
+            except ValueError:
+                continue
+            if scheduled_dt < now:
+                missed.append(task_id)
+
+        if not missed:
+            return
+
+        self.logger.info(
+            "Startup catch-up: %d missed check(s) detected — running now: %s",
+            len(missed), missed,
+        )
+        for task_id in missed:
+            self.run_now(task_id)
+
     def _add_cleanup_task(self):
         """Add task to clean up old reports."""
         task_id = "cleanup_old_reports"
@@ -1234,7 +1282,23 @@ Status Distribution:
 
         return False
 
-    def _log_to_database(self, result: BlackSwanIndicatorResult):
+    def _get_alert_level(self, result: BlackSwanResult) -> AlertLevel:
+        """Derive an alert level from risk status (or use attached compatibility field)."""
+        alert_level = getattr(result, "alert_level", None)
+        if alert_level is not None:
+            return alert_level
+
+        if result.status == RiskStatus.RED:
+            return AlertLevel.HIGH
+        if result.status == RiskStatus.YELLOW:
+            return AlertLevel.MEDIUM
+        return AlertLevel.LOW
+
+    def _attach_alert_level(self, result: BlackSwanResult) -> None:
+        """Attach legacy alert_level attribute expected by report/alert code paths."""
+        result.alert_level = self._get_alert_level(result)
+
+    def _log_to_database(self, result: BlackSwanResult):
         """Persist a Black Swan check result to the SQLite database.
 
         Writes to the `black_swan_results` table (created on first write if absent).
@@ -1279,7 +1343,7 @@ Status Distribution:
                     result.timestamp.isoformat(),
                     result.status.value,
                     result.overall_score,
-                    getattr(result, "alert_level", None) and result.alert_level.value,
+                    self._get_alert_level(result).value,
                     result.data_quality.value,
                     components_json,
                 ),

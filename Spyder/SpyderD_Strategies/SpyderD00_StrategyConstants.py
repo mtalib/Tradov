@@ -218,6 +218,30 @@ class RiskLevel(Enum):
     VERY_AGGRESSIVE = "very_aggressive"
 
 
+class StrategyLifecycleState(Enum):
+    """Strategy position lifecycle state shown in the Orders & Positions panel.
+
+    Tracks where a multi-leg strategy sits in its full lifecycle — from AI
+    selection through active management to the final close event and its
+    initiator.
+
+    States:
+        ARMED_BY_AI:    AI selected strategy; awaiting entry conditions to be met.
+        ENTERED_BY_AI:  All legs filled; position is live.
+        MANAGED_BY_AI:  Position open; AI is actively monitoring / adjusting.
+        CLOSED_BY_AI:   AI exited (profit target, DTE expiry, thesis change, roll).
+        CLOSED_BY_USER: Operator manually closed via the dashboard.
+        CLOSED_BY_RISK: Automated exit by stop-loss, max-loss, or circuit breaker.
+    """
+
+    ARMED_BY_AI = "ARMED BY AI"
+    ENTERED_BY_AI = "ENTERED BY AI"
+    MANAGED_BY_AI = "EXECUTING"
+    CLOSED_BY_AI = "CLOSED BY AI"
+    CLOSED_BY_USER = "CLOSED BY USER"
+    CLOSED_BY_RISK = "CLOSED BY RISK"
+
+
 # ==============================================================================
 # VALIDATION RANGES
 # ==============================================================================

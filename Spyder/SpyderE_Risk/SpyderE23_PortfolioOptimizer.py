@@ -547,7 +547,7 @@ class PortfolioOptimizer:
     async def optimize_portfolio(self, returns_data: pd.DataFrame,
                                 current_weights: dict[str, float] | None = None,
                                 benchmark_weights: dict[str, float] | None = None,
-                                custom_parameters: OptimizationParameters | None = None) -> OptimizationResult:
+                                custom_parameters: OptimizationParameters | None = None) -> OptimizationResult:  # noqa: E501
         """
         Optimize portfolio using specified method and constraints.
 
@@ -575,7 +575,7 @@ class PortfolioOptimizer:
 
             # Store data
             self.returns_data = returns_data.copy()
-            self.current_weights = current_weights or self._create_equal_weights(returns_data.columns)
+            self.current_weights = current_weights or self._create_equal_weights(returns_data.columns)  # noqa: E501
             self.benchmark_weights = benchmark_weights
 
             # Prepare optimization inputs
@@ -658,7 +658,7 @@ class PortfolioOptimizer:
                 optimization_time=time.time() - start_time,
                 iterations=quality_assessment.get('iterations', 0),
                 convergence_status=quality_assessment.get('convergence_status', 'unknown'),
-                optimization_quality=quality_assessment.get('quality', OptimizationQuality.ACCEPTABLE),
+                optimization_quality=quality_assessment.get('quality', OptimizationQuality.ACCEPTABLE),  # noqa: E501
 
                 # Metrics
                 diversification_ratio=portfolio_metrics['diversification_ratio'],
@@ -686,7 +686,7 @@ class PortfolioOptimizer:
             self._last_optimization = datetime.now()
 
             self.status = OptimizerStatus.RUNNING
-            self.logger.info(f"Portfolio optimization completed: Sharpe {result.sharpe_ratio:.3f}, Quality {result.optimization_quality.value}")
+            self.logger.info(f"Portfolio optimization completed: Sharpe {result.sharpe_ratio:.3f}, Quality {result.optimization_quality.value}")  # noqa: E501
 
             return result
 
@@ -699,7 +699,7 @@ class PortfolioOptimizer:
                 optimization_id=f"error_{int(time.time())}",
                 timestamp=datetime.now(),
                 method=params.method if 'params' in locals() else OptimizationMethod.MEAN_VARIANCE,
-                objective=params.objective if 'params' in locals() else OptimizationObjective.MAXIMIZE_SHARPE,
+                objective=params.objective if 'params' in locals() else OptimizationObjective.MAXIMIZE_SHARPE,  # noqa: E501
                 optimal_weights=self.current_weights or {},
                 expected_return=0.0,
                 expected_risk=0.0,
@@ -720,7 +720,7 @@ class PortfolioOptimizer:
 
     async def generate_rebalancing_recommendation(self,
                                                 optimization_result: OptimizationResult,
-                                                current_market_data: dict[str, Any] | None = None) -> RebalancingRecommendation:
+                                                current_market_data: dict[str, Any] | None = None) -> RebalancingRecommendation:  # noqa: E501
         """
         Generate portfolio rebalancing recommendation based on optimization.
 
@@ -766,7 +766,7 @@ class PortfolioOptimizer:
             )
 
             # Determine execution priority
-            execution_priority = self._determine_execution_priority(weight_changes, current_market_data)
+            execution_priority = self._determine_execution_priority(weight_changes, current_market_data)  # noqa: E501
 
             # Assess liquidity
             liquidity_assessment = self._assess_asset_liquidity(
@@ -811,11 +811,11 @@ class PortfolioOptimizer:
                 potential_risks=rationale['risks']
             )
 
-            self.logger.debug(f"Rebalancing recommendation generated: {total_turnover:.1%} turnover")
+            self.logger.debug(f"Rebalancing recommendation generated: {total_turnover:.1%} turnover")  # noqa: E501
             return recommendation
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="PortfolioOptimizer.generate_rebalancing_recommendation")
+            self.error_handler.handle_error(e, context="PortfolioOptimizer.generate_rebalancing_recommendation")  # noqa: E501
 
             # Return minimal recommendation on error
             return RebalancingRecommendation(
@@ -892,7 +892,7 @@ class PortfolioOptimizer:
             self._last_rebalancing = datetime.now()
             self.status = OptimizerStatus.RUNNING
 
-            self.logger.info("Rebalancing executed successfully: %s", execution_result['execution_quality'])
+            self.logger.info("Rebalancing executed successfully: %s", execution_result['execution_quality'])  # noqa: E501
             return execution_result
 
         except Exception as e:
@@ -906,7 +906,7 @@ class PortfolioOptimizer:
     def calculate_performance_attribution(self,
                                         start_date: datetime,
                                         end_date: datetime,
-                                        benchmark_returns: pd.Series | None = None) -> PortfolioPerformanceAttribution:
+                                        benchmark_returns: pd.Series | None = None) -> PortfolioPerformanceAttribution:  # noqa: E501
         """
         Calculate detailed portfolio performance attribution.
 
@@ -922,14 +922,14 @@ class PortfolioOptimizer:
             self.logger.debug("Calculating performance attribution: %s to %s", start_date, end_date)
 
             # Filter returns data for the period
-            period_mask = (self.returns_data.index >= start_date) & (self.returns_data.index <= end_date)
+            period_mask = (self.returns_data.index >= start_date) & (self.returns_data.index <= end_date)  # noqa: E501
             period_returns = self.returns_data[period_mask]
 
             if len(period_returns) == 0:
                 raise ValueError("No returns data available for attribution period")
 
             # Calculate portfolio returns (simplified - would use actual position data)
-            portfolio_returns = self._calculate_portfolio_returns(period_returns, self.current_weights)
+            portfolio_returns = self._calculate_portfolio_returns(period_returns, self.current_weights)  # noqa: E501
 
             # Calculate benchmark returns
             if benchmark_returns is not None:
@@ -946,11 +946,11 @@ class PortfolioOptimizer:
             # Calculate tracking error and information ratio
             active_returns = portfolio_returns - benchmark_period_returns
             tracking_error = active_returns.std() * np.sqrt(252)  # Annualized
-            information_ratio = (active_returns.mean() * 252) / tracking_error if tracking_error > 0 else 0
+            information_ratio = (active_returns.mean() * 252) / tracking_error if tracking_error > 0 else 0  # noqa: E501
 
             # Calculate risk-adjusted metrics
-            sharpe_ratio = self._calculate_sharpe_ratio(portfolio_returns, self.parameters.risk_free_rate)
-            sortino_ratio = self._calculate_sortino_ratio(portfolio_returns, self.parameters.risk_free_rate)
+            sharpe_ratio = self._calculate_sharpe_ratio(portfolio_returns, self.parameters.risk_free_rate)  # noqa: E501
+            sortino_ratio = self._calculate_sortino_ratio(portfolio_returns, self.parameters.risk_free_rate)  # noqa: E501
             max_drawdown = self._calculate_maximum_drawdown(portfolio_returns)
 
             # Calculate attribution components
@@ -959,7 +959,7 @@ class PortfolioOptimizer:
             )
 
             # Calculate asset-level contributions
-            asset_contributions = self._calculate_asset_contributions(period_returns, self.current_weights)
+            asset_contributions = self._calculate_asset_contributions(period_returns, self.current_weights)  # noqa: E501
 
             # Calculate optimization effectiveness
             optimization_metrics = self._calculate_optimization_effectiveness(start_date, end_date)
@@ -998,11 +998,11 @@ class PortfolioOptimizer:
             # Store attribution
             self.performance_attribution.append(attribution)
 
-            self.logger.debug(f"Performance attribution calculated: {active_return:.2%} active return")
+            self.logger.debug(f"Performance attribution calculated: {active_return:.2%} active return")  # noqa: E501
             return attribution
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="PortfolioOptimizer.calculate_performance_attribution")
+            self.error_handler.handle_error(e, context="PortfolioOptimizer.calculate_performance_attribution")  # noqa: E501
 
             # Return default attribution on error
             return PortfolioPerformanceAttribution(
@@ -1047,8 +1047,8 @@ class PortfolioOptimizer:
             # Optimizer status
             report_lines.append("OPTIMIZER STATUS:")
             report_lines.append(f"  Status: {self.status.value.upper()}")
-            report_lines.append(f"  Last Optimization: {self._last_optimization.strftime('%Y-%m-%d %H:%M:%S') if self._last_optimization else 'Never'}")
-            report_lines.append(f"  Last Rebalancing: {self._last_rebalancing.strftime('%Y-%m-%d %H:%M:%S') if self._last_rebalancing else 'Never'}")
+            report_lines.append(f"  Last Optimization: {self._last_optimization.strftime('%Y-%m-%d %H:%M:%S') if self._last_optimization else 'Never'}")  # noqa: E501
+            report_lines.append(f"  Last Rebalancing: {self._last_rebalancing.strftime('%Y-%m-%d %H:%M:%S') if self._last_rebalancing else 'Never'}")  # noqa: E501
             report_lines.append(f"  Total Optimizations: {len(self.optimization_history)}")
             report_lines.append(f"  Total Rebalancings: {len(self.rebalancing_history)}")
             report_lines.append("")
@@ -1059,7 +1059,7 @@ class PortfolioOptimizer:
             report_lines.append(f"  Objective: {self.parameters.objective.value}")
             report_lines.append(f"  Lookback Window: {self.parameters.lookback_window} days")
             report_lines.append(f"  Risk-Free Rate: {self.parameters.risk_free_rate:.1%}")
-            report_lines.append(f"  Transaction Cost: {self.parameters.transaction_cost_bps:.1f} bps")
+            report_lines.append(f"  Transaction Cost: {self.parameters.transaction_cost_bps:.1f} bps")  # noqa: E501
             report_lines.append("")
 
             # Latest optimization results
@@ -1070,14 +1070,14 @@ class PortfolioOptimizer:
                 report_lines.append(f"  Expected Return: {latest_opt.expected_return:.2%}")
                 report_lines.append(f"  Expected Risk: {latest_opt.expected_risk:.2%}")
                 report_lines.append(f"  Sharpe Ratio: {latest_opt.sharpe_ratio:.3f}")
-                report_lines.append(f"  Diversification Ratio: {latest_opt.diversification_ratio:.3f}")
+                report_lines.append(f"  Diversification Ratio: {latest_opt.diversification_ratio:.3f}")  # noqa: E501
                 report_lines.append(f"  Effective Assets: {latest_opt.effective_assets:.1f}")
-                report_lines.append(f"  Optimization Quality: {latest_opt.optimization_quality.value.upper()}")
+                report_lines.append(f"  Optimization Quality: {latest_opt.optimization_quality.value.upper()}")  # noqa: E501
                 report_lines.append(f"  Quality Score: {latest_opt.get_quality_score():.1f}/100")
                 report_lines.append("")
 
                 # Top holdings
-                sorted_weights = sorted(latest_opt.optimal_weights.items(), key=lambda x: x[1], reverse=True)
+                sorted_weights = sorted(latest_opt.optimal_weights.items(), key=lambda x: x[1], reverse=True)  # noqa: E501
                 report_lines.append("TOP PORTFOLIO HOLDINGS:")
                 for i, (asset, weight) in enumerate(sorted_weights[:10]):
                     report_lines.append(f"  {i+1:2d}. {asset:<15} {weight:>8.1%}")
@@ -1092,38 +1092,38 @@ class PortfolioOptimizer:
                 report_lines.append(f"  Active Return: {latest_attr.active_return:.2%}")
                 report_lines.append(f"  Information Ratio: {latest_attr.information_ratio:.3f}")
                 report_lines.append(f"  Tracking Error: {latest_attr.tracking_error:.2%}")
-                report_lines.append(f"  Optimization Success Rate: {latest_attr.optimization_success_rate:.1%}")
+                report_lines.append(f"  Optimization Success Rate: {latest_attr.optimization_success_rate:.1%}")  # noqa: E501
                 report_lines.append("")
 
             # Rebalancing statistics
             if self.rebalancing_history:
                 recent_rebalancings = list(self.rebalancing_history)[-10:]  # Last 10
-                avg_turnover = np.mean([r['recommendation'].total_turnover for r in recent_rebalancings])
-                avg_urgency = np.mean([r['recommendation'].urgency_level for r in recent_rebalancings])
+                avg_turnover = np.mean([r['recommendation'].total_turnover for r in recent_rebalancings])  # noqa: E501
+                avg_urgency = np.mean([r['recommendation'].urgency_level for r in recent_rebalancings])  # noqa: E501
 
                 report_lines.append("REBALANCING STATISTICS:")
                 report_lines.append(f"  Recent Average Turnover: {avg_turnover:.1%}")
                 report_lines.append(f"  Average Urgency Level: {avg_urgency:.1f}/5")
-                report_lines.append(f"  Last Rebalancing Complexity: {recent_rebalancings[-1]['recommendation'].get_implementation_complexity()}")
+                report_lines.append(f"  Last Rebalancing Complexity: {recent_rebalancings[-1]['recommendation'].get_implementation_complexity()}")  # noqa: E501
                 report_lines.append("")
 
             # Optimization performance metrics
             if self.optimization_history:
-                quality_scores = [opt.get_quality_score() for opt in self.optimization_history[-20:]]  # Last 20
-                convergence_rate = sum(1 for opt in self.optimization_history[-20:] if 'converged' in opt.convergence_status.lower())
-                avg_optimization_time = np.mean([opt.optimization_time for opt in self.optimization_history[-20:]])
+                quality_scores = [opt.get_quality_score() for opt in self.optimization_history[-20:]]  # Last 20  # noqa: E501
+                convergence_rate = sum(1 for opt in self.optimization_history[-20:] if 'converged' in opt.convergence_status.lower())  # noqa: E501
+                avg_optimization_time = np.mean([opt.optimization_time for opt in self.optimization_history[-20:]])  # noqa: E501
 
                 report_lines.append("OPTIMIZATION PERFORMANCE METRICS:")
                 report_lines.append(f"  Average Quality Score: {np.mean(quality_scores):.1f}/100")
-                report_lines.append(f"  Convergence Rate: {convergence_rate}/20 ({convergence_rate*5:.0f}%)")
-                report_lines.append(f"  Average Optimization Time: {avg_optimization_time:.2f} seconds")
+                report_lines.append(f"  Convergence Rate: {convergence_rate}/20 ({convergence_rate*5:.0f}%)")  # noqa: E501
+                report_lines.append(f"  Average Optimization Time: {avg_optimization_time:.2f} seconds")  # noqa: E501
                 report_lines.append("")
 
             report_lines.append("=" * 80)
             return "\n".join(report_lines)
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="PortfolioOptimizer.generate_optimization_report")
+            self.error_handler.handle_error(e, context="PortfolioOptimizer.generate_optimization_report")  # noqa: E501
             return f"Error generating optimization report: {e}"
 
     def get_optimizer_summary(self) -> dict[str, Any]:
@@ -1137,8 +1137,8 @@ class PortfolioOptimizer:
             summary = {
                 'optimizer_status': {
                     'status': self.status.value,
-                    'last_optimization': self._last_optimization.isoformat() if self._last_optimization else None,
-                    'last_rebalancing': self._last_rebalancing.isoformat() if self._last_rebalancing else None,
+                    'last_optimization': self._last_optimization.isoformat() if self._last_optimization else None,  # noqa: E501
+                    'last_rebalancing': self._last_rebalancing.isoformat() if self._last_rebalancing else None,  # noqa: E501
                     'total_optimizations': len(self.optimization_history),
                     'total_rebalancings': len(self.rebalancing_history)
                 },
@@ -1180,12 +1180,12 @@ class PortfolioOptimizer:
             if len(self.optimization_history) >= 5:
                 recent_opts = list(self.optimization_history)[-10:]
                 quality_scores = [opt.get_quality_score() for opt in recent_opts]
-                convergence_count = sum(1 for opt in recent_opts if 'converged' in opt.convergence_status.lower())
+                convergence_count = sum(1 for opt in recent_opts if 'converged' in opt.convergence_status.lower())  # noqa: E501
 
                 summary['optimization_quality'] = {
                     'average_quality_score': np.mean(quality_scores),
                     'convergence_rate': convergence_count / len(recent_opts),
-                    'average_optimization_time': np.mean([opt.optimization_time for opt in recent_opts])
+                    'average_optimization_time': np.mean([opt.optimization_time for opt in recent_opts])  # noqa: E501
                 }
 
             return summary
@@ -1275,7 +1275,7 @@ class PortfolioOptimizer:
 
             # Add to parameters if not already present
             if not self.parameters.constraints:
-                self.parameters.constraints = [weight_constraint, risk_constraint, turnover_constraint]
+                self.parameters.constraints = [weight_constraint, risk_constraint, turnover_constraint]  # noqa: E501
 
             self.logger.debug("Default constraints set up")
 
@@ -1374,7 +1374,7 @@ class PortfolioOptimizer:
                 optimal_weights_array = result.x
                 # Convert to dictionary
                 asset_names = self.returns_data.columns.tolist()
-                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
+                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}  # noqa: E501
                 return optimal_weights
             else:
                 self.logger.warning("Mean-variance optimization failed: %s", result.message)
@@ -1415,7 +1415,7 @@ class PortfolioOptimizer:
             if result.success:
                 optimal_weights_array = result.x
                 asset_names = self.returns_data.columns.tolist()
-                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
+                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}  # noqa: E501
                 return optimal_weights
             else:
                 self.logger.warning("Risk parity optimization failed: %s", result.message)
@@ -1451,7 +1451,7 @@ class PortfolioOptimizer:
                 prob.solve(solver=cp.CLARABEL, warm_start=True)
                 if prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE) and w.value is not None:
                     return {asset_names[i]: float(w.value[i]) for i in range(n_assets)}
-                self.logger.warning("CVXPY min-variance: solver did not converge, falling back to scipy")
+                self.logger.warning("CVXPY min-variance: solver did not converge, falling back to scipy")  # noqa: E501
 
             # Scipy fallback
             def objective(weights):
@@ -1502,10 +1502,10 @@ class PortfolioOptimizer:
                 ]
                 prob = cp.Problem(objective, constraints)
                 prob.solve(solver=cp.CLARABEL, warm_start=True)
-                if prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE) and y.value is not None and float(kappa.value) > 1e-10:
+                if prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE) and y.value is not None and float(kappa.value) > 1e-10:  # noqa: E501
                     w_opt = y.value / float(kappa.value)
                     return {asset_names[i]: float(w_opt[i]) for i in range(n_assets)}
-                self.logger.warning("CVXPY max-Sharpe: solver did not converge, falling back to scipy")
+                self.logger.warning("CVXPY max-Sharpe: solver did not converge, falling back to scipy")  # noqa: E501
 
             # Scipy fallback
             def objective(weights):
@@ -1552,7 +1552,7 @@ class PortfolioOptimizer:
             mu_bl = pi
 
             # Optimize using adjusted returns
-            return await self._optimize_mean_variance_with_returns(mu_bl, covariance_matrix, parameters)
+            return await self._optimize_mean_variance_with_returns(mu_bl, covariance_matrix, parameters)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error in Black-Litterman optimization: %s", e)
@@ -1573,14 +1573,14 @@ class PortfolioOptimizer:
 
             # Combine traditional and ML expected returns
             confidence_weight = 0.3  # Weight for ML predictions
-            combined_returns = (1 - confidence_weight) * expected_returns + confidence_weight * ml_returns
+            combined_returns = (1 - confidence_weight) * expected_returns + confidence_weight * ml_returns  # noqa: E501
 
             # Optimize using combined returns
-            return await self._optimize_mean_variance_with_returns(combined_returns, covariance_matrix, parameters)
+            return await self._optimize_mean_variance_with_returns(combined_returns, covariance_matrix, parameters)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error in ML optimization: %s", e)
-            return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)
+            return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)  # noqa: E501
 
     async def _optimize_multi_objective(self, expected_returns: np.ndarray,
                                       covariance_matrix: np.ndarray,
@@ -1596,7 +1596,7 @@ class PortfolioOptimizer:
                 # Calculate diversification ratio
                 individual_risks = np.sqrt(np.diag(covariance_matrix))
                 weighted_avg_risk = np.dot(weights, individual_risks)
-                diversification_ratio = portfolio_risk / weighted_avg_risk if weighted_avg_risk > 0 else 0
+                diversification_ratio = portfolio_risk / weighted_avg_risk if weighted_avg_risk > 0 else 0  # noqa: E501
 
                 # Multi-objective function (weighted sum approach)
                 return_objective = -portfolio_return  # Maximize return
@@ -1668,7 +1668,7 @@ class PortfolioOptimizer:
             self.logger.warning("RiskFolio-Lib not available — falling back to mean-variance")
             expected_returns = await self._calculate_expected_returns(returns_data, parameters)
             covariance_matrix = await self._calculate_covariance_matrix(returns_data, parameters)
-            return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)
+            return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)  # noqa: E501
 
         try:
             # Create RiskFolio Portfolio object
@@ -1753,7 +1753,7 @@ class PortfolioOptimizer:
             return False
 
         if len(returns_data) < self.parameters.lookback_window:
-            self.logger.warning("Insufficient data: %s < %s", len(returns_data), self.parameters.lookback_window)
+            self.logger.warning("Insufficient data: %s < %s", len(returns_data), self.parameters.lookback_window)  # noqa: E501
 
         if current_weights:
             # Check if all assets in weights are in returns data
@@ -1929,7 +1929,7 @@ async def main():
         # Create sample scenario
         logging.info("\n📊 Creating sample optimization scenario...")
         scenario = create_sample_optimization_scenario()
-        logging.info("   Created scenario: %s assets, %s periods", scenario['assets'], scenario['periods'])
+        logging.info("   Created scenario: %s assets, %s periods", scenario['assets'], scenario['periods'])  # noqa: E501
 
         # Test portfolio optimization
         logging.info("\n🚀 Testing portfolio optimization...")
@@ -1954,7 +1954,7 @@ async def main():
 
         logging.info(f"   Total Turnover: {recommendation.total_turnover:.1%}")
         logging.info("   Urgency Level: %s/5", recommendation.urgency_level)
-        logging.info("   Implementation Complexity: %s", recommendation.get_implementation_complexity())
+        logging.info("   Implementation Complexity: %s", recommendation.get_implementation_complexity())  # noqa: E501
         logging.info("   Expected Benefits: %s items", len(recommendation.expected_benefits))
 
         # Test different optimization methods
@@ -1973,7 +1973,7 @@ async def main():
                 scenario['current_weights'],
                 custom_parameters=test_params
             )
-            logging.info(f"   {method.value}: Sharpe {test_result.sharpe_ratio:.3f}, Risk {test_result.expected_risk:.2%}")
+            logging.info(f"   {method.value}: Sharpe {test_result.sharpe_ratio:.3f}, Risk {test_result.expected_risk:.2%}")  # noqa: E501
 
         # Test performance attribution
         logging.info("\n📈 Testing performance attribution...")
@@ -2002,7 +2002,7 @@ async def main():
         summary = optimizer.get_optimizer_summary()
         logging.info("\n📊 OPTIMIZER SUMMARY:")
         logging.info("   Status: %s", summary['optimizer_status']['status'].upper())
-        logging.info("   Total Optimizations: %s", summary['optimizer_status']['total_optimizations'])
+        logging.info("   Total Optimizations: %s", summary['optimizer_status']['total_optimizations'])  # noqa: E501
         logging.info("   Method: %s", summary['configuration']['method'].upper())
         logging.info("   Constraints: %s", summary['configuration']['constraints_count'])
 

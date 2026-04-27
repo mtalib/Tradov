@@ -706,7 +706,7 @@ Provide:
 4. Expected market direction next 1-5 days
 5. Confidence level in assessment (0-1)
 
-Format as JSON with keys: summary, opportunities, risks, prediction, confidence"""
+Format as JSON with keys: summary, opportunities, risks, prediction, confidence"""  # noqa: E501
 
     # ==========================================================================
     # HELPER METHODS

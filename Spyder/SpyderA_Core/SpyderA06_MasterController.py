@@ -196,6 +196,8 @@ class MasterController:
 
         # Component references
         self.components = {}
+        # N04 OptionsGreeksCalculator singleton — wired after Risk Management phase
+        self._n04_calculator: Any | None = None
 
         # Threading and async
         self.executor = ThreadPoolExecutor(max_workers=10)
@@ -466,10 +468,18 @@ class MasterController:
                     "E12_PortfolioVaR",
                     "E13_TailRiskManager",
                     "E01_RiskManager",
+                    "E19_UnifiedRiskCoordinator",
                 ],
                 parallel=False,  # Sequential for proper initialization
                 timeout=30,
                 critical=True,
+            ),
+            StartupSequence(
+                phase="Options Analytics",
+                modules=["N04_OptionsGreeksCalculator"],
+                parallel=False,
+                timeout=20,
+                critical=False,  # Non-critical — system trades without it
             ),
             StartupSequence(
                 phase="Portfolio Management",
@@ -504,17 +514,30 @@ class MasterController:
             ),
             StartupSequence(
                 phase="Trading Strategies",
-                modules=["D01_BaseStrategy", "D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"],
+                modules=[
+                    "D01_BaseStrategy",
+                    "D02_IronCondor",
+                    "D04_ZeroDTE",
+                    "D05_Straddle",
+                    "D31_StrategyOrchestrator",
+                ],
                 parallel=True,
                 timeout=30,
                 critical=True,
             ),
             StartupSequence(
                 phase="Order Management",
-                modules=["B02_OrderManager", "B03_PositionTracker"],
+                modules=["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"],
                 parallel=False,
                 timeout=20,
                 critical=True,
+            ),
+            StartupSequence(
+                phase="Task Scheduler",
+                modules=["A04_Scheduler"],
+                parallel=False,
+                timeout=20,
+                critical=False,  # Non-critical — system trades without scheduled jobs
             ),
             StartupSequence(
                 phase="Analytics",
@@ -749,14 +772,14 @@ class MasterController:
             try:
                 from SpyderY_AutoAgents.SpyderY10_AgentScheduler import AgentScheduler
                 from SpyderY_AutoAgents.SpyderY01_MarketSenseAgent import SpyderY01_MarketSenseAgent
-                from SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent import SpyderY02_StrategyPilotAgent
-                from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import SpyderY03_RiskSentinelAgent
-                from SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent import SpyderY04_AlphaLearnerAgent
-                from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import SpyderY05_ExecutionOptimizerAgent
-                from SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent import SpyderY06_NewsSentinelAgent
-                from SpyderY_AutoAgents.SpyderY07_TradeJournalAgent import SpyderY07_TradeJournalAgent
-                from SpyderY_AutoAgents.SpyderY08_MetaOrchestratorAgent import SpyderY08_MetaOrchestratorAgent
-                from SpyderY_AutoAgents.SpyderY09_CodeReviewerAgent import SpyderY09_CodeReviewerAgent
+                from SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent import SpyderY02_StrategyPilotAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import SpyderY03_RiskSentinelAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent import SpyderY04_AlphaLearnerAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import SpyderY05_ExecutionOptimizerAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent import SpyderY06_NewsSentinelAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY07_TradeJournalAgent import SpyderY07_TradeJournalAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY08_MetaOrchestratorAgent import SpyderY08_MetaOrchestratorAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY09_CodeReviewerAgent import SpyderY09_CodeReviewerAgent  # noqa: E501
 
                 telegram_bot = self.components.get("J05_TelegramBot")
                 message_bus = self.components.get("I06_AgentMessageBus")
@@ -795,6 +818,183 @@ class MasterController:
                 return scheduler
             except Exception as e:
                 logger.warning("Could not initialize AgentScheduler: %s", e, exc_info=True)
+                return None
+
+        # ── N04 OptionsGreeksCalculator — shared singleton ────────────────────
+        if module_id == "N04_OptionsGreeksCalculator":
+            try:
+                from SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import (
+                    get_n04_calculator,
+                )
+                calc = get_n04_calculator()
+                self._n04_calculator = calc
+                logger.info(
+                    "N04 OptionsGreeksCalculator singleton created and cached on MasterController"
+                )
+                return calc
+            except Exception as e:
+                logger.warning("Could not initialize N04 OptionsGreeksCalculator: %s", e)
+                return None
+
+        # ── L09 UnifiedRegimeEngine ───────────────────────────────────────────
+        if module_id == "L09_RegimeClassifier":
+            try:
+                from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine
+                engine = UnifiedRegimeEngine()
+                logger.info("L09 UnifiedRegimeEngine initialized")
+                return engine
+            except Exception as e:
+                logger.warning("Could not initialize L09_RegimeClassifier: %s", e, exc_info=True)
+                return None
+
+        # ── D31 StrategyOrchestrator — master trading coordinator ─────────────
+        if module_id == "D31_StrategyOrchestrator":
+            try:
+                from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
+                # Determine base capital from config (fall back to 100 k)
+                try:
+                    _trading_cfg = getattr(self.config, "trading", None) or {}
+                    base_capital = float(
+                        _trading_cfg.get("base_capital", 100_000.0)
+                        if isinstance(_trading_cfg, dict)
+                        else 100_000.0
+                    )
+                except Exception:
+                    base_capital = 100_000.0
+
+                # Inject L09 if already alive (ML Engine phase runs before Trading Strategies)
+                l09_engine = self.components.get("L09_RegimeClassifier")
+                if isinstance(l09_engine, dict):
+                    l09_engine = None  # stub — not the real engine
+
+                # Acquire shared EventManager singleton
+                try:
+                    from SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem
+                    _event_mgr = _gem()
+                except Exception:
+                    _event_mgr = None
+
+                orchestrator = StrategyOrchestrator(
+                    base_capital=base_capital,
+                    event_manager=_event_mgr,
+                    regime_engine=l09_engine,
+                )
+                logger.info(
+                    "D31 StrategyOrchestrator initialized "
+                    "(capital=%.0f, L09=%s)",
+                    base_capital,
+                    "wired" if l09_engine is not None else "heuristic-fallback",
+                )
+                return orchestrator
+            except Exception as e:
+                logger.warning(
+                    "Could not initialize D31_StrategyOrchestrator: %s", e, exc_info=True
+                )
+                return None
+
+        # ── A04_Scheduler ────────────────────────────────────────────────────
+        if module_id == "A04_Scheduler":
+            try:
+                from SpyderA_Core.SpyderA04_Scheduler import Scheduler
+                try:
+                    from SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem_a04
+                    _event_mgr_a04 = _gem_a04()
+                except Exception:
+                    _event_mgr_a04 = None
+                if _event_mgr_a04 is None:
+                    logger.warning("A04_Scheduler: EventManager not available — scheduler skipped")
+                    return None
+                scheduler = Scheduler(event_manager=_event_mgr_a04)
+                scheduler.schedule_data_update(interval_minutes=5)
+                scheduler.schedule_risk_check(interval_minutes=15)
+                scheduler.start()
+                logger.info("A04_Scheduler started with data-update(5m) and risk-check(15m) jobs")
+                return scheduler
+            except Exception as e:
+                logger.warning("Could not initialize A04_Scheduler: %s", e, exc_info=True)
+                return None
+
+        # ── R04_LiveEngine ───────────────────────────────────────────────────
+        if module_id == "R04_LiveEngine":
+            try:
+                from SpyderR_Runtime.SpyderR04_LiveEngine import LiveEngine, LiveTradingConfig
+                from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager as _get_rm
+                _account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+                _live_cfg = LiveTradingConfig(account_id=_account_id)
+                _broker = self.components.get("B01_SpyderClient")
+                _risk_mgr = _get_rm()
+                try:
+                    from SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem_r04
+                    _event_mgr_r04 = _gem_r04()
+                except Exception:
+                    _event_mgr_r04 = None
+                engine = LiveEngine(
+                    broker_interface=_broker,
+                    risk_manager=_risk_mgr,
+                    config=_live_cfg,
+                    event_manager=_event_mgr_r04,
+                )
+                logger.info("R04_LiveEngine initialized (account=%s)", _account_id or "<not set>")
+                return engine
+            except Exception as e:
+                logger.warning("Could not initialize R04_LiveEngine: %s", e, exc_info=True)
+                return None
+
+        # ── E01_RiskManager — primary risk gate, must be started before trading ──
+        if module_id == "E01_RiskManager":
+            try:
+                from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
+                risk_manager = get_risk_manager()
+                # start() fetches positions + account balances from Tradier and sets
+                # _account_state_synced = True.  Run in a dedicated thread so we can
+                # join with a timeout without blocking the whole event loop.
+                import asyncio as _asyncio
+                import threading as _rm_thread
+
+                _start_exc: list = []
+                _start_result: list = []
+
+                def _run_start():
+                    _loop = _asyncio.new_event_loop()
+                    _asyncio.set_event_loop(_loop)
+                    try:
+                        result = _loop.run_until_complete(risk_manager.start())
+                        _start_result.append(bool(result))
+                    except Exception as _exc:
+                        _start_exc.append(_exc)
+                    finally:
+                        _loop.close()
+
+                _t = _rm_thread.Thread(target=_run_start, daemon=True, name="E01-startup")
+                _t.start()
+                _t.join(timeout=15)
+                if _start_exc:
+                    logger.warning("E01 start() raised: %s — risk gate may reject early signals", _start_exc[0])  # noqa: E501
+                elif _t.is_alive():
+                    logger.warning("E01 start() did not complete within 15 s — risk gate may reject early signals")  # noqa: E501
+                elif not _start_result or not _start_result[0]:
+                    # A06-B1: start() returned False — real-money safety component
+                    # reported a failure; treat as a warning so operator is alerted.
+                    logger.warning(
+                        "E01 start() returned False — account-state sync failed; "
+                        "risk gate cold-start guard will reject all signals until sync succeeds"
+                    )
+                else:
+                    logger.info("E01_RiskManager started and account-state synced")
+                return risk_manager
+            except Exception as e:
+                logger.warning("Could not initialize E01_RiskManager: %s", e, exc_info=True)
+                return None
+
+        # ── E19_UnifiedRiskCoordinator ───────────────────────────────────────
+        if module_id == "E19_UnifiedRiskCoordinator":
+            try:
+                from SpyderE_Risk.SpyderE19_UnifiedRiskCoordinator import UnifiedRiskCoordinator
+                coordinator = UnifiedRiskCoordinator()
+                logger.info("E19_UnifiedRiskCoordinator initialized")
+                return coordinator
+            except Exception as e:
+                logger.warning("Could not initialize E19_UnifiedRiskCoordinator: %s", e, exc_info=True)  # noqa: E501
                 return None
 
         # ── Modules with complex cross-dependencies: return an initialized stub ─
@@ -857,8 +1057,9 @@ class MasterController:
 
         return [
             {"name": "Autonomous Agents", "modules": ["Y10_AgentScheduler"]},
+            {"name": "Task Scheduler", "modules": ["A04_Scheduler"]},
             {"name": "Notifications", "modules": ["J05_TelegramBot"]},
-            {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker"]},
+            {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"]},  # noqa: E501
             {"name": "Strategies", "modules": ["D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"]},
             {
                 "name": "AI Agents",
@@ -1055,7 +1256,7 @@ class MasterController:
                         is_healthy = module.health_check()
                         module.status = ModuleStatus.HEALTHY if is_healthy else ModuleStatus.WARNING
                     except Exception as e:
-                        logger.warning("Health check failed for %s: %s", module_id, e, exc_info=True)
+                        logger.warning("Health check failed for %s: %s", module_id, e, exc_info=True)  # noqa: E501
                         module.status = ModuleStatus.WARNING
 
     def _check_system_resources(self, metrics: HealthMetrics):
@@ -1280,6 +1481,65 @@ class MasterController:
             except Exception as e:
                 logger.error("Failed to start OrderManager: %s", e, exc_info=True)
 
+        # Wire D31 with the OrderManager so approved signals can be executed
+        # (must happen before start_orchestration to avoid a CRITICAL log at boot)
+        orchestrator = self.components.get("D31_StrategyOrchestrator")
+        if orchestrator is not None and hasattr(orchestrator, "set_order_manager"):
+            if order_mgr is not None and hasattr(order_mgr, "submit_limit_with_walk"):
+                try:
+                    orchestrator.set_order_manager(order_mgr)
+                    logger.info("D31: OrderManager wired for mid-price-walk execution")
+                except Exception as e:
+                    logger.warning("D31: set_order_manager failed: %s", e)
+            else:
+                logger.warning(
+                    "D31: B02_OrderManager not available — "
+                    "approved signals will fall back to live engine or be dropped"
+                )
+
+        # Wire D31 with R04_LiveEngine as the execution fallback
+        live_engine = self.components.get("R04_LiveEngine")
+        if orchestrator is not None and hasattr(orchestrator, "set_live_engine") and live_engine is not None:  # noqa: E501
+            try:
+                orchestrator.set_live_engine(live_engine)
+                logger.info("D31: R04_LiveEngine wired as execution fallback")
+            except Exception as e:
+                logger.warning("D31: set_live_engine failed: %s", e)
+
+        # Start E19 portfolio risk monitor in a background daemon thread
+        e19 = self.components.get("E19_UnifiedRiskCoordinator")
+        if e19 is not None:
+            import asyncio as _asyncio
+            import threading as _threading
+            import time as _time
+
+            def _e19_monitor_loop():
+                _loop = _asyncio.new_event_loop()
+                _asyncio.set_event_loop(_loop)
+                try:
+                    while self.trading_enabled:
+                        try:
+                            profile = _loop.run_until_complete(
+                                e19.calculate_unified_risk_profile(
+                                    positions=[], portfolio_value=0.0
+                                )
+                            )
+                            if profile and getattr(profile, "breach_count", 0) > 0:
+                                logger.warning(
+                                    "E19 portfolio risk breach detected (%d breaches): %s",
+                                    profile.breach_count, profile,
+                                )
+                        except Exception as _exc:
+                            logger.debug("E19 monitor cycle error: %s", _exc)
+                        _time.sleep(60)
+                finally:
+                    _loop.close()
+
+            _threading.Thread(
+                target=_e19_monitor_loop, daemon=True, name="E19-portfolio-monitor"
+            ).start()
+            logger.info("E19 portfolio risk monitor thread started (60s interval)")
+
         # Start strategy components
         for module_id, component in self.components.items():
             if module_id.startswith("D") and hasattr(component, "start"):
@@ -1288,6 +1548,14 @@ class MasterController:
                     logger.debug("Strategy %s started", module_id)
                 except Exception as e:
                     logger.warning("Failed to start strategy %s: %s", module_id, e)
+
+        # Start the strategy orchestration loop so signals are generated
+        if orchestrator is not None and hasattr(orchestrator, "start_orchestration"):
+            try:
+                orchestrator.start_orchestration()
+                logger.info("StrategyOrchestrator orchestration loop started")
+            except Exception as e:
+                logger.error("Failed to start StrategyOrchestrator: %s", e, exc_info=True)
 
         self.trading_enabled = True
         self.status = SystemStatus.TRADING

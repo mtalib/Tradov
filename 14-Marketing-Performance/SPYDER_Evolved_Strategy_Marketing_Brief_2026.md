@@ -2,7 +2,7 @@
 ## Evolved Credit Spread Strategy — Institutional Performance Brief
 
 **Prepared by:** Spyder Autonomous Trading System  
-**Date:** March 8, 2026  
+**Date:** April 22, 2026  
 **Strategy:** Credit Spread — Generation 15 (AI-Evolved)  
 **Classification:** Confidential — For Institutional Use Only  
 
@@ -10,7 +10,7 @@
 
 ## EXECUTIVE SUMMARY
 
-Spyder's AI-driven genetic algorithm has completed **15 generations of autonomous strategy evolution**, producing a Credit Spread strategy with a **fitness score of 0.799** — a **67% improvement** from the baseline generation (0.477). Live verification using QuantLib institutional pricing confirms the evolved strategy achieves **all four institutional-grade benchmarks simultaneously**, producing a **Sharpe Ratio of 2.55**, **Sortino Ratio of 4.83**, a **maximum drawdown of only −6.35%**, and an **annualised return of 31.16%**.
+Spyder's AI-driven genetic algorithm has completed **15 generations of autonomous strategy evolution**, producing a Credit Spread strategy with a **fitness score of 0.799** — a **67% improvement** from the baseline generation (0.477). Live verification using QuantLib institutional pricing confirms the evolved strategy achieves **all four institutional-grade benchmarks simultaneously**, producing a **Sharpe Ratio of 2.66**, **Sortino Ratio of 5.04**, a **maximum drawdown of only −5.94%**, and an **annualised return of 31.19%**.
 
 The strategy was priced, stress-tested, and graded entirely without human intervention by the Spyder autonomous trading engine.
 
@@ -20,12 +20,12 @@ The strategy was priced, stress-tested, and graded entirely without human interv
 
 | Metric | Result | Institutional Benchmark | Status |
 |---|---|---|---|
-| **Annual Return** | **31.16%** | >15% | ✅ Exceeds |
-| **Sharpe Ratio** | **2.55** | >1.5 (elite) | ✅ Exceptional |
-| **Sortino Ratio** | **4.83** | >1.8 | ✅ Exceptional |
-| **Max Drawdown** | **−6.35%** | <−15% | ✅ Excellent |
-| **Calmar Ratio** | **4.90** | >1.2 | ✅ Exceptional |
-| **Volatility** | **10.45%** | 8–15% | ✅ Well-Controlled |
+| **Annual Return** | **31.19%** | >15% | ✅ Exceeds |
+| **Sharpe Ratio** | **2.66** | >1.5 (elite) | ✅ Exceptional |
+| **Sortino Ratio** | **5.04** | >1.8 | ✅ Exceptional |
+| **Max Drawdown** | **−5.94%** | <−15% | ✅ Excellent |
+| **Calmar Ratio** | **5.25** | >1.2 | ✅ Exceptional |
+| **Volatility** | **10.38%** | 8–15% | ✅ Well-Controlled |
 | **Institutional Score** | **1.00 / 1.00** | ≥0.80 | 🏆 INSTITUTIONAL GRADE |
 
 ---
@@ -41,7 +41,7 @@ The Spyder genetic algorithm iteratively evolved candidate strategies across **1
 | Strategy Type | Bull Put Credit Spread |
 | Generation | 15 |
 | Fitness Score | 0.799 (67% improvement from Gen 0) |
-| Risk Factor | 0.180 (AI-optimised) |
+| Risk Factor | 0.212 (AI-optimised) |
 | Entry Conditions | RSI Oversold + Volume Spike + Price Breakout |
 | Underlying | SPY (S&P 500 ETF) |
 
@@ -77,14 +77,14 @@ The evolved strategy was validated with live QuantLib Black-Scholes pricing on a
 |---|---|
 | Short Put ($393) | $1.66 |
 | Long Put ($388) | $0.71 |
-| **Net Credit Collected** | **$0.94** |
+| **Net Credit Collected** | **$0.944** |
 
 **Risk/Reward Profile:**
 
 | P&L Scenario | Amount |
 |---|---|
-| Max Profit (expires worthless) | $0.94 per share ($94 per contract) |
-| Max Loss (spread fully in-the-money) | $4.06 per share ($406 per contract) |
+| Max Profit (expires worthless) | $0.944 per share ($94.40 per contract) |
+| Max Loss (spread fully in-the-money) | $4.056 per share ($405.60 per contract) |
 | Return on Risk | **23.3%** |
 
 **Position Greeks:**
@@ -92,7 +92,7 @@ The evolved strategy was validated with live QuantLib Black-Scholes pricing on a
 | Greek | Value | Interpretation |
 |---|---|---|
 | Net Delta | −0.119 | Slight bearish sensitivity; well within neutral band |
-| Net Theta | −$0.05/day | Time decay premium collection (positive carry) |
+| Net Theta | −$0.054/day | Time decay premium collection (positive carry) |
 | Net Gamma | +0.0095 | Low second-order risk |
 | Setup Quality | ✅ EXCELLENT | 0.60 / 1.00 quality score |
 
@@ -127,7 +127,7 @@ At every generation, the algorithm automatically:
 
 ### Sharpe Ratio Competitive Positioning
 
-A **Sharpe Ratio of 2.55** places the evolved strategy at the upper tier of quantitative funds globally:
+A **Sharpe Ratio of 2.66** places the evolved strategy at the upper tier of quantitative funds globally:
 
 ```
 SHARPE RATIO LANDSCAPE
@@ -138,14 +138,14 @@ Good Hedge Fund               █████████████░░░�
 Elite Hedge Fund              █████████████████░░░░  1.80
 Two Sigma / Citadel range     ███████████████████░░  2.20
 
-► SPYDER EVOLVED STRATEGY    █████████████████████  2.55 ◄
+► SPYDER EVOLVED STRATEGY    ██████████████████████  2.66 ◄
 
 Renaissance Medallion (est.)  ██████████████████████████  4.00+
 ```
 
 ### Drawdown Protection
 
-The **−6.35% maximum drawdown** is a defining characteristic of the evolved strategy. Most long-volatility and leveraged strategies suffer drawdowns of 20–40% in adverse conditions. The credit spread structure with AI-optimised position sizing contains losses at a level consistent with top-tier risk-managed funds.
+The **−5.94% maximum drawdown** is a defining characteristic of the evolved strategy. Most long-volatility and leveraged strategies suffer drawdowns of 20–40% in adverse conditions. The credit spread structure with AI-optimised position sizing contains losses at a level consistent with top-tier risk-managed funds.
 
 ```
 MAX DRAWDOWN COMPARISON
@@ -154,12 +154,12 @@ Typical Equity Fund          █████████████████
 Average Options Seller       ████████████░░░░░░░░  −18.0%
 Well-Managed Hedge Fund      ████████░░░░░░░░░░░░  −12.0%
 
-► SPYDER EVOLVED STRATEGY    ████░░░░░░░░░░░░░░░░   −6.4% ◄
+► SPYDER EVOLVED STRATEGY    ████░░░░░░░░░░░░░░░░   −5.9% ◄
 ```
 
 ### Calmar Ratio Excellence
 
-A **Calmar Ratio of 4.90** (annual return divided by maximum drawdown) means the strategy generates approximately **$4.90 of annual return for every $1.00 of peak-to-trough drawdown**. This is a hallmark of disciplined, asymmetric risk management.
+A **Calmar Ratio of 5.25** (annual return divided by maximum drawdown) means the strategy generates approximately **$5.25 of annual return for every $1.00 of peak-to-trough drawdown**. This is a hallmark of disciplined, asymmetric risk management.
 
 ---
 
@@ -169,10 +169,10 @@ The evolved strategy was evaluated against all four institutional-grade criteria
 
 | Criterion | Threshold | Achieved | Weight | Score |
 |---|---|---|---|---|
-| Sharpe Ratio | >1.5 | **2.55** | 30% | 0.30 |
-| Max Drawdown | >−10% | **−6.35%** | 25% | 0.25 |
-| Sortino Ratio | >1.8 | **4.83** | 25% | 0.25 |
-| Calmar Ratio | >1.2 | **4.90** | 20% | 0.20 |
+| Sharpe Ratio | >1.5 | **2.66** | 30% | 0.30 |
+| Max Drawdown | >−10% | **−5.94%** | 25% | 0.25 |
+| Sortino Ratio | >1.8 | **5.04** | 25% | 0.25 |
+| Calmar Ratio | >1.2 | **5.25** | 20% | 0.20 |
 | **TOTAL** | | | **100%** | **1.00 / 1.00** |
 
 **Final Grade: 🏆 INSTITUTIONAL GRADE**  
@@ -267,5 +267,5 @@ SPY options markets present a structurally persistent edge for disciplined credi
 
 ---
 
-*Document generated by Spyder Autonomous Trading System — March 8, 2026*  
+*Document generated by Spyder Autonomous Trading System — April 22, 2026*  
 *Spyder v1.0 · SpyderT06 Evolved Strategy Test · QuantLib Institutional Pricing Verified*

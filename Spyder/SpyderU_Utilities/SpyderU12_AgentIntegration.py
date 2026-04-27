@@ -121,7 +121,7 @@ class AgentMetrics:
     def to_dict(self) -> dict[str, Any]:
         return {
             "agent_id": self.agent_id,
-            "status": self.status.value if isinstance(self.status, AgentStatus) else str(self.status),
+            "status": self.status.value if isinstance(self.status, AgentStatus) else str(self.status),  # noqa: E501
             "cpu_usage": self.cpu_usage,
             "memory_usage": self.memory_usage,
             "uptime_seconds": self.uptime_seconds,

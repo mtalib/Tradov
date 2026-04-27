@@ -1,6 +1,6 @@
-import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import logging
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -90,6 +90,7 @@ try:
         PinRiskCalculator,
         OptionsLiquidityScorer,
         SkewAnomalyDetector,
+        StrategyEfficiencyOptimizer,
         # Enums and data classes
         PinRiskLevel,
         LiquidityTier,

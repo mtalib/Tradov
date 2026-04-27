@@ -992,11 +992,11 @@ class MaxPainCalculator:
                 if isinstance(dates, str):
                     dates = [dates]
                 today = date.today()
-                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)  # noqa: E501
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)
+                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)  # noqa: E501
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1010,10 +1010,10 @@ class MaxPainCalculator:
                 if isinstance(dates, str):
                     dates = [dates]
                 today = date.today()
-                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)  # noqa: E501
                 return future[:count]
             except Exception as e:
-                logger.warning("_get_upcoming_expiries(%s): Tradier error: %s", symbol, e, exc_info=True)
+                logger.warning("_get_upcoming_expiries(%s): Tradier error: %s", symbol, e, exc_info=True)  # noqa: E501
         nearest = self._get_nearest_expiry(symbol)
         return [nearest + timedelta(weeks=i) for i in range(count)]
 

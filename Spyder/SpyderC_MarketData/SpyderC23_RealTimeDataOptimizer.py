@@ -234,7 +234,7 @@ class RealTimeDataOptimizer:
         self.config = config or {}
         self.enable_system_optimization = self.config.get('enable_system_optimization', True)
         self.enable_hardware_optimization = self.config.get('enable_hardware_optimization', True)
-        self.target_latency_ns = self.config.get('target_latency_ns', TARGET_LATENCY_MICROSECONDS * 1000)
+        self.target_latency_ns = self.config.get('target_latency_ns', TARGET_LATENCY_MICROSECONDS * 1000)  # noqa: E501
 
         # Internal state
         self.running = False
@@ -318,7 +318,7 @@ class RealTimeDataOptimizer:
                 if hasattr(psutil, 'cpu_count'):
                     self.numa_nodes = 1  # Simplified
 
-                self.logger.info("System: %s cores, %sGB RAM", self.cpu_cores, self.memory_info.total // (1024**3))
+                self.logger.info("System: %s cores, %sGB RAM", self.cpu_cores, self.memory_info.total // (1024**3))  # noqa: E501
 
         except Exception as e:
             self.logger.warning("System optimization initialization failed: %s", e)
@@ -363,7 +363,7 @@ class RealTimeDataOptimizer:
             # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")  # noqa: E501
 
             # Connect to F16 Real-time Analytics
             if F16_AVAILABLE:
@@ -671,7 +671,7 @@ class RealTimeDataOptimizer:
 
                 # Try to collect more packets for batch processing
                 for _ in range(9):  # Up to 10 packets per batch
-                    additional_packet = medium_queue.dequeue() or low_queue.dequeue() or batch_queue.dequeue()
+                    additional_packet = medium_queue.dequeue() or low_queue.dequeue() or batch_queue.dequeue()  # noqa: E501
                     if additional_packet is None:
                         break
                     batch.append(additional_packet)
@@ -931,9 +931,9 @@ class RealTimeDataOptimizer:
                 self.optimization_stats.p99_9_latency_ns = np.percentile(latencies, 99.9)
 
                 # Calculate throughput
-                time_span = recent_measurements[-1].egress_time_ns - recent_measurements[0].ingress_time_ns
+                time_span = recent_measurements[-1].egress_time_ns - recent_measurements[0].ingress_time_ns  # noqa: E501
                 if time_span > 0:
-                    self.optimization_stats.throughput_packets_per_second = len(recent_measurements) * 1e9 / time_span
+                    self.optimization_stats.throughput_packets_per_second = len(recent_measurements) * 1e9 / time_span  # noqa: E501
 
             # Update packet counts
             self.optimization_stats.total_packets_processed = self.packet_counter
@@ -958,7 +958,7 @@ class RealTimeDataOptimizer:
 
             # Check throughput
             if stats.throughput_packets_per_second < 10000:  # Below 10k packets/sec
-                self.logger.warning(f"Low throughput: {stats.throughput_packets_per_second:.0f} packets/sec")
+                self.logger.warning(f"Low throughput: {stats.throughput_packets_per_second:.0f} packets/sec")  # noqa: E501
 
             # Check queue overflow
             if stats.queue_overflow_events > 100:

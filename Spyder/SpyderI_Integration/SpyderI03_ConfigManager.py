@@ -755,7 +755,7 @@ class ConfigManager:
                 'sync_status': {
                     'is_syncing': self.is_syncing,
                     'watched_files': len(self.watched_files),
-                    'pending_changes': sum(len(changes) for changes in self.pending_changes.values())
+                    'pending_changes': sum(len(changes) for changes in self.pending_changes.values())  # noqa: E501
                 }
             }
 
@@ -802,7 +802,7 @@ class ConfigManager:
         except Exception as e:
             self.error_handler.handle_error(e, f"_save_config_to_file: {name}")
 
-    def _load_config_from_file(self, file_path: Path, format: ConfigFormat) -> dict[str, Any] | None:
+    def _load_config_from_file(self, file_path: Path, format: ConfigFormat) -> dict[str, Any] | None:  # noqa: E501
         """Load configuration from file"""
         try:
             if not file_path.exists():
@@ -1099,7 +1099,7 @@ class ConfigManager:
                     self.performance_metrics['notifications_sent'] += 1
 
                 except Exception as e:
-                    self.error_handler.handle_error(e, f"notify_subscriber: {subscription.module_id}")
+                    self.error_handler.handle_error(e, f"notify_subscriber: {subscription.module_id}")  # noqa: E501
 
         except Exception as e:
             self.error_handler.handle_error(e, f"_notify_subscribers: {config_name}")
@@ -1378,7 +1378,7 @@ if __name__ == "__main__":
                              key_patterns=["risk_parameters.*"])
 
     # Simulate risk parameter change
-    config_mgr_demo.set_config_value("iron_condor_strategy", "risk_parameters.max_position_size", 15)
+    config_mgr_demo.set_config_value("iron_condor_strategy", "risk_parameters.max_position_size", 15)  # noqa: E501
 
     environments = ['development', 'staging', 'production']
     for env in environments:

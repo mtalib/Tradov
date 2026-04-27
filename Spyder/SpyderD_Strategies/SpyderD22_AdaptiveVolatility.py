@@ -48,14 +48,14 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
 
 # Optional analytics imports
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
     HAS_GREEKS_CALC = True
 except ImportError:
     OptionsGreeksCalculator = None
     HAS_GREEKS_CALC = False
 
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling  # noqa: E501
     HAS_VOL_MODELING = True
 except ImportError:
     VolatilityModeling = None
@@ -342,7 +342,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         # Initialize numerical components
         if OptionsGreeksCalculator is None:
             raise ImportError(
-                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"
+                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"  # noqa: E501
             )
         if VolatilityModeling is None:
             raise ImportError(
@@ -697,7 +697,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         current_regime = metrics.regime
 
         # Check for significant regime change
-        if previous_regime != current_regime and metrics.regime_confidence > REGIME_CHANGE_CONFIDENCE:
+        if previous_regime != current_regime and metrics.regime_confidence > REGIME_CHANGE_CONFIDENCE:  # noqa: E501
             self.regime_history.append(current_regime)
 
             # Generate signal based on regime transition
@@ -957,7 +957,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
                 score *= 1.2
 
             # Adjust for IV rank
-            if metrics.iv_rank > 70 and opp.direction == "SHORT" or metrics.iv_rank < 30 and opp.direction == "LONG":
+            if metrics.iv_rank > 70 and opp.direction == "SHORT" or metrics.iv_rank < 30 and opp.direction == "LONG":  # noqa: E501
                 score *= 1.1
 
             # RL size boost: larger recommended size = higher score
@@ -1095,15 +1095,57 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             'total_pnl': self.total_pnl,
             'sharpe_ratio': self.sharpe_ratio,
             'active_positions': len(self.active_positions),
-            'current_regime': self.current_metrics.regime.value if self.current_metrics else "UNKNOWN",
+            'current_regime': self.current_metrics.regime.value if self.current_metrics else "UNKNOWN",  # noqa: E501
             'current_iv': self.current_metrics.implied_volatility if self.current_metrics else 0,
             'iv_rank': self.current_metrics.iv_rank if self.current_metrics else 50
         }
+
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def generate_signals(self, market_data) -> list:
+        """Bridge BaseStrategy.generate_signals to analyze_market_conditions."""
+        import pandas as pd
+        if isinstance(market_data, pd.DataFrame):
+            data_dict = market_data.to_dict('list') if not market_data.empty else {}
+        else:
+            data_dict = market_data if isinstance(market_data, dict) else {}
+        signal = self.analyze_market_conditions(data_dict)
+        if signal and getattr(signal, 'action', 'HOLD') != 'HOLD':
+            from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import TradingSignal
+            from uuid import uuid4
+            ts = TradingSignal(
+                signal_id=str(uuid4()),
+                symbol=self.config.get('symbol', 'SPY'),
+                action=signal.action,
+                quantity=1,
+                entry_price=0.0,
+                strategy_id='AdaptiveVolatility',
+            )
+            return [ts]
+        return []
+
+    def validate_signal(self, signal, account_value: float = 0) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
+
+    def calculate_position_size(self, signal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
 
 
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_adaptive_volatility_strategy(config: dict[str, Any] | None = None) -> AdaptiveVolatilityStrategy:
+def create_adaptive_volatility_strategy(config: dict[str, Any] | None = None) -> AdaptiveVolatilityStrategy:  # noqa: E501
     """Factory function to create AdaptiveVolatilityStrategy instance"""
     return AdaptiveVolatilityStrategy(config)

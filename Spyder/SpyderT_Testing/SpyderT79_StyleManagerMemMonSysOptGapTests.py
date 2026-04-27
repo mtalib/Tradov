@@ -239,7 +239,7 @@ class TestU24SpyderColors:
         assert SpyderColors.POSITIVE == "#00ff41"
 
     def test_negative_red(self):
-        assert SpyderColors.NEGATIVE == "#ff1744"
+        assert SpyderColors.NEGATIVE == "#FF073A"
 
     def test_neutral_gold(self):
         assert SpyderColors.NEUTRAL == "#ffd700"
@@ -254,7 +254,7 @@ class TestU24SpyderColors:
         assert SpyderColors.SUCCESS == "#4caf50"
 
     def test_error_color(self):
-        assert SpyderColors.ERROR == "#f44336"
+        assert SpyderColors.ERROR == "#FF073A"
 
     def test_disabled_color(self):
         assert SpyderColors.DISABLED == "#666666"
@@ -263,7 +263,7 @@ class TestU24SpyderColors:
         assert SpyderColors.BID_COLOR == "#00ff41"
 
     def test_ask_color(self):
-        assert SpyderColors.ASK_COLOR == "#ff1744"
+        assert SpyderColors.ASK_COLOR == "#FF073A"
 
     def test_spread_color(self):
         assert SpyderColors.SPREAD_COLOR == "#ffd700"

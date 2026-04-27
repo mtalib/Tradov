@@ -221,7 +221,7 @@ class VolatilitySurfaceAnalyzer:
     def build_surface(self,
                      option_data: pd.DataFrame,
                      model: SurfaceModel = SurfaceModel.SVI,
-                     interpolation: InterpolationMethod = InterpolationMethod.CUBIC) -> VolatilitySurface:
+                     interpolation: InterpolationMethod = InterpolationMethod.CUBIC) -> VolatilitySurface:  # noqa: E501
         """
         Build volatility surface from option data.
 
@@ -249,9 +249,9 @@ class VolatilitySurfaceAnalyzer:
             if model == SurfaceModel.SVI:
                 vol_grid, model_params, quality = self._fit_svi_surface(surface_points, spot_price)
             elif model == SurfaceModel.SPLINE:
-                vol_grid, model_params, quality = self._fit_spline_surface(surface_points, spot_price)
+                vol_grid, model_params, quality = self._fit_spline_surface(surface_points, spot_price)  # noqa: E501
             else:
-                vol_grid, model_params, quality = self._fit_polynomial_surface(surface_points, spot_price)
+                vol_grid, model_params, quality = self._fit_polynomial_surface(surface_points, spot_price)  # noqa: E501
 
             # Create interpolation grids
             moneyness_grid, time_grid = self._create_grids(surface_points, spot_price)
@@ -423,7 +423,7 @@ class VolatilitySurfaceAnalyzer:
     def _interpolate_svi_params(self,
                                target_time: float,
                                expiries: list[datetime],
-                               params_by_expiry: dict[datetime, dict[str, float]]) -> dict[str, float]:
+                               params_by_expiry: dict[datetime, dict[str, float]]) -> dict[str, float]:  # noqa: E501
         """Interpolate SVI parameters across time."""
         # Convert expiries to time to expiry
         times = [(exp - datetime.now()).days / 365 for exp in expiries]
@@ -720,7 +720,7 @@ class VolatilitySurfaceAnalyzer:
                 d1 = (np.log(S/K) + (r - q + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
 
                 numerator = sigma**2 + 2*sigma*T*(dvol_dT[i, j] + (r-q)*K*dvol_dK[i, j])
-                denominator = 1 + 2*d1*K*np.sqrt(T)*dvol_dK[i, j] + K**2*T*(d1**2*dvol_dK[i, j]**2 + sigma*d2vol_dK2[i, j])
+                denominator = 1 + 2*d1*K*np.sqrt(T)*dvol_dK[i, j] + K**2*T*(d1**2*dvol_dK[i, j]**2 + sigma*d2vol_dK2[i, j])  # noqa: E501
 
                 if denominator > 0:
                     local_vol_grid[i, j] = np.sqrt(max(numerator / denominator, 0.0001))

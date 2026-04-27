@@ -695,12 +695,12 @@ class VolatilityAnalyzer:
 
         # Regime-based implications
         if metrics.volatility_regime == VolatilityRegime.LOW:
-            implications.append("Low volatility: Consider selling premium strategies (iron condors, credit spreads)")
+            implications.append("Low volatility: Consider selling premium strategies (iron condors, credit spreads)")  # noqa: E501
             implications.append("Risk: Potential volatility expansion, keep positions small")
         elif metrics.volatility_regime == VolatilityRegime.NORMAL:
-            implications.append("Normal volatility: Balanced approach, both premium selling and buying viable")
+            implications.append("Normal volatility: Balanced approach, both premium selling and buying viable")  # noqa: E501
         elif metrics.volatility_regime == VolatilityRegime.ELEVATED:
-            implications.append("Elevated volatility: Premium selling attractive, wider strikes recommended")
+            implications.append("Elevated volatility: Premium selling attractive, wider strikes recommended")  # noqa: E501
             implications.append("Consider volatility mean reversion strategies")
         elif metrics.volatility_regime == VolatilityRegime.HIGH:
             implications.append("High volatility: Focus on premium selling, avoid naked options")
@@ -722,7 +722,7 @@ class VolatilityAnalyzer:
             if vix_analysis.vix_regime == VIXRegime.COMPLACENT:
                 implications.append("VIX low: Market complacency, consider hedges")
             elif vix_analysis.vix_regime == VIXRegime.PANIC:
-                implications.append("VIX extreme: Wait for volatility to settle before entering new positions")
+                implications.append("VIX extreme: Wait for volatility to settle before entering new positions")  # noqa: E501
 
             if vix_analysis.contango:
                 implications.append("VIX in contango: Favorable for short volatility strategies")
@@ -737,7 +737,7 @@ class VolatilityAnalyzer:
                 if forecast.point_forecast > metrics.current_volatility * 1.1:
                     implications.append("Volatility forecast rising: Adjust position sizing down")
                 elif forecast.point_forecast < metrics.current_volatility * 0.9:
-                    implications.append("Volatility forecast falling: Opportunity for premium selling")
+                    implications.append("Volatility forecast falling: Opportunity for premium selling")  # noqa: E501
 
         # Percentile-based implications
         if metrics.volatility_percentile > 80:

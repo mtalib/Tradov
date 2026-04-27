@@ -342,7 +342,7 @@ class SpyderAdvancedModelsEngine:
             # Ensure we have sufficient data
             if len(self.return_history) < self.min_data_points:
                 self.logger.warning(
-                    "Insufficient data for analysis: %s < %s", len(self.return_history), self.min_data_points
+                    "Insufficient data for analysis: %s < %s", len(self.return_history), self.min_data_points  # noqa: E501
                 )
                 return self._create_empty_results("Insufficient data")
 
@@ -423,7 +423,7 @@ class SpyderAdvancedModelsEngine:
                 await self._detect_new_jumps(new_returns[-10:])  # Check last 10 returns
 
             self.logger.debug(
-                "Updated market data: %s new prices, %s total returns", len(prices), len(self.return_history)
+                "Updated market data: %s new prices, %s total returns", len(prices), len(self.return_history)  # noqa: E501
             )
 
         except Exception as e:
@@ -1165,7 +1165,7 @@ async def main():
 
     logging.info("   Generated %s return observations", len(advanced_engine.return_history))
     logging.info(
-        f"   Price range: ${min(advanced_engine.price_history):.2f} - ${max(advanced_engine.price_history):.2f}"
+        f"   Price range: ${min(advanced_engine.price_history):.2f} - ${max(advanced_engine.price_history):.2f}"  # noqa: E501
     )
 
     # Test 1: Merton Model Calibration
@@ -1244,7 +1244,7 @@ async def main():
         logging.info("   Model Status: %s", results.validation_status.value)
         logging.info("   Recent Jumps: %s", len(results.recent_jumps))
         logging.info(
-            "   Crisis Level: %s", results.crisis_assessment.crisis_level.value if results.crisis_assessment else 'N/A'
+            "   Crisis Level: %s", results.crisis_assessment.crisis_level.value if results.crisis_assessment else 'N/A'  # noqa: E501
         )
 
         if (
@@ -1268,7 +1268,7 @@ async def main():
 
     if "error" not in status:
         logging.info(
-            "   Merton Model: %s", '✅ Calibrated' if status['models_calibrated']['merton'] else '❌ Not calibrated'
+            "   Merton Model: %s", '✅ Calibrated' if status['models_calibrated']['merton'] else '❌ Not calibrated'  # noqa: E501
         )
         logging.info("   Data Quality: %s", status['data_status']['data_quality'])
         logging.info("   Total Jumps: %s", status['jump_analysis']['total_jumps_detected'])

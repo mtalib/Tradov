@@ -806,12 +806,12 @@ class TransactionCostAnalyzer:
                 venue=venue,
                 total_executions=len(data['executions']),
                 total_volume=total_volume,
-                avg_spread_capture=np.mean(data['spread_captures']) if data['spread_captures'] else 0,
-                avg_price_improvement=np.mean(data['price_improvements']) if data['price_improvements'] else 0,
+                avg_spread_capture=np.mean(data['spread_captures']) if data['spread_captures'] else 0,  # noqa: E501
+                avg_price_improvement=np.mean(data['price_improvements']) if data['price_improvements'] else 0,  # noqa: E501
                 fill_rate=data['fills'] / data['attempts'] if data['attempts'] > 0 else 0,
                 avg_latency_ms=np.mean(data['latencies']) if data['latencies'] else 0,
-                rebate_rate=sum(e.rebates for e in data['executions']) / total_value if total_value > 0 else 0,
-                cost_per_share=sum(e.commission + e.fees for e in data['executions']) / total_volume if total_volume > 0 else 0
+                rebate_rate=sum(e.rebates for e in data['executions']) / total_value if total_value > 0 else 0,  # noqa: E501
+                cost_per_share=sum(e.commission + e.fees for e in data['executions']) / total_volume if total_volume > 0 else 0  # noqa: E501
             )
 
             venue_stats[venue] = stats
@@ -1066,7 +1066,7 @@ class TransactionCostAnalyzer:
                 'timestamp': datetime.now()
             }
             self.alert_queue.put(alert)
-            self.logger.warning(f"⚠️ High cost alert: {costs['total_bps']:.1f} bps for {execution.symbol}")
+            self.logger.warning(f"⚠️ High cost alert: {costs['total_bps']:.1f} bps for {execution.symbol}")  # noqa: E501
 
         # Slippage alert
         if costs['slippage_bps'] > self.alert_thresholds['slippage']:
@@ -1119,7 +1119,7 @@ class TransactionCostAnalyzer:
         """Get market context at specific time"""
         # Find closest market context
         for context in reversed(self.market_contexts):
-            if context.symbol == symbol and abs((context.timestamp - timestamp).total_seconds()) < 5:
+            if context.symbol == symbol and abs((context.timestamp - timestamp).total_seconds()) < 5:  # noqa: E501
                 return context
         return None
 
@@ -1225,7 +1225,7 @@ class TransactionCostAnalyzer:
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_tca_analyzer(database_manager: Optional['DatabaseManager'] = None) -> TransactionCostAnalyzer:
+def create_tca_analyzer(database_manager: Optional['DatabaseManager'] = None) -> TransactionCostAnalyzer:  # noqa: E501
     """Factory function to create TCA analyzer"""
     return TransactionCostAnalyzer(database_manager)
 

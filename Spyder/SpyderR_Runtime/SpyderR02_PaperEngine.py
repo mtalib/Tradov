@@ -314,7 +314,7 @@ class PaperTradingEngine:
             elif order.orderType == "LMT":
                 self._check_limit_order(order_id)
 
-            self.logger.info("📝 Paper order placed: %s - %s %s %s", order_id, order.action, order.totalQuantity, contract.symbol)
+            self.logger.info("📝 Paper order placed: %s - %s %s %s", order_id, order.action, order.totalQuantity, contract.symbol)  # noqa: E501
             return order_id
 
         except Exception as e:
@@ -413,7 +413,7 @@ class PaperTradingEngine:
             self.fills.append(fill)
             self.trades_executed += 1
 
-            self.logger.info(f"✅ Paper order filled: {order_id} - {order.quantity} @ ${fill_price:.2f}")
+            self.logger.info(f"✅ Paper order filled: {order_id} - {order.quantity} @ ${fill_price:.2f}")  # noqa: E501
             return True
 
         except Exception as e:
@@ -447,7 +447,7 @@ class PaperTradingEngine:
 
             # Check if limit order can be filled
             can_fill = False
-            if order.action == "BUY" and market_price <= order.limit_price or order.action == "SELL" and market_price >= order.limit_price:
+            if order.action == "BUY" and market_price <= order.limit_price or order.action == "SELL" and market_price >= order.limit_price:  # noqa: E501
                 can_fill = True
 
             if can_fill:
@@ -500,7 +500,7 @@ class PaperTradingEngine:
                 position.position_value = position.quantity * market_price
                 position.unrealized_pnl = (market_price - position.avg_price) * position.quantity
 
-            self.logger.debug(f"📊 Position updated: {symbol} - {position.quantity} @ ${position.avg_price:.2f}")
+            self.logger.debug(f"📊 Position updated: {symbol} - {position.quantity} @ ${position.avg_price:.2f}")  # noqa: E501
 
         except Exception as e:
             self.logger.error("❌ Failed to update position for %s: %s", symbol, e)
@@ -533,13 +533,13 @@ class PaperTradingEngine:
             if order.action == "SELL" and order.symbol in self.positions:
                 position = self.positions[order.symbol]
                 if position.quantity > 0:  # Closing long position
-                    realized_pnl = (fill.price - position.avg_price) * min(fill.quantity, position.quantity)
+                    realized_pnl = (fill.price - position.avg_price) * min(fill.quantity, position.quantity)  # noqa: E501
                     self.account.realized_pnl += realized_pnl
 
             # Update net liquidation value
             self._update_net_liquidation()
 
-            self.logger.debug(f"💰 Account updated: Cash=${self.account.cash_balance:.2f}, NetLiq=${self.account.net_liquidation:.2f}")
+            self.logger.debug(f"💰 Account updated: Cash=${self.account.cash_balance:.2f}, NetLiq=${self.account.net_liquidation:.2f}")  # noqa: E501
 
         except Exception as e:
             self.logger.error("❌ Failed to update account: %s", e)
@@ -596,7 +596,7 @@ class PaperTradingEngine:
                             if ticker.last and not np.isnan(ticker.last):
                                 position.market_price = ticker.last
                                 position.position_value = position.quantity * ticker.last
-                                position.unrealized_pnl = (ticker.last - position.avg_price) * position.quantity
+                                position.unrealized_pnl = (ticker.last - position.avg_price) * position.quantity  # noqa: E501
 
         except Exception as e:
             self.logger.error("❌ Error processing ticker update: %s", e)
@@ -625,7 +625,7 @@ class PaperTradingEngine:
                 elif side == "SELL":
                     return ticker.bid if ticker.bid and not np.isnan(ticker.bid) else ticker.last
                 else:  # MID
-                    if ticker.bid and ticker.ask and not np.isnan(ticker.bid) and not np.isnan(ticker.ask):
+                    if ticker.bid and ticker.ask and not np.isnan(ticker.bid) and not np.isnan(ticker.ask):  # noqa: E501
                         return (ticker.bid + ticker.ask) / 2
                     else:
                         return ticker.last if ticker.last and not np.isnan(ticker.last) else 0.0
@@ -691,7 +691,7 @@ class PaperTradingEngine:
             total_return = self.account.net_liquidation - self.account.initial_balance
             return_pct = (total_return / self.account.initial_balance) * 100
 
-            runtime = (datetime.datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0
+            runtime = (datetime.datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0  # noqa: E501
 
             return {
                 'initial_balance': self.account.initial_balance,

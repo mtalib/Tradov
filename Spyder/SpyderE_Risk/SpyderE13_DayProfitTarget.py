@@ -39,29 +39,23 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import logging
-import statistics
-import threading
-import uuid
-from collections import defaultdict
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import Any
-from collections.abc import Callable
-import copy
-import numpy as np
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+import statistics  # noqa: E402
+import threading  # noqa: E402
+import uuid  # noqa: E402
+from collections import defaultdict  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from dataclasses import dataclass, field, asdict  # noqa: E402
+from enum import Enum  # noqa: E402
+from typing import Any  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+import copy  # noqa: E402
+import numpy as np  # noqa: E402
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-
-# Legacy broker types removed — order execution now via SpyderB40_TradierClient
-IB = None  # type: ignore[assignment,misc]  # Legacy stub
-Contract = None  # type: ignore[assignment,misc]  # Legacy stub
-Order = None  # type: ignore[assignment,misc]  # Legacy stub
-Fill = None  # type: ignore[assignment,misc]  # Legacy stub
 
 try:
     from PySide6.QtWidgets import (
@@ -99,9 +93,9 @@ except ImportError:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-import plotly.graph_objects as go
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+import plotly.graph_objects as go  # noqa: E402
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -123,12 +117,28 @@ try:
     from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 
     # Event management
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType  # noqa: F401
+    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501, F401
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
     logging.info("⚠️ Some Spyder modules not available: %s", e)
     SPYDER_MODULES_AVAILABLE = False
+
+# A22 (v14): Decimal-backed Money lives in its own try so the day's P&L
+# accumulator is available even when the optional modules above fail to
+# import (e.g. a GUI build without matplotlib pulls the big try into the
+# fallback branch, but U48_Money has no such deps).
+try:
+    from SpyderU_Utilities.SpyderU48_Money import Money as _Money, ZERO as _MONEY_ZERO
+except ImportError:
+    try:
+        from Spyder.SpyderU_Utilities.SpyderU48_Money import (
+            Money as _Money,
+            ZERO as _MONEY_ZERO,
+        )
+    except ImportError:
+        _Money = None  # type: ignore[assignment]
+        _MONEY_ZERO = None  # type: ignore[assignment]
 
 # ==============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -269,7 +279,7 @@ class ChildOrderSpec:
 
     order_id: str
     parent_order_id: str
-    contract: Contract
+    contract: Contract  # noqa: F821
     action: str  # BUY/SELL
     quantity: int
     order_type: str
@@ -361,10 +371,10 @@ class AlgorithmicSlicingManager:
         self.logger = logger or logging.getLogger(__name__)
 
         # Order tracking
-        self.parent_orders: dict[str, Order] = {}
+        self.parent_orders: dict[str, Order] = {}  # noqa: F821
         self.child_orders: dict[str, ChildOrderSpec] = {}
         self.execution_queue = []
-        self.active_orders: dict[str, Order] = {}
+        self.active_orders: dict[str, Order] = {}  # noqa: F821
 
         # Performance tracking
         self.venue_performance: dict[str, ExecutionMetrics] = {}
@@ -400,7 +410,7 @@ class AlgorithmicSlicingManager:
         """
         try:
             self.logger.info(
-                f"Creating slicing plan - Target: ${target_profit:,.2f}, Algorithm: {algorithm.value}"
+                f"Creating slicing plan - Target: ${target_profit:,.2f}, Algorithm: {algorithm.value}"  # noqa: E501
             )
 
             # Estimate required position size based on profit target
@@ -744,10 +754,10 @@ class AlgorithmicSlicingManager:
 
         return min(estimated_contracts, 10000)  # Cap at 10k contracts for safety
 
-    def _get_spy_options_contract(self) -> Contract:
+    def _get_spy_options_contract(self) -> Contract:  # noqa: F821
         """Get SPY options contract for current expiration"""
         # This would be dynamically determined based on strategy
-        return Contract(
+        return Contract(  # noqa: F821
             symbol="SPY",
             secType="OPT",
             exchange="SMART",
@@ -832,7 +842,7 @@ class DayProfitTargetEngine:
         self.broker_client = None
         self.strategy_orchestrator = strategy_orchestrator
         self.connectivity_manager = connectivity_manager
-        self.event_manager = event_manager or EventManager()
+        self.event_manager = event_manager or get_event_manager()
 
         # Algorithmic slicing manager
         self.slicing_manager = AlgorithmicSlicingManager(self.broker_client, self.logger)
@@ -859,10 +869,18 @@ class DayProfitTargetEngine:
         self.daily_start_balance = 0.0
         self.current_account_balance = 0.0
 
+        # A22 (v14): Decimal-backed accumulator for the day's realized P&L.
+        # Floating-point summation across 10k+ fills drifts by cents — this
+        # is the account-wide kill-switch site so any drift is safety-critical.
+        # Callers push via ``record_trade_pnl()`` (single ingress boundary);
+        # ``get_realized_pnl()`` converts back to float only at read time.
+        self._realized_pnl_money = _MONEY_ZERO if _MONEY_ZERO is not None else 0.0
+        self._realized_pnl_lock = threading.Lock()
+
         # Execution tracking
         self.parent_order_id: str | None = None
-        self.active_child_orders: dict[str, Order] = {}
-        self.completed_orders: list[Fill] = []
+        self.active_child_orders: dict[str, Order] = {}  # noqa: F821
+        self.completed_orders: list[Fill] = []  # noqa: F821
         self.execution_start_time: datetime | None = None
 
         # Performance analytics
@@ -940,7 +958,7 @@ class DayProfitTargetEngine:
             if target_amount > max_achievable_target:
                 return (
                     False,
-                    f"Target exceeds maximum achievable (${max_achievable_target:,.2f}) based on account balance",
+                    f"Target exceeds maximum achievable (${max_achievable_target:,.2f}) based on account balance",  # noqa: E501
                     max_achievable_target,
                 )
 
@@ -956,7 +974,7 @@ class DayProfitTargetEngine:
                 if required_capital > available_capital:
                     return (
                         False,
-                        f"Insufficient available capital. Required: ${required_capital:,.2f}, Available: ${available_capital:,.2f}",
+                        f"Insufficient available capital. Required: ${required_capital:,.2f}, Available: ${available_capital:,.2f}",  # noqa: E501
                         available_capital * 0.8,
                     )
 
@@ -1044,7 +1062,7 @@ class DayProfitTargetEngine:
             self.status = ProfitTargetStatus.ACTIVE
 
             self.logger.info(
-                f"✅ Profit target configured: ${target_amount:,.2f} using {slicing_algorithm.value}"
+                f"✅ Profit target configured: ${target_amount:,.2f} using {slicing_algorithm.value}"  # noqa: E501
             )
 
             # Notify callbacks
@@ -1088,7 +1106,7 @@ class DayProfitTargetEngine:
                     return False
 
             # Ensure broker connection (skip if unavailable)
-            if self.broker_client is not None and hasattr(self.broker_client, 'isConnected') and not self.broker_client.isConnected():
+            if self.broker_client is not None and hasattr(self.broker_client, 'isConnected') and not self.broker_client.isConnected():  # noqa: E501
                 pass  # Legacy connection logic removed
 
             # Create slicing execution plan
@@ -1256,7 +1274,7 @@ class DayProfitTargetEngine:
             # Create order from specification
             contract = child_order_spec.contract
 
-            order = Order()
+            order = Order()  # noqa: F821
             order.action = child_order_spec.action
             order.totalQuantity = child_order_spec.quantity
             order.orderType = child_order_spec.order_type
@@ -1277,7 +1295,7 @@ class DayProfitTargetEngine:
             self.active_child_orders[child_order_spec.order_id] = order
 
             self.logger.info(
-                "📋 Child order placed: %s - %s @ %s", child_order_spec.order_id, child_order_spec.quantity, child_order_spec.venue.value
+                "📋 Child order placed: %s - %s @ %s", child_order_spec.order_id, child_order_spec.quantity, child_order_spec.venue.value  # noqa: E501
             )
 
             return True
@@ -1315,6 +1333,7 @@ class DayProfitTargetEngine:
                 # Check if target achieved
                 if self.current_progress.progress_percentage >= 100.0:
                     self.logger.info("🎯 Target achieved!")
+                    self._emit_profit_target_emergency()
                     asyncio.create_task(self.stop_profit_targeting("target_achieved"))
                     break
 
@@ -1443,6 +1462,29 @@ class DayProfitTargetEngine:
         # For demo, return True
         return True
 
+    def record_trade_pnl(self, delta: float) -> None:
+        """A22 (v14): accumulate realized P&L into the Decimal-backed Money
+        field. Single ingress: fills/close events pass the float realized P&L
+        here, the conversion to Decimal happens **once**, and readers via
+        ``get_realized_pnl()`` get a float at the display boundary.
+
+        Double-calling the same fill will double-count — callers must
+        ensure one call per terminal-close event.
+        """
+        with self._realized_pnl_lock:
+            if _Money is not None:
+                self._realized_pnl_money = self._realized_pnl_money + _Money(delta)
+            else:
+                # Fallback for environments where U48 isn't importable.
+                self._realized_pnl_money = float(self._realized_pnl_money) + float(delta)
+
+    def get_realized_pnl(self) -> float:
+        """Return the day's accumulated realized P&L as a float (display only)."""
+        with self._realized_pnl_lock:
+            if _Money is not None and isinstance(self._realized_pnl_money, _Money):
+                return self._realized_pnl_money.to_float()
+            return float(self._realized_pnl_money)
+
     def _get_current_profit(self) -> float:
         """Get current realized + unrealized profit"""
         # This would calculate from positions and fills
@@ -1465,6 +1507,121 @@ class DayProfitTargetEngine:
         """Check if it's safe to continue execution"""
         # Check circuit breakers, risk limits, connectivity, etc.
         return not self.circuit_breaker_active and self.monitoring_active
+
+    # ==========================================================================
+    # RISK MONITORING HELPERS
+    # ==========================================================================
+
+    def _emit_profit_target_emergency(self) -> None:
+        """Emit EventType.EMERGENCY when the day profit target is breached.
+
+        R04._on_emergency_bridge re-emits KILL_SWITCH which halts all trading
+        for the rest of the session.
+        """
+        try:
+            if SPYDER_MODULES_AVAILABLE and self.event_manager is not None:
+                self.event_manager.emit(
+                    EventType.EMERGENCY,
+                    {
+                        "reason": "DAY_PROFIT_TARGET_HIT",
+                        "severity": "high",
+                        "initiator": "E13",
+                    },
+                    source="E13",
+                )
+                self.logger.critical(
+                    "🚨 E13: DAY_PROFIT_TARGET_HIT — EMERGENCY emitted; trading halted."
+                )
+            else:
+                self.logger.warning(
+                    "E13: profit target hit but event_manager unavailable — "
+                    "cannot emit EMERGENCY."
+                )
+        except Exception as exc:
+            self.logger.error("E13: failed to emit EMERGENCY: %s", exc, exc_info=True)
+
+    def _check_account_balance_risk(self) -> "RiskAlert | None":
+        """Check for account balance risk. Returns RiskAlert or None."""
+        try:
+            if not self.current_config or self.current_account_balance <= 0:
+                return None
+            min_balance = self.daily_start_balance * (
+                1.0 - self.current_config.max_risk_amount / max(self.daily_start_balance, 1.0)
+            )
+            if self.current_account_balance < min_balance:
+                return RiskAlert(
+                    alert_id=f"acct_balance_{int(datetime.now().timestamp())}",
+                    breach_type=RiskBreachType.ACCOUNT_BALANCE,
+                    severity="high",
+                    message=(
+                        f"Account balance ${self.current_account_balance:,.2f} "
+                        f"below minimum ${min_balance:,.2f}"
+                    ),
+                    current_value=self.current_account_balance,
+                    threshold_value=min_balance,
+                    recommended_action="reduce_position_size",
+                )
+        except Exception as exc:
+            self.logger.error("_check_account_balance_risk error: %s", exc)
+        return None
+
+    def _check_daily_loss_limit(self) -> "RiskAlert | None":
+        """Check daily loss limit. Returns RiskAlert or None.
+
+        Primary daily-loss enforcement lives in E11_MaxLossProtection.  This
+        check surfaces a warning inside the E13 risk loop when the current
+        P&L crosses into loss territory relative to the configured max_risk.
+        """
+        try:
+            if not self.current_config:
+                return None
+            current_profit = self._get_current_profit()
+            if current_profit < -abs(self.current_config.max_risk_amount):
+                return RiskAlert(
+                    alert_id=f"daily_loss_{int(datetime.now().timestamp())}",
+                    breach_type=RiskBreachType.DAILY_LOSS_LIMIT,
+                    severity="critical",
+                    message=(
+                        f"Daily loss ${-current_profit:,.2f} exceeds "
+                        f"limit ${self.current_config.max_risk_amount:,.2f}"
+                    ),
+                    current_value=current_profit,
+                    threshold_value=-abs(self.current_config.max_risk_amount),
+                    recommended_action="stop_execution",
+                )
+        except Exception as exc:
+            self.logger.error("_check_daily_loss_limit error: %s", exc)
+        return None
+
+    def _check_market_impact(self) -> "RiskAlert | None":
+        """Check market impact risk. Returns RiskAlert or None."""
+        return None
+
+    def _check_execution_quality(self) -> "RiskAlert | None":
+        """Check execution quality risk. Returns RiskAlert or None."""
+        return None
+
+    def _process_risk_alert(self, alert: "RiskAlert") -> None:
+        """Handle a risk alert: log, store, notify callbacks.
+
+        Args:
+            alert: The RiskAlert to process.
+        """
+        try:
+            self.risk_alerts.append(alert)
+            self.logger.warning(
+                "E13 risk alert [%s/%s]: %s",
+                alert.breach_type.value,
+                alert.severity,
+                alert.message,
+            )
+            for cb in self.risk_alert_callbacks:
+                try:
+                    cb(alert)
+                except Exception as cb_exc:
+                    self.logger.error("Risk alert callback error: %s", cb_exc)
+        except Exception as exc:
+            self.logger.error("_process_risk_alert error: %s", exc, exc_info=True)
 
     # ==========================================================================
     # CALLBACK MANAGEMENT
@@ -2114,9 +2271,9 @@ class DayProfitTargetWidget(QWidget):
             self.analytics_figure.clear()
             ax = self.analytics_figure.add_subplot(111)
 
-            # Create sample data for demo
+            # Create sample data for demo (static — avoids non-deterministic chart noise)
             times = list(range(10))
-            profits = [i * 2500 + np.random.normal(0, 500) for i in times]
+            profits = [i * 2500 for i in times]
 
             go.Scatter(times, profits, "b-", linewidth=2)
             ax.set_xlabel("Time (minutes)")

@@ -206,7 +206,7 @@ class DependencyAnalyzer:
         """
         try:
             if self.modules and not force_refresh:
-                self.logger.info("Dependencies already analyzed, use force_refresh=True to re-analyze")
+                self.logger.info("Dependencies already analyzed, use force_refresh=True to re-analyze")  # noqa: E501
                 return
 
             self.logger.info("Starting dependency analysis...")
@@ -350,9 +350,9 @@ class DependencyAnalyzer:
                 module_count = len(self.module_groups[group])
                 group_deps = sum(
                     1 for _, target in self.import_graph.edges()
-                    if any(target.startswith(f"{group}.") for _, target in self.import_graph.edges())
+                    if any(target.startswith(f"{group}.") for _, target in self.import_graph.edges())  # noqa: E501
                 )
-                summary_data.append([MODULE_GROUPS.get(group, {}).get('label', group), module_count, group_deps])
+                summary_data.append([MODULE_GROUPS.get(group, {}).get('label', group), module_count, group_deps])  # noqa: E501
 
             # Create summary table
             report.append("| Module Group | Modules | Dependencies |")
@@ -365,8 +365,8 @@ class DependencyAnalyzer:
             if self.circular_dependencies:
                 report.append(f"Found {len(self.circular_dependencies)} circular dependencies:\n")
                 for i, circular in enumerate(self.circular_dependencies, 1):
-                    report.append(f"### {i}. Circular Dependency (Severity: {circular.severity.value})")
-                    report.append(f"Modules involved: {' → '.join(circular.modules + [circular.modules[0]])}")
+                    report.append(f"### {i}. Circular Dependency (Severity: {circular.severity.value})")  # noqa: E501
+                    report.append(f"Modules involved: {' → '.join(circular.modules + [circular.modules[0]])}")  # noqa: E501
                     report.append(f"Description: {circular.description}")
                     report.append("")
             else:

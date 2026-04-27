@@ -456,7 +456,7 @@ class HMMRegimeDetector:
             self.logger.info(
                 f"HMM trained: log_likelihood={log_likelihood:.2f}, "
                 f"BIC={bic:.2f}, AIC={aic:.2f}, converged={converged}, "
-                f"best_restart_seed={list(range(N_RESTARTS))[list(range(N_RESTARTS)).index(model.random_state) if hasattr(model, 'random_state') else 0]}"
+                f"best_restart_seed={list(range(N_RESTARTS))[list(range(N_RESTARTS)).index(model.random_state) if hasattr(model, 'random_state') else 0]}"  # noqa: E501
             )
 
             return model, training_result
@@ -910,7 +910,7 @@ class HMMRegimeDetector:
         if len(self.regime_history) >= 2:
             transitions = 0
             for i in range(min(10, len(self.regime_history) - 1)):
-                if self.regime_history[i].current_regime != self.regime_history[i + 1].current_regime:
+                if self.regime_history[i].current_regime != self.regime_history[i + 1].current_regime:  # noqa: E501
                     transitions += 1
 
             persistence = transitions / len(self.prediction_history)
@@ -935,6 +935,9 @@ def create_sample_data(n_periods: int = 252,
                      n_assets: int = 1) -> pd.DataFrame:
     """
     Create sample market data for HMM training.
+
+    NOTE: Test/training data generator — do not call from production code.
+    Uses a fixed random seed (42) for reproducibility.
 
     Args:
         n_periods: Number of periods to generate

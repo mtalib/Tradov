@@ -50,9 +50,14 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from Spyder.SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
+try:
+    from Spyder.SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
+    _HAS_NEWS_MANAGER = True
+except Exception:
+    NewsManager = None  # type: ignore[assignment,misc]
+    _HAS_NEWS_MANAGER = False
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 import logging
 
 # ==============================================================================
@@ -207,7 +212,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         self.greeks_calculator = GreeksCalculator()
         self.volatility_analyzer = VolatilityAnalyzer()
         self.volatility_regime = VolatilityRegimeAnalyzer()
-        self.news_manager = NewsManager()
+        self.news_manager = NewsManager() if _HAS_NEWS_MANAGER else None
 
         # Strategy state
         self.active_positions: dict[str, VolatilityPosition] = {}
@@ -1083,7 +1088,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             return self._create_exit_signal(position, "expiry")
 
         # Event passed (for event trades)
-        if position.setup.event_date and datetime.now() > position.setup.event_date + timedelta(days=1):
+        if position.setup.event_date and datetime.now() > position.setup.event_date + timedelta(days=1):  # noqa: E501
             if position.unrealized_pnl > 0:
                 return self._create_exit_signal(position, "event_complete")
 
@@ -1117,11 +1122,11 @@ class StraddleStrangleStrategy(BaseStrategy):
                 'realized_pnl': position.realized_pnl,
                 'total_pnl': position.unrealized_pnl + position.realized_pnl,
                 'gamma_scalps': position.gamma_scalp_count,
-                'final_greeks': position.current_greeks.__dict__ if position.current_greeks else None
+                'final_greeks': position.current_greeks.__dict__ if position.current_greeks else None  # noqa: E501
             }
         )
 
-        self.logger.info(f"Exit {position.position_id}: {reason}, Total P&L: ${position.unrealized_pnl + position.realized_pnl:.2f}")
+        self.logger.info(f"Exit {position.position_id}: {reason}, Total P&L: ${position.unrealized_pnl + position.realized_pnl:.2f}")  # noqa: E501
         return signal
 
     def _update_performance_stats(self, position: VolatilityPosition):
@@ -1185,7 +1190,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                 'unrealized_pnl': position.unrealized_pnl,
                 'realized_pnl': position.realized_pnl,
                 'total_pnl': position.unrealized_pnl + position.realized_pnl,
-                'current_greeks': position.current_greeks.__dict__ if position.current_greeks else None,
+                'current_greeks': position.current_greeks.__dict__ if position.current_greeks else None,  # noqa: E501
                 'gamma_scalps': position.gamma_scalp_count,
                 'state': position.state.name
             }
@@ -1196,7 +1201,7 @@ class StraddleStrangleStrategy(BaseStrategy):
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy statistics"""
         total_trades = self.performance_stats['total_trades']
-        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0  # noqa: E501
 
         return {
             'active_positions': len(self.active_positions),
@@ -1211,6 +1216,26 @@ class StraddleStrangleStrategy(BaseStrategy):
             'upcoming_events': len(self.upcoming_events)
         }
 
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
+
 
 # ==============================================================================
 # TESTING
@@ -1222,7 +1247,7 @@ def test_straddle_strangle():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(
@@ -1277,7 +1302,7 @@ def test_straddle_strangle():
     events = strategy._detect_upcoming_events(market_data)
     logging.info("Found %s upcoming events", len(events))
     for event in events:
-        logging.info("- %s: %s, Impact: %s", event['type'].value, event.get('date', 'N/A'), event['impact'])
+        logging.info("- %s: %s, Impact: %s", event['type'].value, event.get('date', 'N/A'), event['impact'])  # noqa: E501
 
     # Test volatility surface analysis
     logging.info("\nAnalyzing Volatility Surface...")
@@ -1297,10 +1322,10 @@ def test_straddle_strangle():
     for signal in signals:
         setup = signal.metadata
         logging.info("\nStrategy: %s", setup['strategy_type'])
-        logging.info("Strikes: Call $%s, Put $%s", setup['strikes']['call'], setup['strikes']['put'])
+        logging.info("Strikes: Call $%s, Put $%s", setup['strikes']['call'], setup['strikes']['put'])  # noqa: E501
         logging.info("Expiry: %s", setup['expiry'])
         logging.info(f"Net Debit: ${setup['net_debit']:.2f}")
-        logging.info(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")
+        logging.info(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")  # noqa: E501
         logging.info("Event: %s", setup.get('event', 'None'))
         logging.info(f"Confidence: {signal.confidence:.1%}")
 
@@ -1341,7 +1366,7 @@ def test_straddle_strangle():
                     if mgmt_signal.signal_type == SignalType.ADJUST:
                         logging.info("\nGamma Scalp at iteration %s", i)
                         logging.info(f"Gamma: {mgmt_signal.metadata['gamma']:.1f}")
-                        logging.info(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")
+                        logging.info(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")  # noqa: E501
                     elif mgmt_signal.signal_type == SignalType.EXIT:
                         logging.info("\nExit at iteration %s", i)
                         logging.info("Reason: %s", mgmt_signal.metadata['exit_reason'])

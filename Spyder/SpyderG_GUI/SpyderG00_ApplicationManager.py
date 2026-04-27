@@ -129,7 +129,7 @@ class ApplicationManager(QObject):
         self.state = AppState.NOT_INITIALIZED
         self._widgets = []
 
-        self.logger.info("ApplicationManager initialized for %s mode", self.config.display_mode.value)
+        self.logger.info("ApplicationManager initialized for %s mode", self.config.display_mode.value)  # noqa: E501
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -266,7 +266,7 @@ class ApplicationManager(QObject):
                         widget.close()
                 except Exception as e:
                     # Log widget closure failure but continue cleanup
-                    self.logger.warning("Failed to close widget %s: %s", widget.__class__.__name__, e)
+                    self.logger.warning("Failed to close widget %s: %s", widget.__class__.__name__, e)  # noqa: E501
 
             self._widgets.clear()
 

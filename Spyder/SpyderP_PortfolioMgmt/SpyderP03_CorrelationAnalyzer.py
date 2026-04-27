@@ -259,7 +259,7 @@ class CorrelationAnalyzer:
 
         # Silhouette score approximation
         from sklearn.metrics import silhouette_score as sk_silhouette
-        sil = float(sk_silhouette(distance, labels, metric='precomputed')) if len(set(labels)) > 1 else 0.0
+        sil = float(sk_silhouette(distance, labels, metric='precomputed')) if len(set(labels)) > 1 else 0.0  # noqa: E501
 
         return ClusterResult(clusters=dict(clusters), silhouette_score=sil, linkage_matrix=Z)
 
@@ -279,7 +279,7 @@ class CorrelationAnalyzer:
         return FactorResult(
             loadings=fa.components_,
             common_factor_risk=float(common_var),
-            explained_variance=float(np.sum(fa.explained_variance_ratio_) if hasattr(fa, 'explained_variance_ratio_') else common_var),
+            explained_variance=float(np.sum(fa.explained_variance_ratio_) if hasattr(fa, 'explained_variance_ratio_') else common_var),  # noqa: E501
         )
 
     async def detect_correlation_anomalies(self) -> list[dict[str, Any]]:
@@ -475,7 +475,7 @@ class CorrelationAnalyzer:
             return True
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"Failed to import correlation data from {file_path}")
+            self.error_handler.handle_error(e, f"Failed to import correlation data from {file_path}")  # noqa: E501
             return False
 
     # --------------------------------------------------------------------------
@@ -600,7 +600,7 @@ def detect_correlation_regime_simple(correlation_matrix: np.ndarray) -> Correlat
 # MODULE INITIALIZATION
 # ==============================================================================
 
-import threading as _threading
+import threading as _threading  # noqa: E402
 
 # Global correlation analyzer instance (lock-guarded for concurrent init)
 _global_correlation_analyzer: CorrelationAnalyzer | None = None

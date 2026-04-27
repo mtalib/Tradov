@@ -69,7 +69,7 @@ class EnsembleConfig:
     cv_folds: int = 5
     n_iter_search: int = 50
     polynomial_degree: int = 2
-    quantile_alpha: list[float] = field(default_factory=lambda: [0.05, 0.95])  # 90% prediction interval
+    quantile_alpha: list[float] = field(default_factory=lambda: [0.05, 0.95])  # 90% prediction interval  # noqa: E501
 
 
 @dataclass
@@ -615,13 +615,13 @@ class SpyderRandomForestEnsemble:
             df = data_ref
             feature_cols = [c for c in df.columns if c not in ['option_price', 'target', 'date']]
             X = df[feature_cols].select_dtypes(include=[_np.number]).values
-            y = df['option_price'].values if 'option_price' in df.columns else _np.random.randn(len(X))
+            y = df['option_price'].values if 'option_price' in df.columns else _np.random.randn(len(X))  # noqa: E501
 
             rf = RandomForestRegressor(**params, random_state=42, n_jobs=1)
             scores = cross_val_score(rf, X, y, cv=3, scoring='neg_mean_squared_error')
             rmse = float(_np.sqrt(-scores.mean()))
 
-            return {'params': params, 'rmse': rmse, 'cv_std': float(scores.std()), 'status': 'completed'}
+            return {'params': params, 'rmse': rmse, 'cv_std': float(scores.std()), 'status': 'completed'}  # noqa: E501
 
         self.logger.info("Ray RF HP search: %s configurations", len(combos))
         futures = [

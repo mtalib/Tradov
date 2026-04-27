@@ -80,7 +80,7 @@ Change Log:
 import os
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from enum import Enum
@@ -171,6 +171,7 @@ _MASSIVE_INTERNALS_MAP: dict[str, str] = {
     "I:TICK":  "TICK",   # NYSE Tick Index     (also available from Tradier)
     "I:ADD":   "ADD",    # NYSE Advance/Decline (also available from Tradier)
     "I:TRIN":  "TRIN",   # NYSE Arms Index      (also available from Tradier)
+    "I:TNX":   "TNX",    # 10-Year Treasury Yield (fallback; primary is Tradier $TNX)
 }
 
 # ==============================================================================
@@ -217,7 +218,7 @@ class MassiveQuoteUpdate:
     ask: float
     bid_size: int = 0
     ask_size: int = 0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     bid_exchange: str = ""
     ask_exchange: str = ""
     raw: Any = field(default=None, repr=False)
@@ -271,7 +272,7 @@ class MassiveTradeUpdate:
     symbol: str
     price: float
     size: int
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     exchange: str = ""
     conditions: list[str] = field(default_factory=list)
     raw: Any = field(default=None, repr=False)
@@ -474,7 +475,7 @@ class MassiveClient:
                     f"{type(exc).__name__}: {exc}"
                 )
                 if attempt < MAX_REST_RETRIES - 1:
-                    time.sleep(REST_RETRY_DELAY * (2 ** attempt))  # thread-safe: time.sleep() intentional
+                    time.sleep(REST_RETRY_DELAY * (2 ** attempt))  # thread-safe: time.sleep() intentional  # noqa: E501
 
         raise last_exc  # type: ignore[misc]
 
@@ -663,7 +664,7 @@ class MassiveClient:
                 ts_ms = getattr(agg, "timestamp", 0) or 0
                 rows.append({
                     "timestamp": (
-                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)  # noqa: E501
                     ),
                     "open":         float(getattr(agg, "open", 0.0) or 0.0),
                     "high":         float(getattr(agg, "high", 0.0) or 0.0),
@@ -1467,7 +1468,7 @@ class MassiveClient:
             bid_size=int(getattr(msg, "bid_size", 0) or 0),
             ask_size=int(getattr(msg, "ask_size", 0) or 0),
             timestamp=(
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
             bid_exchange=str(getattr(msg, "bid_exchange", "") or ""),
             ask_exchange=str(getattr(msg, "ask_exchange", "") or ""),
@@ -1483,7 +1484,7 @@ class MassiveClient:
             price=float(getattr(msg, "price", 0.0) or 0.0),
             size=int(getattr(msg, "size", 0) or 0),
             timestamp=(
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
             exchange=str(getattr(msg, "exchange", "") or ""),
             conditions=[str(c) for c in conditions],
@@ -1504,7 +1505,7 @@ class MassiveClient:
             "vwap":               float(getattr(msg, "vwap", 0.0) or 0.0),
             "accumulated_volume": int(getattr(msg, "accumulated_volume", 0) or 0),
             "timestamp":          (
-                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.utcnow()
+                datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
             ),
         }
 
@@ -1533,13 +1534,13 @@ class MassiveClient:
         return {
             "symbol":           str(getattr(details, "ticker", "") if details else ""),
             "underlying":       str(getattr(underlying_a, "ticker", "") if underlying_a else ""),
-            "strike":           float(getattr(details, "strike_price", 0.0) or 0.0) if details else 0.0,
+            "strike":           float(getattr(details, "strike_price", 0.0) or 0.0) if details else 0.0,  # noqa: E501
             "expiration_date":  str(getattr(details, "expiration_date", "") if details else ""),
             "option_type":      str(getattr(details, "contract_type", "") if details else ""),
             "exercise_style":   str(getattr(details, "exercise_style", "") if details else ""),
-            "bid":              float(getattr(last_quote, "bid", 0.0) or 0.0) if last_quote else 0.0,
-            "ask":              float(getattr(last_quote, "ask", 0.0) or 0.0) if last_quote else 0.0,
-            "mid":              float(getattr(last_quote, "midpoint", 0.0) or 0.0) if last_quote else 0.0,
+            "bid":              float(getattr(last_quote, "bid", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
+            "ask":              float(getattr(last_quote, "ask", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
+            "mid":              float(getattr(last_quote, "midpoint", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
             "implied_volatility": float(getattr(snapshot, "implied_volatility", 0.0) or 0.0),
             "delta":            float(getattr(greeks, "delta", 0.0) or 0.0) if greeks else 0.0,
             "gamma":            float(getattr(greeks, "gamma", 0.0) or 0.0) if greeks else 0.0,

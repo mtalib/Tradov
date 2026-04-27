@@ -62,7 +62,7 @@ if str(project_root) not in sys.path:
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -73,8 +73,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer, Signal
-import logging
+from PySide6.QtCore import Qt, QTimer, Signal  # noqa: E402
+import logging  # noqa: E402
 
 # Import WebEngine for Plotly embedding
 WEBENGINE_AVAILABLE = False
@@ -131,7 +131,7 @@ COLOR_BORDER = "#333333"
 COLOR_TEXT = "#ffffff"
 COLOR_TEXT_DIM = "#888888"
 COLOR_POSITIVE = "#00ff41"
-COLOR_NEGATIVE = "#ff1744"
+COLOR_NEGATIVE = "#FF073A"
 COLOR_NEUTRAL = "#ffd700"
 COLOR_WARNING = "#ff9800"
 COLOR_CYAN = "#00ffff"
@@ -188,7 +188,7 @@ class PlotlyChartWidget(QWidget):
         self.indicators = {
             "sma_20": {"enabled": True, "color": COLOR_CYAN, "period": 20},
             "sma_50": {"enabled": True, "color": COLOR_WARNING, "period": 50},
-            "vwap": {"enabled": True, "color": "#BF00FF"},
+            "vwap": {"enabled": True, "color": "#FFFFFF"},
             "volume": {"enabled": False},  # Disabled to remove volume bars
         }
 
@@ -546,12 +546,12 @@ class PlotlyChartWidget(QWidget):
                     yanchor="middle",
                 )
 
-            # Support levels (red - same as Perfect #FF1744)
+            # Support levels (red - Electric Crimson #FF073A)
             for level in ["S1", "S2", "S3"]:
                 fig.add_hline(
                     y=pivots[level],
                     line_dash="solid",
-                    line_color="#FF1744",  # Red
+                    line_color="#FF073A",  # Electric Crimson
                     line_width=1.5,
                     opacity=0.6,
                 )
@@ -561,7 +561,7 @@ class PlotlyChartWidget(QWidget):
                     y=pivots[level],
                     text=f" {level}: {pivots[level]:.2f}",
                     showarrow=False,
-                    font=dict(color="#FF1744", size=8),
+                    font=dict(color="#FF073A", size=8),
                     xanchor="left",
                     yanchor="middle",
                 )

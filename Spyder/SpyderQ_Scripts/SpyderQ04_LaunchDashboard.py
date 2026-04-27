@@ -511,7 +511,7 @@ def main():
 
     # Create and show dashboard
     dashboard = WorkingSpyderDashboard()
-    dashboard.show()
+    dashboard.showMaximized()
 
     # Run application
     return app.exec()

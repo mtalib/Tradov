@@ -113,7 +113,7 @@ class CircuitBreaker:
         self.lock = threading.Lock()
         self.expected_exception = expected_exception or Exception
 
-        logger.info("%s initialized (threshold=%s, timeout=%ss)", self.name, failure_threshold, recovery_timeout)
+        logger.info("%s initialized (threshold=%s, timeout=%ss)", self.name, failure_threshold, recovery_timeout)  # noqa: E501
 
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         """

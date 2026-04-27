@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import threading
 from collections import defaultdict, deque
@@ -119,7 +119,7 @@ class AgentMetricHistory:
     """Historical metrics for an agent"""
     agent_name: str
     metric_type: MetricType
-    values: deque = field(default_factory=lambda: deque(maxlen=1440))  # 24 hours at 1-minute intervals
+    values: deque = field(default_factory=lambda: deque(maxlen=1440))  # 24 hours at 1-minute intervals  # noqa: E501
     timestamps: deque = field(default_factory=lambda: deque(maxlen=1440))
 
     def add_value(self, value: float, timestamp: datetime):
@@ -333,7 +333,7 @@ class AIAgentMonitor:
         recommendations = self._generate_recommendations()
 
         return MonitoringReport(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_agents=total_agents,
             healthy_agents=status_counts['healthy'],
             warning_agents=status_counts['warning'],
@@ -402,7 +402,7 @@ class AIAgentMonitor:
         for alert in self.active_alerts:
             if alert.alert_id == alert_id and not alert.resolved:
                 alert.resolved = True
-                alert.resolution_time = datetime.now()
+                alert.resolution_time = datetime.now(timezone.utc)
                 self.logger.info("Alert %s acknowledged", alert_id)
                 return True
         return False
@@ -450,7 +450,7 @@ class AIAgentMonitor:
             self.health_status[agent_name] = AgentHealth(
                 agent_name=agent_name,
                 status=HealthStatus.UNKNOWN,
-                last_check=datetime.now(),
+                last_check=datetime.now(timezone.utc),
                 uptime=timedelta(0),
                 metrics={}
             )
@@ -465,7 +465,7 @@ class AIAgentMonitor:
                 )
 
             # Track start time
-            self.agent_start_times[agent_name] = datetime.now()
+            self.agent_start_times[agent_name] = datetime.now(timezone.utc)
 
     def _start_monitoring_threads(self):
         """Start all monitoring threads."""
@@ -536,8 +536,8 @@ class AIAgentMonitor:
     def _update_agent_health(self, agent_name: str, status_info: dict[str, Any]):
         """Update health status for an agent."""
         # Calculate uptime
-        start_time = self.agent_start_times.get(agent_name, datetime.now())
-        uptime = datetime.now() - start_time
+        start_time = self.agent_start_times.get(agent_name, datetime.now(timezone.utc))
+        uptime = datetime.now(timezone.utc) - start_time
 
         # Extract metrics
         metrics = {}
@@ -592,7 +592,7 @@ class AIAgentMonitor:
         self.health_status[agent_name] = AgentHealth(
             agent_name=agent_name,
             status=status,
-            last_check=datetime.now(),
+            last_check=datetime.now(timezone.utc),
             uptime=uptime,
             metrics=metrics,
             issues=issues,
@@ -605,7 +605,7 @@ class AIAgentMonitor:
     def _collect_all_metrics(self):
         """Collect metrics from all agents."""
         agent_status = self.agent_manager.get_agent_status()
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
 
         for agent_name, status_info in agent_status.get('agents', {}).items():
             self._collect_agent_metrics(agent_name, status_info, timestamp)
@@ -627,8 +627,8 @@ class AIAgentMonitor:
         # Success rate
         if 'success_rate' in agent_metrics:
             success_rate = float(agent_metrics['success_rate'].rstrip('%')) / 100
-            self.metric_history[agent_name][MetricType.SUCCESS_RATE].add_value(success_rate, timestamp)
-            self.metric_history[agent_name][MetricType.ERROR_RATE].add_value(1 - success_rate, timestamp)
+            self.metric_history[agent_name][MetricType.SUCCESS_RATE].add_value(success_rate, timestamp)  # noqa: E501
+            self.metric_history[agent_name][MetricType.ERROR_RATE].add_value(1 - success_rate, timestamp)  # noqa: E501
 
         # Throughput (calls per minute)
         if 'total_calls' in agent_metrics and 'last_call' in agent_metrics:
@@ -639,7 +639,7 @@ class AIAgentMonitor:
                 minutes = (timestamp - self.agent_start_times[agent_name]).total_seconds() / 60
                 if minutes > 0:
                     throughput = total_calls / minutes
-                    self.metric_history[agent_name][MetricType.THROUGHPUT].add_value(throughput, timestamp)
+                    self.metric_history[agent_name][MetricType.THROUGHPUT].add_value(throughput, timestamp)  # noqa: E501
 
     # ==========================================================================
     # PRIVATE METHODS - ALERT MANAGEMENT
@@ -745,7 +745,7 @@ class AIAgentMonitor:
             current_value=current_value,
             threshold=threshold,
             message=message,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
         self.active_alerts.append(alert)

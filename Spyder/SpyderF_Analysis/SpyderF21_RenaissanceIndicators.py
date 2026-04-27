@@ -323,7 +323,7 @@ class MeanReversionIndicators:
             )
             kf = kf.em(obs, n_iter=n_iter)
             state_means, _ = kf.smooth(obs)
-            return pd.Series(state_means.flatten(), index=prices.index, name=f"{prices.name}_kalman")
+            return pd.Series(state_means.flatten(), index=prices.index, name=f"{prices.name}_kalman")  # noqa: E501
         except Exception as exc:
             self.error_handler.handle_error(exc, {'method': 'kalman_smooth_price'})
             return prices.rolling(window=5, min_periods=1).mean()
@@ -784,7 +784,7 @@ class RenaissanceStyleSignalGenerator:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_renaissance_signal_generator(confidence_threshold: float = 0.5) -> RenaissanceStyleSignalGenerator:
+def create_renaissance_signal_generator(confidence_threshold: float = 0.5) -> RenaissanceStyleSignalGenerator:  # noqa: E501
     """
     Factory function to create a Renaissance-style signal generator.
 

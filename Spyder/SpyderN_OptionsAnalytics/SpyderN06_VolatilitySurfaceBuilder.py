@@ -32,34 +32,61 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import optimize
-from scipy.interpolate import RBFInterpolator, griddata
-from scipy.ndimage import gaussian_filter
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from scipy import optimize  # noqa: E402
+from scipy.interpolate import RBFInterpolator, griddata  # noqa: E402
+from scipy.ndimage import gaussian_filter  # noqa: E402
+import plotly.graph_objects as go  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from pathlib import Path
+from pathlib import Path  # noqa: E402
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
+import logging  # noqa: E402
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+except ImportError:
+    try:
+        from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+        from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    except ImportError:
+        class SpyderLogger:  # type: ignore[no-redef]
+            """Fallback logger adapter for standalone usage."""
+
+            @staticmethod
+            def get_logger(name: str):
+                return logging.getLogger(name)
+
+        class SpyderErrorHandler:  # type: ignore[no-redef]
+            """Fallback error handler for standalone usage."""
+
+            def handle_error(self, error: Exception, context: str | None = None) -> None:
+                logging.getLogger(__name__).error(
+                    "Error in %s: %s", context or "unknown", error
+                )
 
 # Import other options modules if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
-    from SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
     ANALYTICS_AVAILABLE = True
 except ImportError:
-    ANALYTICS_AVAILABLE = False
-    logging.info("⚠️ Options analytics modules not available")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
+        from SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
+        ANALYTICS_AVAILABLE = True
+    except ImportError:
+        ANALYTICS_AVAILABLE = False
+        logging.info("⚠️ Options analytics modules not available")
 
 # ==============================================================================
 # CONSTANTS
@@ -207,6 +234,15 @@ class SurfaceAnalytics:
     rich_strikes: list[tuple[float, datetime]]
     cheap_strikes: list[tuple[float, datetime]]
     arbitrage_opportunities: list[ArbitrageOpportunity]
+
+
+def _coerce_datetime(value: Any) -> datetime | None:
+    """Best-effort conversion of timestamps to datetime."""
+    if isinstance(value, datetime):
+        return value
+    if hasattr(value, "to_pydatetime"):
+        return value.to_pydatetime()
+    return None
 
 # ==============================================================================
 # VOLATILITY SURFACE BUILDER CLASS
@@ -697,10 +733,10 @@ class VolatilitySurfaceBuilder:
                     # Create arbitrage opportunity
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.CALENDAR,
-                        strikes=[surface.strikes[m_idx] if m_idx < len(surface.strikes) else surface.underlying_price],
-                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),
-                                 datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],
-                        current_ivs=[surface.iv_surface[t_idx-1, m_idx], surface.iv_surface[t_idx, m_idx]],
+                        strikes=[surface.strikes[m_idx] if m_idx < len(surface.strikes) else surface.underlying_price],  # noqa: E501
+                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),  # noqa: E501
+                                 datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
+                        current_ivs=[surface.iv_surface[t_idx-1, m_idx], surface.iv_surface[t_idx, m_idx]],  # noqa: E501
                         theoretical_bound=total_variance[t_idx-1],
                         violation_amount=total_variance[t_idx-1] - total_variance[t_idx],
                         profit_potential=100 * (total_variance[t_idx-1] - total_variance[t_idx]),
@@ -728,12 +764,12 @@ class VolatilitySurfaceBuilder:
                     violations += 1
 
                     # Create arbitrage opportunity
-                    strikes = [surface.underlying_price * moneyness[i] for i in [m_idx-1, m_idx, m_idx+1]]
+                    strikes = [surface.underlying_price * moneyness[i] for i in [m_idx-1, m_idx, m_idx+1]]  # noqa: E501
 
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.BUTTERFLY,
                         strikes=strikes,
-                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],
+                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
                         current_ivs=[ivs[m_idx-1], ivs[m_idx], ivs[m_idx+1]],
                         theoretical_bound=0,
                         violation_amount=abs(butterfly),
@@ -809,6 +845,69 @@ class VolatilitySurfaceBuilder:
         )
 
         return analytics
+
+    def get_term_structure_snapshot(self, symbol: str = "SPY") -> dict[str, Any]:
+        """Return a compact term-structure snapshot for downstream gating."""
+        surface = self.surfaces.get(symbol)
+        if surface is None:
+            raise ValueError(f"No surface available for {symbol}")
+
+        if surface.atm_term_structure.size == 0:
+            surface.atm_term_structure = self._calculate_atm_term_structure(surface)
+
+        analytics = self.analyze_surface(symbol)
+        unique_times = np.unique(surface.time_grid[:, 0])
+        if unique_times.size == 0 or surface.atm_term_structure.size == 0:
+            raise ValueError(f"Term structure unavailable for {symbol}")
+
+        node_0 = self._sample_atm_node(surface, unique_times, target_days=0.0)
+        node_1 = self._sample_atm_node(surface, unique_times, target_days=1.0)
+        node_7 = self._sample_atm_node(surface, unique_times, target_days=7.0)
+        node_30 = self._sample_atm_node(surface, unique_times, target_days=30.0)
+
+        age_ms = max(0, int((datetime.now() - surface.timestamp).total_seconds() * 1000))
+        coverage = float(np.count_nonzero(np.isfinite(surface.iv_surface)) / surface.iv_surface.size)  # noqa: E501
+        age_penalty = 1.0 if age_ms <= 60000 else max(0.0, 1.0 - min(age_ms - 60000, 240000) / 240000.0)  # noqa: E501
+        surface_confidence = max(0.0, min(1.0, coverage * age_penalty))
+
+        return {
+            "underlying": symbol,
+            "atm_iv_0dte": node_0,
+            "atm_iv_1dte": node_1,
+            "atm_iv_7dte": node_7,
+            "atm_iv_30dte": node_30,
+            "term_slope_0_7": self._annualized_slope(node_0, node_7, 0.0, 7.0),
+            "term_slope_7_30": self._annualized_slope(node_7, node_30, 7.0, 30.0),
+            "rr_25d": analytics.risk_reversal_25d,
+            "fly_25d": analytics.butterfly_25d,
+            "surface_confidence": surface_confidence,
+            "surface_age_ms": age_ms,
+            "snapshot_ts": surface.timestamp.isoformat(),
+        }
+
+    def _sample_atm_node(
+        self,
+        surface: VolatilitySurface,
+        unique_times: np.ndarray,
+        target_days: float,
+    ) -> float:
+        """Sample the ATM term structure at the nearest requested DTE node."""
+        target_years = max(0.0, target_days) / 365.0
+        index = int(np.argmin(np.abs(unique_times - target_years)))
+        return float(surface.atm_term_structure[index])
+
+    def _annualized_slope(
+        self,
+        start_value: float,
+        end_value: float,
+        start_days: float,
+        end_days: float,
+    ) -> float:
+        """Compute annualized slope between two DTE nodes."""
+        delta_days = end_days - start_days
+        if delta_days <= 0:
+            return 0.0
+        return float((end_value - start_value) / (delta_days / 365.0))
 
     def _analyze_term_structure(self, surface: VolatilitySurface) -> tuple[str, float]:
         """Analyze term structure shape"""
@@ -1017,71 +1116,57 @@ class VolatilitySurfaceBuilder:
 # ==============================================================================
 # TEST/DEMO CODE
 # ==============================================================================
-if __name__ == "__main__":
-
-    # Create builder
+def _demo() -> None:
+    """Run a standalone demo with synthetic options data."""
     builder = VolatilitySurfaceBuilder()
 
-    # Generate synthetic options data for testing
-
-    # Create sample data
-    strikes = np.arange(550, 621, 5)
-    expiries = [
+    sample_strikes = np.arange(550, 621, 5)
+    sample_expiries = [
         datetime.now() + timedelta(days=7),
         datetime.now() + timedelta(days=14),
         datetime.now() + timedelta(days=30),
         datetime.now() + timedelta(days=60),
-        datetime.now() + timedelta(days=90)
+        datetime.now() + timedelta(days=90),
     ]
 
-    options_data = []
-    underlying_price = 585.0
+    sample_rows: list[dict[str, Any]] = []
+    sample_underlying = 585.0
 
-    for expiry in expiries:
-        time_to_exp = (expiry - datetime.now()).days / 365.0
+    for sample_expiry in sample_expiries:
+        time_to_exp = (sample_expiry - datetime.now()).days / 365.0
 
-        for strike in strikes:
-            # Generate IV with smile
-            moneyness = strike / underlying_price
-            base_iv = 0.15 + 0.05 * time_to_exp  # Term structure
+        for sample_strike in sample_strikes:
+            sample_moneyness = sample_strike / sample_underlying
+            base_iv = 0.15 + 0.05 * time_to_exp
+            smile = 0.02 * (np.log(sample_moneyness)) ** 2
+            skew = -0.05 * (sample_moneyness - 1.0)
 
-            # Add smile
-            smile = 0.02 * (np.log(moneyness))**2
-            skew = -0.05 * (moneyness - 1.0)
+            sample_iv = base_iv + smile + skew + np.random.normal(0, 0.005)
+            sample_iv = max(0.05, min(0.50, sample_iv))
 
-            iv = base_iv + smile + skew + np.random.normal(0, 0.005)
-            iv = max(0.05, min(0.50, iv))  # Bounds
+            sample_rows.append(
+                {
+                    'strike': sample_strike,
+                    'expiry': sample_expiry,
+                    'option_type': 'CALL',
+                    'implied_volatility': sample_iv,
+                    'volume': np.random.randint(100, 5000),
+                    'open_interest': np.random.randint(1000, 10000),
+                }
+            )
 
-            options_data.append({
-                'strike': strike,
-                'expiry': expiry,
-                'option_type': 'CALL',
-                'implied_volatility': iv,
-                'volume': np.random.randint(100, 5000),
-                'open_interest': np.random.randint(1000, 10000)
-            })
-
-    df = pd.DataFrame(options_data)
-
-    # Build surface
-    surface = builder.build_surface(
+    sample_df = pd.DataFrame(sample_rows)
+    builder.build_surface(
         symbol='SPY',
-        options_data=df,
-        underlying_price=underlying_price,
-        risk_free_rate=0.05
+        options_data=sample_df,
+        underlying_price=sample_underlying,
+        risk_free_rate=0.05,
     )
-
-
-    # Analyze surface
     analytics = builder.analyze_surface('SPY')
-
-
-
-
-
-    # Check arbitrage
     for _opp in analytics.arbitrage_opportunities[:3]:
         pass
 
-    # Plot surface (commented for non-interactive environment)
+
+if __name__ == "__main__":
+    _demo()
 

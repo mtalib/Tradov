@@ -64,6 +64,8 @@ for _k in ("Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
 
 for _k in ("Spyder.SpyderA_Core.SpyderA05_EventManager",
            "SpyderA_Core.SpyderA05_EventManager"):
+    if _k in sys.modules:
+        continue  # Real module already loaded; don't clobber EventManager/EventType/Event
     from enum import Enum as _Enum
     _m = _ensure_mod(_k)
     _m.EventType = _Enum("EventType", {"MARKET": "market", "SYSTEM": "system",

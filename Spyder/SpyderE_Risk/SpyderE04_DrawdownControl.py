@@ -191,7 +191,7 @@ class DrawdownController:
         ...     # Apply risk adjustments
     """
 
-    def __init__(self, initial_equity: float, config: dict[str, Any] | None = None):
+    def __init__(self, initial_equity: float = 100_000.0, config: dict[str, Any] | None = None):
         """
         Initialize drawdown controller.
 
@@ -343,7 +343,7 @@ class DrawdownController:
                 max_positions=max_positions,
                 allow_new_trades=self.current_state != DrawdownState.SHUTDOWN,
                 require_stops=self.current_state.value in ['caution', 'critical', 'emergency'],
-                max_loss_per_trade=0.01 if self.current_state.value in ['critical', 'emergency'] else 0.02,
+                max_loss_per_trade=0.01 if self.current_state.value in ['critical', 'emergency'] else 0.02,  # noqa: E501
                 allowed_strategies=allowed_strategies,
                 restrictions=restrictions
             )
@@ -832,7 +832,7 @@ class DrawdownController:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_drawdown_controller(initial_equity: float, config: dict[str, Any] | None = None) -> DrawdownController:
+def create_drawdown_controller(initial_equity: float, config: dict[str, Any] | None = None) -> DrawdownController:  # noqa: E501
     """
     Create drawdown controller instance.
 

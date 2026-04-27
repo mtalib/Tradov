@@ -23,6 +23,7 @@ Symbols
     USI:TICK   — NYSE Cumulative Tick Index
     USI:TRIN.NY — NYSE Arms Index (TRIN)
     USI:ADD    — NYSE Advance-Decline
+    USI:NYMO   — NYSE McClellan Oscillator
 
 Requirements
 ------------
@@ -43,7 +44,8 @@ Usage
 # ==============================================================================
 import logging
 import math
-import os
+import os  # noqa: F401
+import queue
 import threading
 import time
 from datetime import datetime, timezone
@@ -53,7 +55,7 @@ from typing import Any, Dict, Optional
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
+    from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page  # noqa: F401
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
@@ -74,6 +76,9 @@ _SYMBOLS: Dict[str, str] = {
     "tick": "https://www.tradingview.com/symbols/USI-TICK/",
     "trin": "https://www.tradingview.com/symbols/USI-TRIN.NY/",
     "add":  "https://www.tradingview.com/symbols/USI-ADD/",
+    "vold": "https://www.tradingview.com/symbols/USI-VOLD/",
+    # NOTE: USI-NYMO does not have a TradingView symbol page (returns 404).
+    # NYMO is computed as an ADD-EMA oscillator proxy in SpyderS07.
 }
 
 _CSS_PRICE = 'span[class*="last-"]'
@@ -103,10 +108,20 @@ _ADD_BULL        =  500
 _ADD_BEAR        = -500
 _ADD_STRONG_BEAR = -1500
 
+# NYMO (NYSE McClellan Oscillator) thresholds.
+# NYMO oscillates roughly –100 to +100; > 40 is overbought, <– 40 is oversold
+# on an intraday basis.  Extremes (±80) signal strong mean-reversion setups.
+_NYMO_STRONG_BULL =  60.0
+_NYMO_BULL        =  20.0
+_NYMO_BEAR        = -20.0
+_NYMO_STRONG_BEAR = -60.0
+
 # Page load / selector timeouts (ms)
-_NAV_TIMEOUT_MS  = 15_000
-_SEL_TIMEOUT_MS  = 10_000
-_TEXT_TIMEOUT_MS  =  3_000
+# NYMO can take 15-20 s to render its price element after domcontentloaded;
+# keep _SEL_TIMEOUT_MS generous to avoid aborting the entire launch.
+_NAV_TIMEOUT_MS  = 20_000
+_SEL_TIMEOUT_MS  = 25_000
+_TEXT_TIMEOUT_MS  =  5_000
 
 
 # ==============================================================================
@@ -127,15 +142,19 @@ class TradingViewInternals:
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._pw: Any = None          # Playwright context-manager object
-        self._browser: Optional[Browser] = None
-        self._ctx: Optional[BrowserContext] = None
-        self._pages: Dict[str, Page] = {}
         self._cache: Dict[str, Any] = {}
         self._cache_ts: float = 0.0
-        self._initialised: bool = False
-        logger.info("TradingViewInternals created (browser not yet launched).")
+
+        # All Playwright calls must run on a single persistent thread.
+        # _req_queue carries (result_holder: list, event: threading.Event) tuples.
+        self._req_queue: queue.Queue = queue.Queue()
+        self._worker_thread = threading.Thread(
+            target=self._browser_worker,
+            name="S11-playwright-worker",
+            daemon=True,
+        )
+        self._worker_thread.start()
+        logger.debug("TradingViewInternals created (browser not yet launched).")
 
     # ------------------------------------------------------------------
     # Public API
@@ -144,52 +163,45 @@ class TradingViewInternals:
         """
         Return the latest breadth internals.
 
+        The call is routed to the persistent browser-worker thread so that
+        Playwright always runs on the same thread (sync_playwright is not
+        thread-safe across threads).
+
         Returns:
             Dictionary with keys:
                 tick          — float  (NYSE TICK)
                 trin          — float  (NYSE TRIN / Arms Index)
                 add           — float  (NYSE Advance − Decline)
+                nymo          — float  (NYSE McClellan Oscillator)
                 breadth_regime — str   (strong_bull|bull|neutral|bear|strong_bear)
                 as_of         — datetime (UTC timestamp of the scrape)
         """
-        with self._lock:
-            # Serve cache outside market hours if fresh enough
-            if self._cache and not self._is_market_hours():
-                age = time.time() - self._cache_ts
-                if age < _OFF_HOURS_CACHE_TTL:
-                    return dict(self._cache)
+        # Serve off-hours cache without hitting the browser thread
+        if self._cache and not self._is_market_hours():
+            age = time.time() - self._cache_ts
+            if age < _OFF_HOURS_CACHE_TTL:
+                return dict(self._cache)
 
-            try:
-                if not self._initialised:
-                    self._launch_browser()
-
-                result = self._refresh_all()
-                result["breadth_regime"] = self._classify_breadth(result)
-                result["as_of"] = datetime.now(timezone.utc)
-
-                self._cache = dict(result)
-                self._cache_ts = time.time()
-                return result
-
-            except Exception as exc:
-                logger.warning(
-                    "TradingView scrape failed: %s — returning stubs.", exc
-                )
-                return self._stub()
+        result_holder: list = [None]
+        done = threading.Event()
+        self._req_queue.put((result_holder, done))
+        done.wait(timeout=60)  # generous timeout; browser can be slow
+        if result_holder[0] is not None:
+            return result_holder[0]
+        return self._stub()
 
     def get_status(self) -> Dict[str, Any]:
         """Return diagnostic status."""
         return {
-            "initialised": self._initialised,
+            "initialised": self._worker_thread.is_alive(),
             "cached": bool(self._cache),
             "cache_age_s": round(time.time() - self._cache_ts, 1) if self._cache_ts else None,
-            "pages": list(self._pages.keys()),
+            "pages": list(_SYMBOLS.keys()),
         }
 
     def close(self) -> None:
-        """Shut down the headless browser."""
-        with self._lock:
-            self._close_browser()
+        """Signal the browser worker to shut down."""
+        self._req_queue.put(None)  # sentinel
 
     # Context-manager support
     def __enter__(self) -> "TradingViewInternals":
@@ -199,64 +211,113 @@ class TradingViewInternals:
         self.close()
 
     # ------------------------------------------------------------------
-    # Browser lifecycle
+    # Persistent browser worker — runs entirely on _worker_thread
     # ------------------------------------------------------------------
-    def _launch_browser(self) -> None:
-        """Start Playwright + Chromium and open persistent tabs."""
-        if not PLAYWRIGHT_AVAILABLE:
-            raise RuntimeError(
-                "playwright is not installed.  "
-                "Run: pip install playwright && python -m playwright install chromium"
-            )
+    def _browser_worker(self) -> None:
+        """Event loop that owns the Playwright browser for its full lifetime."""
+        pw: Any = None
+        browser: Any = None
+        ctx: Any = None
+        pages: Dict[str, Any] = {}
+        initialised = False
 
-        self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=True)
-        self._ctx = self._browser.new_context(user_agent=_USER_AGENT)
+        def launch() -> None:
+            nonlocal pw, browser, ctx, pages, initialised
+            if not PLAYWRIGHT_AVAILABLE:
+                raise RuntimeError(
+                    "playwright is not installed. "
+                    "Run: pip install playwright && python -m playwright install chromium"
+                )
+            pw = sync_playwright().start()
+            browser = pw.chromium.launch(headless=True)
+            ctx = browser.new_context(user_agent=_USER_AGENT)
+            for name, url in _SYMBOLS.items():
+                try:
+                    pg = ctx.new_page()
+                    pg.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                    pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
+                    pages[name] = pg
+                    logger.debug("TradingView tab opened: %s → %s", name.upper(), url)
+                except Exception as page_exc:
+                    logger.warning(
+                        "TradingView: failed to open tab for %s (%s) — symbol will show NaN.",
+                        name.upper(), page_exc,
+                    )
+            if not pages:
+                raise RuntimeError("TradingView: all symbol pages failed to open — browser unusable.")  # noqa: E501
+            initialised = True
+            logger.debug("TradingView headless browser launched with %d/%d tabs.", len(pages), len(_SYMBOLS))  # noqa: E501
 
-        for name, url in _SYMBOLS.items():
-            pg = self._ctx.new_page()
-            pg.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-            pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
-            self._pages[name] = pg
-            logger.info("TradingView tab opened: %s → %s", name.upper(), url)
+        def close_browser() -> None:
+            nonlocal pw, browser, ctx, pages, initialised
+            try:
+                if ctx:
+                    ctx.close()
+                if browser:
+                    browser.close()
+                if pw:
+                    pw.stop()
+            except Exception as exc:
+                logger.debug("Browser cleanup error (harmless): %s", exc)
+            finally:
+                pages.clear()
+                ctx = browser = pw = None
+                initialised = False
 
-        self._initialised = True
-        logger.info("TradingView headless browser launched with %d tabs.", len(self._pages))
+        def refresh_all() -> Dict[str, Any]:
+            result: Dict[str, Any] = {}
+            for name, pg in pages.items():
+                try:
+                    pg.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                    pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
+                    raw = pg.locator(_CSS_PRICE).first.inner_text(timeout=_TEXT_TIMEOUT_MS)
+                    result[name] = self._parse_price(raw)
+                except Exception as exc:
+                    logger.warning("Failed to scrape %s: %s", name.upper(), exc)
+                    result[name] = float("nan")
+            return result
 
+        while True:
+            item = self._req_queue.get()
+            if item is None:
+                # Shutdown sentinel
+                close_browser()
+                return
+
+            result_holder, done = item
+            try:
+                if not initialised:
+                    launch()
+
+                snapshot = refresh_all()
+                snapshot["breadth_regime"] = self._classify_breadth(snapshot)
+                snapshot["as_of"] = datetime.now(timezone.utc)
+
+                self._cache = dict(snapshot)
+                self._cache_ts = time.time()
+                result_holder[0] = snapshot
+
+            except Exception as exc:
+                logger.warning("TradingView scrape failed: %s — returning stubs.", exc)
+                # On error, reset so next call re-launches the browser
+                close_browser()
+                result_holder[0] = None
+            finally:
+                done.set()
+
+    # ------------------------------------------------------------------
+    # Browser lifecycle (legacy — kept for _close_browser callers)
+    # ------------------------------------------------------------------
     def _close_browser(self) -> None:
-        """Release all Playwright resources."""
-        try:
-            if self._ctx:
-                self._ctx.close()
-            if self._browser:
-                self._browser.close()
-            if self._pw:
-                self._pw.stop()
-        except Exception as exc:
-            logger.debug("Browser cleanup error (harmless): %s", exc)
-        finally:
-            self._pages.clear()
-            self._ctx = None
-            self._browser = None
-            self._pw = None
-            self._initialised = False
+        """Deprecated: use close() to stop the worker thread."""
+        self.close()
 
     # ------------------------------------------------------------------
     # Scraping helpers
     # ------------------------------------------------------------------
     def _refresh_all(self) -> Dict[str, Any]:
-        """Reload every tab and extract the current price."""
-        result: Dict[str, Any] = {}
-        for name, pg in self._pages.items():
-            try:
-                pg.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
-                raw = pg.locator(_CSS_PRICE).first.inner_text(timeout=_TEXT_TIMEOUT_MS)
-                result[name] = self._parse_price(raw)
-            except Exception as exc:
-                logger.warning("Failed to scrape %s: %s", name.upper(), exc)
-                result[name] = float("nan")
-        return result
+        """Not used directly — scraping runs inside _browser_worker."""
+        return {}
 
     @staticmethod
     def _parse_price(text: str) -> float:
@@ -325,6 +386,20 @@ class TradingViewInternals:
             else:
                 votes["neutral"] += 1
 
+        # NYMO vote (NYSE McClellan Oscillator)
+        nymo = data.get("nymo", float("nan"))
+        if not math.isnan(nymo):
+            if nymo >= _NYMO_STRONG_BULL:
+                votes["strong_bull"] += 1
+            elif nymo >= _NYMO_BULL:
+                votes["bull"] += 1
+            elif nymo <= _NYMO_STRONG_BEAR:
+                votes["strong_bear"] += 1
+            elif nymo <= _NYMO_BEAR:
+                votes["bear"] += 1
+            else:
+                votes["neutral"] += 1
+
         return max(votes, key=votes.get)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
@@ -350,6 +425,8 @@ class TradingViewInternals:
             "tick": float("nan"),
             "trin": float("nan"),
             "add":  float("nan"),
+            "vold": float("nan"),
+            "nymo": float("nan"),
             "breadth_regime": "neutral",
             "as_of": datetime.now(timezone.utc),
         }

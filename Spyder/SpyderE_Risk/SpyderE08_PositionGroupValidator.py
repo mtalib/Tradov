@@ -44,7 +44,7 @@ except ImportError:
     })()
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, ErrorCategory, ErrorSeverity
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, ErrorCategory, ErrorSeverity  # noqa: E501
 except ImportError:
     class ErrorCategory(Enum):
         VALIDATION = "validation"
@@ -62,7 +62,7 @@ except ImportError:
     })
 
 try:
-    from SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight  # noqa: F401
+    from SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight  # noqa: E501, F401
 except ImportError:
     # Define minimal enums if not available
     class StrategyType(Enum):
@@ -647,7 +647,7 @@ class PositionGroupValidator:
                             if result == ValidationResult.INVALID:
                                 category_result = ValidationResult.INVALID
                                 report.errors.extend(messages)
-                            elif result == ValidationResult.WARNING and category_result != ValidationResult.INVALID:
+                            elif result == ValidationResult.WARNING and category_result != ValidationResult.INVALID:  # noqa: E501
                                 category_result = ValidationResult.WARNING
                                 report.warnings.extend(messages)
 
@@ -668,7 +668,7 @@ class PositionGroupValidator:
                 report.recommendations = self._generate_recommendations(position_group, report)
 
                 # Check if adjustments needed
-                if report.overall_result in [ValidationResult.WARNING, ValidationResult.NEEDS_ADJUSTMENT]:
+                if report.overall_result in [ValidationResult.WARNING, ValidationResult.NEEDS_ADJUSTMENT]:  # noqa: E501
                     report.adjustments_needed = self._calculate_adjustments(position_group, report)
 
                 # Update statistics
@@ -679,7 +679,7 @@ class PositionGroupValidator:
 
                 # Log result
                 self.logger.info(
-                    f"Validated {position_group.strategy_type.value} group {position_group.group_id}: "
+                    f"Validated {position_group.strategy_type.value} group {position_group.group_id}: "  # noqa: E501
                     f"{report.overall_result.value}"
                 )
 

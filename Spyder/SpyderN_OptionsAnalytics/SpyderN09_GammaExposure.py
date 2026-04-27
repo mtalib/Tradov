@@ -46,6 +46,26 @@ from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGree
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
+
+class _NullIBClient:
+    """Minimal IB-like stub for OptionChainManager compatibility."""
+
+    def __init__(self) -> None:
+        # OptionChainManager assigns callback attributes onto ib.*
+        self.ib = type("_IBStub", (), {})()
+
+    def is_connected(self) -> bool:
+        return False
+
+
+def _build_option_chain_manager(event_manager: Any) -> OptionChainManager:
+    """Construct OptionChainManager across legacy and current signatures."""
+    try:
+        return OptionChainManager()
+    except TypeError:
+        # Newer C03 signature requires (ib_client, event_manager).
+        return OptionChainManager(_NullIBClient(), event_manager)
+
 SPOT_RANGE_PERCENTAGE = 0.20  # Calculate GEX for +/- 20% of spot
 SPOT_INCREMENTS = 0.50  # $0.50 increments for GEX profile
 MIN_OPEN_INTEREST = 100  # Minimum OI to include in calculations
@@ -218,11 +238,11 @@ class GammaExposureCalculator:
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        self.event_manager = get_event_manager()
 
         # Data sources
         self.opra_handler = opra_handler or OPRAGreeksHandler()
-        self.option_chain_mgr = option_chain_mgr or OptionChainManager()
-        self.event_manager = get_event_manager()
+        self.option_chain_mgr = option_chain_mgr or _build_option_chain_manager(self.event_manager)
 
         # Current state
         self.current_profile: GEXProfile | None = None
@@ -441,11 +461,72 @@ class GammaExposureCalculator:
                     'price': self.current_profile.price_levels[i],
                     'gamma': self.current_profile.gamma_exposure[i],
                     'gamma_pct': gamma / total_gamma,
-                    'type': 'resistance' if self.current_profile.gamma_exposure[i] > 0 else 'support',
-                    'distance_from_spot': self.current_profile.price_levels[i] - self.current_profile.spot_price
+                    'type': 'resistance' if self.current_profile.gamma_exposure[i] > 0 else 'support',  # noqa: E501
+                    'distance_from_spot': self.current_profile.price_levels[i] - self.current_profile.spot_price  # noqa: E501
                 })
 
         return sorted(levels, key=lambda x: abs(x['gamma']), reverse=True)
+
+    def get_dealer_walls_snapshot(self) -> dict:
+        """
+        Return a lightweight dealer-wall snapshot for S07 publication.
+
+        Attempts to use the cached GEX profile when available; falls back to
+        calling calculate_gex_profile() once, or to empty defaults on failure.
+
+        Returns:
+            Dict with keys: zero_gamma_level, spot_to_zero_gamma_pct,
+            call_wall_levels, put_wall_levels, wall_confidence, net_gex,
+            regime, snapshot_ts.
+        """
+        ts = datetime.now().isoformat()
+
+        if self.current_profile is None:
+            try:
+                self.calculate_gex_profile()
+            except Exception:
+                pass
+
+        if self.current_profile is None:
+            return {
+                "zero_gamma_level": float("nan"),
+                "spot_to_zero_gamma_pct": float("nan"),
+                "call_wall_levels": [],
+                "put_wall_levels": [],
+                "wall_confidence": 0.0,
+                "net_gex": float("nan"),
+                "regime": "unknown",
+                "snapshot_ts": ts,
+            }
+
+        profile = self.current_profile
+
+        # Distance from spot to zero-gamma as percentage of spot
+        zg = profile.zero_gamma_level
+        if zg is not None and profile.spot_price > 0:
+            spot_to_zg_pct = (profile.spot_price - zg) / profile.spot_price * 100.0
+        else:
+            spot_to_zg_pct = float("nan")
+
+        # Separate call walls (resistance = positive gamma) from put walls (support)
+        major = self.get_major_gamma_levels(threshold_pct=0.05)
+        call_walls = [float(lvl["price"]) for lvl in major if lvl["type"] == "resistance"][:3]
+        put_walls  = [float(lvl["price"]) for lvl in major if lvl["type"] == "support"][:3]
+
+        # Confidence: 1.0 when at least 4 walls identified
+        n_walls = len(call_walls) + len(put_walls)
+        wall_confidence = min(1.0, n_walls / 4.0)
+
+        return {
+            "zero_gamma_level": float(zg) if zg is not None else float("nan"),
+            "spot_to_zero_gamma_pct": float(spot_to_zg_pct),
+            "call_wall_levels": call_walls,
+            "put_wall_levels": put_walls,
+            "wall_confidence": float(wall_confidence),
+            "net_gex": float(profile.current_gex),
+            "regime": profile.regime.value,
+            "snapshot_ts": ts,
+        }
 
     def analyze_dealer_positioning(self) -> DealerPositioning:
         """
@@ -537,7 +618,7 @@ class GammaExposureCalculator:
             })
 
         # Signal 2: Approaching gamma flip
-        if self.current_metrics.distance_to_flip and abs(self.current_metrics.distance_to_flip) < FLIP_PROXIMITY_ALERT:
+        if self.current_metrics.distance_to_flip and abs(self.current_metrics.distance_to_flip) < FLIP_PROXIMITY_ALERT:  # noqa: E501
             signals.append({
                 'signal': GEXSignal.APPROACHING_FLIP,
                 'strength': 1.0 - abs(self.current_metrics.distance_to_flip) / FLIP_PROXIMITY_ALERT,
@@ -565,10 +646,10 @@ class GammaExposureCalculator:
             })
 
         # Signal 4: Hedging flow opportunities
-        if self.current_profile.expected_flow in [HedgingFlow.STRONG_BUYING, HedgingFlow.STRONG_SELLING]:
-            flow_direction = 'BUYING' if 'BUYING' in self.current_profile.expected_flow.value else 'SELLING'
+        if self.current_profile.expected_flow in [HedgingFlow.STRONG_BUYING, HedgingFlow.STRONG_SELLING]:  # noqa: E501
+            flow_direction = 'BUYING' if 'BUYING' in self.current_profile.expected_flow.value else 'SELLING'  # noqa: E501
             signals.append({
-                'signal': GEXSignal.HEDGING_FLOW_BUY if flow_direction == 'BUYING' else GEXSignal.HEDGING_FLOW_SELL,
+                'signal': GEXSignal.HEDGING_FLOW_BUY if flow_direction == 'BUYING' else GEXSignal.HEDGING_FLOW_SELL,  # noqa: E501
                 'strength': 0.8,
                 'action': f'JOIN_DEALER_{flow_direction}',
                 'reason': f'Expected strong dealer {flow_direction.lower()}',
@@ -603,7 +684,7 @@ class GammaExposureCalculator:
         if len(df) > 0:
             df['gex_change'] = df['gex'].diff()
             df['flip_change'] = df['flip'].diff()
-            df['volatility_regime'] = df['regime'].map(lambda x: 'suppressed' if 'positive' in x else 'elevated')
+            df['volatility_regime'] = df['regime'].map(lambda x: 'suppressed' if 'positive' in x else 'elevated')  # noqa: E501
 
         return df
 
@@ -735,7 +816,7 @@ class GammaExposureCalculator:
 
         # Calculate gamma gradient
         if current_idx > 0 and current_idx < len(prices) - 1:
-            gamma_slope = (gamma[current_idx + 1] - gamma[current_idx - 1]) / (prices[current_idx + 1] - prices[current_idx - 1])
+            gamma_slope = (gamma[current_idx + 1] - gamma[current_idx - 1]) / (prices[current_idx + 1] - prices[current_idx - 1])  # noqa: E501
         else:
             gamma_slope = 0
 
@@ -764,13 +845,13 @@ class GammaExposureCalculator:
         prev_close_gex = self._get_previous_close_gex()
 
         # Intraday stats
-        today_data = hist_df[pd.to_datetime(hist_df['timestamp']).dt.date == date.today()] if 'timestamp' in hist_df else hist_df
+        today_data = hist_df[pd.to_datetime(hist_df['timestamp']).dt.date == date.today()] if 'timestamp' in hist_df else hist_df  # noqa: E501
         intraday_high = today_data['gex'].max() if len(today_data) > 0 else current_gex
         intraday_low = today_data['gex'].min() if len(today_data) > 0 else current_gex
 
         # Moving averages
-        avg_5d = hist_df['gex'].tail(5 * INTRADAY_POINTS).mean() if len(hist_df) > 5 else current_gex
-        avg_20d = hist_df['gex'].tail(20 * INTRADAY_POINTS).mean() if len(hist_df) > 20 else current_gex
+        avg_5d = hist_df['gex'].tail(5 * INTRADAY_POINTS).mean() if len(hist_df) > 5 else current_gex  # noqa: E501
+        avg_20d = hist_df['gex'].tail(20 * INTRADAY_POINTS).mean() if len(hist_df) > 20 else current_gex  # noqa: E501
 
         # Expected volatility based on GEX
         expected_vol = self._estimate_volatility_from_gex(current_gex)
@@ -791,13 +872,13 @@ class GammaExposureCalculator:
             current_gex=current_gex,
             prev_close_gex=prev_close_gex,
             gex_change=current_gex - prev_close_gex,
-            gex_change_pct=((current_gex - prev_close_gex) / abs(prev_close_gex) * 100) if prev_close_gex != 0 else 0,
+            gex_change_pct=((current_gex - prev_close_gex) / abs(prev_close_gex) * 100) if prev_close_gex != 0 else 0,  # noqa: E501
             intraday_high=intraday_high,
             intraday_low=intraday_low,
             avg_gex_5d=avg_5d,
             avg_gex_20d=avg_20d,
             expected_volatility=expected_vol,
-            volatility_regime='suppressed' if current_gex > VOLATILITY_SUPPRESSION_LEVEL else 'elevated',
+            volatility_regime='suppressed' if current_gex > VOLATILITY_SUPPRESSION_LEVEL else 'elevated',  # noqa: E501
             nearest_flip=profile.zero_gamma_level,
             distance_to_flip=distance_to_flip,
             major_gamma_levels=major_levels[:5],  # Top 5 levels
@@ -927,7 +1008,7 @@ class GammaExposureCalculator:
             if tte > 0:
                 # Simplified ATM gamma approximation
                 iv = 0.20  # Default IV
-                gamma = np.exp(-0.5 * ((spot - strike) / (spot * iv * np.sqrt(tte)))**2) / (spot * iv * np.sqrt(2 * np.pi * tte))
+                gamma = np.exp(-0.5 * ((spot - strike) / (spot * iv * np.sqrt(tte)))**2) / (spot * iv * np.sqrt(2 * np.pi * tte))  # noqa: E501
 
                 self._gamma_cache[cache_key] = gamma
                 return gamma
@@ -1110,7 +1191,7 @@ class GammaExposureCalculator:
         distance = abs(spot - flip)
 
         if distance < FLIP_PROXIMITY_ALERT:
-            self.logger.warning(f"Approaching gamma flip: Spot ${spot:.2f}, Flip ${flip:.2f}, Distance ${distance:.2f}")
+            self.logger.warning(f"Approaching gamma flip: Spot ${spot:.2f}, Flip ${flip:.2f}, Distance ${distance:.2f}")  # noqa: E501
 
             # Emit alert event
             event = Event(
@@ -1163,7 +1244,7 @@ class GammaExposureCalculator:
 
         ax1.set_xlabel('SPY Price ($)')
         ax1.set_ylabel('Gamma Exposure ($B)')
-        ax1.set_title(f'Gamma Exposure Profile - {self.current_profile.timestamp.strftime("%Y-%m-%d %H:%M")}')
+        ax1.set_title(f'Gamma Exposure Profile - {self.current_profile.timestamp.strftime("%Y-%m-%d %H:%M")}')  # noqa: E501
         ax1.legend()
         ax1.grid(True, alpha=0.3)
 
@@ -1197,12 +1278,12 @@ class GammaExposureCalculator:
             'gex_change': f"${self.current_metrics.gex_change/1e9:.2f}B",
             'gex_change_pct': f"{self.current_metrics.gex_change_pct:+.1f}%",
             'regime': self.current_profile.regime.value,
-            'flip_level': f"${self.current_profile.zero_gamma_level:.2f}" if self.current_profile.zero_gamma_level else "N/A",
-            'distance_to_flip': f"${abs(self.current_metrics.distance_to_flip):.2f}" if self.current_metrics.distance_to_flip else "N/A",
+            'flip_level': f"${self.current_profile.zero_gamma_level:.2f}" if self.current_profile.zero_gamma_level else "N/A",  # noqa: E501
+            'distance_to_flip': f"${abs(self.current_metrics.distance_to_flip):.2f}" if self.current_metrics.distance_to_flip else "N/A",  # noqa: E501
             'expected_volatility': f"{self.current_metrics.expected_volatility:.1%}",
             'expected_flow': self.current_profile.expected_flow.value,
             'major_levels': [f"${level:.2f}" for level in self.current_metrics.major_gamma_levels],
-            'calculation_time': f"{np.mean(list(self.calculation_times)):.3f}s" if self.calculation_times else "N/A"
+            'calculation_time': f"{np.mean(list(self.calculation_times)):.3f}s" if self.calculation_times else "N/A"  # noqa: E501
         }
 
 # ==============================================================================

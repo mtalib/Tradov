@@ -69,7 +69,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics  # noqa: E501
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
@@ -80,7 +80,7 @@ except ImportError:
     VolatilityRegimeAnalyzer = None
 
 try:
-    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier  # noqa: E501
 except ImportError:
     RegimeClassifier = None
 
@@ -90,7 +90,7 @@ except ImportError:
     FeatureEngineer = None
 
 try:
-    from SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation  # noqa: F401
+    from SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation  # noqa: E501, F401
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
     HUB_AVAILABLE = True
 except ImportError:
@@ -312,7 +312,7 @@ class AllocationOptimizer:
         }
 
         # Data storage
-        self.strategy_returns: dict[str, deque] = defaultdict(lambda: deque(maxlen=DEFAULT_LOOKBACK_PERIOD))
+        self.strategy_returns: dict[str, deque] = defaultdict(lambda: deque(maxlen=DEFAULT_LOOKBACK_PERIOD))  # noqa: E501
         self.market_features: deque = deque(maxlen=FEATURE_LOOKBACK)
         self.optimization_history: deque = deque(maxlen=1000)
         self.model_predictions: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
@@ -389,7 +389,7 @@ class AllocationOptimizer:
             elif opt_config.method == OptimizationMethod.KELLY_CRITERION:
                 result = await self._optimize_kelly_criterion(returns_df, predictions, opt_config)
             elif opt_config.method == OptimizationMethod.ML_ENHANCED:
-                result = await self._optimize_ml_enhanced(returns_df, features_df, predictions, opt_config)
+                result = await self._optimize_ml_enhanced(returns_df, features_df, predictions, opt_config)  # noqa: E501
             elif opt_config.method == OptimizationMethod.REGIME_ADAPTIVE:
                 result = await self._optimize_regime_adaptive(returns_df, features_df, opt_config)
             else:
@@ -410,7 +410,7 @@ class AllocationOptimizer:
                 data=asdict(result)
             ))
 
-            self.logger.info(f"Allocation optimization completed in {result.optimization_time:.2f}s")
+            self.logger.info(f"Allocation optimization completed in {result.optimization_time:.2f}s")  # noqa: E501
             return result
 
         except Exception as e:
@@ -543,7 +543,7 @@ class AllocationOptimizer:
     # PUBLIC METHODS - ANALYSIS
     # ==========================================================================
 
-    def analyze_allocation_stability(self, allocation_history: list[AllocationResult]) -> dict[str, Any]:
+    def analyze_allocation_stability(self, allocation_history: list[AllocationResult]) -> dict[str, Any]:  # noqa: E501
         """
         Analyze the stability of allocation recommendations.
 
@@ -672,7 +672,7 @@ class AllocationOptimizer:
                 # Quadratic utility function
                 portfolio_return = expected_returns.values @ weights
                 portfolio_variance = cp.quad_form(weights, cov_matrix.values)
-                objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)
+                objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)  # noqa: E501
             elif config.objective == ObjectiveFunction.MINIMIZE_VOLATILITY:
                 portfolio_variance = cp.quad_form(weights, cov_matrix.values)
                 objective = cp.Minimize(portfolio_variance)
@@ -707,7 +707,7 @@ class AllocationOptimizer:
             portfolio_return = np.sum(optimal_weights * expected_returns.values)
             portfolio_variance = np.dot(optimal_weights, np.dot(cov_matrix.values, optimal_weights))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             # Risk metrics
             var_95 = norm.ppf(0.05) * portfolio_volatility
@@ -784,7 +784,7 @@ class AllocationOptimizer:
 
             portfolio_return = mu_bl @ weights
             portfolio_variance = cp.quad_form(weights, cov_bl)
-            objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)
+            objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)  # noqa: E501
 
             constraints = [
                 cp.sum(weights) == 1 - config.cash_reserve,
@@ -805,7 +805,7 @@ class AllocationOptimizer:
             portfolio_return_val = np.sum(optimal_weights * mu_bl)
             portfolio_variance_val = np.dot(optimal_weights, np.dot(cov_bl, optimal_weights))
             portfolio_volatility = np.sqrt(portfolio_variance_val)
-            sharpe_ratio = portfolio_return_val / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return_val / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             return AllocationResult(
                 allocations=allocations,
@@ -872,7 +872,7 @@ class AllocationOptimizer:
             portfolio_return = np.sum(optimal_weights * expected_returns.values)
             portfolio_variance = np.dot(optimal_weights, np.dot(cov_matrix.values, optimal_weights))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             return AllocationResult(
                 allocations=allocations,
@@ -977,7 +977,7 @@ class AllocationOptimizer:
             for asset, weight in hrp_weights.items():
                 scaled_weight = weight * target_weight / total_weight
                 # Apply min/max constraints
-                scaled_weight = max(config.min_allocation, min(config.max_allocation, scaled_weight))
+                scaled_weight = max(config.min_allocation, min(config.max_allocation, scaled_weight))  # noqa: E501
                 allocations[asset] = scaled_weight
 
             # Renormalize if needed
@@ -992,7 +992,7 @@ class AllocationOptimizer:
             portfolio_return = np.sum(weights_array * expected_returns.values)
             portfolio_variance = np.dot(weights_array, np.dot(cov_matrix.values, weights_array))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             return AllocationResult(
                 allocations=allocations,
@@ -1073,7 +1073,7 @@ class AllocationOptimizer:
         portfolio_volatility = np.sqrt(portfolio_variance)
         sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
 
-        self.logger.info(f"RiskFolio HRP complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")
+        self.logger.info(f"RiskFolio HRP complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")  # noqa: E501
 
         return AllocationResult(
             allocations=allocations,
@@ -1149,11 +1149,11 @@ class AllocationOptimizer:
             cov_matrix = returns_df.cov() * 252
             expected_rets = returns_df.mean() * 252
             portfolio_return = float(np.sum(weights_array * expected_rets.values))
-            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))
+            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))  # noqa: E501
             portfolio_volatility = np.sqrt(portfolio_variance)
             sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
 
-            self.logger.info(f"RiskFolio CVaR complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")
+            self.logger.info(f"RiskFolio CVaR complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")  # noqa: E501
 
             return AllocationResult(
                 allocations=allocations,
@@ -1242,7 +1242,7 @@ class AllocationOptimizer:
             cov_matrix = returns_df.cov() * 252
             expected_rets = returns_df.mean() * 252
             portfolio_return = float(np.sum(weights_array * expected_rets.values))
-            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))
+            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))  # noqa: E501
             portfolio_volatility = np.sqrt(portfolio_variance)
             sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
 
@@ -1332,7 +1332,7 @@ class AllocationOptimizer:
             portfolio_return = np.sum(weights_array * expected_returns.values)
             portfolio_variance = np.dot(weights_array, np.dot(cov_matrix.values, weights_array))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             return AllocationResult(
                 allocations=allocations,
@@ -1378,11 +1378,11 @@ class AllocationOptimizer:
                 if method == OptimizationMethod.MEAN_VARIANCE:
                     result = await self._optimize_mean_variance(returns_df, temp_config)
                 elif method == OptimizationMethod.BLACK_LITTERMAN:
-                    result = await self._optimize_black_litterman(returns_df, predictions, temp_config)
+                    result = await self._optimize_black_litterman(returns_df, predictions, temp_config)  # noqa: E501
                 elif method == OptimizationMethod.RISK_PARITY:
                     result = await self._optimize_risk_parity(returns_df, temp_config)
                 elif method == OptimizationMethod.KELLY_CRITERION:
-                    result = await self._optimize_kelly_criterion(returns_df, predictions, temp_config)
+                    result = await self._optimize_kelly_criterion(returns_df, predictions, temp_config)  # noqa: E501
 
                 results.append(result)
                 # Weight by Sharpe ratio and confidence
@@ -1428,10 +1428,10 @@ class AllocationOptimizer:
             portfolio_return = np.sum(weights_array * expected_returns.values)
             portfolio_variance = np.dot(weights_array, np.dot(cov_matrix.values, weights_array))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             # Ensemble confidence (weighted average)
-            ensemble_confidence = sum(result.confidence_score * weights[i] for i, result in enumerate(results))
+            ensemble_confidence = sum(result.confidence_score * weights[i] for i, result in enumerate(results))  # noqa: E501
 
             return AllocationResult(
                 allocations=final_allocations,
@@ -1490,7 +1490,7 @@ class AllocationOptimizer:
             portfolio_return = np.sum(weights_array * expected_returns.values)
             portfolio_variance = np.dot(weights_array, np.dot(cov_matrix.values, weights_array))
             portfolio_volatility = np.sqrt(portfolio_variance)
-            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
             return AllocationResult(
                 allocations=dict(final_allocations),
@@ -1531,11 +1531,12 @@ class AllocationOptimizer:
                     # Calculate returns from P&L data
                     returns_dict[strategy_id] = data['pnl'].pct_change()
                 else:
-                    # Generate synthetic returns for testing
-                    returns_dict[strategy_id] = pd.Series(
-                        np.random.normal(0.001, 0.02, len(data)),
-                        index=data.index
+                    # No usable returns column — skip this strategy rather than fabricating data
+                    self.logger.warning(
+                        "_prepare_returns_data: strategy %s has no returns/close/pnl column — skipping",  # noqa: E501
+                        strategy_id,
                     )
+                    continue
 
             # Combine into DataFrame
             returns_df = pd.DataFrame(returns_dict)
@@ -1571,14 +1572,11 @@ class AllocationOptimizer:
                 if features_list:
                     features_df = pd.concat(features_list, axis=1)
                 else:
-                    # Generate synthetic features
-                    dates = pd.date_range(start='2020-01-01', end='2024-12-31', freq='D')
-                    features_df = pd.DataFrame({
-                        'vix': np.random.gamma(2, 10, len(dates)),
-                        'spy_returns': np.random.normal(0.001, 0.01, len(dates)),
-                        'volume': np.random.lognormal(15, 0.5, len(dates)),
-                        'volatility': np.random.gamma(3, 0.05, len(dates))
-                    }, index=dates)
+                    # No real features available — return empty rather than fabricating synthetic data  # noqa: E501
+                    self.logger.warning(
+                        "_prepare_features_data: no feature lists collected — returning empty DataFrame"  # noqa: E501
+                    )
+                    features_df = pd.DataFrame()
 
             # Store features history
             if len(features_df) > 0:
@@ -1662,10 +1660,10 @@ class AllocationOptimizer:
             for strategy_id in returns_df.columns:
                 try:
                     # Predict return
-                    predicted_return = self.ml_models['return_predictor'].predict(latest_features)[0]
+                    predicted_return = self.ml_models['return_predictor'].predict(latest_features)[0]  # noqa: E501
 
                     # Predict volatility
-                    predicted_vol = self.ml_models['volatility_predictor'].predict(latest_features)[0]
+                    predicted_vol = self.ml_models['volatility_predictor'].predict(latest_features)[0]  # noqa: E501
 
                     # Calculate confidence interval
                     confidence_interval = (
@@ -1734,7 +1732,7 @@ class AllocationOptimizer:
             # Simplified diversification benefit calculation
             n_strategies = len(result.allocations)
             equal_weight_vol = result.expected_volatility * np.sqrt(n_strategies)
-            diversification_benefit = (equal_weight_vol - result.expected_volatility) / equal_weight_vol
+            diversification_benefit = (equal_weight_vol - result.expected_volatility) / equal_weight_vol  # noqa: E501
             return f"{diversification_benefit:.1%}"
 
         except Exception as e:
@@ -1778,8 +1776,8 @@ class AllocationOptimizer:
             if regime_features:
                 return np.column_stack(regime_features)
             else:
-                # Return dummy features
-                return np.random.randn(len(features_df), 3)
+                # No real features — return empty array; caller must handle gracefully
+                return np.array([])
 
         except Exception as e:
             self.error_handler.handle_error(e, "_extract_regime_features")
@@ -1864,7 +1862,7 @@ class AllocationOptimizer:
 
             portfolio_return = expected_returns @ weights
             portfolio_variance = cp.quad_form(weights, cov_matrix)
-            objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)
+            objective = cp.Maximize(portfolio_return - 0.5 * config.risk_aversion * portfolio_variance)  # noqa: E501
 
             constraints = [
                 cp.sum(weights) == 1 - config.cash_reserve,
@@ -1878,9 +1876,9 @@ class AllocationOptimizer:
             if problem.status == cp.OPTIMAL:
                 optimal_weights = weights.value
                 portfolio_return_val = np.sum(optimal_weights * expected_returns)
-                portfolio_variance_val = np.dot(optimal_weights, np.dot(cov_matrix, optimal_weights))
+                portfolio_variance_val = np.dot(optimal_weights, np.dot(cov_matrix, optimal_weights))  # noqa: E501
                 portfolio_volatility = np.sqrt(portfolio_variance_val)
-                sharpe_ratio = portfolio_return_val / portfolio_volatility if portfolio_volatility > 0 else 0
+                sharpe_ratio = portfolio_return_val / portfolio_volatility if portfolio_volatility > 0 else 0  # noqa: E501
 
                 return AllocationResult(
                     allocations=dict(enumerate(optimal_weights)),  # Simplified
@@ -1967,7 +1965,7 @@ def calculate_efficient_frontier(expected_returns: np.ndarray, cov_matrix: np.nd
         return np.array([]), np.array([])
 
 def optimize_black_litterman_views(expected_returns: np.ndarray, cov_matrix: np.ndarray,
-                                 views: dict[int, float], view_confidence: float = 0.5) -> np.ndarray:
+                                 views: dict[int, float], view_confidence: float = 0.5) -> np.ndarray:  # noqa: E501
     """
     Optimize portfolio using Black-Litterman with specific views.
 
@@ -2027,7 +2025,7 @@ def optimize_black_litterman_views(expected_returns: np.ndarray, cov_matrix: np.
 # MODULE INITIALIZATION
 # ==============================================================================
 
-import threading as _threading
+import threading as _threading  # noqa: E402
 
 # Global allocation optimizer instance (lock-guarded for concurrent init)
 _global_allocation_optimizer: AllocationOptimizer | None = None
@@ -2073,11 +2071,11 @@ if __name__ == "__main__":
         dates = pd.date_range(start='2020-01-01', end='2024-12-31', freq='D')
 
         strategy_data = {}
-        strategy_names = ['iron_condor', 'credit_spreads', 'straddles', 'calendar_spreads', 'butterflies']
+        strategy_names = ['iron_condor', 'credit_spreads', 'straddles', 'calendar_spreads', 'butterflies']  # noqa: E501
 
         for strategy in strategy_names:
             # Generate realistic options strategy returns
-            returns = np.random.normal(0.0008, 0.015, len(dates))  # Slight positive bias, moderate volatility
+            returns = np.random.normal(0.0008, 0.015, len(dates))  # Slight positive bias, moderate volatility  # noqa: E501
             prices = 100 * np.cumprod(1 + returns)
 
             strategy_data[strategy] = pd.DataFrame({
@@ -2150,7 +2148,7 @@ if __name__ == "__main__":
         expected_returns = returns_df.mean().values * 252
         cov_matrix = returns_df.cov().values * 252
 
-        volatilities, frontier_returns = calculate_efficient_frontier(expected_returns, cov_matrix, 20)
+        volatilities, frontier_returns = calculate_efficient_frontier(expected_returns, cov_matrix, 20)  # noqa: E501
         valid_points = ~np.isnan(volatilities)
 
         if np.sum(valid_points) > 0:

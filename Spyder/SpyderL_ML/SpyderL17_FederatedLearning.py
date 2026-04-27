@@ -42,26 +42,26 @@ warnings.filterwarnings("ignore")
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from collections import defaultdict
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization
-from flask import Flask, request, jsonify
-import requests
-from scipy import stats
+from collections import defaultdict  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+import torch.optim as optim  # noqa: E402
+from torch.utils.data import DataLoader, TensorDataset  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import rsa, padding  # noqa: E402
+from cryptography.hazmat.primitives import serialization  # noqa: E402
+from flask import Flask, request, jsonify  # noqa: E402
+import requests  # noqa: E402
+from scipy import stats  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS

@@ -93,7 +93,7 @@ except ImportError:
     F14_AVAILABLE = False
 
 try:
-    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import UnifiedPerformanceEngine as PerformanceAttributionEngine  # noqa: F401
+    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import UnifiedPerformanceEngine as PerformanceAttributionEngine  # noqa: E501, F401
     F15_AVAILABLE = True
 except ImportError:
     F15_AVAILABLE = False
@@ -568,7 +568,7 @@ class RealTimeAnalyticsEngine:
             return subscription_id
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="RealTimeAnalyticsEngine.subscribe_to_stream")
+            self.error_handler.handle_error(e, context="RealTimeAnalyticsEngine.subscribe_to_stream")  # noqa: E501
             return ""
 
     async def unsubscribe_from_stream(self, subscription_id: str) -> bool:
@@ -590,7 +590,7 @@ class RealTimeAnalyticsEngine:
             return False
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="RealTimeAnalyticsEngine.unsubscribe_from_stream")
+            self.error_handler.handle_error(e, context="RealTimeAnalyticsEngine.unsubscribe_from_stream")  # noqa: E501
             return False
 
     # ==============================================================================
@@ -1004,7 +1004,7 @@ class RealTimeAnalyticsEngine:
                             try:
                                 await subscription.callback(stream_data)
                             except Exception as e:
-                                self.logger.warning("Callback failed for subscription %s: %s", subscription_id, e)
+                                self.logger.warning("Callback failed for subscription %s: %s", subscription_id, e)  # noqa: E501
 
                         subscription.last_update = current_time
 
@@ -1371,7 +1371,7 @@ class RealTimeAnalyticsEngine:
                 cpu_usage=cpu_usage,
                 memory_usage=memory_usage,
                 active_connections=len(self.websocket_connections),
-                processing_latency=np.mean(list(self.performance_stats['processing_latency'])) if self.performance_stats['processing_latency'] else 0,
+                processing_latency=np.mean(list(self.performance_stats['processing_latency'])) if self.performance_stats['processing_latency'] else 0,  # noqa: E501
                 queue_size=self.processing_queue.qsize(),
                 alerts_active=len(self.active_alerts),
                 streams_active=len(self.active_subscriptions),
@@ -1526,7 +1526,7 @@ class RealTimeAnalyticsEngine:
 # ==============================================================================
 # MODULE-LEVEL FUNCTIONS
 # ==============================================================================
-async def create_sample_realtime_data(engine: RealTimeAnalyticsEngine, duration_seconds: int = 60) -> None:
+async def create_sample_realtime_data(engine: RealTimeAnalyticsEngine, duration_seconds: int = 60) -> None:  # noqa: E501
     """
     Generate sample real-time data for testing.
 
@@ -1624,10 +1624,10 @@ async def main():
             return False
 
         logging.info("Integration status:")
-        logging.info("   F13 Validation: %s", 'Connected' if getattr(engine, 'model_validator', None) else 'Not available')
-        logging.info("   F13 Model Validation: %s", 'Connected' if engine.model_validator else 'Not available')
-        logging.info("   F14 Market Microstructure: %s", 'Connected' if engine.microstructure_engine else 'Not available')
-        logging.info("   F15 Performance Attribution: %s", 'Connected' if engine.attribution_engine else 'Not available')
+        logging.info("   F13 Validation: %s", 'Connected' if getattr(engine, 'model_validator', None) else 'Not available')  # noqa: E501
+        logging.info("   F13 Model Validation: %s", 'Connected' if engine.model_validator else 'Not available')  # noqa: E501
+        logging.info("   F14 Market Microstructure: %s", 'Connected' if engine.microstructure_engine else 'Not available')  # noqa: E501
+        logging.info("   F15 Performance Attribution: %s", 'Connected' if engine.attribution_engine else 'Not available')  # noqa: E501
 
         logging.info("\nWebSocket server: ws://localhost:%s", config['websocket_port'])
         logging.info("HTTP server: http://localhost:%s", config['http_port'])
@@ -1651,14 +1651,14 @@ async def main():
         logging.info("\nFinal Statistics:")
         logging.info(f"   Messages Processed: {engine.performance_stats['messages_processed']:,}")
         logging.info("   Alerts Generated: %s", engine.performance_stats['alerts_generated'])
-        logging.info(f"   WebSocket Messages Sent: {engine.performance_stats['websocket_messages_sent']:,}")
+        logging.info(f"   WebSocket Messages Sent: {engine.performance_stats['websocket_messages_sent']:,}")  # noqa: E501
         logging.info("   Active Connections: %s", status.active_connections)
         logging.info("   Active Subscriptions: %s", status.streams_active)
         logging.info("   Active Alerts: %s", status.alerts_active)
 
         if engine.performance_stats['processing_latency']:
             avg_latency = np.mean(list(engine.performance_stats['processing_latency']))
-            logging.info(f"   Average Processing Latency: {avg_latency:.6f}s ({avg_latency*1000:.2f}ms)")
+            logging.info(f"   Average Processing Latency: {avg_latency:.6f}s ({avg_latency*1000:.2f}ms)")  # noqa: E501
 
         logging.info(f"   System Uptime: {status.uptime_seconds:.1f}s")
 
@@ -1670,7 +1670,7 @@ async def main():
         logging.info("   Alerts: GET http://localhost:%s/alerts", config['http_port'])
         logging.info("   Subscribe: POST http://localhost:%s/subscribe", config['http_port'])
 
-        logging.info("\nSpyder F16 Real-Time Analytics Engine demonstration completed successfully!")
+        logging.info("\nSpyder F16 Real-Time Analytics Engine demonstration completed successfully!")  # noqa: E501
         return True
 
     except Exception as e:

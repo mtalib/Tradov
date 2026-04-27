@@ -544,7 +544,7 @@ class FeatureEngineer:
 
             if atm_call and atm_put:
                 features['atm_iv'] = (atm_call.implied_volatility + atm_put.implied_volatility) / 2
-                features['put_call_iv_spread'] = atm_put.implied_volatility - atm_call.implied_volatility
+                features['put_call_iv_spread'] = atm_put.implied_volatility - atm_call.implied_volatility  # noqa: E501
 
             # IV skew (25-delta put IV - 25-delta call IV)
             put_25d = option_chain.get_option_by_delta(-0.25, 'PUT')
@@ -623,7 +623,7 @@ class FeatureEngineer:
                 historical_ivs = [g.get('atm_iv', 0) for g in self.greeks_buffer]
                 current_iv = features.get('atm_iv', 0)
                 if historical_ivs and current_iv:
-                    features['iv_percentile'] = stats.percentileofscore(historical_ivs, current_iv) / 100
+                    features['iv_percentile'] = stats.percentileofscore(historical_ivs, current_iv) / 100  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error extracting Greeks features: %s", e)
@@ -669,7 +669,7 @@ class FeatureEngineer:
             # High-Low index
             new_highs = market_internals.get('new_highs', 100)
             new_lows = market_internals.get('new_lows', 100)
-            features['high_low_ratio'] = new_highs / (new_highs + new_lows) if (new_highs + new_lows) > 0 else 0.5
+            features['high_low_ratio'] = new_highs / (new_highs + new_lows) if (new_highs + new_lows) > 0 else 0.5  # noqa: E501
 
             # McClellan Oscillator
             features['mcclellan_oscillator'] = market_internals.get('mcclellan', 0) / 100
@@ -738,14 +738,14 @@ class FeatureEngineer:
 
             # Price impact (temporary)
             if len(self.price_buffer) >= 3 and 'trade_price' in market_data:
-                pre_trade_mid = (self.price_buffer[-2].get('bid', 0) + self.price_buffer[-2].get('ask', 0)) / 2
+                pre_trade_mid = (self.price_buffer[-2].get('bid', 0) + self.price_buffer[-2].get('ask', 0)) / 2  # noqa: E501
                 post_trade_mid = (bid + ask) / 2
                 if pre_trade_mid > 0:
                     features['price_impact'] = (post_trade_mid - pre_trade_mid) / pre_trade_mid
 
             # Liquidity ratio (volume / spread)
             if features.get('bid_ask_spread', 0) > 0:
-                features['liquidity_ratio'] = market_data.get('volume', 0) / features['bid_ask_spread']
+                features['liquidity_ratio'] = market_data.get('volume', 0) / features['bid_ask_spread']  # noqa: E501
 
             # Kyle's lambda (if order flow data available)
             if len(self.price_buffer) >= 20 and 'net_order_flow' in market_data:
@@ -795,8 +795,8 @@ class FeatureEngineer:
             market_open = timestamp.replace(hour=9, minute=30)
             market_close = timestamp.replace(hour=16, minute=0)
 
-            features['is_opening_30m'] = 1 if timestamp <= market_open + timedelta(minutes=30) else 0
-            features['is_closing_30m'] = 1 if timestamp >= market_close - timedelta(minutes=30) else 0
+            features['is_opening_30m'] = 1 if timestamp <= market_open + timedelta(minutes=30) else 0  # noqa: E501
+            features['is_closing_30m'] = 1 if timestamp >= market_close - timedelta(minutes=30) else 0  # noqa: E501
             features['is_lunch_hour'] = 1 if 12 <= timestamp.hour < 13 else 0
 
             # Time since market open
@@ -821,7 +821,7 @@ class FeatureEngineer:
             features['days_to_holiday'] = self.calendar.days_to_next_holiday(timestamp.date()) / 30
 
             # Quarter-end effects
-            features['is_quarter_end'] = 1 if timestamp.month in [3, 6, 9, 12] and timestamp.day >= 25 else 0
+            features['is_quarter_end'] = 1 if timestamp.month in [3, 6, 9, 12] and timestamp.day >= 25 else 0  # noqa: E501
             features['is_month_end'] = 1 if timestamp.day >= 25 else 0
 
         except Exception as e:
@@ -860,7 +860,7 @@ class FeatureEngineer:
             lower_slope, lower_intercept = np.polyfit(x, lows, 1)
 
             channel_width = np.mean([highs[i] - lows[i] for i in range(len(highs))])
-            current_channel_pos = (prices[-1] - (lower_slope * x[-1] + lower_intercept)) / channel_width
+            current_channel_pos = (prices[-1] - (lower_slope * x[-1] + lower_intercept)) / channel_width  # noqa: E501
 
             features['channel_position'] = np.clip(current_channel_pos, 0, 1)
             features['channel_slope_diff'] = (upper_slope - lower_slope) / prices[-1]
@@ -873,7 +873,7 @@ class FeatureEngineer:
 
             features['breakout_up'] = 1 if prices[-1] > prior_high else 0
             features['breakout_down'] = 1 if prices[-1] < prior_low else 0
-            features['near_resistance'] = 1 if (recent_high - prices[-1]) / prices[-1] < 0.002 else 0
+            features['near_resistance'] = 1 if (recent_high - prices[-1]) / prices[-1] < 0.002 else 0  # noqa: E501
             features['near_support'] = 1 if (prices[-1] - recent_low) / prices[-1] < 0.002 else 0
 
             # Pattern recognition (simplified)
@@ -1005,8 +1005,8 @@ class FeatureEngineer:
 
             # Auto-correlations
             if len(price_returns) >= 10:
-                features['returns_autocorr_1'] = np.corrcoef(price_returns[:-1], price_returns[1:])[0, 1]
-                features['returns_autocorr_5'] = np.corrcoef(price_returns[:-5], price_returns[5:])[0, 1]
+                features['returns_autocorr_1'] = np.corrcoef(price_returns[:-1], price_returns[1:])[0, 1]  # noqa: E501
+                features['returns_autocorr_5'] = np.corrcoef(price_returns[:-5], price_returns[5:])[0, 1]  # noqa: E501
 
                 # Volume autocorrelation
                 features['volume_autocorr_1'] = np.corrcoef(volumes[:-1], volumes[1:])[0, 1]
@@ -1017,7 +1017,7 @@ class FeatureEngineer:
 
                 for sector, sector_returns in self.market_data['sector_returns'].items():
                     if len(sector_returns) == len(spy_returns):
-                        features[f'{sector}_correlation'] = np.corrcoef(spy_returns, sector_returns)[0, 1]
+                        features[f'{sector}_correlation'] = np.corrcoef(spy_returns, sector_returns)[0, 1]  # noqa: E501
 
             # Rolling correlation stability
             if len(price_returns) >= 15:
@@ -1042,7 +1042,7 @@ class FeatureEngineer:
                     # Try to get from cache
                     if self.feature_cache:
                         for cached_set in reversed(self.feature_cache):
-                            if key in cached_set.features and not np.isnan(cached_set.features[key]):
+                            if key in cached_set.features and not np.isnan(cached_set.features[key]):  # noqa: E501
                                 features[key] = cached_set.features[key]
                                 break
                         else:
@@ -1088,7 +1088,7 @@ class FeatureEngineer:
         # Clip outliers
         if self.config.outlier_method == 'clip':
             for key, value in features.items():
-                features[key] = np.clip(value, -self.config.outlier_threshold, self.config.outlier_threshold)
+                features[key] = np.clip(value, -self.config.outlier_threshold, self.config.outlier_threshold)  # noqa: E501
 
         return features
 
@@ -1181,7 +1181,7 @@ class FeatureEngineer:
     def _get_empty_feature_set(self, timestamp: datetime) -> FeatureSet:
         """Get empty feature set for error cases"""
         empty_features = {name: 0.0 for name in PRICE_FEATURES + VOLUME_FEATURES +
-                         GREEKS_FEATURES + MARKET_FEATURES + MICROSTRUCTURE_FEATURES + TIME_FEATURES}
+                         GREEKS_FEATURES + MARKET_FEATURES + MICROSTRUCTURE_FEATURES + TIME_FEATURES}  # noqa: E501
 
         return FeatureSet(
             timestamp=timestamp,

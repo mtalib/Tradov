@@ -26,7 +26,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any
 
@@ -60,6 +60,11 @@ INTERNAL_SYMBOLS = {
     "SPXHILO": "NYSE:SPXHILO",  # S&P 500 New Highs/Lows (event-bus only)
     "NYHL": "NYSE:NYHL",        # NYSE New Highs/Lows (event-bus only)
     "NQHL": "NASDAQ:NQHL",      # Nasdaq New Highs/Lows (event-bus only)
+    # 0-DTE mean-reversion abort gates (added 2026-04)
+    "XLK": "XLK",      # Technology SPDR (Tradier equity quote)
+    "XLF": "XLF",      # Financials SPDR (Tradier equity quote)
+    "TNX": "$TNX",     # 10-Year Treasury Yield (Tradier index quote)
+    # RVOL is computed locally from SPY volume — no fetch symbol
 }
 
 # Tradier-native symbols that can be fetched directly via get_quotes().
@@ -68,11 +73,29 @@ INTERNAL_SYMBOLS = {
 # $TICK and $ADD are confirmed Real-time; $VIX is confirmed Real-time.
 # $TRIN, $TRINQ, $TICKQ are NOT listed in Tradier's official index symbol table
 # and have been removed until confirmed working on a production account.
+# XLK/XLF are standard equity ETFs; $TNX is Tradier's 10Y yield index symbol.
 TRADIER_FETCHABLE_SYMBOLS = {
     "$TICK":  "TICK",
     "$ADD":   "ADD",
     "$VIX":   "VIX",
+    "XLK":    "XLK",
+    "XLF":    "XLF",
+    "$TNX":   "TNX",
 }
+
+# SPY is fetched alongside internals solely to compute RVOL (Relative Volume).
+# Its last/volume fields are NOT stored in internals_data — handled separately.
+_SPY_RVOL_SYMBOL = "SPY"
+
+# TNX intraday spike threshold (% move from session open that triggers warning)
+TNX_SPIKE_PCT = 0.005  # 0.5% = meaningful intraday yield move
+
+# RVOL thresholds
+RVOL_HIGH = 2.0    # > 2× expected volume at this time of day — institutional activity
+RVOL_LOW  = 0.4   # < 0.4× expected — suspiciously thin; fades may gap
+
+# ET market session length constant
+_SESSION_MINUTES: float = 390.0  # 9:30–16:00 ET
 
 # How often (seconds) to poll Tradier for market internals
 TRADIER_FETCH_INTERVAL = 5
@@ -171,6 +194,11 @@ class MarketInternalsSnapshot:
     spx_hilo: float
     ny_hilo: float
     nq_hilo: float
+    # 0-DTE abort-gate additions (2026-04)
+    xlk: float = 0.0    # Technology SPDR last price
+    xlf: float = 0.0    # Financials SPDR last price
+    tnx: float = 0.0    # 10-Year Treasury Yield (%)
+    rvol: float = 1.0   # SPY Relative Volume ratio (1.0 = normal)
 
 
 @dataclass
@@ -259,6 +287,16 @@ class MarketInternalsAnalyzer:
         # Massive fetch tracking
         self._last_massive_fetch: float = 0.0
 
+        # RVOL computation state
+        # SPY average_volume from Tradier quote (20-day trailing average)
+        self._spy_avg_volume: float = 0.0
+        # SPY cumulative volume at the start of today's session (pre-market clip)
+        self._spy_session_start_volume: float = 0.0
+        # Flag: session start volume has been captured
+        self._spy_session_start_captured: bool = False
+        # TNX at session open — for intraday spike calculation
+        self._tnx_session_open: float = 0.0
+
         sources: list[str] = []
         if tradier_client:
             sources.append("Tradier")
@@ -285,6 +323,10 @@ class MarketInternalsAnalyzer:
                 self.internals_data[symbol_key] = InternalData(
                     symbol=symbol, value=0.0, timestamp=datetime.now()
                 )
+            # RVOL is computed locally — register a synthetic entry
+            self.internals_data["RVOL"] = InternalData(
+                symbol="RVOL", value=1.0, timestamp=datetime.now()
+            )
 
             # Subscribe to market data events
             self.event_bus.subscribe(EventType.MARKET_DATA, self._handle_market_data)
@@ -591,11 +633,12 @@ class MarketInternalsAnalyzer:
         """Fetch market internals directly from Tradier API.
 
         Calls get_quotes() with all Tradier-supported internal symbols
-        ($TICK, $TICKQ, $ADD, $TRIN, $TRINQ, VIX) and pushes the values
-        into the internals_data store via update_internal().
+        ($TICK, $ADD, $VIX, XLK, XLF, $TNX) plus SPY (for RVOL) and
+        pushes the values into the internals_data store via update_internal().
         """
         try:
-            symbols = list(TRADIER_FETCHABLE_SYMBOLS.keys())
+            # Include SPY alongside internals for RVOL computation
+            symbols = list(TRADIER_FETCHABLE_SYMBOLS.keys()) + [_SPY_RVOL_SYMBOL]
             response = self.tradier_client.get_quotes(symbols)
 
             quotes_wrapper = (response or {}).get("quotes", {})
@@ -609,6 +652,12 @@ class MarketInternalsAnalyzer:
 
             for quote in raw:
                 tradier_symbol = quote.get("symbol", "")
+
+                # --- SPY: extract volume fields for RVOL, do NOT store as internal ---
+                if tradier_symbol == _SPY_RVOL_SYMBOL:
+                    self._update_spy_rvol_state(quote)
+                    continue
+
                 internal_key = TRADIER_FETCHABLE_SYMBOLS.get(tradier_symbol)
                 if not internal_key:
                     continue
@@ -623,8 +672,57 @@ class MarketInternalsAnalyzer:
                 if value != 0.0:
                     self.update_internal(internal_key, value)
 
+                    # Track TNX session open for spike detection
+                    if internal_key == "TNX" and self._tnx_session_open == 0.0:
+                        self._tnx_session_open = value
+
         except Exception as e:
             self.logger.warning("Tradier internals fetch failed: %s", e)
+
+    def _update_spy_rvol_state(self, quote: dict) -> None:
+        """Extract SPY volume fields from a Tradier quote dict and update RVOL state.
+
+        Uses Tradier's ``average_volume`` (20-day ADV) and ``volume`` (session
+        cumulative) to compute ``rvol = current_vol / expected_vol_at_this_time``
+        where ``expected = average_volume * elapsed_fraction_of_session``.
+
+        RVOL > 1.0 means above-average activity; RVOL >= 2.0 is the abort gate.
+        """
+        try:
+            avg_vol = float(quote.get("average_volume") or 0.0)
+            cur_vol = float(quote.get("volume") or 0.0)
+            if avg_vol > 0:
+                self._spy_avg_volume = avg_vol
+            if self._spy_avg_volume > 0 and cur_vol > 0:
+                self.update_internal("RVOL", self._compute_rvol(cur_vol))
+        except (TypeError, ValueError):
+            pass
+
+    def _compute_rvol(self, current_volume: float) -> float:
+        """Compute SPY Relative Volume ratio.
+
+        RVOL = current_cumulative_volume / expected_cumulative_volume_at_now
+
+        Expected = ADV (20-day) × fraction of regular session elapsed.
+        Session = 9:30–16:00 ET (390 minutes).
+        Floor elapsed at 1 minute to avoid division-by-zero at the open.
+
+        Returns:
+            float: RVOL ratio (1.0 = perfectly normal; > 2.0 = institutional surge).
+        """
+        if self._spy_avg_volume <= 0:
+            return 1.0
+        # Compute ET time without importing pytz — use UTC offset heuristic
+        now_utc = datetime.now(timezone.utc)
+        # ET = UTC-4 (EDT summer) or UTC-5 (EST winter); use market-hours offset
+        et_offset = timedelta(hours=-4)  # EDT (Mar–Nov); acceptable approximation
+        now_et = now_utc + et_offset
+        open_et = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        elapsed = (now_et - open_et).total_seconds() / 60.0
+        elapsed = max(1.0, min(elapsed, _SESSION_MINUTES))
+        fraction = elapsed / _SESSION_MINUTES
+        expected = self._spy_avg_volume * fraction
+        return round(current_volume / expected, 2) if expected > 0 else 1.0
 
     def _fetch_vold_from_massive(self) -> None:
         """Fetch VOLD (NYSE Up/Down Volume) from Massive (Polygon) Indices API.
@@ -690,6 +788,10 @@ class MarketInternalsAnalyzer:
                     spx_hilo=self.get_internal_value("SPXHILO") or 0,
                     ny_hilo=self.get_internal_value("NYHL") or 0,
                     nq_hilo=self.get_internal_value("NQHL") or 0,
+                    xlk=self.get_internal_value("XLK") or 0.0,
+                    xlf=self.get_internal_value("XLF") or 0.0,
+                    tnx=self.get_internal_value("TNX") or 0.0,
+                    rvol=self.get_internal_value("RVOL") or 1.0,
                 )
                 return snapshot
 
@@ -745,6 +847,27 @@ class MarketInternalsAnalyzer:
                 warnings.append("Price/breadth divergence detected")
             if not volume_confirmation:
                 warnings.append("Volume not confirming price action")
+
+            # TNX spike abort gate
+            tnx_now = self.get_internal_value("TNX") or 0.0
+            if self._tnx_session_open > 0.0 and tnx_now > 0.0:
+                tnx_chg = abs(tnx_now - self._tnx_session_open) / self._tnx_session_open
+                if tnx_chg >= TNX_SPIKE_PCT:
+                    direction = "up" if tnx_now > self._tnx_session_open else "down"
+                    warnings.append(
+                        f"TNX spike {direction} {tnx_chg * 100:.2f}% intraday — cancel pending pivots"  # noqa: E501
+                    )
+
+            # RVOL abort / confirmation gate
+            rvol = self.get_internal_value("RVOL") or 1.0
+            if rvol >= RVOL_HIGH:
+                warnings.append(
+                    f"RVOL={rvol:.1f}x — institutional surge; mean-reversion entries at risk"
+                )
+            elif rvol <= RVOL_LOW:
+                warnings.append(
+                    f"RVOL={rvol:.1f}x — thin volume; fills may gap on mean-reversion entries"
+                )
 
             # Create analysis
             analysis = InternalsAnalysis(

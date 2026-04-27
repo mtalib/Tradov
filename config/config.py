@@ -284,6 +284,16 @@ SYSTEM_CONFIG = {
     "max_memory_usage_mb": 1024,
 }
 
+# ==============================================================================
+# SCHEDULER CONFIGURATION
+# ==============================================================================
+SCHEDULER_CONFIG = {
+    # How often (minutes) to emit a data_update_request event during market hours.
+    "data_update_interval_minutes": int(os.environ.get("SCHEDULER_DATA_UPDATE_INTERVAL", "5")),
+    # How often (minutes) to emit a periodic_risk_check event during market hours.
+    "risk_check_interval_minutes": int(os.environ.get("SCHEDULER_RISK_CHECK_INTERVAL", "15")),
+}
+
 
 # ==============================================================================
 # HELPER FUNCTIONS

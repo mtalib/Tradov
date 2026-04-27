@@ -335,7 +335,7 @@ class DataAccessLayer:
             applied_count = 0
             for migration in migrations:
                 if not self._is_migration_applied(migration.version):
-                    self.logger.info("Applying migration %s: %s", migration.version, migration.description)
+                    self.logger.info("Applying migration %s: %s", migration.version, migration.description)  # noqa: E501
 
                     try:
                         # Run migration
@@ -477,8 +477,8 @@ class DataAccessLayer:
         cursor = self.connection.cursor()
 
         # Add composite indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timestamp ON market_data(symbol, timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp)")  # noqa: E501
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timestamp ON market_data(symbol, timestamp)")  # noqa: E501
 
         self.connection.commit()
         cursor.close()
@@ -615,8 +615,8 @@ class DataAccessLayer:
             # Create basic indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol ON market_data(symbol)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp)")  # noqa: E501
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol ON market_data(symbol)")  # noqa: E501
 
             self.connection.commit()
             cursor.close()
@@ -743,7 +743,7 @@ class DataAccessLayer:
             query = """
                 INSERT INTO trades (symbol, action, quantity, price, commission, order_id, status, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """
+            """  # noqa: E501
 
             params = (
                 trade_data.get('symbol'),
@@ -901,9 +901,9 @@ class DataAccessLayer:
                 'database_version': CURRENT_DB_VERSION,
                 'query_count': self.query_count,
                 'error_count': self.error_count,
-                'last_query_time': self.last_query_time.isoformat() if self.last_query_time else None,
-                'connection_time': self.connection_time.isoformat() if self.connection_time else None,
-                'uptime_seconds': (datetime.now() - self.connection_time).total_seconds() if self.connection_time else 0
+                'last_query_time': self.last_query_time.isoformat() if self.last_query_time else None,  # noqa: E501
+                'connection_time': self.connection_time.isoformat() if self.connection_time else None,  # noqa: E501
+                'uptime_seconds': (datetime.now() - self.connection_time).total_seconds() if self.connection_time else 0  # noqa: E501
             }
 
             # Get table statistics

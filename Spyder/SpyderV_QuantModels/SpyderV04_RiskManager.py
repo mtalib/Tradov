@@ -998,7 +998,7 @@ class SpyderRiskManager:
 
     def _generate_cache_key(self, params: RiskParameters) -> str:
         """Generate cache key for parameters."""
-        return f"{params.method.value}_{params.confidence_level}_{params.time_horizon}_{hash(str(sorted(self.positions.items())))}"
+        return f"{params.method.value}_{params.confidence_level}_{params.time_horizon}_{hash(str(sorted(self.positions.items())))}"  # noqa: E501
 
     def _cleanup_cache(self):
         """Remove expired cache entries."""
@@ -1261,7 +1261,7 @@ async def main():
                 portfolio=sample_portfolio, parameters=params
             )
             logging.info(
-                f"   {method.value.title():<12}: VaR=${metrics.var:>8,.0f}  CVaR=${metrics.cvar:>8,.0f}"
+                f"   {method.value.title():<12}: VaR=${metrics.var:>8,.0f}  CVaR=${metrics.cvar:>8,.0f}"  # noqa: E501
             )
         except Exception as e:
             logging.info(f"   {method.value.title():<12}: ❌ {str(e)[:50]}")
@@ -1287,7 +1287,7 @@ async def main():
         worst_scenario = max(stress_results, key=lambda x: abs(x.portfolio_loss))
         logging.info("\n   🔥 Worst Scenario: %s", worst_scenario.scenario.name)
         logging.info(
-            f"      Loss: ${worst_scenario.portfolio_loss:,.2f} ({worst_scenario.loss_percentage:.1%})"
+            f"      Loss: ${worst_scenario.portfolio_loss:,.2f} ({worst_scenario.loss_percentage:.1%})"  # noqa: E501
         )
         logging.info("      Recovery Estimate: %s days", worst_scenario.recovery_time_estimate)
         logging.info(

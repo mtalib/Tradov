@@ -494,7 +494,7 @@ class DesktopNotifier:
                 if not self._check_rate_limit():
                     self.stats['rate_limited'] += 1
                     # Re-queue if important
-                    if item.notification.level in [NotificationLevel.CRITICAL, NotificationLevel.ERROR]:
+                    if item.notification.level in [NotificationLevel.CRITICAL, NotificationLevel.ERROR]:  # noqa: E501
                         time.sleep(1)  # thread-safe: time.sleep() intentional
                         self.notification_queue.put(item)
                     continue

@@ -25,6 +25,7 @@ Change Log:
 import time
 import threading
 import datetime
+from datetime import timezone
 import os
 import sys
 from typing import Any
@@ -207,7 +208,7 @@ class SystemMonitor:
 
         # Process info
         self.process = psutil.Process(os.getpid())
-        self.start_time = datetime.datetime.now()
+        self.start_time = datetime.datetime.now(timezone.utc)
 
         # Metrics storage
         self.system_metrics: deque = deque(maxlen=METRICS_WINDOW // MONITOR_INTERVAL)
@@ -309,7 +310,7 @@ class SystemMonitor:
             except Exception as e:
                 self.logger.error("Error in monitor loop: %s", e, exc_info=True)
                 self.error_tracker.append({
-                    'timestamp': datetime.datetime.now(),
+                    'timestamp': datetime.datetime.now(timezone.utc),
                     'error': str(e),
                     'traceback': traceback.format_exc()
                 })
@@ -342,7 +343,7 @@ class SystemMonitor:
         process_count = len(psutil.pids())
 
         return SystemMetrics(
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.datetime.now(timezone.utc),
             cpu_percent=cpu_percent,
             memory_percent=memory_percent,
             memory_used_mb=memory_info.rss / 1024 / 1024,
@@ -370,7 +371,7 @@ class SystemMonitor:
 
         # Calculate error rate
         recent_errors = sum(1 for e in self.error_tracker
-                          if (datetime.datetime.now() - e['timestamp']).seconds < 60)
+                          if (datetime.datetime.now(timezone.utc) - e['timestamp']).seconds < 60)
         error_rate = recent_errors / max(self.event_counter, 1)
 
         # Reset counters
@@ -383,7 +384,7 @@ class SystemMonitor:
         pending_orders = 0
 
         return PerformanceMetrics(
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.datetime.now(timezone.utc),
             event_latency_ms=event_latency,
             order_latency_ms=order_latency,
             data_latency_ms=data_latency,
@@ -525,7 +526,7 @@ class SystemMonitor:
 
         # Check cooldown
         if alert_key in self.alert_cooldowns:
-            if datetime.datetime.now() < self.alert_cooldowns[alert_key]:
+            if datetime.datetime.now(timezone.utc) < self.alert_cooldowns[alert_key]:
                 return
 
         # Create or update alert
@@ -534,11 +535,11 @@ class SystemMonitor:
             alert.level = level
             alert.message = message
             alert.value = value
-            alert.timestamp = datetime.datetime.now()
+            alert.timestamp = datetime.datetime.now(timezone.utc)
         else:
             alert = SystemAlert(
                 alert_id=f"alert_{uuid.uuid4().hex[:8]}",
-                timestamp=datetime.datetime.now(),
+                timestamp=datetime.datetime.now(timezone.utc),
                 level=level,
                 metric_type=metric_type,
                 message=message,
@@ -553,7 +554,7 @@ class SystemMonitor:
                 self._emit_alert_event(alert)
 
         # Set cooldown
-        self.alert_cooldowns[alert_key] = datetime.datetime.now() + datetime.timedelta(seconds=ALERT_COOLDOWN)
+        self.alert_cooldowns[alert_key] = datetime.datetime.now(timezone.utc) + datetime.timedelta(seconds=ALERT_COOLDOWN)  # noqa: E501
 
     def _resolve_alert(self, metric_type: MetricType) -> None:
         """Resolve an active alert"""
@@ -562,7 +563,7 @@ class SystemMonitor:
         if alert_key in self.active_alerts:
             alert = self.active_alerts[alert_key]
             alert.resolved = True
-            alert.resolution_time = datetime.datetime.now()
+            alert.resolution_time = datetime.datetime.now(timezone.utc)
 
             del self.active_alerts[alert_key]
 
@@ -583,7 +584,7 @@ class SystemMonitor:
 
                 self.health_checks[component] = HealthCheck(
                     component=component,
-                    timestamp=datetime.datetime.now(),
+                    timestamp=datetime.datetime.now(timezone.utc),
                     status=status,
                     message=message,
                     details=details
@@ -608,11 +609,11 @@ class SystemMonitor:
                     )
 
             except Exception as e:
-                self.logger.error("Error running health check for %s: %s", component, e, exc_info=True)
+                self.logger.error("Error running health check for %s: %s", component, e, exc_info=True)  # noqa: E501
 
                 self.health_checks[component] = HealthCheck(
                     component=component,
-                    timestamp=datetime.datetime.now(),
+                    timestamp=datetime.datetime.now(timezone.utc),
                     status=HealthStatus.UNKNOWN,
                     message=f"Health check failed: {str(e)}",
                     details={}
@@ -657,7 +658,7 @@ class SystemMonitor:
         """
         with self._monitor_lock:
             self.error_tracker.append({
-                'timestamp': datetime.datetime.now(),
+                'timestamp': datetime.datetime.now(timezone.utc),
                 'error': error,
                 'source': source,
                 'traceback': traceback.format_exc()
@@ -679,7 +680,7 @@ class SystemMonitor:
             current_performance = self.performance_metrics[-1] if self.performance_metrics else None
 
             # Calculate uptime
-            uptime = datetime.datetime.now() - self.start_time
+            uptime = datetime.datetime.now(timezone.utc) - self.start_time
 
             # Overall health
             overall_health = self._calculate_overall_health()
@@ -725,7 +726,7 @@ class SystemMonitor:
             Metrics summary
         """
         with self._monitor_lock:
-            cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=window_minutes)
+            cutoff_time = datetime.datetime.now(timezone.utc) - datetime.timedelta(minutes=window_minutes)  # noqa: E501
 
             # Filter metrics
             system_metrics = [m for m in self.system_metrics if m.timestamp > cutoff_time]
@@ -755,7 +756,7 @@ class SystemMonitor:
 
             if performance_metrics:
                 summary['performance'] = {
-                    'avg_event_latency_ms': statistics.mean(m.event_latency_ms for m in performance_metrics),
+                    'avg_event_latency_ms': statistics.mean(m.event_latency_ms for m in performance_metrics),  # noqa: E501
                     'avg_error_rate': statistics.mean(m.error_rate for m in performance_metrics),
                     'total_errors': sum(m.error_count for m in performance_metrics)
                 }
@@ -772,7 +773,7 @@ class SystemMonitor:
         report = []
         report.append("=" * 60)
         report.append("SPYDER SYSTEM DIAGNOSTIC REPORT")
-        report.append(f"Generated: {datetime.datetime.now()}")
+        report.append(f"Generated: {datetime.datetime.now(timezone.utc)}")
         report.append("=" * 60)
 
         # System info
@@ -780,7 +781,7 @@ class SystemMonitor:
         report.append(f"  Python: {sys.version}")
         report.append(f"  Platform: {sys.platform}")
         report.append(f"  Process ID: {os.getpid()}")
-        report.append(f"  Uptime: {datetime.datetime.now() - self.start_time}")
+        report.append(f"  Uptime: {datetime.datetime.now(timezone.utc) - self.start_time}")
 
         # Current status
         status = self.get_system_status()
@@ -792,7 +793,7 @@ class SystemMonitor:
             metrics = status['current_metrics']['system']
             report.append("\nRESOURCE USAGE:")
             report.append(f"  CPU: {metrics['cpu_percent']:.1f}%")
-            report.append(f"  Memory: {metrics['memory_percent']:.1f}% ({metrics['memory_used_mb']:.0f} MB)")
+            report.append(f"  Memory: {metrics['memory_percent']:.1f}% ({metrics['memory_used_mb']:.0f} MB)")  # noqa: E501
             report.append(f"  Disk: {metrics['disk_percent']:.1f}%")
             report.append(f"  Threads: {metrics['thread_count']}")
 
@@ -817,7 +818,7 @@ class SystemMonitor:
 
         # Recent errors
         recent_errors = [e for e in self.error_tracker if
-                        (datetime.datetime.now() - e['timestamp']).seconds < 300]
+                        (datetime.datetime.now(timezone.utc) - e['timestamp']).seconds < 300]
         if recent_errors:
             report.append(f"\nRECENT ERRORS (last 5 min): {len(recent_errors)}")
             for error in recent_errors[-5:]:  # Last 5 errors
@@ -850,7 +851,7 @@ class SystemMonitor:
         # Metrics are automatically cleaned by deque maxlen
 
         # Clean old errors
-        cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+        cutoff_time = datetime.datetime.now(timezone.utc) - datetime.timedelta(hours=1)
         self.error_tracker = deque(
             (e for e in self.error_tracker if e['timestamp'] > cutoff_time),
             maxlen=1000

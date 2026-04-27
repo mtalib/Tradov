@@ -26,6 +26,7 @@ from datetime import datetime, time, timedelta
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
+import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -49,7 +50,7 @@ from Spyder.SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 import logging
 
 # ==============================================================================
@@ -172,12 +173,12 @@ class RSIMeanReversionStrategy(BaseStrategy):
     def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
                  config: dict[str, Any] = None):
         """Initialize RSI Mean Reversion strategy"""
+        resolved_config = config or {}
         super().__init__(
             name="RSI Mean Reversion Strategy",
-            strategy_type="rsi_mean_reversion",
             event_manager=event_manager,
             risk_profile=risk_profile,
-            config=config or {}
+            config=resolved_config
         )
 
         # Initialize components
@@ -194,10 +195,11 @@ class RSIMeanReversionStrategy(BaseStrategy):
         self.rsi_state: RSIState = RSIState.NEUTRAL
 
         # Configuration
-        self.rsi_period = config.get('rsi_period', RSI_PERIOD)
-        self.oversold_threshold = config.get('oversold', RSI_OVERSOLD)
-        self.overbought_threshold = config.get('overbought', RSI_OVERBOUGHT)
-        self.max_positions = config.get('max_positions', MAX_RSI_POSITIONS)
+        self.rsi_period = resolved_config.get('rsi_period', RSI_PERIOD)
+        self.oversold_threshold = resolved_config.get('oversold', RSI_OVERSOLD)
+        self.overbought_threshold = resolved_config.get('overbought', RSI_OVERBOUGHT)
+        self.max_positions = resolved_config.get('max_positions', MAX_RSI_POSITIONS)
+        self.signal_symbol = str(resolved_config.get('symbol', 'SPY'))
 
         # Performance tracking
         self.performance_stats = {
@@ -417,6 +419,58 @@ class RSIMeanReversionStrategy(BaseStrategy):
             self.error_handler.handle_error(e, market_data)
             return []
 
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Apply a minimal validity gate compatible with BaseStrategy."""
+        try:
+            if signal is None:
+                return False
+            if hasattr(signal, "is_valid") and not signal.is_valid():
+                return False
+            if len(self.active_positions) >= self.max_positions:
+                return False
+            return getattr(signal, "confidence", 0.0) > 0.0
+        except Exception as e:
+            self.logger.error("Error validating RSI signal: %s", e)
+            return False
+
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Adapt legacy sizing logic to BaseStrategy's abstract contract."""
+        metadata = getattr(signal, "metadata", {}) or {}
+        rsi_signal = metadata.get("rsi_signal") or {}
+        entry_price = rsi_signal.get("entry_price", getattr(signal, "entry_price", 0.0))
+        stop_price = rsi_signal.get("stop_price", getattr(signal, "stop_loss", entry_price))
+        return self._calculate_position_size(entry_price, stop_price)
+
+    def should_exit_position(
+        self,
+        position: Any,
+        market_data: pd.DataFrame,
+    ) -> tuple[bool, str]:
+        """Provide a generic exit policy for BaseStrategy-managed positions."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
+
     def _is_optimal_trading_time(self) -> bool:
         """Check if current time is within optimal trading window"""
         current_time = datetime.now().time()
@@ -447,10 +501,10 @@ class RSIMeanReversionStrategy(BaseStrategy):
             contracts = self._calculate_position_size(stop_price, current_price)
 
             # Determine signal strength
-            if self.rsi_state == RSIState.EXTREME_OVERSOLD or divergence and divergence.divergence_type == DivergenceType.BULLISH_DIVERGENCE:
+            if self.rsi_state == RSIState.EXTREME_OVERSOLD or divergence and divergence.divergence_type == DivergenceType.BULLISH_DIVERGENCE:  # noqa: E501
                 strength = SignalStrength.STRONG
             else:
-                strength = SignalStrength.MEDIUM
+                strength = SignalStrength.MODERATE
 
             # Calculate confidence
             base_confidence = (RSI_OVERSOLD - self.current_rsi) / RSI_OVERSOLD
@@ -473,14 +527,26 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 contracts=contracts
             )
 
+            signal_timestamp = datetime.now()
+
             # Create trading signal
             signal = TradingSignal(
-                timestamp=datetime.now(),
-                signal_type=SignalType.ENTRY,
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY,
+                symbol=self.signal_symbol,
                 strength=strength,
                 confidence=confidence,
+                entry_price=float(current_price),
+                stop_loss=float(stop_price),
+                take_profit=float(target_price),
+                position_size=int(contracts),
+                timestamp=signal_timestamp,
+                expires_at=signal_timestamp + timedelta(minutes=15),
                 metadata={
                     'strategy': 'rsi_mean_reversion',
+                    'strategy_id': 'RSIMeanReversion',
+                    'strategy_type': 'RSIMeanReversion',
+                    'action': 'buy',
                     'direction': 'bullish',
                     'rsi_signal': rsi_signal.__dict__,
                     'divergence': divergence.__dict__ if divergence else None,
@@ -514,10 +580,10 @@ class RSIMeanReversionStrategy(BaseStrategy):
             contracts = self._calculate_position_size(current_price, stop_price)
 
             # Determine signal strength
-            if self.rsi_state == RSIState.EXTREME_OVERBOUGHT or divergence and divergence.divergence_type == DivergenceType.BEARISH_DIVERGENCE:
+            if self.rsi_state == RSIState.EXTREME_OVERBOUGHT or divergence and divergence.divergence_type == DivergenceType.BEARISH_DIVERGENCE:  # noqa: E501
                 strength = SignalStrength.STRONG
             else:
-                strength = SignalStrength.MEDIUM
+                strength = SignalStrength.MODERATE
 
             # Calculate confidence
             base_confidence = (self.current_rsi - RSI_OVERBOUGHT) / (100 - RSI_OVERBOUGHT)
@@ -540,14 +606,26 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 contracts=contracts
             )
 
+            signal_timestamp = datetime.now()
+
             # Create trading signal
             signal = TradingSignal(
-                timestamp=datetime.now(),
-                signal_type=SignalType.ENTRY,
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY,
+                symbol=self.signal_symbol,
                 strength=strength,
                 confidence=confidence,
+                entry_price=float(current_price),
+                stop_loss=float(stop_price),
+                take_profit=float(target_price),
+                position_size=int(contracts),
+                timestamp=signal_timestamp,
+                expires_at=signal_timestamp + timedelta(minutes=15),
                 metadata={
                     'strategy': 'rsi_mean_reversion',
+                    'strategy_id': 'RSIMeanReversion',
+                    'strategy_type': 'RSIMeanReversion',
+                    'action': 'buy',
                     'direction': 'bearish',
                     'rsi_signal': rsi_signal.__dict__,
                     'divergence': divergence.__dict__ if divergence else None,
@@ -645,7 +723,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 quality_score += 1
 
             # Trend alignment
-            if condition == 'oversold' and current_price < sma_20 or condition == 'overbought' and current_price > sma_20:
+            if condition == 'oversold' and current_price < sma_20 or condition == 'overbought' and current_price > sma_20:  # noqa: E501
                 quality_score += 1
 
             # RSI extreme
@@ -742,17 +820,17 @@ class RSIMeanReversionStrategy(BaseStrategy):
 
     def _update_trailing_stop(self, position: RSIPosition, current_price: float):
         """Update trailing stop loss"""
-        if position.pnl_percent >= TRAILING_STOP_ACTIVATION * abs(position.signal.stop_price - position.signal.entry_price) / position.signal.entry_price:
+        if position.pnl_percent >= TRAILING_STOP_ACTIVATION * abs(position.signal.stop_price - position.signal.entry_price) / position.signal.entry_price:  # noqa: E501
             # Activate trailing stop
             if position.signal.option_type == OptionType.CALL:
                 # Trail stop below current price
-                new_stop = current_price - (position.signal.entry_price - position.signal.stop_price) * 0.5
+                new_stop = current_price - (position.signal.entry_price - position.signal.stop_price) * 0.5  # noqa: E501
                 if position.trailing_stop is None or new_stop > position.trailing_stop:
                     position.trailing_stop = new_stop
                     position.state = ReversionState.PROFIT_TARGET
             else:  # PUT
                 # Trail stop above current price
-                new_stop = current_price + (position.signal.stop_price - position.signal.entry_price) * 0.5
+                new_stop = current_price + (position.signal.stop_price - position.signal.entry_price) * 0.5  # noqa: E501
                 if position.trailing_stop is None or new_stop < position.trailing_stop:
                     position.trailing_stop = new_stop
                     position.state = ReversionState.PROFIT_TARGET
@@ -791,7 +869,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit RSI position {position.position_id}: {reason}, P&L: ${position.pnl:.2f}")
+        self.logger.info(f"Exit RSI position {position.position_id}: {reason}, P&L: ${position.pnl:.2f}")  # noqa: E501
         return signal
 
     def _update_performance_stats(self, position: RSIPosition):
@@ -841,7 +919,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         """Get comprehensive strategy statistics"""
         win_rate = 0.0
         if self.performance_stats['total_trades'] > 0:
-            win_rate = self.performance_stats['winning_trades'] / self.performance_stats['total_trades']
+            win_rate = self.performance_stats['winning_trades'] / self.performance_stats['total_trades']  # noqa: E501
 
         return {
             'current_rsi': self.current_rsi,
@@ -886,7 +964,7 @@ def test_rsi_mean_reversion():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(

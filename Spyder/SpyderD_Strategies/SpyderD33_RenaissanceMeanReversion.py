@@ -462,7 +462,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
         try:
             # Check confidence
             if signal.confidence < self.min_confidence:
-                self.logger.debug(f"Signal rejected: confidence {signal.confidence:.2%} below minimum")
+                self.logger.debug(f"Signal rejected: confidence {signal.confidence:.2%} below minimum")  # noqa: E501
                 return False
 
             # Check signal freshness
@@ -478,7 +478,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             # Check for duplicate position
             for pos in self.positions.values():
                 if pos.symbol == signal.symbol:
-                    self.logger.debug("Signal rejected: position already exists for %s", signal.symbol)
+                    self.logger.debug("Signal rejected: position already exists for %s", signal.symbol)  # noqa: E501
                     return False
 
             # Check entry price validity

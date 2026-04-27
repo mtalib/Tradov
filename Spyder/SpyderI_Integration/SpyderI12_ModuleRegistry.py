@@ -120,12 +120,12 @@ REGISTERED_MODULES: dict[str, ModuleRecord] = {
     "B04": ModuleRecord("B04", "SpyderB_Broker", "SpyderB04_AccountManager", "AccountManager",
                         "Tradier account info: balances and margin", "B",
                         dependencies=["B40"]),
-    "B40": ModuleRecord("B40", "SpyderB_Broker", "SpyderB40_TradierClient", "SpyderB40_TradierClient",
+    "B40": ModuleRecord("B40", "SpyderB_Broker", "SpyderB40_TradierClient", "SpyderB40_TradierClient",  # noqa: E501
                         "Primary Tradier REST/WebSocket client", "B",
                         tags=["broker", "api_client"]),
     "B30": ModuleRecord("B30", "SpyderB_Broker", "SpyderB30_SPYOptionsChainManager",
                         "SPYOptionsChainManager",
-                        "SPY options chain manager (deprecated — use SpyderN03_OptionsChainManager)", "B",
+                        "SPY options chain manager (deprecated — use SpyderN03_OptionsChainManager)", "B",  # noqa: E501
                         status="deprecated",
                         tags=["options", "chain"]),
     # ── C-Series: MarketData ──────────────────────────────────────────
@@ -201,7 +201,7 @@ REGISTERED_MODULES: dict[str, ModuleRecord] = {
                         tags=["ml", "validation"]),
     "F14": ModuleRecord("F14", "SpyderF_Analysis", "SpyderF14_MarketMicrostructure",
                         "MarketMicrostructureAnalyzer",
-                        "Intraday microstructure: VPIN, trade clustering, order-flow imbalance", "F",
+                        "Intraday microstructure: VPIN, trade clustering, order-flow imbalance", "F",  # noqa: E501
                         tags=["microstructure"]),
     "F16": ModuleRecord("F16", "SpyderF_Analysis", "SpyderF16_RealTimeAnalytics",
                         "RealTimeAnalytics",

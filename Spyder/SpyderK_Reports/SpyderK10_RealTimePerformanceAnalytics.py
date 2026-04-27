@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -186,7 +186,7 @@ class PerformanceAnalyticsEngine:
 
         # Analytics cache
         self.cache = {}
-        self.last_calculation = datetime.now()
+        self.last_calculation = datetime.now(timezone.utc)
 
         logger.info("Performance Analytics Engine initialized")
 
@@ -214,7 +214,7 @@ class PerformanceAnalyticsEngine:
         win_stats = self._calculate_win_loss_stats()
 
         metrics = PerformanceMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_return=total_return,
             daily_return=daily_return,
             cumulative_return=total_return,
@@ -246,7 +246,7 @@ class PerformanceAnalyticsEngine:
 
         # Calculate strategy-specific metrics
         strategy_pnl = sum(t['pnl'] for t in trades)
-        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now().date())
+        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now(timezone.utc).date())  # noqa: E501
 
         # Calculate win rate
         winning = [t for t in trades if t['pnl'] > 0]
@@ -267,7 +267,7 @@ class PerformanceAnalyticsEngine:
         performance = StrategyPerformance(
             strategy_id=strategy_id,
             strategy_name=self._get_strategy_name(strategy_id),
-            active_since=trades[0]['timestamp'] if trades else datetime.now(),
+            active_since=trades[0]['timestamp'] if trades else datetime.now(timezone.utc),
             total_pnl=strategy_pnl,
             daily_pnl=daily_pnl,
             roi=roi,
@@ -287,7 +287,7 @@ class PerformanceAnalyticsEngine:
         """Calculate comprehensive risk metrics"""
 
         metrics = RiskMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             portfolio_var_95=var_data.get('var_95', 0),
             portfolio_var_99=var_data.get('var_99', 0),
             portfolio_cvar_99=var_data.get('cvar_99', 0),
@@ -321,7 +321,7 @@ class PerformanceAnalyticsEngine:
         avg_slippage = statistics.mean(slippages) if slippages else 0
 
         metrics = ExecutionMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_orders=len(orders),
             filled_orders=len(filled),
             partial_fills=len(partial),
@@ -346,7 +346,7 @@ class PerformanceAnalyticsEngine:
 
         report_data = {
             'metadata': {
-                'generated_at': datetime.now().isoformat(),
+                'generated_at': datetime.now(timezone.utc).isoformat(),
                 'timeframe': timeframe.value,
                 'portfolio_value': self.portfolio_value,
                 'reporting_period': self._get_reporting_period(timeframe)
@@ -377,7 +377,7 @@ class PerformanceAnalyticsEngine:
         latest_risk = self.risk_metrics_history[-1] if self.risk_metrics_history else None
 
         report = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'current_risk': {
                 'var_95': latest_risk.portfolio_var_95 if latest_risk else 0,
                 'var_99': latest_risk.portfolio_var_99 if latest_risk else 0,
@@ -470,7 +470,7 @@ class PerformanceAnalyticsEngine:
         if max_dd == 0:
             return 0
 
-        annual_return = (1 + self.cumulative_pnl / self.portfolio_value) ** (252 / max(len(self.daily_returns), 1)) - 1
+        annual_return = (1 + self.cumulative_pnl / self.portfolio_value) ** (252 / max(len(self.daily_returns), 1)) - 1  # noqa: E501
         return annual_return / abs(max_dd)
 
     def _calculate_drawdowns(self) -> tuple[float, float]:
@@ -557,13 +557,13 @@ class PerformanceAnalyticsEngine:
         perf = self.strategy_performance[strategy_id]
 
         # Try empyrical first for validated VaR
-        if HAS_EMPYRICAL and hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:
+        if HAS_EMPYRICAL and hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:  # noqa: E501
             try:
                 returns = pd.Series(perf.returns_history)
                 var_5 = empyrical.value_at_risk(returns, cutoff=0.05)
                 return abs(float(var_5))
             except Exception as e:
-                logging.getLogger(__name__).debug("VaR calculation failed for %s, using fallback: %s", strategy_id, e)
+                logging.getLogger(__name__).debug("VaR calculation failed for %s, using fallback: %s", strategy_id, e)  # noqa: E501
 
         # Fallback: estimate from available data
         if hasattr(perf, 'total_pnl') and hasattr(perf, 'capital_allocated'):
@@ -633,7 +633,7 @@ class PerformanceAnalyticsEngine:
         impacts = []
         for order in orders:
             if 'expected_price' in order and 'fill_price' in order:
-                impact = abs(order['fill_price'] - order['expected_price']) / order['expected_price']
+                impact = abs(order['fill_price'] - order['expected_price']) / order['expected_price']  # noqa: E501
                 impacts.append(impact)
 
         return statistics.mean(impacts) * 10000 if impacts else 0  # in bps
@@ -658,7 +658,7 @@ class PerformanceAnalyticsEngine:
 
     def _get_reporting_period(self, timeframe: TimeFrame) -> dict[str, str]:
         """Get reporting period based on timeframe"""
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
 
         if timeframe == TimeFrame.DAILY:
             start_date = end_date - timedelta(days=1)
@@ -739,7 +739,7 @@ class PerformanceAnalyticsEngine:
         latest = self.execution_metrics_history[-1]
 
         return {
-            'fill_rate': latest.filled_orders / latest.total_orders if latest.total_orders > 0 else 0,
+            'fill_rate': latest.filled_orders / latest.total_orders if latest.total_orders > 0 else 0,  # noqa: E501
             'avg_fill_time': latest.avg_fill_time,
             'avg_slippage_bps': latest.avg_slippage,
             'total_commissions': latest.total_commissions,
@@ -772,7 +772,7 @@ class PerformanceAnalyticsEngine:
             latest = self.metrics_history[-1]
 
             if latest.sharpe_ratio < 0.5:
-                recommendations.append("Consider reviewing strategy selection - Sharpe ratio below 0.5")
+                recommendations.append("Consider reviewing strategy selection - Sharpe ratio below 0.5")  # noqa: E501
 
             if latest.max_drawdown < -0.15:
                 recommendations.append("High drawdown detected - Consider reducing position sizes")
@@ -824,7 +824,7 @@ class PerformanceAnalyticsEngine:
                 exec_risk = min(0.20, avg_loss / (avg_win + avg_loss) * 0.3)
 
         # Total portfolio volatility
-        total_vol = np.std(self.daily_returns) * np.sqrt(252) if len(self.daily_returns) > 1 else 0.15
+        total_vol = np.std(self.daily_returns) * np.sqrt(252) if len(self.daily_returns) > 1 else 0.15  # noqa: E501
 
         # Normalize into risk decomposition
         strategy_pct = min(0.40, strategy_vol_contrib / total_vol) if total_vol > 0 else 0.25
@@ -863,7 +863,7 @@ class PerformanceAnalyticsEngine:
         else:
             sorted_returns = sorted(returns)
             var_5 = sorted_returns[int(len(sorted_returns) * 0.05)] if sorted_returns else -0.02
-            cvar_5 = np.mean(sorted_returns[:max(1, int(len(sorted_returns) * 0.05))]) if sorted_returns else -0.03
+            cvar_5 = np.mean(sorted_returns[:max(1, int(len(sorted_returns) * 0.05))]) if sorted_returns else -0.03  # noqa: E501
             max_dd = min(returns) if returns else -0.05
 
         # Portfolio beta estimate (sensitivity to market moves)
@@ -933,7 +933,7 @@ class PerformanceAnalyticsEngine:
     def _export_to_excel(self, data: dict) -> str:
         """Export report to Excel format"""
         # Would use pandas.ExcelWriter in production
-        filename = f"performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"performance_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.xlsx"
         # Save logic here
         return filename
 

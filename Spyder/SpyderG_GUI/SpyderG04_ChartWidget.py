@@ -41,10 +41,10 @@ if str(project_root) not in sys.path:
 # THIRD-PARTY IMPORTS - UPDATED TO PYQT6
 # ==============================================================================
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, \
-    QCheckBox, QSplitter, QMenu, QApplication, QComboBox
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction
-import logging
+    QCheckBox, QSplitter, QMenu, QApplication, QComboBox  # noqa: E402
+from PySide6.QtCore import Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QAction  # noqa: E402
+import logging  # noqa: E402
 try:
     import pyqtgraph as pg
 
@@ -73,7 +73,7 @@ except ImportError as e:
             self.logger.setLevel(logging.INFO)
             if not self.logger.handlers:
                 handler = logging.StreamHandler()
-                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')  # noqa: E501
                 handler.setFormatter(formatter)
                 self.logger.addHandler(handler)
 
@@ -108,17 +108,17 @@ BACKGROUND_COLOR = "#1e1e1e"
 GRID_COLOR = "#3d3d3d"
 TEXT_COLOR = "#ffffff"
 BULL_COLOR = "#00ff00"
-BEAR_COLOR = "#ff0000"
+BEAR_COLOR = "#FF073A"
 VOLUME_COLOR = "#4d4d4d"
 CROSSHAIR_COLOR = "#ffff00"
 
 # Indicator colors
 MA_COLORS = ["#00ffff", "#ff00ff", "#ffff00", "#00ff00"]
 BB_COLOR = "#ffffff"
-RSI_OVERBOUGHT_COLOR = "#ff0000"
+RSI_OVERBOUGHT_COLOR = "#FF073A"
 RSI_OVERSOLD_COLOR = "#00ff00"
 MACD_LINE_COLOR = "#00ff00"
-MACD_SIGNAL_COLOR = "#ff0000"
+MACD_SIGNAL_COLOR = "#FF073A"
 MACD_HISTOGRAM_COLOR = "#4d4d4d"
 
 
@@ -518,7 +518,7 @@ class ChartWidget(QWidget):
             "Install with: pip install pyqtgraph"
         )
         fallback_label.setAlignment(Qt.AlignCenter)
-        fallback_label.setStyleSheet("color: #ff0000; font-size: 14px; padding: 50px;")
+        fallback_label.setStyleSheet("color: #FF073A; font-size: 14px; padding: 50px;")
         layout.addWidget(fallback_label)
 
     # ==========================================================================
@@ -1488,7 +1488,7 @@ class ChartWidget(QWidget):
     def _on_mouse_moved(self, pos):
         """Handle mouse move events."""
         try:
-            if not hasattr(self, 'crosshair_enabled') or not self.crosshair_enabled or not hasattr(self, "main_plot"):
+            if not hasattr(self, 'crosshair_enabled') or not self.crosshair_enabled or not hasattr(self, "main_plot"):  # noqa: E501
                 return
 
             # Get mouse position in plot coordinates

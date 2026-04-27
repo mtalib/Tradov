@@ -273,7 +273,7 @@ class SpyderX05_MLResearchAgent:
         self.model_dir.mkdir(exist_ok=True)
 
         # Performance tracking
-        self.prediction_accuracy: dict[PredictionTask, deque] = defaultdict(lambda: deque(maxlen=1000))
+        self.prediction_accuracy: dict[PredictionTask, deque] = defaultdict(lambda: deque(maxlen=1000))  # noqa: E501
         self.model_selection_history: deque = deque(maxlen=1000)
 
         self.logger.info("%s initialized", self.__class__.__name__)
@@ -1021,7 +1021,7 @@ class SpyderX05_MLResearchAgent:
 
         for model_id, perf in self.model_performance.items():
             # Remove if accuracy too low
-            if perf.accuracy < MIN_ACCURACY or perf.decay_factor < 0.5 or perf.sharpe_ratio < 0 and perf.max_drawdown > 0.1:
+            if perf.accuracy < MIN_ACCURACY or perf.decay_factor < 0.5 or perf.sharpe_ratio < 0 and perf.max_drawdown > 0.1:  # noqa: E501
                 models_to_remove.append(model_id)
 
         return models_to_remove

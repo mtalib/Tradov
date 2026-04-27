@@ -304,7 +304,7 @@ class InteractionMatrix:
         try:
             # For simplicity, just record the completion
             # In a full implementation, you'd track pending interactions
-            self.logger.debug("Completed interaction %s with status %s", interaction_id, status.value)
+            self.logger.debug("Completed interaction %s with status %s", interaction_id, status.value)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error completing interaction: %s", str(e))
@@ -352,7 +352,7 @@ class InteractionMatrix:
                 elif metric == MatrixMetric.DATA_VOLUME:
                     matrix_data = self._calculate_data_volume_matrix(filtered_interactions)
                 else:
-                    matrix_data = self.frequency_matrix[:len(self.module_names), :len(self.module_names)]
+                    matrix_data = self.frequency_matrix[:len(self.module_names), :len(self.module_names)]  # noqa: E501
 
                 # Perform analysis
                 analysis = self._perform_matrix_analysis(matrix_data, metric)
@@ -370,7 +370,7 @@ class InteractionMatrix:
                 metric_type=metric
             )
 
-    def get_module_statistics(self, module_name: str | None = None) -> ModuleStats | dict[str, ModuleStats]:
+    def get_module_statistics(self, module_name: str | None = None) -> ModuleStats | dict[str, ModuleStats]:  # noqa: E501
         """
         Get statistics for a module or all modules.
 
@@ -600,18 +600,18 @@ class InteractionMatrix:
                 current_avg = self.latency_matrix[source_idx, target_idx]
 
                 # Running average
-                new_avg = ((current_avg * (current_count - 1)) + interaction.latency_ms) / current_count
+                new_avg = ((current_avg * (current_count - 1)) + interaction.latency_ms) / current_count  # noqa: E501
                 self.latency_matrix[source_idx, target_idx] = new_avg
 
             # Update success matrix
             if interaction.is_successful:
                 success_count = self.success_matrix[source_idx, target_idx]
                 total_count = self.frequency_matrix[source_idx, target_idx]
-                self.success_matrix[source_idx, target_idx] = ((success_count * (total_count - 1)) + 1) / total_count
+                self.success_matrix[source_idx, target_idx] = ((success_count * (total_count - 1)) + 1) / total_count  # noqa: E501
             else:
                 success_count = self.success_matrix[source_idx, target_idx]
                 total_count = self.frequency_matrix[source_idx, target_idx]
-                self.success_matrix[source_idx, target_idx] = (success_count * (total_count - 1)) / total_count
+                self.success_matrix[source_idx, target_idx] = (success_count * (total_count - 1)) / total_count  # noqa: E501
 
             # Update data volume matrix
             if interaction.data_size is not None:
@@ -636,7 +636,7 @@ class InteractionMatrix:
                 # Running average
                 total = source_stats.total_interactions
                 current_avg = source_stats.average_latency
-                source_stats.average_latency = ((current_avg * (total - 1)) + interaction.latency_ms) / total
+                source_stats.average_latency = ((current_avg * (total - 1)) + interaction.latency_ms) / total  # noqa: E501
 
             if interaction.data_size is not None:
                 source_stats.total_data_sent += interaction.data_size
@@ -683,7 +683,7 @@ class InteractionMatrix:
 
         # Calculate averages
         with np.errstate(divide='ignore', invalid='ignore'):
-            matrix = np.divide(matrix, count_matrix, out=np.zeros_like(matrix), where=count_matrix!=0)
+            matrix = np.divide(matrix, count_matrix, out=np.zeros_like(matrix), where=count_matrix!=0)  # noqa: E501
 
         return matrix
 
@@ -703,7 +703,7 @@ class InteractionMatrix:
 
         # Calculate success rates
         with np.errstate(divide='ignore', invalid='ignore'):
-            rate_matrix = np.divide(success_matrix, total_matrix, out=np.zeros_like(success_matrix, dtype=float), where=total_matrix!=0)
+            rate_matrix = np.divide(success_matrix, total_matrix, out=np.zeros_like(success_matrix, dtype=float), where=total_matrix!=0)  # noqa: E501
 
         return rate_matrix * 100  # Convert to percentage
 
@@ -723,7 +723,7 @@ class InteractionMatrix:
 
         return matrix
 
-    def _perform_matrix_analysis(self, matrix_data: np.ndarray, metric: MatrixMetric) -> MatrixAnalysis:
+    def _perform_matrix_analysis(self, matrix_data: np.ndarray, metric: MatrixMetric) -> MatrixAnalysis:  # noqa: E501
         """Perform comprehensive analysis on matrix data"""
         try:
             # Find hotspots (high values)
@@ -753,11 +753,11 @@ class InteractionMatrix:
             # Calculate health score
             np.sum(matrix_data)
             non_zero_count = np.count_nonzero(matrix_data)
-            connectivity = non_zero_count / (len(self.module_names) ** 2) if len(self.module_names) > 0 else 0
+            connectivity = non_zero_count / (len(self.module_names) ** 2) if len(self.module_names) > 0 else 0  # noqa: E501
 
             health_score = connectivity * 100
             if metric == MatrixMetric.SUCCESS_RATE:
-                avg_success_rate = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 100
+                avg_success_rate = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 100  # noqa: E501
                 health_score = avg_success_rate
             elif metric == MatrixMetric.LATENCY:
                 avg_latency = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 0
@@ -807,12 +807,12 @@ class InteractionMatrix:
             if metric == MatrixMetric.LATENCY:
                 high_latency = [h for h in hotspots if h[2] > 1000]  # > 1 second
                 if high_latency:
-                    recommendations.append(f"Reduce latency for {len(high_latency)} slow interactions")
+                    recommendations.append(f"Reduce latency for {len(high_latency)} slow interactions")  # noqa: E501
 
             elif metric == MatrixMetric.SUCCESS_RATE:
                 low_success = [h for h in hotspots if h[2] < 95]  # < 95% success
                 if low_success:
-                    recommendations.append(f"Improve reliability for {len(low_success)} error-prone interactions")
+                    recommendations.append(f"Improve reliability for {len(low_success)} error-prone interactions")  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error generating recommendations: %s", str(e))
@@ -828,9 +828,9 @@ class InteractionMatrix:
 
                 # Log health status
                 if health['health_score'] < 70:
-                    self.logger.warning(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
+                    self.logger.warning(f"System interaction health: {health['health_score']:.1f} ({health['status']})")  # noqa: E501
                 else:
-                    self.logger.debug(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
+                    self.logger.debug(f"System interaction health: {health['health_score']:.1f} ({health['status']})")  # noqa: E501
 
                 # Clean old interactions
                 cutoff_time = datetime.now() - timedelta(hours=24)
@@ -870,7 +870,7 @@ def record_interaction(source: str, target: str, interaction_type: str = "functi
     """Quick interaction recording"""
     matrix = get_interaction_matrix()
     status = InteractionStatus.SUCCESS if success else InteractionStatus.FAILURE
-    int_type = InteractionType(interaction_type) if interaction_type in [t.value for t in InteractionType] else InteractionType.FUNCTION_CALL
+    int_type = InteractionType(interaction_type) if interaction_type in [t.value for t in InteractionType] else InteractionType.FUNCTION_CALL  # noqa: E501
 
     matrix.record_interaction(source, target, int_type, status, latency_ms)
 
@@ -885,7 +885,7 @@ if __name__ == "__main__":
     matrix = get_interaction_matrix()
 
     # Test interaction recording
-    modules = ["SpyderA01_Main", "SpyderB01_SpyderClient", "SpyderC01_DataFeed", "SpyderD01_BaseStrategy"]
+    modules = ["SpyderA01_Main", "SpyderB01_SpyderClient", "SpyderC01_DataFeed", "SpyderD01_BaseStrategy"]  # noqa: E501
 
     # Generate sample interactions
     for _i in range(100):
@@ -896,7 +896,7 @@ if __name__ == "__main__":
             source=source,
             target=target,
             interaction_type=InteractionType.FUNCTION_CALL,
-            status=InteractionStatus.SUCCESS if random.random() > 0.1 else InteractionStatus.FAILURE,
+            status=InteractionStatus.SUCCESS if random.random() > 0.1 else InteractionStatus.FAILURE,  # noqa: E501
             latency_ms=random.uniform(10, 500),
             data_size=random.randint(100, 10000)
         )

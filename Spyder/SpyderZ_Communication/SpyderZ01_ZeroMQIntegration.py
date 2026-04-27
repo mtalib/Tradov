@@ -219,7 +219,7 @@ class CircuitBreaker:
         self.failure_count += 1
         self.last_failure_time = time.time()
 
-        if self.state == CircuitBreakerState.HALF_OPEN or self.failure_count >= self.failure_threshold:
+        if self.state == CircuitBreakerState.HALF_OPEN or self.failure_count >= self.failure_threshold:  # noqa: E501
             self.state = CircuitBreakerState.OPEN
 
 # ==============================================================================
@@ -387,7 +387,7 @@ class SpyderPublisher:
                 except Exception as e:
                     self.logger.error("Message processor error: %s", e)
 
-                time.sleep(0.01)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
+                time.sleep(0.01)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional  # noqa: E501
 
         thread = threading.Thread(target=process_loop, daemon=True)
         thread.start()
@@ -409,7 +409,7 @@ class SpyderPublisher:
                 message.retry_count += 1
                 self._retry_queue.append((time.time() + MESSAGE_RETRY_DELAY, message))
             else:
-                self.logger.error("Message %s failed after %s attempts", msg_id, MESSAGE_RETRY_ATTEMPTS)
+                self.logger.error("Message %s failed after %s attempts", msg_id, MESSAGE_RETRY_ATTEMPTS)  # noqa: E501
                 self.metrics.messages_failed += 1
 
     def _process_retries(self):
@@ -438,7 +438,7 @@ class SpyderPublisher:
             while self.state != ConnectionState.CONNECTED and self._running:
                 time.sleep(self._reconnect_delay)  # thread-safe: time.sleep() intentional
 
-                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)
+                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)  # noqa: E501
                 with self._lock:
                     self.state = ConnectionState.RECONNECTING
                     self.metrics.reconnect_attempts += 1
@@ -599,7 +599,7 @@ class SpyderSubscriber:
                 except Exception as e:
                     self.logger.error("Listen error: %s", e)
 
-                time.sleep(0.001)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional
+                time.sleep(0.001)  # Small delay to prevent CPU spinning  # thread-safe: time.sleep() intentional  # noqa: E501
 
         thread = threading.Thread(target=listen_loop, daemon=True)
         thread.start()
@@ -669,7 +669,7 @@ class SpyderSubscriber:
             while self.state != ConnectionState.CONNECTED and self._running:
                 self._stop_event.wait(timeout=self._reconnect_delay)
 
-                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)
+                self.logger.info("Attempting reconnection (attempt %s)", self.metrics.reconnect_attempts + 1)  # noqa: E501
                 with self._lock:
                     self.state = ConnectionState.RECONNECTING
                     self.metrics.reconnect_attempts += 1
@@ -786,7 +786,7 @@ class SpyderRequester:
                 if attempt < MESSAGE_RETRY_ATTEMPTS - 1:
                     # Reconnect for next attempt
                     self._reconnect()
-                    time.sleep(MESSAGE_RETRY_DELAY * (attempt + 1))  # thread-safe: time.sleep() intentional
+                    time.sleep(MESSAGE_RETRY_DELAY * (attempt + 1))  # thread-safe: time.sleep() intentional  # noqa: E501
                 else:
                     self.metrics.messages_failed += 1
                     return None
@@ -938,7 +938,7 @@ class SpyderCommHub:
                     # Check for issues
                     for name, metric in metrics.items():
                         if metric.error_count > 10:
-                            self.logger.warning("High error count for %s: %s", name, metric.error_count)
+                            self.logger.warning("High error count for %s: %s", name, metric.error_count)  # noqa: E501
 
                         if metric.messages_failed > metric.messages_sent * 0.1:
                             self.logger.warning("High failure rate for %s", name)

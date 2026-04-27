@@ -52,7 +52,7 @@ from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnaly
 from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
 from Spyder.SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 import logging
 
 # ==============================================================================
@@ -530,7 +530,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                 expiry=expiry,
                 net_credit=net_credit * SPY_CONTRACT_MULTIPLIER,
                 max_profit=max_profit * SPY_CONTRACT_MULTIPLIER,
-                max_loss=max_loss * SPY_CONTRACT_MULTIPLIER if max_loss != float('inf') else max_loss,
+                max_loss=max_loss * SPY_CONTRACT_MULTIPLIER if max_loss != float('inf') else max_loss,  # noqa: E501
                 breakeven_points=breakevens,
                 profit_zone=profit_zone,
                 unlimited_risk_side=risk_side,
@@ -1165,13 +1165,13 @@ class RatioSpreadsStrategy(BaseStrategy):
                              market_data: pd.DataFrame) -> TradingSignal | None:
         """Check position exit conditions"""
         # Profit target
-        max_profit = position.setup.max_profit if hasattr(position.setup, 'max_profit') else position.setup.total_credit
+        max_profit = position.setup.max_profit if hasattr(position.setup, 'max_profit') else position.setup.total_credit  # noqa: E501
 
         if position.unrealized_pnl >= max_profit * (PROFIT_TARGET_PERCENT / 100):
             return self._create_exit_signal(position, "profit_target")
 
         # Stop loss
-        stop_loss_amount = abs(position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit) * STOP_LOSS_RATIO
+        stop_loss_amount = abs(position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit) * STOP_LOSS_RATIO  # noqa: E501
 
         if position.unrealized_pnl <= -stop_loss_amount:
             return self._create_exit_signal(position, "stop_loss")
@@ -1211,7 +1211,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f}")
+        self.logger.info(f"Exit {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f}")  # noqa: E501
         return signal
 
     def _close_position(self, position: RatioPosition):
@@ -1244,7 +1244,7 @@ class RatioSpreadsStrategy(BaseStrategy):
         # Update average credit
         n = self.performance_stats['total_trades']
         avg = self.performance_stats['avg_credit']
-        credit = position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit
+        credit = position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit  # noqa: E501
         self.performance_stats['avg_credit'] = (avg * (n-1) + credit) / n
 
     # ==========================================================================
@@ -1278,11 +1278,11 @@ class RatioSpreadsStrategy(BaseStrategy):
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy statistics"""
         total_trades = self.performance_stats['total_trades']
-        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0  # noqa: E501
 
         jade_win_rate = 0
         if self.performance_stats['jade_lizard_trades'] > 0:
-            jade_win_rate = self.performance_stats['jade_lizard_wins'] / self.performance_stats['jade_lizard_trades']
+            jade_win_rate = self.performance_stats['jade_lizard_wins'] / self.performance_stats['jade_lizard_trades']  # noqa: E501
 
         return {
             'active_positions': len(self.active_positions),
@@ -1298,6 +1298,26 @@ class RatioSpreadsStrategy(BaseStrategy):
             'margin_available': self.available_margin
         }
 
+    # ------------------------------------------------------------------
+    # BaseStrategy abstract contract
+    # ------------------------------------------------------------------
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate a generated signal meets minimum requirements."""
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
+
+    def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
+        """Return contract count scaled by account value and per-trade risk budget."""
+        risk_budget = account_value * self.config.get('max_risk_per_trade', 0.02)
+        premium_per_contract = getattr(signal, 'entry_price', 1.0) * 100 or 100
+        return max(1, int(risk_budget / premium_per_contract))
+
+    def should_exit_position(self, position: dict, current_data: dict) -> bool:
+        """Return True when the position should be closed based on P&L thresholds."""
+        pnl_pct = current_data.get('pnl_pct', 0.0)
+        stop_loss = self.config.get('stop_loss_pct', -1.0)
+        profit_target = self.config.get('profit_target_pct', 0.50)
+        return pnl_pct <= stop_loss or pnl_pct >= profit_target
+
 
 # ==============================================================================
 # TESTING
@@ -1309,7 +1329,7 @@ def test_ratio_spreads():
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
 
     event_manager = EventManager()
     risk_profile = RiskProfile(

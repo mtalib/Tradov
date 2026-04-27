@@ -87,14 +87,7 @@ for _k in list(sys.modules):
 
 importlib.invalidate_caches()
 
-# P01 has a pre-existing broken import (get_risk_manager missing from E01)
-try:
-    from Spyder.SpyderP_PortfolioMgmt import SpyderP01_PortfolioManager
-    P01_AVAILABLE = True
-except ImportError:
-    P01_AVAILABLE = False
-
-_skip_p01 = pytest.mark.skipif(not P01_AVAILABLE, reason="P01 unavailable (get_risk_manager missing)")
+from Spyder.SpyderP_PortfolioMgmt import SpyderP01_PortfolioManager  # noqa: E402
 
 
 # ===========================================================================
@@ -102,7 +95,6 @@ _skip_p01 = pytest.mark.skipif(not P01_AVAILABLE, reason="P01 unavailable (get_r
 # ===========================================================================
 
 
-@_skip_p01
 class TestP01Enums(unittest.TestCase):
     """PortfolioManager enums must have all expected members."""
 
@@ -135,7 +127,7 @@ class TestP01Enums(unittest.TestCase):
             self.assertTrue(hasattr(HedgeType, name), f"Missing: {name}")
 
 
-@_skip_p01
+
 class TestP01Dataclasses(unittest.TestCase):
     """PortfolioManager dataclasses must instantiate with expected defaults."""
 
@@ -180,7 +172,7 @@ class TestP01Dataclasses(unittest.TestCase):
         self.assertTrue(hedge.is_active)
 
 
-@_skip_p01
+
 class TestP01PortfolioManagerInit(unittest.TestCase):
     """PortfolioManager constructor must set default attributes."""
 
@@ -201,7 +193,7 @@ class TestP01PortfolioManagerInit(unittest.TestCase):
         self.assertEqual(pm.initial_capital, 50_000.0)
 
 
-@_skip_p01
+
 class TestP01AddRemoveStrategy(unittest.TestCase):
     """PortfolioManager add/remove strategy basic validation."""
 
@@ -227,7 +219,7 @@ class TestP01AddRemoveStrategy(unittest.TestCase):
         self.assertFalse(result)
 
 
-@_skip_p01
+
 class TestP01PortfolioSummary(unittest.TestCase):
     """get_portfolio_summary must return a dict with expected keys."""
 

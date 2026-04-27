@@ -1175,11 +1175,13 @@ class TestEventManagerSubscribeEmit:
 
     def test_high_priority_goes_to_priority_queue(self):
         em = self._make_em()
+        em.is_running = True  # Route to queues instead of sync dispatch
         em.emit(EventType.RISK_LIMIT_BREACH, {}, priority=EventPriority.HIGH)
         assert em.priority_queue.qsize() > 0
 
     def test_low_priority_goes_to_event_queue(self):
         em = self._make_em()
+        em.is_running = True  # Route to queues instead of sync dispatch
         em.emit(EventType.INFO, {}, priority=EventPriority.LOW)
         assert em.event_queue.qsize() > 0
 

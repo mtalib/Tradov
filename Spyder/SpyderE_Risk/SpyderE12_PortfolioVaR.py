@@ -48,16 +48,16 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from scipy import stats
-from scipy.stats import norm, t, chi2, jarque_bera
-from sklearn.covariance import LedoitWolf
+from scipy import stats  # noqa: E402
+from scipy.stats import norm, t, chi2, jarque_bera  # noqa: E402
+from sklearn.covariance import LedoitWolf  # noqa: E402
 
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -364,7 +364,7 @@ class PortfolioVaR:
         """
         with self._lock:
             try:
-                self.logger.info(f"Calculating {method.value} VaR at {confidence_level:.1%} confidence")
+                self.logger.info(f"Calculating {method.value} VaR at {confidence_level:.1%} confidence")  # noqa: E501
 
                 # Get portfolio returns
                 returns = self._get_portfolio_returns()
@@ -384,10 +384,10 @@ class PortfolioVaR:
                     var_pct, cvar_pct = self._calculate_monte_carlo_var(returns, confidence_level)
 
                 elif method == VaRMethod.CORNISH_FISHER:
-                    var_pct, cvar_pct = self._calculate_cornish_fisher_var(returns, confidence_level)
+                    var_pct, cvar_pct = self._calculate_cornish_fisher_var(returns, confidence_level)  # noqa: E501
 
                 elif method == VaRMethod.FILTERED_HISTORICAL:
-                    var_pct, cvar_pct = self._calculate_filtered_historical_var(returns, confidence_level)
+                    var_pct, cvar_pct = self._calculate_filtered_historical_var(returns, confidence_level)  # noqa: E501
 
                 else:  # GARCH
                     var_pct, cvar_pct = self._calculate_garch_var(returns, confidence_level)
@@ -449,7 +449,7 @@ class PortfolioVaR:
         portfolio_returns = []
 
         # Get minimum common length
-        min_length = min(len(returns) for returns in self.position_returns.values()) if self.position_returns else 0
+        min_length = min(len(returns) for returns in self.position_returns.values()) if self.position_returns else 0  # noqa: E501
 
         if min_length > 0:
             # Weight by position values
@@ -640,7 +640,7 @@ class PortfolioVaR:
 
                 for pos_id, pos_data in self.positions.items():
                     # Calculate standalone VaR
-                    pos_returns = np.array(self.position_returns[pos_id]) if pos_id in self.position_returns else np.array([])
+                    pos_returns = np.array(self.position_returns[pos_id]) if pos_id in self.position_returns else np.array([])  # noqa: E501
 
                     if len(pos_returns) > 30:
                         standalone_var = abs(np.percentile(pos_returns, 1)) * pos_data['value']
@@ -652,10 +652,10 @@ class PortfolioVaR:
                     component_var_amount = portfolio_var.var_amount * weight
 
                     # Calculate marginal VaR
-                    marginal_var = component_var_amount / pos_data['value'] if pos_data['value'] > 0 else 0
+                    marginal_var = component_var_amount / pos_data['value'] if pos_data['value'] > 0 else 0  # noqa: E501
 
                     # Diversification effect
-                    correlation_effect = 1 - (component_var_amount / standalone_var) if standalone_var > 0 else 0
+                    correlation_effect = 1 - (component_var_amount / standalone_var) if standalone_var > 0 else 0  # noqa: E501
 
                     component = ComponentVaR(
                         position_id=pos_id,
@@ -664,7 +664,7 @@ class PortfolioVaR:
                         standalone_var=standalone_var,
                         component_var=component_var_amount,
                         marginal_var=marginal_var,
-                        var_contribution_pct=component_var_amount / portfolio_var.var_amount if portfolio_var.var_amount > 0 else 0,
+                        var_contribution_pct=component_var_amount / portfolio_var.var_amount if portfolio_var.var_amount > 0 else 0,  # noqa: E501
                         correlation_effect=correlation_effect
                     )
 
@@ -733,7 +733,7 @@ class PortfolioVaR:
 
                     # Calculate stressed VaR
                     stressed_returns = self._apply_scenario_to_returns(scenario_params)
-                    stressed_var, stressed_cvar = self._calculate_historical_var(stressed_returns, 0.99)
+                    stressed_var, stressed_cvar = self._calculate_historical_var(stressed_returns, 0.99)  # noqa: E501
 
                     # Find worst affected positions
                     worst_positions = self._find_worst_positions(scenario_params)

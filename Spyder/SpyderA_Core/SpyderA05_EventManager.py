@@ -21,12 +21,15 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import atexit
 import json
 import logging
+import os
 import queue
 import sqlite3
 import threading
 import time
+import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -68,6 +71,27 @@ WORKER_THREAD_COUNT = 3
 HANDLER_TIMEOUT = 30  # seconds
 
 # ==============================================================================
+# P2-4: Per-thread event loop for ASYNC handlers
+# ==============================================================================
+_thread_local = threading.local()
+
+
+def _get_thread_loop() -> asyncio.AbstractEventLoop:
+    """Return a persistent event loop for the calling thread.
+
+    Creates a new loop on first access (or after the previous loop was closed).
+    This avoids the overhead and GIL contention of ``asyncio.run()``
+    (which creates *and tears down* a loop on every call) and is safe to call
+    from worker threads that do not themselves host a running loop.
+    """
+    loop = getattr(_thread_local, 'loop', None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _thread_local.loop = loop
+    return loop
+
+
+# ==============================================================================
 # ENUMS
 # ==============================================================================
 class EventType(Enum):
@@ -76,6 +100,7 @@ class EventType(Enum):
     SYSTEM = "system"
     SYSTEM_START = "system_start"
     SYSTEM_ERROR = "system_error"
+    SYSTEM_METRICS = "system_metrics"
     STARTUP = "startup"
     SHUTDOWN = "shutdown"
     HEARTBEAT = "heartbeat"
@@ -83,28 +108,38 @@ class EventType(Enum):
 
     # Market data events
     MARKET_DATA = "market_data"
+    MARKET_DATA_TICK = "market_data_tick"
     QUOTE_UPDATE = "quote_update"
     OPTION_CHAIN_UPDATE = "option_chain_update"
     GREEKS_UPDATE = "greeks_update"
     VOLUME_UPDATE = "volume_update"
     DATA_STALE = "data_stale"
     DATA_FRESH = "data_fresh"
+    CUSTOM_METRIC_UPDATE = "custom_metric_update"
 
     # Trading events
     TRADING = "trading"
     TRADE = "trade"
     ORDER_PLACED = "order_placed"
+    ORDER_SUBMITTED = "order_submitted"
     ORDER_FILLED = "order_filled"
+    ORDER_PARTIALLY_FILLED = "order_partially_filled"
     ORDER_CANCELLED = "order_cancelled"
+    ORDER_EXPIRED = "order_expired"
     ORDER_REJECTED = "order_rejected"
+    ORDER_ORPHANED = "order_orphaned"
+    ORDER_UN_ORPHANED = "order_un_orphaned"  # A9 (v14): recovered after orphan
     POSITION_OPENED = "position_opened"
+    POSITION_UPDATED = "position_updated"
     POSITION_CLOSED = "position_closed"
 
     # Risk events
     RISK = "risk"
     RISK_LIMIT_BREACH = "risk_limit_breach"
+    RISK_VIOLATION = "risk_violation"
     MARGIN_CALL = "margin_call"
     STOP_LOSS_TRIGGERED = "stop_loss_triggered"
+    FLATTEN_REQUEST = "flatten_request"  # P2-2: flatten all positions (e.g. prolonged data stale)
 
     # Connection events
     CONNECTION = "connection"
@@ -124,6 +159,8 @@ class EventType(Enum):
     STRATEGY_STARTED = "strategy_started"
     STRATEGY_STOPPED = "strategy_stopped"
     STRATEGY_ERROR = "strategy_error"
+    SIGNAL_GENERATED = "signal_generated"  # Strategy signal generated
+    PERFORMANCE_UPDATE = "performance_update"  # Performance metrics updated
 
     # Account events
     ACCOUNT = "account"
@@ -136,6 +173,10 @@ class EventType(Enum):
     ALERT = "alert"
     INFO = "info"
     DEBUG = "debug"
+
+    # System control events
+    KILL_SWITCH = "kill_switch"  # O-4: hard stop — halt all new order submission
+    EMERGENCY = "emergency"      # P0-2: catastrophic-loss breach (emitted by E11/E13)
 
 class EventPriority(Enum):
     """Event priorities with numeric values"""
@@ -181,6 +222,11 @@ class Event:
     metadata: dict[str, Any] = field(default_factory=dict)
     ttl: int | None = None  # Time to live in seconds
 
+    @classmethod
+    def create(cls, event_type: "EventType", source: str, data: dict) -> "Event":
+        """Factory classmethod: Event.create(EventType.X, source, data) → Event."""
+        return cls(event_type=event_type, source=source, data=data)
+
     def __post_init__(self):
         # Normalize event_type to this module's EventType even when callers pass
         # enum members from another loaded copy of the module.
@@ -199,7 +245,7 @@ class Event:
         if isinstance(self.priority, str):
             raw_priority = self.priority.name if isinstance(self.priority, Enum) else self.priority
             try:
-                self.priority = EventPriority[raw_priority.upper()] if isinstance(raw_priority, str) else EventPriority.NORMAL
+                self.priority = EventPriority[raw_priority.upper()] if isinstance(raw_priority, str) else EventPriority.NORMAL  # noqa: E501
             except KeyError:
                 self.priority = EventPriority.NORMAL
         elif not isinstance(self.priority, Enum):
@@ -229,7 +275,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -255,6 +301,8 @@ class HandlerInfo:
     weak_ref: bool = False
     execution_count: int = 0
     error_count: int = 0
+    consecutive_errors: int = 0
+    disabled: bool = False
     total_execution_time: float = 0.0
     last_execution: datetime | None = None
     last_error: str | None = None
@@ -364,6 +412,20 @@ class EventManager:
         >>> manager.stop()
     """
 
+    # Tracks how many instances have been created.  More than one outside of
+    # ``get_event_manager()`` is almost certainly a bug (fragmented bus).
+    _constructed_count: int = 0
+    _construction_lock = threading.Lock()
+
+    @staticmethod
+    def _allow_multiple() -> bool:
+        """Return True when multiple instances are explicitly permitted.
+
+        Set the environment variable ``SPYDER_ALLOW_MULTIPLE_EM=1`` in unit
+        tests that deliberately construct isolated EventManager instances.
+        """
+        return os.environ.get("SPYDER_ALLOW_MULTIPLE_EM", "0") == "1"
+
     def __init__(self, persist_events: bool = True,
                  db_path: Path | None = None):
         """
@@ -373,6 +435,17 @@ class EventManager:
             persist_events: Enable event persistence
             db_path: Optional database path
         """
+        with EventManager._construction_lock:
+            EventManager._constructed_count += 1
+            if EventManager._constructed_count > 1 and not EventManager._allow_multiple():
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "EventManager: multiple instances detected (count=%d). "
+                    "Use get_event_manager() to share a single instance. "
+                    "Set SPYDER_ALLOW_MULTIPLE_EM=1 to suppress this warning in tests.",
+                    EventManager._constructed_count,
+                )
+
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
 
@@ -417,18 +490,22 @@ class EventManager:
         # Dead letter queue
         self.dead_letter_queue = deque(maxlen=100)
 
+        # Per-handler error ring (P1-12)
+        self._handler_errors: deque = deque(maxlen=100)
+        self._handler_errors_lock = threading.Lock()
+
         self.logger.info("EventManager initialized")
 
     def get(self, key: str, default: Any = None) -> Any:
-            """Get method for compatibility."""
-            config_defaults = {
-                'max_queue_size': DEFAULT_QUEUE_SIZE,
-                'priority_queue_size': PRIORITY_QUEUE_SIZE,
-                'worker_threads': WORKER_THREAD_COUNT,
-                'persist_events': self.persist_events,
-                'database_path': str(self.db_path) if hasattr(self, 'db_path') else None
-            }
-            return config_defaults.get(key, default)
+        """Get method for compatibility."""
+        config_defaults = {
+            'max_queue_size': DEFAULT_QUEUE_SIZE,
+            'priority_queue_size': PRIORITY_QUEUE_SIZE,
+            'worker_threads': WORKER_THREAD_COUNT,
+            'persist_events': self.persist_events,
+            'database_path': str(self.db_path) if hasattr(self, 'db_path') else None
+        }
+        return config_defaults.get(key, default)
 
     # ==========================================================================
     # DATABASE INITIALIZATION
@@ -559,12 +636,62 @@ class EventManager:
             # Signal shutdown
             self._shutdown_event.set()
 
-            # Wait for queues to empty
+            # A10 (v14): after shutdown is signaled, workers stop pulling new
+            # items; drain any queued-but-unprocessed items so unfinished_tasks
+            # reflects explicit shutdown drops instead of leaking.
+            def _drain_unprocessed(q, name: str) -> None:
+                dropped = 0
+                while True:
+                    try:
+                        q.get_nowait()
+                        dropped += 1
+                        q.task_done()
+                    except queue.Empty:
+                        break
+                    except ValueError:
+                        # task_done called too many times; stop draining safely
+                        break
+                if dropped:
+                    self.logger.info(
+                        "A10: dropped %s unprocessed %s events during shutdown",
+                        dropped,
+                        name,
+                    )
+
+            _drain_unprocessed(self.priority_queue, "priority")
+            _drain_unprocessed(self.event_queue, "regular")
+            if self.persist_events:
+                _drain_unprocessed(self._persist_queue, "persist")
+
+            # A10 (v14): bounded drain — unconditional join() can block forever
+            # when a handler holds a task_done(). Cap drain time at half the
+            # stop() timeout so the rest of the shutdown sequence can still run.
+            drain_deadline = time.time() + max(0.1, timeout / 2.0)
+
+            def _bounded_join(q) -> bool:
+                """Wait on queue.unfinished_tasks up to drain_deadline."""
+                while time.time() < drain_deadline:
+                    if getattr(q, "unfinished_tasks", 0) == 0:
+                        return True
+                    time.sleep(0.02)
+                return getattr(q, "unfinished_tasks", 0) == 0
+
             try:
-                self.event_queue.join()
-                self.priority_queue.join()
-                if self.persist_events:
-                    self._persist_queue.join()
+                if not _bounded_join(self.event_queue):
+                    self.logger.warning(
+                        "A10: event_queue drain timed out; %s tasks left unfinished",
+                        getattr(self.event_queue, "unfinished_tasks", "?"),
+                    )
+                if not _bounded_join(self.priority_queue):
+                    self.logger.warning(
+                        "A10: priority_queue drain timed out; %s tasks left unfinished",
+                        getattr(self.priority_queue, "unfinished_tasks", "?"),
+                    )
+                if self.persist_events and not _bounded_join(self._persist_queue):
+                    self.logger.warning(
+                        "A10: persist_queue drain timed out; %s tasks left unfinished",
+                        getattr(self._persist_queue, "unfinished_tasks", "?"),
+                    )
             except (RuntimeError, AttributeError) as e:
                 # Queue join may fail if queue already closed or in invalid state
                 self.logger.warning("Error waiting for queues during shutdown: %s", e)
@@ -581,8 +708,12 @@ class EventManager:
             if self._metrics_thread:
                 self._metrics_thread.join(timeout=1.0)
 
-            # Shutdown executor
-            self.executor.shutdown(wait=True, timeout=timeout)
+            # Shutdown executor — `timeout` kwarg was added in Python 3.9;
+            # guard for environments where it may not be accepted.
+            try:
+                self.executor.shutdown(wait=True, timeout=timeout)
+            except TypeError:
+                self.executor.shutdown(wait=True)
 
             self.is_running = False
             self.logger.info("EventManager stopped successfully")
@@ -610,7 +741,10 @@ class EventManager:
                 # Check priority queue first
                 try:
                     _, _, event = self.priority_queue.get_nowait()
-                    self._process_single_event(event)
+                    try:
+                        self._process_single_event(event)
+                    finally:
+                        self.priority_queue.task_done()
                     continue
                 except queue.Empty:
                     pass
@@ -618,7 +752,10 @@ class EventManager:
                 # Check regular queue
                 try:
                     event = self.event_queue.get(timeout=0.1)
-                    self._process_single_event(event)
+                    try:
+                        self._process_single_event(event)
+                    finally:
+                        self.event_queue.task_done()
                 except queue.Empty:
                     continue
 
@@ -662,6 +799,10 @@ class EventManager:
 
     def _execute_handler(self, handler: HandlerInfo, event: Event):
         """Execute a single handler"""
+        # P1-12: skip disabled handlers
+        if handler.disabled:
+            return
+
         try:
             # Apply filter
             if handler.filter_func and not handler.filter_func(event):
@@ -674,12 +815,14 @@ class EventManager:
             if handler.handler_type == HandlerType.SYNC:
                 handler.func(event)
             elif handler.handler_type == HandlerType.ASYNC:
-                asyncio.run(handler.func(event))
+                # P2-4: reuse a per-thread loop instead of creating a new one per call
+                _get_thread_loop().run_until_complete(handler.func(event))
             elif handler.handler_type == HandlerType.THREADED:
                 self.executor.submit(handler.func, event)
 
             # Update metrics
             handler.execution_count += 1
+            handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
             handler.last_execution = datetime.now()
 
@@ -688,8 +831,68 @@ class EventManager:
 
         except Exception as e:
             handler.error_count += 1
+            handler.consecutive_errors += 1
             handler.last_error = str(e)
+            tb = traceback.format_exc()
             self.logger.error("Handler %s error: %s", handler.name, e)
+
+            # P1-12: record to error ring
+            error_record = {
+                "handler_name": handler.name,
+                "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),  # noqa: E501
+                "error": str(e),
+                "traceback": tb,
+                "consecutive": handler.consecutive_errors,
+                "ts": datetime.now().isoformat(),
+            }
+            with self._handler_errors_lock:
+                self._handler_errors.append(error_record)
+
+            # P1-12: circuit-break after 3 consecutive failures
+            if handler.consecutive_errors >= 3:
+                handler.disabled = True
+                self.logger.critical(
+                    "Handler %s disabled after %d consecutive errors; last: %s",
+                    handler.name, handler.consecutive_errors, e,
+                )
+                self._emit_system_error(handler.name, event, tb)
+
+    def _emit_system_error(self, handler_name: str, event: Event, tb: str) -> None:
+        """Emit SYSTEM_ERROR for a disabled handler (best-effort; never raises)."""
+        try:
+            err_event = Event(
+                event_id=str(uuid.uuid4()),
+                event_type=EventType.SYSTEM_ERROR,
+                data={
+                    "handler_name": handler_name,
+                    "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),  # noqa: E501
+                    "traceback": tb,
+                    "reason": "handler_circuit_open",
+                },
+                source="EventManager",
+                priority=EventPriority.HIGH,
+            )
+            # Place directly on the high-priority queue to avoid recursion
+            try:
+                self.priority_queue.put_nowait((
+                    -EventPriority.HIGH.value,
+                    err_event.timestamp,
+                    err_event,
+                ))
+            except Exception:
+                self.dead_letter_queue.append(err_event)
+        except Exception as inner:
+            self.logger.error("_emit_system_error failed: %s", inner)
+
+    def get_handler_errors(self) -> list:
+        """Return a copy of the per-handler error ring (newest last).
+
+        Returns:
+            List of dicts with keys: handler_name, event_type, error,
+            traceback, consecutive, ts.
+        """
+        with self._handler_errors_lock:
+            return list(self._handler_errors)
 
     # ==========================================================================
     # BACKGROUND LOOPS
@@ -713,12 +916,31 @@ class EventManager:
                 if (len(batch) >= PERSIST_BATCH_SIZE or
                     current_time - last_persist >= PERSIST_INTERVAL) and batch:
 
-                    self._persist_batch(batch)
+                    to_persist = list(batch)
+                    self._persist_batch(to_persist)
+                    for _ in to_persist:
+                        try:
+                            self._persist_queue.task_done()
+                        except ValueError:
+                            break
                     batch.clear()
                     last_persist = current_time
 
             except Exception as e:
                 self.logger.error("Persistence loop error: %s", e)
+
+        # Best-effort final flush before thread exits.
+        if batch:
+            try:
+                to_persist = list(batch)
+                self._persist_batch(to_persist)
+                for _ in to_persist:
+                    try:
+                        self._persist_queue.task_done()
+                    except ValueError:
+                        break
+            except Exception as e:
+                self.logger.error("Final persistence flush error: %s", e)
 
     def _persist_batch(self, events: list[Event]):
         """Persist batch of events to database"""
@@ -840,16 +1062,30 @@ class EventManager:
         self.logger.info("Handler %s subscribed to all events", handler_name)
         return handler_id
 
-    def unsubscribe(self, handler_id: str) -> bool:
+    def unsubscribe(self, handler_id_or_type, callback=None) -> bool:
         """
         Unsubscribe handler.
 
-        Args:
-            handler_id: Handler ID from subscription
+        Accepts two call signatures:
+        - ``unsubscribe(handler_id: str)`` — original form using the ID returned by subscribe()
+        - ``unsubscribe(event_type: EventType, callback: Callable)`` — convenience form for tests
 
         Returns:
             True if handler was found and removed
         """
+        # Convenience overload: unsubscribe(event_type, callable)
+        if callback is not None:
+            with self.handler_lock:
+                handlers = self.handlers.get(handler_id_or_type, [])
+                for i, h in enumerate(handlers):
+                    if h.func is callback or h.func == callback:
+                        handlers.pop(i)
+                        with self._metrics_lock:
+                            self.metrics.handlers_registered -= 1
+                        return True
+            return False
+
+        handler_id = handler_id_or_type
         with self.handler_lock:
             # Check type-specific handlers
             for _event_type, handlers in self.handlers.items():
@@ -905,6 +1141,11 @@ class EventManager:
             # Update metrics
             with self._metrics_lock:
                 self.metrics.events_published += 1
+
+            # Synchronous dispatch when not yet started (e.g., unit tests)
+            if not self.is_running:
+                self._process_single_event(event)
+                return True
 
             # Add to appropriate queue
             if event.priority.value >= EventPriority.HIGH.value:
@@ -982,6 +1223,11 @@ class EventManager:
                 events = events[-limit:]
 
             return events
+
+    def get_recent_events(self, event_type: EventType | None = None,
+                          limit: int | None = None) -> list[Event]:
+        """Alias for get_event_history with swapped arg order for test convenience."""
+        return self.get_event_history(limit=limit, event_type=event_type)
 
     def get_handler_stats(self) -> list[dict[str, Any]]:
         """Get handler statistics"""
@@ -1076,8 +1322,33 @@ def get_event_manager(persist_events: bool = True) -> EventManager:
     with _event_manager_lock:
         if _event_manager_instance is None:
             _event_manager_instance = _A05_EVENT_MANAGER_CLASS(persist_events=persist_events)
+            # Register atexit cleanup so the executor shuts down before Python's
+            # own ThreadPoolExecutor._python_exit atexit fires.  atexit runs in
+            # LIFO order, so this handler executes first and stops all worker
+            # threads cleanly, eliminating the
+            # "cannot schedule new futures after interpreter shutdown" warning.
+            atexit.register(_event_manager_atexit_cleanup)
 
         return _event_manager_instance
+
+def _event_manager_atexit_cleanup() -> None:
+    """Stop the EventManager singleton at interpreter exit.
+
+    Registered via ``atexit`` (LIFO) so this fires *before* the
+    ``ThreadPoolExecutor._python_exit`` atexit handler.  This ensures all
+    worker threads are joined and the executor is shut down cleanly, which
+    prevents the ``cannot schedule new futures after interpreter shutdown``
+    RuntimeWarning.
+    """
+    global _event_manager_instance
+    with _event_manager_lock:
+        inst = _event_manager_instance
+    if inst is not None and getattr(inst, "is_running", False):
+        try:
+            inst.stop()
+        except Exception:
+            pass
+
 
 def reset_event_manager():
     """Reset the singleton instance (for testing)"""
@@ -1086,6 +1357,8 @@ def reset_event_manager():
         if _event_manager_instance and _event_manager_instance.is_running:
             _event_manager_instance.stop()
         _event_manager_instance = None
+    with EventManager._construction_lock:
+        EventManager._constructed_count = 0
 
 # ==============================================================================
 # MAIN EXECUTION

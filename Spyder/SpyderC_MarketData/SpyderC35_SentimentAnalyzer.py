@@ -35,7 +35,7 @@ import time
 from typing import Any
 from collections.abc import Callable
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
@@ -68,7 +68,7 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -262,7 +262,7 @@ class CompositeSentiment:
             "bullish_count": self.bullish_count,
             "bearish_count": self.bearish_count,
             "neutral_count": self.neutral_count,
-            "sentiment_ratio": self.sentiment_ratio if self.sentiment_ratio != float('inf') else 999,
+            "sentiment_ratio": self.sentiment_ratio if self.sentiment_ratio != float('inf') else 999,  # noqa: E501
             "trend": self.trend,
             "is_actionable": self.is_actionable,
             "top_news": [n.to_dict() for n in self.news_items[:5]],
@@ -592,7 +592,7 @@ class FinnhubNewsSource(BaseNewsSource):
     def fetch(self, ticker: str, limit: int) -> list[NewsItem]:
         """Fetch from Finnhub /company-news endpoint."""
         try:
-            today = datetime.utcnow()
+            today = datetime.now(timezone.utc)
             week_ago = today - timedelta(days=7)
             params = {
                 "symbol": ticker,
@@ -815,7 +815,7 @@ class SentimentAnalyzer:
                 self.sentiment_model = TextBlobModel()
                 self.model_type = SentimentModel.TEXTBLOB
             else:
-                raise ImportError("No sentiment analysis libraries available")
+                raise ImportError("No sentiment analysis libraries available")  # noqa: B904
 
     # ==========================================================================
     # NEWS ANALYSIS

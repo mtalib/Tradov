@@ -774,7 +774,7 @@ class RealTimePredictor:
                     f"Performance: {metrics.total_predictions} predictions, "
                     f"avg latency: {metrics.average_latency_ms:.1f}ms, "
                     f"p95: {metrics.p95_latency_ms:.1f}ms, "
-                    f"cache hit rate: {metrics.cache_hits / max(1, metrics.cache_hits + metrics.cache_misses):.1%}"
+                    f"cache hit rate: {metrics.cache_hits / max(1, metrics.cache_hits + metrics.cache_misses):.1%}"  # noqa: E501
                 )
 
                 # Emit metrics event
@@ -788,7 +788,7 @@ class RealTimePredictor:
                                 'average_latency_ms': metrics.average_latency_ms,
                                 'p95_latency_ms': metrics.p95_latency_ms,
                                 'p99_latency_ms': metrics.p99_latency_ms,
-                                'cache_hit_rate': metrics.cache_hits / max(1, metrics.cache_hits + metrics.cache_misses),
+                                'cache_hit_rate': metrics.cache_hits / max(1, metrics.cache_hits + metrics.cache_misses),  # noqa: E501
                                 'error_rate': metrics.errors / max(1, metrics.total_predictions)
                             },
                             'model_stats': model_stats

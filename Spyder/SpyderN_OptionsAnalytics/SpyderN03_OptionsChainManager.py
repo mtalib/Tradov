@@ -35,28 +35,33 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from pathlib import Path
+from pathlib import Path  # noqa: E402
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+import logging  # noqa: E402
 
 # Import pricing and IV engines if available
 try:
-    from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
     PRICING_AVAILABLE = True
 except ImportError:
-    PRICING_AVAILABLE = False
-    logging.info("⚠️ Options pricing modules not available - some features disabled")
+    try:
+        from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
+        from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
+        PRICING_AVAILABLE = True
+    except ImportError:
+        PRICING_AVAILABLE = False
+        logging.info("⚠️ Options pricing modules not available - some features disabled")
 
 # ==============================================================================
 # CONSTANTS
@@ -242,7 +247,7 @@ class OptionsChainManager:
         self.cache_timestamp = {}
         self._cache_maxsize = 500
 
-        self.logger.info("OptionsChainManager initialized")
+        self.logger.debug("OptionsChainManager initialized")
 
     # ==========================================================================
     # DATA MANAGEMENT

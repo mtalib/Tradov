@@ -630,7 +630,7 @@ class RegimeGatedSelector:
                     self.logger.info("RL strategy selector loaded from default path")
                 else:
                     self._rl_enabled = False
-                    self.logger.debug("No RL strategy selector model found — using rule-based selection")
+                    self.logger.debug("No RL strategy selector model found — using rule-based selection")  # noqa: E501
         except Exception as e:
             self._rl_enabled = False
             self.logger.warning("Failed to load RL strategy selector: %s", e)
@@ -843,7 +843,7 @@ class RegimeGatedSelector:
                 return self._create_stable_selection(
                     regime,
                     confidence,
-                    f"Regime duration ({self.days_in_regime}d) < minimum ({self.min_regime_duration}d)"
+                    f"Regime duration ({self.days_in_regime}d) < minimum ({self.min_regime_duration}d)"  # noqa: E501
                 )
 
             # Get optimal strategy — RL-enhanced or rule-based
@@ -866,7 +866,7 @@ class RegimeGatedSelector:
                 return self._create_stable_selection(
                     regime,
                     confidence,
-                    f"Current strategy {self.current_strategy.value} is optimal for {regime.value} regime"
+                    f"Current strategy {self.current_strategy.value} is optimal for {regime.value} regime"  # noqa: E501
                 )
 
             # Strategy change needed - initiate transition
@@ -1192,7 +1192,7 @@ class RegimeGatedSelector:
                 self.selection_history[i-1].selected_strategy):
                 transitions += 1
 
-        transition_frequency = transitions / len(self.selection_history) if self.selection_history else 0.0
+        transition_frequency = transitions / len(self.selection_history) if self.selection_history else 0.0  # noqa: E501
 
         return {
             'total_selections': len(self.selection_history),
@@ -1247,7 +1247,7 @@ def create_sample_regime_predictions(n_predictions: int = 30) -> list[RegimePred
             confidence=0.70 if current_regime != MarketRegime.UNKNOWN else 0.50,
             transition_probability=0.05,
             expected_duration=5.0,
-            recommended_strategy="calendar_spreads" if current_regime == MarketRegime.BULL else "iron_condors",
+            recommended_strategy="calendar_spreads" if current_regime == MarketRegime.BULL else "iron_condors",  # noqa: E501
             reason=f"Regime {current_regime.value} detected"
         )
 

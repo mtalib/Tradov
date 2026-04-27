@@ -801,7 +801,7 @@ Provide a JSON response:
     "key_drivers": ["driver1", "driver2"],
     "risk_events": ["event1", "event2"],
     "confidence": 0.0-1.0
-}}"""
+}}"""  # noqa: E501
 
         try:
             response = await asyncio.to_thread(
@@ -1139,7 +1139,7 @@ Provide a JSON response:
         metrics['rmse'] = np.sqrt(metrics['mse'])
 
         # MAPE
-        mape_errors = [abs((m - p) / p) for m, p in zip(model_prices, market_prices, strict=False) if p != 0]
+        mape_errors = [abs((m - p) / p) for m, p in zip(model_prices, market_prices, strict=False) if p != 0]  # noqa: E501
         metrics['mape'] = np.mean(mape_errors) if mape_errors else 0
 
         # R-squared
@@ -1166,7 +1166,7 @@ Provide a JSON response:
         metrics['max_error'] = backtest_results.get('max_error', 0)
 
         # Bias
-        metrics['bias'] = np.mean([m - p for m, p in zip(model_prices, market_prices, strict=False)])
+        metrics['bias'] = np.mean([m - p for m, p in zip(model_prices, market_prices, strict=False)])  # noqa: E501
 
         return metrics
 
@@ -1230,7 +1230,7 @@ Provide a JSON response:
         else:
             expiry_result = self._black_scholes_model(near_expiry_contract)
 
-        stress_results['near_expiry_performance'] = 'PASS' if expiry_result['price'] >= 1 else 'FAIL'
+        stress_results['near_expiry_performance'] = 'PASS' if expiry_result['price'] >= 1 else 'FAIL'  # noqa: E501
 
         # Test 4: Liquidity crisis (wide bid-ask)
         stress_results['liquidity_performance'] = 'PASS'  # Simplified
@@ -1361,8 +1361,8 @@ Provide a JSON response:
 
         # Delta: dV/dS
         bump = 0.01 * contract.spot_price
-        contract_up = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price + bump})
-        contract_down = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price - bump})
+        contract_up = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price + bump})  # noqa: E501
+        contract_down = OptionContract(**{**contract.__dict__, 'spot_price': contract.spot_price - bump})  # noqa: E501
 
         price_up = self._binomial_model(contract_up)['price']
         price_down = self._binomial_model(contract_down)['price']
@@ -1466,7 +1466,7 @@ async def test_quant_models():
     logging.info("Model Type: %s", pricing_result.model_type.value)
     logging.info(f"Theoretical Price: ${pricing_result.theoretical_price:.2f}")
     logging.info(f"Market Price: ${contract.market_price:.2f}")
-    logging.info(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")
+    logging.info(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")  # noqa: E501
     logging.info("\nGreeks:")
     for greek, value in pricing_result.greeks.items():
         logging.info(f"  {greek}: {value:.4f}")

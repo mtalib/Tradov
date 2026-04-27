@@ -213,7 +213,7 @@ class SpyderX03_StrategyDirectorAgent:
         # LLM configuration
         self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
         self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
-        self.max_concurrent = self.config.get('max_concurrent_strategies', MAX_CONCURRENT_STRATEGIES)
+        self.max_concurrent = self.config.get('max_concurrent_strategies', MAX_CONCURRENT_STRATEGIES)  # noqa: E501
         self.min_confidence = self.config.get('min_confidence_threshold', MIN_CONFIDENCE_THRESHOLD)
 
         # Initialize Ollama client
@@ -297,7 +297,7 @@ class SpyderX03_StrategyDirectorAgent:
                     risk_constraints
                 )
 
-            if strategy_recommendation and strategy_recommendation.strategy_params.confidence_score >= self.min_confidence:
+            if strategy_recommendation and strategy_recommendation.strategy_params.confidence_score >= self.min_confidence:  # noqa: E501
                 # Cache the recommendation
                 self._cache_strategy(cache_key, strategy_recommendation)
 
@@ -307,8 +307,8 @@ class SpyderX03_StrategyDirectorAgent:
                 # Log performance
                 elapsed = (datetime.now() - start_time).total_seconds()
                 self.logger.info(
-                    f"Strategy selected: {strategy_recommendation.strategy_params.strategy_type.value} "
-                    f"with confidence {strategy_recommendation.strategy_params.confidence_score:.2%} "
+                    f"Strategy selected: {strategy_recommendation.strategy_params.strategy_type.value} "  # noqa: E501
+                    f"with confidence {strategy_recommendation.strategy_params.confidence_score:.2%} "  # noqa: E501
                     f"in {elapsed:.2f} seconds"
                 )
 
@@ -428,7 +428,7 @@ class SpyderX03_StrategyDirectorAgent:
 
         # Calculate support/resistance (simplified)
         support_levels = [market_data.underlying_price * 0.98, market_data.underlying_price * 0.95]
-        resistance_levels = [market_data.underlying_price * 1.02, market_data.underlying_price * 1.05]
+        resistance_levels = [market_data.underlying_price * 1.02, market_data.underlying_price * 1.05]  # noqa: E501
 
         # Volume profile (simplified)
         volume_profile = {
@@ -523,7 +523,7 @@ class SpyderX03_StrategyDirectorAgent:
                         "role": "system",
                         "content": (
                             "You are an expert options trading strategist for SPY. "
-                            "Select the optimal strategy based on market conditions and risk constraints. "
+                            "Select the optimal strategy based on market conditions and risk constraints. "  # noqa: E501
                             "Respond in JSON."
                         )
                     },
@@ -581,7 +581,7 @@ class SpyderX03_StrategyDirectorAgent:
 
         # Get recent performance
         recent_performance = self.get_strategy_performance()
-        perf_str = f"Win Rate: {recent_performance.get('win_rate', 0):.1%}" if recent_performance.get('total_trades', 0) > 0 else "No history"
+        perf_str = f"Win Rate: {recent_performance.get('win_rate', 0):.1%}" if recent_performance.get('total_trades', 0) > 0 else "No history"  # noqa: E501
 
         prompt = f"""You are an expert options trading strategist. Select the optimal options strategy based on current market conditions.
 
@@ -624,7 +624,7 @@ Provide your recommendation as JSON with the following structure:
     "expected_return": percent,
     "confidence": 0-1,
     "risk_metrics": {{"max_loss": amount, "probability_profit": percent}}
-}}"""
+}}"""  # noqa: E501
 
         return prompt
 
@@ -660,7 +660,7 @@ Provide your recommendation as JSON with the following structure:
     ) -> StrategyParameters:
         """Create strategy parameters from AI recommendation."""
         # Map strategy name to enum
-        strategy_type_str = ai_recommendation.get('strategy_type', 'iron_condor').lower().replace(' ', '_')
+        strategy_type_str = ai_recommendation.get('strategy_type', 'iron_condor').lower().replace(' ', '_')  # noqa: E501
         strategy_type = StrategyType.IRON_CONDOR  # Default
 
         for st in StrategyType:
@@ -924,7 +924,7 @@ Provide your recommendation as JSON with the following structure:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_strategy_director_agent(config: dict[str, Any] | None = None) -> SpyderX03_StrategyDirectorAgent:
+def create_strategy_director_agent(config: dict[str, Any] | None = None) -> SpyderX03_StrategyDirectorAgent:  # noqa: E501
     """
     Factory function to create Strategy Director Agent.
 

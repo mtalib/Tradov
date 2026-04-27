@@ -315,7 +315,7 @@ class SpyderM06_HMMRegimeDetector:
 
             # Volatility measures
             features['volatility'] = features['returns'].rolling(VOLATILITY_WINDOW).std()
-            features['volatility_ratio'] = features['volatility'] / features['volatility'].rolling(60).mean()
+            features['volatility_ratio'] = features['volatility'] / features['volatility'].rolling(60).mean()  # noqa: E501
 
             # Volume features
             features['volume_ratio'] = data['Volume'] / data['Volume'].rolling(20).mean()
@@ -367,7 +367,7 @@ class SpyderM06_HMMRegimeDetector:
             features['bb_upper'] = sma + (std * 2)
             features['bb_lower'] = sma - (std * 2)
             features['bb_width'] = (features['bb_upper'] - features['bb_lower']) / sma
-            features['bb_position'] = (data['Close'] - features['bb_lower']) / (features['bb_upper'] - features['bb_lower'])
+            features['bb_position'] = (data['Close'] - features['bb_lower']) / (features['bb_upper'] - features['bb_lower'])  # noqa: E501
 
             # Momentum
             for period in MOMENTUM_PERIODS:
@@ -379,7 +379,7 @@ class SpyderM06_HMMRegimeDetector:
             logger.error("Error adding technical indicators: %s", e, exc_info=True)
             return features
 
-    def _add_microstructure_features(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
+    def _add_microstructure_features(self, features: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:  # noqa: E501
         """Add market microstructure features"""
         try:
             # Spread proxy
@@ -585,7 +585,7 @@ class SpyderM06_HMMRegimeDetector:
         if last_retrain is not None:
             hours_since_retrain = (datetime.now() - last_retrain).total_seconds() / 3600
             if hours_since_retrain >= RETRAIN_INTERVAL_HOURS:
-                logger.info(f"Rolling window retrain triggered: {hours_since_retrain:.1f} hours since last retrain")
+                logger.info(f"Rolling window retrain triggered: {hours_since_retrain:.1f} hours since last retrain")  # noqa: E501
                 return True
 
         # Retrain periodically by sample count
@@ -594,8 +594,8 @@ class SpyderM06_HMMRegimeDetector:
 
         # Retrain if confidence consistently low (performance degradation)
         recent_confidence = [r.confidence for r in list(self.regime_history)[-10:]]
-        if recent_confidence and np.mean(recent_confidence) < (CONFIDENCE_THRESHOLD - PERFORMANCE_DEGRADATION_THRESHOLD):
-            logger.info(f"Performance degradation detected: avg confidence {np.mean(recent_confidence):.2f}")
+        if recent_confidence and np.mean(recent_confidence) < (CONFIDENCE_THRESHOLD - PERFORMANCE_DEGRADATION_THRESHOLD):  # noqa: E501
+            logger.info(f"Performance degradation detected: avg confidence {np.mean(recent_confidence):.2f}")  # noqa: E501
             return True
 
         return False
@@ -608,7 +608,7 @@ class SpyderM06_HMMRegimeDetector:
         the most recent ~3 months of data.
         """
         if len(features) > ROLLING_WINDOW_DAYS:
-            logger.debug("Applying rolling window: using last %s of %s samples", ROLLING_WINDOW_DAYS, len(features))
+            logger.debug("Applying rolling window: using last %s of %s samples", ROLLING_WINDOW_DAYS, len(features))  # noqa: E501
             return features[-ROLLING_WINDOW_DAYS:]
         return features
 
@@ -1088,7 +1088,7 @@ class SpyderM06_HMMRegimeDetector:
                 'regime': self.current_regime.value,
                 'confidence': self.regime_confidence,
                 'persistence': self.regime_persistence,
-                'state_probabilities': self.state_probabilities.tolist() if self.state_probabilities is not None else [],
+                'state_probabilities': self.state_probabilities.tolist() if self.state_probabilities is not None else [],  # noqa: E501
                 'transition_probability': self._get_current_transition_probability(),
                 'features': self._extract_current_features(),
                 'risk_parameters': REGIME_RISK_LIMITS.get(self.current_regime.value, 0.5),
@@ -1259,8 +1259,8 @@ class SpyderM06_HMMRegimeDetector:
         """Get regime-specific correlations"""
         # Placeholder - would calculate from historical data
         return {
-            'spy_vix': -0.8 if self.current_regime == MarketRegime.LOW_VOLATILITY_TRENDING else -0.3,
-            'spy_bonds': -0.4 if self.current_regime == MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING else -0.2,
+            'spy_vix': -0.8 if self.current_regime == MarketRegime.LOW_VOLATILITY_TRENDING else -0.3,  # noqa: E501
+            'spy_bonds': -0.4 if self.current_regime == MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING else -0.2,  # noqa: E501
             'spy_gold': 0.1 if self.current_regime == MarketRegime.TRANSITIONAL_NEUTRAL else -0.1
         }
 
@@ -1312,9 +1312,9 @@ class SpyderM06_HMMRegimeDetector:
     def _analyze_market_conditions(self) -> dict[str, Any]:
         """Analyze current market conditions"""
         return {
-            'volatility_level': 'low' if self.current_regime == MarketRegime.LOW_VOLATILITY_TRENDING else 'high',
+            'volatility_level': 'low' if self.current_regime == MarketRegime.LOW_VOLATILITY_TRENDING else 'high',  # noqa: E501
             'trend_strength': 'strong' if self.regime_persistence > 10 else 'weak',
-            'mean_reversion_tendency': 'high' if self.current_regime == MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING else 'low',
+            'mean_reversion_tendency': 'high' if self.current_regime == MarketRegime.HIGH_VOLATILITY_MEAN_REVERTING else 'low',  # noqa: E501
             'regime_stability': 'stable' if self.regime_persistence > 5 else 'unstable'
         }
 

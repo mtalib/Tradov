@@ -185,7 +185,7 @@ class SystemHealthMonitor:
                 self.signals["GEX"] = metrics.get("GEX", 0)
                 self.signals["DIX"] = metrics.get("DIX", 0)
                 self.signals["SWAN"] = metrics.get("SWAN", 0)
-                self.signals["SKEW"] = metrics.get("SKEW", 0)
+                self.signals["OPT_SKEW"] = metrics.get("OPT_SKEW", 0)
             except Exception as e:
                 alerts.append(f"Signal update failed: {e}")
         else:

@@ -321,7 +321,7 @@ class EmailNotifier:
         # Determine priority based on alert type
         priority = Priority.URGENT if alert_type in ['stop_loss', 'margin_call'] else Priority.HIGH
 
-        subject = f"Position Alert: {position_data['symbol']} - {alert_type.replace('_', ' ').title()}"
+        subject = f"Position Alert: {position_data['symbol']} - {alert_type.replace('_', ' ').title()}"  # noqa: E501
 
         context = {
             'position': position_data,
@@ -519,7 +519,7 @@ class EmailNotifier:
                     if item.attempts >= MAX_RETRIES:
                         item.status = EmailStatus.FAILED
                         self.stats['failed'] += 1
-                        self.logger.error("Email failed after %s attempts: %s", MAX_RETRIES, item.message.subject)
+                        self.logger.error("Email failed after %s attempts: %s", MAX_RETRIES, item.message.subject)  # noqa: E501
                     else:
                         item.status = EmailStatus.RETRYING
                         self.stats['retried'] += 1
@@ -682,7 +682,7 @@ class EmailNotifier:
             </p>
         </body>
         </html>
-        """
+        """  # noqa: E501
 
         trade_txt = """
 Trade Execution Notification
@@ -783,7 +783,7 @@ if __name__ == "__main__":
         smtp_port=587,
         use_tls=True,
         username='your_email@gmail.com',
-        password='encrypted_password',  # Would be encrypted
+        password='<REPLACE_ME>',  # Replace with actual credentials via .env
         from_address='your_email@gmail.com',
         from_name='Spyder Trading'
     )

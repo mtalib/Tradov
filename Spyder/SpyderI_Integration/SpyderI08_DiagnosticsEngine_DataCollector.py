@@ -364,7 +364,7 @@ class DataCollector:
 
         return integration_health_list
 
-    def _assess_integration_health(self, source_module: str, target_module: str) -> IntegrationHealth:
+    def _assess_integration_health(self, source_module: str, target_module: str) -> IntegrationHealth:  # noqa: E501
         """
         Assess health of integration between two modules.
 
@@ -407,7 +407,7 @@ class DataCollector:
             )
 
         except Exception as e:
-            self.error_handler.handle_error(e, f"_assess_integration_health: {source_module}->{target_module}")
+            self.error_handler.handle_error(e, f"_assess_integration_health: {source_module}->{target_module}")  # noqa: E501
             return IntegrationHealth(
                 source_module=source_module,
                 target_module=target_module,

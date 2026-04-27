@@ -55,6 +55,19 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+# Pivot mean-reversion confluence signal (Tier-1+3 composite scorer).
+# Optional input on MarketEnvironment; engine degrades gracefully when absent.
+try:
+    from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
+        PivotDirection,
+        PivotMRSignal,
+    )
+    PIVOT_MR_SIGNAL_AVAILABLE = True
+except Exception:  # noqa: BLE001 — keep engine usable even if signal module missing
+    PivotDirection = None  # type: ignore[assignment,misc]
+    PivotMRSignal = None   # type: ignore[assignment,misc]
+    PIVOT_MR_SIGNAL_AVAILABLE = False
+
 # Base strategy framework
 try:
     from SpyderD_Strategies.SpyderD01_BaseStrategy import (
@@ -262,9 +275,15 @@ class MarketEnvironment:
     put_call_ratio: float = 1.0
     options_volume: float = 0.0
 
+    # Pivot mean-reversion confluence signal (optional). When `fired` is True,
+    # the construction engine biases spread-type selection AND short-strike
+    # placement to the pivot level. When None or not fired, legacy logic runs
+    # unchanged.
+    pivot_signal: Any = None  # PivotMRSignal | None — Any to keep import optional
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
-        return {
+        out = {
             'timestamp': self.timestamp.isoformat(),
             'current_price': self.current_price,
             'price_change': self.price_change,
@@ -279,6 +298,16 @@ class MarketEnvironment:
             'put_call_ratio': self.put_call_ratio,
             'options_volume': self.options_volume
         }
+        if self.pivot_signal is not None:
+            out['pivot_signal'] = {
+                'direction': getattr(self.pivot_signal.direction, 'value',
+                                     str(self.pivot_signal.direction)),
+                'score': self.pivot_signal.score,
+                'fired': self.pivot_signal.fired,
+                'level_name': self.pivot_signal.nearest_level_name,
+                'level_price': self.pivot_signal.nearest_level_price,
+            }
+        return out
 
 # ==============================================================================
 # MARKET ANALYSIS ENGINE
@@ -317,7 +346,7 @@ class MarketAnalysisEngine:
 
             # Volatility analysis
             implied_volatility = self._estimate_implied_volatility(market_data)
-            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0
+            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0  # noqa: E501
 
             # Trend and bias analysis
             trend_strength = self._calculate_trend_strength(market_data)
@@ -329,7 +358,7 @@ class MarketAnalysisEngine:
 
             # Options flow (if available)
             put_call_ratio = self._calculate_put_call_ratio(market_data)
-            options_volume = market_data.get('options_volume', pd.Series([0.0])).iloc[-1] if 'options_volume' in market_data else 0.0
+            options_volume = market_data.get('options_volume', pd.Series([0.0])).iloc[-1] if 'options_volume' in market_data else 0.0  # noqa: E501
 
             # Get market regime (if available)
             regime = self._get_current_regime()
@@ -443,7 +472,7 @@ class MarketAnalysisEngine:
         except Exception:
             return 0.0
 
-    def _determine_market_bias(self, market_data: pd.DataFrame, trend_strength: float) -> MarketBias:
+    def _determine_market_bias(self, market_data: pd.DataFrame, trend_strength: float) -> MarketBias:  # noqa: E501
         """Determine overall market bias"""
         try:
             price_change = self._calculate_price_change(market_data)
@@ -531,13 +560,13 @@ class MarketAnalysisEngine:
             return 1.0
 
     def _get_current_regime(self) -> str | None:
-        """Get current market regime from unified engine"""
+        """Get current market regime from the unified engine."""
         if not REGIME_ENGINE_AVAILABLE:
             return None
-
         try:
-            # Would integrate with regime engine - placeholder for now
-            return "bull_trending"  # Example
+            engine = get_unified_regime_engine()
+            current = getattr(engine, "current_regime", None)
+            return current.value if current is not None else None
         except Exception:
             return None
 
@@ -553,7 +582,7 @@ class SpreadConstructionEngine:
         self.logger = SpyderLogger.get_logger(f"{__name__}.SpreadConstruction")
 
     def construct_optimal_spread(self, market_env: MarketEnvironment,
-                                spread_type: CreditSpreadType = CreditSpreadType.AUTO_SELECT) -> CreditSpreadParameters | None:
+                                spread_type: CreditSpreadType = CreditSpreadType.AUTO_SELECT) -> CreditSpreadParameters | None:  # noqa: E501
         """Construct optimal credit spread based on market environment"""
         try:
             # Auto-select spread type if needed
@@ -576,6 +605,27 @@ class SpreadConstructionEngine:
     def _select_optimal_spread_type(self, market_env: MarketEnvironment) -> CreditSpreadType:
         """Intelligently select optimal spread type"""
         try:
+            # ----- Pivot mean-reversion override (highest priority when fired) -----
+            # When SpyderS08 emits a fired signal, that's a high-conviction
+            # mean-reversion setup with regime + GEX + RSI + ATR-distance
+            # confluence. Trust it over the trend-following bias logic below.
+            ps = getattr(market_env, 'pivot_signal', None)
+            if (PIVOT_MR_SIGNAL_AVAILABLE and ps is not None
+                    and getattr(ps, 'fired', False)):
+                direction = getattr(ps, 'direction', None)
+                if PivotDirection is not None and direction == PivotDirection.FADE_RESISTANCE:
+                    self.logger.info(
+                        "Pivot MR signal: FADE_RESISTANCE @ %s=%.2f score=%d \u2192 BEAR_CALL",
+                        ps.nearest_level_name, ps.nearest_level_price, ps.score,
+                    )
+                    return CreditSpreadType.BEAR_CALL_SPREAD
+                if PivotDirection is not None and direction == PivotDirection.FADE_SUPPORT:
+                    self.logger.info(
+                        "Pivot MR signal: FADE_SUPPORT @ %s=%.2f score=%d \u2192 BULL_PUT",
+                        ps.nearest_level_name, ps.nearest_level_price, ps.score,
+                    )
+                    return CreditSpreadType.BULL_PUT_SPREAD
+
             bias = market_env.market_bias
             abs(market_env.trend_strength)
 
@@ -591,9 +641,9 @@ class SpreadConstructionEngine:
                 return CreditSpreadType.BULL_PUT_SPREAD
 
             # Low VIX with technical levels
-            if market_env.resistance_levels and market_env.current_price < min(market_env.resistance_levels):
+            if market_env.resistance_levels and market_env.current_price < min(market_env.resistance_levels):  # noqa: E501
                 return CreditSpreadType.BEAR_CALL_SPREAD
-            elif market_env.support_levels and market_env.current_price > max(market_env.support_levels):
+            elif market_env.support_levels and market_env.current_price > max(market_env.support_levels):  # noqa: E501
                 return CreditSpreadType.BULL_PUT_SPREAD
 
             # Default to bull put spread in neutral conditions
@@ -625,7 +675,7 @@ class SpreadConstructionEngine:
             target_credit = spread_width * OPTIMAL_CREDIT_RATIO
             max_loss = spread_width - target_credit
             breakeven = short_strike - target_credit
-            probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)
+            probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)  # noqa: E501
 
             # Expiration date (placeholder - would use actual options chain)
             expiration_date = datetime.now() + timedelta(days=21)  # ~3 weeks
@@ -671,7 +721,7 @@ class SpreadConstructionEngine:
             target_credit = spread_width * OPTIMAL_CREDIT_RATIO
             max_loss = spread_width - target_credit
             breakeven = short_strike + target_credit
-            probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)
+            probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)  # noqa: E501
 
             # Expiration date (placeholder - would use actual options chain)
             expiration_date = datetime.now() + timedelta(days=21)  # ~3 weeks
@@ -700,11 +750,32 @@ class SpreadConstructionEngine:
                                       spread_type: CreditSpreadType) -> float:
         """Calculate optimal short strike based on market conditions"""
         try:
+            # ----- Pivot MR signal anchor (highest priority when fired) -----
+            # Anchor the short strike directly to the pivot level the signal
+            # is fading. This is the whole point of the confluence — sell the
+            # call vertical with its short leg AT the resistance pivot, sell
+            # the put vertical with its short leg AT the support pivot.
+            ps = getattr(market_env, 'pivot_signal', None)
+            if (PIVOT_MR_SIGNAL_AVAILABLE and ps is not None
+                    and getattr(ps, 'fired', False)
+                    and ps.nearest_level_price > 0):
+                lvl = float(ps.nearest_level_price)
+                if (spread_type == CreditSpreadType.BEAR_CALL_SPREAD
+                        and PivotDirection is not None
+                        and ps.direction == PivotDirection.FADE_RESISTANCE
+                        and lvl > current_price):
+                    return lvl
+                if (spread_type == CreditSpreadType.BULL_PUT_SPREAD
+                        and PivotDirection is not None
+                        and ps.direction == PivotDirection.FADE_SUPPORT
+                        and lvl < current_price):
+                    return lvl
+
             if spread_type == CreditSpreadType.BULL_PUT_SPREAD:
                 # Bull put: short strike below current price
                 # Use support levels if available
                 if market_env.support_levels:
-                    nearest_support = max([s for s in market_env.support_levels if s < current_price])
+                    nearest_support = max([s for s in market_env.support_levels if s < current_price])  # noqa: E501
                     # Place short strike slightly above nearest support
                     return max(nearest_support + 2.0, current_price * 0.97)  # 3% OTM minimum
                 else:
@@ -716,7 +787,7 @@ class SpreadConstructionEngine:
                 # Bear call: short strike above current price
                 # Use resistance levels if available
                 if market_env.resistance_levels:
-                    nearest_resistance = min([r for r in market_env.resistance_levels if r > current_price])
+                    nearest_resistance = min([r for r in market_env.resistance_levels if r > current_price])  # noqa: E501
                     # Place short strike slightly below nearest resistance
                     return min(nearest_resistance - 2.0, current_price * 1.03)  # 3% OTM minimum
                 else:
@@ -822,7 +893,7 @@ class UnifiedCreditSpreadEngine:
 
         # Initialize analysis engines
         self.market_analyzer = MarketAnalysisEngine(self.config.get('market_config', {}))
-        self.spread_constructor = SpreadConstructionEngine(self.config.get('construction_config', {}))
+        self.spread_constructor = SpreadConstructionEngine(self.config.get('construction_config', {}))  # noqa: E501
 
         # Integration with unified systems
         self.regime_engine = None
@@ -874,7 +945,7 @@ class UnifiedCreditSpreadEngine:
     # ==========================================================================
     # PUBLIC METHODS - MAIN INTERFACE
     # ==========================================================================
-    async def analyze_spread_opportunity(self, market_data: pd.DataFrame) -> CreditSpreadParameters | None:
+    async def analyze_spread_opportunity(self, market_data: pd.DataFrame) -> CreditSpreadParameters | None:  # noqa: E501
         """
         Analyze current market for credit spread opportunities.
 
@@ -902,7 +973,7 @@ class UnifiedCreditSpreadEngine:
 
             if spread_params and self._validate_spread_parameters(spread_params, market_env):
                 self.logger.info(f"Credit spread opportunity identified: "
-                               f"{spread_params.spread_type.value} at {spread_params.short_strike:.2f}")
+                               f"{spread_params.spread_type.value} at {spread_params.short_strike:.2f}")  # noqa: E501
                 return spread_params
 
             return None
@@ -1015,7 +1086,7 @@ class UnifiedCreditSpreadEngine:
                 # Update performance metrics
                 self.performance_metrics['total_trades'] += 1
                 self.performance_metrics['avg_credit'] = (
-                    (self.performance_metrics['avg_credit'] * (self.performance_metrics['total_trades'] - 1) +
+                    (self.performance_metrics['avg_credit'] * (self.performance_metrics['total_trades'] - 1) +  # noqa: E501
                      spread_params.target_credit) / self.performance_metrics['total_trades']
                 )
 
@@ -1096,7 +1167,7 @@ class UnifiedCreditSpreadEngine:
                 # Bull put spread: profit when price stays above short strike
                 if current_price >= position.spread_parameters.short_strike:
                     # OTM - worth less than entry
-                    time_decay_factor = max(0.1, 1.0 - (position.days_held / 21))  # Rough time decay
+                    time_decay_factor = max(0.1, 1.0 - (position.days_held / 21))  # Rough time decay  # noqa: E501
                     position.current_value = position.entry_credit * time_decay_factor
                 else:
                     # ITM - worth more due to intrinsic value
@@ -1169,7 +1240,7 @@ class UnifiedCreditSpreadEngine:
                 return 'close_expiration'
 
             # In adjustment zone
-            if position.state == SpreadState.ADJUSTMENT_ZONE and len(position.adjustments) < MAX_ADJUSTMENTS:
+            if position.state == SpreadState.ADJUSTMENT_ZONE and len(position.adjustments) < MAX_ADJUSTMENTS:  # noqa: E501
                 return 'consider_adjustment'
 
             # Time-based profit taking (21 DTE rule)
@@ -1213,19 +1284,19 @@ class UnifiedCreditSpreadEngine:
                                                              position.unrealized_pnl)
 
                 # Update win rate
-                total_completed = self.performance_metrics['winning_trades'] + self.performance_metrics['losing_trades']
+                total_completed = self.performance_metrics['winning_trades'] + self.performance_metrics['losing_trades']  # noqa: E501
                 if total_completed > 0:
-                    self.performance_metrics['win_rate'] = self.performance_metrics['winning_trades'] / total_completed
+                    self.performance_metrics['win_rate'] = self.performance_metrics['winning_trades'] / total_completed  # noqa: E501
 
                 # Update spread type performance
-                spread_type_key = 'bull_put_stats' if position.spread_type == CreditSpreadType.BULL_PUT_SPREAD else 'bear_call_stats'
+                spread_type_key = 'bull_put_stats' if position.spread_type == CreditSpreadType.BULL_PUT_SPREAD else 'bear_call_stats'  # noqa: E501
                 self.performance_metrics[spread_type_key]['profit'] += position.unrealized_pnl
 
                 # Move to history and remove from active
                 self.position_history.append(position)
                 del self.active_positions[position_id]
 
-                self.logger.info(f"Closed position {position_id}: P&L ${position.unrealized_pnl:.2f}")
+                self.logger.info(f"Closed position {position_id}: P&L ${position.unrealized_pnl:.2f}")  # noqa: E501
                 return True
 
         except Exception as e:
@@ -1233,13 +1304,12 @@ class UnifiedCreditSpreadEngine:
             return False
 
     async def _get_current_regime(self) -> str | None:
-        """Get current market regime"""
+        """Get current market regime from the unified engine."""
         if not self.regime_engine:
             return None
-
         try:
-            # Would integrate with actual regime engine
-            return "bull_trending"  # Placeholder
+            current = getattr(self.regime_engine, "current_regime", None)
+            return current.value if current is not None else None
         except Exception:
             return None
 

@@ -27,7 +27,7 @@ import statistics
 import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from enum import Enum
 from typing import Any
 
@@ -214,7 +214,7 @@ class TradingMetrics:
         # Metrics storage
         self.trade_history: list[TradeMetrics] = []
         self.current_trades: dict[str, TradeMetrics] = {}
-        self.strategy_metrics: dict[str, StrategyMetrics] = defaultdict(self._create_strategy_metrics)
+        self.strategy_metrics: dict[str, StrategyMetrics] = defaultdict(self._create_strategy_metrics)  # noqa: E501
         self.portfolio_history: deque = deque(maxlen=10000)
 
         # Real-time tracking
@@ -332,7 +332,7 @@ class TradingMetrics:
 
         trade = self.current_trades.pop(trade_id)
         trade.exit_price = exit_price
-        trade.exit_time = exit_time or datetime.now()
+        trade.exit_time = exit_time or datetime.now(timezone.utc)
 
         # Calculate P&L
         if trade.trade_type == 'long':
@@ -364,7 +364,7 @@ class TradingMetrics:
             total_value: Total portfolio value
             cash_balance: Cash balance
         """
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
         positions_value = total_value - cash_balance
 
         # Calculate daily P&L
@@ -416,7 +416,7 @@ class TradingMetrics:
         """
         # Check cache
         if period in self._cached_metrics:
-            cache_age = datetime.now() - self._cache_timestamp.get(period, datetime.min)
+            cache_age = datetime.now(timezone.utc) - self._cache_timestamp.get(period, datetime.min)
             if cache_age.seconds < 60:  # 1-minute cache
                 return self._cached_metrics[period]
 
@@ -425,7 +425,7 @@ class TradingMetrics:
 
         # Cache it
         self._cached_metrics[period] = snapshot
-        self._cache_timestamp[period] = datetime.now()
+        self._cache_timestamp[period] = datetime.now(timezone.utc)
 
         return snapshot
 
@@ -818,7 +818,7 @@ class TradingMetrics:
         alerts = self.check_performance_alerts()
 
         return MetricsSnapshot(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             period=period,
             portfolio=portfolio,
             strategies=dict(self.strategy_metrics),
@@ -855,7 +855,7 @@ class TradingMetrics:
 
         # Check win rate
         if self.trade_history:
-            win_rate = sum(1 for t in self.trade_history[-20:] if t.is_winner) / min(20, len(self.trade_history))
+            win_rate = sum(1 for t in self.trade_history[-20:] if t.is_winner) / min(20, len(self.trade_history))  # noqa: E501
             if win_rate >= 0.6:
                 score += 2
             elif win_rate >= 0.5:
@@ -887,7 +887,7 @@ class TradingMetrics:
     def _create_empty_portfolio_metrics(self) -> PortfolioMetrics:
         """Create empty portfolio metrics."""
         return PortfolioMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_value=0,
             cash_balance=0,
             positions_value=0,
@@ -983,7 +983,7 @@ class TradingMetrics:
 
     def _get_trades_for_period(self, period: MetricPeriod) -> list[TradeMetrics]:
         """Get trades for specified period."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         if period == MetricPeriod.REAL_TIME:
             # Include current trades
@@ -1057,11 +1057,11 @@ class TradingMetrics:
     def _clean_old_data(self):
         """Clean old data to manage memory."""
         # Keep only last 30 days of trades
-        cutoff = datetime.now() - timedelta(days=30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         self.trade_history = [t for t in self.trade_history if t.entry_time > cutoff]
 
         # Keep only last 365 days of equity curve
-        cutoff_equity = datetime.now() - timedelta(days=365)
+        cutoff_equity = datetime.now(timezone.utc) - timedelta(days=365)
         self.equity_curve = [(ts, v) for ts, v in self.equity_curve if ts > cutoff_equity]
 
 # ==============================================================================

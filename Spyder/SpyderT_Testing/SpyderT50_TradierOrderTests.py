@@ -292,7 +292,7 @@ class TestOptionOrderPlacement:
     def test_cancel_option_order(self, mock_request, client):
         mock_request.return_value = CANCEL_RESPONSE
         result = client.cancel_order(999001)
-        assert result["order"]["status"] == "canceled"
+        assert result is True  # cancel_order() returns bool per BrokerProtocol
         assert mock_request.call_args[0][0] == "DELETE"
 
     def test_full_lifecycle_place_check_cancel(self, mock_request, client):
@@ -317,7 +317,7 @@ class TestOptionOrderPlacement:
         assert status["order"]["status"] == "open"
 
         cancelled = client.cancel_order(order_id)
-        assert cancelled["order"]["status"] == "canceled"
+        assert cancelled is True  # cancel_order() returns bool per BrokerProtocol
         assert mock_request.call_count == 3
 
 
@@ -465,7 +465,7 @@ class TestIronCondor:
         assert payload["class"] == "multileg"
         assert payload["type"] == "credit"
         assert payload["price"] == "2.0"
-        assert payload["tag"] == "iron_condor"
+        assert payload["tag"] == "ironcondor"
         # Leg 0: buy P535
         assert payload["option_symbol[0]"] == build_option_symbol("SPY", EXPIRY, "P", 535.0)
         assert payload["side[0]"] == "buy_to_open"
@@ -756,7 +756,7 @@ class TestAsyncOrderPaths:
                 client, "_make_request", return_value=CANCEL_RESPONSE
             ):
                 result = await client.cancel_order_async(999001)
-                assert result["order"]["status"] == "canceled"
+                assert result is True  # cancel_order_async wraps cancel_order which returns bool
 
         asyncio.run(_run())
 

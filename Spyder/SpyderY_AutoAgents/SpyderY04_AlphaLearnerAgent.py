@@ -174,7 +174,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             try:
                 self._x05_agent = SpyderX05_MLResearchAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to initialize X05 MLResearchAgent: %s", e)
+                logging.getLogger(__name__).warning("Failed to initialize X05 MLResearchAgent: %s", e)  # noqa: E501
 
         self._ml_predictor: Any | None = None
         if ML_PREDICTOR_AVAILABLE:
@@ -390,7 +390,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
         """LLM-assisted feature engineering."""
         prompt = (
             f"Feature engineering for model '{task.model_name}':\n"
-            f"Current features: {list(self._models.get(task.model_name, ModelPerformance()).feature_importance.keys())[:10]}\n"
+            f"Current features: {list(self._models.get(task.model_name, ModelPerformance()).feature_importance.keys())[:10]}\n"  # noqa: E501
             f"Task: {task.description}\n\n"
             f"Suggest 3 new features for SPY options trading prediction. "
             f"For each feature, provide:\n"
@@ -449,7 +449,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             f"ML research planning for SPY options trading system.\n"
             f"Active models: {model_summaries or 'None tracked yet'}\n"
             f"Last retrain: {self._last_retrain_date or 'Never'}\n"
-            f"Completed research today: {len([t for t in self._completed_research if t.completed and t.completed.date() == datetime.now().date()])}\n\n"
+            f"Completed research today: {len([t for t in self._completed_research if t.completed and t.completed.date() == datetime.now().date()])}\n\n"  # noqa: E501
             f"Suggest ONE high-impact ML research task. Choose from:\n"
             f"1. retrain — Retrain an existing model with latest data\n"
             f"2. feature_eng — Engineer new predictive features\n"

@@ -49,10 +49,10 @@ Contract = None  # type: ignore
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar  # noqa: E402
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType  # noqa: E402
 
 # B01_SpyderClient removed (legacy broker) — Tradier via SpyderB40_TradierClient
 SpyderClient = None  # type: ignore
@@ -376,7 +376,7 @@ class OptionChainManager:
         # Data storage
         self.option_chains: dict[datetime.date, OptionChain] = {}
         self.active_subscriptions: dict[int, OptionContract] = {}  # ticker_id -> contract
-        self.contract_builder = None  # ContractBuilder removed — legacy broker deprecated; use Tradier REST API
+        self.contract_builder = None  # ContractBuilder removed — legacy broker deprecated; use Tradier REST API  # noqa: E501
         if GreeksCalculator is None:
             raise ImportError(
                 "GreeksCalculator unavailable — check SpyderF06_GreeksCalculator imports"
@@ -544,7 +544,7 @@ class OptionChainManager:
         liquid_options = []
 
         with self._data_lock:
-            chains_to_check = [self.option_chains[expiry]] if expiry and expiry in self.option_chains else self.option_chains.values()
+            chains_to_check = [self.option_chains[expiry]] if expiry and expiry in self.option_chains else self.option_chains.values()  # noqa: E501
 
             for chain in chains_to_check:
                 liquid_options.extend(chain.get_liquid_options())
@@ -572,7 +572,7 @@ class OptionChainManager:
         with self._data_lock:
             for chain in self.option_chains.values():
                 for option in list(chain.calls.values()) + list(chain.puts.values()):
-                    option_key = f"{option.symbol}_{option.expiry}_{option.strike}_{option.option_type.value}"
+                    option_key = f"{option.symbol}_{option.expiry}_{option.strike}_{option.option_type.value}"  # noqa: E501
 
                     if option_key in positions:
                         quantity = positions[option_key]
@@ -610,7 +610,7 @@ class OptionChainManager:
 
         # Calculate skew metrics
         atm_strike = chain.atm_strike
-        atm_idx = skew_data['strikes'].index(atm_strike) if atm_strike in skew_data['strikes'] else None
+        atm_idx = skew_data['strikes'].index(atm_strike) if atm_strike in skew_data['strikes'] else None  # noqa: E501
 
         analysis = {
             'expiry': expiry,
@@ -701,7 +701,7 @@ class OptionChainManager:
             strikes = []
 
             for i in range(-self.strike_range // 2, self.strike_range // 2 + 1):
-                strike = round((atm_price + (i * strike_interval)) / strike_interval) * strike_interval
+                strike = round((atm_price + (i * strike_interval)) / strike_interval) * strike_interval  # noqa: E501
                 if strike > 0:
                     strikes.append(strike)
 
@@ -795,24 +795,24 @@ class OptionChainManager:
         except Exception as e:
             self.logger.error("Error updating underlying price: %s", e, exc_info=True)
 
-    def _matches_criteria(self, option: OptionContract, criteria: OptionSelectionCriteria, underlying_price: float) -> bool:
+    def _matches_criteria(self, option: OptionContract, criteria: OptionSelectionCriteria, underlying_price: float) -> bool:  # noqa: E501
         """Check if option matches selection criteria"""
         # Delta constraints
-        if criteria.min_delta is not None and (option.delta is None or option.delta < criteria.min_delta):
+        if criteria.min_delta is not None and (option.delta is None or option.delta < criteria.min_delta):  # noqa: E501
             return False
-        if criteria.max_delta is not None and (option.delta is None or option.delta > criteria.max_delta):
+        if criteria.max_delta is not None and (option.delta is None or option.delta > criteria.max_delta):  # noqa: E501
             return False
 
         # Gamma constraints
-        if criteria.min_gamma is not None and (option.gamma is None or option.gamma < criteria.min_gamma):
+        if criteria.min_gamma is not None and (option.gamma is None or option.gamma < criteria.min_gamma):  # noqa: E501
             return False
 
         # Theta constraints
-        if criteria.min_theta is not None and (option.theta is None or option.theta < criteria.min_theta):
+        if criteria.min_theta is not None and (option.theta is None or option.theta < criteria.min_theta):  # noqa: E501
             return False
 
         # Vega constraints
-        if criteria.min_vega is not None and (option.vega is None or option.vega < criteria.min_vega):
+        if criteria.min_vega is not None and (option.vega is None or option.vega < criteria.min_vega):  # noqa: E501
             return False
 
         # Volume constraints
@@ -820,7 +820,7 @@ class OptionChainManager:
             return False
 
         # Open interest constraints
-        if criteria.min_open_interest is not None and option.open_interest < criteria.min_open_interest:
+        if criteria.min_open_interest is not None and option.open_interest < criteria.min_open_interest:  # noqa: E501
             return False
 
         # Spread constraints
@@ -829,9 +829,9 @@ class OptionChainManager:
                 return False
 
         # IV constraints
-        if criteria.min_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility < criteria.min_implied_volatility):
+        if criteria.min_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility < criteria.min_implied_volatility):  # noqa: E501
             return False
-        if criteria.max_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility > criteria.max_implied_volatility):
+        if criteria.max_implied_volatility is not None and (option.implied_volatility is None or option.implied_volatility > criteria.max_implied_volatility):  # noqa: E501
             return False
 
         # Moneyness constraints
@@ -844,7 +844,7 @@ class OptionChainManager:
         if criteria.liquid_only:
             if (option.volume < MIN_VOLUME_THRESHOLD or
                 option.open_interest < MIN_OPEN_INTEREST_THRESHOLD or
-                (option.spread_percent is not None and option.spread_percent > MAX_BID_ASK_SPREAD_PCT)):
+                (option.spread_percent is not None and option.spread_percent > MAX_BID_ASK_SPREAD_PCT)):  # noqa: E501
                 return False
 
         return True
@@ -927,13 +927,13 @@ class OptionChainManager:
             option.last_update = datetime.datetime.now()
 
         except Exception as e:
-            self.logger.error("Error processing option computation for %s: %s", ticker_id, e, exc_info=True)
+            self.logger.error("Error processing option computation for %s: %s", ticker_id, e, exc_info=True)  # noqa: E501
 
     def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
         """Handle data provider errors"""
         if req_id in self.active_subscriptions:
             option = self.active_subscriptions[req_id]
-            self.logger.error("Option data error [%s %s %s]: %s - %s", option.symbol, option.strike, option.option_type.value, error_code, error_string)
+            self.logger.error("Option data error [%s %s %s]: %s - %s", option.symbol, option.strike, option.option_type.value, error_code, error_string)  # noqa: E501
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
@@ -951,7 +951,7 @@ class OptionChainManager:
             try:
                 self.ib_client.ib.cancelMktData(ticker_id)
             except Exception as e:
-                self.logger.warning("Error cancelling subscription %s: %s", ticker_id, e, exc_info=True)
+                self.logger.warning("Error cancelling subscription %s: %s", ticker_id, e, exc_info=True)  # noqa: E501
 
         self.active_subscriptions.clear()
 
@@ -1031,7 +1031,7 @@ def create_spy_option_contract(expiry: str, strike: float, option_type: str):
     .. deprecated::
         Use SpyderB40_TradierClient for option chain data instead.
     """
-    return {'symbol': 'SPY', 'expiry': expiry, 'strike': strike, 'type': option_type, 'exchange': 'SMART'}
+    return {'symbol': 'SPY', 'expiry': expiry, 'strike': strike, 'type': option_type, 'exchange': 'SMART'}  # noqa: E501
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -1048,7 +1048,7 @@ if __name__ == "__main__":
         def register_callback(self, event, callback):
             self.callbacks[event].append(callback)
 
-        def reqMktData(self, ticker_id, contract, generic_ticks, snapshot, regulatory_snapshot, mkt_data_options):
+        def reqMktData(self, ticker_id, contract, generic_ticks, snapshot, regulatory_snapshot, mkt_data_options):  # noqa: E501
             pass
 
         def is_connected(self):

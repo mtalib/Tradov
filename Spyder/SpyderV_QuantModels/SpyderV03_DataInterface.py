@@ -496,7 +496,7 @@ class SpyderDataInterface:
         """Get interface performance statistics."""
         return {
             'updates_processed': self.stats['updates_processed'],
-            'cache_hit_ratio': self.stats['cache_hits'] / max(1, self.stats['cache_hits'] + self.stats['cache_misses']),
+            'cache_hit_ratio': self.stats['cache_hits'] / max(1, self.stats['cache_hits'] + self.stats['cache_misses']),  # noqa: E501
             'avg_latency_ms': self.stats['avg_latency'] * 1000,
             'error_count': self.stats['errors'],
             'data_freshness': self.get_data_freshness(),
@@ -629,7 +629,7 @@ async def test_data_interface():
     logging.info("✅ SPY options available: %s", len(options))
 
     if options:
-        logging.info(f"✅ Sample option: {options[0].strike} {options[0].option_type} @ ${options[0].mid:.2f}")
+        logging.info(f"✅ Sample option: {options[0].strike} {options[0].option_type} @ ${options[0].mid:.2f}")  # noqa: E501
 
     # Test 4: Get market sentiment
     logging.info("\n📈 Test 4: Getting market sentiment...")

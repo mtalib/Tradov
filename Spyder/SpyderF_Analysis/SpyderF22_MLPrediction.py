@@ -716,7 +716,7 @@ class MLPredictionEngine:
                 best_model_state = self.direction_model.state_dict().copy()
 
             if (epoch + 1) % 10 == 0:
-                logger.info(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss:.4f}, Val Acc: {val_acc:.4f}")
+                logger.info(f"Epoch {epoch+1}/{epochs}, Loss: {train_loss:.4f}, Val Acc: {val_acc:.4f}")  # noqa: E501
 
         # Load best model
         if best_model_state:
@@ -1022,7 +1022,7 @@ class MLPredictionEngine:
 
             # Current regime from realized volatility
             current_rv = features['returns'].tail(20).std() * np.sqrt(252)
-            rv_percentile = (features['returns'].rolling(20).std() * np.sqrt(252)).rank(pct=True).iloc[-1] * 100
+            rv_percentile = (features['returns'].rolling(20).std() * np.sqrt(252)).rank(pct=True).iloc[-1] * 100  # noqa: E501
 
             current_regime = self._classify_regime(rv_percentile)
 
@@ -1119,7 +1119,7 @@ class MLPredictionEngine:
                 # Place wings outside expected move
                 wing_distance = expected_move * 1.5
 
-                if volatility_pred.current_regime in [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]:
+                if volatility_pred.current_regime in [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]:  # noqa: E501
                     wing_distance *= 1.3  # Wider wings in high vol
 
                 strikes = {
@@ -1137,7 +1137,7 @@ class MLPredictionEngine:
 
             elif strategy_type == "credit_spread":
                 # Directional spread based on prediction
-                if direction_pred.direction in [PredictionDirection.UP, PredictionDirection.STRONG_UP]:
+                if direction_pred.direction in [PredictionDirection.UP, PredictionDirection.STRONG_UP]:  # noqa: E501
                     # Bull put spread
                     strikes = {
                         "short_put": round(underlying_price - expected_move, 0),
@@ -1160,7 +1160,7 @@ class MLPredictionEngine:
                 timestamp=datetime.now(),
                 underlying_price=underlying_price,
                 recommended_strikes=strikes,
-                recommended_expiry="7_days" if volatility_pred.current_regime == VolatilityRegime.HIGH else "21_days",
+                recommended_expiry="7_days" if volatility_pred.current_regime == VolatilityRegime.HIGH else "21_days",  # noqa: E501
                 expected_probability_of_profit=pop,
                 strategy_type=strategy_type,
                 rationale=rationale

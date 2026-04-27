@@ -44,13 +44,11 @@ import zmq
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderZ01_ZeroMQIntegration import (
-
-    CircuitBreaker, PRIORITY_HIGH, PRIORITY_NORMAL
-)
-from SpyderZ02_MessageProtocol import (
+from .SpyderZ01_ZeroMQIntegration import CircuitBreaker
+from .SpyderZ02_MessageProtocol import (
     MessageCategory, ProtocolManager,
-    ProtocolMessage, SerializationFormat, ValidationLevel
+    ProtocolMessage, SerializationFormat, ValidationLevel,
+    PRIORITY_HIGH, PRIORITY_NORMAL,
 )
 
 # Import from utilities (these would be actual imports in production)
@@ -372,10 +370,10 @@ class StateManager:
                     command.command_id,
                     command.timestamp,
                     command.command_type.value,
-                    command.target_engine or command.target_type.value if command.target_type else "",
+                    command.target_engine or command.target_type.value if command.target_type else "",  # noqa: E501
                     json.dumps(command.payload),
                     json.dumps(asdict(response)) if response else None,
-                    "SUCCESS" if response and response.success else "PENDING" if not response else "FAILED"
+                    "SUCCESS" if response and response.success else "PENDING" if not response else "FAILED"  # noqa: E501
                 ))
                 conn.commit()
 

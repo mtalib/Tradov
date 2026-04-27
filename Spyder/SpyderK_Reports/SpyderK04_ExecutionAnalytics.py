@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -43,6 +43,7 @@ from plotly.subplots import make_subplots
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 INTRADAY_BINS = {
     'pre_market': ('04:00', '09:30'),
@@ -170,7 +171,65 @@ class ExecutionAnalytics:
         self.metrics_cache: dict[str, ExecutionMetrics] = {}
         self.time_window_cache: dict[str, TimeWindowAnalysis] = {}
 
+        # Subscribe to execution telemetry events from B02 OrderManager (Phase 5-C)
+        try:
+            event_manager = get_event_manager()
+            event_manager.subscribe(
+                EventType.TRADE,
+                self._handle_execution_telemetry,
+                name="K04_ExecutionAnalytics",
+            )
+            self.logger.info("K04 subscribed to TRADE events for execution telemetry")
+        except Exception as e:
+            self.logger.warning("Failed to subscribe to execution telemetry: %s", e)
+
         self.logger.info("ExecutionAnalytics initialized")
+
+    def _handle_execution_telemetry(self, event: dict[str, Any]) -> None:
+        """
+        Handle incoming execution telemetry from B02 OrderManager (Phase 5-C).
+        
+        Args:
+            event: Event dictionary containing execution_telemetry payload
+        """  # noqa: W293
+        try:
+            # EventManager handlers may receive either a raw dict payload or an
+            # Event dataclass instance with the payload in .data.
+            event_payload = event
+            if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
+                event_payload = getattr(event, "data")  # noqa: B009
+
+            if not isinstance(event_payload, dict):
+                self.logger.debug("Skipping non-dict telemetry event payload")
+                return
+
+            telemetry = event_payload.get("execution_telemetry")
+            if not telemetry or not isinstance(telemetry, dict):
+                self.logger.debug("Skipping invalid telemetry event")
+                return
+
+            data = telemetry.get("data", {})
+            order_id = data.get("order_id")
+  # noqa: W293
+            if not order_id:
+                self.logger.warning("Telemetry missing order_id")
+                return
+
+            # Cache the telemetry for aggregation
+            self.metrics_cache[order_id] = data
+  # noqa: W293
+            # Log significant telemetry (rejections, poor executions)
+            if data.get("reject_flag"):
+                self.logger.info(
+                    f"Telemetry: Order {order_id} REJECTED — {data.get('reject_reason')}"
+                )
+            elif data.get("slippage_bps") is not None and data.get("slippage_bps") > 25:
+                self.logger.warning(
+                    f"Telemetry: Order {order_id} high slippage — {data.get('slippage_bps'):.1f} bps"  # noqa: E501
+                )
+  # noqa: W293
+        except Exception as e:
+            self.logger.error("Error processing execution telemetry: %s", e)
 
     # ==========================================================================
     # CORE ANALYSIS METHODS
@@ -474,17 +533,17 @@ class ExecutionAnalytics:
                 'period': f"{start_date.isoformat()} to {report_date.isoformat()}",
                 'summary': asdict(summary),
                 'time_analysis': time_analysis,
-                'slippage_patterns': slippage_patterns.to_dict() if not slippage_patterns.empty else {},
+                'slippage_patterns': slippage_patterns.to_dict() if not slippage_patterns.empty else {},  # noqa: E501
                 'market_impact': {
-                    'average': impact_analysis['market_impact_pct'].mean() if not impact_analysis.empty else 0,
-                    'total': impact_analysis['market_impact_pct'].sum() if not impact_analysis.empty else 0,
-                    'by_category': impact_analysis['impact_category'].value_counts().to_dict() if not impact_analysis.empty else {}
+                    'average': impact_analysis['market_impact_pct'].mean() if not impact_analysis.empty else 0,  # noqa: E501
+                    'total': impact_analysis['market_impact_pct'].sum() if not impact_analysis.empty else 0,  # noqa: E501
+                    'by_category': impact_analysis['impact_category'].value_counts().to_dict() if not impact_analysis.empty else {}  # noqa: E501
                 },
                 'charts': charts,
                 'recommendations': self._generate_comprehensive_recommendations(
                     summary, time_analysis, impact_analysis
                 ),
-                'generated_at': datetime.now().isoformat()
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
 
             self.logger.info("Generated execution report for %s", report_date)
@@ -672,7 +731,7 @@ class ExecutionAnalytics:
             best_execution_time=best_time,
             worst_execution_time=worst_time,
             market_impact_avg=np.mean([m.market_impact for m in metrics_list]),
-            partial_fill_rate=sum(1 for m in metrics_list if m.partial_fills > 0) / len(metrics_list)
+            partial_fill_rate=sum(1 for m in metrics_list if m.partial_fills > 0) / len(metrics_list)  # noqa: E501
         )
 
     def _generate_time_recommendation(self, window: str, avg_slippage: float,
@@ -692,7 +751,7 @@ class ExecutionAnalytics:
             return "Poor execution quality - avoid if possible"
 
     def _generate_execution_recommendations(self,
-                                          time_analysis: dict[str, TimeWindowAnalysis]) -> list[str]:
+                                          time_analysis: dict[str, TimeWindowAnalysis]) -> list[str]:  # noqa: E501
         """Generate overall execution recommendations."""
         recommendations = []
 
@@ -909,7 +968,7 @@ class ExecutionAnalytics:
             'market_impact': {},
             'charts': {},
             'recommendations': ["No execution data available for analysis"],
-            'generated_at': datetime.now().isoformat()
+            'generated_at': datetime.now(timezone.utc).isoformat()
         }
 
     def _export_html_report(self, report: dict[str, Any], output_path: str) -> bool:
@@ -961,7 +1020,7 @@ class ExecutionAnalytics:
                 </div>
             </body>
             </html>
-            """
+            """  # noqa: E501
 
             # Format recommendations
             recommendations_html = '\n'.join([

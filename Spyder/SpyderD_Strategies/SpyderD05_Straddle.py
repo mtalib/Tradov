@@ -863,8 +863,8 @@ class StraddleStrategy(BaseStrategy):
                 entry_time=datetime.now(),
                 expiry=expiry,
                 quantity=signal.position_size,
-                total_debit=straddle_data['total_debit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
-                max_loss=straddle_data['total_debit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                total_debit=straddle_data['total_debit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
+                max_loss=straddle_data['total_debit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
                 breakeven_up=straddle_data['breakeven_up'],
                 breakeven_down=straddle_data['breakeven_down'],
                 event_type=straddle_data.get('event_type', EventType.NONE),
@@ -948,7 +948,7 @@ class StraddleStrategy(BaseStrategy):
             position.put_leg.current_price = put_value
 
             # Update position values
-            position.current_value = (call_value + put_value) * position.quantity * SPY_CONTRACT_MULTIPLIER
+            position.current_value = (call_value + put_value) * position.quantity * SPY_CONTRACT_MULTIPLIER  # noqa: E501
             position.unrealized_pnl = position.current_value - position.total_debit
 
             # Update combined Greeks
@@ -1038,11 +1038,11 @@ class StraddleStrategy(BaseStrategy):
             'greeks': {
                 'total_vega': total_vega,
                 'total_theta': total_theta,
-                'vega_per_position': total_vega / len(self.active_positions) if self.active_positions else 0
+                'vega_per_position': total_vega / len(self.active_positions) if self.active_positions else 0  # noqa: E501
             },
             'exposure': {
                 'total_debit': total_debit,
-                'avg_debit': total_debit / len(self.active_positions) if self.active_positions else 0
+                'avg_debit': total_debit / len(self.active_positions) if self.active_positions else 0  # noqa: E501
             },
             'performance': {
                 'total_trades': self.strategy_metrics['total_trades'],
@@ -1052,9 +1052,9 @@ class StraddleStrategy(BaseStrategy):
                 'event_trades': self.strategy_metrics['event_trades']
             },
             'volatility': {
-                'current_iv': self.volatility_analysis.current_iv if self.volatility_analysis else 0,
+                'current_iv': self.volatility_analysis.current_iv if self.volatility_analysis else 0,  # noqa: E501
                 'iv_rank': self.volatility_analysis.iv_rank if self.volatility_analysis else 0,
-                'regime': self.volatility_analysis.volatility_regime.name if self.volatility_analysis else 'UNKNOWN'
+                'regime': self.volatility_analysis.volatility_regime.name if self.volatility_analysis else 'UNKNOWN'  # noqa: E501
             }
         }
 

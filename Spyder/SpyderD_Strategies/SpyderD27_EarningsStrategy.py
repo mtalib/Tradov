@@ -1190,11 +1190,11 @@ class EarningsStrategyHandler:
                 if isinstance(dates, str):
                     dates = [dates]
                 today = date.today()
-                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)  # noqa: E501
                 if future:
                     return future[0]
             except Exception as e:
-                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)
+                logger.warning("_get_nearest_expiry(%s): Tradier error: %s", symbol, e, exc_info=True)  # noqa: E501
         today = date.today()
         days = (4 - today.weekday()) % 7 or 7
         return today + timedelta(days=days)
@@ -1207,7 +1207,7 @@ class EarningsStrategyHandler:
                 dates = response.get('expirations', {}).get('date', [])
                 if isinstance(dates, str):
                     dates = [dates]
-                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= earnings_date)
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= earnings_date)  # noqa: E501
                 if future:
                     return future[0]
             except Exception as e:

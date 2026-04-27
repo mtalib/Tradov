@@ -55,7 +55,7 @@ Usage
 import logging
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta  # noqa: F401
 from typing import Optional
 
 # ==============================================================================

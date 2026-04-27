@@ -91,7 +91,7 @@ MARKET_SYMBOLS = {
     "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN"],
+    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "WRS", "SWAN"],
 }
 
 # Symbol descriptions for tooltips
@@ -129,6 +129,7 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "WRS": "Walmart Recession Signal - Consumer stress percentile rank (0-100)",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
 }
 
@@ -154,7 +155,7 @@ MEDIUM_UPDATE_SYMBOLS = [
     "QQQ",
     "IWM",
 ]
-SLOW_UPDATE_SYMBOLS = ["TLT", "LQD", "DXY", "GLD", "GEX", "DEX", "OGL", "DIX", "SWAN"]
+SLOW_UPDATE_SYMBOLS = ["TLT", "LQD", "DXY", "GLD", "GEX", "DEX", "OGL", "DIX", "WRS", "SWAN"]
 
 # Color scheme
 COLORS = {
@@ -1446,8 +1447,8 @@ class MarketSymbolWidget(QWidget):
                 color = COLORS["warning"]  # Yellow
             else:
                 color = COLORS["negative"]  # Red
-            # Display as BSWAN without traffic light emoji
-            self.symbol_label.setText("BSWAN")
+            # Display as SWAN without traffic light emoji
+            self.symbol_label.setText("SWAN")
 
         # Update change and percentage
         sign = "+" if data.change >= 0 else ""
@@ -1860,7 +1861,7 @@ class SpyderTestDashboard(QMainWindow):
         logo_label = QLabel("S P Y D E R")
         try:
             logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
-        except BaseException:
+        except Exception:
             logo_font = QFont("Arial", 16, QFont.Weight.Normal)
         logo_label.setFont(logo_font)
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")

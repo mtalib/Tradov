@@ -323,7 +323,7 @@ class MultiStrategyAllocator:
                     self.rebalance_history = deque(
                         (_ns(item) for item in data['rebalances']), maxlen=100
                     )
-                    self.logger.info("Loaded %s historical allocations", len(self.allocation_history))
+                    self.logger.info("Loaded %s historical allocations", len(self.allocation_history))  # noqa: E501
         except Exception as e:
             self.logger.warning("Could not load historical data: %s", e, exc_info=True)
 
@@ -483,7 +483,7 @@ class MultiStrategyAllocator:
                 eligible_strategies = self._get_eligible_strategies()
 
                 if len(eligible_strategies) < MIN_ACTIVE_STRATEGIES:
-                    self.logger.warning("Insufficient eligible strategies: %s", len(eligible_strategies))
+                    self.logger.warning("Insufficient eligible strategies: %s", len(eligible_strategies))  # noqa: E501
                     return self._create_default_allocation()
 
                 # Select optimization method
@@ -931,7 +931,7 @@ class MultiStrategyAllocator:
 
             return cov
         except Exception as e:
-            self.logger.warning("LedoitWolf covariance estimation failed, using sample covariance: %s", e, exc_info=True)
+            self.logger.warning("LedoitWolf covariance estimation failed, using sample covariance: %s", e, exc_info=True)  # noqa: E501
 
         # Final fallback: sample covariance
         cov = np.cov(returns_array, rowvar=False) * 252

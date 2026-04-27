@@ -378,13 +378,39 @@ class Scheduler:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_database()
 
+        # Read configurable intervals from SCHEDULER_CONFIG (with fallback defaults)
+        try:
+            from config.config import SCHEDULER_CONFIG
+            self._data_update_interval: int = SCHEDULER_CONFIG.get("data_update_interval_minutes", 5)  # noqa: E501
+            self._risk_check_interval: int = SCHEDULER_CONFIG.get("risk_check_interval_minutes", 15)
+        except Exception:
+            self._data_update_interval = 5
+            self._risk_check_interval = 15
+
+        # Event-clock configuration (P0-3): blackout pre/post windows around
+        # high-impact events with a periodic feed-state publication.
+        self.event_clock_config = {
+            'enabled': True,
+            'sources': 'calendar+manual',
+            'high_impact_only': True,
+            'blackout_pre_minutes': 30,
+            'blackout_post_minutes': 30,
+            'allowlist_strategies': [],
+            'max_size_multiplier': 0.25,
+        }
+        self._event_calendar_events: list[dict[str, Any]] = []
+        self._event_clock_manual_state: dict[str, Any] | None = None
+        self._last_event_clock_state: str | None = None
+        self._load_event_clock_config()
+
         # Performance metrics
         self.metrics = {
             'tasks_executed': 0,
             'tasks_succeeded': 0,
             'tasks_failed': 0,
             'tasks_missed': 0,
-            'total_execution_time_ms': 0
+            'total_execution_time_ms': 0,
+            'last_heartbeat': None,
         }
 
         # Register scheduler event handlers
@@ -437,6 +463,53 @@ class Scheduler:
             end_time=time(9, 30),
             enabled=False
         )
+
+    def _load_event_clock_config(self):
+        """Load event-clock policy from validated A03 autonomous readiness config."""
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cm = get_config_manager()
+            mode = "paper"
+            try:
+                mode = str(cm.get("trading.mode", "paper") or "paper")
+            except Exception:
+                mode = "paper"
+
+            base_config = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}  # noqa: E501
+            readiness = cm.validate_autonomous_readiness_config(base_config, mode)
+            event_cfg = (
+                readiness.get("effective", {})
+                .get("autonomous_readiness", {})
+                .get("event_clock", {})
+            )
+
+            if not isinstance(event_cfg, dict):
+                return
+
+            allowlist = event_cfg.get("allowlist_strategies", [])
+            if not isinstance(allowlist, list):
+                allowlist = []
+
+            self.event_clock_config.update({
+                "enabled": bool(event_cfg.get("enabled", self.event_clock_config["enabled"])),
+                "sources": str(event_cfg.get("sources", self.event_clock_config["sources"])),
+                "high_impact_only": bool(event_cfg.get("high_impact_only", self.event_clock_config["high_impact_only"])),  # noqa: E501
+                "blackout_pre_minutes": int(event_cfg.get("blackout_pre_minutes", self.event_clock_config["blackout_pre_minutes"])),  # noqa: E501
+                "blackout_post_minutes": int(event_cfg.get("blackout_post_minutes", self.event_clock_config["blackout_post_minutes"])),  # noqa: E501
+                "allowlist_strategies": [
+                    s.strip() for s in allowlist if isinstance(s, str) and s.strip()
+                ],
+                "max_size_multiplier": float(
+                    event_cfg.get(
+                        "max_size_multiplier_during_event",
+                        self.event_clock_config["max_size_multiplier"],
+                    )
+                ),
+            })
+            self.logger.info("Event-clock config loaded from A03 validation")
+        except Exception as e:
+            self.logger.warning("Event-clock config load skipped; using defaults: %s", e)
 
     def _register_scheduler_handlers(self):
         """Register APScheduler event handlers"""
@@ -497,6 +570,72 @@ class Scheduler:
             description="Daily cleanup tasks"
         )
 
+        # Event-clock state feed cadence (1 minute) for blackout transitions.
+        self.add_task(
+            task_id="event_clock_tick",
+            func=self._on_event_clock_tick,
+            schedule_type=ScheduleType.INTERVAL,
+            minutes=1,
+            description="Event-clock state publication",
+        )
+
+        # Pre-market data warmup — primes data pipeline 30 min before open
+        self.add_task(
+            task_id="premarket_warmup",
+            func=self._on_premarket_warmup,
+            schedule_type=ScheduleType.CRON,
+            hour=9,
+            minute=0,
+            day_of_week="mon-fri",
+            description="Pre-market data warmup — primes data pipeline 30 min before open"
+        )
+
+        # Pre-flight health check — broker/API/risk validation 15 min before open
+        self.add_task(
+            task_id="preflight_health_check",
+            func=self._on_preflight_health_check,
+            schedule_type=ScheduleType.CRON,
+            hour=9,
+            minute=15,
+            day_of_week="mon-fri",
+            description="Pre-flight health check — broker/API/risk validation before open"
+        )
+
+        # Escalated risk checks every 5 min during closing range (3:30–3:55 PM)
+        self.add_task(
+            task_id="closing_range_risk_check",
+            func=self._on_closing_range_risk_check,
+            schedule_type=ScheduleType.CRON,
+            hour=15,
+            minute="30,35,40,45,50,55",
+            day_of_week="mon-fri",
+            description="Escalated risk check during closing range (3:30–4:00 PM ET)"
+        )
+
+        # EOD report trigger — fires after fills settle post-close
+        self.add_task(
+            task_id="eod_report",
+            func=self._on_eod_report,
+            schedule_type=ScheduleType.CRON,
+            hour=16,
+            minute=15,
+            day_of_week="mon-fri",
+            description="End-of-day report generation trigger"
+        )
+
+        # Scheduler heartbeat — continuous liveness signal (every 1 min)
+        self.add_task(
+            task_id="scheduler_heartbeat",
+            func=self._on_heartbeat,
+            schedule_type=ScheduleType.INTERVAL,
+            minutes=1,
+            description="Scheduler liveness heartbeat"
+        )
+
+        # Interval-based data updates and risk checks (market-hours gated)
+        self.schedule_data_update(self._data_update_interval)
+        self.schedule_risk_check(self._risk_check_interval)
+
     # ==========================================================================
     # TASK MANAGEMENT
     # ==========================================================================
@@ -543,7 +682,7 @@ class Scheduler:
                 if enabled:
                     job = self._create_job(task)
                     if job:
-                        task.next_run = job.next_run_time
+                        task.next_run = getattr(job, 'next_run_time', None)
 
                 # Store task
                 self.tasks[task_id] = task
@@ -625,7 +764,7 @@ class Scheduler:
                     # Add to scheduler
                     job = self._create_job(task)
                     if job:
-                        task.next_run = job.next_run_time
+                        task.next_run = getattr(job, 'next_run_time', None)
                 else:
                     # Remove from scheduler
                     try:
@@ -655,7 +794,7 @@ class Scheduler:
                 'enabled': task.enabled,
                 'schedule_type': task.schedule_type.name,
                 'last_run': task.last_run,
-                'next_run': job.next_run_time if job else None,
+                'next_run': getattr(job, 'next_run_time', None) if job else None,
                 'run_count': task.run_count,
                 'error_count': task.error_count,
                 'is_running': job and job.pending
@@ -799,7 +938,7 @@ class Scheduler:
                 # Update next run time
                 job = self.scheduler.get_job(task_id)
                 if job:
-                    self.tasks[task_id].next_run = job.next_run_time
+                    self.tasks[task_id].next_run = getattr(job, 'next_run_time', None)
 
             self.logger.debug("Job executed successfully: %s", task_id)
 
@@ -890,6 +1029,92 @@ class Scheduler:
                 'timestamp': datetime.now(EASTERN_TZ)
             }
         )
+
+    def _on_premarket_warmup(self):
+        """Warm up data pipeline 30 minutes before market open"""
+        self.logger.info("Pre-market data warmup triggered")
+        self.event_manager.emit(
+            EventType.SYSTEM,
+            {
+                'type': 'data_warmup_request',
+                'timestamp': datetime.now(EASTERN_TZ)
+            }
+        )
+
+    def _on_preflight_health_check(self):
+        """Broker/API/risk validation 15 minutes before market open"""
+        self.logger.info("Pre-flight health check triggered")
+        self.event_manager.emit(
+            EventType.SYSTEM,
+            {
+                'type': 'preflight_health_check',
+                'timestamp': datetime.now(EASTERN_TZ)
+            }
+        )
+
+    def _on_closing_range_risk_check(self):
+        """Escalated risk check during the 3:30–4:00 PM closing range"""
+        self.logger.info("Closing range risk check triggered")
+        self.event_manager.emit(
+            EventType.RISK,
+            {
+                'type': 'periodic_risk_check',
+                'reason': 'closing_range',
+                'timestamp': datetime.now(EASTERN_TZ)
+            }
+        )
+
+    def _on_eod_report(self):
+        """Trigger end-of-day report generation after fills settle post-close"""
+        self.logger.info("EOD report generation triggered")
+        self.event_manager.emit(
+            EventType.SYSTEM,
+            {
+                'type': 'eod_report_request',
+                'timestamp': datetime.now(EASTERN_TZ)
+            }
+        )
+        # Stage 4 — also generate the structured EOD review (rejects, slippage,
+        # policy blocks, overrides) so operators always have an auditable record.
+        self._on_eod_review()
+
+    def _on_eod_review(self) -> None:
+        """Stage 4 — generate structured EOD review artifact via K02.
+
+        Collects order rejects, slippage, policy blocks, and Go/No-Go overrides
+        for the current trading day and persists to
+        ``market_data/eod_reviews/eod_{date}.json``.
+        """
+        try:
+            from Spyder.SpyderK_Reports.SpyderK02_DailyTradingReport import (
+                create_daily_report_generator,
+            )
+            generator = create_daily_report_generator()
+            review = generator.generate_eod_review()
+            self.logger.info(
+                "EOD review generated: rejects=%d slippage_avg=%.4f "
+                "policy_blocks=%d overrides=%d",
+                review.get("rejects", {}).get("count", 0),
+                review.get("slippage", {}).get("avg_slippage", 0.0),
+                len(review.get("policy_blocks", [])),
+                len(review.get("overrides", [])),
+            )
+        except Exception as exc:
+            self.logger.error("EOD review generation failed: %s", exc)
+
+    def _on_heartbeat(self):
+        """Scheduler liveness heartbeat — runs every minute for external monitoring"""
+        self.logger.debug("Scheduler heartbeat")
+        self.metrics['last_heartbeat'] = datetime.now(EASTERN_TZ).isoformat()
+
+    def _on_event_clock_tick(self):
+        """Periodic event-clock state publication for blackout enforcement."""
+        try:
+            if not self.event_clock_config.get('enabled', True):
+                return
+            self.publish_event_clock_state()
+        except Exception as e:
+            self.logger.error("Event-clock tick failed: %s", e)
 
     def _daily_cleanup(self):
         """Perform daily cleanup tasks"""
@@ -1037,8 +1262,10 @@ class Scheduler:
         )
 
     def schedule_data_update(self, interval_minutes: int = 5) -> bool:
-        """Schedule periodic data updates"""
+        """Schedule periodic data updates (only fires during regular market hours)"""
         def update_data():
+            if not self.market_calendar.is_market_open():
+                return
             self.event_manager.emit(
                 EventType.SYSTEM,
                 {
@@ -1056,8 +1283,10 @@ class Scheduler:
         )
 
     def schedule_risk_check(self, interval_minutes: int = 15) -> bool:
-        """Schedule periodic risk checks"""
+        """Schedule periodic risk checks (only fires during regular market hours)"""
         def check_risk():
+            if not self.market_calendar.is_market_open():
+                return
             self.event_manager.emit(
                 EventType.RISK,
                 {
@@ -1073,6 +1302,211 @@ class Scheduler:
             minutes=interval_minutes,
             description="Periodic risk check"
         )
+
+    # ==========================================================================
+    # EVENT CLOCK (P0-3)
+    # ==========================================================================
+    def set_event_clock_events(self, events: list[dict[str, Any]]) -> None:
+        """Set high-impact calendar events used by event-clock state logic.
+
+        Event item schema:
+            {
+                "event_id": str,
+                "event_type": str,
+                "importance": "high|medium|low",
+                "event_time_et": datetime | ISO string,
+                "source": str,
+            }
+        """
+        normalized: list[dict[str, Any]] = []
+        for raw in events:
+            item = dict(raw)
+            event_time = item.get('event_time_et')
+            if isinstance(event_time, str):
+                try:
+                    parsed = datetime.fromisoformat(event_time)
+                    if parsed.tzinfo is None:
+                        parsed = EASTERN_TZ.localize(parsed)
+                    else:
+                        parsed = parsed.astimezone(EASTERN_TZ)
+                    item['event_time_et'] = parsed
+                except Exception:
+                    continue
+            elif isinstance(event_time, datetime):
+                if event_time.tzinfo is None:
+                    item['event_time_et'] = EASTERN_TZ.localize(event_time)
+                else:
+                    item['event_time_et'] = event_time.astimezone(EASTERN_TZ)
+            else:
+                continue
+            normalized.append(item)
+
+        self._event_calendar_events = normalized
+        self.logger.info("Event-clock calendar loaded: %s events", len(normalized))
+
+    def set_event_clock_manual_state(self, state_payload: dict[str, Any] | None) -> None:
+        """Set an optional manual event-clock override payload.
+
+        Expected payload keys:
+            {
+                "state": "pre|live|post|clear",
+                "event_id": str,
+                "event_type": str,
+                "allowed_strategies": list[str],
+                "max_size_multiplier": float,
+            }
+        """
+        if not state_payload:
+            self._event_clock_manual_state = None
+            return
+
+        state = str(state_payload.get("state", "clear")).lower()
+        if state not in {"pre", "live", "post", "clear"}:
+            state = "clear"
+
+        allowlist = state_payload.get("allowed_strategies", [])
+        if not isinstance(allowlist, list):
+            allowlist = []
+
+        max_mult = state_payload.get(
+            "max_size_multiplier",
+            self.event_clock_config.get("max_size_multiplier", 0.25),
+        )
+
+        self._event_clock_manual_state = {
+            "state": state,
+            "event_id": state_payload.get("event_id"),
+            "event_type": state_payload.get("event_type"),
+            "allowed_strategies": [
+                s.strip() for s in allowlist if isinstance(s, str) and s.strip()
+            ],
+            "max_size_multiplier": float(max_mult),
+            "source": "manual",
+        }
+
+    def _evaluate_event_clock_state(self, now_et: datetime) -> dict[str, Any]:
+        """Evaluate pre/live/post blackout state against configured events."""
+        if not bool(self.event_clock_config.get("enabled", True)):
+            return {
+                "state": "clear",
+                "event": None,
+                "blackout_pre_minutes": int(self.event_clock_config.get("blackout_pre_minutes", 30)),  # noqa: E501
+                "blackout_post_minutes": int(self.event_clock_config.get("blackout_post_minutes", 30)),  # noqa: E501
+                "allowlist_strategies": list(self.event_clock_config.get("allowlist_strategies", [])),  # noqa: E501
+                "max_size_multiplier": float(self.event_clock_config.get("max_size_multiplier", 0.25)),  # noqa: E501
+                "source": "disabled",
+            }
+
+        pre_mins = int(self.event_clock_config.get('blackout_pre_minutes', 30))
+        post_mins = int(self.event_clock_config.get('blackout_post_minutes', 30))
+        high_only = bool(self.event_clock_config.get('high_impact_only', True))
+        sources = str(self.event_clock_config.get("sources", "calendar+manual")).lower()
+        use_calendar = "calendar" in sources
+        use_manual = "manual" in sources
+
+        if use_manual and isinstance(self._event_clock_manual_state, dict):
+            manual_state = str(self._event_clock_manual_state.get("state", "clear")).lower()
+            if manual_state in {"pre", "live", "post"}:
+                return {
+                    "state": manual_state,
+                    "event": {
+                        "event_id": self._event_clock_manual_state.get("event_id"),
+                        "event_type": self._event_clock_manual_state.get("event_type"),
+                        "importance": "manual",
+                        "source": "manual",
+                        "event_time_et": now_et,
+                    },
+                    "blackout_pre_minutes": pre_mins,
+                    "blackout_post_minutes": post_mins,
+                    "allowlist_strategies": list(self._event_clock_manual_state.get("allowed_strategies", [])),  # noqa: E501
+                    "max_size_multiplier": float(
+                        self._event_clock_manual_state.get(
+                            "max_size_multiplier",
+                            self.event_clock_config.get("max_size_multiplier", 0.25),
+                        )
+                    ),
+                    "source": "manual",
+                }
+
+        active_state = 'clear'
+        active_event: dict[str, Any] | None = None
+
+        if use_calendar:
+            for item in self._event_calendar_events:
+                if high_only and str(item.get('importance', 'high')).lower() != 'high':
+                    continue
+                evt_time = item.get('event_time_et')
+                if not isinstance(evt_time, datetime):
+                    continue
+
+                pre_start = evt_time - timedelta(minutes=pre_mins)
+                post_end = evt_time + timedelta(minutes=post_mins)
+
+                if pre_start <= now_et < evt_time:
+                    active_state = 'pre'
+                    active_event = item
+                    break
+                if now_et == evt_time:
+                    active_state = 'live'
+                    active_event = item
+                    break
+                if evt_time <= now_et <= post_end:
+                    active_state = 'post'
+                    active_event = item
+                    break
+
+        return {
+            'state': active_state,
+            'event': active_event,
+            'blackout_pre_minutes': pre_mins,
+            'blackout_post_minutes': post_mins,
+            'allowlist_strategies': list(self.event_clock_config.get('allowlist_strategies', [])),
+            'max_size_multiplier': float(self.event_clock_config.get('max_size_multiplier', 0.25)),
+            'source': 'calendar' if use_calendar else 'manual',
+        }
+
+    def publish_event_clock_state(self, now: datetime | None = None, force_emit: bool = False) -> dict[str, Any]:  # noqa: E501
+        """Publish unified event-clock feed envelope and return it."""
+        now_et = (now or datetime.now(EASTERN_TZ)).astimezone(EASTERN_TZ)
+        state = self._evaluate_event_clock_state(now_et)
+
+        event = state.get('event') or {}
+        payload = {
+            'feed': 'event_clock',
+            'version': '1.0',
+            'mode': 'scheduler',
+            'session_id': 'scheduler',
+            'published_ts': now_et.isoformat(),
+            'data': {
+                'event_id': event.get('event_id'),
+                'event_type': event.get('event_type'),
+                'importance': event.get('importance'),
+                'source': event.get('source', 'calendar'),
+                'event_time_et': event.get('event_time_et').isoformat() if isinstance(event.get('event_time_et'), datetime) else None,  # noqa: E501
+                'blackout_pre_minutes': state['blackout_pre_minutes'],
+                'blackout_post_minutes': state['blackout_post_minutes'],
+                'state': state['state'],
+                'enabled': bool(self.event_clock_config.get('enabled', True)),
+                'sources': str(self.event_clock_config.get('sources', 'calendar+manual')),
+                'allowed_strategies': state['allowlist_strategies'],
+                'max_size_multiplier': state['max_size_multiplier'],
+                'published_ts': now_et.isoformat(),
+            },
+        }
+
+        should_emit = force_emit or (state['state'] != self._last_event_clock_state)
+        if should_emit:
+            self.event_manager.emit(
+                EventType.RISK,
+                {
+                    'type': 'event_clock_state',
+                    'payload': payload,
+                    'timestamp': now_et,
+                },
+            )
+            self._last_event_clock_state = state['state']
+
+        return payload
 
     # ==========================================================================
     # TASK HISTORY
@@ -1176,7 +1610,7 @@ class Scheduler:
                             MIN(duration_ms) as min_duration
                         FROM task_history
                         WHERE task_id = ? AND execution_time >= ?
-                    """
+                    """  # noqa: E501
                     params = (task_id, since_date)
                 else:
                     query = """
@@ -1190,7 +1624,7 @@ class Scheduler:
                             MIN(duration_ms) as min_duration
                         FROM task_history
                         WHERE execution_time >= ?
-                    """
+                    """  # noqa: E501
                     params = (since_date,)
 
                 cursor = conn.execute(query, params)
@@ -1346,7 +1780,7 @@ class Scheduler:
         if not jobs:
             return None
 
-        next_times = [job.next_run_time for job in jobs if job.next_run_time]
+        next_times = [getattr(job, 'next_run_time', None) for job in jobs if getattr(job, 'next_run_time', None)]  # noqa: E501
         return min(next_times) if next_times else None
 
     def print_schedule(self):
@@ -1363,7 +1797,7 @@ class Scheduler:
                 logging.info("\nTask: %s", task.name)
                 logging.info("  ID: %s", job.id)
                 logging.info("  Type: %s", task.schedule_type.name)
-                logging.info("  Next Run: %s", job.next_run_time)
+                logging.info("  Next Run: %s", getattr(job, 'next_run_time', None))
                 logging.info("  Enabled: %s", task.enabled)
                 logging.info("  Run Count: %s", task.run_count)
                 logging.info("  Error Count: %s", task.error_count)
@@ -1391,7 +1825,7 @@ class Scheduler:
                     'schedule_type': task.schedule_type.name,
                     'schedule_params': task.schedule_params,
                     'enabled': task.enabled,
-                    'next_run': job.next_run_time.isoformat() if job and job.next_run_time else None,
+                    'next_run': getattr(job, 'next_run_time', None).isoformat() if job and getattr(job, 'next_run_time', None) else None,  # noqa: E501
                     'last_run': task.last_run.isoformat() if task.last_run else None,
                     'run_count': task.run_count,
                     'error_count': task.error_count,

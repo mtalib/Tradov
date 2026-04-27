@@ -66,6 +66,15 @@ except ImportError:
     LOCAL_IMPORTS = False
     import logging
 
+try:
+    from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as _L09Engine
+    from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime as _L09Regime
+    L09_AVAILABLE = True
+except ImportError:
+    _L09Engine = None  # type: ignore[assignment,misc]
+    _L09Regime = None  # type: ignore[assignment]
+    L09_AVAILABLE = False
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -274,6 +283,8 @@ class CapitalAllocator:
         # Market regime
         self.current_regime = MarketRegime.SIDEWAYS
         self.regime_confidence = 0.5
+        self._prev_regime: MarketRegime | None = None  # Tracks last observed regime
+        self._regime_engine: object | None = None  # Injected L09 UnifiedRegimeEngine
 
         # Correlation tracking
         self.correlation_matrix = None
@@ -740,7 +751,7 @@ class CapitalAllocator:
 
     def allocate_capital(self,
                         strategy_ids: list[str],
-                        method: AllocationMethod = AllocationMethod.DYNAMIC) -> list[AllocationDecision]:
+                        method: AllocationMethod = AllocationMethod.DYNAMIC) -> list[AllocationDecision]:  # noqa: E501
         """
         Main capital allocation method
 
@@ -802,7 +813,7 @@ class CapitalAllocator:
                     mode=mode_map.get(method, 'risk_parity')
                 )
             else:
-                self.logger.warning("Insufficient returns data for RiskFolio — falling back to equal weight")
+                self.logger.warning("Insufficient returns data for RiskFolio — falling back to equal weight")  # noqa: E501
                 n = len(active_strategies)
                 allocations = {sid: 1/n for sid in active_strategies}
 
@@ -844,7 +855,7 @@ class CapitalAllocator:
         # Update portfolio state
         self._update_portfolio_state()
 
-        self.logger.info("Allocated capital to %s strategies using %s", len(decisions), method.value)
+        self.logger.info("Allocated capital to %s strategies using %s", len(decisions), method.value)  # noqa: E501
 
         return decisions
 
@@ -1149,15 +1160,56 @@ class CapitalAllocator:
 
         return filtered
 
-    def _update_market_regime(self):
-        """Update current market regime detection"""
-        # This would use actual market data
-        # For now, simulate
-        regimes = list(MarketRegime)
-        probabilities = [0.3, 0.2, 0.3, 0.15, 0.02, 0.03]  # Bull, Bear, Sideways, HighVol, Crash, Recovery
+    def set_regime_engine(self, engine: object) -> None:
+        """Inject a live L09 UnifiedRegimeEngine for regime lookups."""
+        self._regime_engine = engine
 
-        self.current_regime = np.random.choice(regimes, p=probabilities)
-        self.regime_confidence = np.random.uniform(0.6, 0.9)
+    # Mapping from L09 MarketRegime string values → P04 MarketRegime enum
+    _L09_TO_P04_REGIME: dict[str, "MarketRegime"] = {
+        "bull_trending":   None,  # filled at class-body time below
+        "bear_trending":   None,
+        "sideways_range":  None,
+        "high_volatility": None,
+        "crisis":          None,
+        "recovery":        None,
+    }
+
+    def _update_market_regime(self) -> None:
+        """Update current market regime from the injected L09 UnifiedRegimeEngine.
+
+        Reads ``engine.current_regime`` (a cached L09 ``MarketRegime`` enum) and
+        maps it to the local ``MarketRegime`` enum.  No random numbers are used;
+        when the engine is absent or the cached value is ``None`` the allocator
+        retains its existing regime (defaults to ``SIDEWAYS`` on first call).
+        """
+        if self._regime_engine is None:
+            return  # Retain existing regime; no engine wired
+
+        try:
+            l09_regime = getattr(self._regime_engine, "current_regime", None)
+            if l09_regime is None:
+                return  # Engine not yet initialised
+
+            _mapping = {
+                "bull_trending":   MarketRegime.BULL,
+                "bear_trending":   MarketRegime.BEAR,
+                "sideways_range":  MarketRegime.SIDEWAYS,
+                "high_volatility": MarketRegime.HIGH_VOLATILITY,
+                "crisis":          MarketRegime.CRASH,
+                "recovery":        MarketRegime.RECOVERY,
+            }
+            mapped = _mapping.get(l09_regime.value, MarketRegime.SIDEWAYS)
+
+            if mapped != self.current_regime:
+                self._prev_regime = self.current_regime
+                self.current_regime = mapped
+
+            # Use a neutral confidence value; L09's full confidence requires a
+            # fresh MarketConditions object which P04 does not own.
+            self.regime_confidence = 0.6
+
+        except Exception as exc:
+            self.logger.warning("_update_market_regime: regime engine query failed: %s", exc)
 
     def _get_returns_matrix(self, strategy_ids: list[str]) -> np.ndarray | None:
         """Get returns matrix for strategies"""
@@ -1363,13 +1415,17 @@ class CapitalAllocator:
         return total_impact
 
     def _check_tactical_rebalance(self) -> bool:
-        """Check for tactical rebalancing opportunities"""
-        # Check if regime changed significantly
-        # Check if correlations changed
-        # Check if new opportunities emerged
+        """Return True when a regime transition has been detected since last call.
 
-        # For now, simple random check
-        return np.random.random() < 0.05  # 5% chance
+        Fires once per transition (``_prev_regime`` is cleared after triggering).
+        Allocation drift is already handled by the REBALANCE_THRESHOLD path in
+        ``check_rebalance_needed``; this method covers the regime-change trigger
+        only.  No random numbers are used.
+        """
+        if self._prev_regime is not None and self._prev_regime != self.current_regime:
+            self._prev_regime = None  # Consume the event; only fire once per transition
+            return True
+        return False
 
     def _adjust_for_regime(self, kelly: float) -> float:
         """Adjust Kelly fraction for market regime"""

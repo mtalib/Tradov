@@ -7,6 +7,15 @@ holidays>=0.13
 pandas_market_calendars>=1.6.0
 yfinance>=0.1.70
 alpha_vantage>=2.3.0
+fredapi>=0.5.0
+
+# Excel parsing for AAII (.xls) and NAAIM (.xlsx) sentiment downloads
+openpyxl>=3.1.0
+xlrd>=2.0.1
+
+# Optional: Nasdaq Data Link (formerly Quandl) — reliable free-tier API for AAII/SENTIMENT.
+# Register free at https://data.nasdaq.com/ and add NASDAQ_DATA_LINK_API_KEY to .env.
+nasdaq-data-link>=1.0.4
 
 # Institutional Portfolio Analytics
 pyfolio-reloaded>=0.9.5

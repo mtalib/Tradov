@@ -576,14 +576,7 @@ def main():
 
     # Create and show dashboard
     dashboard = SPYDERDirectDashboard()
-    dashboard.show()
-
-    # Center window
-    screen = app.primaryScreen().geometry()
-    size = dashboard.geometry()
-    dashboard.move(
-        (screen.width() - size.width()) // 2, (screen.height() - size.height()) // 2
-    )
+    dashboard.showMaximized()
 
     print("✅ Direct dashboard launched successfully")
     print("💡 This version bypasses connection manager timeout issues")

@@ -92,7 +92,7 @@ class GEXDEXCalculator:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.info("GEXDEXCalculator initialized (real options chain mode)")
+        self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
 
     # ------------------------------------------------------------------
@@ -387,7 +387,7 @@ class GEXDEXCalculator:
                 "data_source": "SpyderN09_GammaExposure",
             }
         except Exception as e:
-            logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)
+            logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)  # noqa: E501
 
         # Fallback: SpyderN03 options chain manager (preferred over deprecated B30)
         try:
@@ -395,7 +395,7 @@ class GEXDEXCalculator:
             chain_mgr = OptionsChainManager()
             chain_df = chain_mgr.get_chain("SPY")
             if chain_df.empty:
-                raise DataUnavailableError("SpyderN03_OptionsChainManager returned empty chain for SPY")
+                raise DataUnavailableError("SpyderN03_OptionsChainManager returned empty chain for SPY")  # noqa: E501
             return self._compute_from_chain(chain_df, spot_price)
         except DataUnavailableError:
             pass  # fall through to Tradier direct fetch below
@@ -544,3 +544,6 @@ def get_gex_calculator() -> GEXDEXCalculator:
         _gex_calculator = GEXDEXCalculator()
     return _gex_calculator
 
+
+# Alias for backward compatibility with P01 and N09
+GammaExposureCalculator = GEXDEXCalculator

@@ -88,6 +88,23 @@ class FilterType(Enum):
 
     # Execution quality filters
     SPREAD_WIDTH = "spread_width"  # Bid-ask spread too wide for safe execution
+    LIQUIDITY_QUALITY = "liquidity_quality"  # Full contract-level liquidity gate
+
+    # Market internals / macro filters
+    MARKET_INTERNALS = "market_internals"  # TICK/TRIN/breadth from C04
+    VIX_TERM_STRUCTURE = "vix_term_structure"  # VIX contango/backwardation from C10
+    CBOE_SKEW = "cboe_skew"  # CBOE SKEW tail-risk index from S06
+    VOL_SURFACE = "vol_surface"  # N06 term structure / smile confidence gate
+    DEALER_FLOW = "dealer_flow"  # N09/N11 dealer positioning structure gate
+    LEAD_LAG_CONFIRMATION = "lead_lag_confirmation"  # C11 ES/SPY confirmation gate
+    DATA_QUALITY = "data_quality"  # S07 data-quality SLO hard trust gate
+
+
+class LiquidityGateMode(Enum):
+    """Execution mode for the contract-level liquidity gate."""
+    OBSERVE = "observe"
+    WARN = "warn"
+    HARD = "hard"
 
 # ==============================================================================
 # DATA CLASSES
@@ -187,14 +204,30 @@ class EntryFilters:
 
     def __init__(self,
                  config_manager: ConfigManager,
-                 paper_trade_learner: Any | None = None):
-        """Initialize with adaptive learning."""
+                 paper_trade_learner: Any | None = None,
+                 vix_analyzer: Any | None = None,
+                 skew_calculator: Any | None = None,
+                 market_internals: Any | None = None):
+        """Initialize with adaptive learning.
+
+        Args:
+            config_manager: System config manager.
+            paper_trade_learner: Optional L07 paper-trade learner for adaptation.
+            vix_analyzer: Optional C10 VIXAnalyzer for term-structure gating.
+            skew_calculator: Optional S06 SKEWCalculator for CBOE SKEW gating.
+            market_internals: Optional C04 MarketInternals for TICK/TRIN gating.
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config_manager = config_manager
         self.paper_trade_learner = paper_trade_learner
         self.feature_flags = FeatureFlags()
         self.monitor = SystemMonitor()
+
+        # Optional live data sources for macro / market-internals filters
+        self._vix_analyzer = vix_analyzer
+        self._skew_calculator = skew_calculator
+        self._market_internals = market_internals
 
         # Load configuration
         self._load_config()
@@ -217,10 +250,10 @@ class EntryFilters:
         config = self.config_manager.get_config('entry_filters', {})
 
         # Adaptive settings
-        self.use_adaptive_thresholds = self.config_manager.is_feature_enabled('adaptive_entry_filters')
+        self.use_adaptive_thresholds = self.config_manager.is_feature_enabled('adaptive_entry_filters')  # noqa: E501
         self.adaptation_interval_hours = config.get('adaptation_interval_hours', 24)
         self.min_trades_for_adaptation = config.get('min_trades_for_adaptation', 20)
-        self.adaptation_blend_factor = config.get('adaptation_blend_factor', 0.2)  # 80% base, 20% adapted
+        self.adaptation_blend_factor = config.get('adaptation_blend_factor', 0.2)  # 80% base, 20% adapted  # noqa: E501
 
         # Filter settings
         self.enable_all_filters = config.get('enable_all_filters', True)
@@ -235,6 +268,41 @@ class EntryFilters:
         self.restricted_days = config.get('restricted_days', [5, 6])  # Saturday, Sunday
         # End-of-day force close time — positions should be closed before this
         self.EOD_FORCE_CLOSE_TIME = time(15, 55)  # 3:55 PM ET
+
+        # Event-clock blackout policy (P0-3).
+        event_clock_cfg = self.config_manager.get_config('autonomous_readiness.event_clock', {})
+        self.event_clock_policy = {
+            'enforce_blackout': bool(event_clock_cfg.get('enforce_blackout', True)),
+            'allowlist_strategies': [
+                str(s).strip() for s in event_clock_cfg.get('allowlist_strategies', [])
+                if str(s).strip()
+            ],
+        }
+
+        market_structure_cfg = self.config_manager.get_config('autonomous_readiness.market_structure', {})  # noqa: E501
+        self.market_structure_policy = {
+            'min_surface_confidence': float(market_structure_cfg.get('min_surface_confidence', 0.65)),  # noqa: E501
+            'max_surface_age_ms': float(market_structure_cfg.get('max_surface_age_ms', 180000)),
+            'min_term_slope_0_7': float(market_structure_cfg.get('min_term_slope_0_7', 0.0)),
+            'max_abs_rr_25d': float(market_structure_cfg.get('max_abs_rr_25d', 0.03)),
+            'max_abs_fly_25d': float(market_structure_cfg.get('max_abs_fly_25d', 0.03)),
+            'min_wall_confidence': float(market_structure_cfg.get('min_wall_confidence', 0.55)),
+            'max_flow_imbalance': float(market_structure_cfg.get('max_flow_imbalance', 0.75)),
+            'zero_gamma_buffer_pct': float(market_structure_cfg.get('zero_gamma_buffer_pct', 0.50)),
+            'fast_regime_lead_lag_ms': float(market_structure_cfg.get('fast_regime_lead_lag_ms', 3.0)),  # noqa: E501
+            'fast_regime_impulse_score': float(market_structure_cfg.get('fast_regime_impulse_score', 0.40)),  # noqa: E501
+            'min_confirm_confidence': float(market_structure_cfg.get('min_confirm_confidence', 0.55)),  # noqa: E501
+        }
+
+        data_quality_cfg = self.config_manager.get_config('autonomous_readiness.data_quality', {})
+        required_buckets = data_quality_cfg.get('required_buckets', ['VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG'])  # noqa: E501
+        self.data_quality_policy = {
+            'enforce_hard_slo': bool(data_quality_cfg.get('enforce_hard_slo', True)),
+            'min_bucket_quality': float(data_quality_cfg.get('min_bucket_quality', 0.60)),
+            'required_buckets': [
+                str(bucket).strip().upper() for bucket in required_buckets if str(bucket).strip()
+            ],
+        }
 
     def _initialize_thresholds(self) -> dict[str, FilterThreshold]:
         """Initialize filter thresholds."""
@@ -355,6 +423,14 @@ class EntryFilters:
             FilterType.SKEW: 1.0,
             FilterType.TERM_STRUCTURE: 0.9,
             FilterType.SPREAD_WIDTH: 1.6,   # High weight — wide spreads destroy edge
+            FilterType.LIQUIDITY_QUALITY: 1.8,  # Hard gate for options contract tradability
+            FilterType.MARKET_INTERNALS: 1.1,   # TICK/TRIN breadth confirmation
+            FilterType.VIX_TERM_STRUCTURE: 1.2,  # VIX backwardation = stress regime
+            FilterType.CBOE_SKEW: 1.3,           # SKEW > 145 = elevated tail risk
+            FilterType.VOL_SURFACE: 1.4,
+            FilterType.DEALER_FLOW: 1.4,
+            FilterType.LEAD_LAG_CONFIRMATION: 1.3,
+            FilterType.DATA_QUALITY: 2.0,
         }
 
         # Override with config values
@@ -431,8 +507,9 @@ class EntryFilters:
 
             # Record metrics
             elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
-            self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
-            self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
+            if hasattr(self.monitor, 'record_metric'):
+                self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
+                self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
 
             # Track filter performance
             self._track_filter_performance(result)
@@ -463,7 +540,7 @@ class EntryFilters:
             stats['threshold_adaptations'][name] = {
                 'base': threshold.base_value,
                 'current': threshold.current_value,
-                'change_pct': (threshold.current_value - threshold.base_value) / threshold.base_value * 100
+                'change_pct': (threshold.current_value - threshold.base_value) / threshold.base_value * 100  # noqa: E501
             }
 
         return stats
@@ -504,7 +581,7 @@ class EntryFilters:
             # Check if we have enough data
             trade_count = optimized.get('trade_count', 0)
             if trade_count < self.min_trades_for_adaptation:
-                self.logger.info("Not enough trades for adaptation: %s < %s", trade_count, self.min_trades_for_adaptation)
+                self.logger.info("Not enough trades for adaptation: %s < %s", trade_count, self.min_trades_for_adaptation)  # noqa: E501
                 return
 
             # Scale blend factor by trade count to avoid overfitting on small samples
@@ -578,11 +655,23 @@ class EntryFilters:
         # Greeks filters
         checks.extend(self._check_greeks_filters(params))
 
+        # Market-structure / trust-policy filters
+        checks.extend(self._check_data_quality_filter(params))
+        checks.extend(self._check_vol_surface_structure_filter(params))
+        checks.extend(self._check_dealer_flow_filter(params))
+        checks.extend(self._check_lead_lag_confirmation_filter(params))
+
         # Execution quality filters
         checks.extend(self._check_spread_width_filter(params))
+        checks.extend(self._check_liquidity_quality_filter(params))
 
         # Correlation risk filters
         checks.extend(self._check_correlation_filters(params, checks))
+
+        # Macro / market-internals filters (live data sources — skip gracefully if unavailable)
+        checks.extend(self._check_vix_term_structure_filter())
+        checks.extend(self._check_cboe_skew_filter())
+        checks.extend(self._check_market_internals_filter())
 
         return checks
 
@@ -843,6 +932,39 @@ class EntryFilters:
 
         current_time = params.get('current_time', datetime.now())
 
+        # Economic event blackout gate from scheduler event-clock feed.
+        event_clock_state = params.get('event_clock_state') or {}
+        event_state = str(event_clock_state.get('state', 'clear')).lower()
+        if self.event_clock_policy['enforce_blackout'] and event_state in {'pre', 'live', 'post'}:
+            strategy_id = str(
+                params.get('strategy_id')
+                or params.get('strategy')
+                or params.get('strategy_name')
+                or ''
+            ).strip()
+            allowed_strategies = event_clock_state.get('allowed_strategies') or self.event_clock_policy['allowlist_strategies']  # noqa: E501
+            allowlist = {str(s).strip() for s in allowed_strategies if str(s).strip()}
+
+            if strategy_id and strategy_id in allowlist:
+                checks.append(FilterCheck(
+                    filter_type=FilterType.ECONOMIC_EVENTS,
+                    result=FilterResult.WARNING,
+                    value=1.0,
+                    threshold=0.0,
+                    message=f"Event-clock blackout ({event_state}) active; allowlisted strategy {strategy_id}",  # noqa: E501
+                    weight=self.filter_weights[FilterType.ECONOMIC_EVENTS],
+                ))
+            else:
+                event_type = event_clock_state.get('event_type', 'macro_event')
+                checks.append(FilterCheck(
+                    filter_type=FilterType.ECONOMIC_EVENTS,
+                    result=FilterResult.FAIL,
+                    value=1.0,
+                    threshold=0.0,
+                    message=f"Event-clock blackout ({event_state}) active for {event_type}",
+                    weight=self.filter_weights[FilterType.ECONOMIC_EVENTS],
+                ))
+
         # EOD force-close warning
         if current_time.time() >= self.EOD_FORCE_CLOSE_TIME:
             self.logger.warning(
@@ -1054,6 +1176,152 @@ class EntryFilters:
             weight=self.filter_weights[FilterType.SPREAD_WIDTH],
         )]
 
+    def _check_liquidity_quality_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Hard gate for contract-level liquidity quality when snapshot is provided."""
+        snapshot = params.get('liquidity_snapshot')
+        if not isinstance(snapshot, dict) or not snapshot:
+            return [FilterCheck(
+                filter_type=FilterType.LIQUIDITY_QUALITY,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message="Liquidity snapshot unavailable — filter skipped",
+                weight=0.0,
+            )]
+
+        gate_mode = self._get_liquidity_gate_mode()
+        allowed, reasons = self.evaluate_liquidity_gate(snapshot, gate_mode=gate_mode)
+        if not allowed:
+            return [FilterCheck(
+                filter_type=FilterType.LIQUIDITY_QUALITY,
+                result=FilterResult.FAIL,
+                value=0.0,
+                threshold=1.0,
+                message=f"Liquidity gate blocked entry: {'; '.join(reasons)}",
+                weight=self.filter_weights[FilterType.LIQUIDITY_QUALITY],
+            )]
+
+        if reasons:
+            result = FilterResult.WARNING if gate_mode == LiquidityGateMode.WARN else FilterResult.PASS  # noqa: E501
+            message_prefix = "Liquidity gate warning" if gate_mode == LiquidityGateMode.WARN else "Liquidity gate observe"  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.LIQUIDITY_QUALITY,
+                result=result,
+                value=1.0,
+                threshold=1.0,
+                message=f"{message_prefix}: {'; '.join(reasons)}",
+                weight=self.filter_weights[FilterType.LIQUIDITY_QUALITY],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.LIQUIDITY_QUALITY,
+            result=FilterResult.PASS,
+            value=1.0,
+            threshold=1.0,
+            message="Liquidity gate passed",
+            weight=self.filter_weights[FilterType.LIQUIDITY_QUALITY],
+        )]
+
+    def _get_liquidity_gate_mode(self) -> LiquidityGateMode:
+        """Return the configured liquidity gate mode."""
+        liquidity_cfg = self.config_manager.get_config('autonomous_readiness.liquidity', {})
+        raw_mode = str(liquidity_cfg.get('gate_mode', LiquidityGateMode.HARD.value)).strip().lower()
+        for mode in LiquidityGateMode:
+            if mode.value == raw_mode:
+                return mode
+        return LiquidityGateMode.HARD
+
+    def evaluate_liquidity_gate(
+        self,
+        liquidity_snapshot: dict[str, Any],
+        thresholds: dict[str, float] | None = None,
+        gate_mode: LiquidityGateMode | str | None = None,
+    ) -> tuple[bool, list[str]]:
+        """Evaluate contract liquidity thresholds for pre-trade gating."""
+        if not isinstance(liquidity_snapshot, dict) or not liquidity_snapshot:
+            return False, ["liquidity_snapshot unavailable"]
+
+        if gate_mode is None:
+            resolved_mode = self._get_liquidity_gate_mode()
+        elif isinstance(gate_mode, LiquidityGateMode):
+            resolved_mode = gate_mode
+        else:
+            resolved_mode = LiquidityGateMode(str(gate_mode).strip().lower()) if str(gate_mode).strip().lower() in {m.value for m in LiquidityGateMode} else LiquidityGateMode.HARD  # noqa: E501
+
+        # Load liquidity thresholds from A03 config (P0-1)
+        liquidity_cfg = self.config_manager.get_config('autonomous_readiness.liquidity', {})
+        t = {
+            'max_spread_pct': float(liquidity_cfg.get('max_spread_pct', 0.12)),
+            'max_spread_abs': float(liquidity_cfg.get('max_spread_abs', 0.20)),
+            'max_quote_age_ms': int(liquidity_cfg.get('max_quote_age_ms', 1500)),
+            'min_top_of_book_size': int(liquidity_cfg.get('min_top_of_book_size', 10)),
+            'min_open_interest': int(liquidity_cfg.get('min_open_interest', 500)),
+            'min_volume': int(liquidity_cfg.get('min_volume', 50)),
+            'min_oi_change_pct': float(liquidity_cfg.get('min_oi_change_pct', -0.20)),
+        }
+  # noqa: W293
+        # Allow parameter override (for testing)
+        if isinstance(thresholds, dict):
+            for key, value in thresholds.items():
+                if key in t and isinstance(value, (int, float)):
+                    t[key] = float(value) if key in ['max_spread_pct', 'max_spread_abs', 'min_oi_change_pct'] else int(value)  # noqa: E501
+
+        reasons: list[str] = []
+
+        def _check_non_negative(name: str) -> float | None:
+            value = liquidity_snapshot.get(name)
+            if isinstance(value, (int, float)):
+                numeric_value = float(value)
+                if numeric_value < 0:
+                    reasons.append(f"{name} {numeric_value:.4f} < 0")
+                return numeric_value
+            return None
+
+        spread_pct = _check_non_negative('spread_pct')
+        if spread_pct is not None and spread_pct > t['max_spread_pct']:
+            reasons.append(
+                f"spread_pct {spread_pct:.4f} > max_spread_pct {t['max_spread_pct']:.4f}"
+            )
+
+        spread_abs = _check_non_negative('spread_abs')
+        if spread_abs is not None and spread_abs > t['max_spread_abs']:
+            reasons.append(
+                f"spread_abs {spread_abs:.4f} > max_spread_abs {t['max_spread_abs']:.4f}"
+            )
+
+        quote_age_ms = _check_non_negative('quote_age_ms')
+        if quote_age_ms is not None and quote_age_ms > t['max_quote_age_ms']:
+            reasons.append(
+                f"quote_age_ms {quote_age_ms:.0f} > max_quote_age_ms {t['max_quote_age_ms']:.0f}"
+            )
+
+        top_of_book_size = _check_non_negative('top_of_book_size')
+        if top_of_book_size is not None and top_of_book_size < t['min_top_of_book_size']:
+            reasons.append(
+                f"top_of_book_size {top_of_book_size:.0f} < min_top_of_book_size {t['min_top_of_book_size']:.0f}"  # noqa: E501
+            )
+
+        open_interest = _check_non_negative('open_interest')
+        if open_interest is not None and open_interest < t['min_open_interest']:
+            reasons.append(
+                f"open_interest {open_interest:.0f} < min_open_interest {t['min_open_interest']:.0f}"  # noqa: E501
+            )
+
+        volume = _check_non_negative('volume')
+        if volume is not None and volume < t['min_volume']:
+            reasons.append(f"volume {volume:.0f} < min_volume {t['min_volume']:.0f}")
+
+        oi_change_pct = liquidity_snapshot.get('oi_change_pct')
+        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < t['min_oi_change_pct']:  # noqa: E501
+            reasons.append(
+                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {t['min_oi_change_pct']:.4f}"  # noqa: E501
+            )
+
+        if reasons and resolved_mode == LiquidityGateMode.HARD:
+            return False, reasons
+
+        return True, reasons
+
     def _check_greeks_filters(self, params: dict[str, Any]) -> list[FilterCheck]:
         """Check Greeks-based filters."""
         checks = []
@@ -1100,12 +1368,514 @@ class EntryFilters:
 
         return checks
 
+    def _get_market_condition_value(self, params: dict[str, Any], key: str, default: Any = None) -> Any:  # noqa: E501
+        """Return a value from flat params first, then nested market_conditions."""
+        if key in params:
+            return params.get(key, default)
+        market_conditions = params.get('market_conditions')
+        if isinstance(market_conditions, dict):
+            return market_conditions.get(key, default)
+        return default
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        """Return a finite float or None."""
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        return numeric if np.isfinite(numeric) else None
+
+    def _infer_expected_direction(self, params: dict[str, Any]) -> str | None:
+        """Infer the expected trade direction for lead-lag confirmation."""
+        candidates = [
+            params.get('direction'),
+            params.get('bias'),
+            params.get('position_type'),
+            self._get_market_condition_value(params, 'direction'),
+        ]
+        strategy_type = str(params.get('strategy_type', '')).strip().lower()
+
+        if any(token in strategy_type for token in ('iron_condor', 'straddle', 'strangle', 'butterfly', 'calendar')):  # noqa: E501
+            return 'neutral'
+
+        for raw in candidates:
+            value = str(raw or '').strip().lower()
+            if value in {'up', 'bull', 'bullish', 'long'}:
+                return 'up'
+            if value in {'down', 'bear', 'bearish', 'short'}:
+                return 'down'
+            if value in {'neutral', 'flat'}:
+                return 'neutral'
+
+        if 'bull' in strategy_type or strategy_type.endswith('_call'):
+            return 'up'
+        if 'bear' in strategy_type or strategy_type.endswith('_put'):
+            return 'down'
+        return None
+
+    def _check_data_quality_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Enforce data-quality SLOs as a hard trust policy when the feed is present."""
+        feed = self._get_market_condition_value(params, 'data_quality_feed')
+        if not isinstance(feed, dict) or not feed:
+            if self.data_quality_policy['enforce_hard_slo']:
+                return [FilterCheck(
+                    filter_type=FilterType.DATA_QUALITY,
+                    result=FilterResult.FAIL,
+                    value=0.0,
+                    threshold=1.0,
+                    message='Data-quality feed absent — hard SLO enforced, entry blocked',
+                    weight=self.filter_weights[FilterType.DATA_QUALITY],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.DATA_QUALITY,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message='Data-quality feed unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        data = feed.get('data') if isinstance(feed.get('data'), dict) else feed
+        if not isinstance(data, dict):
+            return [FilterCheck(
+                filter_type=FilterType.DATA_QUALITY,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message='Data-quality feed malformed — filter skipped',
+                weight=0.0,
+            )]
+
+        slo_status = data.get('slo_status') if isinstance(data.get('slo_status'), dict) else {}
+        quality_buckets = data.get('quality_buckets') if isinstance(data.get('quality_buckets'), dict) else {}  # noqa: E501
+        overall_quality = self._coerce_float(data.get('overall_quality'))
+
+        failures: list[str] = []
+        if self.data_quality_policy['enforce_hard_slo'] and slo_status:
+            for name, ok in slo_status.items():
+                if name == 'all_ok':
+                    continue
+                if ok is False:
+                    failures.append(name)
+
+        for bucket_name in self.data_quality_policy['required_buckets']:
+            bucket = quality_buckets.get(bucket_name)
+            if not isinstance(bucket, dict):
+                failures.append(f'{bucket_name.lower()}_missing')
+                continue
+
+            bucket_quality = self._coerce_float(bucket.get('quality_score'))
+            if bucket.get('stale'):
+                failures.append(f'{bucket_name.lower()}_stale')
+            if bucket.get('source_available') is False:
+                failures.append(f'{bucket_name.lower()}_source_unavailable')
+            if bucket_quality is None or bucket_quality < self.data_quality_policy['min_bucket_quality']:  # noqa: E501
+                failures.append(f'{bucket_name.lower()}_quality_low')
+
+        if failures:
+            return [FilterCheck(
+                filter_type=FilterType.DATA_QUALITY,
+                result=FilterResult.FAIL,
+                value=overall_quality if overall_quality is not None else 0.0,
+                threshold=1.0,
+                message=f'Data-quality trust policy failed: {", ".join(failures)}',
+                weight=self.filter_weights[FilterType.DATA_QUALITY],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.DATA_QUALITY,
+            result=FilterResult.PASS,
+            value=overall_quality if overall_quality is not None else 1.0,
+            threshold=1.0,
+            message='Data-quality trust policy passed',
+            weight=self.filter_weights[FilterType.DATA_QUALITY],
+        )]
+
+    def _check_vol_surface_structure_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Gate entries on vol-surface freshness, confidence, and front-end structure."""
+        surface_confidence = self._coerce_float(self._get_market_condition_value(params, 'surface_confidence'))  # noqa: E501
+        surface_age_ms = self._coerce_float(self._get_market_condition_value(params, 'surface_age_ms'))  # noqa: E501
+        term_slope_0_7 = self._coerce_float(self._get_market_condition_value(params, 'term_slope_0_7'))  # noqa: E501
+        rr_25d = self._coerce_float(self._get_market_condition_value(params, 'rr_25d'))
+        fly_25d = self._coerce_float(self._get_market_condition_value(params, 'fly_25d'))
+
+        if all(value is None for value in (surface_confidence, surface_age_ms, term_slope_0_7, rr_25d, fly_25d)):  # noqa: E501
+            if self.data_quality_policy['enforce_hard_slo']:
+                return [FilterCheck(
+                    filter_type=FilterType.VOL_SURFACE,
+                    result=FilterResult.FAIL,
+                    value=0.0,
+                    threshold=1.0,
+                    message='Vol-surface snapshot absent — hard SLO enforced, entry blocked',
+                    weight=self.filter_weights[FilterType.VOL_SURFACE],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.VOL_SURFACE,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message='Vol-surface snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        if surface_confidence is None or surface_confidence < self.market_structure_policy['min_surface_confidence']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.VOL_SURFACE,
+                result=FilterResult.FAIL,
+                value=surface_confidence or 0.0,
+                threshold=self.market_structure_policy['min_surface_confidence'],
+                message='Vol-surface confidence too low for entry decision',
+                weight=self.filter_weights[FilterType.VOL_SURFACE],
+            )]
+
+        if surface_age_ms is None or surface_age_ms > self.market_structure_policy['max_surface_age_ms']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.VOL_SURFACE,
+                result=FilterResult.FAIL,
+                value=surface_age_ms or 0.0,
+                threshold=self.market_structure_policy['max_surface_age_ms'],
+                message='Vol-surface snapshot stale for live decisioning',
+                weight=self.filter_weights[FilterType.VOL_SURFACE],
+            )]
+
+        if term_slope_0_7 is not None and term_slope_0_7 < self.market_structure_policy['min_term_slope_0_7']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.VOL_SURFACE,
+                result=FilterResult.FAIL,
+                value=term_slope_0_7,
+                threshold=self.market_structure_policy['min_term_slope_0_7'],
+                message=f'Front-end vol term structure inverted: slope_0_7={term_slope_0_7:.2f}',
+                weight=self.filter_weights[FilterType.VOL_SURFACE],
+            )]
+
+        extreme_smile = []
+        if rr_25d is not None and abs(rr_25d) > self.market_structure_policy['max_abs_rr_25d']:
+            extreme_smile.append(f'rr_25d={rr_25d:.3f}')
+        if fly_25d is not None and abs(fly_25d) > self.market_structure_policy['max_abs_fly_25d']:
+            extreme_smile.append(f'fly_25d={fly_25d:.3f}')
+        if extreme_smile:
+            return [FilterCheck(
+                filter_type=FilterType.VOL_SURFACE,
+                result=FilterResult.WARNING,
+                value=surface_confidence,
+                threshold=self.market_structure_policy['max_abs_rr_25d'],
+                message=f'Vol-surface smile extreme: {", ".join(extreme_smile)}',
+                weight=self.filter_weights[FilterType.VOL_SURFACE],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.VOL_SURFACE,
+            result=FilterResult.PASS,
+            value=surface_confidence,
+            threshold=self.market_structure_policy['min_surface_confidence'],
+            message='Vol-surface structure acceptable',
+            weight=self.filter_weights[FilterType.VOL_SURFACE],
+        )]
+
+    def _check_dealer_flow_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Gate entries on dealer-flow confidence and unstable short-gamma structure."""
+        dealer_flow = self._get_market_condition_value(params, 'dealer_flow', {})
+        if not isinstance(dealer_flow, dict):
+            dealer_flow = {}
+
+        wall_confidence = self._coerce_float(self._get_market_condition_value(params, 'wall_confidence'))  # noqa: E501
+        if wall_confidence is None:
+            wall_confidence = self._coerce_float(dealer_flow.get('wall_confidence'))
+
+        flow_imbalance = self._coerce_float(self._get_market_condition_value(params, 'flow_imbalance'))  # noqa: E501
+        if flow_imbalance is None:
+            flow_imbalance = self._coerce_float(dealer_flow.get('flow_imbalance_score'))
+
+        spot_to_zero_gamma_pct = self._coerce_float(dealer_flow.get('spot_to_zero_gamma_pct'))
+        dealer_position = str(dealer_flow.get('dealer_position') or dealer_flow.get('regime') or '').strip().lower()  # noqa: E501
+
+        if wall_confidence is None and flow_imbalance is None and spot_to_zero_gamma_pct is None and not dealer_position:  # noqa: E501
+            if self.data_quality_policy['enforce_hard_slo']:
+                return [FilterCheck(
+                    filter_type=FilterType.DEALER_FLOW,
+                    result=FilterResult.FAIL,
+                    value=0.0,
+                    threshold=1.0,
+                    message='Dealer-flow snapshot absent — hard SLO enforced, entry blocked',
+                    weight=self.filter_weights[FilterType.DEALER_FLOW],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.DEALER_FLOW,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message='Dealer-flow snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        if wall_confidence is None or wall_confidence < self.market_structure_policy['min_wall_confidence']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.DEALER_FLOW,
+                result=FilterResult.FAIL,
+                value=wall_confidence or 0.0,
+                threshold=self.market_structure_policy['min_wall_confidence'],
+                message='Dealer-flow confidence too low for entry decision',
+                weight=self.filter_weights[FilterType.DEALER_FLOW],
+            )]
+
+        if dealer_position == 'short_gamma' and spot_to_zero_gamma_pct is not None:
+            if abs(spot_to_zero_gamma_pct) <= self.market_structure_policy['zero_gamma_buffer_pct']:
+                return [FilterCheck(
+                    filter_type=FilterType.DEALER_FLOW,
+                    result=FilterResult.FAIL,
+                    value=abs(spot_to_zero_gamma_pct),
+                    threshold=self.market_structure_policy['zero_gamma_buffer_pct'],
+                    message='Dealer short-gamma regime too close to zero-gamma flip level',
+                    weight=self.filter_weights[FilterType.DEALER_FLOW],
+                )]
+
+        if flow_imbalance is not None and abs(flow_imbalance) >= self.market_structure_policy['max_flow_imbalance']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.DEALER_FLOW,
+                result=FilterResult.WARNING,
+                value=abs(flow_imbalance),
+                threshold=self.market_structure_policy['max_flow_imbalance'],
+                message=f'Dealer-flow pressure extreme: imbalance={flow_imbalance:.2f}',
+                weight=self.filter_weights[FilterType.DEALER_FLOW],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.DEALER_FLOW,
+            result=FilterResult.PASS,
+            value=wall_confidence,
+            threshold=self.market_structure_policy['min_wall_confidence'],
+            message='Dealer-flow structure acceptable',
+            weight=self.filter_weights[FilterType.DEALER_FLOW],
+        )]
+
+    def _check_lead_lag_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require ES/SPY lead-lag confirmation when the tape is moving fast."""
+        lead_lag_ms = self._coerce_float(self._get_market_condition_value(params, 'lead_lag_ms'))
+        es_impulse_score = self._coerce_float(self._get_market_condition_value(params, 'es_impulse_score'))  # noqa: E501
+        confirm_confidence = self._coerce_float(self._get_market_condition_value(params, 'confirm_confidence'))  # noqa: E501
+        confirm_direction = str(self._get_market_condition_value(params, 'confirm_direction', 'unknown') or 'unknown').strip().lower()  # noqa: E501
+
+        if lead_lag_ms is None and es_impulse_score is None and confirm_confidence is None:
+            if self.data_quality_policy['enforce_hard_slo']:
+                return [FilterCheck(
+                    filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                    result=FilterResult.FAIL,
+                    value=0.0,
+                    threshold=1.0,
+                    message='Lead-lag snapshot absent — hard SLO enforced, entry blocked',
+                    weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=1.0,
+                message='Lead-lag snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        fast_regime = False
+        if lead_lag_ms is not None and abs(lead_lag_ms) >= self.market_structure_policy['fast_regime_lead_lag_ms']:  # noqa: E501
+            fast_regime = True
+        if es_impulse_score is not None and abs(es_impulse_score) >= self.market_structure_policy['fast_regime_impulse_score']:  # noqa: E501
+            fast_regime = True
+
+        if not fast_regime:
+            return [FilterCheck(
+                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                result=FilterResult.PASS,
+                value=confirm_confidence or 1.0,
+                threshold=self.market_structure_policy['min_confirm_confidence'],
+                message='Lead-lag context calm enough to proceed',
+                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+            )]
+
+        if confirm_confidence is None or confirm_confidence < self.market_structure_policy['min_confirm_confidence']:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                result=FilterResult.FAIL,
+                value=confirm_confidence or 0.0,
+                threshold=self.market_structure_policy['min_confirm_confidence'],
+                message='Lead-lag confirmation confidence too low in fast tape',
+                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+            )]
+
+        expected_direction = self._infer_expected_direction(params)
+        if expected_direction in {'up', 'down'} and confirm_direction in {'up', 'down'} and confirm_direction != expected_direction:  # noqa: E501
+            return [FilterCheck(
+                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                result=FilterResult.FAIL,
+                value=confirm_confidence,
+                threshold=self.market_structure_policy['min_confirm_confidence'],
+                message=f'Lead-lag confirmation disagrees with trade direction: expected {expected_direction}, got {confirm_direction}',  # noqa: E501
+                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+            )]
+
+        if expected_direction == 'neutral' and confirm_direction in {'up', 'down'}:
+            return [FilterCheck(
+                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+                result=FilterResult.WARNING,
+                value=confirm_confidence,
+                threshold=self.market_structure_policy['min_confirm_confidence'],
+                message=f'Lead-lag shows directional tape ({confirm_direction}) while strategy is neutral',  # noqa: E501
+                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.LEAD_LAG_CONFIRMATION,
+            result=FilterResult.PASS,
+            value=confirm_confidence,
+            threshold=self.market_structure_policy['min_confirm_confidence'],
+            message='Lead-lag confirmation aligned with trade direction',
+            weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
+        )]
+
+    # --------------------------------------------------------------------------
+    # Macro / Market-Internals Filters (Wave 2 — live data sources)
+    # --------------------------------------------------------------------------
+
+    def _check_vix_term_structure_filter(self) -> list[FilterCheck]:
+        """Block entries when VIX term structure is in steep backwardation.
+
+        Steep backwardation means near-term fear > long-term fear — a stress
+        signal.  Entries are blocked when the structure is STEEP_BACKWARDATION
+        and warned on plain BACKWARDATION.  Returns an empty list (no filter
+        applied) when C10 VIXAnalyzer is not injected or has no data yet.
+        """
+        if self._vix_analyzer is None:
+            return []
+        try:
+            ts = self._vix_analyzer.get_term_structure()
+            if ts is None:
+                return []
+            state = ts.state.value if hasattr(ts.state, "value") else str(ts.state)
+            if state == "steep_backwardation":
+                return [FilterCheck(
+                    filter_type=FilterType.VIX_TERM_STRUCTURE,
+                    result=FilterResult.FAIL,
+                    value=ts.vix_vxv_ratio,
+                    threshold=1.0,
+                    message=f"VIX term structure steep backwardation (VIX/VXV={ts.vix_vxv_ratio:.3f}); stress regime",  # noqa: E501
+                    weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+                )]
+            if state == "backwardation":
+                return [FilterCheck(
+                    filter_type=FilterType.VIX_TERM_STRUCTURE,
+                    result=FilterResult.WARNING,
+                    value=ts.vix_vxv_ratio,
+                    threshold=1.0,
+                    message=f"VIX term structure backwardation (VIX/VXV={ts.vix_vxv_ratio:.3f}); elevated caution",  # noqa: E501
+                    weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.VIX_TERM_STRUCTURE,
+                result=FilterResult.PASS,
+                value=ts.vix_vxv_ratio,
+                threshold=1.0,
+                message=f"VIX term structure {state} (VIX/VXV={ts.vix_vxv_ratio:.3f})",
+                weight=self.filter_weights[FilterType.VIX_TERM_STRUCTURE],
+            )]
+        except Exception as exc:
+            self.logger.debug("VIX term structure filter skipped: %s", exc)
+            return []
+
+    def _check_cboe_skew_filter(self) -> list[FilterCheck]:
+        """Block entries when the CBOE SKEW index signals extreme tail risk.
+
+        SKEW > 145 → extreme tail-risk premium; block entries.
+        SKEW 135–145 → elevated; warn.
+        Returns an empty list when S06 SKEWCalculator is not injected or has
+        no data yet.
+        """
+        if self._skew_calculator is None:
+            return []
+        try:
+            skew = self._skew_calculator.get_current_skew()
+            if skew is None:
+                return []
+            skew = float(skew)
+            if skew > 145:
+                return [FilterCheck(
+                    filter_type=FilterType.CBOE_SKEW,
+                    result=FilterResult.FAIL,
+                    value=skew,
+                    threshold=145.0,
+                    message=f"CBOE SKEW={skew:.1f} > 145; extreme tail-risk premium; block entry",
+                    weight=self.filter_weights[FilterType.CBOE_SKEW],
+                )]
+            if skew > 135:
+                return [FilterCheck(
+                    filter_type=FilterType.CBOE_SKEW,
+                    result=FilterResult.WARNING,
+                    value=skew,
+                    threshold=135.0,
+                    message=f"CBOE SKEW={skew:.1f} elevated (>135); increased tail risk",
+                    weight=self.filter_weights[FilterType.CBOE_SKEW],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.CBOE_SKEW,
+                result=FilterResult.PASS,
+                value=skew,
+                threshold=145.0,
+                message=f"CBOE SKEW={skew:.1f} within normal range",
+                weight=self.filter_weights[FilterType.CBOE_SKEW],
+            )]
+        except Exception as exc:
+            self.logger.debug("CBOE SKEW filter skipped: %s", exc)
+            return []
+
+    def _check_market_internals_filter(self) -> list[FilterCheck]:
+        """Block entries when market internals show extreme deterioration.
+
+        Uses C04 MarketInternals breadth/TICK/TRIN data:
+        - BreadthCondition EXTREMELY_WEAK → block
+        - BreadthCondition WEAK → warn
+        Returns an empty list when C04 is not injected or has no data yet.
+        """
+        if self._market_internals is None:
+            return []
+        try:
+            condition = self._market_internals.get_breadth_condition()
+            cond_value = condition.value if hasattr(condition, "value") else str(condition)
+            tick = self._market_internals.get_internal_value("TICK")
+            tick_str = f", TICK={tick:.0f}" if tick is not None else ""
+            if cond_value == "extremely_weak":
+                return [FilterCheck(
+                    filter_type=FilterType.MARKET_INTERNALS,
+                    result=FilterResult.FAIL,
+                    value=-1.0,
+                    threshold=-0.8,
+                    message=f"Market internals extremely weak{tick_str}; breadth deteriorating",
+                    weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+                )]
+            if cond_value == "weak":
+                return [FilterCheck(
+                    filter_type=FilterType.MARKET_INTERNALS,
+                    result=FilterResult.WARNING,
+                    value=-0.5,
+                    threshold=-0.8,
+                    message=f"Market internals weak{tick_str}; proceed with caution",
+                    weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+                )]
+            return [FilterCheck(
+                filter_type=FilterType.MARKET_INTERNALS,
+                result=FilterResult.PASS,
+                value=0.0,
+                threshold=-0.8,
+                message=f"Market internals {cond_value}{tick_str}",
+                weight=self.filter_weights[FilterType.MARKET_INTERNALS],
+            )]
+        except Exception as exc:
+            self.logger.debug("Market internals filter skipped: %s", exc)
+            return []
+
     # ==========================================================================
     # RESULT CALCULATION
     # ==========================================================================
 
     def _calculate_overall_result(self,
-                                checks: list[FilterCheck]) -> tuple[FilterResult, EntryQuality, float]:
+                                checks: list[FilterCheck]) -> tuple[FilterResult, EntryQuality, float]:  # noqa: E501
         """Calculate overall filter result and quality rating."""
         if not checks:
             return FilterResult.SKIP, EntryQuality.POOR, 0.0
@@ -1131,7 +1901,21 @@ class EntryFilters:
         normalized_score = score / total_weight
 
         # Determine overall result
-        if failed > 0:
+        hard_fail_filters = {
+            FilterType.LIQUIDITY_QUALITY,
+            FilterType.DATA_QUALITY,
+            FilterType.VOL_SURFACE,
+            FilterType.DEALER_FLOW,
+            FilterType.LEAD_LAG_CONFIRMATION,
+        }
+        hard_fail_present = any(
+            check.result == FilterResult.FAIL and check.filter_type in hard_fail_filters
+            for check in checks
+        )
+
+        if hard_fail_present:
+            overall = FilterResult.FAIL
+        elif failed > 0:
             if self.strict_mode or failed >= 2:
                 overall = FilterResult.FAIL
             else:
@@ -1188,7 +1972,7 @@ class EntryFilters:
         if any(c.result == FilterResult.FAIL for c in trend_checks):
             recommendations.append("Consider different strategy aligned with trend")
 
-        risk_checks = [c for c in checks if c.filter_type in [FilterType.PORTFOLIO_EXPOSURE, FilterType.MAX_LOSS]]
+        risk_checks = [c for c in checks if c.filter_type in [FilterType.PORTFOLIO_EXPOSURE, FilterType.MAX_LOSS]]  # noqa: E501
         if any(c.result == FilterResult.FAIL for c in risk_checks):
             recommendations.append("Reduce position size or hedge existing positions first")
 

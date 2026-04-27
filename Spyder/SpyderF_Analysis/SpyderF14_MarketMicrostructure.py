@@ -424,7 +424,7 @@ class MarketMicrostructureEngine:
 
         # Data storage
         self.tick_buffer: dict[str, deque] = defaultdict(lambda: deque(maxlen=MAX_TICK_BUFFER_SIZE))
-        self.order_books: dict[str, OrderedDict] = defaultdict(OrderedDict)  # timestamp -> OrderBook
+        self.order_books: dict[str, OrderedDict] = defaultdict(OrderedDict)  # timestamp -> OrderBook  # noqa: E501
         self.trade_events: dict[str, list[TradeEvent]] = defaultdict(list)
 
         # Analysis components
@@ -523,7 +523,7 @@ class MarketMicrostructureEngine:
             return True
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.start_real_time_processing")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.start_real_time_processing")  # noqa: E501
             return False
 
     def stop_real_time_processing(self) -> bool:
@@ -544,7 +544,7 @@ class MarketMicrostructureEngine:
             return True
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.stop_real_time_processing")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.stop_real_time_processing")  # noqa: E501
             return False
 
     # ==========================================================================
@@ -583,7 +583,7 @@ class MarketMicrostructureEngine:
             return True
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.process_tick_data")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.process_tick_data")  # noqa: E501
             return False
 
     def reconstruct_order_book(self, symbol: str,
@@ -620,7 +620,7 @@ class MarketMicrostructureEngine:
                 return book_snapshots[timestamps[closest_idx]]
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.reconstruct_order_book")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.reconstruct_order_book")  # noqa: E501
             return None
 
     async def classify_trade_direction(self, trade: TickData,
@@ -650,7 +650,7 @@ class MarketMicrostructureEngine:
                 return TradeDirection.UNKNOWN
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.classify_trade_direction")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.classify_trade_direction")  # noqa: E501
             return TradeDirection.UNKNOWN
 
     # ==========================================================================
@@ -734,7 +734,7 @@ class MarketMicrostructureEngine:
             return liquidity_metrics
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.calculate_liquidity_metrics")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.calculate_liquidity_metrics")  # noqa: E501
 
             # Return default metrics on error
             return LiquidityMetrics(
@@ -844,7 +844,7 @@ class MarketMicrostructureEngine:
             return order_flow_analysis
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.analyze_order_flow")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.analyze_order_flow")  # noqa: E501
 
             # Return default analysis on error
             return OrderFlowAnalysis(
@@ -895,7 +895,7 @@ class MarketMicrostructureEngine:
 
     async def calculate_market_impact(self, symbol: str,
                                     trade_events: list[TradeEvent],
-                                    impact_window: timedelta = timedelta(minutes=5)) -> dict[str, Any]:
+                                    impact_window: timedelta = timedelta(minutes=5)) -> dict[str, Any]:  # noqa: E501
         """
         Calculate market impact metrics for trade events.
 
@@ -928,20 +928,20 @@ class MarketMicrostructureEngine:
                 'impact_window_minutes': impact_window.total_seconds() / 60,
 
                 # Immediate impact statistics
-                'avg_immediate_impact': float(np.mean(np.abs(immediate_impact[immediate_impact != 0]))),
+                'avg_immediate_impact': float(np.mean(np.abs(immediate_impact[immediate_impact != 0]))),  # noqa: E501
                 'max_immediate_impact': float(np.max(np.abs(immediate_impact))),
                 'immediate_impact_volatility': float(np.std(immediate_impact)),
 
                 # Permanent impact statistics
-                'avg_permanent_impact': float(np.mean(np.abs(permanent_impact[permanent_impact != 0]))),
+                'avg_permanent_impact': float(np.mean(np.abs(permanent_impact[permanent_impact != 0]))),  # noqa: E501
                 'max_permanent_impact': float(np.max(np.abs(permanent_impact))),
                 'permanent_impact_volatility': float(np.std(permanent_impact)),
 
                 # Impact efficiency
-                'impact_efficiency': float(np.corrcoef(sizes, np.abs(immediate_impact))[0, 1]) if len(sizes) > 1 else 0.0,
+                'impact_efficiency': float(np.corrcoef(sizes, np.abs(immediate_impact))[0, 1]) if len(sizes) > 1 else 0.0,  # noqa: E501
 
                 # Size-impact relationship
-                'size_impact_correlation': float(np.corrcoef(sizes, np.abs(permanent_impact))[0, 1]) if len(sizes) > 1 else 0.0,
+                'size_impact_correlation': float(np.corrcoef(sizes, np.abs(permanent_impact))[0, 1]) if len(sizes) > 1 else 0.0,  # noqa: E501
             }
 
             # Calculate Kyle's lambda (price impact per unit volume)
@@ -962,7 +962,7 @@ class MarketMicrostructureEngine:
             return impact_metrics
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.calculate_market_impact")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.calculate_market_impact")  # noqa: E501
             return {}
 
     # ==========================================================================
@@ -989,16 +989,16 @@ class MarketMicrostructureEngine:
             report_lines.append("=" * 100)
             report_lines.append(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append(f"Symbol: {symbol}")
-            report_lines.append(f"Analysis Period: {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Analysis Period: {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}")  # noqa: E501
             report_lines.append(f"Duration: {end_time - start_time}")
             report_lines.append("")
 
             # Processing Statistics
             report_lines.append("PROCESSING STATISTICS:")
             report_lines.append(f"  Ticks Processed: {self.processing_stats['ticks_processed']:,}")
-            report_lines.append(f"  Trades Classified: {self.processing_stats['trades_classified']:,}")
-            report_lines.append(f"  Order Books Reconstructed: {self.processing_stats['books_reconstructed']:,}")
-            report_lines.append(f"  Analyses Performed: {self.processing_stats['analysis_performed']:,}")
+            report_lines.append(f"  Trades Classified: {self.processing_stats['trades_classified']:,}")  # noqa: E501
+            report_lines.append(f"  Order Books Reconstructed: {self.processing_stats['books_reconstructed']:,}")  # noqa: E501
+            report_lines.append(f"  Analyses Performed: {self.processing_stats['analysis_performed']:,}")  # noqa: E501
             report_lines.append("")
 
             # Data Availability
@@ -1022,11 +1022,11 @@ class MarketMicrostructureEngine:
                 report_lines.append(f"  Realized Spread: {latest_liquidity.realized_spread:.4f}")
                 report_lines.append(f"  Dollar Depth ($1): {latest_liquidity.dollar_depth_1:,.0f}")
                 report_lines.append(f"  Dollar Depth ($5): {latest_liquidity.dollar_depth_5:,.0f}")
-                report_lines.append(f"  Dollar Depth ($10): {latest_liquidity.dollar_depth_10:,.0f}")
+                report_lines.append(f"  Dollar Depth ($10): {latest_liquidity.dollar_depth_10:,.0f}")  # noqa: E501
                 report_lines.append(f"  Price Impact: {latest_liquidity.price_impact:.6f}")
                 report_lines.append(f"  VPIN Metric: {latest_liquidity.vpin_metric:.4f}")
                 report_lines.append(f"  Kyle's Lambda: {latest_liquidity.kyle_lambda:.6f}")
-                report_lines.append(f"  Amihud Illiquidity: {latest_liquidity.amihud_illiquidity:.6f}")
+                report_lines.append(f"  Amihud Illiquidity: {latest_liquidity.amihud_illiquidity:.6f}")  # noqa: E501
                 report_lines.append("")
 
             # Latest Order Flow Analysis
@@ -1040,41 +1040,41 @@ class MarketMicrostructureEngine:
                 report_lines.append(f"  Flow Imbalance: {latest_flow.flow_imbalance:.3f}")
                 report_lines.append(f"  Block Buy Volume: {latest_flow.block_buy_volume:,}")
                 report_lines.append(f"  Block Sell Volume: {latest_flow.block_sell_volume:,}")
-                report_lines.append(f"  Institutional Flow Ratio: {latest_flow.institutional_flow_ratio:.3f}")
+                report_lines.append(f"  Institutional Flow Ratio: {latest_flow.institutional_flow_ratio:.3f}")  # noqa: E501
                 report_lines.append(f"  Flow Persistence: {latest_flow.flow_persistence:.3f}")
-                report_lines.append(f"  Stealth Trading Indicator: {latest_flow.stealth_trading_indicator:.3f}")
-                report_lines.append(f"  Dominant Flow: {latest_flow.dominant_flow_direction.value.upper()}")
-                report_lines.append(f"  Institutional Activity: {latest_flow.institutional_activity.value.upper()}")
+                report_lines.append(f"  Stealth Trading Indicator: {latest_flow.stealth_trading_indicator:.3f}")  # noqa: E501
+                report_lines.append(f"  Dominant Flow: {latest_flow.dominant_flow_direction.value.upper()}")  # noqa: E501
+                report_lines.append(f"  Institutional Activity: {latest_flow.institutional_activity.value.upper()}")  # noqa: E501
                 report_lines.append(f"  Market Regime: {latest_flow.market_regime.value.upper()}")
                 report_lines.append("")
 
             # Active Alerts
-            symbol_alerts = [alert for alert in self.alerts if alert.symbol == symbol and not alert.acknowledged]
+            symbol_alerts = [alert for alert in self.alerts if alert.symbol == symbol and not alert.acknowledged]  # noqa: E501
             if symbol_alerts:
                 report_lines.append("ACTIVE ALERTS:")
                 for alert in symbol_alerts[-5:]:  # Show latest 5 alerts
-                    severity_icon = "🔴" if alert.severity == "critical" else "🟡" if alert.severity == "high" else "🟢"
-                    report_lines.append(f"  {severity_icon} {alert.alert_type}: {alert.metric_name} = {alert.current_value:.4f}")
-                    report_lines.append(f"      Threshold: {alert.threshold_value:.4f}, Deviation: {alert.deviation_magnitude:.1%}")
+                    severity_icon = "🔴" if alert.severity == "critical" else "🟡" if alert.severity == "high" else "🟢"  # noqa: E501
+                    report_lines.append(f"  {severity_icon} {alert.alert_type}: {alert.metric_name} = {alert.current_value:.4f}")  # noqa: E501
+                    report_lines.append(f"      Threshold: {alert.threshold_value:.4f}, Deviation: {alert.deviation_magnitude:.1%}")  # noqa: E501
                 if len(symbol_alerts) > 5:
                     report_lines.append(f"  ... and {len(symbol_alerts) - 5} more alerts")
                 report_lines.append("")
 
             # Integration Status
             report_lines.append("INTEGRATION STATUS:")
-            report_lines.append(f"  F13 Validation: {'✅ Connected' if getattr(self, 'model_validator', None) else '❌ Not available'}")
-            report_lines.append(f"  F13 Model Validation: {'✅ Connected' if self.model_validator else '❌ Not available'}")
+            report_lines.append(f"  F13 Validation: {'✅ Connected' if getattr(self, 'model_validator', None) else '❌ Not available'}")  # noqa: E501
+            report_lines.append(f"  F13 Model Validation: {'✅ Connected' if self.model_validator else '❌ Not available'}")  # noqa: E501
             report_lines.append("")
 
             # Performance Summary
             if tick_count > 0:
-                processing_rate = self.processing_stats['ticks_processed'] / max(1, tick_count) * 100
+                processing_rate = self.processing_stats['ticks_processed'] / max(1, tick_count) * 100  # noqa: E501
                 report_lines.append("PERFORMANCE SUMMARY:")
                 report_lines.append(f"  Processing Rate: {processing_rate:.1f}%")
-                report_lines.append(f"  Real-time Processing: {'✅ Active' if self._processing_active else '❌ Inactive'}")
+                report_lines.append(f"  Real-time Processing: {'✅ Active' if self._processing_active else '❌ Inactive'}")  # noqa: E501
 
                 if trade_count > 0:
-                    classification_rate = self.processing_stats['trades_classified'] / trade_count * 100
+                    classification_rate = self.processing_stats['trades_classified'] / trade_count * 100  # noqa: E501
                     report_lines.append(f"  Classification Rate: {classification_rate:.1f}%")
 
                 report_lines.append("")
@@ -1086,7 +1086,7 @@ class MarketMicrostructureEngine:
             return "\n".join(report_lines)
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.generate_microstructure_report")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.generate_microstructure_report")  # noqa: E501
             return f"Error generating microstructure report: {e}"
 
     def get_microstructure_summary(self, symbol: str) -> dict[str, Any]:
@@ -1109,13 +1109,13 @@ class MarketMicrostructureEngine:
                 },
                 'processing_status': {
                     'real_time_active': self._processing_active,
-                    'last_processing': self._last_processing_time.get(symbol, datetime.min).isoformat()
+                    'last_processing': self._last_processing_time.get(symbol, datetime.min).isoformat()  # noqa: E501
                 },
                 'current_metrics': {},
                 'alert_summary': {
                     'total_alerts': len([a for a in self.alerts if a.symbol == symbol]),
-                    'active_alerts': len([a for a in self.alerts if a.symbol == symbol and not a.acknowledged]),
-                    'critical_alerts': len([a for a in self.alerts if a.symbol == symbol and a.severity == 'critical'])
+                    'active_alerts': len([a for a in self.alerts if a.symbol == symbol and not a.acknowledged]),  # noqa: E501
+                    'critical_alerts': len([a for a in self.alerts if a.symbol == symbol and a.severity == 'critical'])  # noqa: E501
                 }
             }
 
@@ -1142,7 +1142,7 @@ class MarketMicrostructureEngine:
             return summary
 
         except Exception as e:
-            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.get_microstructure_summary")
+            self.error_handler.handle_error(e, context="MarketMicrostructureEngine.get_microstructure_summary")  # noqa: E501
             return {'error': f'Error getting summary: {e}'}
 
     # ==========================================================================
@@ -1376,7 +1376,7 @@ async def main():
             return False
 
         logging.info("🔗 Integration status:")
-        logging.info("   • F13 Validation: %s", '✅' if getattr(engine, 'model_validator', None) else '❌')
+        logging.info("   • F13 Validation: %s", '✅' if getattr(engine, 'model_validator', None) else '❌')  # noqa: E501
         logging.info("   • F13 Model Validation: %s", '✅' if engine.model_validator else '❌')
 
         # Create sample tick data
@@ -1384,7 +1384,7 @@ async def main():
         symbol = "SPY"
         tick_data = create_sample_tick_data(symbol, 1000)
         logging.info("   Generated: %s ticks for %s", len(tick_data), symbol)
-        logging.info("   Time Range: %s to %s", tick_data[0].timestamp.strftime('%H:%M:%S'), tick_data[-1].timestamp.strftime('%H:%M:%S'))
+        logging.info("   Time Range: %s to %s", tick_data[0].timestamp.strftime('%H:%M:%S'), tick_data[-1].timestamp.strftime('%H:%M:%S'))  # noqa: E501
 
         # Process tick data
         logging.info("\n⚡ Processing tick data...")
@@ -1437,19 +1437,19 @@ async def main():
         logging.info(f"   Net Flow: {order_flow_analysis.net_flow:,}")
         logging.info(f"   Flow Imbalance: {order_flow_analysis.flow_imbalance:.3f}")
         logging.info(f"   Institutional Ratio: {order_flow_analysis.institutional_flow_ratio:.3f}")
-        logging.info("   Dominant Flow: %s", order_flow_analysis.dominant_flow_direction.value.upper())
+        logging.info("   Dominant Flow: %s", order_flow_analysis.dominant_flow_direction.value.upper())  # noqa: E501
         logging.info("   Market Regime: %s", order_flow_analysis.market_regime.value.upper())
 
         # Test real-time processing
         logging.info("\n📡 Testing real-time processing...")
         rt_started = engine.start_real_time_processing()
-        logging.info("   Real-time Processing: %s", '✅ Started' if rt_started else '❌ Failed to start')
+        logging.info("   Real-time Processing: %s", '✅ Started' if rt_started else '❌ Failed to start')  # noqa: E501
 
         # Wait a moment for processing
         await asyncio.sleep(2)
 
         rt_stopped = engine.stop_real_time_processing()
-        logging.info("   Real-time Processing: %s", '✅ Stopped' if rt_stopped else '❌ Failed to stop')
+        logging.info("   Real-time Processing: %s", '✅ Stopped' if rt_stopped else '❌ Failed to stop')  # noqa: E501
 
         # Test market impact analysis
         logging.info("\n💥 Testing market impact analysis...")
@@ -1473,7 +1473,7 @@ async def main():
             logging.info(f"   Avg Immediate Impact: {impact_metrics['avg_immediate_impact']:.6f}")
             logging.info(f"   Avg Permanent Impact: {impact_metrics['avg_permanent_impact']:.6f}")
             logging.info(f"   Kyle's Lambda: {impact_metrics['kyle_lambda']:.6f}")
-            logging.info(f"   Size-Impact Correlation: {impact_metrics['size_impact_correlation']:.3f}")
+            logging.info(f"   Size-Impact Correlation: {impact_metrics['size_impact_correlation']:.3f}")  # noqa: E501
 
         # Generate comprehensive report
         logging.info("\n📋 Generating microstructure report...")
@@ -1491,8 +1491,8 @@ async def main():
         logging.info("\n📈 MICROSTRUCTURE SUMMARY:")
         logging.info(f"   Available Ticks: {summary['data_availability']['tick_count']:,}")
         logging.info(f"   Available Trades: {summary['data_availability']['trade_count']:,}")
-        logging.info(f"   Order Book Snapshots: {summary['data_availability']['order_book_snapshots']:,}")
-        logging.info("   Real-time Active: %s", '✅' if summary['processing_status']['real_time_active'] else '❌')
+        logging.info(f"   Order Book Snapshots: {summary['data_availability']['order_book_snapshots']:,}")  # noqa: E501
+        logging.info("   Real-time Active: %s", '✅' if summary['processing_status']['real_time_active'] else '❌')  # noqa: E501
         logging.info("   Active Alerts: %s", summary['alert_summary']['active_alerts'])
 
         # Display engine statistics

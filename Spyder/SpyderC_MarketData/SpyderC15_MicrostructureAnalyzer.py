@@ -883,7 +883,7 @@ class MicrostructureAnalyzer:
                         initial_price = trade["price"]
                         final_price = future_trades[-1]["price"]
 
-                        if trade["side"] == "BUY" and final_price < initial_price or trade["side"] == "SELL" and final_price > initial_price:
+                        if trade["side"] == "BUY" and final_price < initial_price or trade["side"] == "SELL" and final_price > initial_price:  # noqa: E501
                             toxic_trades += 1
 
             if total_large_trades > 0:
@@ -1166,7 +1166,7 @@ class MicrostructureAnalyzer:
 
             self.logger.info(
                 f"Microstructure event detected: {microstructure_event.event_type.value} "
-                f"for {microstructure_event.symbol} (confidence: {microstructure_event.confidence:.2f})"
+                f"for {microstructure_event.symbol} (confidence: {microstructure_event.confidence:.2f})"  # noqa: E501
             )
 
         except Exception as e:

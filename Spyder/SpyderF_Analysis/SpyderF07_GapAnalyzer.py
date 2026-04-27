@@ -215,7 +215,7 @@ class GapAnalyzer:
         self.min_news_importance = config.get('min_news_importance', 'medium')
 
         # Feature flags
-        self.enable_news_correlation = self.config_manager.is_feature_enabled('gap_news_correlation')
+        self.enable_news_correlation = self.config_manager.is_feature_enabled('gap_news_correlation')  # noqa: E501
         self.enable_volume_analysis = config.get('enable_volume_analysis', True)
         self.track_gap_fills = config.get('track_gap_fills', True)
 
@@ -589,7 +589,7 @@ class GapAnalyzer:
 
         stats.avg_gap_size = np.mean([g.size_percent for g in gaps])
         stats.fill_rate = stats.filled_gaps / stats.total_gaps if stats.total_gaps > 0 else 0
-        stats.news_correlation_rate = stats.news_driven_gaps / stats.total_gaps if stats.total_gaps > 0 else 0
+        stats.news_correlation_rate = stats.news_driven_gaps / stats.total_gaps if stats.total_gaps > 0 else 0  # noqa: E501
 
         # Average fill time
         fill_times = []
@@ -644,7 +644,7 @@ class GapAnalyzer:
 
         return zones
 
-    def _merge_overlapping_zones(self, zones: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    def _merge_overlapping_zones(self, zones: list[tuple[float, float]]) -> list[tuple[float, float]]:  # noqa: E501
         """Merge overlapping gap zones."""
         if not zones:
             return []

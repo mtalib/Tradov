@@ -42,17 +42,22 @@ warnings.filterwarnings("ignore")
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 # NLP Libraries
-from transformers import (
+from transformers import (  # noqa: E402
     AutoTokenizer,
     AutoModelForSequenceClassification,
     pipeline,
 )
-import torch
-import spacy
-from textblob import TextBlob
-import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
+import torch  # noqa: E402
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    spacy = None  # type: ignore
+    SPACY_AVAILABLE = False
+from textblob import TextBlob  # noqa: E402
+import nltk  # noqa: E402
+from nltk.tokenize import sent_tokenize, word_tokenize  # noqa: E402
+from nltk.corpus import stopwords  # noqa: E402
 
 # Audio Processing
 try:
@@ -63,26 +68,48 @@ except ImportError:
     WHISPER_AVAILABLE = False
 
 # Web Scraping
-import praw  # Reddit API
-import tweepy  # Twitter API
+# Web Scraping (optional — requires credentials)
+try:
+    import praw  # Reddit API
+    PRAW_AVAILABLE = True
+except ImportError:
+    praw = None  # type: ignore
+    PRAW_AVAILABLE = False
+try:
+    import tweepy  # Twitter API
+    TWEEPY_AVAILABLE = True
+except ImportError:
+    tweepy = None  # type: ignore
+    TWEEPY_AVAILABLE = False
 
-# Language Detection and Translation
-from langdetect import detect
-from googletrans import Translator
+# Language Detection and Translation (optional)
+try:
+    from langdetect import detect
+    LANGDETECT_AVAILABLE = True
+except ImportError:
+    detect = None  # type: ignore
+    LANGDETECT_AVAILABLE = False
+try:
+    from googletrans import Translator
+    GOOGLETRANS_AVAILABLE = True
+except ImportError:
+    Translator = None  # type: ignore
+    GOOGLETRANS_AVAILABLE = False
 
 # Topic Modeling
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: E402
+from sklearn.decomposition import LatentDirichletAllocation  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
-    MAX_SENTIMENT_HISTORY,
-)
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+try:
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import MAX_SENTIMENT_HISTORY
+except ImportError:
+    MAX_SENTIMENT_HISTORY = 1000
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -290,7 +317,10 @@ class EnhancedSentimentAnalysisAgent:
             )
 
             # SpaCy for linguistic analysis
-            self.nlp = spacy.load("en_core_web_lg")
+            if SPACY_AVAILABLE:
+                self.nlp = spacy.load("en_core_web_lg")
+            else:
+                self.nlp = None
 
             # Whisper for audio transcription
             if WHISPER_AVAILABLE:
@@ -307,7 +337,7 @@ class EnhancedSentimentAnalysisAgent:
         """Initialize API clients for data sources"""
         try:
             # Reddit API
-            if all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):
+            if PRAW_AVAILABLE and all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):  # noqa: E501
                 self.reddit_client = praw.Reddit(
                     client_id=self.config["reddit_client_id"],
                     client_secret=self.config["reddit_secret"],
@@ -316,7 +346,7 @@ class EnhancedSentimentAnalysisAgent:
                 self.logger.info("Reddit API initialized")
 
             # Twitter API
-            if "twitter_bearer_token" in self.config:
+            if TWEEPY_AVAILABLE and "twitter_bearer_token" in self.config:
                 self.twitter_client = tweepy.Client(
                     bearer_token=self.config["twitter_bearer_token"]
                 )
@@ -1422,7 +1452,7 @@ async def main():
         for topic, data in analysis.get("topics", {}).items():
             if data["mentioned"]:
                 logging.info(
-                    f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"
+                    f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"  # noqa: E501
                 )
         logging.info("\nRate Implications: %s", analysis.get('rate_implications', {}))
 

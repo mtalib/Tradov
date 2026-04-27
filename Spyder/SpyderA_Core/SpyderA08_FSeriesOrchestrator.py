@@ -226,7 +226,7 @@ class FSeriesOrchestrator:
 
         # Initialize priority queues
         for priority in ModulePriority:
-            self.task_queues[priority] = queue.PriorityQueue(maxsize=self.config.priority_queue_size)
+            self.task_queues[priority] = queue.PriorityQueue(maxsize=self.config.priority_queue_size)  # noqa: E501
 
         # Initialize module metrics
         f_series_modules = ["F12", "F13", "F14", "F15", "F16"]
@@ -254,7 +254,7 @@ class FSeriesOrchestrator:
             logger.addHandler(console_handler)
 
             # File handler
-            log_file = Path("logs") / f"f_series_orchestrator_{datetime.now().strftime('%Y%m%d')}.log"
+            log_file = Path("logs") / f"f_series_orchestrator_{datetime.now().strftime('%Y%m%d')}.log"  # noqa: E501
             log_file.parent.mkdir(exist_ok=True)
 
             file_handler = logging.FileHandler(log_file)
@@ -286,7 +286,7 @@ class FSeriesOrchestrator:
                 raise ValueError(f"Invalid F-series module name: {module_name}")
 
             self.f_series_modules[module_name] = module_instance
-            self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)
+            self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)  # noqa: E501
 
             self.logger.info("F-series module registered: %s", module_name)
             return True
@@ -302,7 +302,7 @@ class FSeriesOrchestrator:
                 raise ValueError(f"Invalid C-series module name: {module_name}")
 
             self.c_series_modules[module_name] = module_instance
-            self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)
+            self.module_interfaces[module_name] = self._create_module_interface(module_name, module_instance)  # noqa: E501
 
             self.logger.info("C-series module registered: %s", module_name)
             return True
@@ -311,7 +311,7 @@ class FSeriesOrchestrator:
             self.logger.error("Failed to register C-series module %s: %s", module_name, e)
             return False
 
-    def _create_module_interface(self, module_name: str, module_instance: Any) -> dict[str, Callable]:
+    def _create_module_interface(self, module_name: str, module_instance: Any) -> dict[str, Callable]:  # noqa: E501
         """Create standardized interface for module interaction"""
         interface = {}
 
@@ -447,7 +447,7 @@ class FSeriesOrchestrator:
             interface = self.module_interfaces[task.module_name]
 
             if task.function_name not in interface:
-                raise ValueError(f"Function {task.function_name} not available in {task.module_name}")
+                raise ValueError(f"Function {task.function_name} not available in {task.module_name}")  # noqa: E501
 
             # Execute task function
             start_time = time.perf_counter()
@@ -503,7 +503,7 @@ class FSeriesOrchestrator:
                 queue_item = (task.priority.value, time.time(), task)
                 self.task_queues[task.priority].put(queue_item)
 
-                self.logger.warning("Task %s failed, retrying (%s/%s)", task.task_id, task.retry_count, task.max_retries)
+                self.logger.warning("Task %s failed, retrying (%s/%s)", task.task_id, task.retry_count, task.max_retries)  # noqa: E501
             else:
                 self.completed_tasks[task.task_id] = task
                 if task.task_id in self.running_tasks:
@@ -563,8 +563,8 @@ class FSeriesOrchestrator:
             return False
 
         # Check if too many tasks are already using resources
-        total_allocated_memory = sum(alloc.memory_mb for alloc in self.resource_allocations.values())
-        return not total_allocated_memory + required_memory > self.system_resources.available_memory_mb * 0.8
+        total_allocated_memory = sum(alloc.memory_mb for alloc in self.resource_allocations.values())  # noqa: E501
+        return not total_allocated_memory + required_memory > self.system_resources.available_memory_mb * 0.8  # noqa: E501
 
     def _update_module_metrics(self, task: ModuleTask) -> None:
         """Update performance metrics for module"""
@@ -771,7 +771,7 @@ class FSeriesOrchestrator:
 
                 # Log health warnings
                 if metrics.health_score < 70:
-                    self.logger.warning(f"Module {module_name} health degraded: {metrics.health_score:.1f}")
+                    self.logger.warning(f"Module {module_name} health degraded: {metrics.health_score:.1f}")  # noqa: E501
 
             except Exception as e:
                 self.logger.error("Health check failed for %s: %s", module_name, e)
@@ -808,13 +808,13 @@ class FSeriesOrchestrator:
                 self.logger.warning("Memory bottleneck detected - high memory usage")
 
             # Check for I/O bottlenecks
-            if (self.system_resources.disk_io_read_mbps + self.system_resources.disk_io_write_mbps) > 100:
+            if (self.system_resources.disk_io_read_mbps + self.system_resources.disk_io_write_mbps) > 100:  # noqa: E501
                 self.logger.warning("I/O bottleneck detected - high disk activity")
 
             # Check task queue lengths
             for priority, task_queue in self.task_queues.items():
                 if task_queue.qsize() > 50:
-                    self.logger.warning("Task queue bottleneck: %s queue has %s tasks", priority.name, task_queue.qsize())
+                    self.logger.warning("Task queue bottleneck: %s queue has %s tasks", priority.name, task_queue.qsize())  # noqa: E501
 
         except Exception as e:
             self.logger.error("Bottleneck detection failed: %s", e)
@@ -987,7 +987,7 @@ class FSeriesOrchestrator:
             # Calculate aggregate metrics
             total_completed = sum(m.tasks_completed for m in self.module_metrics.values())
             total_failed = sum(m.tasks_failed for m in self.module_metrics.values())
-            total_execution_time = sum(m.total_execution_time_s for m in self.module_metrics.values())
+            total_execution_time = sum(m.total_execution_time_s for m in self.module_metrics.values())  # noqa: E501
 
             overall_success_rate = (
                 total_completed / (total_completed + total_failed) * 100
@@ -1211,9 +1211,9 @@ async def main():
         logging.info("\n📈 Generating Performance Report...")
         report = orchestrator.generate_performance_report()
 
-        logging.info(f"Overall Success Rate: {report['aggregate_metrics']['overall_success_rate']:.1f}%")
+        logging.info(f"Overall Success Rate: {report['aggregate_metrics']['overall_success_rate']:.1f}%")  # noqa: E501
         logging.info("Tasks Completed: %s", report['aggregate_metrics']['total_tasks_completed'])
-        logging.info(f"Average CPU Usage: {report['system_performance']['average_cpu_usage_percent']:.1f}%")
+        logging.info(f"Average CPU Usage: {report['system_performance']['average_cpu_usage_percent']:.1f}%")  # noqa: E501
 
         # Export performance data
         export_file = orchestrator.export_performance_data()

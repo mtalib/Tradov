@@ -216,7 +216,7 @@ class QualityMetrics:
     @property
     def overall_quality(self) -> DataQuality:
         """Get overall quality assessment."""
-        if self.error_rate > ERROR_RATE_THRESHOLD or self.consecutive_errors >= CONSECUTIVE_ERRORS_THRESHOLD:
+        if self.error_rate > ERROR_RATE_THRESHOLD or self.consecutive_errors >= CONSECUTIVE_ERRORS_THRESHOLD:  # noqa: E501
             return DataQuality.POOR
         else:
             return self.current_quality
@@ -239,7 +239,7 @@ class PriceValidationRule(ValidationRule):
             weight=QUALITY_WEIGHTS['price_validity']
         )
 
-    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:
+    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:  # noqa: E501
         """Validate price data."""
         if data.price is None or data.price <= 0:
             return False, 0.0, "Invalid price value"
@@ -272,7 +272,7 @@ class VolumeValidationRule(ValidationRule):
             weight=QUALITY_WEIGHTS['volume_validity']
         )
 
-    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:
+    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:  # noqa: E501
         """Validate volume data."""
         if data.volume is None:
             return True, 0.8, "No volume data"  # Not always required
@@ -285,8 +285,8 @@ class VolumeValidationRule(ValidationRule):
             recent_volumes = [d.volume for d in historical_data[-10:] if d.volume is not None]
             if recent_volumes:
                 avg_volume = np.mean(recent_volumes)
-                if avg_volume > 0 and data.volume > avg_volume * self.parameters['max_volume_spike']:
-                    return False, 0.6, f"Volume spike detected: {data.volume / avg_volume:.1f}x average"
+                if avg_volume > 0 and data.volume > avg_volume * self.parameters['max_volume_spike']:  # noqa: E501
+                    return False, 0.6, f"Volume spike detected: {data.volume / avg_volume:.1f}x average"  # noqa: E501
 
         return True, 1.0, "Volume validation passed"
 
@@ -303,7 +303,7 @@ class SpreadValidationRule(ValidationRule):
             weight=QUALITY_WEIGHTS['spread_quality']
         )
 
-    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:
+    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:  # noqa: E501
         """Validate bid-ask spread."""
         if data.bid is None or data.ask is None:
             return True, 0.7, "No bid/ask data"
@@ -334,7 +334,7 @@ class TimestampValidationRule(ValidationRule):
             weight=QUALITY_WEIGHTS['timestamp_quality']
         )
 
-    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:
+    def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:  # noqa: E501
         """Validate timestamp."""
         current_time = datetime.now()
 
@@ -344,7 +344,7 @@ class TimestampValidationRule(ValidationRule):
             return False, 0.3, f"Stale data: {age_seconds:.0f}s old"
 
         # Check if timestamp is in the future
-        if data.timestamp > current_time + timedelta(seconds=self.parameters['future_tolerance_seconds']):
+        if data.timestamp > current_time + timedelta(seconds=self.parameters['future_tolerance_seconds']):  # noqa: E501
             return False, 0.0, "Future timestamp"
 
         # Check for reasonable timestamp progression
@@ -603,7 +603,7 @@ class DataValidator:
 
             # Determine validation status
             if errors:
-                status = ValidationStatus.ERROR if quality_score < 0.4 else ValidationStatus.REJECTED
+                status = ValidationStatus.ERROR if quality_score < 0.4 else ValidationStatus.REJECTED  # noqa: E501
             elif warnings or anomalies:
                 status = ValidationStatus.WARNING
             else:
@@ -659,7 +659,7 @@ class DataValidator:
                 timestamp=datetime.now()
             )
 
-    def _detect_statistical_anomalies(self, data: DataPoint, historical: list[DataPoint]) -> list[AnomalyType]:
+    def _detect_statistical_anomalies(self, data: DataPoint, historical: list[DataPoint]) -> list[AnomalyType]:  # noqa: E501
         """Detect statistical anomalies in data."""
         anomalies = []
 
@@ -804,7 +804,7 @@ class DataValidator:
 
                 # Check consecutive errors
                 if metrics.consecutive_errors >= CONSECUTIVE_ERRORS_THRESHOLD:
-                    self._emit_quality_alert(symbol, f"Consecutive errors: {metrics.consecutive_errors}")
+                    self._emit_quality_alert(symbol, f"Consecutive errors: {metrics.consecutive_errors}")  # noqa: E501
 
                 # Check quality degradation
                 if metrics.overall_quality == DataQuality.POOR:
@@ -849,7 +849,7 @@ class DataValidator:
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    def _dict_to_datapoint(self, data_dict: dict, data_type: DataType = DataType.EQUITY_TICK) -> DataPoint:
+    def _dict_to_datapoint(self, data_dict: dict, data_type: DataType = DataType.EQUITY_TICK) -> DataPoint:  # noqa: E501
         """Convert dictionary to DataPoint."""
         return DataPoint(
             symbol=data_dict.get('symbol', 'UNKNOWN'),
@@ -915,7 +915,7 @@ class DataValidator:
 
             # Update rates and averages
             if metrics.total_points > 0:
-                metrics.error_rate = (metrics.error_points + metrics.rejected_points) / metrics.total_points
+                metrics.error_rate = (metrics.error_points + metrics.rejected_points) / metrics.total_points  # noqa: E501
 
                 # Calculate weighted average quality score (recent data weighted more)
                 recent_weight = 0.7
@@ -1082,7 +1082,7 @@ class DataValidator:
             'total_validated': total_validated,
             'valid_data_points': self.stats['valid_data_points'],
             'invalid_data_points': self.stats['invalid_data_points'],
-            'success_rate': self.stats['valid_data_points'] / total_validated if total_validated > 0 else 0,
+            'success_rate': self.stats['valid_data_points'] / total_validated if total_validated > 0 else 0,  # noqa: E501
             'anomalies_detected': self.stats['anomalies_detected'],
             'symbols_monitored': len(self.quality_metrics),
             'active_rules': len([r for r in self.validation_rules if r.enabled])

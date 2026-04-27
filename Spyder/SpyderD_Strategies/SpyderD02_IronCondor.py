@@ -45,24 +45,24 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
-from typing import Any
-from dataclasses import dataclass
-from enum import Enum, auto
+from datetime import datetime  # noqa: E402
+from typing import Any  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+from enum import Enum, auto  # noqa: E402
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa: E402
 
 # Integration with consolidated multi-leg coordinator
 try:
@@ -240,12 +240,60 @@ class IronCondorStrategy(BaseStrategy):
 
         self.logger.info("🎯 IronCondorStrategy initialized with D26 integration")
 
+    def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
+        """Legacy adapter for BaseStrategy contract.
+
+        Iron Condor evaluation currently runs through dedicated async analysis and
+        coordinator pathways; this sync hook returns no direct entry signals.
+        """
+        return []
+
+    def validate_signal(self, signal: Any) -> bool:
+        """Basic safety gate for external signals."""
+        if signal is None:
+            return False
+        if hasattr(signal, "is_valid") and not signal.is_valid():
+            return False
+        return float(getattr(signal, "confidence", 0.0) or 0.0) > 0.0
+
+    def calculate_position_size(self, signal: Any) -> int:
+        """Use provided size when available, otherwise default to one contract."""
+        size = int(getattr(signal, "position_size", 0) or 0)
+        return size if size > 0 else 1
+
+    def should_exit_position(self, position: Any,
+                             market_data: pd.DataFrame) -> tuple[bool, str]:
+        """Generic stop/take-profit exit adapter for BaseStrategy contract."""
+        if market_data.empty or "close" not in market_data.columns:
+            return False, ""
+
+        current_price = float(market_data["close"].iloc[-1])
+        stop_loss = getattr(position, "stop_loss", None)
+        take_profit = getattr(position, "take_profit", None)
+        position_type = str(getattr(getattr(position, "position_type", ""), "value", "")).lower()
+
+        if stop_loss is not None:
+            if position_type == "short":
+                if current_price >= stop_loss:
+                    return True, "stop_loss"
+            elif current_price <= stop_loss:
+                return True, "stop_loss"
+
+        if take_profit is not None:
+            if position_type == "short":
+                if current_price <= take_profit:
+                    return True, "take_profit"
+            elif current_price >= take_profit:
+                return True, "take_profit"
+
+        return False, ""
+
     # ==========================================================================
     # IRON CONDOR SPECIFIC MARKET ANALYSIS
     # ==========================================================================
 
     async def analyze_iron_condor_opportunity(self, market_data: pd.DataFrame,
-                                            option_chain: pd.DataFrame = None) -> IronCondorAnalysis:
+                                            option_chain: pd.DataFrame = None) -> IronCondorAnalysis:  # noqa: E501
         """
         Analyze market conditions for Iron Condor entry.
 
@@ -258,7 +306,7 @@ class IronCondorStrategy(BaseStrategy):
             iv_analysis = self._analyze_iv_for_iron_condor(market_data)
 
             # Volatility skew analysis
-            volatility_skew = self._calculate_volatility_skew(option_chain) if option_chain is not None else 0.0
+            volatility_skew = self._calculate_volatility_skew(option_chain) if option_chain is not None else 0.0  # noqa: E501
 
             # Expected move analysis
             expected_move_analysis = self._analyze_expected_move_for_ic(market_data, current_price)
@@ -693,7 +741,7 @@ class IronCondorStrategy(BaseStrategy):
             self.logger.error("Exit criteria analysis failed: %s", e)
             return True, "Exit due to analysis error"
 
-    def suggest_iron_condor_adjustment(self, position_data: dict) -> IronCondorAdjustmentType | None:
+    def suggest_iron_condor_adjustment(self, position_data: dict) -> IronCondorAdjustmentType | None:  # noqa: E501
         """Suggest Iron Condor specific adjustments"""
         try:
             underlying_price = position_data.get('underlying_price', 0)
@@ -815,8 +863,8 @@ class IronCondorStrategy(BaseStrategy):
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
                 'timestamp': datetime.now().isoformat(),
-                'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,
-                'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0
+                'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
+                'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501
             }
         }
 

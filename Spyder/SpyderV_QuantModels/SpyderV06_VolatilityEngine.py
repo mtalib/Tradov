@@ -24,7 +24,7 @@ Consolidation Notes:
     - Eliminates volatility calculation duplications
     - Provides unified interface for all volatility needs
     - Optimized for real-time SPY options volatility analysis
-"""
+"""  # noqa: E501
 
 # ==============================================================================
 # STANDARD IMPORTS
@@ -553,7 +553,7 @@ class SpyderVolatilityEngine:
         """
         try:
             # Check cache
-            cache_key = f"surface_{spot_price}_{hash(tuple(strikes))}_{hash(tuple(maturities))}_{model.value}"
+            cache_key = f"surface_{spot_price}_{hash(tuple(strikes))}_{hash(tuple(maturities))}_{model.value}"  # noqa: E501
             cached_surface = self._get_cached_surface(cache_key)
             if cached_surface:
                 return cached_surface
@@ -678,7 +678,7 @@ class SpyderVolatilityEngine:
                 if params.validate():
                     return params
             except Exception as e:
-                self.logger.warning("arch GARCH(1,1) calibration failed, falling back to scipy: %s", e, exc_info=True)
+                self.logger.warning("arch GARCH(1,1) calibration failed, falling back to scipy: %s", e, exc_info=True)  # noqa: E501
 
         # --- scipy fallback ---
         try:
@@ -712,7 +712,7 @@ class SpyderVolatilityEngine:
             return None
         try:
             returns_pct = np.array(self.return_history[-252:]) * 100.0
-            model = arch_model(returns_pct, vol="EGARCH", p=1, o=1, q=1, dist="Normal", rescale=False)
+            model = arch_model(returns_pct, vol="EGARCH", p=1, o=1, q=1, dist="Normal", rescale=False)  # noqa: E501
             fit = model.fit(disp="off", show_warning=False)
             return {
                 "omega": float(fit.params.get("omega", 0.0)),
@@ -1585,7 +1585,7 @@ async def main():
                 logging.info(f"     {regime.value}: {prob:.1%}")
 
         logging.info(
-            f"   Forecast Range: {forecast.forecast_path.min():.1%} - {forecast.forecast_path.max():.1%}"
+            f"   Forecast Range: {forecast.forecast_path.min():.1%} - {forecast.forecast_path.max():.1%}"  # noqa: E501
         )
 
     except Exception as e:
