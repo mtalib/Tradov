@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1465,7 +1465,7 @@ class EntryOptimizer:
         Returns:
             List of recent EntryOpportunity objects, ordered oldest-first (deque order).
         """
-        cutoff = datetime.now() - timedelta(days=max_age_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
         return [entry for entry in self.entry_history if entry.timestamp >= cutoff]
 
     def _cache_prediction(self, opportunity: EntryOpportunity) -> None:
@@ -1477,7 +1477,7 @@ class EntryOptimizer:
        self.prediction_cache[cache_key] = opportunity
 
        # Clean old cache entries
-       cutoff_time = datetime.now() - timedelta(hours=24)
+       cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
        old_keys = [
            key for key, opp in self.prediction_cache.items()
            if opp.timestamp < cutoff_time
@@ -1771,7 +1771,7 @@ class EntryOptimizer:
                'slippage_bps': slippage_bps,
                'symbol': symbol,
                'features': dict(entry_features),
-               'timestamp': datetime.now().isoformat(),
+               'timestamp': datetime.now(timezone.utc).isoformat(),
            })
 
     def _get_slippage_confidence_penalty(self, strategy_type: str) -> float:
@@ -1873,7 +1873,7 @@ if __name__ == "__main__":
    from SpyderL_ML.SpyderL10_FeatureEngineering import FeatureSet
 
    test_features = FeatureSet(
-       timestamp=datetime.now(),
+       timestamp=datetime.now(timezone.utc),
        symbol='SPY',
        features={name: np.random.randn() * 0.1 + 0.5 for name in feature_names}
    )

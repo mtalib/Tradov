@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -90,7 +90,8 @@ class PriceLevel:
     @property
     def age(self) -> timedelta:
         """Age of the level."""
-        return datetime.now() - self.first_touch
+        now = datetime.now() if self.first_touch.tzinfo is None else datetime.now(timezone.utc)
+        return now - self.first_touch
 
     @property
     def strength_score(self) -> float:
@@ -221,7 +222,7 @@ class SupportResistanceAnalyzer:
         Returns:
             Complete analysis results
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Get dynamic cluster threshold
@@ -289,12 +290,12 @@ class SupportResistanceAnalyzer:
             )
 
             # Record performance
-            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             self.monitor.record_metric('sr_analysis.execution_ms', elapsed_ms)
             self.monitor.record_metric('sr_analysis.levels_found', len(support_levels) + len(resistance_levels))  # noqa: E501
 
             # Update history
-            self.last_analysis_time = datetime.now()
+            self.last_analysis_time = datetime.now(timezone.utc)
             self.analysis_count += 1
 
             return analysis
@@ -364,7 +365,7 @@ class SupportResistanceAnalyzer:
         for level in levels:
             if abs(price - level.price) <= price * tolerance:
                 level.touches += 1
-                level.last_touch = datetime.now()
+                level.last_touch = datetime.now(timezone.utc)
 
                 # Update strength based on touches
                 if level.touches >= 10:
@@ -389,7 +390,7 @@ class SupportResistanceAnalyzer:
 
         touches = [level.touches for level in all_levels]
         strengths = [level.strength_score for level in all_levels]
-        ages = [(datetime.now() - level.first_touch).days for level in all_levels]
+        ages = [(datetime.now(timezone.utc) - level.first_touch).days for level in all_levels]
 
         most_touched = max(all_levels, key=lambda x: x.touches)
 
@@ -479,8 +480,8 @@ class SupportResistanceAnalyzer:
                 level_type=LevelType.VOLUME_NODE,
                 strength=LevelStrength.MODERATE,
                 touches=1,
-                first_touch=datetime.now(),
-                last_touch=datetime.now(),
+                first_touch=datetime.now(timezone.utc),
+                last_touch=datetime.now(timezone.utc),
                 volume_at_level=volume_profile[idx]
             )
             levels.append(level)
@@ -551,8 +552,8 @@ class SupportResistanceAnalyzer:
                     level_type=LevelType.PSYCHOLOGICAL,
                     strength=LevelStrength.WEAK,
                     touches=0,
-                    first_touch=datetime.now(),
-                    last_touch=datetime.now()
+                    first_touch=datetime.now(timezone.utc),
+                    last_touch=datetime.now(timezone.utc)
                 )
                 levels.append(level)
 
@@ -681,8 +682,8 @@ class SupportResistanceAnalyzer:
                 level_type=level_type,
                 strength=LevelStrength.MODERATE,
                 touches=0,
-                first_touch=datetime.now(),
-                last_touch=datetime.now()
+                first_touch=datetime.now(timezone.utc),
+                last_touch=datetime.now(timezone.utc)
             )
             levels.append(level)
 

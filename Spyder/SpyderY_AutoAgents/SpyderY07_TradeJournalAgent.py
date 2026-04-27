@@ -36,7 +36,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -195,7 +195,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             self._daily_summary_generated = True
 
             # Weekly review on Fridays
-            if datetime.now().weekday() == self._weekly_review_day:
+            if datetime.now(timezone.utc).weekday() == self._weekly_review_day:
                 self._generate_weekly_review()
 
     # ==========================================================================
@@ -242,7 +242,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         """Create a journal entry from a fill event."""
         payload = fill.get("payload", {})
         return TradeEntry(
-            trade_id=payload.get("plan_id", f"T_{datetime.now().strftime('%H%M%S')}"),
+            trade_id=payload.get("plan_id", f"T_{datetime.now(timezone.utc).strftime('%H%M%S')}"),
             direction=payload.get("direction", "unknown"),
             entry_price=payload.get("entry_price", 0.0),
             exit_price=payload.get("filled_price", 0.0),
@@ -251,8 +251,8 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             slippage_bps=payload.get("slippage_bps", 0.0),
             regime_at_entry=self._current_regime,
             sentiment_at_entry=self._current_sentiment,
-            entry_time=payload.get("entry_time", datetime.now().isoformat()),
-            exit_time=payload.get("exit_time", datetime.now().isoformat()),
+            entry_time=payload.get("entry_time", datetime.now(timezone.utc).isoformat()),
+            exit_time=payload.get("exit_time", datetime.now(timezone.utc).isoformat()),
             strategy=payload.get("strategy", "unknown"),
             signal_source=payload.get("signal_source", "unknown"),
         )
@@ -295,7 +295,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
     # ==========================================================================
     def _generate_daily_summary(self) -> None:
         """Generate end-of-day performance summary."""
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         today_trades = [
             t for t in self._trade_entries
             if t.entry_time.startswith(today)
@@ -487,7 +487,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
                 output_type="insight",
                 topic="meta.lessons",
                 payload={
-                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "lessons": lessons,
                 },
                 confidence=0.7,

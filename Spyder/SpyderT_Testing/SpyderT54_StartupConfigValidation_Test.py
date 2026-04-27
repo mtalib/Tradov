@@ -631,6 +631,115 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
     """Focused tests for G05 startup readiness helper behavior."""
 
     def _load_g05(self):
+        import types
+
+        class _BaseQtObject:
+            """Lightweight class placeholder for Qt symbols."""
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class _SignalStub:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def connect(self, *args, **kwargs):
+                return None
+
+            def emit(self, *args, **kwargs):
+                return None
+
+        class _AnyAttrModule(types.ModuleType):
+            """Module stub that resolves unknown attributes to a dummy class."""
+
+            def __getattr__(self, name):
+                val = _BaseQtObject
+                setattr(self, name, val)
+                return val
+
+        class _QtNamespace:
+            def __getattr__(self, name):
+                return 0
+
+        class _QApplicationStub(_BaseQtObject):
+            @classmethod
+            def instance(cls):
+                return None
+
+        qtw = _AnyAttrModule("PySide6.QtWidgets")
+        qtc = _AnyAttrModule("PySide6.QtCore")
+        qtg = _AnyAttrModule("PySide6.QtGui")
+
+        for name in [
+            "QDialog",
+            "QDialogButtonBox",
+            "QFrame",
+            "QGridLayout",
+            "QGroupBox",
+            "QHBoxLayout",
+            "QHeaderView",
+            "QLabel",
+            "QLineEdit",
+            "QMainWindow",
+            "QMenu",
+            "QMessageBox",
+            "QPushButton",
+            "QScrollArea",
+            "QSizePolicy",
+            "QSplitter",
+            "QTableWidget",
+            "QTableWidgetItem",
+            "QTextEdit",
+            "QTreeWidget",
+            "QTreeWidgetItem",
+            "QVBoxLayout",
+            "QWidget",
+        ]:
+            setattr(qtw, name, _BaseQtObject)
+        qtw.QApplication = _QApplicationStub
+
+        for name in [
+            "QModelIndex",
+            "QMutex",
+            "QMutexLocker",
+            "QObject",
+            "QRect",
+            "QThread",
+            "QTimer",
+        ]:
+            setattr(qtc, name, _BaseQtObject)
+        qtc.Signal = lambda *args, **kwargs: _SignalStub()
+        qtc.Slot = lambda *args, **kwargs: (lambda func: func)
+        qtc.Qt = _QtNamespace()
+
+        for name in ["QBrush", "QColor", "QFont", "QPainter", "QPen", "QTextCursor"]:
+            setattr(qtg, name, _BaseQtObject)
+
+        pyside6 = _AnyAttrModule("PySide6")
+        pyside6.QtWidgets = qtw
+        pyside6.QtCore = qtc
+        pyside6.QtGui = qtg
+
+        module_keys = [
+            "PySide6",
+            "PySide6.QtWidgets",
+            "PySide6.QtCore",
+            "PySide6.QtGui",
+            "PySide6.QtCharts",
+            "PySide6.QtNetwork",
+        ]
+        saved_modules = {k: sys.modules[k] for k in module_keys if k in sys.modules}
+        sys.modules.update(
+            {
+                "PySide6": pyside6,
+                "PySide6.QtWidgets": qtw,
+                "PySide6.QtCore": qtc,
+                "PySide6.QtGui": qtg,
+                "PySide6.QtCharts": types.ModuleType("PySide6.QtCharts"),
+                "PySide6.QtNetwork": types.ModuleType("PySide6.QtNetwork"),
+            }
+        )
+
         path = (
             _REPO_ROOT
             / "Spyder"
@@ -639,7 +748,14 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
         )
         spec = importlib.util.spec_from_file_location("_g05_t54_readiness", path)
         mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        try:
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        finally:
+            for key in module_keys:
+                if key in saved_modules:
+                    sys.modules[key] = saved_modules[key]
+                else:
+                    sys.modules.pop(key, None)
         return mod
 
     def test_collect_state_marks_safe_fallback_in_paper_mode(self):

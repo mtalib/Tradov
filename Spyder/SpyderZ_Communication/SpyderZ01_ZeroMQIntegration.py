@@ -27,7 +27,7 @@ import threading
 import time
 import queue
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -349,7 +349,7 @@ class SpyderPublisher:
                     if self.state == ConnectionState.CONNECTED:
                         heartbeat = SpyderMessage(
                             msg_type=MessageType.HEARTBEAT,
-                            timestamp=datetime.now(),
+                            timestamp=datetime.now(timezone.utc),
                             source=self.component_name,
                             destination="ALL",
                             data={"status": "alive"},
@@ -357,7 +357,7 @@ class SpyderPublisher:
                             priority=1
                         )
                         self._publish_internal(heartbeat)
-                        self.metrics.last_heartbeat = datetime.now()
+                        self.metrics.last_heartbeat = datetime.now(timezone.utc)
                 except Exception as e:
                     self.logger.error("Heartbeat failed: %s", e)
 
@@ -579,7 +579,7 @@ class SpyderSubscriber:
 
                         # Handle heartbeat
                         if message.msg_type == MessageType.HEARTBEAT:
-                            self.metrics.last_heartbeat = datetime.now()
+                            self.metrics.last_heartbeat = datetime.now(timezone.utc)
                             continue
 
                         # Send acknowledgment if required
@@ -625,7 +625,7 @@ class SpyderSubscriber:
         try:
             ack = SpyderMessage(
                 msg_type=MessageType.ACKNOWLEDGMENT,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 source=self.component_name,
                 destination=message.source,
                 data={"original_message_id": message.message_id},
@@ -649,7 +649,7 @@ class SpyderSubscriber:
         self._last_heartbeat_check = current_time
 
         if self.metrics.last_heartbeat:
-            time_since_heartbeat = (datetime.now() - self.metrics.last_heartbeat).total_seconds()
+            time_since_heartbeat = (datetime.now(timezone.utc) - self.metrics.last_heartbeat).total_seconds()
             if time_since_heartbeat > HEARTBEAT_TIMEOUT:
                 self.logger.warning("Heartbeat timeout detected")
                 self._handle_connection_error(Exception("Heartbeat timeout"))
@@ -994,7 +994,7 @@ def example_market_data_publisher():
         # Create market data message
         market_data = SpyderMessage(
             msg_type=MessageType.MARKET_DATA,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             source="MarketDataFeed",
             destination="TradingEngine",
             data={
@@ -1034,7 +1034,7 @@ def example_market_data_publisher():
     # Try to publish - should queue and reconnect
     message = SpyderMessage(
         msg_type=MessageType.MARKET_DATA,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         source="MarketDataFeed",
         destination="TradingEngine",
         data={"symbol": "SPY", "last": 451.00},
@@ -1111,7 +1111,7 @@ def example_dashboard_subscriber():
 
     # Test heartbeat timeout detection
     logging.info("\n🔧 Testing heartbeat timeout detection...")
-    subscriber.metrics.last_heartbeat = datetime.now() - timedelta(seconds=10)
+    subscriber.metrics.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=10)
     time.sleep(2)
 
     if subscriber.state == ConnectionState.RECONNECTING:
@@ -1140,7 +1140,7 @@ def example_request_reply():
     # Create order request
     order_request = SpyderMessage(
         msg_type=MessageType.TRADE_ORDER,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         source="StrategyEngine",
         destination="ExecutionEngine",
         data={

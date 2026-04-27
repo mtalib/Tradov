@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -451,7 +451,7 @@ class SpyderX14_OrchestratorAgent:
             OrchestratorDecision with collective intelligence
         """
         try:
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
 
             # Collect agent outputs in parallel
             agent_outputs = await self._collect_agent_outputs(
@@ -486,7 +486,7 @@ class SpyderX14_OrchestratorAgent:
             self._update_performance_tracking(decision, valid_outputs)
 
             # Log decision
-            processing_time = (datetime.now() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             self.logger.info(
                 f"Orchestrated decision in {processing_time:.2f}s with "
                 f"{len(valid_outputs)} agents, confidence: {decision.confidence:.2%}"
@@ -533,7 +533,7 @@ class SpyderX14_OrchestratorAgent:
     ) -> AgentOutput | None:
         """Get output from a single agent."""
         try:
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
 
             # Call agent's analyze method
             if hasattr(agent, "analyze"):
@@ -553,7 +553,7 @@ class SpyderX14_OrchestratorAgent:
                 reasoning = ""
                 metadata = {}
 
-            processing_time = (datetime.now() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             return AgentOutput(
                 agent_id=agent_id,
@@ -561,7 +561,7 @@ class SpyderX14_OrchestratorAgent:
                 confidence=confidence,
                 reasoning=reasoning,
                 processing_time=processing_time,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 metadata=metadata,
             )
 
@@ -853,7 +853,7 @@ class SpyderX14_OrchestratorAgent:
         # Store decision
         self.decision_history.append(
             {
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
                 "decision": decision,
                 "outputs": agent_outputs,
             }

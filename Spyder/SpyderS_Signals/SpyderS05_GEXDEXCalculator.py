@@ -37,7 +37,7 @@ Description:
 # ==============================================================================
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -198,7 +198,7 @@ class GEXDEXCalculator:
             "ogl": float(rng.normal(580.0, 5.0)),
             "vex": float(rng.normal(0.0, 5.0)),
             "chex": float(rng.normal(0.0, 200.0)),
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "num_strikes": 20,
             "data_source": "simulated",
         }
@@ -263,7 +263,7 @@ class GEXDEXCalculator:
             "ogl": ogl,
             "vex": vex,
             "chex": chex,
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "num_strikes": int(df["strike"].nunique()),
             "data_source": "live_chain",
         }
@@ -382,7 +382,7 @@ class GEXDEXCalculator:
                 "gex": result.get("net_gex_billions", 0.0),
                 "dex": result.get("net_dex_millions", 0.0),
                 "ogl": result.get("max_gamma_strike", spot_price or 0.0),
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
                 "num_strikes": result.get("num_strikes", 0),
                 "data_source": "SpyderN09_GammaExposure",
             }

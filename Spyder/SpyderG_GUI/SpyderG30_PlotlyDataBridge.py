@@ -40,7 +40,7 @@ Change Log:
 # ==============================================================================
 import json
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 from dataclasses import dataclass, asdict
 from PySide6.QtCore import QObject, Signal
@@ -98,7 +98,7 @@ class SpyderToPlotlyConverter:
             data = spyder_data
 
         # Convert timestamp to ISO string
-        timestamp = data.get("timestamp", datetime.now())
+        timestamp = data.get("timestamp", datetime.now(timezone.utc))
         if isinstance(timestamp, datetime):
             timestamp_str = timestamp.isoformat()
         else:
@@ -211,7 +211,7 @@ class PlotlyDataBridge(QObject):
         self.max_buffer_size = 1000
 
         # Update tracking
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
         self.update_count = 0
 
         # Performance monitoring
@@ -257,7 +257,7 @@ class PlotlyDataBridge(QObject):
 
     def handle_indicator_update(self, indicator_name: str, value: float):
         """Handle technical indicator updates."""
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         indicator = IndicatorUpdate(
             timestamp=timestamp, name=indicator_name, value=value
@@ -313,7 +313,7 @@ class PlotlyDataBridge(QObject):
         updates = []
 
         for name, value in indicators.items():
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             indicator = IndicatorUpdate(timestamp=timestamp, name=name, value=value)
 
             # Map to trace index
@@ -328,7 +328,7 @@ class PlotlyDataBridge(QObject):
         if updates:
             batch_data = {
                 "updates": [asdict(update) for update in updates],
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             json_data = json.dumps(batch_data)
@@ -544,7 +544,7 @@ if __name__ == "__main__":
         "low": 583.80,
         "close": 585.25,
         "volume": 2500000,
-        "timestamp": datetime.now(),
+        "timestamp": datetime.now(timezone.utc),
     }
 
     # Convert to Plotly format

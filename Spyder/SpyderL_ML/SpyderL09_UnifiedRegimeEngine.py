@@ -47,7 +47,7 @@ Consolidation Benefits:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -405,7 +405,7 @@ class MLRegimeClassifier:
             }
 
             self.is_trained = True
-            self.last_training = datetime.now()
+            self.last_training = datetime.now(timezone.utc)
 
             self.logger.info(f"ML model trained successfully: CV Score = {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")  # noqa: E501
             return performance
@@ -893,7 +893,7 @@ class SimpleMarkovTrader:
             self.transition_matrix = matrix / row_sums
 
             # Update rolling config
-            self.rolling_config.last_retrain = datetime.now()
+            self.rolling_config.last_retrain = datetime.now(timezone.utc)
             self.rolling_config.samples_since_retrain = 0
 
             self.logger.info("Markov model trained on %s samples", len(prices))
@@ -979,7 +979,7 @@ class SimpleMarkovTrader:
             return True
 
         # Check time since last retrain
-        hours_since_retrain = (datetime.now() - self.rolling_config.last_retrain).total_seconds() / 3600  # noqa: E501
+        hours_since_retrain = (datetime.now(timezone.utc) - self.rolling_config.last_retrain).total_seconds() / 3600  # noqa: E501
         if hours_since_retrain > MODEL_RETRAIN_HOURS:
             return True
 
@@ -1997,7 +1997,7 @@ class UnifiedRegimeEngine:
                 result = {
                     'regime': str(self.engine._current_regime) if hasattr(self.engine, '_current_regime') else 'unknown',  # noqa: E501
                     'confidence': 0.75,
-                    'timestamp': str(datetime.now()),
+                    'timestamp': str(datetime.now(timezone.utc)),
                 }
                 return result
 
@@ -2099,7 +2099,7 @@ def create_market_conditions(spy_price: float, spy_change_pct: float,
         MarketConditions instance
     """
     return MarketConditions(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         spy_price=spy_price,
         spy_change_pct=spy_change_pct,
         volume_ratio=kwargs.get('volume_ratio', 1.0),

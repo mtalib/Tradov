@@ -23,7 +23,7 @@ Module Description:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -220,7 +220,7 @@ class SpyderDataInterface:
         """Main data update loop running in separate thread."""
         while self.is_running:
             try:
-                start_time = datetime.now()
+                start_time = datetime.now(timezone.utc)
 
                 # Update data from all sources
                 self._update_core_data()
@@ -229,7 +229,7 @@ class SpyderDataInterface:
                 self._update_international_data()
 
                 # Track performance
-                latency = (datetime.now() - start_time).total_seconds()
+                latency = (datetime.now(timezone.utc) - start_time).total_seconds()
                 self.stats['avg_latency'] = (self.stats['avg_latency'] * 0.9 + latency * 0.1)
                 self.stats['updates_processed'] += 1
 
@@ -260,7 +260,7 @@ class SpyderDataInterface:
                             volume=int(data.get('volume', 0)),
                             bid=data.get('bid'),
                             ask=data.get('ask'),
-                            timestamp=datetime.now()
+                            timestamp=datetime.now(timezone.utc)
                         )
 
                         # Update spot prices
@@ -271,7 +271,7 @@ class SpyderDataInterface:
                         if len(self.historical_data[symbol]) > self.cache_size:
                             self.historical_data[symbol].popleft()
 
-            self.last_update[DataSource.CORE_DATA] = datetime.now()
+            self.last_update[DataSource.CORE_DATA] = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Error updating core data: %s", e, exc_info=True)
@@ -312,7 +312,7 @@ class SpyderDataInterface:
 
                     self.options_chains['SPY'] = spy_options
 
-            self.last_update[DataSource.SPY_OPTIONS] = datetime.now()
+            self.last_update[DataSource.SPY_OPTIONS] = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Error updating options data: %s", e, exc_info=True)
@@ -342,7 +342,7 @@ class SpyderDataInterface:
 
                     self.market_sentiment['SPY'] = sentiment
 
-            self.last_update[DataSource.MARKET_INTERNALS] = datetime.now()
+            self.last_update[DataSource.MARKET_INTERNALS] = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Error updating market internals: %s", e, exc_info=True)
@@ -370,7 +370,7 @@ class SpyderDataInterface:
 
                         self.international_data[symbol] = intl_point
 
-            self.last_update[DataSource.INTERNATIONAL] = datetime.now()
+            self.last_update[DataSource.INTERNATIONAL] = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Error updating international data: %s", e, exc_info=True)
@@ -457,7 +457,7 @@ class SpyderDataInterface:
         surface_data = []
         for option in spy_options:
             if option.implied_vol:
-                tte = (option.expiry - datetime.now()).days / 365.0
+                tte = (option.expiry - datetime.now(timezone.utc)).days / 365.0
                 if tte > 0:
                     surface_data.append({
                         'strike': option.strike,
@@ -472,7 +472,7 @@ class SpyderDataInterface:
         return {
             'spot_price': spot,
             'surface_points': surface_data,
-            'timestamp': datetime.now()
+            'timestamp': datetime.now(timezone.utc)
         }
 
     def register_callback(self, data_type: str, callback: Callable):
@@ -482,7 +482,7 @@ class SpyderDataInterface:
 
     def get_data_freshness(self) -> dict[str, float]:
         """Get data freshness in seconds for each source."""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         freshness = {}
 
         for source, last_update in self.last_update.items():
@@ -588,7 +588,7 @@ class SpyderDataInterface:
             return datetime.strptime(expiry_str, '%Y-%m-%d')
         except Exception:
             # Default to 30 days from now
-            return datetime.now() + timedelta(days=30)
+            return datetime.now(timezone.utc) + timedelta(days=30)
 
     async def _process_data_queue(self):
         """Process data updates asynchronously."""

@@ -36,7 +36,7 @@ Key Features:
 import time
 import threading
 import queue
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -370,7 +370,7 @@ class OrderRouter:
         """
         # Check circuit breaker
         if self.circuit_breaker.state == CircuitBreakerState.TRIGGERED:
-            if self.circuit_breaker.cooldown_until and datetime.now() < self.circuit_breaker.cooldown_until:  # noqa: E501
+            if self.circuit_breaker.cooldown_until and datetime.now(timezone.utc) < self.circuit_breaker.cooldown_until:  # noqa: E501
                 self.logger.warning("Circuit breaker active - order rejected: %s", order.order_id)
                 self._record_event(order.order_id, RoutingEvent.REJECTED,
                                  {'reason': 'circuit_breaker'})
@@ -386,7 +386,7 @@ class OrderRouter:
         # Initialize lifecycle tracking
         self.order_lifecycles[order.order_id] = OrderLifecycle(
             order_id=order.order_id,
-            events=[(RoutingEvent.RECEIVED, datetime.now(), {})],
+            events=[(RoutingEvent.RECEIVED, datetime.now(timezone.utc), {})],
             routing_decisions=[],
             fills=[]
         )
@@ -533,7 +533,7 @@ class OrderRouter:
                     order_id=order.order_id,
                     venue=venue,
                     quantity=venue_quantity,
-                    routing_time=datetime.now(),
+                    routing_time=datetime.now(timezone.utc),
                     expected_fee=self._calculate_expected_fee(venue, venue_quantity),
                     expected_rebate=self._calculate_expected_rebate(venue, venue_quantity),
                     expected_latency_ms=VENUE_CHARACTERISTICS[venue]['latency_ms'],
@@ -578,7 +578,7 @@ class OrderRouter:
                 order_id=order.order_id,
                 venue=venue,
                 quantity=venue_quantity,
-                routing_time=datetime.now(),
+                routing_time=datetime.now(timezone.utc),
                 expected_fee=self._calculate_expected_fee(venue, venue_quantity),
                 expected_rebate=self._calculate_expected_rebate(venue, venue_quantity),
                 expected_latency_ms=VENUE_CHARACTERISTICS[venue]['latency_ms'],
@@ -625,7 +625,7 @@ class OrderRouter:
                 order_id=order.order_id,
                 venue=venue,
                 quantity=order.quantity,
-                routing_time=datetime.now(),
+                routing_time=datetime.now(timezone.utc),
                 expected_fee=self._calculate_expected_fee(venue, order.quantity),
                 expected_rebate=0,  # Dark pools typically don't offer rebates
                 expected_latency_ms=VENUE_CHARACTERISTICS[venue]['latency_ms'],
@@ -668,7 +668,7 @@ class OrderRouter:
             order_id=order.order_id,
             venue=fastest_venue,
             quantity=order.quantity,
-            routing_time=datetime.now(),
+            routing_time=datetime.now(timezone.utc),
             expected_fee=self._calculate_expected_fee(fastest_venue, order.quantity),
             expected_rebate=self._calculate_expected_rebate(fastest_venue, order.quantity),
             expected_latency_ms=VENUE_CHARACTERISTICS[fastest_venue]['latency_ms'],
@@ -714,7 +714,7 @@ class OrderRouter:
             order_id=order.order_id,
             venue=cheapest_venue,
             quantity=order.quantity,
-            routing_time=datetime.now(),
+            routing_time=datetime.now(timezone.utc),
             expected_fee=self._calculate_expected_fee(cheapest_venue, order.quantity),
             expected_rebate=self._calculate_expected_rebate(cheapest_venue, order.quantity),
             expected_latency_ms=VENUE_CHARACTERISTICS[cheapest_venue]['latency_ms'],
@@ -910,7 +910,7 @@ class OrderRouter:
             'venue': venue.value,
             'quantity': quantity,
             'price': fill_price,
-            'timestamp': datetime.now()
+            'timestamp': datetime.now(timezone.utc)
         }
 
         lifecycle.fills.append(fill_data)
@@ -926,7 +926,7 @@ class OrderRouter:
             if lifecycle.total_filled >= order.quantity:
                 self._record_event(order_id, RoutingEvent.FILLED, fill_data)
                 lifecycle.status = OrderStatus.FILLED
-                lifecycle.end_time = datetime.now()
+                lifecycle.end_time = datetime.now(timezone.utc)
                 self.total_orders_filled += 1
 
                 # Update venue performance
@@ -943,7 +943,7 @@ class OrderRouter:
         """Record lifecycle event"""
         if order_id in self.order_lifecycles:
             self.order_lifecycles[order_id].events.append(
-                (event, datetime.now(), data)
+                (event, datetime.now(timezone.utc), data)
             )
 
     # ==========================================================================
@@ -957,7 +957,7 @@ class OrderRouter:
                 # Calculate orders per second
                 recent_orders = [
                     1 for lifecycle in self.order_lifecycles.values()
-                    if lifecycle.start_time > datetime.now() - timedelta(seconds=1)
+                    if lifecycle.start_time > datetime.now(timezone.utc) - timedelta(seconds=1)
                 ]
                 self.circuit_breaker.orders_per_second = len(recent_orders)
 
@@ -966,7 +966,7 @@ class OrderRouter:
                 if total_recent > 0:
                     recent_rejects = sum(
                         1 for lifecycle in self.order_lifecycles.values()
-                        if lifecycle.start_time > datetime.now() - timedelta(seconds=10) and
+                        if lifecycle.start_time > datetime.now(timezone.utc) - timedelta(seconds=10) and
                         any(event[0] == RoutingEvent.REJECTED for event in lifecycle.events)
                     )
                     self.circuit_breaker.rejection_rate = recent_rejects / total_recent
@@ -988,8 +988,8 @@ class OrderRouter:
     def _trigger_circuit_breaker(self):
         """Trigger circuit breaker"""
         self.circuit_breaker.state = CircuitBreakerState.TRIGGERED
-        self.circuit_breaker.last_triggered = datetime.now()
-        self.circuit_breaker.cooldown_until = datetime.now() + timedelta(seconds=CIRCUIT_BREAKER_COOLDOWN)  # noqa: E501
+        self.circuit_breaker.last_triggered = datetime.now(timezone.utc)
+        self.circuit_breaker.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=CIRCUIT_BREAKER_COOLDOWN)  # noqa: E501
         self.circuit_breaker.triggers_count += 1
 
         self.logger.critical(f"🚨 Circuit breaker triggered! Orders: {self.circuit_breaker.orders_per_second}/s, "  # noqa: E501
@@ -1007,7 +1007,7 @@ class OrderRouter:
 
     def _generate_order_id(self) -> str:
         """Generate unique order ID"""
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
         random_suffix = hashlib.md5(str(random.random()).encode(), usedforsecurity=False).hexdigest()[:6]  # noqa: E501
         return f"ORD_{timestamp}_{random_suffix}"
 
@@ -1040,7 +1040,7 @@ class OrderRouter:
 
         if order_id in self.order_lifecycles:
             self.order_lifecycles[order_id].status = OrderStatus.CANCELLED
-            self.order_lifecycles[order_id].end_time = datetime.now()
+            self.order_lifecycles[order_id].end_time = datetime.now(timezone.utc)
 
         # Remove from active orders
         if order_id in self.active_orders:

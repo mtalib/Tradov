@@ -35,7 +35,7 @@ Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -278,7 +278,7 @@ class PinRiskCalculator:
             PinRiskAnalysis with detailed pin risk assessment
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             hours_to_expiry = (expiration_date - now).total_seconds() / 3600
 
             # Calculate pin risk at each strike
@@ -528,7 +528,7 @@ class PinRiskCalculator:
                                    expiration_date: datetime) -> PinRiskAnalysis:
         """Create default pin analysis in case of errors"""
         return PinRiskAnalysis(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             expiration_date=expiration_date,
             hours_to_expiry=24.0,
             pin_risk_strikes={current_price: 0.1},
@@ -584,7 +584,7 @@ class OptionsLiquidityScorer:
             LiquidityScore with detailed liquidity assessment
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
             # Extract market data
             daily_volume = options_data.get('volume', 0)
@@ -829,7 +829,7 @@ class OptionsLiquidityScorer:
                                       expiration: datetime) -> LiquidityScore:
         """Create default liquidity score for error cases"""
         return LiquidityScore(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             symbol=symbol,
             strike=strike,
             expiration=expiration,
@@ -885,7 +885,7 @@ class SkewAnomalyDetector:
             SkewAnomalyDetection with anomaly analysis
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
             # Extract current skew metrics
             current_skew = current_skew_data.get('skew', 0.0)
@@ -1181,7 +1181,7 @@ class SkewAnomalyDetector:
     def _create_default_skew_analysis(self, expiration_date: datetime) -> SkewAnomalyDetection:
         """Create default skew analysis for error cases"""
         return SkewAnomalyDetection(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             expiration_date=expiration_date,
             current_skew=0.05,
             atm_implied_vol=0.20,
@@ -1458,7 +1458,7 @@ class StrategyEfficiencyOptimizer:
 
             return {
                 'strikes': [long_strike, short_strike],
-                'expiration': datetime.now() + timedelta(days=30),
+                'expiration': datetime.now(timezone.utc) + timedelta(days=30),
                 'position_size': 1,
                 'expected_profit': expected_profit,
                 'max_loss': max_loss,
@@ -1492,7 +1492,7 @@ class StrategyEfficiencyOptimizer:
 
             return {
                 'strikes': strikes,
-                'expiration': datetime.now() + timedelta(days=30),
+                'expiration': datetime.now(timezone.utc) + timedelta(days=30),
                 'position_size': 1,
                 'expected_profit': expected_profit,
                 'max_loss': max_loss,
@@ -1529,7 +1529,7 @@ class StrategyEfficiencyOptimizer:
 
             return {
                 'strikes': [strike],  # Same strike for call and put
-                'expiration': datetime.now() + timedelta(days=30),
+                'expiration': datetime.now(timezone.utc) + timedelta(days=30),
                 'position_size': 1,
                 'expected_profit': expected_profit,
                 'max_loss': max_loss,
@@ -1595,7 +1595,7 @@ class StrategyEfficiencyOptimizer:
 
             # Time-optimized setup
             time_optimized = base_setup.copy()
-            time_optimized['expiration'] = datetime.now() + timedelta(days=21)  # Shorter DTE
+            time_optimized['expiration'] = datetime.now(timezone.utc) + timedelta(days=21)  # Shorter DTE
             time_optimized['theta'] *= 1.2
             time_optimized['description'] = "Optimized for time decay"
             alternatives.append(time_optimized)
@@ -1664,7 +1664,7 @@ class StrategyEfficiencyOptimizer:
         """Create default setup for fallback"""
         return {
             'strikes': [current_price],
-            'expiration': datetime.now() + timedelta(days=30),
+            'expiration': datetime.now(timezone.utc) + timedelta(days=30),
             'position_size': 1,
             'expected_profit': 50.0,
             'max_loss': 200.0,
@@ -1690,7 +1690,7 @@ class StrategyEfficiencyOptimizer:
             max_risk=1000.0,
             min_probability=0.45,
             optimal_strikes=[current_price],
-            optimal_expiration=datetime.now() + timedelta(days=30),
+            optimal_expiration=datetime.now(timezone.utc) + timedelta(days=30),
             optimal_position_size=1,
             expected_profit=0.0,
             maximum_loss=0.0,
@@ -1739,7 +1739,7 @@ class StrategyOptimizers:
             analysis = {
                 'symbol': symbol,
                 'current_price': current_price,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'analysis_components': {}
             }
 
@@ -1757,7 +1757,7 @@ class StrategyOptimizers:
                 liquidity_analysis = {}
                 for strike, options_data in market_data['options_data'].items():
                     liquidity_score = self.liquidity_scorer.calculate_liquidity_score(
-                        symbol, strike, market_data.get('expiration_date', datetime.now()),
+                        symbol, strike, market_data.get('expiration_date', datetime.now(timezone.utc)),
                         current_price, options_data
                     )
                     liquidity_analysis[str(strike)] = liquidity_score
@@ -1767,7 +1767,7 @@ class StrategyOptimizers:
             # Skew anomaly detection
             if 'skew_data' in market_data:
                 skew_analysis = self.skew_detector.detect_skew_anomalies(
-                    market_data.get('expiration_date', datetime.now()),
+                    market_data.get('expiration_date', datetime.now(timezone.utc)),
                     market_data['skew_data']
                 )
                 analysis['analysis_components']['skew_anomalies'] = skew_analysis
@@ -1776,7 +1776,7 @@ class StrategyOptimizers:
 
         except Exception as e:
             self.error_handler.handle_error(e, {'method': 'get_comprehensive_analysis'})
-            return {'error': 'Analysis failed', 'timestamp': datetime.now().isoformat()}
+            return {'error': 'Analysis failed', 'timestamp': datetime.now(timezone.utc).isoformat()}
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1796,7 +1796,7 @@ if __name__ == "__main__":
 
     # Test data
     current_price = 450.25
-    expiration_date = datetime.now() + timedelta(days=1)  # Tomorrow expiration
+    expiration_date = datetime.now(timezone.utc) + timedelta(days=1)  # Tomorrow expiration
 
 
     # Test Pin Risk Calculator
@@ -1828,7 +1828,7 @@ if __name__ == "__main__":
         'bid': 2.85,
         'ask': 2.95,
         'last': 2.90,
-        'last_quote_time': datetime.now() - timedelta(minutes=2)
+        'last_quote_time': datetime.now(timezone.utc) - timedelta(minutes=2)
     }
 
     liquidity_score = optimizers.liquidity_scorer.calculate_liquidity_score(

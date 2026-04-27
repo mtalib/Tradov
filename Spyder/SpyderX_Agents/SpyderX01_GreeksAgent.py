@@ -27,7 +27,7 @@ import os
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import deque
@@ -759,7 +759,7 @@ class GreeksAgent:
                     accuracy_score=cv_scores.mean(),
                     prediction_confidence=cv_scores.std(),
                     training_samples=n_samples,
-                    last_training=datetime.now(),
+                    last_training=datetime.now(timezone.utc),
                     feature_importance=dict(
                         enumerate(getattr(model, "feature_importances_", []))
                     ),
@@ -2050,7 +2050,7 @@ class GreeksAgent:
                 self.market_context.market_regime = MarketRegime.NORMAL
 
             # Update timestamp
-            self.market_context.timestamp = datetime.now()
+            self.market_context.timestamp = datetime.now(timezone.utc)
 
             self.logger.debug(
                 f"Market context updated: VIX={self.market_context.vix_level:.1f}, "

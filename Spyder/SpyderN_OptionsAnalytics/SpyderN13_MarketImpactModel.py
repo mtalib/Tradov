@@ -35,7 +35,7 @@ Key Features:
 import math
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -315,7 +315,7 @@ class MarketImpactModel:
 
         # Create impact estimate
         estimate = ImpactEstimate(
-            order_id=f"{order.symbol}_{datetime.now().strftime('%H%M%S')}",
+            order_id=f"{order.symbol}_{datetime.now(timezone.utc).strftime('%H%M%S')}",
             symbol=order.symbol,
             model_used=self.model_type,
             temporary_impact_bps=temporary_impact * 10000,

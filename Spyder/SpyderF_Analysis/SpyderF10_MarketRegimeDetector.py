@@ -25,7 +25,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -361,7 +361,7 @@ class MarketRegimeDetector:
                 if transition_prob > REGIME_CONFIDENCE_THRESHOLD:
                     # Create transition event
                     transition = RegimeTransition(
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         from_regime=self.current_regime.volatility_regime,
                         to_regime=new_regime,
                         transition_probability=transition_prob,
@@ -629,7 +629,7 @@ class MarketRegimeDetector:
             stress_assessment = self.assess_market_stress()
 
             return {
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
                 "current_regime": {
                     "volatility_regime": (
                         self.current_regime.volatility_regime.name
@@ -711,7 +711,7 @@ class MarketRegimeDetector:
 
             # Create metrics object
             metrics = RegimeMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 vix_level=vix_level,
                 vix_percentile=vix_percentile,
                 vix_trend=self._calculate_vix_trend(),
@@ -850,7 +850,7 @@ class MarketRegimeDetector:
                 # Update configuration if needed
                 if hasattr(self, "_last_config_update"):
                     if (
-                        datetime.now() - self._last_config_update
+                        datetime.now(timezone.utc) - self._last_config_update
                     ).seconds > CONFIG_UPDATE_INTERVAL:
                         self._load_configuration()
 
@@ -896,11 +896,11 @@ class MarketRegimeDetector:
             # Calculate duration
             duration = 0
             if self.current_regime:
-                duration = (datetime.now() - self.current_regime.timestamp).days
+                duration = (datetime.now(timezone.utc) - self.current_regime.timestamp).days
 
             # Create new regime state
             new_state = RegimeState(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 volatility_regime=volatility_regime,
                 trend_regime=trend_regime,
                 clustering_regime=clustering_regime,
@@ -1402,7 +1402,7 @@ class MarketRegimeDetector:
                 if "strategy_mappings" in config:
                     self.strategy_mappings.update(config["strategy_mappings"])
 
-            self._last_config_update = datetime.now()
+            self._last_config_update = datetime.now(timezone.utc)
 
         except Exception as e:
             self.error_handler.handle_error(e, "_load_configuration")

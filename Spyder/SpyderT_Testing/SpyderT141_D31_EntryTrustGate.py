@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Focused tests for D31 entry trust gating via F09 market-structure controls."""
 
+import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+
+
+def _get_strategy_orchestrator_class():
+    """Lazily import D31 to avoid heavy GUI/native import at collection time."""
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    return mod.StrategyOrchestrator
 
 
 class _MockConfigManager:
@@ -105,6 +111,7 @@ def _healthy_conditions():
 
 
 def _make_orchestrator(conditions):
+    StrategyOrchestrator = _get_strategy_orchestrator_class()
     orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
     orchestrator._entry_filter_gate = EntryFilters(_MockConfigManager())
     orchestrator._metrics_orchestrator = _StubMetricsOrchestrator(conditions)

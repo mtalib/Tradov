@@ -85,7 +85,7 @@ import os
 import json
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -518,7 +518,7 @@ class BlackSwanScheduler:
             if task.enabled:
                 try:
                     task.callback()
-                    task.last_run = datetime.now()
+                    task.last_run = datetime.now(timezone.utc)
                     return True
                 except Exception as e:
                     self.logger.error("Error running task %s: %s", task_id, e)
@@ -558,7 +558,7 @@ class BlackSwanScheduler:
         """
         results = {}
 
-        test_message = f"Black Swan Indicator test alert - {datetime.now()}"
+        test_message = f"Black Swan Indicator test alert - {datetime.now(timezone.utc)}"
 
         for channel in self.alert_channels:
             try:
@@ -603,7 +603,7 @@ class BlackSwanScheduler:
             # Update last run time
             for task in self.scheduled_tasks.values():
                 if task.task_type == ScheduleType.MARKET_CHECK:
-                    task.last_run = datetime.now()
+                    task.last_run = datetime.now(timezone.utc)
 
             self.logger.info(f"Market check complete - Status: {result.status.value}, "
                            f"Score: {result.overall_score:.2f}")
@@ -646,7 +646,7 @@ class BlackSwanScheduler:
 
         # Check daily limit
         today_alerts = sum(1 for alert in self.alert_history
-                         if alert.timestamp.date() == datetime.now().date())
+                         if alert.timestamp.date() == datetime.now(timezone.utc).date())
         if today_alerts >= MAX_DAILY_ALERTS:
             self.logger.warning("Daily alert limit reached")
             return
@@ -656,7 +656,7 @@ class BlackSwanScheduler:
 
         # Record alert
         alert_record = AlertRecord(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             status=result.status,
             score=result.overall_score,
             message=alert_reason,
@@ -699,7 +699,7 @@ BLACK SWAN INDICATOR ALERT
 ==========================
 {reason}
 
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S ET')}
+Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S ET')}
 Status: {result.status.value}
 Overall Score: {result.overall_score:.2f}
 Alert Level: {self._get_alert_level(result).name}
@@ -894,7 +894,7 @@ Please review market conditions and adjust positions accordingly.
 
             # Create report data
             report = DailyReport(
-                date=datetime.now(),
+                date=datetime.now(timezone.utc),
                 checks_performed=len(self.daily_results),
                 average_score=np.mean(scores),
                 max_score=np.max(scores),
@@ -903,7 +903,7 @@ Please review market conditions and adjust positions accordingly.
                     for status, count in status_counts.items()
                 },
                 alerts_sent=len([a for a in self.alert_history
-                               if a.timestamp.date() == datetime.now().date()]),
+                               if a.timestamp.date() == datetime.now(timezone.utc).date()]),
                 data_quality=most_common_quality
             )
 
@@ -1020,7 +1020,7 @@ STATUS DISTRIBUTION
         if not self.daily_results:
             return
 
-        filename = self.report_dir / f"black_swan_data_{datetime.now().strftime('%Y%m%d')}.csv"
+        filename = self.report_dir / f"black_swan_data_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
 
         data = []
         for result in self.daily_results:
@@ -1190,7 +1190,7 @@ Status Distribution:
         still produces at least one risk snapshot before the first future check fires.
         Only MARKET_CHECK tasks are considered; report/cleanup tasks are skipped.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         today = now.date()
 
         missed: list[str] = []
@@ -1204,6 +1204,9 @@ Status Distribution:
                 scheduled_dt = datetime.strptime(
                     f"{today} {task.schedule_time}", "%Y-%m-%d %H:%M"
                 )
+                # Keep awareness aligned for safe comparisons.
+                if now.tzinfo is not None and scheduled_dt.tzinfo is None:
+                    scheduled_dt = scheduled_dt.replace(tzinfo=now.tzinfo)
             except ValueError:
                 continue
             if scheduled_dt < now:
@@ -1242,7 +1245,7 @@ Status Distribution:
     def _cleanup_old_files(self):
         """Clean up old report files."""
         try:
-            cutoff_date = datetime.now() - timedelta(days=self.report_retention)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.report_retention)
 
             for file_path in self.report_dir.glob("*"):
                 if file_path.is_file():
@@ -1261,7 +1264,7 @@ Status Distribution:
             return self.trading_calendar.is_market_open()
 
         # Simple check for US market hours (9:30 AM - 4:00 PM ET)
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         market_open = now.replace(hour=9, minute=30, second=0)
         market_close = now.replace(hour=16, minute=0, second=0)
 
@@ -1274,7 +1277,7 @@ Status Distribution:
     def _is_in_cooldown(self, status: RiskStatus) -> bool:
         """Check if alert is in cooldown period."""
         # Find last alert with same status
-        cutoff_time = datetime.now() - timedelta(minutes=self.alert_cooldown)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=self.alert_cooldown)
 
         for alert in reversed(self.alert_history):
             if alert.status == status and alert.timestamp > cutoff_time:
@@ -1408,7 +1411,7 @@ Status Distribution:
             },
             'daily_checks': len(self.daily_results),
             'alerts_today': len([a for a in self.alert_history
-                               if a.timestamp.date() == datetime.now().date()]),
+                               if a.timestamp.date() == datetime.now(timezone.utc).date()]),
             'last_result': {
                 'status': self.daily_results[-1].status.value,
                 'score': self.daily_results[-1].overall_score,
@@ -1426,7 +1429,7 @@ Status Distribution:
         Returns:
             List of alert records
         """
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
         return [
             {

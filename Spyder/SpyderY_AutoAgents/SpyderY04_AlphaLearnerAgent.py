@@ -37,7 +37,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -255,7 +255,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
                     "direction": direction,
                     "confidence": confidence,
                     "horizon_minutes": horizon,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "session": session.value,
                 }
                 self._predictions.append(pred_record)
@@ -341,7 +341,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
                 self._run_backtest(task)
 
             task.status = "completed"
-            task.completed = datetime.now()
+            task.completed = datetime.now(timezone.utc)
         except Exception as e:
             task.status = "failed"
             task.result = str(e)
@@ -355,7 +355,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             try:
                 self._ml_predictor.retrain(model_name=task.model_name)
                 task.result = "Retrained successfully"
-                self._last_retrain_date = datetime.now().strftime("%Y-%m-%d")
+                self._last_retrain_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
                 self.publish(AgentOutput(
                     agent_id=self.AGENT_ID,
@@ -449,7 +449,7 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
             f"ML research planning for SPY options trading system.\n"
             f"Active models: {model_summaries or 'None tracked yet'}\n"
             f"Last retrain: {self._last_retrain_date or 'Never'}\n"
-            f"Completed research today: {len([t for t in self._completed_research if t.completed and t.completed.date() == datetime.now().date()])}\n\n"  # noqa: E501
+            f"Completed research today: {len([t for t in self._completed_research if t.completed and t.completed.date() == datetime.now(timezone.utc).date()])}\n\n"  # noqa: E501
             f"Suggest ONE high-impact ML research task. Choose from:\n"
             f"1. retrain — Retrain an existing model with latest data\n"
             f"2. feature_eng — Engineer new predictive features\n"

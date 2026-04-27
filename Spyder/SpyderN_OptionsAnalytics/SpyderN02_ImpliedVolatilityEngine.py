@@ -36,7 +36,7 @@ Key Features:
 import bisect
 import joblib
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -117,6 +117,18 @@ LOW_VOL_THRESHOLD = 0.12           # 12% IV
 NORMAL_VOL_RANGE = (0.12, 0.20)    # 12-20% IV
 HIGH_VOL_THRESHOLD = 0.20          # 20% IV
 EXTREME_VOL_THRESHOLD = 0.30       # 30% IV
+
+
+def _to_utc_comparable(ts: datetime) -> datetime:
+    """Normalize timestamps to UTC-aware for safe comparisons."""
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _is_on_or_after(left: datetime, right: datetime) -> bool:
+    """Return True when left is on/after right, supporting mixed tz-awareness."""
+    return _to_utc_comparable(left) >= _to_utc_comparable(right)
 
 # Greeks-based adjustments
 VEGA_WEIGHT_THRESHOLD = 0.01       # Minimum vega weight
@@ -327,8 +339,8 @@ class IVHistory:
 
     def calculate_rank(self, current_iv: float, period_days: int = 252) -> float:
         """Calculate IV rank over period"""
-        cutoff_date = datetime.now() - timedelta(days=period_days)
-        period_data = [d for d in self.data if d.timestamp >= cutoff_date]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
+        period_data = [d for d in self.data if _is_on_or_after(d.timestamp, cutoff_date)]
 
         if not period_data:
             return 50.0
@@ -344,8 +356,8 @@ class IVHistory:
 
     def calculate_percentile(self, current_iv: float, period_days: int = 252) -> float:
         """Calculate IV percentile over period"""
-        cutoff_date = datetime.now() - timedelta(days=period_days)
-        period_data = [d for d in self.data if d.timestamp >= cutoff_date]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
+        period_data = [d for d in self.data if _is_on_or_after(d.timestamp, cutoff_date)]
 
         if not period_data:
             return 50.0
@@ -442,7 +454,7 @@ class ImpliedVolatilityEngine:
             IVSnapshot with all IV metrics
         """
         try:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
             iv_points = []
 
             # Calculate IV for each option
@@ -662,7 +674,7 @@ class ImpliedVolatilityEngine:
                 return None
 
             # Calculate time to expiry
-            tte = (expiry - datetime.now()).days / 365.0
+            tte = (expiry - datetime.now(timezone.utc)).days / 365.0
             if tte <= 0:
                 return None
 
@@ -681,7 +693,7 @@ class ImpliedVolatilityEngine:
                 return None
 
             return IVPoint(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=option_data.get('symbol', ''),
                 strike=strike,
                 expiry=expiry,
@@ -934,8 +946,8 @@ class ImpliedVolatilityEngine:
                 call_wing = call_slope
 
         return IVSmile(
-            timestamp=datetime.now(),
-            expiry=points[0].expiry if points else datetime.now(),
+            timestamp=datetime.now(timezone.utc),
+            expiry=points[0].expiry if points else datetime.now(timezone.utc),
             strikes=strikes,
             implied_vols=ivs,
             atm_strike=atm_strike,
@@ -1128,13 +1140,13 @@ class ImpliedVolatilityEngine:
         history.data.append(snapshot)
 
         # Trim old data
-        cutoff = datetime.now() - timedelta(days=IV_HISTORY_DAYS)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=IV_HISTORY_DAYS)
         history.data = [d for d in history.data if d.timestamp >= cutoff]
 
     def _create_empty_snapshot(self, underlying: str, spot_price: float) -> IVSnapshot:
         """Create empty snapshot when no data available"""
         return IVSnapshot(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             underlying=underlying,
             spot_price=spot_price,
             atm_iv=0.16,  # Default 16% IV
@@ -1182,7 +1194,7 @@ def generate_test_chain_data(underlying: str = "SPY", spot: float = 585.0) -> li
     expiries = [7, 14, 30, 45, 60, 90]
 
     for days_to_expiry in expiries:
-        expiry = datetime.now() + timedelta(days=days_to_expiry)
+        expiry = datetime.now(timezone.utc) + timedelta(days=days_to_expiry)
 
         # Generate strikes around ATM
         strikes = np.arange(spot * 0.85, spot * 1.15, 5)

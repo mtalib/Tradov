@@ -25,7 +25,7 @@ Change Log:
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 import time
 from collections import deque
@@ -278,7 +278,7 @@ class SPYFeedProcessor:
             'ticks_processed': 0,
             'trades_processed': 0,
             'errors': 0,
-            'last_update': datetime.now()
+            'last_update': datetime.now(timezone.utc)
         }
 
         # Control flags
@@ -406,7 +406,7 @@ class SPYFeedProcessor:
         Returns:
             Current market session
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         current_time = now.strftime("%H:%M")
 
         if current_time < PRE_MARKET_OPEN:
@@ -549,7 +549,7 @@ class SPYFeedProcessor:
                         type=EventType.SPY_ANALYSIS,
                         data={
                             'analysis': analysis,
-                            'timestamp': datetime.now()
+                            'timestamp': datetime.now(timezone.utc)
                         }
                     )
                     self.event_bus.publish(event)
@@ -599,7 +599,7 @@ class SPYFeedProcessor:
 
                 # Create analysis
                 analysis = SPYAnalysis(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     last_price=self.current_price,
                     vwap=vwap_values,
                     volume=volume_metrics.get('volume', {}),
@@ -657,7 +657,7 @@ class SPYFeedProcessor:
             liquidity_score = self._calculate_liquidity_score()
 
             return MarketMicrostructure(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 bid_ask_spread=spread,
                 spread_percentage=spread_pct,
                 bid_depth=bid_depth,
@@ -840,7 +840,7 @@ class SPYFeedProcessor:
             if symbol == SPY_SYMBOL:
                 # Create tick data
                 tick = TickData(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     tick_type=TickerField.TRADE,
                     price=data.get('last', 0),
                     size=data.get('size', 0),
@@ -865,7 +865,7 @@ class SPYFeedProcessor:
 
             if symbol == SPY_SYMBOL:
                 level2 = Level2Data(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     bids=data.get('bids', []),
                     asks=data.get('asks', [])
                 )

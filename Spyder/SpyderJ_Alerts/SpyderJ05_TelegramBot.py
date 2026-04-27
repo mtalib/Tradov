@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -101,7 +101,7 @@ class TelegramMessage:
     disable_notification: bool = False
     reply_markup: dict | None = None
     retry_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class NotificationStats:
@@ -111,7 +111,7 @@ class NotificationStats:
     last_sent: datetime | None = None
     last_error: str | None = None
     total_errors: int = 0
-    uptime_start: datetime = field(default_factory=datetime.now)
+    uptime_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # TELEGRAM BOT CLASS
@@ -316,7 +316,7 @@ class TelegramBot:
         if max_risk:
             message += f"{self.emojis['warning']} <b>Max Risk:</b> ${max_risk:.2f}\n"
 
-        message += f"\n{self.emojis['time']} <i>{datetime.now().strftime('%I:%M %p')}</i>"
+        message += f"\n{self.emojis['time']} <i>{datetime.now(timezone.utc).strftime('%I:%M %p')}</i>"
 
         return self.send_message(
             message,
@@ -359,7 +359,7 @@ class TelegramBot:
 {pnl_emoji} <b>P&L:</b> ${pnl:+.2f} ({pnl_percent:+.1f}%)
 {self.emojis['info']} <b>Reason:</b> {reason}
 
-{self.emojis['time']} <i>{datetime.now().strftime('%I:%M %p')}</i>
+{self.emojis['time']} <i>{datetime.now(timezone.utc).strftime('%I:%M %p')}</i>
 """
 
         return self.send_message(
@@ -386,7 +386,7 @@ class TelegramBot:
 
 <i>Position closed to limit losses</i>
 
-{self.emojis['time']} <i>{datetime.now().strftime('%I:%M %p')}</i>
+{self.emojis['time']} <i>{datetime.now(timezone.utc).strftime('%I:%M %p')}</i>
 """
 
         return self.send_message(
@@ -472,7 +472,7 @@ class TelegramBot:
 
 {message}
 
-{self.emojis['time']} <i>{datetime.now().strftime('%I:%M %p')}</i>
+{self.emojis['time']} <i>{datetime.now(timezone.utc).strftime('%I:%M %p')}</i>
 """
 
         priority = MessagePriority.CRITICAL if severity == 'critical' else MessagePriority.HIGH
@@ -525,7 +525,7 @@ class TelegramBot:
 <b>VIX:</b> {vix:.2f}
 <b>Sentiment:</b> {market_sentiment} {sentiment_emoji}
 
-{self.emojis['time']} <i>{datetime.now().strftime('%I:%M %p')}</i>
+{self.emojis['time']} <i>{datetime.now(timezone.utc).strftime('%I:%M %p')}</i>
 """
 
         return self.send_message(
@@ -557,7 +557,7 @@ class TelegramBot:
             False — operator rejected.
             None  — timed out; caller should fall back to autonomous decision.
         """
-        order_id = order.get('id', f"ord_{int(datetime.now().timestamp())}")
+        order_id = order.get('id', f"ord_{int(datetime.now(timezone.utc).timestamp())}")
         approve_data = f"spyder_approve_{order_id}"
         reject_data = f"spyder_reject_{order_id}"
 
@@ -570,7 +570,7 @@ class TelegramBot:
             f"<b>Type:</b> {order.get('type', 'N/A')}\n"
             f"<b>Price:</b> {order.get('price', 'MARKET')}\n\n"
             f"\u23f3 <i>Approval window: {timeout}s</i>\n"
-            f"\U0001f550 <i>{datetime.now().strftime('%H:%M:%S ET')}</i>"
+            f"\U0001f550 <i>{datetime.now(timezone.utc).strftime('%H:%M:%S ET')}</i>"
         )
 
         reply_markup = {
@@ -699,7 +699,7 @@ class TelegramBot:
 
                 # Update stats
                 self.stats.messages_sent += 1
-                self.stats.last_sent = datetime.now()
+                self.stats.last_sent = datetime.now(timezone.utc)
 
             return True
 
@@ -893,7 +893,7 @@ class TelegramBot:
     # ==========================================================================
     def get_stats(self) -> dict[str, Any]:
         """Get bot statistics"""
-        uptime = datetime.now() - self.stats.uptime_start
+        uptime = datetime.now(timezone.utc) - self.stats.uptime_start
 
         return {
             'messages_sent': self.stats.messages_sent,
@@ -998,7 +998,7 @@ if __name__ == "__main__":
 
     # Test daily summary
     bot.send_daily_summary(
-        date=datetime.now(),
+        date=datetime.now(timezone.utc),
         total_trades=5,
         winning_trades=3,
         losing_trades=2,

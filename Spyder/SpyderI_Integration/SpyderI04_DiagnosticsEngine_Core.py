@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import asdict
 from collections import defaultdict
@@ -247,7 +247,7 @@ class DiagnosticsEngine:
             # Create report
             report = DiagnosticReport(
                 report_id=report_id,
-                generated_at=datetime.now(),
+                generated_at=datetime.now(timezone.utc),
                 overall_health_score=health_score,
                 system_metrics=system_metrics,
                 module_health=module_health,
@@ -341,7 +341,7 @@ class DiagnosticsEngine:
             )
 
             return {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "overall_health": overall_health,
                 "system_status": {
                     "cpu_usage": f"{system_metrics.cpu_percent:.1f}%",
@@ -516,7 +516,7 @@ class DiagnosticsEngine:
     def _cleanup_resolved_issues(self) -> None:
         """Clean up resolved issues"""
         try:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
             resolved_issues = []
 
             for issue_id, issue in list(self.active_issues.items()):

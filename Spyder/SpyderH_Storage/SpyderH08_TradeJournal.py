@@ -32,7 +32,7 @@ Features:
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -168,7 +168,7 @@ class TradeJournal:
         >>> entry = TradeJournalEntry(
         ...     entry_id="TJ_20260317_001",
         ...     order_id="ORD_12345",
-        ...     timestamp=datetime.now(),
+        ...     timestamp=datetime.now(timezone.utc),
         ...     symbol="SPY 420C 2026-03-21",
         ...     strategy_name="IronCondor",
         ...     signal_source="IV_RANK_HIGH",
@@ -374,7 +374,7 @@ class TradeJournal:
                 """, (
                     outcome.value,
                     exit_price,
-                    datetime.now().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     realized_pnl,
                     realized_pnl_pct,
                     exit_reason,
@@ -538,7 +538,7 @@ if __name__ == "__main__":
     entry = TradeJournalEntry(
         entry_id="TJ_DEMO_001",
         order_id="ORD_DEMO_001",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         symbol="SPY 420C 2026-03-21",
         strategy_name="IronCondor",
         signal_source="IV_RANK_HIGH",

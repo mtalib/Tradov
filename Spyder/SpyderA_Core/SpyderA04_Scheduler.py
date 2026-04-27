@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, time, timedelta, date
+from datetime import datetime, time, timedelta, date, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -203,7 +203,7 @@ class MarketCalendar:
             "day_before_independence": time(13, 0),
             "day_after_thanksgiving": time(13, 0),
             "christmas_eve": time(13, 0),
-            "new_years_eve": time(13, 0) if datetime.now().year >= 2025 else time(16, 0)
+            "new_years_eve": time(13, 0) if datetime.now(timezone.utc).year >= 2025 else time(16, 0)
         }
 
         self.logger.info("MarketCalendar initialized")
@@ -850,7 +850,7 @@ class Scheduler:
     def _wrap_task_function(self, task: ScheduledTask) -> Callable:
         """Wrap task function with error handling and metrics"""
         def wrapped():
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
             execution = TaskExecution(
                 task_id=task.task_id,
                 execution_time=start_time,
@@ -889,7 +889,7 @@ class Scheduler:
 
             finally:
                 # Calculate duration
-                end_time = datetime.now()
+                end_time = datetime.now(timezone.utc)
                 execution.duration_ms = int((end_time - start_time).total_seconds() * 1000)
                 self.metrics['total_execution_time_ms'] += execution.duration_ms
 
@@ -1132,7 +1132,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'daily_cleanup',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -1270,7 +1270,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'data_update_request',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -1291,7 +1291,7 @@ class Scheduler:
                 EventType.RISK,
                 {
                     'type': 'periodic_risk_check',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -1523,7 +1523,7 @@ class Scheduler:
                     VALUES (?, ?, ?, ?, ?)
                 """, (
                     task_id,
-                    datetime.now(),
+                    datetime.now(timezone.utc),
                     status.value,
                     duration_ms,
                     error_message
@@ -1576,7 +1576,7 @@ class Scheduler:
     def _clean_old_task_history(self, days_to_keep: int = 30):
         """Clean old task history records"""
         try:
-            cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
 
             with sqlite3.connect(self.db_path) as conn:
                 result = conn.execute("""
@@ -1595,7 +1595,7 @@ class Scheduler:
                           days: int = 7) -> dict[str, Any]:
         """Get task execution statistics"""
         try:
-            since_date = datetime.now() - timedelta(days=days)
+            since_date = datetime.now(timezone.utc) - timedelta(days=days)
 
             with sqlite3.connect(self.db_path) as conn:
                 if task_id:
@@ -1664,7 +1664,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'scheduler_started',
-                    'timestamp': datetime.now(),
+                    'timestamp': datetime.now(timezone.utc),
                     'task_count': len(self.tasks)
                 }
             )
@@ -1699,7 +1699,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'scheduler_stopped',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -1811,7 +1811,7 @@ class Scheduler:
         """Export schedule to file"""
         try:
             schedule_data = {
-                'export_time': datetime.now().isoformat(),
+                'export_time': datetime.now(timezone.utc).isoformat(),
                 'scheduler_running': self.scheduler.running,
                 'tasks': []
             }

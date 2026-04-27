@@ -33,7 +33,7 @@ import json
 import logging
 import hashlib
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
@@ -283,7 +283,7 @@ class SpyderS06_SKEWCalculator:
         Returns:
             SKEWCalculation object or None if calculation fails
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             with self.lock:
@@ -337,11 +337,11 @@ class SpyderS06_SKEWCalculator:
                 confidence = self._calculate_confidence(options, components)
 
                 # Create calculation result
-                calc_time = (datetime.now() - start_time).total_seconds() * 1000
+                calc_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
                 calculation = SKEWCalculation(
                     skew_index=skew_index,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     spot_price=self.spot_price,
                     risk_free_rate=self.risk_free_rate,
                     expiry_used=expiry,
@@ -407,7 +407,7 @@ class SpyderS06_SKEWCalculator:
                 return None, None
 
             # Calculate days to expiry
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             dte_list = []
 
             for expiry in expiries:
@@ -486,7 +486,7 @@ class SpyderS06_SKEWCalculator:
         """Create OptionData object from DataFrame row"""
         try:
             # Calculate time to expiry
-            dte = (expiry - datetime.now()).days / 365.25
+            dte = (expiry - datetime.now(timezone.utc)).days / 365.25
 
             # Get prices
             bid = row.get('bid', 0)
@@ -1054,7 +1054,7 @@ class SpyderS06_SKEWCalculator:
                 return None
 
             # Select appropriate expiries (around 30 days)
-            target_date = datetime.now() + timedelta(days=30)
+            target_date = datetime.now(timezone.utc) + timedelta(days=30)
             selected_expiries = []
 
             for expiry_str in expiries:
@@ -1102,7 +1102,7 @@ class SpyderS06_SKEWCalculator:
             if cache_key in self.calculation_cache:
                 timestamp = self.cache_timestamps.get(cache_key)
                 if timestamp:
-                    age = (datetime.now() - timestamp).total_seconds()
+                    age = (datetime.now(timezone.utc) - timestamp).total_seconds()
                     if age < self.config['cache_ttl']:
                         return self.calculation_cache[cache_key]
 
@@ -1117,7 +1117,7 @@ class SpyderS06_SKEWCalculator:
         try:
             cache_key = self._generate_cache_key()
             self.calculation_cache[cache_key] = calculation
-            self.cache_timestamps[cache_key] = datetime.now()
+            self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
 
             # Limit cache size
             if len(self.calculation_cache) > 100:
@@ -1133,7 +1133,7 @@ class SpyderS06_SKEWCalculator:
         """Generate cache key for current data"""
         key_data = {
             'spot': round(self.spot_price, 2) if self.spot_price else 0,
-            'timestamp': datetime.now().replace(second=0, microsecond=0).isoformat()
+            'timestamp': datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat()
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()

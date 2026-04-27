@@ -27,7 +27,7 @@ import asyncio
 import logging
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from collections import defaultdict, deque
 
@@ -263,7 +263,7 @@ class SpyderX03_StrategyDirectorAgent:
         Returns:
             Strategy recommendation or None if no suitable strategy
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Check cache first
@@ -305,7 +305,7 @@ class SpyderX03_StrategyDirectorAgent:
                 self.strategy_history.append(strategy_recommendation)
 
                 # Log performance
-                elapsed = (datetime.now() - start_time).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 self.logger.info(
                     f"Strategy selected: {strategy_recommendation.strategy_params.strategy_type.value} "  # noqa: E501
                     f"with confidence {strategy_recommendation.strategy_params.confidence_score:.2%} "  # noqa: E501
@@ -549,7 +549,7 @@ class SpyderX03_StrategyDirectorAgent:
 
             # Create recommendation
             recommendation = StrategyRecommendation(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_params=strategy_params,
                 market_context=market_context,
                 reasoning=ai_recommendation.get('reasoning', ''),
@@ -670,7 +670,7 @@ Provide your recommendation as JSON with the following structure:
 
         # Calculate expiration
         days = ai_recommendation.get('expiration_days', 45)
-        expiration = datetime.now() + timedelta(days=days)
+        expiration = datetime.now(timezone.utc) + timedelta(days=days)
 
         # Get strikes or calculate them
         strikes = ai_recommendation.get('strikes', [])
@@ -746,7 +746,7 @@ Provide your recommendation as JSON with the following structure:
         strategy_params = StrategyParameters(
             strategy_type=strategy_type,
             strikes=strikes,
-            expirations=[datetime.now() + timedelta(days=45)],
+            expirations=[datetime.now(timezone.utc) + timedelta(days=45)],
             quantities=[1],
             max_loss=1000,
             target_profit=500,
@@ -757,7 +757,7 @@ Provide your recommendation as JSON with the following structure:
         )
 
         return StrategyRecommendation(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             strategy_params=strategy_params,
             market_context=market_context,
             reasoning=reasoning,
@@ -871,7 +871,7 @@ Provide your recommendation as JSON with the following structure:
         """Get cached strategy if still valid."""
         if cache_key in self.strategy_cache:
             recommendation, timestamp = self.strategy_cache[cache_key]
-            if datetime.now() - timestamp < self.cache_ttl:
+            if datetime.now(timezone.utc) - timestamp < self.cache_ttl:
                 self.logger.info("Using cached strategy recommendation")
                 return recommendation
 
@@ -879,7 +879,7 @@ Provide your recommendation as JSON with the following structure:
 
     def _cache_strategy(self, cache_key: str, recommendation: StrategyRecommendation):
         """Cache strategy recommendation."""
-        self.strategy_cache[cache_key] = (recommendation, datetime.now())
+        self.strategy_cache[cache_key] = (recommendation, datetime.now(timezone.utc))
 
     def _calculate_sharpe_ratio(self, returns: list[float]) -> float:
         """Calculate Sharpe ratio from returns."""
@@ -975,7 +975,7 @@ if __name__ == "__main__":
 
         # Create sample market data
         market_data = MarketData(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             underlying_price=550.00,
             volatility=18.5,
             volume=85000000,

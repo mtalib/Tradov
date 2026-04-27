@@ -27,7 +27,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -74,6 +74,13 @@ ENVIRONMENT_OVERRIDES = {
     "testing": {"all_features": True},
     "production": {"experimental_features": False},
 }
+
+
+def _matching_now(reference: datetime | None = None) -> datetime:
+    """Return now() with tz-awareness matching the reference timestamp."""
+    if reference is not None and reference.tzinfo is None:
+        return datetime.now()  # spyder: naive-ok
+    return datetime.now(timezone.utc)
 
 # ==============================================================================
 # ENUMS
@@ -145,7 +152,7 @@ class FeatureFlag:
     def is_expired(self) -> bool:
         """Check if feature flag has expired."""
         if self.expires_date:
-            return datetime.now() > self.expires_date
+            return _matching_now(self.expires_date) > self.expires_date
         return False
 
     def is_enabled_for_user(self, user_id: str) -> bool:
@@ -198,7 +205,6 @@ class FeatureFlags:
     """
     Feature flag management system.
 
-    This class provides comprehensive feature flag management including
     dynamic enabling/disabling, A/B testing, gradual rollouts, and
     configuration management. Features can be controlled globally,
     per environment, or per user with real-time updates.
@@ -332,7 +338,8 @@ class FeatureFlags:
             with self.lock:
                 if feature_name in self.features:
                     self.features[feature_name].enabled = True
-                    self.features[feature_name].modified_date = datetime.now()
+                    feature = self.features[feature_name]
+                    feature.modified_date = _matching_now(feature.modified_date)
                 else:
                     # Create new feature
                     self.features[feature_name] = FeatureFlag(
@@ -367,7 +374,8 @@ class FeatureFlags:
             with self.lock:
                 if feature_name in self.features:
                     self.features[feature_name].enabled = False
-                    self.features[feature_name].modified_date = datetime.now()
+                    feature = self.features[feature_name]
+                    feature.modified_date = _matching_now(feature.modified_date)
 
                     if save:
                         self._save_configuration()
@@ -404,7 +412,8 @@ class FeatureFlags:
                 if feature_name in self.features:
                     self.features[feature_name].rollout_percentage = percentage
                     self.features[feature_name].rollout_strategy = RolloutStrategy.PERCENTAGE
-                    self.features[feature_name].modified_date = datetime.now()
+                    feature = self.features[feature_name]
+                    feature.modified_date = _matching_now(feature.modified_date)
 
                     if save:
                         self._save_configuration()

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -1040,7 +1040,7 @@ class RiskParametersDialog(QDialog):
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Export Risk Levels",
-            f"spyder_risk_levels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            f"spyder_risk_levels_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json",
             "JSON Files (*.json);;All Files (*)",
         )
 

@@ -36,7 +36,7 @@ import threading
 from typing import Optional, Any
 from collections.abc import Callable
 from enum import Enum
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 
@@ -549,7 +549,7 @@ class OrderFlowAnalyzer:
         # Check cache
         if use_cache and symbol in self._gex_cache:
             cache_time = self._gex_cache_time.get(symbol, datetime.min)
-            if (datetime.now() - cache_time).seconds < cache_ttl:
+            if (datetime.now(timezone.utc) - cache_time).seconds < cache_ttl:
                 return self._gex_cache[symbol]
 
         try:
@@ -559,7 +559,7 @@ class OrderFlowAnalyzer:
                 logger.warning("Could not fetch option chain for %s", symbol)
                 return GammaExposure(
                     symbol=symbol,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     total_gex=0,
                     call_gex=0,
                     put_gex=0
@@ -573,7 +573,7 @@ class OrderFlowAnalyzer:
 
             # Cache result
             self._gex_cache[symbol] = gex_result
-            self._gex_cache_time[symbol] = datetime.now()
+            self._gex_cache_time[symbol] = datetime.now(timezone.utc)
 
             logger.info(
                 f"GEX calculated for {symbol}: "
@@ -586,7 +586,7 @@ class OrderFlowAnalyzer:
             logger.error("GEX calculation failed for %s: %s", symbol, e, exc_info=True)
             return GammaExposure(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 total_gex=0,
                 call_gex=0,
                 put_gex=0
@@ -646,7 +646,7 @@ class OrderFlowAnalyzer:
 
         return GammaExposure(
             symbol=symbol,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_gex=total_gex,
             call_gex=call_gex,
             put_gex=put_gex,
@@ -801,7 +801,7 @@ class OrderFlowAnalyzer:
             if not trades:
                 return FlowSummary(
                     symbol=symbol,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     total_call_premium=0,
                     total_put_premium=0,
                     total_call_volume=0,
@@ -829,7 +829,7 @@ class OrderFlowAnalyzer:
 
             return FlowSummary(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 total_call_premium=call_premium,
                 total_put_premium=put_premium,
                 total_call_volume=call_volume,
@@ -846,7 +846,7 @@ class OrderFlowAnalyzer:
             logger.error("Flow summary failed for %s: %s", symbol, e, exc_info=True)
             return FlowSummary(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 total_call_premium=0,
                 total_put_premium=0,
                 total_call_volume=0,
@@ -980,7 +980,7 @@ class OrderFlowAnalyzer:
             cache_key = (symbol, expiry)
             if cache_key in self._max_pain_cache:
                 cached = self._max_pain_cache[cache_key]
-                if (datetime.now() - cached.timestamp).seconds < 300:  # 5 min cache
+                if (datetime.now(timezone.utc) - cached.timestamp).seconds < 300:  # 5 min cache
                     return cached
 
             # Fetch option chain for expiry
@@ -990,7 +990,7 @@ class OrderFlowAnalyzer:
                 return MaxPainAnalysis(
                     symbol=symbol,
                     expiry=expiry,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     max_pain_strike=0,
                     current_price=0,
                     distance_to_max_pain=0
@@ -1038,7 +1038,7 @@ class OrderFlowAnalyzer:
             result = MaxPainAnalysis(
                 symbol=symbol,
                 expiry=expiry,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 max_pain_strike=max_pain_strike,
                 current_price=current_price,
                 distance_to_max_pain=distance,
@@ -1062,7 +1062,7 @@ class OrderFlowAnalyzer:
             return MaxPainAnalysis(
                 symbol=symbol,
                 expiry=expiry or date.today(),
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 max_pain_strike=0,
                 current_price=0,
                 distance_to_max_pain=0
@@ -1204,7 +1204,7 @@ class OrderFlowAnalyzer:
 
         return {
             "symbol": symbol,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "gex": {
                 "total": gex.total_gex,
                 "regime": gex.regime,

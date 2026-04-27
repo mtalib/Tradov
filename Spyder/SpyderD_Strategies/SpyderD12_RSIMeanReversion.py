@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -473,7 +473,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
 
     def _is_optimal_trading_time(self) -> bool:
         """Check if current time is within optimal trading window"""
-        current_time = datetime.now().time()
+        current_time = datetime.now(timezone.utc).time()
 
         # No new entries after 3 PM
         if current_time > NO_ENTRY_AFTER:
@@ -527,7 +527,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 contracts=contracts
             )
 
-            signal_timestamp = datetime.now()
+            signal_timestamp = datetime.now(timezone.utc)
 
             # Create trading signal
             signal = TradingSignal(
@@ -606,7 +606,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 contracts=contracts
             )
 
-            signal_timestamp = datetime.now()
+            signal_timestamp = datetime.now(timezone.utc)
 
             # Create trading signal
             signal = TradingSignal(
@@ -675,7 +675,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
 
     def _get_option_expiry(self) -> datetime:
         """Get option expiration date (next Friday)"""
-        today = datetime.now()
+        today = datetime.now(timezone.utc)
         days_ahead = 4 - today.weekday()  # Friday is 4
         if days_ahead <= 0:  # Target day already passed this week
             days_ahead += 7
@@ -813,7 +813,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 return self._create_exit_signal(position, "rsi_reversion")
 
         # Check time-based exit (end of day)
-        if datetime.now().time() > time(15, 45):
+        if datetime.now(timezone.utc).time() > time(15, 45):
             return self._create_exit_signal(position, "time_exit")
 
         return None
@@ -838,7 +838,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
     def _create_exit_signal(self, position: RSIPosition, reason: str) -> TradingSignal:
         """Create exit signal for position"""
         # Update exit info
-        position.exit_time = datetime.now()
+        position.exit_time = datetime.now(timezone.utc)
         position.exit_reason = reason
 
         # Update state
@@ -853,7 +853,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         self._update_performance_stats(position)
 
         signal = TradingSignal(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -898,7 +898,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new RSI position from signal"""
-        position_id = f"RSI_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        position_id = f"RSI_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         rsi_signal_data = signal.metadata['rsi_signal']
         rsi_signal = RSISignal(**rsi_signal_data)
@@ -906,7 +906,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         position = RSIPosition(
             position_id=position_id,
             signal=rsi_signal,
-            entry_time=datetime.now(),
+            entry_time=datetime.now(timezone.utc),
             entry_rsi=rsi_signal.rsi_value
         )
 
@@ -987,7 +987,7 @@ def test_rsi_mean_reversion():
     logging.info("=" * 40)
 
     # Create sample data with RSI extremes
-    dates = pd.date_range(start=datetime.now().replace(hour=11, minute=0), periods=100, freq='5min')
+    dates = pd.date_range(start=datetime.now(timezone.utc).replace(hour=11, minute=0), periods=100, freq='5min')
 
     # Create oversold then overbought pattern
     prices = np.zeros(100)

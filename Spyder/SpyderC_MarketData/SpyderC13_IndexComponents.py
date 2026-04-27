@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -232,7 +232,7 @@ class IndexComponentAnalyzer:
         leaders, laggards = self.get_momentum_leaders_laggards(20)
 
         return MarketInternals(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             breadth=breadth,
             sectors=sectors,
             market_regime=regime,
@@ -290,7 +290,7 @@ class IndexComponentAnalyzer:
         )
 
         metrics = BreadthMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             advancing=advancing,
             declining=declining,
             unchanged=unchanged,
@@ -416,7 +416,7 @@ class IndexComponentAnalyzer:
         risk_assessment = self._assess_risk_appetite(sectors)
 
         return {
-            'timestamp': datetime.now(),
+            'timestamp': datetime.now(timezone.utc),
             'sector_rankings': {tf: [s.sector for s in ranking]
                               for tf, ranking in rankings.items()},
             'rotation_pattern': rotation_pattern,
@@ -849,7 +849,7 @@ class IndexComponentAnalyzer:
     def _empty_breadth_metrics(self) -> BreadthMetrics:
         """Return empty breadth metrics structure."""
         return BreadthMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             advancing=0,
             declining=0,
             unchanged=0,
@@ -921,11 +921,11 @@ class IndexComponentAnalyzer:
 
     def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
-        last_update = datetime.now()
+        last_update = datetime.now(timezone.utc)
 
         while self._running:
             try:
-                now = datetime.now()
+                now = datetime.now(timezone.utc)
 
                 # Update prices periodically
                 if (now - last_update).total_seconds() > PRICE_UPDATE_INTERVAL:

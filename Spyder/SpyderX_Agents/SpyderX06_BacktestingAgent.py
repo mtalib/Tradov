@@ -41,7 +41,7 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from enum import Enum
 from typing import Any
 
@@ -308,7 +308,7 @@ class SpyderX06_BacktestingAgent:
         Returns:
             BacktestResult with metrics, tear sheet, and optional LLM analysis.
         """
-        start_ts = datetime.now()
+        start_ts = datetime.now(timezone.utc)
         self.logger.info(
             f"Backtest requested: '{request.strategy_description}' "
             f"[{request.start_date} → {request.end_date}]"
@@ -342,7 +342,7 @@ class SpyderX06_BacktestingAgent:
                 request, metrics, strategy_params
             )
 
-            elapsed = (datetime.now() - start_ts).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - start_ts).total_seconds()
             return BacktestResult(
                 request=request,
                 status=BacktestStatus.COMPLETED,
@@ -357,7 +357,7 @@ class SpyderX06_BacktestingAgent:
 
         except Exception as e:
             self.error_handler.handle_error(e, "run_backtest")
-            elapsed = (datetime.now() - start_ts).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - start_ts).total_seconds()
             return BacktestResult(
                 request=request,
                 status=BacktestStatus.FAILED,

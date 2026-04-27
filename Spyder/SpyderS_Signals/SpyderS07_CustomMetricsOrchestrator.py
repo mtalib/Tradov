@@ -47,7 +47,7 @@ import threading
 import time
 import importlib
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -347,7 +347,7 @@ class CustomMetricsOrchestrator(QObject):
 
         # Update frequency management
         self.current_update_interval = UPDATE_INTERVAL
-        self.last_frequency_change = datetime.now()
+        self.last_frequency_change = datetime.now(timezone.utc)
 
         # Connection status
         self.ib_connected = False
@@ -480,7 +480,7 @@ class CustomMetricsOrchestrator(QObject):
                 metric_name=metric,
                 quality_score=1.0,  # Start with perfect score
                 data_points=0,
-                last_successful_update=datetime.now(),
+                last_successful_update=datetime.now(timezone.utc),
                 error_count=0,
                 source_available=True
             )
@@ -1008,13 +1008,13 @@ class CustomMetricsOrchestrator(QObject):
                     "momentum_dispersion": momentum_dispersion,
                     "participation_score": participation,
                     "breadth_regime": updated_metrics["BREADTH_REGIME"],
-                    "snapshot_ts": snap.get("snapshot_ts") or datetime.now().isoformat(),
+                    "snapshot_ts": snap.get("snapshot_ts") or datetime.now(timezone.utc).isoformat(),
                     "source": "SpyderS11_TradingViewInternals",
                 }
 
                 if "SECTOR_BREADTH" in self.metric_quality:
                     q = self.metric_quality["SECTOR_BREADTH"]
-                    q.last_successful_update = datetime.now()
+                    q.last_successful_update = datetime.now(timezone.utc)
                     q.data_points += 1
                     q.quality_score = min(1.0, q.quality_score + 0.01)
                 self.breadth_updated.emit(snap)
@@ -1036,13 +1036,17 @@ class CustomMetricsOrchestrator(QObject):
 
     def _build_data_quality_feed(self, updated_metrics: dict[str, Any], errors: list[str]) -> dict[str, Any]:  # noqa: E501
         """Build a normalized data-quality/SLO envelope for downstream consumers."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         stale_threshold_sec = int(self.config.get("data_quality", {}).get("stale_after_sec", 180))
         buckets: dict[str, dict[str, Any]] = {}
         stale_count = 0
 
         for name, quality in self.metric_quality.items():
-            age_sec = (now - quality.last_successful_update).total_seconds()
+            last_successful_update = quality.last_successful_update
+            if last_successful_update.tzinfo is None:
+                age_sec = (datetime.now() - last_successful_update).total_seconds()  # spyder: naive-ok
+            else:
+                age_sec = (now - last_successful_update.astimezone(timezone.utc)).total_seconds()
             stale = age_sec > stale_threshold_sec
             if stale:
                 stale_count += 1
@@ -1180,6 +1184,13 @@ class CustomMetricsOrchestrator(QObject):
         if not isinstance(quote_ts, datetime):
             quote_ts = now
 
+        if quote_ts.tzinfo is None:
+            now_for_age = now.replace(tzinfo=None) if now.tzinfo is not None else now
+            quote_age_ms = max(0, int((now_for_age - quote_ts).total_seconds() * 1000))
+        else:
+            now_for_age = now.astimezone(timezone.utc) if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)  # noqa: E501
+            quote_age_ms = max(0, int((now_for_age - quote_ts.astimezone(timezone.utc)).total_seconds() * 1000))  # noqa: E501
+
         bid_size = row.get("bid_size")
         ask_size = row.get("ask_size")
         if bid_size is not None and ask_size is not None:
@@ -1193,7 +1204,7 @@ class CustomMetricsOrchestrator(QObject):
         snapshot = {
             "spread_abs": spread_abs,
             "spread_pct": spread_pct,
-            "quote_age_ms": max(0, int((now - quote_ts).total_seconds() * 1000)),
+            "quote_age_ms": quote_age_ms,
             "bid_size": int(bid_size) if isinstance(bid_size, (int, float)) else None,
             "ask_size": int(ask_size) if isinstance(ask_size, (int, float)) else None,
             "top_of_book_size": top_of_book_size,
@@ -1228,7 +1239,7 @@ class CustomMetricsOrchestrator(QObject):
                 spot = self._get_spy_spot()
                 anchor = spot if spot is not None else float(chain_df["strike"].median())
 
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             candidate_df = chain_df.copy()
             candidate_df["_distance"] = (candidate_df["strike"].astype(float) - float(anchor)).abs()
             candidate_df = candidate_df.sort_values(["_distance", "expiry", "option_type"]).head(6)
@@ -1295,7 +1306,7 @@ class CustomMetricsOrchestrator(QObject):
                 history = []
 
         history.append({
-            "date": datetime.now().date().isoformat(),
+            "date": datetime.now(timezone.utc).date().isoformat(),
             "iv": float(current_iv),
         })
         history = history[-252:]
@@ -1315,7 +1326,7 @@ class CustomMetricsOrchestrator(QObject):
     def _compute_hv20(self, tradier_client: Any) -> float | None:
         """Compute 20-day historical volatility as an annualized percent."""
         try:
-            end_date = datetime.now().date()
+            end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=40)
             response = tradier_client.get_historical_quotes(
                 "SPY",
@@ -1472,7 +1483,7 @@ class CustomMetricsOrchestrator(QObject):
         if ok_n09 or ok_n11:
             if "DEALER_FLOW" in self.metric_quality:
                 q = self.metric_quality["DEALER_FLOW"]
-                q.last_successful_update = datetime.now()
+                q.last_successful_update = datetime.now(timezone.utc)
                 q.data_points += 1
                 q.quality_score = min(1.0, q.quality_score + 0.01)
 
@@ -1526,7 +1537,7 @@ class CustomMetricsOrchestrator(QObject):
             }
             if "LEAD_LAG" in self.metric_quality:
                 q = self.metric_quality["LEAD_LAG"]
-                q.last_successful_update = datetime.now()
+                q.last_successful_update = datetime.now(timezone.utc)
                 q.data_points += 1
                 q.quality_score = min(1.0, q.quality_score + 0.01)
             return True
@@ -1615,7 +1626,7 @@ class CustomMetricsOrchestrator(QObject):
                     quality.error_count += 1
                     quality.quality_score = max(0.0, quality.quality_score - 0.1)
                 else:
-                    quality.last_successful_update = datetime.now()
+                    quality.last_successful_update = datetime.now(timezone.utc)
                     quality.data_points += 1
                     # Gradually improve quality score on successful updates
                     quality.quality_score = min(1.0, quality.quality_score + 0.01)
@@ -1641,7 +1652,7 @@ class CustomMetricsOrchestrator(QObject):
         # Update stress level if changed
         if new_stress_level != self.current_stress_level:
             self.current_stress_level = new_stress_level
-            self.stress_history.append((datetime.now(), new_stress_level))
+            self.stress_history.append((datetime.now(timezone.utc), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
 
             self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
@@ -1650,13 +1661,13 @@ class CustomMetricsOrchestrator(QObject):
         if new_interval != self.current_update_interval:
             self.current_update_interval = new_interval
             self.update_timer.setInterval(new_interval * 1000)
-            self.last_frequency_change = datetime.now()
+            self.last_frequency_change = datetime.now(timezone.utc)
 
             self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
 
         def _is_nan(value: Any) -> bool:
             return isinstance(value, float) and math.isnan(value)
@@ -2042,7 +2053,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def get_metrics_history(self, lookback_minutes: int = 60) -> list[MetricSnapshot]:
         """Get metrics history for specified lookback period"""
-        cutoff_time = datetime.now() - timedelta(minutes=lookback_minutes)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
         return [s for s in self.metrics_history if s.timestamp >= cutoff_time]
 
     def get_quality_report(self) -> dict[str, Any]:
@@ -2135,7 +2146,7 @@ class CustomMetricsOrchestrator(QObject):
                 'lead_lag': self.current_metrics.get('LEAD_LAG', {}),
                 'stress_level': self.current_stress_level.value,
                 'update_frequency': self.current_update_interval,
-                'timestamp': datetime.now(),
+                'timestamp': datetime.now(timezone.utc),
                 'data_quality_feed': self.current_metrics.get('DATA_QUALITY_FEED', {}),
                 'data_quality': {
                     name: quality.quality_score

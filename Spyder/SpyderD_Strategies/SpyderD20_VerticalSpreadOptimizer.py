@@ -31,7 +31,7 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -302,7 +302,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
             return False
 
         # Check market hours
-        current_time = datetime.now().time()
+        current_time = datetime.now(timezone.utc).time()
         if current_time < time(9, 45) or current_time > time(15, 30):
             return False  # Only trade during regular hours
 
@@ -735,7 +735,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
                 position.unrealized_pnl = (current_credit + position.entry_credit) * 100 * position.contracts  # noqa: E501
 
             position.current_value = current_credit
-            position.days_in_trade = (datetime.now() - position.entry_date).days
+            position.days_in_trade = (datetime.now(timezone.utc) - position.entry_date).days
 
         except Exception as e:
             self.logger.error("Error updating position metrics: %s", e)

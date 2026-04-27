@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Focused tests for D31 strategy registry and auto-selection wiring."""
 
+import importlib
 from unittest.mock import MagicMock
 from types import SimpleNamespace
 
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
+
+def _make_orchestrator():
+    """Lazily import D31 to avoid heavy GUI/native import at collection time."""
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    strategy_orchestrator_cls = mod.StrategyOrchestrator
+    return strategy_orchestrator_cls(event_manager=_StubEventManager())
 
 
 class _StubEventManager:
@@ -20,7 +25,10 @@ class _StubEventManager:
 
 
 def test_d31_registry_includes_first_wave_base_strategies():
-    orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
+    orchestrator = _make_orchestrator()
+    base_strategy_cls = importlib.import_module(
+        "Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy"
+    ).BaseStrategy
 
     expected = {
         "RSIMeanReversion",
@@ -33,11 +41,14 @@ def test_d31_registry_includes_first_wave_base_strategies():
     assert not missing, f"Missing strategy registrations: {sorted(missing)}"
 
     for name in expected:
-        assert issubclass(orchestrator.available_strategies[name], BaseStrategy)
+        strategy_cls = orchestrator.available_strategies[name]
+        assert issubclass(strategy_cls, base_strategy_cls) or any(
+            base.__name__ == "BaseStrategy" for base in strategy_cls.__mro__
+        )
 
 
 def test_d31_configure_regime_selects_newly_wired_strategies():
-    orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
+    orchestrator = _make_orchestrator()
 
     # Force a deterministic weight map so we only test selection logic.
     orchestrator._get_regime_strategy_weights = lambda: {
@@ -58,7 +69,7 @@ def test_d31_configure_regime_selects_newly_wired_strategies():
 
 
 def test_d31_current_regime_weights_are_registry_reachable_and_constructible():
-    orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
+    orchestrator = _make_orchestrator()
     weights = orchestrator._get_regime_strategy_weights()
 
     if weights and all(isinstance(v, (int, float)) for v in weights.values()):

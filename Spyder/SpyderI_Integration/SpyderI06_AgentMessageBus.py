@@ -36,7 +36,7 @@ import uuid
 import pickle
 import threading
 import queue
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -139,7 +139,7 @@ class Message:
 
     def is_expired(self) -> bool:
         """Check if message has expired"""
-        return (datetime.now() - self.timestamp).total_seconds() > self.ttl
+        return (datetime.now(timezone.utc) - self.timestamp).total_seconds() > self.ttl
 
     def to_json(self) -> str:
         """Convert to JSON"""
@@ -381,7 +381,7 @@ class AgentMessageBus:
         self.metrics.total_messages += 1
         if topic in self.topic_stats:
             self.topic_stats[topic].message_count += 1
-            self.topic_stats[topic].last_message = datetime.now()
+            self.topic_stats[topic].last_message = datetime.now(timezone.utc)
 
         return message.id
 
@@ -517,7 +517,7 @@ class AgentMessageBus:
     def _deliver_message(self, message: Message):
         """Deliver message to subscribers"""
         delivered = False
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Check if message expired
@@ -557,7 +557,7 @@ class AgentMessageBus:
                 try:
                     subscriber.callback(message)
                     subscriber.message_count += 1
-                    subscriber.last_message = datetime.now()
+                    subscriber.last_message = datetime.now(timezone.utc)
                     delivered = True
 
                 except Exception as e:
@@ -567,7 +567,7 @@ class AgentMessageBus:
             # Update metrics
             if delivered:
                 self.metrics.delivered_messages += 1
-                latency = (datetime.now() - start_time).total_seconds()
+                latency = (datetime.now(timezone.utc) - start_time).total_seconds()
                 self.latency_history.append(latency)
                 self.metrics.avg_latency = np.mean(list(self.latency_history))
             else:
@@ -674,7 +674,7 @@ class AgentMessageBus:
         self.dead_letter_queue.append({
             'message': message,
             'reason': reason,
-            'timestamp': datetime.now()
+            'timestamp': datetime.now(timezone.utc)
         })
 
         self.metrics.dead_letter_count = len(self.dead_letter_queue)
@@ -716,7 +716,7 @@ class AgentMessageBus:
                 time_window = 60  # 1 minute
                 recent_messages = [
                     m for m in self.message_history
-                    if (datetime.now() - m.timestamp).total_seconds() <= time_window
+                    if (datetime.now(timezone.utc) - m.timestamp).total_seconds() <= time_window
                 ]
                 self.metrics.throughput = len(recent_messages) / time_window
 

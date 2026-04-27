@@ -25,7 +25,7 @@ Change Log:
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 from collections import deque, defaultdict
@@ -218,7 +218,7 @@ class NewsManager:
             'items_processed': 0,
             'sources_active': 0,
             'errors': 0,
-            'last_update': datetime.now()
+            'last_update': datetime.now(timezone.utc)
         }
 
         # Control flags
@@ -355,7 +355,7 @@ class NewsManager:
         Returns:
             Sentiment trend analysis
         """
-        cutoff_time = datetime.now() - timedelta(minutes=window_minutes)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
         recent_sentiments = []
 
         with self.lock:
@@ -472,7 +472,7 @@ class NewsManager:
             if published:
                 timestamp = datetime.fromtimestamp(time.mktime(published))
             else:
-                timestamp = datetime.now()
+                timestamp = datetime.now(timezone.utc)
 
             # Generate ID
             item_id = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
@@ -564,7 +564,7 @@ class NewsManager:
                         type=EventType.NEWS_ANALYSIS,
                         data={
                             'analysis': analysis,
-                            'timestamp': datetime.now()
+                            'timestamp': datetime.now(timezone.utc)
                         }
                     )
                     self.event_bus.publish(event)
@@ -620,7 +620,7 @@ class NewsManager:
 
             return NewsSentiment(
                 item_id=news_item.id,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 sentiment_score=sentiment_score,
                 sentiment_level=sentiment_level,
                 textblob_polarity=textblob_polarity,
@@ -684,7 +684,7 @@ class NewsManager:
 
             return NewsImpact(
                 item_id=news_item.id,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 impact_level=impact_level,
                 impact_score=impact_score,
                 affected_sectors=affected_sectors,
@@ -762,7 +762,7 @@ class NewsManager:
 
                 # Calculate overall sentiment
                 recent_sentiments = []
-                cutoff_time = datetime.now() - timedelta(hours=1)
+                cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
                 for sentiment in self.news_sentiments.values():
                     if sentiment.timestamp > cutoff_time:
                         recent_sentiments.append(sentiment.sentiment_score)
@@ -799,7 +799,7 @@ class NewsManager:
                 )
 
                 return NewsAnalysis(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     total_items=len(self.news_items),
                     items_by_category=dict(items_by_category),
                     overall_sentiment=overall_sentiment,
@@ -950,7 +950,7 @@ class NewsManager:
                 type=EventType.BREAKING_NEWS,
                 data={
                     'news_item': news_item,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
             self.event_bus.publish(event)

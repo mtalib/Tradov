@@ -29,7 +29,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -908,7 +908,7 @@ class MarketConfigManager:
     # ==========================================================================
     def _generate_version(self) -> str:
         """Generate version string"""
-        return datetime.now().strftime("%Y%m%d_%H%M%S")
+        return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     def _create_version(self, category: str):
         """Create new version entry"""
@@ -917,7 +917,7 @@ class MarketConfigManager:
 
         version = ConfigVersion(
             version=self._generate_version(),
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             checksum=checksum,
             changes=[f"Updated {category} configuration"],
         )

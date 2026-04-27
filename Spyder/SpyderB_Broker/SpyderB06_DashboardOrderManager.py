@@ -35,7 +35,7 @@ Module Description:
 # ==============================================================================
 import logging  # noqa: F401
 import os  # noqa: F401
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -296,8 +296,8 @@ class DashboardOrderManager:
         if OptionLeg is None or build_option_symbol is None:
             raise RuntimeError("TradierClient module is unavailable")
 
-        current_year = datetime.now().year
-        current_month = datetime.now().month
+        current_year = datetime.now(timezone.utc).year
+        current_month = datetime.now(timezone.utc).month
         option_legs: list = []
 
         for leg_dict in legs_data:

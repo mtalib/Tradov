@@ -36,10 +36,8 @@ def _ensure_pkg(name: str) -> None:
     if name not in sys.modules:
         sys.modules[name] = types.ModuleType(name)
 
-
 _ensure_pkg("Spyder")
 _ensure_pkg("SpyderU_Utilities")
-_ensure_pkg("Spyder.SpyderU_Utilities")
 
 _logger_mod = types.ModuleType("Spyder.SpyderU_Utilities.SpyderU01_Logger")
 
@@ -65,7 +63,16 @@ import pytest
 import numpy as np
 import pandas as pd
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*Ray will no longer override accelerator visible devices env var.*:FutureWarning"
+)
+
 warnings.filterwarnings("ignore")   # suppress library-availability warnings globally
+warnings.filterwarnings(
+    "ignore",
+    message=r"Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var.*",
+    category=FutureWarning,
+)
 
 from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
     # dataclasses
@@ -77,7 +84,6 @@ from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
     # module functions
     get_institutional_libraries,
     reset_institutional_libraries,
-    test_institutional_libraries,
     # constants
     DEFAULT_RISK_FREE_RATE,
     TRADING_DAYS_PER_YEAR,
@@ -87,6 +93,9 @@ from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
     QUANTLIB_AVAILABLE,
     SCIPY_AVAILABLE,
     SKLEARN_AVAILABLE,
+)
+from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
+    test_institutional_libraries as run_institutional_libraries_smoke_test,
 )
 
 # OptionType may come from constants or internal fallback
@@ -749,7 +758,7 @@ class TestGlobalInstitutionalFunctions:
         assert lib1 is not lib2
 
     def test_test_institutional_libraries_returns_bool(self):
-        result = test_institutional_libraries()
+        result = run_institutional_libraries_smoke_test()
         assert isinstance(result, bool)
 
     def test_get_institutional_libraries_after_reset(self):

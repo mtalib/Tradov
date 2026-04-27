@@ -51,7 +51,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -233,7 +233,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     # ==========================================================================
     def _update_agent_health(self) -> None:
         """Update health scores for all managed agents."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         for _agent_id, status in self._agent_status.items():
             warnings = []
@@ -336,7 +336,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
                 )
 
         decision = SystemDecision(
-            decision_id=f"D_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            decision_id=f"D_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             category="conflict_resolution",
             description=conflict.description,
             agents_involved=conflict.agents,
@@ -429,7 +429,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         health_summary = self._get_health_summary()
         decisions_today = [
             d for d in self._decisions
-            if d.timestamp.date() == datetime.now().date()
+            if d.timestamp.date() == datetime.now(timezone.utc).date()
         ]
 
         prompt = (
@@ -438,7 +438,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             f"- Regime: {self._current_regime}\n"
             f"- Circuit breaker: {self._circuit_breaker}\n"
             f"- Decisions today: {len(decisions_today)}\n"
-            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now().date()])}\n"  # noqa: E501
+            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now(timezone.utc).date()])}\n"  # noqa: E501
             f"- Session transitions: {self._session_transitions_today}\n\n"
             f"Provide a 3-sentence system health summary with any recommendations."
         )
@@ -528,7 +528,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             # Track agent outputs for health monitoring
             agent_id = message.get("agent_id", "")
             if agent_id in self._agent_status:
-                self._agent_status[agent_id].last_heartbeat = datetime.now()
+                self._agent_status[agent_id].last_heartbeat = datetime.now(timezone.utc)
                 self._agent_status[agent_id].outputs_today += 1
                 self._agent_status[agent_id].state = "running"
                 self._agent_status[agent_id].last_output_topic = topic

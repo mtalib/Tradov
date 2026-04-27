@@ -45,7 +45,7 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -851,7 +851,7 @@ class IronButterflyStrategy(BaseStrategy):
             'active_setups': len(self.active_setups),
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
                 'neutral_outlook': self.current_analysis.neutral_outlook_confirmed if self.current_analysis else False,  # noqa: E501
                 'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501

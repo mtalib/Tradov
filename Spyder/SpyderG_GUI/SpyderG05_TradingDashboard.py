@@ -3410,6 +3410,71 @@ class SpyderTradingDashboard(QMainWindow):
         result = self._evaluate_trading_readiness_snapshot(snapshot)
         return self._apply_readiness_result(result, show_dialog=show_dialog)
 
+    def run_preopen_go_no_go_check(self, show_dialog: bool = True) -> dict[str, object]:
+        """Pre-open Go/No-Go checklist returning GO / NO-GO / CONDITIONAL GO.
+
+        Wraps ``run_trading_readiness_check`` with operator-friendly decision
+        labels and updates the ``go_no_go_status_label`` / ``start_btn`` UI
+        elements present in the pre-open panel.
+
+        Args:
+            show_dialog: When True, show a blocking QMessageBox on NO-GO.
+
+        Returns:
+            Dict with keys ``decision`` (str), ``reasons`` (list[str]),
+            ``warnings`` (list[str]), and ``checked_at_et`` (str).
+        """
+        snapshot = self._build_preopen_check_snapshot()
+        inner = self._evaluate_trading_readiness_snapshot(snapshot)
+
+        raw_decision = str(inner.get("decision", "NO"))
+        conditional = bool(inner.get("conditional", False))
+        reasons = list(inner.get("reasons", []))
+        warnings_list = list(inner.get("warnings", []))
+
+        if raw_decision == "NO":
+            decision = "NO-GO"
+        elif conditional:
+            decision = "CONDITIONAL GO"
+        else:
+            decision = "GO"
+
+        result: dict[str, object] = {
+            "decision": decision,
+            "reasons": reasons,
+            "warnings": warnings_list,
+            "checked_at_et": inner.get("checked_at_et", ""),
+        }
+
+        # ── Update UI elements ───────────────────────────────────────────────
+        status_text = f"Pre-open: {decision}"
+        label = getattr(self, "go_no_go_status_label", None)
+        if label is not None:
+            try:
+                label.setText(status_text)
+            except Exception:
+                pass
+
+        start = getattr(self, "start_btn", None)
+        if start is not None:
+            try:
+                start.setEnabled(decision != "NO-GO")
+            except Exception:
+                pass
+
+        btn = getattr(self, "go_no_go_btn", None)
+        if btn is not None:
+            _colors = {"GO": "#00c800", "CONDITIONAL GO": "#ffa500", "NO-GO": "#c80000"}
+            try:
+                btn.setStyleSheet(f"background-color: {_colors.get(decision, '#888')};")
+            except Exception:
+                pass
+
+        log_suffix = f" — {reasons[0]}" if reasons else ""
+        self.add_system_log(f"Pre-open check: {decision}{log_suffix}")
+
+        return result
+
     def _apply_readiness_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:  # noqa: E501
         """Persist, display, and log readiness result."""
         reasons = list(result.get("reasons", []))
@@ -4885,6 +4950,12 @@ class SpyderTradingDashboard(QMainWindow):
     def determine_data_status(self) -> str:
         """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""  # noqa: E501
         market_hours = is_market_hours()
+        et_tz = pytz.timezone("US/Eastern")
+
+        def _as_et(timestamp: datetime) -> datetime:
+            if timestamp.tzinfo is None:
+                return et_tz.localize(timestamp)
+            return timestamp.astimezone(et_tz)
 
         # FIXED: Check for simulation mode first with better detection.
         # Exclude the real-file-data case: if real EOD data is loaded we must
@@ -4909,7 +4980,9 @@ class SpyderTradingDashboard(QMainWindow):
             if market_hours:
                 freshest_quote_time = getattr(self.connection_info, "last_successful_data", None)
                 if freshest_quote_time is not None:
-                    quote_age_seconds = (datetime.now() - freshest_quote_time).total_seconds()
+                    quote_age_seconds = (
+                        datetime.now(et_tz) - _as_et(freshest_quote_time)
+                    ).total_seconds()
                     if quote_age_seconds <= REALTIME_QUOTE_MAX_AGE_SECONDS:
                         self.connection_info.data_was_live = True
                         return "REAL-TIME"
@@ -4931,7 +5004,7 @@ class SpyderTradingDashboard(QMainWindow):
                 hasattr(self.connection_info, "last_successful_data")
                 and self.connection_info.last_successful_data
                 and (
-                    datetime.now() - self.connection_info.last_successful_data
+                    datetime.now(et_tz) - _as_et(self.connection_info.last_successful_data)
                 ).total_seconds()
                 < 300
             ):  # 5 minutes

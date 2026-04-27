@@ -25,7 +25,7 @@ Change Log:
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -472,7 +472,7 @@ class SpyderDataTypes:
                 ask=ask,
                 last=last,
                 volume=volume,
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
         except Exception as e:
             self.logger.error("Failed to create MarketData: %s", e)

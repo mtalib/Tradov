@@ -25,7 +25,7 @@ Change Log:
 import logging
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 project_root = Path(__file__).parent
@@ -475,7 +475,7 @@ class WorkingSpyderDashboard(QMainWindow):
     def place_order(self, action):
         """Place an order (sends to Tradier — not yet wired to SpyderB40)."""
         symbol = self.symbol_input.text().strip().upper() if hasattr(self.symbol_input, 'text') else "SPY"
-        timestamp = datetime.now().strftime('%H:%M:%S')
+        timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
         order_text = f"[{timestamp}] {action} {symbol} (route to SpyderB40_TradierClient)"
         self.order_history.append(order_text)
         self.log_area.append(f"📊 {action} order queued for {symbol} — connect to SpyderB40 to execute")
@@ -483,7 +483,7 @@ class WorkingSpyderDashboard(QMainWindow):
     def update_status(self):
         """Update status displays"""
         system_info = f"""System Status:
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
 
 Modules:
 - PySide6: {'\u2705 Available' if HAS_QT else '\u274c Not Available'}

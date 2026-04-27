@@ -33,7 +33,7 @@ import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -275,7 +275,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),  # noqa: E501
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(timezone.utc),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -596,7 +596,7 @@ class EventManager:
                 EventType.SYSTEM_START,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -629,7 +629,7 @@ class EventManager:
                 EventType.SHUTDOWN,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -824,7 +824,7 @@ class EventManager:
             handler.execution_count += 1
             handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
-            handler.last_execution = datetime.now()
+            handler.last_execution = datetime.now(timezone.utc)
 
             with self._metrics_lock:
                 self.metrics.handlers_executed += 1
@@ -843,7 +843,7 @@ class EventManager:
                 "error": str(e),
                 "traceback": tb,
                 "consecutive": handler.consecutive_errors,
-                "ts": datetime.now().isoformat(),
+                "ts": datetime.now(timezone.utc).isoformat(),
             }
             with self._handler_errors_lock:
                 self._handler_errors.append(error_record)
@@ -1133,7 +1133,7 @@ class EventManager:
                 return False
 
             # Check TTL
-            if event.ttl and (datetime.now() - event.timestamp).total_seconds() > event.ttl:
+            if event.ttl and (datetime.now(timezone.utc) - event.timestamp).total_seconds() > event.ttl:
                 with self._metrics_lock:
                     self.metrics.events_expired += 1
                 return False

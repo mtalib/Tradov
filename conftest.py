@@ -50,6 +50,10 @@ def _cleanup_polluted_spyder_modules() -> None:
         "Spyder.SpyderG_GUI",
         "SpyderI_Integration",
         "Spyder.SpyderI_Integration",
+        "SpyderD_Strategies",
+        "Spyder.SpyderD_Strategies",
+        "SpyderE_Risk",
+        "Spyder.SpyderE_Risk",
     )
 
     for mod_name, mod_obj in list(sys.modules.items()):
@@ -57,6 +61,19 @@ def _cleanup_polluted_spyder_modules() -> None:
             continue
         if _is_workspace_module(mod_obj):
             continue
+        sys.modules.pop(mod_name, None)
+
+
+def _evict_d31_strategy_modules() -> None:
+    """Evict D31/D33/D34 modules so D31 wiring tests import fresh registry state."""
+    for mod_name in (
+        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator",
+        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion",
+        "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion",
+        "SpyderD_Strategies.SpyderD31_StrategyOrchestrator",
+        "SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion",
+        "SpyderD_Strategies.SpyderD34_PivotMeanReversion",
+    ):
         sys.modules.pop(mod_name, None)
 
 
@@ -90,6 +107,13 @@ def pytest_collectstart(collector):
     """Keep collection isolated by removing polluted module stubs between files."""
     _cleanup_polluted_spyder_modules()
 
+    collector_ref = f"{getattr(collector, 'nodeid', '')} {getattr(collector, 'fspath', '')}"
+    if (
+        "SpyderT141_D31_" in collector_ref
+        or "SpyderT142_D31_" in collector_ref
+    ):
+        _evict_d31_strategy_modules()
+
     # Re-prime canonical utility modules commonly clobbered by test bootstraps.
     for module_name in (
         "Spyder",
@@ -100,7 +124,6 @@ def pytest_collectstart(collector):
         "Spyder.SpyderA_Core",
         "Spyder.SpyderA_Core.SpyderA05_EventManager",
         "Spyder.SpyderG_GUI",
-        "Spyder.SpyderG_GUI.SpyderG05_TradingDashboard",
         "Spyder.SpyderI_Integration",
         "Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus",
     ):

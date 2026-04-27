@@ -29,7 +29,7 @@ import threading
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -1052,7 +1052,7 @@ class LiveEngine:
         positions surface immediately rather than after the TTL elapses.
         """
         # ``time`` is shadowed by ``datetime.time`` at module scope, so use the
-        # already-standard ``datetime.now().timestamp()`` pattern for elapsed math.
+        # already-standard ``datetime.now(timezone.utc).timestamp()`` pattern for elapsed math.
         now = datetime.now(_ET).timestamp()
         with self._positions_cache_lock:
             if (
@@ -1152,7 +1152,13 @@ class LiveEngine:
                 checks_passed = False
 
         # Account balance check
-        account_info = self.broker.get_account_info()
+        if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            account_info = self.broker.get_account_info() or {}
+        elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            raw = self.broker.get_account_balances()
+            account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
+        else:
+            account_info = {}
         if account_info.get("buying_power", 0) < 1000:
             self.logger.warning("Low buying power")
 
@@ -1478,9 +1484,15 @@ class LiveEngine:
             Portfolio value in USD
         """
         try:
-            # Get from broker interface
-            account_info = self.broker.get_account_info()
-            return account_info.get('total_equity', 0.0)
+            # Get from broker interface — B40 uses get_account_balances(); B04 uses get_account_info()
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+                account_info = self.broker.get_account_info() or {}
+            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+                raw = self.broker.get_account_balances()
+                account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
+            else:
+                account_info = {}
+            return float(account_info.get("total_equity", 0.0) or 0.0)
         except Exception as e:
             self.logger.error("Error getting portfolio value: %s", e)
             return 0.0

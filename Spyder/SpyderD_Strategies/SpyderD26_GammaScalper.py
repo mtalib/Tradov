@@ -31,7 +31,7 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -907,7 +907,7 @@ class GammaScalperStrategy(BaseStrategy):
 
         # Record hedge action
         hedge_action = HedgeAction(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             hedge_type=HedgeType.BUY_STOCK if hedge_shares > 0 else HedgeType.SELL_STOCK,
             quantity=abs(hedge_shares),
             price=spot,

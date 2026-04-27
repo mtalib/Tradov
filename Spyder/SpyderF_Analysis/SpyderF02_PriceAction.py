@@ -26,7 +26,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 # ==============================================================================
@@ -689,7 +689,7 @@ class PriceActionAnalyzer:
         for idx, row in df.iterrows():
             candles.append(
                 Candle(
-                    timestamp=idx if isinstance(idx, datetime) else datetime.now(),
+                    timestamp=idx if isinstance(idx, datetime) else datetime.now(timezone.utc),
                     open=row["open"],
                     high=row["high"],
                     low=row["low"],
@@ -760,7 +760,7 @@ class PriceActionAnalyzer:
             if self.execution_times:
                 self.performance_metrics.avg_execution_time_ms = np.mean(self.execution_times)
 
-            self.performance_metrics.last_update = datetime.now()
+            self.performance_metrics.last_update = datetime.now(timezone.utc)
 
         # Report to monitor
         if self.monitoring_enabled:

@@ -30,7 +30,7 @@ import re
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -795,7 +795,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     key=key,
                     old_value=old_value if not is_sensitive else "***MASKED***",
                     new_value=value if not is_sensitive else "***MASKED***",
@@ -864,7 +864,7 @@ class ConfigManager:
 
                     # Record change
                     change = ConfigChange(
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         key=key,
                         old_value=old_value,
                         new_value=None,
@@ -1410,12 +1410,12 @@ class ConfigManager:
             backup_dir.mkdir(exist_ok=True)
 
             # Create backup filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             backup_file = backup_dir / f"config_backup_{timestamp}.json"
 
             # Save configuration
             backup_data = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "environment": self.environment,
                 "config": self.get_all(),  # This masks sensitive data
                 "sources": {k: v.source.name for k, v in self.config_sources.items()},

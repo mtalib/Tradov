@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -263,7 +263,7 @@ class TradeRepository:
         """Generate a unique trade ID."""
         with self._lock:
             self._trade_counter += 1
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
             return f"TRD-{timestamp}-{self._trade_counter:06d}"
 
     def save_trade(self, trade: Trade) -> str:
@@ -376,7 +376,7 @@ class TradeRepository:
             fees=row.get('fees', 0.0),
             status=TradeStatus(row.get('status', 'pending')),
             executed_at=datetime.fromisoformat(row['executed_at']) if row.get('executed_at') else None,  # noqa: E501
-            created_at=datetime.fromisoformat(row['created_at']) if row.get('created_at') else datetime.now(),  # noqa: E501
+            created_at=datetime.fromisoformat(row['created_at']) if row.get('created_at') else datetime.now(timezone.utc),  # noqa: E501
             realized_pnl=row.get('realized_pnl', 0.0),
             cost_basis=row.get('cost_basis', 0.0),
             strategy_name=row.get('strategy_name', ''),

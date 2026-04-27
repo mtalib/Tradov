@@ -35,7 +35,7 @@ References:
 # ==============================================================================
 from typing import Optional, Any
 from enum import Enum
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dataclasses import dataclass, field
 
 # ==============================================================================
@@ -541,7 +541,7 @@ class EarningsStrategyHandler:
 
             return ExpectedMove(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_price=current_price,
                 expected_move_dollars=expected_move_dollars,
                 expected_move_percent=expected_move_percent,
@@ -562,7 +562,7 @@ class EarningsStrategyHandler:
         """Return empty expected move."""
         return ExpectedMove(
             symbol=symbol,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             current_price=0,
             expected_move_dollars=0,
             expected_move_percent=0,
@@ -635,7 +635,7 @@ class EarningsStrategyHandler:
 
             return IVCrushAnalysis(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_iv=current_iv,
                 historical_avg_iv=historical.get('avg_iv', current_iv),
                 historical_post_earnings_iv=historical_post_iv,
@@ -651,7 +651,7 @@ class EarningsStrategyHandler:
             logger.error("IV crush analysis failed: %s", e, exc_info=True)
             return IVCrushAnalysis(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_iv=0.3,
                 historical_avg_iv=0.25,
                 historical_post_earnings_iv=0.2,
@@ -668,7 +668,7 @@ class EarningsStrategyHandler:
         # Check cache
         if symbol in self._iv_cache:
             iv, cache_time = self._iv_cache[symbol]
-            if (datetime.now() - cache_time).seconds < 300:
+            if (datetime.now(timezone.utc) - cache_time).seconds < 300:
                 return iv
 
         try:
@@ -679,7 +679,7 @@ class EarningsStrategyHandler:
                 return 0.3  # Default
 
             iv = chain['implied_volatility'].mean()
-            self._iv_cache[symbol] = (iv, datetime.now())
+            self._iv_cache[symbol] = (iv, datetime.now(timezone.utc))
             return iv
 
         except Exception:
@@ -1063,7 +1063,7 @@ class EarningsStrategyHandler:
             expected_move=self._empty_expected_move(symbol),
             iv_analysis=IVCrushAnalysis(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_iv=0,
                 historical_avg_iv=0,
                 historical_post_earnings_iv=0,

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import warnings
 
 # ==============================================================================
@@ -88,7 +88,7 @@ class IndicatorResult:
         self.value = value
         self.signal = signal
         self.confidence = confidence
-        self.timestamp = datetime.now()
+        self.timestamp = datetime.now(timezone.utc)
 
 
 class MarketProfile:
@@ -780,7 +780,7 @@ class TechnicalIndicators:
             return False
 
         expiry = self._cache_expiry.get(key, datetime.min)
-        if datetime.now() > expiry:
+        if datetime.now(timezone.utc) > expiry:
             del self._cache[key]
             del self._cache_expiry[key]
             return False
@@ -794,7 +794,7 @@ class TechnicalIndicators:
     def _cache_result(self, key: str, result: Any):
         """Cache a result with TTL."""
         self._cache[key] = result
-        self._cache_expiry[key] = datetime.now() + timedelta(
+        self._cache_expiry[key] = datetime.now(timezone.utc) + timedelta(
             seconds=self.cache_ttl_seconds
         )
 

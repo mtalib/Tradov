@@ -27,7 +27,7 @@ import time
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from collections import defaultdict, deque
 import json
@@ -403,7 +403,7 @@ class GreeksCalculationEngine:
         risk_free_rate = market_data.get('risk_free_rate', 0.05)
 
         # Calculate time to expiry
-        time_to_expiry = (expiry - datetime.now()).total_seconds() / (365 * 24 * 3600)
+        time_to_expiry = (expiry - datetime.now(timezone.utc)).total_seconds() / (365 * 24 * 3600)
 
         # Calculate Greeks
         greeks = self.greeks_calculator.calculate_all_greeks(
@@ -986,7 +986,7 @@ if __name__ == "__main__":
             'quantity': 10,
             'option_type': 'call',
             'strike': 590,
-            'expiry': datetime.now() + timedelta(days=30),
+            'expiry': datetime.now(timezone.utc) + timedelta(days=30),
             'style': 'american'
         },
         {
@@ -995,7 +995,7 @@ if __name__ == "__main__":
             'quantity': -5,
             'option_type': 'put',
             'strike': 580,
-            'expiry': datetime.now() + timedelta(days=30),
+            'expiry': datetime.now(timezone.utc) + timedelta(days=30),
             'style': 'american'
         }
     ]

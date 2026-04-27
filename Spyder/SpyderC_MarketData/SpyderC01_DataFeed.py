@@ -49,7 +49,7 @@ import sys  # noqa: F401
 import time
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -972,10 +972,10 @@ class DataFeedManager:
             with self._lock:
                 self.current_data[symbol] = tick
                 self.data_buffers[symbol].append(tick)
-                self.last_update = datetime.now()
+                self.last_update = datetime.now(timezone.utc)
 
                 if symbol in self.symbol_status:
-                    self.symbol_status[symbol]['last_update'] = datetime.now()
+                    self.symbol_status[symbol]['last_update'] = datetime.now(timezone.utc)
 
             # Store in cache
             if self.market_cache:
@@ -1021,7 +1021,7 @@ class DataFeedManager:
 
             tick = MarketTick(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 price=value,
                 size=0,
                 source=DataSource.CUSTOM,
@@ -1082,7 +1082,7 @@ class DataFeedManager:
 
     def _check_stale_data(self) -> None:
         """Check for stale market data."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         stale_threshold = timedelta(seconds=30)
 
         with self._lock:

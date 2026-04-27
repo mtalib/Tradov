@@ -321,11 +321,11 @@ class MarketInternalsAnalyzer:
             # Initialize data structures
             for symbol_key, symbol in INTERNAL_SYMBOLS.items():
                 self.internals_data[symbol_key] = InternalData(
-                    symbol=symbol, value=0.0, timestamp=datetime.now()
+                    symbol=symbol, value=0.0, timestamp=datetime.now(timezone.utc)
                 )
             # RVOL is computed locally — register a synthetic entry
             self.internals_data["RVOL"] = InternalData(
-                symbol="RVOL", value=1.0, timestamp=datetime.now()
+                symbol="RVOL", value=1.0, timestamp=datetime.now(timezone.utc)
             )
 
             # Subscribe to market data events
@@ -377,7 +377,7 @@ class MarketInternalsAnalyzer:
             if symbol in self.internals_data:
                 old_value = self.internals_data[symbol].value
                 self.internals_data[symbol].value = value
-                self.internals_data[symbol].timestamp = datetime.now()
+                self.internals_data[symbol].timestamp = datetime.now(timezone.utc)
                 self.internals_data[symbol].change = value - old_value
                 if old_value != 0:
                     self.internals_data[symbol].percent_change = (
@@ -385,7 +385,7 @@ class MarketInternalsAnalyzer:
                     )
 
                 # Add to history
-                self.history[symbol].append({"timestamp": datetime.now(), "value": value})
+                self.history[symbol].append({"timestamp": datetime.now(timezone.utc), "value": value})
 
     def get_current_analysis(self) -> InternalsAnalysis | None:
         """
@@ -758,7 +758,7 @@ class MarketInternalsAnalyzer:
                     # Publish event
                     event = Event(
                         type=EventType.MARKET_INTERNALS,
-                        data={"analysis": analysis, "timestamp": datetime.now()},
+                        data={"analysis": analysis, "timestamp": datetime.now(timezone.utc)},
                     )
                     self.event_bus.publish(event)
 
@@ -773,7 +773,7 @@ class MarketInternalsAnalyzer:
         try:
             with self.lock:
                 snapshot = MarketInternalsSnapshot(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     tick=self.get_internal_value("TICK") or 0,
                     ticki=self.get_internal_value("TICKI") or 0,
                     add=self.get_internal_value("ADD") or 0,
@@ -871,7 +871,7 @@ class MarketInternalsAnalyzer:
 
             # Create analysis
             analysis = InternalsAnalysis(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 market_condition=condition,
                 breadth_condition=breadth_condition,
                 market_phase=market_phase,
@@ -970,7 +970,7 @@ class MarketInternalsAnalyzer:
             return {}
 
         signals = {
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "market_condition": self.current_analysis.market_condition.value,
             "signal_strength": self.current_analysis.signal_strength,
             "confidence": self.current_analysis.confidence,

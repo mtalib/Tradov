@@ -20,7 +20,7 @@ Components:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timezone
 from enum import Enum
 import pytz
 
@@ -279,11 +279,11 @@ class ConnectionInfo:
     def update_connection_status(self, connected: bool, mode: str = None):
         """Update connection status"""
         self.ib_connected = connected
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
         if mode:
             self.connection_mode = mode
         if connected:
-            self.last_successful_data = datetime.now()
+            self.last_successful_data = datetime.now(timezone.utc)
 
 
 @dataclass
@@ -479,7 +479,7 @@ def get_timestamp() -> str:
     Returns:
         str: Formatted timestamp
     """
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_time() -> str:
@@ -489,7 +489,7 @@ def get_time() -> str:
     Returns:
         str: Formatted time
     """
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 
 # ==============================================================================
@@ -532,7 +532,7 @@ def generate_simulation_market_data(symbol: str) -> MarketData:
         volume=random.randint(1000000, 10000000),
         high=last + random.uniform(0, 3),
         low=last - random.uniform(0, 3),
-        timestamp=datetime.now()
+        timestamp=datetime.now(timezone.utc)
     )
 
 

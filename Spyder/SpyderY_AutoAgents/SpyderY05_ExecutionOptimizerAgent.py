@@ -32,7 +32,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -298,7 +298,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         ) or f"Kelly={kelly_f:.3f}, {contracts} contracts, {order_type} order"
 
         plan = ExecutionPlan(
-            plan_id=f"EP_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{signal_type}",
+            plan_id=f"EP_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{signal_type}",
             signal_id=payload.get("validation", {}).get("signal_id", ""),
             strategy=signal_type,
             direction="buy" if direction == "bullish" else "sell",
@@ -437,7 +437,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                 "plan_id": plan.plan_id,
                 "filled_price": plan.filled_price,
                 "slippage_bps": plan.slippage_bps,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
             self.publish(AgentOutput(

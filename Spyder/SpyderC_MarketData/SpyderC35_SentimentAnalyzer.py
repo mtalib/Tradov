@@ -544,7 +544,7 @@ class AlphaVantageNewsSource(BaseNewsSource):
                         entry.get("time_published", "")[:15], "%Y%m%dT%H%M%S"
                     )
                 except Exception:
-                    published = datetime.now()
+                    published = datetime.now(timezone.utc)
 
                 items.append(NewsItem(
                     title=entry.get("title", ""),
@@ -618,7 +618,7 @@ class FinnhubNewsSource(BaseNewsSource):
                 try:
                     published = datetime.utcfromtimestamp(entry.get("datetime", 0))
                 except Exception:
-                    published = datetime.now()
+                    published = datetime.now(timezone.utc)
 
                 items.append(NewsItem(
                     title=entry.get("headline", ""),
@@ -690,7 +690,7 @@ class YahooFinanceRSSNewsSource(BaseNewsSource):
                     from email.utils import parsedate_to_datetime
                     published = parsedate_to_datetime(pub_str).replace(tzinfo=None)
                 except Exception:
-                    published = datetime.now()
+                    published = datetime.now(timezone.utc)
 
                 items.append(NewsItem(
                     title=title,
@@ -847,7 +847,7 @@ class SentimentAnalyzer:
         # Check cache
         if use_cache and ticker in self._news_cache:
             cached_news, cache_time = self._news_cache[ticker]
-            if (datetime.now() - cache_time).seconds < NEWS_CACHE_TTL:
+            if (datetime.now(timezone.utc) - cache_time).seconds < NEWS_CACHE_TTL:
                 return cached_news
 
         # Fetch news from the configured source pipeline
@@ -875,7 +875,7 @@ class SentimentAnalyzer:
         news_items.sort(key=lambda x: x.published, reverse=True)
 
         # Cache results
-        self._news_cache[ticker] = (news_items[:limit], datetime.now())
+        self._news_cache[ticker] = (news_items[:limit], datetime.now(timezone.utc))
 
         logger.info("Analyzed %s news items for %s", len(news_items), ticker)
         return news_items[:limit]
@@ -929,7 +929,7 @@ class SentimentAnalyzer:
             cache_key = f"{ticker}_reddit"
             if use_cache and cache_key in self._social_cache:
                 cached_posts, cache_time = self._social_cache[cache_key]
-                if (datetime.now() - cache_time).seconds < SOCIAL_CACHE_TTL:
+                if (datetime.now(timezone.utc) - cache_time).seconds < SOCIAL_CACHE_TTL:
                     results[ticker] = cached_posts
                     continue
 
@@ -941,7 +941,7 @@ class SentimentAnalyzer:
                 post.sentiment = self._analyze_text(post.content, SourceType.REDDIT, ticker)
 
             # Cache results
-            self._social_cache[cache_key] = (posts, datetime.now())
+            self._social_cache[cache_key] = (posts, datetime.now(timezone.utc))
             results[ticker] = posts
 
         return results
@@ -1007,7 +1007,7 @@ class SentimentAnalyzer:
                     try:
                         created = datetime.fromtimestamp(post_data.get("created_utc", 0))
                     except Exception:
-                        created = datetime.now()
+                        created = datetime.now(timezone.utc)
 
                     posts.append(SocialPost(
                         platform="reddit",
@@ -1120,7 +1120,7 @@ class SentimentAnalyzer:
             return SentimentScore(
                 text="",
                 source=source,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 score=0.0,
                 sentiment=SentimentType.NEUTRAL,
                 confidence=0.0,
@@ -1137,7 +1137,7 @@ class SentimentAnalyzer:
         result = SentimentScore(
             text=text[:500],
             source=source,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             score=score,
             sentiment=sentiment,
             confidence=confidence,
@@ -1242,13 +1242,13 @@ class SentimentAnalyzer:
                     all_sentiments.append(post.sentiment)
 
         # Filter by lookback window
-        cutoff = datetime.now() - timedelta(hours=lookback_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
         recent_sentiments = [s for s in all_sentiments if s.timestamp >= cutoff]
 
         if not recent_sentiments:
             return CompositeSentiment(
                 symbol=ticker,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 overall_score=0.0,
                 overall_sentiment=SentimentType.NEUTRAL,
                 confidence=0.0,
@@ -1312,7 +1312,7 @@ class SentimentAnalyzer:
 
         return CompositeSentiment(
             symbol=ticker,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             overall_score=overall_score,
             overall_sentiment=self._classify_sentiment(overall_score, confidence),
             confidence=confidence,
@@ -1410,7 +1410,7 @@ class SentimentAnalyzer:
         if not history:
             return pd.DataFrame()
 
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         recent = [s for s in history if s.timestamp >= cutoff]
 
         df = pd.DataFrame([s.to_dict() for s in recent])

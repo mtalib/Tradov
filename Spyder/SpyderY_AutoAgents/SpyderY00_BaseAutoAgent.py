@@ -36,7 +36,7 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -301,7 +301,7 @@ class BaseAutoAgent(ABC):
 
         self._stop_event.clear()
         self._pause_event.set()
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(timezone.utc)
         self.state = AgentState.RUNNING
 
         # Load any persisted state
@@ -674,7 +674,7 @@ class BaseAutoAgent(ABC):
             state = {
                 "agent_id": self.AGENT_ID,
                 "agent_version": self.AGENT_VERSION,
-                "saved_at": datetime.now().isoformat(),
+                "saved_at": datetime.now(timezone.utc).isoformat(),
                 "metrics": {
                     "messages_sent": self._messages_sent,
                     "messages_received": self._messages_received,
@@ -728,7 +728,7 @@ class BaseAutoAgent(ABC):
 
         uptime = 0.0
         if self._start_time:
-            uptime = (datetime.now() - self._start_time).total_seconds()
+            uptime = (datetime.now(timezone.utc) - self._start_time).total_seconds()
 
         avg_latency = 0.0
         if self._llm_calls > 0:
@@ -759,7 +759,7 @@ class BaseAutoAgent(ABC):
         """Return current agent status for the dashboard/monitoring."""
         uptime = 0.0
         if self._start_time:
-            uptime = (datetime.now() - self._start_time).total_seconds()
+            uptime = (datetime.now(timezone.utc) - self._start_time).total_seconds()
 
         avg_latency = 0.0
         if self._llm_calls > 0:

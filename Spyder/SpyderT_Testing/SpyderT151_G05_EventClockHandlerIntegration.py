@@ -40,6 +40,7 @@ def _build_dashboard_stub() -> SpyderTradingDashboard:
     dash.event_clock_policy_label = _Label()
     dash.event_clock_windows_label = _Label()
     dash.event_clock_strategies_label = _Label()
+    dash.event_clock_compact_label = None
     return dash
 
 

@@ -33,7 +33,7 @@ Key Features:
 # ==============================================================================
 import json
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
@@ -245,7 +245,7 @@ class MaxLossProtection:
             active_limits=[],
             breached_limits=[],
             warnings=[],
-            last_update=datetime.now()
+            last_update=datetime.now(timezone.utc)
         )
 
         # Position tracking
@@ -328,7 +328,7 @@ class MaxLossProtection:
             with open(history_file, 'w', encoding='utf-8') as f:
                 json.dump({
                     'breaches': list(self.breach_history),
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }, f, default=_json_default, indent=2)
         except Exception as e:
             self.logger.error("Could not save breach history: %s", e)
@@ -389,7 +389,7 @@ class MaxLossProtection:
 
     def _update_timeframe_pnl(self):
         """Update timeframe-based P&L"""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # Daily P&L (reset at midnight)
         if now.date() != self.limits['daily'].last_reset.date():
@@ -498,7 +498,7 @@ class MaxLossProtection:
         for limit, severity in breaches:
             # Create breach event
             breach_event = BreachEvent(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 limit_type=limit.limit_type,
                 limit_name=limit.limit_name,
                 severity=severity,
@@ -616,11 +616,11 @@ class MaxLossProtection:
     def _save_emergency_state(self):
         """Save system state for analysis"""
         try:
-            emergency_file = Path(f"data/risk/emergency_{datetime.now():%Y%m%d_%H%M%S}.json")
+            emergency_file = Path(f"data/risk/emergency_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}.json")
             emergency_file.parent.mkdir(parents=True, exist_ok=True)
 
             state = {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'current_pnl': self.current_pnl,
                 'limits': {k: asdict(v) for k, v in self.limits.items()},
                 'active_breaches': [asdict(b) for b in self.active_breaches],
@@ -664,7 +664,7 @@ class MaxLossProtection:
         }
 
         cooldown_minutes = cooldown_map.get(breach_event.severity, COOLDOWN_MINOR)
-        cooldown_end = datetime.now() + timedelta(minutes=cooldown_minutes)
+        cooldown_end = datetime.now(timezone.utc) + timedelta(minutes=cooldown_minutes)
 
         # Determine restrictions
         restrictions = []
@@ -720,7 +720,7 @@ class MaxLossProtection:
         with self._lock:
             # Check recovery plans
             active_plans = [p for p in self.recovery_plans
-                          if p.cooldown_end > datetime.now()]
+                          if p.cooldown_end > datetime.now(timezone.utc)]
 
             if active_plans:
                 # Use most restrictive plan
@@ -738,7 +738,7 @@ class MaxLossProtection:
                 elif latest_breach.severity == BreachSeverity.MAJOR:
                     self.protection_status.new_positions_allowed = False
 
-            self.protection_status.last_update = datetime.now()
+            self.protection_status.last_update = datetime.now(timezone.utc)
 
     def _send_breach_notification(self, breach_event: BreachEvent):
         """Send breach notification"""
@@ -809,13 +809,13 @@ class MaxLossProtection:
         if limit_type:
             if limit_type in self.limits:
                 self.limits[limit_type].current_loss = 0
-                self.limits[limit_type].last_reset = datetime.now()
+                self.limits[limit_type].last_reset = datetime.now(timezone.utc)
                 self.logger.info("Reset %s limit", limit_type)
         else:
             # Reset all limits
             for limit in self.limits.values():
                 limit.current_loss = 0
-                limit.last_reset = datetime.now()
+                limit.last_reset = datetime.now(timezone.utc)
             self.logger.info("Reset all limits")
 
     def get_status_report(self) -> dict[str, Any]:
@@ -838,7 +838,7 @@ class MaxLossProtection:
             'active_breaches': len(self.active_breaches),
             'warnings': self.protection_status.warnings,
             'recovery_plans': len([p for p in self.recovery_plans
-                                  if p.cooldown_end > datetime.now()])
+                                  if p.cooldown_end > datetime.now(timezone.utc)])
         }
 
     def emergency_override(self, admin_password: str) -> bool:

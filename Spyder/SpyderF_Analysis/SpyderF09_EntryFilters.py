@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 
@@ -140,7 +140,7 @@ class FilterThreshold:
         if len(self.performance_history) > 100:
             self.performance_history.pop(0)
 
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
 
 @dataclass
 class FilterCheck:
@@ -454,7 +454,7 @@ class EntryFilters:
         Returns:
             Complete filter assessment
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         # Validate critical numeric inputs
         critical_fields = ['current_price', 'volume', 'rsi', 'implied_volatility']
@@ -506,7 +506,7 @@ class EntryFilters:
             )
 
             # Record metrics
-            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             if hasattr(self.monitor, 'record_metric'):
                 self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
                 self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
@@ -567,7 +567,7 @@ class EntryFilters:
 
         # Check if it's time to adapt
         if self.last_adaptation_time:
-            hours_since = (datetime.now() - self.last_adaptation_time).total_seconds() / 3600
+            hours_since = (datetime.now(timezone.utc) - self.last_adaptation_time).total_seconds() / 3600
             if hours_since < self.adaptation_interval_hours:
                 return
 
@@ -623,7 +623,7 @@ class EntryFilters:
                             f"(optimized: {opt_value:.3f})"
                         )
 
-            self.last_adaptation_time = datetime.now()
+            self.last_adaptation_time = datetime.now(timezone.utc)
             self.logger.info("Entry filter thresholds adapted from paper trading")
 
         except Exception as e:
@@ -930,7 +930,7 @@ class EntryFilters:
         """Check time-based filters."""
         checks = []
 
-        current_time = params.get('current_time', datetime.now())
+        current_time = params.get('current_time', datetime.now(timezone.utc))
 
         # Economic event blackout gate from scheduler event-clock feed.
         event_clock_state = params.get('event_clock_state') or {}
@@ -2045,7 +2045,7 @@ if __name__ == "__main__":
         'position_type': 'long',
         'portfolio_delta': 75,
         'position_size_pct': 0.08,
-        'current_time': datetime.now(),
+        'current_time': datetime.now(timezone.utc),
         'days_to_earnings': 10,
         'iv_percentile': 65,
         'iv_skew': 0.08,

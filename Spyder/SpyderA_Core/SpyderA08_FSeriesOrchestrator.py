@@ -53,7 +53,7 @@ import logging
 import traceback
 import psutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -254,7 +254,7 @@ class FSeriesOrchestrator:
             logger.addHandler(console_handler)
 
             # File handler
-            log_file = Path("logs") / f"f_series_orchestrator_{datetime.now().strftime('%Y%m%d')}.log"  # noqa: E501
+            log_file = Path("logs") / f"f_series_orchestrator_{datetime.now(timezone.utc).strftime('%Y%m%d')}.log"  # noqa: E501
             log_file.parent.mkdir(exist_ok=True)
 
             file_handler = logging.FileHandler(log_file)
@@ -423,7 +423,7 @@ class FSeriesOrchestrator:
         """Execute individual module task with monitoring"""
         try:
             task.status = ModuleStatus.RUNNING
-            task.started_time = datetime.now()
+            task.started_time = datetime.now(timezone.utc)
 
             # Update running tasks registry
             self.running_tasks[task.task_id] = task
@@ -467,7 +467,7 @@ class FSeriesOrchestrator:
 
             # Update task status
             task.status = ModuleStatus.COMPLETED
-            task.completed_time = datetime.now()
+            task.completed_time = datetime.now(timezone.utc)
 
             # Update module metrics
             self._update_module_metrics(task)
@@ -485,7 +485,7 @@ class FSeriesOrchestrator:
         except Exception as e:
             task.status = ModuleStatus.ERROR
             task.error = str(e)
-            task.completed_time = datetime.now()
+            task.completed_time = datetime.now(timezone.utc)
 
             # Update metrics for failed task
             self._update_module_metrics(task)
@@ -588,7 +588,7 @@ class FSeriesOrchestrator:
             # Update health score (100 - error_rate * 100)
             metrics.health_score = max(0, 100 - (metrics.error_rate * 100))
 
-            metrics.last_activity = datetime.now()
+            metrics.last_activity = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Failed to update metrics for %s: %s", task.module_name, e)
@@ -761,7 +761,7 @@ class FSeriesOrchestrator:
         for module_name, metrics in self.module_metrics.items():
             try:
                 # Check if module has been inactive for too long
-                inactive_time = datetime.now() - metrics.last_activity
+                inactive_time = datetime.now(timezone.utc) - metrics.last_activity
                 if inactive_time.total_seconds() > 300:  # 5 minutes
                     metrics.health_score = max(0, metrics.health_score - 10)
 
@@ -823,7 +823,7 @@ class FSeriesOrchestrator:
         """Update performance history for trend analysis"""
         try:
             performance_snapshot = {
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
                 "cpu_usage": self.system_resources.cpu_usage_percent,
                 "memory_usage": self.system_resources.memory_usage_percent,
                 "running_tasks": len(self.running_tasks),
@@ -1005,7 +1005,7 @@ class FSeriesOrchestrator:
                 avg_cpu = avg_memory = 0
 
             report = {
-                "report_timestamp": datetime.now().isoformat(),
+                "report_timestamp": datetime.now(timezone.utc).isoformat(),
                 "orchestration_status": "Active" if self.orchestration_active else "Inactive",
 
                 "aggregate_metrics": {
@@ -1065,7 +1065,7 @@ class FSeriesOrchestrator:
         """Export performance data to JSON file"""
         try:
             if output_file is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 output_file = f"f_series_orchestrator_performance_{timestamp}.json"
 
             report = self.generate_performance_report()

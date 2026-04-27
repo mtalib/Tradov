@@ -29,8 +29,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime
-from datetime import time as dt_time
+from datetime import datetime, timezone
+from datetime import time as dt_time, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable
@@ -390,7 +390,7 @@ class MasterController:
             logger.info("Environment: %s", self.config.environment)
             logger.info("=" * 80)
 
-            self.startup_time = datetime.now()
+            self.startup_time = datetime.now(timezone.utc)
             self.status = SystemStatus.STARTING
 
             # Define startup sequence
@@ -415,7 +415,7 @@ class MasterController:
 
             self.status = SystemStatus.RUNNING
 
-            elapsed = (datetime.now() - self.startup_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
             logger.info(f"SYSTEM STARTUP COMPLETE in {elapsed:.2f} seconds")
 
             # Generate startup report
@@ -1016,7 +1016,7 @@ class MasterController:
             logger.info("SYSTEM SHUTDOWN INITIATED - Reason: %s", reason)
             logger.info("=" * 80)
 
-            self.shutdown_time = datetime.now()
+            self.shutdown_time = datetime.now(timezone.utc)
             self.status = SystemStatus.STOPPING
 
             # Disable trading first
@@ -1042,7 +1042,7 @@ class MasterController:
 
             self.status = SystemStatus.STOPPED
 
-            elapsed = (datetime.now() - self.shutdown_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self.shutdown_time).total_seconds()
             logger.info(f"SYSTEM SHUTDOWN COMPLETE in {elapsed:.2f} seconds")
 
             return True
@@ -1233,7 +1233,7 @@ class MasterController:
         error_rate = total_errors / max(len(self.modules), 1)
 
         return HealthMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             cpu_usage=cpu_usage,
             memory_usage=memory.percent,
             disk_usage=disk.percent,
@@ -1281,7 +1281,7 @@ class MasterController:
             if module.status == ModuleStatus.STARTING:
                 # Check if it's been starting for too long
                 if module.metadata.get("start_time"):
-                    elapsed = (datetime.now() - module.metadata["start_time"]).total_seconds()
+                    elapsed = (datetime.now(timezone.utc) - module.metadata["start_time"]).total_seconds()
                     if elapsed > 300:  # 5 minutes
                         logger.error("Module %s stuck in STARTING state", module_id)
                         module.status = ModuleStatus.ERROR
@@ -1295,13 +1295,13 @@ class MasterController:
                 if module.restart_attempts < 3:
                     # Check cooldown period
                     if module.last_restart:
-                        cooldown = (datetime.now() - module.last_restart).total_seconds()
+                        cooldown = (datetime.now(timezone.utc) - module.last_restart).total_seconds()
                         if cooldown < 60:  # 1 minute cooldown
                             continue
 
                     logger.info("Attempting to restart module %s", module_id)
                     module.restart_attempts += 1
-                    module.last_restart = datetime.now()
+                    module.last_restart = datetime.now(timezone.utc)
                     module.status = ModuleStatus.RESTARTING
 
                     # Attempt restart
@@ -1332,7 +1332,7 @@ class MasterController:
     def _update_market_state(self):
         """Update current market state"""
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         current_time = now.time()
         weekday = now.weekday()
 
@@ -1621,7 +1621,7 @@ class MasterController:
             "modules_failed": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.ERROR
             ),
-            "startup_duration": (datetime.now() - self.startup_time).total_seconds(),
+            "startup_duration": (datetime.now(timezone.utc) - self.startup_time).total_seconds(),
         }
 
         logger.info("Startup Report:")
@@ -1642,7 +1642,7 @@ class MasterController:
             "modules_stopped": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.STOPPED
             ),
-            "shutdown_duration": (datetime.now() - self.shutdown_time).total_seconds(),
+            "shutdown_duration": (datetime.now(timezone.utc) - self.shutdown_time).total_seconds(),
         }
 
         logger.info("Shutdown Report:")
@@ -1687,7 +1687,7 @@ class MasterController:
                     payload={
                         "event": event_type,
                         "data": data,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                     sender="MasterController",
                 )
@@ -1720,7 +1720,7 @@ class MasterController:
             "market_state": self.market_state.value,
             "trading_enabled": self.trading_enabled,
             "uptime": (
-                (datetime.now() - self.startup_time).total_seconds() if self.startup_time else 0
+                (datetime.now(timezone.utc) - self.startup_time).total_seconds() if self.startup_time else 0
             ),
             "modules": {
                 "total": len(self.modules),
@@ -1836,7 +1836,7 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
 
-                now = datetime.now()
+                now = datetime.now(timezone.utc)
                 date_key = now.date()
 
                 # Market open at 9:30 AM

@@ -31,7 +31,7 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1056,7 +1056,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         for pos_id, position in self.active_positions.items():
             # Update position metrics
             position.current_iv = metrics.implied_volatility
-            position.days_held = (datetime.now() - position.entry_date).days
+            position.days_held = (datetime.now(timezone.utc) - position.entry_date).days
 
             # Check exit conditions
             if position.current_iv <= position.target_iv:

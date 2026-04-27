@@ -30,7 +30,7 @@ Description:
 import logging
 import joblib
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -583,7 +583,7 @@ class SpyderM06_HMMRegimeDetector:
         # Check time-based retraining (rolling window policy)
         last_retrain = getattr(self, '_last_retrain_time', None)
         if last_retrain is not None:
-            hours_since_retrain = (datetime.now() - last_retrain).total_seconds() / 3600
+            hours_since_retrain = (datetime.now(timezone.utc) - last_retrain).total_seconds() / 3600
             if hours_since_retrain >= RETRAIN_INTERVAL_HOURS:
                 logger.info(f"Rolling window retrain triggered: {hours_since_retrain:.1f} hours since last retrain")  # noqa: E501
                 return True
@@ -634,7 +634,7 @@ class SpyderM06_HMMRegimeDetector:
                 self._train_regime_models(features_scaled)
 
             # Track retrain time for rolling window policy
-            self._last_retrain_time = datetime.now()
+            self._last_retrain_time = datetime.now(timezone.utc)
 
             logger.info(f"HMM model trained with {len(features_windowed)} samples "
                        f"(rolling window from {len(features)} total)")
@@ -1093,7 +1093,7 @@ class SpyderM06_HMMRegimeDetector:
                 'features': self._extract_current_features(),
                 'risk_parameters': REGIME_RISK_LIMITS.get(self.current_regime.value, 0.5),
                 'strategy_hints': self._get_strategy_hints(),
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
     def get_strategy_hints(self) -> dict[str, Any]:
@@ -1447,7 +1447,7 @@ if __name__ == "__main__":
     detector = create_hmm_detector()
 
     # Generate sample data
-    dates = pd.date_range(end=datetime.now(), periods=500, freq='D')
+    dates = pd.date_range(end=datetime.now(timezone.utc), periods=500, freq='D')
     np.random.seed(42)
 
     # Simulate regime-switching data

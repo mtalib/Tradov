@@ -18,7 +18,7 @@ Last Updated: 2026-04-17 Time: 00:00:00
 # STANDARD IMPORTS
 # ==============================================================================
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -244,7 +244,7 @@ class TradeAuditDialog(QDialog):
         if not self._closed_trades:
             QMessageBox.information(self, "Export CSV", "No closed trades to export.")
             return
-        default_name = f"spyder_trade_audit_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        default_name = f"spyder_trade_audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.csv"
         path, _ = QFileDialog.getSaveFileName(
             self, "Export trade audit", default_name, "CSV Files (*.csv)"
         )

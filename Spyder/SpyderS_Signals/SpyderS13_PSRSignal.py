@@ -78,7 +78,7 @@ import os
 import time
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -346,7 +346,7 @@ def _load_cache(key: str) -> Optional[pd.Series]:
     path = _cache_path(key)
     if not path.exists():
         return None
-    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime)
     if age > timedelta(hours=CACHE_TTL_HOURS):
         return None
     try:
@@ -522,7 +522,7 @@ def _extract_result(computed: pd.DataFrame) -> PSRResult:
         last_crossover_date=last_cross_date,
         last_crossover_dir=last_cross_dir,
         strategy_guidance=STRATEGY_GATES.get(level.value, ""),
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
     )
 
 
@@ -664,13 +664,13 @@ class PSRSignal:
                 return self._compute_internal(use_cache)
             except PSRDataError as exc:
                 _logger.error("PSR computation failed: %s", exc)
-                result = PSRResult(error=str(exc), timestamp=datetime.now())
+                result = PSRResult(error=str(exc), timestamp=datetime.now(timezone.utc))
                 self._last_result = result
                 return result
             except Exception as exc:
                 _logger.exception("PSR unexpected error: %s", exc)
                 result = PSRResult(
-                    error=f"Unexpected: {exc}", timestamp=datetime.now()
+                    error=f"Unexpected: {exc}", timestamp=datetime.now(timezone.utc)
                 )
                 self._last_result = result
                 return result

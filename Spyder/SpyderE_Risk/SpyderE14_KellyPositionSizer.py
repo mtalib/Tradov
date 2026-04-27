@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -554,7 +554,7 @@ class KellyPositionSizer:
 
         return pd.DataFrame([
             {
-                'timestamp': datetime.now(),  # Simplified
+                'timestamp': datetime.now(timezone.utc),  # Simplified
                 'position_size': h.position_size,
                 'position_value': h.position_value,
                 'number_of_contracts': h.number_of_contracts,

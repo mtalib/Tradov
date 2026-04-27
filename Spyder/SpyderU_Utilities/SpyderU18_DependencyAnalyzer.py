@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -338,7 +338,7 @@ class DependencyAnalyzer:
                 self.analyze_dependencies()
 
             report = ["# Spyder Module Dependency Analysis"]
-            report.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            report.append(f"\nGenerated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
             report.append(f"\nTotal Modules: {len(self.modules)}")
             report.append(f"Total Dependencies: {self.import_graph.number_of_edges()}")
 

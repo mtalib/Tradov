@@ -55,7 +55,7 @@ Usage
 import logging
 import os
 import threading
-from datetime import datetime, timedelta  # noqa: F401
+from datetime import datetime, timedelta, timezone  # noqa: F401
 from typing import Optional
 
 # ==============================================================================
@@ -177,7 +177,7 @@ class FREDClient:
         """
         with self._lock:
             if not force_refresh and self._cache is not None:
-                age = (datetime.now() - self._cache_time).total_seconds()
+                age = (datetime.now(timezone.utc) - self._cache_time).total_seconds()
                 if age < _CACHE_TTL_SECONDS:
                     return dict(self._cache)
 
@@ -185,7 +185,7 @@ class FREDClient:
 
         with self._lock:
             self._cache = snapshot
-            self._cache_time = datetime.now()
+            self._cache_time = datetime.now(timezone.utc)
 
         return dict(snapshot)
 
@@ -240,7 +240,7 @@ class FREDClient:
         """
         with self._lock:
             age = (
-                (datetime.now() - self._cache_time).total_seconds()
+                (datetime.now(timezone.utc) - self._cache_time).total_seconds()
                 if self._cache_time
                 else None
             )
@@ -289,14 +289,14 @@ class FREDClient:
             if result.get("spread_10y_2y") == result.get("spread_10y_2y")  # NaN guard
             else False
         )
-        result["as_of"] = as_of or datetime.now()
+        result["as_of"] = as_of or datetime.now(timezone.utc)
         return result
 
     def _stub_snapshot(self) -> dict:
         """Return a NaN-filled stub when FRED is unavailable."""
         stub = {k: float("nan") for k in _SERIES}
         stub["yield_curve_inverted"] = False
-        stub["as_of"] = datetime.now()
+        stub["as_of"] = datetime.now(timezone.utc)
         return stub
 
 

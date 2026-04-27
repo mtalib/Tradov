@@ -27,7 +27,7 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -445,7 +445,7 @@ class SpyderAutomaticRebalancer:
         """Check if rebalancing is allowed based on cooldown and cost limits."""
         # Check cooldown
         last_rebalance = self.last_rebalance[greek]
-        cooldown_elapsed = (datetime.now() - last_rebalance).seconds
+        cooldown_elapsed = (datetime.now(timezone.utc) - last_rebalance).seconds
         if cooldown_elapsed < self.REBALANCE_COOLDOWN:
             return False
         # Check daily cost limit
@@ -480,7 +480,7 @@ class SpyderAutomaticRebalancer:
                 elif action.action_type == RebalanceType.THETA_ROLL:
                     await self._execute_theta_roll(action)
                 # Update tracking
-                self.last_rebalance[action.greek] = datetime.now()
+                self.last_rebalance[action.greek] = datetime.now(timezone.utc)
                 self.daily_rebalance_cost += action.estimated_cost
                 self.daily_rebalance_count += 1
                 # Record history
@@ -570,7 +570,7 @@ class SpyderAutomaticRebalancer:
     def _record_rebalance(self, action: RebalanceAction, greeks: PortfolioGreeks):
         """Record rebalancing action in history."""
         record = {
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "action_type": action.action_type.value,
             "greek": action.greek,
             "pre_value": action.current_value,
@@ -589,7 +589,7 @@ class SpyderAutomaticRebalancer:
         if not self.rebalance_history:
             return {"no_data": True}
         df = pd.DataFrame(self.rebalance_history)
-        cutoff = datetime.now() - timedelta(days=period_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
         df = df[df["timestamp"] >= cutoff]
         if df.empty:
             return {"no_data": True}

@@ -34,7 +34,7 @@ Key Features:
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
@@ -401,11 +401,11 @@ class MultiStrategyAllocator:
                     strategy.profit_factor = metrics.get('profit_factor', 1.0)
 
                 strategy.current_positions = positions
-                strategy.last_update = datetime.now()
+                strategy.last_update = datetime.now(timezone.utc)
 
             # Trigger correlation update if needed
             if (self.last_correlation_update is None or
-                (datetime.now() - self.last_correlation_update).days >= 7):
+                (datetime.now(timezone.utc) - self.last_correlation_update).days >= 7):
                 self._update_correlation_matrix()
 
     def _update_correlation_matrix(self):
@@ -433,7 +433,7 @@ class MultiStrategyAllocator:
             lw = LedoitWolf()
             self.covariance_matrix, _ = lw.fit(df.values)
 
-            self.last_correlation_update = datetime.now()
+            self.last_correlation_update = datetime.now(timezone.utc)
 
             # Check for high correlations
             self._check_correlation_breaches()
@@ -1148,7 +1148,7 @@ class MultiStrategyAllocator:
 
             # Create rebalance event
             event = RebalanceEvent(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 reason=reason,
                 old_allocations=self.current_allocations.copy(),
                 new_allocations=target_allocations,
@@ -1209,7 +1209,7 @@ class MultiStrategyAllocator:
 
         # Get last rebalance
         last_rebalance = (self.rebalance_history[-1].timestamp
-                         if self.rebalance_history else datetime.now())
+                         if self.rebalance_history else datetime.now(timezone.utc))
 
         return PortfolioState(
             total_capital=self.total_capital,
@@ -1245,7 +1245,7 @@ class MultiStrategyAllocator:
                 })
 
         return {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'portfolio_state': asdict(state),
             'strategy_allocations': strategy_details,
             'metrics': {
@@ -1278,7 +1278,7 @@ class MultiStrategyAllocator:
                 json.dump({
                     'allocations': list(self.allocation_history),
                     'rebalances': list(self.rebalance_history),
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }, f, default=_json_default, indent=2)
 
             self.logger.info("Allocation history saved")

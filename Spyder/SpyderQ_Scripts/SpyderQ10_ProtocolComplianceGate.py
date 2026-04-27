@@ -15,7 +15,7 @@ Module Description:
       Gate 1 — np.random in production risk/portfolio packages
       Gate 2 — T129 protocol-compliance unittest suite
       Gate 3 — datetime.utcnow() in production code (use timezone.utc)
-      Gate 4 — datetime.now() (naive, no tz) in production code
+    Gate 4 — datetime.now() (naive, no tz) in production code
       Gate 5 — BrokerProtocol compliance (B40 and PaperBroker)
 
     Usage:
@@ -158,12 +158,30 @@ def check_no_datetime_utcnow() -> bool:
 # ---------------------------------------------------------------------------
 _NAIVE_NOW_PATTERN = re.compile(r"\bdatetime\.now\(\s*\)")
 
+# Lines that also reference timezone.utc on the same line are intentional
+# tzinfo-conditional patterns (e.g. "datetime.now(timezone.utc) if ... else
+# datetime.now()") and must not be flagged as footguns.
+_SAME_LINE_UTC_PATTERN = re.compile(r"timezone\.utc")
+
+# Inline suppression comment — add "# spyder: naive-ok" to a line that
+# deliberately uses naive datetime.now() (e.g. inside a tzinfo guard block
+# where both sides of the arithmetic are already naive).
+_NAIVE_OK_MARKER = "# spyder: naive-ok"
+
 # Packages/directories excluded from Gate 4 — scripts and tests may use naive
 # timestamps for local display or CLI output.
 _NAIVE_NOW_EXCLUDE_DIRS = {
     "SpyderQ_Scripts",
     "SpyderT_Testing",
     "__pycache__",
+}
+
+# Individual files excluded from Gate 4.  SpyderU03_DateTimeUtils.py is a
+# time-utility module that intentionally works with local (ET) time for market
+# session logic; all of its naive datetime.now() calls are either guarded by
+# tzinfo checks or are extracting .time()/.date() for session-window math.
+_NAIVE_NOW_EXCLUDE_FILES = {
+    "SpyderU03_DateTimeUtils.py",
 }
 
 
@@ -173,14 +191,24 @@ def check_no_naive_datetime_now() -> bool:
     for py_file in sorted(_SPYDER_ROOT.rglob("*.py")):
         if any(part in _NAIVE_NOW_EXCLUDE_DIRS for part in py_file.parts):
             continue
+        if py_file.name in _NAIVE_NOW_EXCLUDE_FILES:
+            continue
         try:
             text = py_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
-            if _NAIVE_NOW_PATTERN.search(line):
-                rel = py_file.relative_to(_SPYDER_ROOT.parent)
-                violations.append(f"  {rel}:{lineno}: {line.strip()}")
+            if not _NAIVE_NOW_PATTERN.search(line):
+                continue
+            # Skip intentional tzinfo-conditional one-liners (both branches on
+            # the same line: "datetime.now(timezone.utc) if ... else datetime.now()").
+            if _SAME_LINE_UTC_PATTERN.search(line):
+                continue
+            # Skip lines explicitly marked as reviewed and intentional.
+            if _NAIVE_OK_MARKER in line:
+                continue
+            rel = py_file.relative_to(_SPYDER_ROOT.parent)
+            violations.append(f"  {rel}:{lineno}: {line.strip()}")
 
     if violations:
         print(

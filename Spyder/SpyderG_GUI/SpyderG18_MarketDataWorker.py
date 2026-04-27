@@ -37,7 +37,7 @@ import os
 import random
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ==============================================================================
@@ -138,7 +138,7 @@ def _get_cached_chain(
 
         # Cache is stale — fetch fresh chain
         try:
-            from datetime import date as _date2  # noqa: PLC0415
+            from datetime import date as _date2  # noqa: PLC0415, timezone
             exps_raw = client.get_option_expirations("SPY")
             exp_dates = exps_raw.get("expirations", {}).get("date", [])
             if isinstance(exp_dates, str):
@@ -589,7 +589,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     _vol = float(_spy_q_slow.get("volume") or 0.0)
                     _adv = float(_spy_q_slow.get("average_volume") or 0.0)
                     if _vol > 0 and _adv > 0:
-                        _now = datetime.now()
+                        _now = datetime.now(timezone.utc)
                         _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
                         _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
                         _session_frac = min(_elapsed_min / 390.0, 1.0)
@@ -616,7 +616,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     # preserved for next-morning startup display.
                     _snapshot_file = self.data_file.parent / "eod_snapshot.json"
                     _snapshot_meta = {
-                        "_eod_date": datetime.now().strftime("%Y-%m-%d"),
+                        "_eod_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                         "_eod_fetched_ts": int(_time.time()),
                     }
                     with open(_snapshot_file, "w") as _sf:
@@ -656,7 +656,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
             try:
                 import pytz as _pytz
-                from datetime import date as _date, datetime as _dt
+                from datetime import date as _date, datetime as _dt, timezone
                 _et_now = _dt.now(_pytz.timezone("US/Eastern"))
                 _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
                 if _et_now < _market_open_et:
@@ -684,7 +684,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Pivots must use yesterday's H/L/C (fixed for the whole session).
             # We try a 5-day lookback so weekends/holidays are handled correctly.
             try:
-                from datetime import date as _date2, timedelta as _td
+                from datetime import date as _date2, timedelta as _td, timezone
                 _prev_start = (_date2.today() - _td(days=5)).isoformat()
                 _prev_end   = (_date2.today() - _td(days=1)).isoformat()
                 _hist_resp = client.get_historical_quotes(
@@ -781,7 +781,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 _vol = float(_spy_q_raw.get("volume") or 0.0)
                 _adv = float(_spy_q_raw.get("average_volume") or 0.0)
                 if _vol > 0 and _adv > 0:
-                    _now = datetime.now()
+                    _now = datetime.now(timezone.utc)
                     _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
                     _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
                     _session_frac = min(_elapsed_min / 390.0, 1.0)
@@ -868,7 +868,7 @@ class ThreadSafeMarketDataWorker(QObject):
             if live_data:
                 import time as _time
                 _snapshot_meta = {
-                    "_eod_date": datetime.now().strftime("%Y-%m-%d"),
+                    "_eod_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "_eod_fetched_ts": int(_time.time()),
                 }
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -933,9 +933,9 @@ class ThreadSafeMarketDataWorker(QObject):
                     "last": price,
                     "change": 0,
                     "change_pct": 0,
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(timezone.utc),
                 }
-                self.last_data_update[symbol] = datetime.now()
+                self.last_data_update[symbol] = datetime.now(timezone.utc)
 
     def _check_market_hours(self):
         """Check if market hours status has changed"""
@@ -1032,7 +1032,7 @@ class ThreadSafeMarketDataWorker(QObject):
         if not is_market_hours():
             return
 
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         for symbol, market_info in data.items():
             if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:

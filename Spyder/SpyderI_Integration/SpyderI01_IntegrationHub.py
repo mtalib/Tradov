@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -602,7 +602,7 @@ class IntegrationHub:
 
             # Update state
             module_info.state = ModuleState.ACTIVE
-            module_info.load_time = datetime.now()
+            module_info.load_time = datetime.now(timezone.utc)
 
             # Register factory if available
             if hasattr(module_instance.__class__, 'create_instance'):
@@ -794,10 +794,10 @@ class IntegrationHub:
             report = HealthReport(
                 module_id=module_id,
                 status=status,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 response_time=response_time,
                 memory_usage=0.0,  # Would implement actual memory monitoring
-                error_rate=module_info.error_count / max(1, (datetime.now() - (module_info.load_time or datetime.now())).total_seconds()),  # noqa: E501
+                error_rate=module_info.error_count / max(1, (datetime.now(timezone.utc) - (module_info.load_time or datetime.now(timezone.utc))).total_seconds()),  # noqa: E501
                 dependencies_healthy=dependencies_healthy,
                 issues=issues,
                 metrics=metrics

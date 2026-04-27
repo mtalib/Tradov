@@ -224,7 +224,7 @@ class LivenessMonitor:
 
             return bool(TradingCalendar.is_market_open())
         except Exception:
-            now = datetime.now().astimezone()
+            now = datetime.now(timezone.utc).astimezone()
             if now.weekday() >= 5:
                 return False
             hhmm = now.hour * 60 + now.minute

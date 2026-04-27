@@ -35,7 +35,7 @@ References:
 # ==============================================================================
 from typing import Optional, Any
 from enum import Enum
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -343,7 +343,7 @@ class MaxPainCalculator:
         cache_key = (symbol, expiry)
         if use_cache and cache_key in self._cache:
             cached_result, cache_time = self._cache[cache_key]
-            if (datetime.now() - cache_time).seconds < self.cache_ttl:
+            if (datetime.now(timezone.utc) - cache_time).seconds < self.cache_ttl:
                 return cached_result
 
         try:
@@ -405,7 +405,7 @@ class MaxPainCalculator:
             result = MaxPainResult(
                 symbol=symbol,
                 expiry=expiry,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 max_pain_strike=max_pain_strike,
                 current_price=current_price,
                 distance_dollars=distance_dollars,
@@ -424,7 +424,7 @@ class MaxPainCalculator:
             )
 
             # Cache result
-            self._cache[cache_key] = (result, datetime.now())
+            self._cache[cache_key] = (result, datetime.now(timezone.utc))
 
             # Store for historical tracking
             self._store_prediction(result)
@@ -708,7 +708,7 @@ class MaxPainCalculator:
                 current = self._get_current_price(symbol)
                 return MultiExpiryAnalysis(
                     symbol=symbol,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     current_price=current,
                     weighted_max_pain=current,
                     nearest_expiry=self._empty_result(symbol, date.today()),
@@ -734,7 +734,7 @@ class MaxPainCalculator:
 
             return MultiExpiryAnalysis(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_price=current_price,
                 weighted_max_pain=weighted_max_pain,
                 nearest_expiry=results[0],
@@ -747,7 +747,7 @@ class MaxPainCalculator:
             logger.error("Multi-expiry analysis failed: %s", e, exc_info=True)
             return MultiExpiryAnalysis(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_price=0,
                 weighted_max_pain=0,
                 nearest_expiry=self._empty_result(symbol, date.today()),
@@ -893,7 +893,7 @@ class MaxPainCalculator:
         predictions = self._historical_predictions.get(symbol, [])
 
         # Filter to relevant timeframe
-        cutoff = datetime.now() - timedelta(days=lookback_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         recent = [p for p in predictions if p["predicted_at"] >= cutoff]
 
         if not recent:
@@ -1022,7 +1022,7 @@ class MaxPainCalculator:
         return MaxPainResult(
             symbol=symbol,
             expiry=expiry,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             max_pain_strike=0,
             current_price=0,
             distance_dollars=0,

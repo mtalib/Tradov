@@ -76,6 +76,9 @@ if "pytz" not in sys.modules:
     sys.modules["pytz"] = types.ModuleType("pytz")
 
 # ---- PySide6 stubs — use __getattr__ so ANY widget name works ----
+# Only install if not already present (do NOT clobber real PySide6 that was
+# loaded earlier in the session — overwriting it poisons downstream tests that
+# call __new__ on QMainWindow subclasses and crash in mock.__new__).
 class _AnyAttrModule(types.ModuleType):
     """Module stub that returns MagicMock for any missing attribute."""
     def __getattr__(self, name):
@@ -83,15 +86,19 @@ class _AnyAttrModule(types.ModuleType):
         setattr(self, name, val)
         return val
 
-_pyside6 = _AnyAttrModule("PySide6")
-sys.modules["PySide6"] = _pyside6
+if "PySide6" not in sys.modules:
+    _pyside6 = _AnyAttrModule("PySide6")
+    sys.modules["PySide6"] = _pyside6
+else:
+    _pyside6 = sys.modules["PySide6"]
 
 for _qt_submod in ["PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui",
                    "PySide6.QtCharts", "PySide6.QtNetwork"]:
-    _sub = _AnyAttrModule(_qt_submod)
-    sys.modules[_qt_submod] = _sub
-    _attr = _qt_submod.split(".")[-1]
-    setattr(_pyside6, _attr, _sub)
+    if _qt_submod not in sys.modules:
+        _sub = _AnyAttrModule(_qt_submod)
+        sys.modules[_qt_submod] = _sub
+        _attr = _qt_submod.split(".")[-1]
+        setattr(_pyside6, _attr, _sub)
 
 # ---------------------------------------------------------------------------
 # SpyderLogger stub (both prefix forms)

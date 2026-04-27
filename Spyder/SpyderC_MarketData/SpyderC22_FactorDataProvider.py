@@ -28,7 +28,7 @@ import threading
 import warnings
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -365,7 +365,7 @@ class FactorDataProvider:
 
             # Set default dates
             if end_date is None:
-                end_date = datetime.now()
+                end_date = datetime.now(timezone.utc)
             if start_date is None:
                 start_date = end_date - timedelta(days=365)
 
@@ -391,7 +391,7 @@ class FactorDataProvider:
 
             # Update model metadata
             if model_name in self.factor_models:
-                self.factor_models[model_name].last_updated = datetime.now()
+                self.factor_models[model_name].last_updated = datetime.now(timezone.utc)
                 self.factor_models[model_name].correlation_matrix = factor_df.corr()
 
             self.logger.info("Retrieved %s factor data: %s observations", model_name, len(factor_df))  # noqa: E501
@@ -426,7 +426,7 @@ class FactorDataProvider:
 
             if self.enable_caching and cache_key in self.factor_cache:
                 cached_data = self.factor_cache[cache_key]
-                cache_age = (datetime.now() - cached_data['timestamp']).total_seconds() / 3600
+                cache_age = (datetime.now(timezone.utc) - cached_data['timestamp']).total_seconds() / 3600
 
                 if cache_age < CACHE_CONFIG['calculation_cache_hours']:
                     self.logger.debug("Using cached data for %s", factor_name)
@@ -467,7 +467,7 @@ class FactorDataProvider:
                         del self.factor_cache[oldest_key]
                     self.factor_cache[cache_key] = {
                         'data': factor_data,
-                        'timestamp': datetime.now()
+                        'timestamp': datetime.now(timezone.utc)
                     }
 
                 self.logger.debug("Retrieved %s data: %s observations", factor_name, len(factor_data))  # noqa: E501
@@ -904,7 +904,7 @@ class FactorDataProvider:
                 entity_name=returns.name if returns.name else "portfolio",
                 exposures=exposures,
                 factor_model=factor_model,
-                calculation_date=datetime.now(),
+                calculation_date=datetime.now(timezone.utc),
                 confidence_intervals=conf_intervals,
                 t_statistics=t_stats
             )
@@ -927,7 +927,7 @@ class FactorDataProvider:
         """
         try:
             # Get recent factor data
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             end_date - timedelta(days=90)
 
             # This is a simplified implementation
@@ -935,7 +935,7 @@ class FactorDataProvider:
 
             quality_report = FactorQualityReport(
                 factor_name=factor_name,
-                assessment_date=datetime.now(),
+                assessment_date=datetime.now(timezone.utc),
                 completeness_score=np.random.uniform(0.9, 1.0),
                 timeliness_score=np.random.uniform(0.8, 1.0),
                 validity_score=np.random.uniform(0.85, 1.0),
@@ -967,7 +967,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="validate_factor_data_quality")
             return FactorQualityReport(
                 factor_name=factor_name,
-                assessment_date=datetime.now(),
+                assessment_date=datetime.now(timezone.utc),
                 completeness_score=0.0,
                 timeliness_score=0.0,
                 validity_score=0.0,
@@ -1011,7 +1011,7 @@ class FactorDataProvider:
 
         while not self._stop_event.is_set():
             try:
-                current_hour = datetime.now().hour
+                current_hour = datetime.now(timezone.utc).hour
 
                 # Update at market close (4 PM ET)
                 if current_hour == 16:
@@ -1144,7 +1144,7 @@ class FactorDataProvider:
             'yahoo_available': YFINANCE_AVAILABLE,
             'cache_enabled': self.enable_caching,
             'cache_size': len(self.factor_cache),
-            'last_update': datetime.now(),
+            'last_update': datetime.now(timezone.utc),
             'quality_reports': len(self.quality_reports)
         }
 
@@ -1228,8 +1228,8 @@ async def main():
 
             factor_data = provider.get_factor_model_data(
                 model_name=model_name,
-                start_date=datetime.now() - timedelta(days=90),
-                end_date=datetime.now()
+                start_date=datetime.now(timezone.utc) - timedelta(days=90),
+                end_date=datetime.now(timezone.utc)
             )
 
             if factor_data is not None:
@@ -1250,7 +1250,7 @@ async def main():
         logging.info("\n🔍 Testing factor exposure calculation...")
 
         # Create sample return series
-        dates = pd.date_range(start=datetime.now() - timedelta(days=60), end=datetime.now(), freq='D')  # noqa: E501
+        dates = pd.date_range(start=datetime.now(timezone.utc) - timedelta(days=60), end=datetime.now(timezone.utc), freq='D')  # noqa: E501
         sample_returns = pd.Series(
             np.random.normal(0.001, 0.02, len(dates)),
             index=dates,

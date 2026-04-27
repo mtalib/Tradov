@@ -56,7 +56,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 # ==============================================================================
@@ -605,7 +605,7 @@ class PaperStrategyRunner:
             A dict with keys: ``spy_price``, ``open_positions``,
             ``closes_this_tick``, ``opens_this_tick``, ``sim_pnl``.
         """
-        now = now_et or datetime.now()
+        now = now_et or datetime.now(timezone.utc)
 
         # 1) Pull SPY + VIX quotes in one batched call
         spy_quote, vix_price = self._get_spy_and_vix()
@@ -651,7 +651,7 @@ class PaperStrategyRunner:
         closed = 0
         for pos in list(self._positions):
             if pos.is_open:
-                self._close_position(pos, reason=reason, now=datetime.now())
+                self._close_position(pos, reason=reason, now=datetime.now(timezone.utc))
                 closed += 1
         return closed
 

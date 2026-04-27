@@ -28,7 +28,7 @@ from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict, deque
 import functools
 
@@ -49,6 +49,18 @@ ERROR_RATE_WINDOW = 300  # 5 minutes
 MAX_ERROR_RATE = 10  # errors per minute
 STRATEGY_SHUTDOWN_THRESHOLD = 5  # errors before strategy shutdown
 SYSTEM_SHUTDOWN_THRESHOLD = 20  # critical errors before system shutdown
+
+
+def _to_utc_comparable(ts: datetime) -> datetime:
+    """Normalize timestamps to UTC-aware for safe comparisons."""
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _is_after(left: datetime, right: datetime) -> bool:
+    """Return True when left is after right, supporting mixed tz-awareness."""
+    return _to_utc_comparable(left) > _to_utc_comparable(right)
 
 
 # ==============================================================================
@@ -476,8 +488,10 @@ class SpyderErrorHandler:
     def get_error_rate(self, window_seconds: int = ERROR_RATE_WINDOW) -> float:
         """Calculate current error rate (errors per minute)"""
         with self._lock:
-            cutoff_time = datetime.now() - timedelta(seconds=window_seconds)
-            recent_errors = [e for e in self.error_history if e.timestamp > cutoff_time]
+            cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+            recent_errors = [
+                e for e in self.error_history if _is_after(e.timestamp, cutoff_time)
+            ]
 
             if window_seconds > 0:
                 return len(recent_errors) * 60 / window_seconds
@@ -498,7 +512,9 @@ class SpyderErrorHandler:
             recent_errors = [
                 e
                 for e in strategy_errors
-                if e.timestamp > datetime.now() - timedelta(minutes=5)
+                if _is_after(
+                    e.timestamp, datetime.now(timezone.utc) - timedelta(minutes=5)
+                )
             ]
 
             if len(recent_errors) >= STRATEGY_SHUTDOWN_THRESHOLD:
@@ -580,7 +596,7 @@ class SpyderErrorHandler:
 
                 if success:
                     error_context.resolved = True
-                    error_context.resolution_time = datetime.now()
+                    error_context.resolution_time = datetime.now(timezone.utc)
                     self.logger.info(
                         "Recovery successful for %s", error_context.error_type
                     )
@@ -700,7 +716,7 @@ class SpyderErrorHandler:
                 "strategy_name": strategy_name,
                 "shutdown_reason": reason,
                 "trigger_error_id": error_context.error_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             self.event_manager.emit_event(EventType.STRATEGY_SHUTDOWN, event_data)
@@ -721,7 +737,7 @@ class SpyderErrorHandler:
                 "trigger_error_id": error_context.error_id,
                 "critical_error_count": self.critical_error_count,
                 "error_rate": self.get_error_rate(),
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             self.event_manager.emit_event(EventType.SYSTEM_SHUTDOWN, event_data)

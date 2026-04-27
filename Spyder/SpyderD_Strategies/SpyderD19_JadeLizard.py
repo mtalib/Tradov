@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -104,12 +104,16 @@ class JadeLizardState(Enum):
     CLOSING = auto()
     COMPLETE = auto()
 
-class RiskProfile(Enum):
+class RiskTier(Enum):
     """Risk assessment levels"""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     EXTREME = "extreme"
+
+
+# Backward compatibility for tests/importers that still reference D19.RiskProfile.
+RiskProfile = RiskTier
 
 class MarketSentiment(Enum):
     """Market sentiment classification"""
@@ -166,7 +170,7 @@ class RiskMetrics:
     pin_risk: bool
     early_assignment_risk: bool
     max_loss_percent: float
-    current_risk_level: RiskProfile
+    current_risk_level: RiskTier
 
 @dataclass
 class JadeLizardPosition:
@@ -198,7 +202,7 @@ class JadeLizardStrategy(BaseStrategy):
     with elevated implied volatility.
     """
 
-    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+    def __init__(self, event_manager: EventManager, risk_profile: RiskTier,
                  config: dict[str, Any] = None):
         """Initialize Jade Lizard strategy"""
         resolved_config = config or {}
@@ -565,7 +569,7 @@ class JadeLizardStrategy(BaseStrategy):
 
     def _select_optimal_expiry(self) -> datetime:
         """Select optimal expiration date"""
-        current_date = datetime.now()
+        current_date = datetime.now(timezone.utc)
         target_date = current_date + timedelta(days=OPTIMAL_DTE)
 
         # Find next Friday
@@ -588,7 +592,7 @@ class JadeLizardStrategy(BaseStrategy):
                             expiry: datetime, iv: float,
                             option_type: OptionType) -> float:
         """Find strike with target delta"""
-        dte = (expiry - datetime.now()).days / 365.0
+        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
 
         # Use inverse Black-Scholes to find strike
         if option_type == OptionType.CALL:
@@ -605,7 +609,7 @@ class JadeLizardStrategy(BaseStrategy):
                              expiry: datetime, iv: float,
                              option_type: OptionType) -> dict[str, float]:
         """Calculate option premium and Greeks"""
-        dte = (expiry - datetime.now()).days / 365.0
+        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
 
         # Black-Scholes calculations
         d1 = (np.log(spot / strike) + (0.02 + iv**2/2) * dte) / (iv * np.sqrt(dte))
@@ -650,7 +654,7 @@ class JadeLizardStrategy(BaseStrategy):
                                     call_strike: float, expiry: datetime,
                                     iv: float) -> float:
         """Calculate probability of profit for Jade Lizard"""
-        dte = (expiry - datetime.now()).days / 365.0
+        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
 
         # For Jade Lizard with no upside risk, profit occurs when:
         # Price stays above put strike (no assignment on put)
@@ -710,7 +714,7 @@ class JadeLizardStrategy(BaseStrategy):
             else:
                 strength = SignalStrength.WEAK
 
-            signal_timestamp = datetime.now()
+            signal_timestamp = datetime.now(timezone.utc)
             current_price = float(market_data['close'].iloc[-1])
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
@@ -778,7 +782,7 @@ class JadeLizardStrategy(BaseStrategy):
                    abs(current_price - setup.short_call.strike) < 2)
 
         # Early assignment risk
-        dte = (setup.expiry - datetime.now()).days
+        dte = (setup.expiry - datetime.now(timezone.utc)).days
         early_assignment_risk = dte < 7 and pin_risk
 
         # Max loss as percentage of account
@@ -786,11 +790,11 @@ class JadeLizardStrategy(BaseStrategy):
 
         # Determine risk level
         if max_loss_percent > 5 or abs(portfolio_delta) > 50:
-            risk_level = RiskProfile.HIGH
+            risk_level = RiskTier.HIGH
         elif max_loss_percent > 3 or abs(portfolio_delta) > 30:
-            risk_level = RiskProfile.MEDIUM
+            risk_level = RiskTier.MEDIUM
         else:
-            risk_level = RiskProfile.LOW
+            risk_level = RiskTier.LOW
 
         return RiskMetrics(
             portfolio_delta=portfolio_delta,
@@ -818,7 +822,7 @@ class JadeLizardStrategy(BaseStrategy):
         for position_id, position in list(self.active_positions.items()):
             # Update position metrics
             position.days_held += 1
-            position.dte = (position.setup.expiry - datetime.now()).days
+            position.dte = (position.setup.expiry - datetime.now(timezone.utc)).days
 
             # Update position value and risk
             self._update_position_value(position, current_price, market_data)
@@ -932,7 +936,7 @@ class JadeLizardStrategy(BaseStrategy):
             return self._create_exit_signal(position, "expiration")
 
         # Risk level escalation
-        if position.risk_metrics.current_risk_level == RiskProfile.EXTREME:
+        if position.risk_metrics.current_risk_level == RiskTier.EXTREME:
             return self._create_exit_signal(position, "extreme_risk")
 
         return None
@@ -940,14 +944,14 @@ class JadeLizardStrategy(BaseStrategy):
     def _create_exit_signal(self, position: JadeLizardPosition,
                           reason: str) -> TradingSignal:
         """Create exit signal"""
-        position.exit_time = datetime.now()
+        position.exit_time = datetime.now(timezone.utc)
         position.exit_reason = reason
         position.state = JadeLizardState.CLOSING
 
         # Update performance stats
         self._update_performance_stats(position)
 
-        signal_timestamp = datetime.now()
+        signal_timestamp = datetime.now(timezone.utc)
         signal = TradingSignal(
             signal_id=str(uuid.uuid4()),
             signal_type=SignalType.CLOSE,
@@ -1015,7 +1019,7 @@ class JadeLizardStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new Jade Lizard position"""
-        position_id = f"JADE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        position_id = f"JADE_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         # Extract setup and risk metrics from signal
         signal.metadata['setup']
@@ -1026,7 +1030,7 @@ class JadeLizardStrategy(BaseStrategy):
         position = JadeLizardPosition(
             position_id=position_id,
             setup=None,  # Would reconstruct
-            entry_time=datetime.now(),
+            entry_time=datetime.now(timezone.utc),
             entry_price=signal.metadata.get('current_price', 0),
             risk_metrics=None,  # Would reconstruct
             state=JadeLizardState.MONITORING
@@ -1115,7 +1119,7 @@ def test_jade_lizard():
     logging.info("Enforce No Upside Risk: %s", strategy.enforce_no_upside_risk)
 
     # Create neutral to slightly bullish market
-    dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
+    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='D')
 
     # Slight uptrend with consolidation
     base_price = 450
@@ -1196,7 +1200,7 @@ def test_jade_lizard():
             new_price = prices[-1] + price_change
 
             market_data.loc[len(market_data)] = {
-                'timestamp': datetime.now() + timedelta(days=i),
+                'timestamp': datetime.now(timezone.utc) + timedelta(days=i),
                 'open': new_price - 0.3,
                 'high': new_price + 0.5,
                 'low': new_price - 0.5,

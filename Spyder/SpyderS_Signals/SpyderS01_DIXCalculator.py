@@ -25,7 +25,7 @@ Change Log:
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 try:
     import fcntl  # POSIX-only; Windows falls back to best-effort coordination
     _HAS_FCNTL = True
@@ -323,7 +323,7 @@ class SpyderDIXCalculator:
         Returns:
             True if today's cache was loaded, False otherwise.
         """
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
         if not os.path.exists(_MARKET_CAPS_CACHE_FILE):
             return False
         try:
@@ -343,7 +343,7 @@ class SpyderDIXCalculator:
 
     def _save_market_caps_to_disk(self) -> None:
         """Persist the current market_caps dict to the disk cache."""
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
         try:
             os.makedirs(_CACHE_DIR, exist_ok=True)
             payload = {"date": today, "caps": self.market_caps}
@@ -365,7 +365,7 @@ class SpyderDIXCalculator:
         2. Disk cache valid for today → load and return.
         3. Fetch from yfinance (slow, ~6 min) → save to disk when done.
         """
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
         # 1. In-memory hit
         if self.market_caps and getattr(self, "_market_caps_date", None) == today:
             self.logger.debug("Market caps in-memory cache hit for %s", today)
@@ -560,7 +560,7 @@ class SpyderDIXCalculator:
     # ==========================================================================
     def _get_latest_trading_date(self) -> str:
         """Get latest trading date in YYYYMMDD format."""
-        today = datetime.now()
+        today = datetime.now(timezone.utc)
 
         # If weekend, go back to Friday
         if today.weekday() >= 5:
@@ -645,7 +645,7 @@ fetches market caps, computes
                 num_components=len(breakdown),
                 total_market_cap=total_market_cap,
                 breakdown=breakdown,
-                calculation_time=datetime.now(),
+                calculation_time=datetime.now(timezone.utc),
                 metadata={"source": "FINRA", "method": "market_cap_weighted"},
             )
         except Exception as e:

@@ -35,11 +35,12 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import logging  # noqa: E402
+import os  # noqa: E402
 import inspect  # noqa: E402
 import threading  # noqa: E402
 import uuid  # noqa: E402
 from collections import deque  # noqa: E402
-from datetime import datetime, timedelta  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from typing import Any  # noqa: E402
@@ -82,8 +83,16 @@ try:
     # Strategy imports (optional per strategy; do not disable orchestrator wiring)
     try:
         from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: F401
+        from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import is_strategy_class as _is_strategy_class  # noqa: F401
     except ImportError:
         BaseStrategy = object  # type: ignore[assignment,misc]
+
+        def _is_strategy_class(cls: Any) -> bool:  # type: ignore[misc]
+            """Fallback when D01 is unavailable."""
+            import inspect as _inspect
+            if not _inspect.isclass(cls) or _inspect.isabstract(cls):
+                return False
+            return callable(getattr(cls, "generate_signal", None))
 
     def _optional_strategy(import_path: str, symbol: str) -> Any:
         try:
@@ -449,7 +458,7 @@ class StrategyOrchestrator:
             trend_strength=0.0,
             vix_level=20.0,
             regime_duration_days=0,
-            last_regime_change=datetime.now()
+            last_regime_change=datetime.now(timezone.utc)
         )
 
         # Performance tracking
@@ -471,7 +480,7 @@ class StrategyOrchestrator:
 
         # Monitoring and control
         self.orchestration_active = False
-        self.last_rebalance = datetime.now()
+        self.last_rebalance = datetime.now(timezone.utc)
         self.rebalance_history: list[RebalanceEvent] = []
         self.strategy_conflicts: list[StrategyConflict] = []
 
@@ -671,8 +680,10 @@ class StrategyOrchestrator:
             # Validate strategy class
             if not inspect.isclass(strategy_class):
                 raise ValueError(f"Strategy reference is not a class: {strategy_class!r}")
-            if not issubclass(strategy_class, BaseStrategy):
+
+            if not _is_strategy_class(strategy_class):
                 raise ValueError("Strategy class must inherit from BaseStrategy")
+
             if inspect.isabstract(strategy_class):
                 raise ValueError(
                     f"Strategy class is abstract and cannot be instantiated: {strategy_class.__name__}"  # noqa: E501
@@ -736,7 +747,7 @@ class StrategyOrchestrator:
                 performance_score=0.5,  # Neutral starting score
                 risk_score=0.5,
                 health_score=1.0,
-                last_rebalance=datetime.now()
+                last_rebalance=datetime.now(timezone.utc)
             )
 
             # Add to active strategies AND allocation map under the same lock (B3/v15 + C1/v18).
@@ -1112,12 +1123,12 @@ class StrategyOrchestrator:
                         allocation = self.strategy_allocations[strategy_id]
                         allocation.current_allocation = new_allocation
                         allocation.allocated_capital = new_allocation * total_capital
-                        allocation.last_rebalance = datetime.now()
-                        allocation.allocation_history.append((datetime.now(), new_allocation))
+                        allocation.last_rebalance = datetime.now(timezone.utc)
+                        allocation.allocation_history.append((datetime.now(timezone.utc), new_allocation))
 
             # Record rebalance event
             rebalance_event = RebalanceEvent(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 reason=reason,
                 previous_allocations=previous_allocations,
                 new_allocations=new_allocations,
@@ -1127,7 +1138,7 @@ class StrategyOrchestrator:
             )
 
             self.rebalance_history.append(rebalance_event)
-            self.last_rebalance = datetime.now()
+            self.last_rebalance = datetime.now(timezone.utc)
 
             # Update portfolio metrics
             self._update_portfolio_metrics()
@@ -1457,12 +1468,12 @@ class StrategyOrchestrator:
             regime_changed = new_regime != self.market_regime.current_regime
 
             if regime_changed:
-                self.market_regime.last_regime_change = datetime.now()
+                self.market_regime.last_regime_change = datetime.now(timezone.utc)
                 self.market_regime.regime_duration_days = 0
-                self.market_regime.regime_history.append((datetime.now(), new_regime))
+                self.market_regime.regime_history.append((datetime.now(timezone.utc), new_regime))
             else:
                 # Update duration
-                days_since_change = (datetime.now() - self.market_regime.last_regime_change).days
+                days_since_change = (datetime.now(timezone.utc) - self.market_regime.last_regime_change).days
                 self.market_regime.regime_duration_days = days_since_change
 
             self.market_regime.current_regime = new_regime
@@ -1511,7 +1522,7 @@ class StrategyOrchestrator:
                     spy_change_pct = (closes[-1] - closes[0]) / closes[0] * 100.0
 
                 conditions = _L09Cond(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     spy_price=spy_price,
                     spy_change_pct=spy_change_pct,
                     volume_ratio=1.0,
@@ -1753,7 +1764,7 @@ class StrategyOrchestrator:
                         self.base_capital * fraction
                     )
 
-            self.last_rebalance = datetime.now()
+            self.last_rebalance = datetime.now(timezone.utc)
             self._update_portfolio_metrics()
             self.logger.info("  ✅ Initial allocation complete for %d strategies", len(allocations))
 
@@ -1923,7 +1934,7 @@ class StrategyOrchestrator:
         """Snapshot current portfolio metrics into the rolling performance history."""
         try:
             snapshot = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "total_pnl": self.portfolio_metrics.total_pnl,
                 "daily_pnl": self.portfolio_metrics.daily_pnl,
                 "active_strategies": len(self.active_strategies),
@@ -1980,12 +1991,11 @@ class StrategyOrchestrator:
                 'RenaissanceMeanReversion': RenaissanceMeanReversionStrategy,
                 'PivotMeanReversion': PivotMeanReversionStrategy,
             }
+
             self.available_strategies = {
                 name: cls
                 for name, cls in candidate_strategies.items()
-                if inspect.isclass(cls)
-                and not inspect.isabstract(cls)
-                and issubclass(cls, BaseStrategy)
+                if _is_strategy_class(cls)
             }
         else:
             self.available_strategies = {}
@@ -2066,7 +2076,7 @@ class StrategyOrchestrator:
                             f"exceeds limit {CONCENTRATION_LIMIT:.1%}"
                         ),
                         resolution_action="Reduce allocation across concentrated strategies",
-                        detected_at=datetime.now(),
+                        detected_at=datetime.now(timezone.utc),
                     )
                 )
         except Exception as e:
@@ -2140,7 +2150,7 @@ class StrategyOrchestrator:
                 )
                 self.market_regime.current_regime = new_regime
                 self.market_regime.regime_confidence = confidence
-                self.market_regime.last_regime_change = datetime.now()
+                self.market_regime.last_regime_change = datetime.now(timezone.utc)
                 self.market_regime.regime_duration_days = 0
 
             # Re-run strategy selection for the updated regime
@@ -2183,7 +2193,7 @@ class StrategyOrchestrator:
         if self._paused_kill or self._paused_stale:
             return
         self.market_data_cache = event.data
-        self.last_market_update = datetime.now()
+        self.last_market_update = datetime.now(timezone.utc)
 
         # Feed every active strategy so it can generate signals autonomously.
         if not self.active_strategies:
@@ -2661,7 +2671,7 @@ class StrategyOrchestrator:
     def _should_rebalance(self) -> bool:
         """Check if portfolio rebalancing is needed"""
         # Time-based rebalancing
-        time_since_rebalance = datetime.now() - self.last_rebalance
+        time_since_rebalance = datetime.now(timezone.utc) - self.last_rebalance
         # Performance-driven rebalancing
         # (Implementation would check allocation drift, performance changes, etc.)
         return time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES)
@@ -2669,7 +2679,7 @@ class StrategyOrchestrator:
     def _determine_rebalance_reason(self) -> RebalanceReason:
         """Determine the reason for rebalancing"""
         # Simplified logic - would be more sophisticated in practice
-        time_since_rebalance = datetime.now() - self.last_rebalance
+        time_since_rebalance = datetime.now(timezone.utc) - self.last_rebalance
         if time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES):
             return RebalanceReason.SCHEDULED
 
@@ -2911,7 +2921,12 @@ class StrategyOrchestrator:
 # PYQT6 ORCHESTRATOR DASHBOARD
 # ==============================================================================
 
-class StrategyOrchestratorDashboard(QWidget):
+_IS_TEST_MODE = str(os.environ.get("SPYDER_TEST_MODE", "")).lower() == "true"
+_DASHBOARD_BASE = object if _IS_TEST_MODE else QWidget
+_DASHBOARD_SIGNAL = (lambda *args, **kwargs: None) if _IS_TEST_MODE else Signal
+
+
+class StrategyOrchestratorDashboard(_DASHBOARD_BASE):
     """
     PyQt6 dashboard for Strategy Orchestrator monitoring and control.
 
@@ -2924,8 +2939,8 @@ class StrategyOrchestratorDashboard(QWidget):
     """
 
     # Qt signals
-    portfolioUpdated = Signal(dict)
-    rebalanceCompleted = Signal(str)
+    portfolioUpdated = _DASHBOARD_SIGNAL(dict)
+    rebalanceCompleted = _DASHBOARD_SIGNAL(str)
 
     def __init__(self, orchestrator: StrategyOrchestrator | None = None):
         super().__init__()
@@ -3317,7 +3332,7 @@ class StrategyOrchestratorDashboard(QWidget):
             self.update_allocation_chart()
 
             # Update status bar
-            self.last_update_label.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+            self.last_update_label.setText(f"Updated: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
 
         except Exception as e:
             self.logger.error("Error updating dashboard: %s", e, exc_info=True)

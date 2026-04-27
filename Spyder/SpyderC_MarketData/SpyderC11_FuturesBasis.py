@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass
 from collections import deque
@@ -328,7 +328,7 @@ class FuturesBasisAnalyzer:
 
             self.current_es_data = es_data
             self.current_spy_data = spy_data
-            self.last_update = datetime.now()
+            self.last_update = datetime.now(timezone.utc)
 
             # Calculate basis
             self._calculate_current_basis()
@@ -537,7 +537,7 @@ class FuturesBasisAnalyzer:
                 "es_impulse_score": _nan,
                 "confirm_direction": "unknown",
                 "confirm_confidence": _nan,
-                "snapshot_ts": datetime.now().isoformat(),
+                "snapshot_ts": datetime.now(timezone.utc).isoformat(),
             }
 
         try:
@@ -584,7 +584,7 @@ class FuturesBasisAnalyzer:
                 "es_impulse_score": es_impulse_score,
                 "confirm_direction": confirm_direction,
                 "confirm_confidence": confirm_confidence,
-                "snapshot_ts": datetime.now().isoformat(),
+                "snapshot_ts": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -597,7 +597,7 @@ class FuturesBasisAnalyzer:
                 "es_impulse_score": _nan,
                 "confirm_direction": "unknown",
                 "confirm_confidence": _nan,
-                "snapshot_ts": datetime.now().isoformat(),
+                "snapshot_ts": datetime.now(timezone.utc).isoformat(),
             }
 
     def get_monitoring_summary(self) -> dict[str, Any]:
@@ -617,7 +617,7 @@ class FuturesBasisAnalyzer:
             dividend_info = self.check_dividend_impact()
 
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'es_price': f"{self.current_es_data.price:.2f}",
                 'spy_price': f"{self.current_spy_data.price:.2f}",
                 'raw_basis': f"{self.current_basis.raw_basis:.2f}",
@@ -652,7 +652,7 @@ class FuturesBasisAnalyzer:
             Historical performance metrics
         """
         try:
-            cutoff_time = datetime.now() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
             recent_signals = [s for s in self.arbitrage_signals
                             if s.timestamp >= cutoff_time]
 
@@ -712,7 +712,7 @@ class FuturesBasisAnalyzer:
         new_price = base_price + change
 
         return ESFuturesData(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             contract_month='M',  # June contract
             expiration_date=date(2025, 6, 20),
             price=new_price,
@@ -737,7 +737,7 @@ class FuturesBasisAnalyzer:
         new_price = base_spy + change
 
         return SPYData(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             price=new_price,
             bid=new_price - 0.01,
             ask=new_price + 0.01,
@@ -778,7 +778,7 @@ class FuturesBasisAnalyzer:
 
             # Create basis data
             self.current_basis = BasisData(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 es_price=self.current_es_data.price,
                 spy_price=self.current_spy_data.price,
                 raw_basis=raw_basis,
@@ -852,7 +852,7 @@ class FuturesBasisAnalyzer:
                 # Generate sample historical data for testing
                 for i in range(1000):
                     # Simulate historical basis
-                    timestamp = datetime.now() - timedelta(minutes=i)
+                    timestamp = datetime.now(timezone.utc) - timedelta(minutes=i)
                     basis_points = np.random.normal(0, 5)  # Historical mean ~0, std ~5 bps
 
                     basis_data = BasisData(
@@ -882,7 +882,7 @@ class FuturesBasisAnalyzer:
 
     def _determine_market_session(self) -> MarketSession:
         """Determine current market session"""
-        now = datetime.now().time()
+        now = datetime.now(timezone.utc).time()
 
         if datetime.time(4, 0) <= now < datetime.time(9, 30):
             return MarketSession.PRE_MARKET
@@ -912,7 +912,7 @@ class FuturesBasisAnalyzer:
 
                 # Update market parameters periodically
                 if (not self.last_update or
-                    (datetime.now() - self.last_update).seconds >= INTEREST_RATE_UPDATE_FREQUENCY):
+                    (datetime.now(timezone.utc) - self.last_update).seconds >= INTEREST_RATE_UPDATE_FREQUENCY):
                     self._update_interest_rates()
 
                 time.sleep(BASIS_UPDATE_FREQUENCY)  # thread-safe: time.sleep() intentional
@@ -932,7 +932,7 @@ class FuturesBasisAnalyzer:
             # Extreme basis alert
             if abs(self.current_basis.basis_points) > 20:
                 alerts.append(BasisMonitoringAlert(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     alert_type="EXTREME_BASIS",
                     severity="WARNING",
                     message=f"Extreme basis detected: {self.current_basis.basis_points:.1f} bps",
@@ -950,7 +950,7 @@ class FuturesBasisAnalyzer:
             if profitable_ops:
                 best_op = max(profitable_ops, key=lambda x: x.profit_bps)
                 alerts.append(BasisMonitoringAlert(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     alert_type="ARBITRAGE_OPPORTUNITY",
                     severity="INFO",
                     message=f"Arbitrage opportunity: {best_op.opportunity_type.value} ({best_op.profit_bps:.1f} bps)",  # noqa: E501
@@ -1033,7 +1033,7 @@ class FairValueCalculator:
         theoretical_es_price = fair_value * ES_MULTIPLIER
 
         return FairValueCalculation(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             spy_price=spy_price,
             interest_rate=interest_rate,
             dividend_yield=dividend_yield,
@@ -1065,7 +1065,7 @@ class ArbitrageDetector:
         # Check if mispricing exceeds threshold
         if abs(mispricing_bps) < MIN_BASIS_POINTS:
             signals.append(ArbitrageSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 opportunity_type=ArbitrageOpportunity.NO_OPPORTUNITY,
                 expected_profit=0.0,
                 profit_bps=0.0,
@@ -1093,7 +1093,7 @@ class ArbitrageDetector:
         # Check if profitable after costs
         if profit_bps > MIN_PROFIT_THRESHOLD:
             signals.append(ArbitrageSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 opportunity_type=opportunity_type,
                 expected_profit=expected_profit,
                 profit_bps=profit_bps,
@@ -1106,7 +1106,7 @@ class ArbitrageDetector:
             ))
         else:
             signals.append(ArbitrageSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 opportunity_type=ArbitrageOpportunity.INSUFFICIENT_EDGE,
                 expected_profit=expected_profit,
                 profit_bps=profit_bps,
@@ -1207,7 +1207,7 @@ class BasisStatisticsCalculator:
         half_life = self._calculate_mean_reversion_half_life(basis_points)
 
         return BasisStatistics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             mean_basis=mean_basis,
             std_basis=std_basis,
             percentile_5=percentile_5,
@@ -1299,7 +1299,7 @@ class DividendTracker:
 
         # Filter for future dividends
         self.dividend_schedule = [d for d in sample_dividends if d.days_to_ex_date >= 0]
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
 
     def get_next_dividend_info(self) -> DividendSchedule | None:
         """Get information about the next upcoming dividend"""

@@ -29,7 +29,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -376,7 +376,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             agent_id=self.AGENT_ID,
             output_type="report",
             topic="strategy.plan",
-            payload={"plan": plan, "date": datetime.now().strftime("%Y-%m-%d")},
+            payload={"plan": plan, "date": datetime.now(timezone.utc).strftime("%Y-%m-%d")},
             confidence=0.7,
             reasoning=plan,
             priority="NORMAL",
@@ -389,7 +389,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             f"Power hour positioning analysis:\n"
             f"- Current regime: {self._current_regime}\n"
             f"- Today's signals approved: "
-            f"{sum(1 for v in self._validated_signals if v.approved and v.timestamp.date() == datetime.now().date())}\n"  # noqa: E501
+            f"{sum(1 for v in self._validated_signals if v.approved and v.timestamp.date() == datetime.now(timezone.utc).date())}\n"  # noqa: E501
             f"- Current allocation: {[a.strategy_name + ':' + str(a.allocation_pct) + '%' for a in self._current_allocation]}\n\n"  # noqa: E501
             f"Should any positions be adjusted before close? "
             f"Consider overnight risk, theta decay, and next-day catalysts."
@@ -443,8 +443,8 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
     # ==========================================================================
     def _get_yesterday_approval_rate(self) -> float:
         """Calculate yesterday's signal approval rate."""
-        from datetime import timedelta
-        yesterday = (datetime.now() - timedelta(days=1)).date()
+        from datetime import timedelta, timezone
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
         yesterday_signals = [
             v for v in self._validated_signals
             if v.timestamp.date() == yesterday

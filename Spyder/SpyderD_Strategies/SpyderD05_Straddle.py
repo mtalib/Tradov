@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -80,6 +80,13 @@ MIN_GAMMA = 0.01  # Minimum gamma
 # Position limits
 MAX_STRADDLE_POSITIONS = 3
 POSITION_SIZE_PERCENT = 0.015  # 1.5% of capital per position
+
+
+def _matching_now(reference: datetime) -> datetime:
+    """Return now with matching timezone-awareness to avoid mixed-datetime math."""
+    if reference.tzinfo is None:
+        return datetime.now()  # spyder: naive-ok
+    return datetime.now(timezone.utc)
 
 # ==============================================================================
 # ENUMS
@@ -174,7 +181,7 @@ class StraddlePosition:
     @property
     def days_to_expiry(self) -> int:
         """Days until expiration"""
-        return (self.expiry - datetime.now()).days
+        return (self.expiry - _matching_now(self.expiry)).days
 
     @property
     def expected_move(self) -> float:
@@ -410,7 +417,7 @@ class StraddleStrategy(BaseStrategy):
 
             # Check if event has passed
             if straddle_pos.event_type != EventType.NONE and straddle_pos.event_date:
-                if datetime.now() > straddle_pos.event_date + timedelta(days=1):
+                if datetime.now(timezone.utc) > straddle_pos.event_date + timedelta(days=1):
                     return True, "Event has passed"
 
             # Check theta decay
@@ -506,20 +513,20 @@ class StraddleStrategy(BaseStrategy):
         self.upcoming_events = []
 
         # Example: Check if it's near earnings season (quarterly)
-        current_month = datetime.now().month
+        current_month = datetime.now(timezone.utc).month
         if current_month in [1, 4, 7, 10]:  # Earnings months
             self.upcoming_events.append({
                 'type': EventType.EARNINGS,
-                'date': datetime.now() + timedelta(days=5),
+                'date': datetime.now(timezone.utc) + timedelta(days=5),
                 'impact': 'high'
             })
 
         # Check for FOMC (simplified - every 6 weeks)
-        days_since_epoch = (datetime.now() - datetime(2024, 1, 1)).days
+        days_since_epoch = (datetime.now(timezone.utc) - datetime(2024, 1, 1)).days
         if days_since_epoch % 42 < 7:  # Within a week of 6-week cycle
             self.upcoming_events.append({
                 'type': EventType.FOMC,
-                'date': datetime.now() + timedelta(days=3),
+                'date': datetime.now(timezone.utc) + timedelta(days=3),
                 'impact': 'high'
             })
 
@@ -545,7 +552,7 @@ class StraddleStrategy(BaseStrategy):
             return False
 
         # Check time window
-        current_time = datetime.now().time()
+        current_time = datetime.now(timezone.utc).time()
         if not (OPTIMAL_ENTRY_START <= current_time <= OPTIMAL_ENTRY_END):
             return False
 
@@ -628,8 +635,8 @@ class StraddleStrategy(BaseStrategy):
                 stop_loss=0,  # Managed differently
                 take_profit=0,  # Managed differently
                 position_size=1,  # Will be calculated
-                timestamp=datetime.now(),
-                expires_at=datetime.now() + timedelta(minutes=15),
+                timestamp=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
                 metadata={
                     'strategy': 'straddle',
                     'straddle_data': {
@@ -824,7 +831,7 @@ class StraddleStrategy(BaseStrategy):
             straddle_data = signal.metadata['straddle_data']
 
             # Create option legs
-            expiry = datetime.now() + timedelta(days=straddle_data['expiry_days'])
+            expiry = datetime.now(timezone.utc) + timedelta(days=straddle_data['expiry_days'])
 
             call_leg = OptionLeg(
                 symbol=f"SPY_C_{straddle_data['call_strike']}_{expiry.strftime('%Y%m%d')}",
@@ -860,7 +867,7 @@ class StraddleStrategy(BaseStrategy):
                 strategy_type=straddle_data['strategy_type'],
                 call_leg=call_leg,
                 put_leg=put_leg,
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 expiry=expiry,
                 quantity=signal.position_size,
                 total_debit=straddle_data['total_debit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
@@ -969,7 +976,7 @@ class StraddleStrategy(BaseStrategy):
 
             # Update final values
             position.realized_pnl = position.unrealized_pnl
-            position.exit_time = datetime.now()
+            position.exit_time = datetime.now(timezone.utc)
             position.exit_reason = reason
 
             # Move to history
@@ -1083,7 +1090,7 @@ if __name__ == "__main__":
     strategy.start()
 
     # Create sample market data with some volatility
-    dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
+    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='5min')
     base_price = 450
 
     # Add some volatility

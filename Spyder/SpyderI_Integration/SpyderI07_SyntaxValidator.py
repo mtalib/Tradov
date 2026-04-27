@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -232,7 +232,7 @@ class SyntaxValidator:
         logging.info("=" * 80)
 
         report = ValidationReport(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_files=0,
             valid_files=0,
             files_with_errors=0,
@@ -736,7 +736,7 @@ class SyntaxValidator:
         script = [
             "#!/bin/bash",
             "# Spyder Syntax Fix Script",
-            f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"# Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "echo 'Starting Spyder syntax fixes...'",
             "",

@@ -35,7 +35,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable
@@ -745,7 +745,7 @@ class TradingMetrics:
 
         # State
         self._is_running = False
-        self._last_update = datetime.now()
+        self._last_update = datetime.now(timezone.utc)
 
         self.logger.info("TradingMetrics initialized")
 
@@ -774,7 +774,7 @@ class TradingMetrics:
         self.current_snapshot.portfolio.total_value = total_value
         self.current_snapshot.portfolio.cash_balance = cash_balance
         self.current_snapshot.portfolio.equity_value = total_value - cash_balance
-        self.current_snapshot.portfolio.last_updated = datetime.now()
+        self.current_snapshot.portfolio.last_updated = datetime.now(timezone.utc)
 
     def update_positions(self, positions: list[dict[str, Any]]):
         """Update position metrics from position data."""
@@ -886,7 +886,7 @@ class TradingMetrics:
             strategy.losing_trades += 1
 
         strategy.win_rate = strategy.winning_trades / strategy.total_trades * 100
-        strategy.last_updated = datetime.now()
+        strategy.last_updated = datetime.now(timezone.utc)
 
     def _update_drawdown(self):
         """Update drawdown calculations."""
@@ -977,7 +977,7 @@ class PrometheusMetricsCollector:
         self._shutdown_event = threading.Event()
 
         # System metrics tracking
-        self._last_system_update = datetime.now()
+        self._last_system_update = datetime.now(timezone.utc)
         self._system_metrics_interval = 30.0  # seconds
 
         self.logger.info("PrometheusMetricsCollector initialized on port %s", self.config.port)
@@ -1079,7 +1079,7 @@ class PrometheusMetricsCollector:
 
     def _should_update_system_metrics(self) -> bool:
         """Check if system metrics should be updated."""
-        return (datetime.now() - self._last_system_update).total_seconds() >= self._system_metrics_interval  # noqa: E501
+        return (datetime.now(timezone.utc) - self._last_system_update).total_seconds() >= self._system_metrics_interval  # noqa: E501
 
     def _update_system_info(self):
         """Update system information."""
@@ -1123,7 +1123,7 @@ class PrometheusMetricsCollector:
             self.metrics.system_load_avg.labels(period="5m").set(load_avg[1])
             self.metrics.system_load_avg.labels(period="15m").set(load_avg[2])
 
-            self._last_system_update = datetime.now()
+            self._last_system_update = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.debug("Failed to update system metrics: %s", e)
@@ -1438,7 +1438,7 @@ if __name__ == "__main__":
         trade_id="TEST_001",
         symbol="SPY",
         strategy="iron_condor",
-        entry_time=datetime.now(),
+        entry_time=datetime.now(timezone.utc),
         quantity=10,
         entry_price=580.0,
         realized_pnl=250.0,

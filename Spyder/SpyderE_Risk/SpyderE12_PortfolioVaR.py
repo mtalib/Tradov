@@ -35,7 +35,7 @@ Key Features:
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
@@ -337,7 +337,7 @@ class PortfolioVaR:
                 'strategy_id': strategy_id,
                 'value': value,
                 'greeks': greeks or {},
-                'last_update': datetime.now()
+                'last_update': datetime.now(timezone.utc)
             }
 
             if returns_history:
@@ -633,7 +633,7 @@ class PortfolioVaR:
 
                 # Calculate correlation matrix if needed
                 if self.last_matrix_update is None or \
-                   (datetime.now() - self.last_matrix_update).days > 7:
+                   (datetime.now(timezone.utc) - self.last_matrix_update).days > 7:
                     self._update_correlation_matrix()
 
                 total_value = sum(pos['value'] for pos in self.positions.values())
@@ -702,7 +702,7 @@ class PortfolioVaR:
                 # Calculate covariance with shrinkage
                 self.covariance_matrix, _ = self.cov_estimator.fit(returns_df.values)
 
-                self.last_matrix_update = datetime.now()
+                self.last_matrix_update = datetime.now(timezone.utc)
 
         except Exception as e:
             self.logger.error("Matrix update failed: %s", e)
@@ -919,7 +919,7 @@ class PortfolioVaR:
             report = BacktestReport(
                 method=method,
                 confidence_level=confidence_level,
-                test_period=(datetime.now() - timedelta(days=test_period), datetime.now()),
+                test_period=(datetime.now(timezone.utc) - timedelta(days=test_period), datetime.now(timezone.utc)),
                 total_observations=test_period,
                 var_breaches=breaches,
                 expected_breaches=int(expected_breaches),
@@ -1042,7 +1042,7 @@ class PortfolioVaR:
 
         # Run stress tests if not recent
         if not self.stress_results or \
-           (datetime.now() - self.stress_results[0].calculation_time).days > 7:
+           (datetime.now(timezone.utc) - self.stress_results[0].calculation_time).days > 7:
             stress_results = self.run_stress_tests()
         else:
             stress_results = self.stress_results
@@ -1088,7 +1088,7 @@ class PortfolioVaR:
         return BacktestReport(
             method=method,
             confidence_level=confidence_level,
-            test_period=(datetime.now() - timedelta(days=252), datetime.now()),
+            test_period=(datetime.now(timezone.utc) - timedelta(days=252), datetime.now(timezone.utc)),
             total_observations=0,
             var_breaches=0,
             expected_breaches=0,
@@ -1145,7 +1145,7 @@ class PortfolioVaR:
                 json.dump({
                     'backtests': list(self.backtest_history),
                     'breaches': list(self.var_breach_history),
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }, f, default=_json_default, indent=2)
 
             self.logger.info("VaR history saved")

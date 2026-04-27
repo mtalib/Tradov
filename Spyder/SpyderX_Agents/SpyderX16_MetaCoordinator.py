@@ -33,7 +33,7 @@ Key Features:
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -369,7 +369,7 @@ class MetaCoordinator:
         Returns:
             CoordinatedDecision with consensus result
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         decision_id = str(uuid.uuid4())
 
         try:
@@ -406,7 +406,7 @@ class MetaCoordinator:
             self._record_decision(final_decision)
 
             # Update metrics
-            decision_time = (datetime.now() - start_time).total_seconds()
+            decision_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             self._update_metrics(decision_time, final_decision)
 
             self.logger.info(
@@ -666,7 +666,7 @@ class MetaCoordinator:
             # Find opposing actions
             if 'BUY' in action_groups and 'SELL' in action_groups:
                 conflicts.append(ConflictEvent(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     conflicting_agents=[r.agent_id for r in action_groups['BUY']] +
                                      [r.agent_id for r in action_groups['SELL']],
                     issue="BUY vs SELL conflict",
@@ -687,7 +687,7 @@ class MetaCoordinator:
                     all_agents.extend([r.agent_id for r in recs])
 
                 conflicts.append(ConflictEvent(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     conflicting_agents=all_agents,
                     issue="High confidence disagreement",
                     resolution_method=ConflictResolution.CONSENSUS_REQUIRED,
@@ -1012,7 +1012,7 @@ class MetaCoordinator:
             perf.total_predictions
         )
 
-        perf.last_update = datetime.now()
+        perf.last_update = datetime.now(timezone.utc)
 
     def get_agent_rankings(self) -> list[tuple[str, float]]:
         """Get current agent performance rankings"""

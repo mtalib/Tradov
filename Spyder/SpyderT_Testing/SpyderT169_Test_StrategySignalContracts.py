@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused signal-contract tests for legacy D-series strategies."""
 
+import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta
@@ -17,9 +18,14 @@ from Spyder.SpyderD_Strategies.SpyderD13_MACrossover import (
     CrossoverType,
     TrendPhase,
 )
-from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 from Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpreadStrategy
 from Spyder.SpyderD_Strategies.SpyderD19_JadeLizard import JadeLizardStrategy, JadeLizardState
+
+
+def _get_strategy_orchestrator_class():
+    """Lazily import D31 to avoid heavy GUI/native import at collection time."""
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    return mod.StrategyOrchestrator
 
 
 class _StubEventManager:
@@ -109,6 +115,7 @@ def test_ma_signal_builder_emits_dispatchable_aliases():
 
 
 def test_d31_dispatches_rsi_trading_signal_object_via_live_engine():
+    StrategyOrchestrator = _get_strategy_orchestrator_class()
     strategy = RSIMeanReversionStrategy(
         event_manager=_StubEventManager(),
         risk_profile=_risk_profile(),
@@ -147,6 +154,7 @@ def test_d31_dispatches_rsi_trading_signal_object_via_live_engine():
 
 
 def test_d31_dispatches_ma_trading_signal_object_via_live_engine():
+    StrategyOrchestrator = _get_strategy_orchestrator_class()
     strategy = MACrossoverStrategy(
         event_manager=_StubEventManager(),
         risk_profile=_risk_profile(),

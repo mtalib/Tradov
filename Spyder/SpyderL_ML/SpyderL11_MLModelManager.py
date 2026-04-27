@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -264,7 +264,7 @@ class MLModelManager:
                 version=version,
                 name=name,
                 algorithm=config.algorithm.value,
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 status=ModelStatus.DEVELOPMENT,
                 config=config,
                 performance_metrics=performance_metrics,
@@ -429,8 +429,8 @@ class MLModelManager:
                 control_model_id=control_model_id,
                 treatment_model_id=treatment_model_id,
                 traffic_split=traffic_split,
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=duration_hours),
+                start_time=datetime.now(timezone.utc),
+                end_time=datetime.now(timezone.utc) + timedelta(hours=duration_hours),
                 metrics_to_track=metrics_to_track or [
                     'accuracy', 'latency', 'profit_factor'
                 ],
@@ -525,7 +525,7 @@ class MLModelManager:
             metrics: Performance metrics
         """
         try:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
 
             # Store metrics
             for metric_name, value in metrics.items():
@@ -562,7 +562,7 @@ class MLModelManager:
             if model_id not in self.model_metrics:
                 return {}
 
-            cutoff_time = datetime.now() - timedelta(hours=window_hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=window_hours)
             summary = {}
 
             for metric_name, values in self.model_metrics[model_id].items():
@@ -639,7 +639,7 @@ class MLModelManager:
             Number of models archived
         """
         try:
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
             archived_count = 0
 
             with self._lock:
@@ -676,7 +676,7 @@ class MLModelManager:
             model_id=model_id,
             version=self.model_registry[model_id].version,
             strategy=strategy,
-            start_time=datetime.now(),
+            start_time=datetime.now(timezone.utc),
             end_time=None,
             traffic_percentage=0.0,
             performance_metrics={}
@@ -805,7 +805,7 @@ class MLModelManager:
 
     def _generate_model_id(self, name: str, version: str) -> str:
         """Generate unique model ID"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return f"{name}_{version}_{timestamp}"
 
     def _calculate_model_hash(self, model_path: Path) -> str:
@@ -889,7 +889,7 @@ class MLModelManager:
                 WHERE model_id = ?
             """
 
-            db.execute(query, (status.value, datetime.now(), model_id))
+            db.execute(query, (status.value, datetime.now(timezone.utc), model_id))
 
         except Exception as e:
             self.logger.error("Error updating model status: %s", e)

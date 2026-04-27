@@ -44,7 +44,7 @@ Removed Functions:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -393,7 +393,7 @@ class SpyderAdvancedModelsEngine:
                     start_time = (
                         self.timestamp_history[-1]
                         if self.timestamp_history
-                        else datetime.now()
+                        else datetime.now(timezone.utc)
                     )
                     new_timestamps = [
                         start_time + timedelta(minutes=i)
@@ -499,7 +499,7 @@ class SpyderAdvancedModelsEngine:
                     sigma_jump=sigma_jump,
                 )
 
-                self.last_calibration = datetime.now()
+                self.last_calibration = datetime.now(timezone.utc)
                 self.validation_status = ModelValidationStatus.CALIBRATED
 
                 # Calculate model performance
@@ -598,7 +598,7 @@ class SpyderAdvancedModelsEngine:
 
                     # Create jump event
                     jump_event = JumpEvent(
-                        timestamp=datetime.now()
+                        timestamp=datetime.now(timezone.utc)
                         - timedelta(minutes=len(recent_returns) - i),
                         price_before=0.0,  # Would need actual price data
                         price_after=0.0,  # Would need actual price data
@@ -625,7 +625,7 @@ class SpyderAdvancedModelsEngine:
         """Analyze recent jump events"""
         try:
             # Return jumps from last 30 days
-            cutoff_time = datetime.now() - timedelta(days=30)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)
             recent_jumps = [
                 jump for jump in self.jump_history if jump.timestamp >= cutoff_time
             ]
@@ -647,7 +647,7 @@ class SpyderAdvancedModelsEngine:
         """Assess current crisis probability based on jump activity"""
         try:
             # Calculate recent jump frequency (last 30 days)
-            cutoff_time = datetime.now() - timedelta(days=30)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)
             recent_jumps = [
                 jump for jump in self.jump_history if jump.timestamp >= cutoff_time
             ]
@@ -929,7 +929,7 @@ class SpyderAdvancedModelsEngine:
                 [
                     j
                     for j in self.jump_history
-                    if j.timestamp >= datetime.now() - timedelta(days=7)
+                    if j.timestamp >= datetime.now(timezone.utc) - timedelta(days=7)
                 ]
             )
             if recent_jumps > 3:
@@ -952,7 +952,7 @@ class SpyderAdvancedModelsEngine:
         if self.last_calibration is None:
             return False
 
-        age = datetime.now() - self.last_calibration
+        age = datetime.now(timezone.utc) - self.last_calibration
         return age.total_seconds() < (self.calibration_frequency_hours * 3600)
 
     async def _check_and_recalibrate(self):
@@ -1003,7 +1003,7 @@ class SpyderAdvancedModelsEngine:
 
             dt = 1 / 252  # Daily
             prices = [initial_price]
-            timestamps = [datetime.now() - timedelta(days=n_points)]
+            timestamps = [datetime.now(timezone.utc) - timedelta(days=n_points)]
 
             for _ in range(1, n_points):
                 # Diffusion component
@@ -1066,7 +1066,7 @@ class SpyderAdvancedModelsEngine:
                         [
                             j
                             for j in self.jump_history
-                            if j.timestamp >= datetime.now() - timedelta(days=7)
+                            if j.timestamp >= datetime.now(timezone.utc) - timedelta(days=7)
                         ]
                     ),
                     "jump_detection_threshold": self.jump_threshold,

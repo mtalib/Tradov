@@ -29,7 +29,7 @@ Consolidation Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -991,7 +991,7 @@ class SpyderRiskManager:
     def _cache_risk_results(self, params: RiskParameters, metrics: RiskMetrics):
         """Cache risk calculation results."""
         cache_key = self._generate_cache_key(params)
-        self.risk_cache[cache_key] = {"metrics": metrics, "timestamp": datetime.now()}
+        self.risk_cache[cache_key] = {"metrics": metrics, "timestamp": datetime.now(timezone.utc)}
 
         # Cleanup old cache entries
         self._cleanup_cache()
@@ -1002,7 +1002,7 @@ class SpyderRiskManager:
 
     def _cleanup_cache(self):
         """Remove expired cache entries."""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         expired_keys = []
 
         for key, value in self.risk_cache.items():
@@ -1070,7 +1070,7 @@ class SpyderRiskManager:
     ) -> str | dict[str, Any]:
         """Export comprehensive risk report."""
         report_data = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "portfolio_summary": {
                 "total_positions": len(self.positions),
                 "total_value": sum(

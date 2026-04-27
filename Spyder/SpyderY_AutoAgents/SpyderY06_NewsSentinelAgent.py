@@ -36,7 +36,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 # ==============================================================================
@@ -307,7 +307,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         """Update aggregated sentiment from recent news."""
         recent_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now() - timedelta(hours=4)
+            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=4)
         ]
 
         if not recent_news:
@@ -332,8 +332,8 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         # Determine trend
         older_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now() - timedelta(hours=12)
-            and n.timestamp < datetime.now() - timedelta(hours=4)
+            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=12)
+            and n.timestamp < datetime.now(timezone.utc) - timedelta(hours=4)
         ]
         if older_news:
             older_score = sum(n.sentiment_score for n in older_news) / len(older_news)
@@ -350,7 +350,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
             from collections import Counter
             self._sentiment_state.dominant_theme = Counter(categories).most_common(1)[0][0]
 
-        self._sentiment_state.last_updated = datetime.now()
+        self._sentiment_state.last_updated = datetime.now(timezone.utc)
 
     # ==========================================================================
     # ECONOMIC CALENDAR
@@ -361,7 +361,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         # For now, publish any tracked events
         upcoming = [
             e for e in self._economic_calendar
-            if e.date >= datetime.now().strftime("%Y-%m-%d")
+            if e.date >= datetime.now(timezone.utc).strftime("%Y-%m-%d")
         ]
 
         for event in upcoming:
@@ -402,7 +402,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
                 "type": "news_driven",
                 "headline": item.headline,
                 "category": item.category,
-                "id": f"news_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "id": f"news_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             },
             confidence=strength * 0.8,  # Discount news signals slightly
             reasoning=item.options_implication,
@@ -417,7 +417,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         """Generate overnight news summary for pre-market."""
         overnight_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now() - timedelta(hours=14)
+            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=14)
         ]
 
         if not overnight_news:

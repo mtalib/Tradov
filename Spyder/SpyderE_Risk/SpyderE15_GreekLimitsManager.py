@@ -26,7 +26,7 @@ import time
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -162,7 +162,7 @@ class DynamicGreekLimits:
 
         # Log adjustment
         self.adjustment_history.append({
-            'timestamp': datetime.now(),
+            'timestamp': datetime.now(timezone.utc),
             'greek': greek,
             'old_limit': old_limit,
             'new_limit': new_limit,
@@ -170,7 +170,7 @@ class DynamicGreekLimits:
             'trigger': trigger.value
         })
 
-        self.last_updated = datetime.now()
+        self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class GreekExposure:
@@ -369,7 +369,7 @@ class GreekLimitsManager:
                 base_limits=limits.copy(),
                 current_limits=limits.copy(),
                 adjustment_factors={greek: 1.0 for greek in limits},
-                last_updated=datetime.now(),
+                last_updated=datetime.now(timezone.utc),
                 regime=self.current_regime,
                 vix_level=self.vix_level
             )
@@ -403,7 +403,7 @@ class GreekLimitsManager:
                 adjustment_factor = strategy_limits.adjustment_factors.get(greek, 1.0)
                 strategy_limits.current_limits[greek] = base_limit * adjustment_factor
 
-            strategy_limits.last_updated = datetime.now()
+            strategy_limits.last_updated = datetime.now(timezone.utc)
 
             self.logger.info("📊 Updated limits for strategy %s", strategy_id)
 
@@ -577,7 +577,7 @@ class GreekLimitsManager:
             exposure.vega = greeks.get('vega', 0.0)
             exposure.theta = greeks.get('theta', 0.0)
             exposure.rho = greeks.get('rho', 0.0)
-            exposure.timestamp = datetime.now()
+            exposure.timestamp = datetime.now(timezone.utc)
             exposure.position_count = position_count
             exposure.total_notional = notional
 
@@ -630,7 +630,7 @@ class GreekLimitsManager:
                         limit_value=limit_value,
                         risk_level=risk_level,
                         utilization_pct=utilization * 100,
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         recommended_actions=self._generate_risk_recommendations(
                             greek, utilization, risk_level
                         ),
@@ -663,7 +663,7 @@ class GreekLimitsManager:
             self.portfolio_exposure.vega = total_vega
             self.portfolio_exposure.theta = total_theta
             self.portfolio_exposure.rho = total_rho
-            self.portfolio_exposure.timestamp = datetime.now()
+            self.portfolio_exposure.timestamp = datetime.now(timezone.utc)
             self.portfolio_exposure.position_count = sum(
                 exp.position_count for exp in self.current_exposures.values()
             )
@@ -745,7 +745,7 @@ class GreekLimitsManager:
         return {
             'regime': self.current_regime.value,
             'vix_level': self.vix_level,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'portfolio_positions': self.portfolio_exposure.position_count,
             'portfolio_notional': self.portfolio_exposure.total_notional
         }
