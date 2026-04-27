@@ -419,7 +419,7 @@ def _fetch_series_yfinance(
         _save_cache(cache_key, series)
         return series
     except ImportError:
-        raise WRSDataError("yfinance not installed — Tradier is required")
+        raise WRSDataError("yfinance not installed — Tradier is required")  # noqa: B904
 
 
 # ==============================================================================
@@ -847,7 +847,7 @@ def plot_wrs(
     """
     try:
         import matplotlib.pyplot as plt  # noqa: PLC0415
-        import matplotlib.patches as mpatches  # noqa: PLC0415
+        import matplotlib.patches as mpatches  # noqa: F401, PLC0415
     except ImportError:
         _logger.error("WRS chart: matplotlib not installed")
         return None
@@ -974,7 +974,7 @@ def _cli_main() -> None:
     result = signal.compute(force_refresh=args.refresh)
 
     if result.error:
-        print(f"ERROR: {result.error}")
+        print(f"ERROR: {result.error}")  # noqa: T201
         return
 
     _ICONS = {
@@ -995,35 +995,35 @@ def _cli_main() -> None:
 
     width = 50
     border = "─" * width
-    print(f"┌{border}┐")
-    print(f"│{'WALMART RECESSION SIGNAL (WRS)':^{width}}│")
-    print(f"│{f'As of: {result.date}':^{width}}│")
-    print(f"├{border}┤")
-    print(f"│  {'WRS Value':20}: {result.wrs:.5f}{' ' * (width - 29)}│")
-    print(f"│  {'30-Day MA':20}: {result.wrs_30d_ma:.5f}{' ' * (width - 29)}│")
-    print(f"│  {'90-Day MA':20}: {result.wrs_90d_ma:.5f}{' ' * (width - 29)}│")
-    print(f"│  {'YoY Change':20}: {yoy_str}{' ' * (width - 12 - len(yoy_str))}│")
+    print(f"┌{border}┐")  # noqa: T201
+    print(f"│{'WALMART RECESSION SIGNAL (WRS)':^{width}}│")  # noqa: T201
+    print(f"│{f'As of: {result.date}':^{width}}│")  # noqa: T201
+    print(f"├{border}┤")  # noqa: T201
+    print(f"│  {'WRS Value':20}: {result.wrs:.5f}{' ' * (width - 29)}│")  # noqa: T201
+    print(f"│  {'30-Day MA':20}: {result.wrs_30d_ma:.5f}{' ' * (width - 29)}│")  # noqa: T201
+    print(f"│  {'90-Day MA':20}: {result.wrs_90d_ma:.5f}{' ' * (width - 29)}│")  # noqa: T201
+    print(f"│  {'YoY Change':20}: {yoy_str}{' ' * (width - 12 - len(yoy_str))}│")  # noqa: T201
     pct_str = f"{result.wrs_pct_rank:.1f}%"
-    print(f"│  {'Percentile Rank':20}: {pct_str}{' ' * (width - 12 - len(pct_str))}│")
+    print(f"│  {'Percentile Rank':20}: {pct_str}{' ' * (width - 12 - len(pct_str))}│")  # noqa: T201
     z_str = f"{result.wrs_zscore:.2f}"
-    print(f"│  {'Z-Score (252d)':20}: {z_str}{' ' * (width - 12 - len(z_str))}│")
+    print(f"│  {'Z-Score (252d)':20}: {z_str}{' ' * (width - 12 - len(z_str))}│")  # noqa: T201
     lvl_str = f"{icon} {result.signal_level.value}"
-    print(f"│  {'Signal Level':20}: {lvl_str}{' ' * (width - 12 - len(lvl_str))}│")
-    print(f"├{border}┤")
+    print(f"│  {'Signal Level':20}: {lvl_str}{' ' * (width - 12 - len(lvl_str))}│")  # noqa: T201
+    print(f"├{border}┤")  # noqa: T201
     bkt_str = f"{result.basket_available} of {len(LUXURY_BASKET)} tickers"
-    print(f"│  {'Luxury Basket':20}: {bkt_str}{' ' * (width - 12 - len(bkt_str))}│")
+    print(f"│  {'Luxury Basket':20}: {bkt_str}{' ' * (width - 12 - len(bkt_str))}│")  # noqa: T201
     miss_str = ", ".join(result.basket_missing) if result.basket_missing else "None"
-    print(f"│  {'Missing':20}: {miss_str}{' ' * max(0, width - 12 - len(miss_str))}│")
+    print(f"│  {'Missing':20}: {miss_str}{' ' * max(0, width - 12 - len(miss_str))}│")  # noqa: T201
     rng_str = f"{result.data_start} → {result.data_end}"
-    print(f"│  {'Data Range':20}: {rng_str}{' ' * max(0, width - 12 - len(rng_str))}│")
-    print(f"│  {'Last Crossover':20}: {last_cross}{' ' * max(0, width - 12 - len(last_cross))}│")
-    print(f"└{border}┘")
-    print(f"\nGuidance: {result.strategy_guidance}")
+    print(f"│  {'Data Range':20}: {rng_str}{' ' * max(0, width - 12 - len(rng_str))}│")  # noqa: T201
+    print(f"│  {'Last Crossover':20}: {last_cross}{' ' * max(0, width - 12 - len(last_cross))}│")  # noqa: T201
+    print(f"└{border}┘")  # noqa: T201
+    print(f"\nGuidance: {result.strategy_guidance}")  # noqa: T201
 
     if args.chart or args.show:
         path = plot_wrs(show=args.show)
         if path:
-            print(f"\nChart saved: {path}")
+            print(f"\nChart saved: {path}")  # noqa: T201
 
 
 if __name__ == "__main__":

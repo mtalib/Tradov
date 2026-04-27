@@ -438,7 +438,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             f"- Regime: {self._current_regime}\n"
             f"- Circuit breaker: {self._circuit_breaker}\n"
             f"- Decisions today: {len(decisions_today)}\n"
-            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now().date()])}\n"
+            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now().date()])}\n"  # noqa: E501
             f"- Session transitions: {self._session_transitions_today}\n\n"
             f"Provide a 3-sentence system health summary with any recommendations."
         )

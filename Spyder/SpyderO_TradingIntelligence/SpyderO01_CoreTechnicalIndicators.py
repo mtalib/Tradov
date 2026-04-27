@@ -1181,8 +1181,8 @@ class CoreTechnicalIndicators:
             'bullish_signals': bullish_signals,
             'bearish_signals': bearish_signals,
             'signal_breakdown': {k: len(v) for k, v in all_signals.items()},
-            'net_bias': 'bullish' if bullish_signals > bearish_signals else 'bearish' if bearish_signals > bullish_signals else 'neutral',
-            'signal_strength': 'strong' if total_signals > 5 else 'moderate' if total_signals > 2 else 'weak'
+            'net_bias': 'bullish' if bullish_signals > bearish_signals else 'bearish' if bearish_signals > bullish_signals else 'neutral',  # noqa: E501
+            'signal_strength': 'strong' if total_signals > 5 else 'moderate' if total_signals > 2 else 'weak'  # noqa: E501
         }
 
 # ==============================================================================

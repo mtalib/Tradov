@@ -1002,7 +1002,7 @@ class PrometheusMetricsCollector:
                     addr=self.config.host,
                     registry=self.registry
                 )
-                self.logger.info("Metrics HTTP server started on %s:%s", self.config.host, self.config.port)
+                self.logger.info("Metrics HTTP server started on %s:%s", self.config.host, self.config.port)  # noqa: E501
             except Exception as e:
                 self.logger.error("Failed to start HTTP server: %s", e)
                 return False
@@ -1079,7 +1079,7 @@ class PrometheusMetricsCollector:
 
     def _should_update_system_metrics(self) -> bool:
         """Check if system metrics should be updated."""
-        return (datetime.now() - self._last_system_update).total_seconds() >= self._system_metrics_interval
+        return (datetime.now() - self._last_system_update).total_seconds() >= self._system_metrics_interval  # noqa: E501
 
     def _update_system_info(self):
         """Update system information."""
@@ -1149,7 +1149,7 @@ class PrometheusMetricsCollector:
             self.metrics.portfolio_vega.set(portfolio.total_vega)
 
             # Position count
-            self.metrics.position_count.labels(symbol="SPY", strategy="ALL").set(portfolio.total_positions)
+            self.metrics.position_count.labels(symbol="SPY", strategy="ALL").set(portfolio.total_positions)  # noqa: E501
 
             # Strategy metrics
             for strategy_name, strategy in snapshot.strategy_metrics.items():

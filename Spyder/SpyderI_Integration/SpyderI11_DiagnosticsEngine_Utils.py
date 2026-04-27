@@ -94,7 +94,7 @@ class DiagnosticUtils:
             # Integration health score (20% weight)
             if integration_health:
                 integration_score = self._calculate_integration_score(integration_health)
-                scores.append(('integrations', integration_score, HEALTH_SCORE_WEIGHTS['integration']))
+                scores.append(('integrations', integration_score, HEALTH_SCORE_WEIGHTS['integration']))  # noqa: E501
 
             # Issue impact score (10% weight)
             issue_score = self._calculate_issue_score(issues)
@@ -300,7 +300,7 @@ class DiagnosticUtils:
 
             # Issue summary
             if critical_count > 0:
-                summary_parts.append(f"🚨 **{critical_count} CRITICAL ISSUES** require immediate attention")
+                summary_parts.append(f"🚨 **{critical_count} CRITICAL ISSUES** require immediate attention")  # noqa: E501
 
             if high_count > 0:
                 summary_parts.append(f"⚠️  {high_count} high-priority issues detected")
@@ -432,7 +432,7 @@ class DiagnosticUtils:
             if performance_summary.get('bottlenecks'):
                 bottleneck_count = len(performance_summary['bottlenecks'])
                 if bottleneck_count > 2:
-                    insights.append(f"Multiple bottlenecks detected ({bottleneck_count} components)")
+                    insights.append(f"Multiple bottlenecks detected ({bottleneck_count} components)")  # noqa: E501
                 elif bottleneck_count > 0:
                     insights.append("Performance bottlenecks identified")
 

@@ -166,7 +166,7 @@ class CachedMarketData:
             ttl=data.get('ttl'),
             expiry=datetime.fromisoformat(data['expiry']) if data.get('expiry') else None,
             access_count=data.get('access_count', 0),
-            last_access=datetime.fromisoformat(data['last_access']) if data.get('last_access') else None
+            last_access=datetime.fromisoformat(data['last_access']) if data.get('last_access') else None  # noqa: E501
         )
 
 @dataclass
@@ -273,7 +273,7 @@ class MarketDataCache:
                 ''')
 
                 # Create indices
-                conn.execute('CREATE INDEX IF NOT EXISTS idx_symbol_timestamp ON market_data(symbol, timestamp)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_symbol_timestamp ON market_data(symbol, timestamp)')  # noqa: E501
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON market_data(created_at)')
 
                 # Tick data table for high-frequency storage
@@ -451,7 +451,7 @@ class MarketDataCache:
         return None
 
     def get_range(self, symbol: str, start_time: datetime,
-                  end_time: datetime, granularity: DataGranularity = DataGranularity.TICK) -> pd.DataFrame:
+                  end_time: datetime, granularity: DataGranularity = DataGranularity.TICK) -> pd.DataFrame:  # noqa: E501
         """
         Get historical data range from cache.
 
@@ -711,7 +711,7 @@ class MarketDataCache:
                 self.logger.error("Cleanup error: %s", e, exc_info=True)
 
             # Wait for next cleanup
-            time.sleep(self.config['memory']['cleanup_interval'])  # thread-safe: time.sleep() intentional
+            time.sleep(self.config['memory']['cleanup_interval'])  # thread-safe: time.sleep() intentional  # noqa: E501
 
     def _cleanup_expired(self):
         """Compatibility no-op: H03 handles expiration cleanup."""

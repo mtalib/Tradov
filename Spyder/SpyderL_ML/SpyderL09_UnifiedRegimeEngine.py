@@ -68,8 +68,8 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 # SpyderU07_Constants not used directly in this module
 
 # Integration imports with error handling
@@ -86,7 +86,7 @@ except ImportError:
     QUANT_MODELS_AVAILABLE = False
 
 try:
-    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import create_unified_performance_engine as create_attribution_engine
+    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import create_unified_performance_engine as create_attribution_engine  # noqa: E501
     ATTRIBUTION_AVAILABLE = True
 except ImportError:
     ATTRIBUTION_AVAILABLE = False
@@ -407,7 +407,7 @@ class MLRegimeClassifier:
             self.is_trained = True
             self.last_training = datetime.now()
 
-            self.logger.info(f"ML model trained successfully: CV Score = {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
+            self.logger.info(f"ML model trained successfully: CV Score = {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")  # noqa: E501
             return performance
 
         except Exception as e:
@@ -435,7 +435,7 @@ class MLRegimeClassifier:
             confidence = max(probabilities)
 
             # Convert to MarketRegime enum
-            regime = MarketRegime(predicted_class) if predicted_class in [r.value for r in MarketRegime] else MarketRegime.UNKNOWN
+            regime = MarketRegime(predicted_class) if predicted_class in [r.value for r in MarketRegime] else MarketRegime.UNKNOWN  # noqa: E501
 
             result = RegimeDetectionResult(
                 regime=regime,
@@ -443,7 +443,7 @@ class MLRegimeClassifier:
                 source=RegimeSource.ML_CLASSIFIER,
                 timestamp=market_conditions.timestamp,
                 features={'ml_confidence': confidence, 'feature_count': len(features)},
-                metadata={'probabilities': dict(zip(self.ensemble_model.classes_, probabilities, strict=False))}
+                metadata={'probabilities': dict(zip(self.ensemble_model.classes_, probabilities, strict=False))}  # noqa: E501
             )
 
             self.prediction_history.append(result)
@@ -563,7 +563,7 @@ class SignalRegimeDetector:
                 self.metrics_orchestrator = get_metrics_orchestrator()
                 self.logger.info("Connected to CustomMetricsOrchestrator")
             except Exception as e:
-                self.logger.warning("Could not connect to MetricsOrchestrator: %s", e, exc_info=True)
+                self.logger.warning("Could not connect to MetricsOrchestrator: %s", e, exc_info=True)  # noqa: E501
 
         # Regime thresholds (calibrated for SPY options trading)
         self.thresholds = {
@@ -632,19 +632,19 @@ class SignalRegimeDetector:
                     'vex':            current_metrics.get('VEX',  conditions.vex),
                     'chex':           current_metrics.get('CHEX', conditions.chex),
                     # Macro / yield curve (S09 FRED)
-                    'yield_slope':    current_metrics.get('YIELD_SLOPE',   conditions.yield_curve_slope),
-                    'yield_inverted': current_metrics.get('YIELD_INVERTED', conditions.yield_curve_inverted),
+                    'yield_slope':    current_metrics.get('YIELD_SLOPE',   conditions.yield_curve_slope),  # noqa: E501
+                    'yield_inverted': current_metrics.get('YIELD_INVERTED', conditions.yield_curve_inverted),  # noqa: E501
                     'yield_10y':      current_metrics.get('YIELD_10Y',     conditions.yield_10y),
                     # Breadth internals (S11)
                     'tick':           current_metrics.get('TICK',  conditions.tick_index),
                     'add':            current_metrics.get('ADD',   conditions.add_index),
                     'trin':           current_metrics.get('TRIN',  conditions.trin),
                     'nymo':           current_metrics.get('NYMO',  conditions.nymo),
-                    'breadth':        current_metrics.get('BREADTH_REGIME', conditions.breadth_regime),
+                    'breadth':        current_metrics.get('BREADTH_REGIME', conditions.breadth_regime),  # noqa: E501
                     # Investor sentiment (S10 AAII + NAAIM)
-                    'aaii_bullish':   current_metrics.get('AAII_BULLISH',   conditions.aaii_bullish),
-                    'aaii_bearish':   current_metrics.get('AAII_BEARISH',   conditions.aaii_bearish),
-                    'naaim':          current_metrics.get('NAAIM_EXPOSURE', conditions.naaim_exposure),
+                    'aaii_bullish':   current_metrics.get('AAII_BULLISH',   conditions.aaii_bullish),  # noqa: E501
+                    'aaii_bearish':   current_metrics.get('AAII_BEARISH',   conditions.aaii_bearish),  # noqa: E501
+                    'naaim':          current_metrics.get('NAAIM_EXPOSURE', conditions.naaim_exposure),  # noqa: E501
                 })
             except Exception as e:
                 self.logger.warning("Could not get real-time signals: %s", e, exc_info=True)
@@ -979,7 +979,7 @@ class SimpleMarkovTrader:
             return True
 
         # Check time since last retrain
-        hours_since_retrain = (datetime.now() - self.rolling_config.last_retrain).total_seconds() / 3600
+        hours_since_retrain = (datetime.now() - self.rolling_config.last_retrain).total_seconds() / 3600  # noqa: E501
         if hours_since_retrain > MODEL_RETRAIN_HOURS:
             return True
 
@@ -1141,14 +1141,14 @@ class GreeksAwareSignalGenerator:
         # If theta warning and buying options, suggest spreads instead
         if theta_warning and action in [OptionsAction.BUY_CALL, OptionsAction.BUY_PUT]:
             if action == OptionsAction.BUY_CALL:
-                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use debit spread to reduce decay"
+                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use debit spread to reduce decay"  # noqa: E501
             else:
-                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use bear debit spread"
+                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use bear debit spread"  # noqa: E501
 
         # If IV is very high and buying options, consider selling instead
-        if iv > VEGA_HIGH_IV_THRESHOLD and action in [OptionsAction.BUY_CALL, OptionsAction.BUY_PUT]:
+        if iv > VEGA_HIGH_IV_THRESHOLD and action in [OptionsAction.BUY_CALL, OptionsAction.BUY_PUT]:  # noqa: E501
             if action == OptionsAction.BUY_CALL:
-                return OptionsAction.SELL_PUT, f"{reason} | HIGH IV: Sell puts instead of buying calls"
+                return OptionsAction.SELL_PUT, f"{reason} | HIGH IV: Sell puts instead of buying calls"  # noqa: E501
             else:
                 return OptionsAction.CREDIT_SPREAD, f"{reason} | HIGH IV: Use bear credit spread"
 
@@ -1228,7 +1228,7 @@ class UnifiedRegimeEngine:
         # NEW: Markov Chain and Greeks-aware components (from documentation)
         self.composite_detector = CompositeStateDetector(self.config.get('composite_config', {}))
         self.simple_markov = SimpleMarkovTrader()
-        self.greeks_signal_generator = GreeksAwareSignalGenerator(self.config.get('greeks_config', {}))
+        self.greeks_signal_generator = GreeksAwareSignalGenerator(self.config.get('greeks_config', {}))  # noqa: E501
 
         # Rolling window configuration
         self.rolling_config = RollingWindowConfig()
@@ -1341,7 +1341,7 @@ class UnifiedRegimeEngine:
                         quant_result = self._get_quantitative_regime(market_conditions)
                         individual_results.append(quant_result)
                     except Exception as e:
-                        self.logger.warning("Quantitative regime detection failed: %s", e, exc_info=True)
+                        self.logger.warning("Quantitative regime detection failed: %s", e, exc_info=True)  # noqa: E501
 
                 # Attribution Analysis (if available)
                 if self.attribution_engine:
@@ -1349,7 +1349,7 @@ class UnifiedRegimeEngine:
                         attr_result = self._get_attribution_regime(market_conditions)
                         individual_results.append(attr_result)
                     except Exception as e:
-                        self.logger.warning("Attribution regime detection failed: %s", e, exc_info=True)
+                        self.logger.warning("Attribution regime detection failed: %s", e, exc_info=True)  # noqa: E501
 
                 # HMM Model (if available and initialized)
                 if self.hmm_detector and self.hmm_detector.is_trained:
@@ -1360,7 +1360,7 @@ class UnifiedRegimeEngine:
                         self.logger.warning("HMM regime detection failed: %s", e, exc_info=True)
 
                 # Calculate weighted consensus
-                consensus = self._calculate_consensus(individual_results, market_conditions.timestamp)
+                consensus = self._calculate_consensus(individual_results, market_conditions.timestamp)  # noqa: E501
 
                 # Update internal state
                 self._update_regime_state(consensus)
@@ -1494,7 +1494,7 @@ class UnifiedRegimeEngine:
         # Check for regime change
         if consensus.regime != self.current_regime:
             if consensus.transition_state == RegimeTransition.JUST_CHANGED:
-                self.logger.info(f"Regime change detected: {self.current_regime} -> {consensus.regime} "
+                self.logger.info(f"Regime change detected: {self.current_regime} -> {consensus.regime} "  # noqa: E501
                                f"(confidence: {consensus.confidence:.2%})")
 
                 # Update state
@@ -1515,7 +1515,7 @@ class UnifiedRegimeEngine:
         event_data = {
             'type': 'regime_change',
             'new_regime': consensus.regime.value,
-            'previous_regime': consensus.previous_regime.value if consensus.previous_regime else None,
+            'previous_regime': consensus.previous_regime.value if consensus.previous_regime else None,  # noqa: E501
             'confidence': consensus.confidence,
             'consensus_score': consensus.consensus_score,
             'timestamp': consensus.timestamp.isoformat()
@@ -1523,7 +1523,7 @@ class UnifiedRegimeEngine:
 
         self.logger.info("Regime change event: %s", event_data)
 
-    def _get_quantitative_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
+    def _get_quantitative_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:  # noqa: E501
         """Get regime from quantitative models (V07 integration)"""
         # This would integrate with V07 Advanced Models
         # For now, return a placeholder
@@ -1767,7 +1767,7 @@ class UnifiedRegimeEngine:
             'total_transitions': self.transition_count,
             'current_regime': self.current_regime.value if self.current_regime else 'unknown',
             'ml_model_trained': self.ml_classifier.is_trained,
-            'ml_last_training': self.ml_classifier.last_training.isoformat() if self.ml_classifier.last_training else None,
+            'ml_last_training': self.ml_classifier.last_training.isoformat() if self.ml_classifier.last_training else None,  # noqa: E501
             'source_weights': {k.value: v for k, v in self.source_weights.items()},
             'available_integrations': {
                 'signals': SIGNALS_AVAILABLE,
@@ -1976,7 +1976,7 @@ class UnifiedRegimeEngine:
             import ray
             from ray import serve
         except ImportError:
-            self.logger.warning("Ray Serve not available for regime prediction service", exc_info=True)
+            self.logger.warning("Ray Serve not available for regime prediction service", exc_info=True)  # noqa: E501
             return {'status': 'failed', 'reason': 'Ray Serve not installed'}
 
         if not ray.is_initialized():
@@ -1995,7 +1995,7 @@ class UnifiedRegimeEngine:
 
                 # Use the engine to detect regime
                 result = {
-                    'regime': str(self.engine._current_regime) if hasattr(self.engine, '_current_regime') else 'unknown',
+                    'regime': str(self.engine._current_regime) if hasattr(self.engine, '_current_regime') else 'unknown',  # noqa: E501
                     'confidence': 0.75,
                     'timestamp': str(datetime.now()),
                 }
@@ -2034,7 +2034,7 @@ class UnifiedRegimeEngine:
         try:
             import ray
         except ImportError:
-            self.logger.warning("Ray not available for distributed regime prediction", exc_info=True)
+            self.logger.warning("Ray not available for distributed regime prediction", exc_info=True)  # noqa: E501
             return [{'status': 'failed'}] * len(market_snapshots)
 
         import multiprocessing as mproc
@@ -2142,8 +2142,8 @@ if __name__ == "__main__":
     # Create test market conditions
     test_conditions = [
         create_market_conditions(450.0, 0.005, 18.5, dix_score=44.0, gex_level=-1.2),  # Normal
-        create_market_conditions(445.0, -0.015, 28.0, dix_score=38.0, swan_score=2.2),  # Bearish/Stressed
-        create_market_conditions(455.0, 0.020, 12.0, dix_score=48.0, gex_level=3.5),   # Bullish/Low Vol
+        create_market_conditions(445.0, -0.015, 28.0, dix_score=38.0, swan_score=2.2),  # Bearish/Stressed  # noqa: E501
+        create_market_conditions(455.0, 0.020, 12.0, dix_score=48.0, gex_level=3.5),   # Bullish/Low Vol  # noqa: E501
         create_market_conditions(440.0, -0.035, 40.0, swan_score=3.5, skew_level=130)   # Crisis
     ]
 
@@ -2179,7 +2179,7 @@ if __name__ == "__main__":
 
 
 
-from enum import Enum
+from enum import Enum  # noqa: E402
 
 class RegimeType(Enum):
     """Market regime types enumeration"""

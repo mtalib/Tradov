@@ -449,7 +449,7 @@ class UnifiedSharpeDashboard:
                 current_sharpe=current_sharpe,
                 previous_sharpe=previous_sharpe,
                 change_pct=change_pct,
-                message=f"Sharpe Ratio dropped {abs(change_pct):.1%} from {previous_sharpe:.2f} to {current_sharpe:.2f}",
+                message=f"Sharpe Ratio dropped {abs(change_pct):.1%} from {previous_sharpe:.2f} to {current_sharpe:.2f}",  # noqa: E501
                 recommended_action="Review strategy performance, consider reducing position sizes"
             )
 
@@ -466,7 +466,7 @@ class UnifiedSharpeDashboard:
                 current_sharpe=current_sharpe,
                 previous_sharpe=previous_sharpe,
                 change_pct=0.0,
-                message=f"Low probability ({current_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio:.0%}) that true Sharpe > 0",
+                message=f"Low probability ({current_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio:.0%}) that true Sharpe > 0",  # noqa: E501
                 recommended_action="Increase sample size or review strategy edge"
             )
 
@@ -483,7 +483,7 @@ class UnifiedSharpeDashboard:
                 current_sharpe=current_sharpe,
                 previous_sharpe=previous_sharpe,
                 change_pct=0.0,
-                message=f"Unrealistically high Sharpe ({current_sharpe:.2f}) suggests estimation error",
+                message=f"Unrealistically high Sharpe ({current_sharpe:.2f}) suggests estimation error",  # noqa: E501
                 recommended_action="Verify calculations and check for data quality issues"
             )
 
@@ -615,7 +615,7 @@ class UnifiedSharpeDashboard:
         # Overall Sharpe assessment
         if overall_metrics.status == SharpeStatus.POOR:
             recommendations.append(
-                "Overall Sharpe Ratio is poor. Consider reducing position sizes or pausing live trading."
+                "Overall Sharpe Ratio is poor. Consider reducing position sizes or pausing live trading."  # noqa: E501
             )
         elif overall_metrics.status == SharpeStatus.EXCELLENT:
             recommendations.append(
@@ -626,13 +626,13 @@ class UnifiedSharpeDashboard:
         psr = overall_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio
         if psr < 0.80:
             recommendations.append(
-                f"Low confidence ({psr:.0%}) in positive Sharpe. Need {overall_metrics.probabilistic_sharpe.min_track_record_length - overall_metrics.num_observations} more observations for significance."
+                f"Low confidence ({psr:.0%}) in positive Sharpe. Need {overall_metrics.probabilistic_sharpe.min_track_record_length - overall_metrics.num_observations} more observations for significance."  # noqa: E501
             )
 
         # Options adjustment
-        if overall_metrics.options_adjusted_sharpe.adjusted_sharpe < overall_metrics.consensus_sharpe:
+        if overall_metrics.options_adjusted_sharpe.adjusted_sharpe < overall_metrics.consensus_sharpe:  # noqa: E501
             recommendations.append(
-                f"Negative skew ({overall_metrics.options_adjusted_sharpe.skewness:.2f}) indicates tail risk. Consider tighter stop losses."
+                f"Negative skew ({overall_metrics.options_adjusted_sharpe.skewness:.2f}) indicates tail risk. Consider tighter stop losses."  # noqa: E501
             )
 
         # Strategy-specific
@@ -644,7 +644,7 @@ class UnifiedSharpeDashboard:
 
             if poor_strategies:
                 recommendations.append(
-                    f"Strategies with poor Sharpe: {', '.join(poor_strategies)}. Review or disable these strategies."
+                    f"Strategies with poor Sharpe: {', '.join(poor_strategies)}. Review or disable these strategies."  # noqa: E501
                 )
 
         # Alert-based
@@ -786,9 +786,9 @@ class UnifiedSharpeDashboard:
             "-" * 80,
             f"  Consensus Sharpe Ratio: {report.overall_metrics.consensus_sharpe:.3f}",
             f"  Status: {report.overall_metrics.status.value.upper()}",
-            f"  Probabilistic Sharpe: {report.overall_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio:.1%}",
-            f"  Options-Adjusted Sharpe: {report.overall_metrics.options_adjusted_sharpe.adjusted_sharpe:.3f}",
-            f"  Statistical Significance: {'Yes' if report.overall_metrics.is_significant else 'No'}",
+            f"  Probabilistic Sharpe: {report.overall_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio:.1%}",  # noqa: E501
+            f"  Options-Adjusted Sharpe: {report.overall_metrics.options_adjusted_sharpe.adjusted_sharpe:.3f}",  # noqa: E501
+            f"  Statistical Significance: {'Yes' if report.overall_metrics.is_significant else 'No'}",  # noqa: E501
             "",
             f"  30-day Average: {report.overall_metrics.sharpe_30d_avg:.3f}",
             f"  90-day Average: {report.overall_metrics.sharpe_90d_avg:.3f}",

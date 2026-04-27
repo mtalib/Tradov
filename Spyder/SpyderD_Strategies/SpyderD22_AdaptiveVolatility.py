@@ -48,14 +48,14 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
 
 # Optional analytics imports
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
     HAS_GREEKS_CALC = True
 except ImportError:
     OptionsGreeksCalculator = None
     HAS_GREEKS_CALC = False
 
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling  # noqa: E501
     HAS_VOL_MODELING = True
 except ImportError:
     VolatilityModeling = None
@@ -342,7 +342,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         # Initialize numerical components
         if OptionsGreeksCalculator is None:
             raise ImportError(
-                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"
+                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"  # noqa: E501
             )
         if VolatilityModeling is None:
             raise ImportError(
@@ -697,7 +697,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         current_regime = metrics.regime
 
         # Check for significant regime change
-        if previous_regime != current_regime and metrics.regime_confidence > REGIME_CHANGE_CONFIDENCE:
+        if previous_regime != current_regime and metrics.regime_confidence > REGIME_CHANGE_CONFIDENCE:  # noqa: E501
             self.regime_history.append(current_regime)
 
             # Generate signal based on regime transition
@@ -957,7 +957,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
                 score *= 1.2
 
             # Adjust for IV rank
-            if metrics.iv_rank > 70 and opp.direction == "SHORT" or metrics.iv_rank < 30 and opp.direction == "LONG":
+            if metrics.iv_rank > 70 and opp.direction == "SHORT" or metrics.iv_rank < 30 and opp.direction == "LONG":  # noqa: E501
                 score *= 1.1
 
             # RL size boost: larger recommended size = higher score
@@ -1095,7 +1095,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             'total_pnl': self.total_pnl,
             'sharpe_ratio': self.sharpe_ratio,
             'active_positions': len(self.active_positions),
-            'current_regime': self.current_metrics.regime.value if self.current_metrics else "UNKNOWN",
+            'current_regime': self.current_metrics.regime.value if self.current_metrics else "UNKNOWN",  # noqa: E501
             'current_iv': self.current_metrics.implied_volatility if self.current_metrics else 0,
             'iv_rank': self.current_metrics.iv_rank if self.current_metrics else 50
         }
@@ -1127,7 +1127,7 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
 
     def validate_signal(self, signal, account_value: float = 0) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""
@@ -1146,6 +1146,6 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_adaptive_volatility_strategy(config: dict[str, Any] | None = None) -> AdaptiveVolatilityStrategy:
+def create_adaptive_volatility_strategy(config: dict[str, Any] | None = None) -> AdaptiveVolatilityStrategy:  # noqa: E501
     """Factory function to create AdaptiveVolatilityStrategy instance"""
     return AdaptiveVolatilityStrategy(config)

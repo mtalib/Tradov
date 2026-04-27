@@ -48,7 +48,7 @@ import yfinance as yf
 import requests
 
 try:
-    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: E501
     _C29_AVAILABLE = True
 except ImportError:
     _get_c29_provider = None  # type: ignore[assignment]
@@ -168,7 +168,7 @@ class SpyderDIXCalculator:
 
     def __init__(self):
         """Initialize the DIX Calculator."""
-        self.logger = SpyderLogger.get_logger(__name__) if hasattr(SpyderLogger, 'get_logger') else logging.getLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__) if hasattr(SpyderLogger, 'get_logger') else logging.getLogger(__name__)  # noqa: E501
         self.error_handler = SpyderErrorHandler()
 
         self.sp500_symbols = []
@@ -468,7 +468,7 @@ class SpyderDIXCalculator:
                     url = f"{FINRA_BASE_URL}{FINRA_FILE_PREFIX}{date}.txt"
                     self.logger.warning("Retrying with %s", prev_date)
                 else:
-                    raise Exception(f"Failed to download FINRA data: {e}")
+                    raise Exception(f"Failed to download FINRA data: {e}")  # noqa: B904
 
     # ==========================================================================
     # PRIVATE METHODS - CALCULATION
@@ -516,7 +516,7 @@ class SpyderDIXCalculator:
         self.logger.debug("Calculated DPI for %s symbols", len(dpi_data))
         return dpi_data
 
-    def _calculate_weighted_dix(self, dpi_data: dict[str, StockDPI]) -> tuple[float, dict[str, StockDPI]]:
+    def _calculate_weighted_dix(self, dpi_data: dict[str, StockDPI]) -> tuple[float, dict[str, StockDPI]]:  # noqa: E501
         """
         Calculate dollar-weighted DIX.
 
@@ -547,7 +547,7 @@ class SpyderDIXCalculator:
         dix = weighted_dpi_sum / total_market_cap
 
         _dix_key = round(dix, 4)
-        _log_dix = self.logger.info if _dix_key != getattr(self, "_last_dix_key", None) else self.logger.debug
+        _log_dix = self.logger.info if _dix_key != getattr(self, "_last_dix_key", None) else self.logger.debug  # noqa: E501
         self._last_dix_key = _dix_key
         _log_dix(f"DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
         self.logger.debug(f"Based on {len(dpi_data)} components, "

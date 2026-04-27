@@ -41,18 +41,18 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
+import numpy as np  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from .SpyderZ07_MultiProcessManager import SpyderEngineProcess
-from .SpyderZ03_TradingCoordinator import EngineType, CommandType
-from .SpyderZ02_MessageProtocol import (
+from .SpyderZ07_MultiProcessManager import SpyderEngineProcess  # noqa: E402
+from .SpyderZ03_TradingCoordinator import EngineType, CommandType  # noqa: E402
+from .SpyderZ02_MessageProtocol import (  # noqa: E402
     ProtocolManager, SerializationFormat,
     OrderMessage, OptionOrderMessage
 )
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS

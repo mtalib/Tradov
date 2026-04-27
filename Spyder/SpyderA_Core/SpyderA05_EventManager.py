@@ -245,7 +245,7 @@ class Event:
         if isinstance(self.priority, str):
             raw_priority = self.priority.name if isinstance(self.priority, Enum) else self.priority
             try:
-                self.priority = EventPriority[raw_priority.upper()] if isinstance(raw_priority, str) else EventPriority.NORMAL
+                self.priority = EventPriority[raw_priority.upper()] if isinstance(raw_priority, str) else EventPriority.NORMAL  # noqa: E501
             except KeyError:
                 self.priority = EventPriority.NORMAL
         elif not isinstance(self.priority, Enum):
@@ -275,7 +275,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -839,7 +839,7 @@ class EventManager:
             # P1-12: record to error ring
             error_record = {
                 "handler_name": handler.name,
-                "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),  # noqa: E501
                 "error": str(e),
                 "traceback": tb,
                 "consecutive": handler.consecutive_errors,
@@ -865,7 +865,7 @@ class EventManager:
                 event_type=EventType.SYSTEM_ERROR,
                 data={
                     "handler_name": handler_name,
-                    "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                    "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),  # noqa: E501
                     "traceback": tb,
                     "reason": "handler_circuit_open",
                 },

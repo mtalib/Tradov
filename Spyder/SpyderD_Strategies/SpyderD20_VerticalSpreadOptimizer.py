@@ -44,8 +44,8 @@ from scipy import stats
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
 
 # Local Signal dataclass — D20 uses its own richer Signal type, not TradingSignal
-from dataclasses import dataclass, field
-from typing import Any as _Any
+from dataclasses import dataclass, field  # noqa: F811
+from typing import Any as _Any  # noqa: F401
 
 
 @dataclass
@@ -58,14 +58,14 @@ class Signal:
     metadata: dict = field(default_factory=dict)
 
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
     HAS_GREEKS_CALC = True
 except ImportError:
     OptionsGreeksCalculator = None
     HAS_GREEKS_CALC = False
 
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling  # noqa: E501
     HAS_VOL_MODELING = True
 except ImportError:
     VolatilityModeling = None
@@ -380,7 +380,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
                 return SpreadType.BULL_PUT if np.random.random() > 0.5 else SpreadType.BEAR_CALL
             else:
                 # Buy spreads in low IV
-                return SpreadType.BULL_CALL_DEBIT if np.random.random() > 0.5 else SpreadType.BEAR_PUT_DEBIT
+                return SpreadType.BULL_CALL_DEBIT if np.random.random() > 0.5 else SpreadType.BEAR_PUT_DEBIT  # noqa: E501
 
     def _get_candidate_strikes(
         self,
@@ -729,10 +729,10 @@ class VerticalSpreadOptimizer(BaseStrategy):
             # Calculate P&L
             if position.spread_type in [SpreadType.BULL_PUT, SpreadType.BEAR_CALL]:
                 # Credit spread: profit when spread value decreases
-                position.unrealized_pnl = (position.entry_credit - current_credit) * 100 * position.contracts
+                position.unrealized_pnl = (position.entry_credit - current_credit) * 100 * position.contracts  # noqa: E501
             else:
                 # Debit spread: profit when spread value increases
-                position.unrealized_pnl = (current_credit + position.entry_credit) * 100 * position.contracts
+                position.unrealized_pnl = (current_credit + position.entry_credit) * 100 * position.contracts  # noqa: E501
 
             position.current_value = current_credit
             position.days_in_trade = (datetime.now() - position.entry_date).days
@@ -813,7 +813,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
 
     def validate_signal(self, signal, account_value: float = 0) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""
@@ -832,7 +832,7 @@ class VerticalSpreadOptimizer(BaseStrategy):
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_vertical_spread_optimizer(config: dict[str, Any] | None = None) -> VerticalSpreadOptimizer:
+def create_vertical_spread_optimizer(config: dict[str, Any] | None = None) -> VerticalSpreadOptimizer:  # noqa: E501
     """Factory function to create VerticalSpreadOptimizer instance"""
     return VerticalSpreadOptimizer(config)
 
@@ -884,7 +884,7 @@ if __name__ == "__main__":
     if signal.metadata:
         for key, value in signal.metadata.items():
             if isinstance(value, float):
-                if 'probability' in key or 'pop' in key.lower() or key in ['credit', 'max_loss', 'expected_value', 'target_profit']:
+                if 'probability' in key or 'pop' in key.lower() or key in ['credit', 'max_loss', 'expected_value', 'target_profit']:  # noqa: E501
                     pass
                 else:
                     pass

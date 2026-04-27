@@ -13,7 +13,7 @@ from typing import Any
 import pytz
 
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import COLORS
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import is_dashboard_session as _is_dashboard_session
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import is_dashboard_session as _is_dashboard_session  # noqa: E501
 
 
 def is_market_hours(now_et: datetime | None = None) -> bool:
@@ -97,7 +97,7 @@ def handle_heartbeat_status_changed(dashboard: Any, status: str) -> None:
                 f"color: {COLORS['negative']}; font-size: 13px;",
             )
     elif status == "connected":
-        exec_color = COLORS["positive"] if getattr(dashboard, "api_connected", False) else COLORS["negative"]
+        exec_color = COLORS["positive"] if getattr(dashboard, "api_connected", False) else COLORS["negative"]  # noqa: E501
         if hasattr(dashboard, "api_connection_label"):
             dashboard.api_connection_label.setStyleSheet(f"color: {exec_color};")
         if hasattr(dashboard, "api_connect_icon") and dashboard.api_connect_icon:
@@ -175,4 +175,4 @@ def handle_heartbeat_received(dashboard: Any, message: str) -> None:
     )
     if benign:
         return
-    dashboard.add_system_log(message)
+    dashboard.add_system_log(message)  # noqa: W292

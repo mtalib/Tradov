@@ -375,7 +375,7 @@ class MultiLegMarketAnalyzer:
             timestamp = datetime.now()
 
             # Volatility analysis
-            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0
+            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0  # noqa: E501
             volatility_env = self._classify_volatility_environment(vix_level)
             implied_vol = self._estimate_implied_volatility(market_data)
 
@@ -817,7 +817,7 @@ class MultiLegStrategyConstructor:
             self.logger.error("Strategy construction failed: %s", e, exc_info=True)
             return None
 
-    def _select_optimal_strategy(self, market_analysis: MarketEnvironmentAnalysis) -> MultiLegStrategyType:
+    def _select_optimal_strategy(self, market_analysis: MarketEnvironmentAnalysis) -> MultiLegStrategyType:  # noqa: E501
         """Intelligently select optimal strategy based on market conditions"""
         try:
             vol_env = market_analysis.volatility_environment
@@ -874,7 +874,7 @@ class MultiLegStrategyConstructor:
             wing_width = self._calculate_optimal_wing_width(market_analysis)
 
             # Short strikes positioned outside expected move
-            move_multiplier = 1.2 if market_analysis.volatility_environment == VolatilityEnvironment.HIGH_VOL else 1.0
+            move_multiplier = 1.2 if market_analysis.volatility_environment == VolatilityEnvironment.HIGH_VOL else 1.0  # noqa: E501
 
             short_put_strike = underlying_price - (expected_move * move_multiplier)
             short_call_strike = underlying_price + (expected_move * move_multiplier)
@@ -1294,7 +1294,7 @@ if HAS_SB3:
             self._theta *= max(0.9, 1.0 - 1.0 / max(1, self.total_dte - self.current_step))
 
             # Compute P&L change from theta + delta exposure
-            pnl_change = self._theta * 0.05 - abs(self._delta) * abs(underlying_move) * self._underlying
+            pnl_change = self._theta * 0.05 - abs(self._delta) * abs(underlying_move) * self._underlying  # noqa: E501
             self.position_pnl += pnl_change
 
             # Reward based on action quality
@@ -1366,7 +1366,7 @@ class MultiLegStrategyCoordinator:
 
         # Initialize analysis and construction engines
         self.market_analyzer = MultiLegMarketAnalyzer(self.config.get('analyzer_config', {}))
-        self.strategy_constructor = MultiLegStrategyConstructor(self.config.get('constructor_config', {}))
+        self.strategy_constructor = MultiLegStrategyConstructor(self.config.get('constructor_config', {}))  # noqa: E501
 
         # Integration with unified systems
         self.regime_engine = None
@@ -1494,7 +1494,7 @@ class MultiLegStrategyCoordinator:
                 position.current_theta,
                 position.current_vega / 15.0,
                 market_analysis.iv_rank,
-                (market_analysis.vix_level - position.vix_at_entry) / max(1.0, position.vix_at_entry),
+                (market_analysis.vix_level - position.vix_at_entry) / max(1.0, position.vix_at_entry),  # noqa: E501
                 (market_analysis.underlying_price - position.underlying_price_at_entry)
                     / position.underlying_price_at_entry,
                 strategy_enc,
@@ -1530,7 +1530,7 @@ class MultiLegStrategyCoordinator:
     # PUBLIC METHODS - MAIN INTERFACE
     # ==========================================================================
     async def analyze_multileg_opportunity(self, market_data: pd.DataFrame,
-                                         strategy_type: MultiLegStrategyType = MultiLegStrategyType.AUTO_SELECT) -> MultiLegStructure | None:
+                                         strategy_type: MultiLegStrategyType = MultiLegStrategyType.AUTO_SELECT) -> MultiLegStructure | None:  # noqa: E501
         """
         Analyze market for multi-leg strategy opportunities.
 
@@ -1574,7 +1574,7 @@ class MultiLegStrategyCoordinator:
                 strategy_type, market_analysis
             )
 
-            if strategy_structure and self._validate_strategy_structure(strategy_structure, market_analysis):
+            if strategy_structure and self._validate_strategy_structure(strategy_structure, market_analysis):  # noqa: E501
                 self.logger.info(f"Multi-leg opportunity identified: "
                                f"{strategy_structure.strategy_type.value} with "
                                f"${strategy_structure.net_credit:.2f} credit")
@@ -1606,7 +1606,7 @@ class MultiLegStrategyCoordinator:
                 return False
 
             # Check for unusual market conditions
-            if market_analysis.unusual_activity and market_analysis.volatility_environment == VolatilityEnvironment.EXTREME_VOL:
+            if market_analysis.unusual_activity and market_analysis.volatility_environment == VolatilityEnvironment.EXTREME_VOL:  # noqa: E501
                 self.logger.debug("Unusual activity with extreme volatility")
                 return False
 
@@ -1648,7 +1648,7 @@ class MultiLegStrategyCoordinator:
                         return False
 
             # Check net delta for neutral strategies
-            if structure.strategy_type in [MultiLegStrategyType.IRON_CONDOR, MultiLegStrategyType.IRON_BUTTERFLY]:
+            if structure.strategy_type in [MultiLegStrategyType.IRON_CONDOR, MultiLegStrategyType.IRON_BUTTERFLY]:  # noqa: E501
                 if abs(structure.net_delta) > MAX_NET_DELTA:
                     self.logger.debug(f"Net delta too high: {structure.net_delta:.3f}")
                     return False
@@ -1682,7 +1682,7 @@ class MultiLegStrategyCoordinator:
             position_id = str(uuid.uuid4())
 
             # Get current market analysis for context
-            market_analysis = self.market_analyzer.analyze_environment(pd.DataFrame())  # Would use real data
+            market_analysis = self.market_analyzer.analyze_environment(pd.DataFrame())  # Would use real data  # noqa: E501
 
             # ------------------------------------------------------------------
             # BROKER ROUTING: submit as a single combo order when possible.
@@ -1803,7 +1803,7 @@ class MultiLegStrategyCoordinator:
                     result = self.order_manager.submit_iron_condor(
                         symbol=s.underlying_symbol,
                         expiration=s.expiration_date,
-                        put_buy_strike=min(leg.strike for leg in s.legs if leg.option_type == 'put'),
+                        put_buy_strike=min(leg.strike for leg in s.legs if leg.option_type == 'put'),  # noqa: E501
                         put_sell_strike=max(
                             leg.strike for leg in s.legs
                             if leg.option_type == 'put' and leg.action in ('sell_to_open', 'sell')
@@ -1812,7 +1812,7 @@ class MultiLegStrategyCoordinator:
                             leg.strike for leg in s.legs
                             if leg.option_type == 'call' and leg.action in ('sell_to_open', 'sell')
                         ),
-                        call_buy_strike=max(leg.strike for leg in s.legs if leg.option_type == 'call'),
+                        call_buy_strike=max(leg.strike for leg in s.legs if leg.option_type == 'call'),  # noqa: E501
                         quantity=s.contracts,
                         price=s.net_credit,  # target net credit
                         strategy_name=f"{strategy_type.value}:{position_id[:8]}",
@@ -1905,8 +1905,8 @@ class MultiLegStrategyCoordinator:
                 'Enhanced volatility environment analysis and adaptation'
             ],
             'feature_improvements': {
-                'strategy_selection': 'Auto-selection based on volatility environment and market conditions',
-                'construction_logic': 'Advanced algorithms for optimal strike selection and wing sizing',
+                'strategy_selection': 'Auto-selection based on volatility environment and market conditions',  # noqa: E501
+                'construction_logic': 'Advanced algorithms for optimal strike selection and wing sizing',  # noqa: E501
                 'greeks_management': 'Unified Greeks monitoring and delta-hedging capabilities',
                 'adjustment_logic': 'Sophisticated adjustment and defense strategies',
                 'performance_tracking': 'Comprehensive metrics across all multi-leg strategy types'
@@ -1928,7 +1928,7 @@ class MultiLegStrategyCoordinator:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_multileg_strategy_coordinator(config: dict[str, Any] = None) -> MultiLegStrategyCoordinator:
+def create_multileg_strategy_coordinator(config: dict[str, Any] = None) -> MultiLegStrategyCoordinator:  # noqa: E501
     """
     Create multi-leg strategy coordinator instance.
 

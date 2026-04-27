@@ -370,8 +370,8 @@ class NewsManager:
         recent_sentiments.sort(key=lambda x: x.timestamp)
 
         # Calculate trend
-        early_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[:len(recent_sentiments)//2]])
-        late_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[len(recent_sentiments)//2:]])
+        early_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[:len(recent_sentiments)//2]])  # noqa: E501
+        late_sentiment = np.mean([s.sentiment_score for s in recent_sentiments[len(recent_sentiments)//2:]])  # noqa: E501
 
         change = late_sentiment - early_sentiment
 
@@ -734,10 +734,10 @@ class NewsManager:
             implications.append("Consider reducing position sizes")
 
             if sentiment:
-                if sentiment.sentiment_level in [SentimentLevel.VERY_BEARISH, SentimentLevel.BEARISH]:
+                if sentiment.sentiment_level in [SentimentLevel.VERY_BEARISH, SentimentLevel.BEARISH]:  # noqa: E501
                     implications.append("Consider protective puts")
                     implications.append("Avoid bullish strategies")
-                elif sentiment.sentiment_level in [SentimentLevel.VERY_BULLISH, SentimentLevel.BULLISH]:
+                elif sentiment.sentiment_level in [SentimentLevel.VERY_BULLISH, SentimentLevel.BULLISH]:  # noqa: E501
                     implications.append("Consider bull spreads")
                     implications.append("Avoid bearish positions")
 

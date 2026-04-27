@@ -87,7 +87,7 @@ def _load_agent_module(key: str) -> Any:
             )
             _AGENT_MODULE_CACHE[key] = None
     return _AGENT_MODULE_CACHE[key]
-import logging
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS

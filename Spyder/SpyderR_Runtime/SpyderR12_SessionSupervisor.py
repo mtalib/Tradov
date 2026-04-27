@@ -42,7 +42,7 @@ Usage::
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
+import logging  # noqa: F401
 import os
 import signal
 import threading
@@ -145,7 +145,7 @@ class SessionSupervisor:
         """
         self.logger.info("SessionSupervisor.start() — mode=%s symbols=%s", self.mode, self.symbols)
         if self.dry_run:
-            self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")
+            self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
 
         # 1. EventManager ── shared event bus
         if not self._start_event_manager():
@@ -374,7 +374,7 @@ class SessionSupervisor:
         """
         try:
             from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import create_paper_broker
-            self.broker = create_paper_broker(event_manager=self.em, slippage_bps=0 if self.dry_run else 5)
+            self.broker = create_paper_broker(event_manager=self.em, slippage_bps=0 if self.dry_run else 5)  # noqa: E501
             if self.dry_run:
                 # Wrap place_order to be a no-op in dry_run mode.
                 _real_place = self.broker.place_order
@@ -582,7 +582,7 @@ class SessionSupervisor:
                     set_global_portfolio_manager(portfolio_manager)
                     self.logger.info("ℹ️ ExitMonitor using fallback PortfolioManager instance")
                 except Exception as pm_exc:
-                    self.logger.warning("⚠️ ExitMonitor fallback portfolio manager failed: %s", pm_exc)
+                    self.logger.warning("⚠️ ExitMonitor fallback portfolio manager failed: %s", pm_exc)  # noqa: E501
 
             if portfolio_manager is None:
                 self.logger.warning("⚠️ ExitMonitor skipped: portfolio manager unavailable")
@@ -691,7 +691,7 @@ class SessionSupervisor:
 
             if not done.wait(timeout=timeout_seconds):
                 self.logger.error(
-                    "❌ Boot self-test failed: ORDER_REJECTED(reason=dry_run) not observed within %.1fs",
+                    "❌ Boot self-test failed: ORDER_REJECTED(reason=dry_run) not observed within %.1fs",  # noqa: E501
                     timeout_seconds,
                 )
                 return False

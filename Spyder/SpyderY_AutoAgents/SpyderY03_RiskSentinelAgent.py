@@ -196,7 +196,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
             try:
                 self._x04_agent = SpyderX04_RiskGuardianAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to initialize X04 RiskGuardianAgent: %s", e)
+                logging.getLogger(__name__).warning("Failed to initialize X04 RiskGuardianAgent: %s", e)  # noqa: E501
 
         # Position manager
         self._position_mgr: Any | None = None
@@ -291,7 +291,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                             (max_single / total_value) * 100
                         )
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to compute position concentration: %s", e)
+                logging.getLogger(__name__).warning("Failed to compute position concentration: %s", e)  # noqa: E501
 
         # Compute composite risk score (0-100)
         snapshot.risk_score = self._compute_risk_score(snapshot)
@@ -352,7 +352,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
 
         if dd >= self._limits["circuit_breaker_drawdown_halt"]:
             self._circuit_breaker = CircuitBreakerState.HALT
-            self._halt_reason = f"Drawdown {dd:.1f}% >= {self._limits['circuit_breaker_drawdown_halt']}% halt limit"
+            self._halt_reason = f"Drawdown {dd:.1f}% >= {self._limits['circuit_breaker_drawdown_halt']}% halt limit"  # noqa: E501
         elif dd >= self._limits["circuit_breaker_drawdown_warning"]:
             self._circuit_breaker = CircuitBreakerState.WARNING
         elif dd >= self._limits["circuit_breaker_drawdown_caution"]:
@@ -480,7 +480,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                 f"- Circuit breaker: {self._circuit_breaker.value}\n"
                 f"- Positions: {self._current_risk.position_count}\n"
                 f"- Drawdown: {self._current_risk.current_drawdown_pct:.1f}%\n"
-                f"- Signal direction: {signal.get('payload', {}).get('original_signal', {}).get('direction', '?')}\n\n"
+                f"- Signal direction: {signal.get('payload', {}).get('original_signal', {}).get('direction', '?')}\n\n"  # noqa: E501
                 f"Should this trade be VETOED? Answer YES or NO with reason."
             )
 
@@ -571,7 +571,7 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
                 "timestamp": self._current_risk.timestamp.isoformat(),
             },
             confidence=0.9,
-            reasoning=f"Risk score: {self._current_risk.risk_score:.0f}/100, CB: {self._circuit_breaker.value}",
+            reasoning=f"Risk score: {self._current_risk.risk_score:.0f}/100, CB: {self._circuit_breaker.value}",  # noqa: E501
             priority="LOW",
         ))
 

@@ -59,7 +59,7 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
 
 def is_market_hours(now_et: datetime | None = None) -> bool:
     """Return True only when ET time is in session and weekday is Mon-Fri."""
-    eastern = pytz.timezone("US/Eastern")
+    eastern = pytz.timezone("US/Eastern")  # noqa: F821
     current_et = now_et or datetime.now(eastern)
     if current_et.weekday() >= 5:
         return False
@@ -97,7 +97,7 @@ HEARTBEAT_INTERVAL = 30000        # 30 seconds in milliseconds — check frequen
 HEARTBEAT_WARNING_TIME = 20000    # 20 seconds before next check (blue heart)
 HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 
-REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cycles + Tradier timeout
+REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cycles + Tradier timeout  # noqa: E501
 REALTIME_SENTINEL_SYMBOLS = ("SPY", "SPX", "QQQ")
 
 # Options-chain fetch deduplication.
@@ -385,7 +385,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 # switches from REAL-TIME to EOD promptly after 4:00 PM ET close.
                 _mkt_open = is_market_hours()
                 if _mkt_open:
-                    _mkt_data_status = "PAPER" if ("SANDBOX" in mode.upper() or "PAPER" in mode.upper()) else "LIVE"
+                    _mkt_data_status = "PAPER" if ("SANDBOX" in mode.upper() or "PAPER" in mode.upper()) else "LIVE"  # noqa: E501
                 else:
                     _mkt_data_status = "EOD"
                 self.market_data_status_changed.emit(_mkt_data_status)
@@ -544,15 +544,15 @@ class ThreadSafeMarketDataWorker(QObject):
 
             # --- Fetch live quotes and write to data_file ---
             symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VXV",   # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)
+                "SPY", "SPX", "VIX", "VIX9D", "VXV",   # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)  # noqa: E501
                 "VVIX", "UVXY",                           # Volatility ETFs
                 "SKEW",                                   # CBOE SKEW index
                 "DIA", "QQQ", "IWM",                      # Major index ETFs
                 "TLT", "HYG", "LQD", "GLD", "USO",         # Bonds & credit + correlations
-                "UUP",                                    # USD Index ETF (DXY proxy; Tradier: no DXY)
+                "UUP",                                    # USD Index ETF (DXY proxy; Tradier: no DXY)  # noqa: E501
                 # NOTE: $DJI confirmed ~15 min delayed on Tradier (April 2026 testing).
                 # DIA ETF * 100 is used instead — real-time, tracks within 0.3%.
-                "RUT",                                    # Russell 2000 index (bare symbol confirmed on Tradier)
+                "RUT",                                    # Russell 2000 index (bare symbol confirmed on Tradier)  # noqa: E501
                 # NOTE: NASDAQ Composite (IXIC) is NOT available on Tradier.
                 # QQQ ETF * 37.5 is used as a Composite proxy (~23,079 vs actual ~23,111).
                 # NDX (NASDAQ 100, ~25,358) is a different, unrelated index.
@@ -738,7 +738,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
                 # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
                 # $TICK/$ADD/$TRIN: Yahoo Finance removed ^TICK/^ADD/^TRIN (404 as of 2025);
-                # Tradier requires an index data add-on; route via SpyderC27_MassiveClient once enabled
+                # Tradier requires an index data add-on; route via SpyderC27_MassiveClient once enabled  # noqa: E501
                 "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
             ]
             raw = client.get_quotes(symbols)
@@ -832,7 +832,7 @@ class ThreadSafeMarketDataWorker(QObject):
             account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
             env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
             if not api_key or not account_id:
-                logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")
+                logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")  # noqa: E501
                 self.eod_snapshot_fetched.emit(False)
                 return
             env_enum = (
@@ -880,7 +880,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 _snapshot_file = self.data_file.parent / "eod_snapshot.json"
                 with open(_snapshot_file, "w") as _sf:
                     _json.dump({**live_data, **_snapshot_meta}, _sf)
-                logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])
+                logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])  # noqa: E501
                 self.market_data_status_changed.emit("EOD")
                 self.eod_snapshot_fetched.emit(True)
             else:

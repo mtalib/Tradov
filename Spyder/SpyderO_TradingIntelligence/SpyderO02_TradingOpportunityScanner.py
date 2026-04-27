@@ -59,11 +59,11 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Integration with existing analytics modules
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder  # noqa: E501
     from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OptionsFlowTracker import OptionsFlowTracker
     from Spyder.SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureAnalyzer
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
     OPTIONS_ANALYTICS_AVAILABLE = True
 except ImportError:
     OPTIONS_ANALYTICS_AVAILABLE = False
@@ -409,7 +409,7 @@ class TradingOpportunityScanner:
             opportunities.extend(vol_opportunities)
 
             # Directional opportunities
-            directional_opportunities = await self._scan_directional_opportunities(context, market_data)
+            directional_opportunities = await self._scan_directional_opportunities(context, market_data)  # noqa: E501
             opportunities.extend(directional_opportunities)
 
             # Greeks-based opportunities
@@ -436,10 +436,10 @@ class TradingOpportunityScanner:
                 self.scanner_metrics['high_confidence_opportunities'] += high_conf_count
 
                 if ranked_opportunities:
-                    avg_confidence = sum(opp.confidence_score for opp in ranked_opportunities) / len(ranked_opportunities)
+                    avg_confidence = sum(opp.confidence_score for opp in ranked_opportunities) / len(ranked_opportunities)  # noqa: E501
                     self.scanner_metrics['average_confidence_score'] = avg_confidence
 
-            self.logger.info("Opportunity scan completed: %s opportunities found", len(ranked_opportunities))
+            self.logger.info("Opportunity scan completed: %s opportunities found", len(ranked_opportunities))  # noqa: E501
             return ranked_opportunities
 
         except Exception as e:
@@ -453,7 +453,7 @@ class TradingOpportunityScanner:
 
     async def get_best_opportunities(self, count: int = 5,
                                    opportunity_types: list[OpportunityType] | None = None,
-                                   min_confidence: float = MIN_OPPORTUNITY_CONFIDENCE) -> list[TradingOpportunity]:
+                                   min_confidence: float = MIN_OPPORTUNITY_CONFIDENCE) -> list[TradingOpportunity]:  # noqa: E501
         """Get top opportunities matching criteria"""
         try:
             with self._lock:
@@ -545,7 +545,7 @@ class TradingOpportunityScanner:
             regime_info = await self._get_regime_context()
 
             # Get volatility context
-            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0
+            vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0  # noqa: E501
 
             # Estimate IV metrics (would use real data in production)
             iv_rank = self._estimate_iv_rank(market_data)
@@ -617,7 +617,7 @@ class TradingOpportunityScanner:
 
                 # Credit spreads
                 if context.trend_strength > 0.4:  # Trending market
-                    credit_opportunity = self._create_credit_spread_opportunity(context, market_data)
+                    credit_opportunity = self._create_credit_spread_opportunity(context, market_data)  # noqa: E501
                     if credit_opportunity:
                         opportunities.append(credit_opportunity)
 
@@ -625,13 +625,13 @@ class TradingOpportunityScanner:
             elif context.iv_rank < 30:
                 # Long straddle before volatility expansion
                 if context.regime_transition_probability > 0.3:
-                    straddle_opportunity = self._create_long_straddle_opportunity(context, market_data)
+                    straddle_opportunity = self._create_long_straddle_opportunity(context, market_data)  # noqa: E501
                     if straddle_opportunity:
                         opportunities.append(straddle_opportunity)
 
             # Volatility arbitrage opportunities
             if abs(context.iv_rank - context.iv_percentile) > 20:
-                arb_opportunity = self._create_volatility_arbitrage_opportunity(context, market_data)
+                arb_opportunity = self._create_volatility_arbitrage_opportunity(context, market_data)  # noqa: E501
                 if arb_opportunity:
                     opportunities.append(arb_opportunity)
 
@@ -715,7 +715,7 @@ class TradingOpportunityScanner:
 
             # Calendar spread arbitrage
             if context.term_structure_slope > 0.02:  # Steep term structure
-                calendar_opportunity = self._create_calendar_spread_opportunity(context, market_data)
+                calendar_opportunity = self._create_calendar_spread_opportunity(context, market_data)  # noqa: E501
                 if calendar_opportunity:
                     opportunities.append(calendar_opportunity)
 
@@ -885,7 +885,7 @@ class TradingOpportunityScanner:
                     continue
 
                 # Risk filter
-                if opp.maximum_loss > MAX_SINGLE_OPPORTUNITY_RISK * 100000:  # Assuming $100k portfolio
+                if opp.maximum_loss > MAX_SINGLE_OPPORTUNITY_RISK * 100000:  # Assuming $100k portfolio  # noqa: E501
                     continue
 
                 # Market conditions filter
@@ -914,9 +914,9 @@ class TradingOpportunityScanner:
                     min(opp.risk_reward_ratio / 2, 1.0) * OPPORTUNITY_WEIGHTS['risk_reward_ratio'] +
                     opp.probability_of_profit * OPPORTUNITY_WEIGHTS['probability_of_profit'] +
                     opp.liquidity_score * OPPORTUNITY_WEIGHTS['liquidity_score'] +
-                    self._calculate_regime_alignment_score(opp, context) * OPPORTUNITY_WEIGHTS['regime_alignment'] +
-                    self._calculate_volatility_advantage_score(opp, context) * OPPORTUNITY_WEIGHTS['volatility_advantage'] +
-                    self._calculate_theta_advantage_score(opp, context) * OPPORTUNITY_WEIGHTS['time_decay_advantage']
+                    self._calculate_regime_alignment_score(opp, context) * OPPORTUNITY_WEIGHTS['regime_alignment'] +  # noqa: E501
+                    self._calculate_volatility_advantage_score(opp, context) * OPPORTUNITY_WEIGHTS['volatility_advantage'] +  # noqa: E501
+                    self._calculate_theta_advantage_score(opp, context) * OPPORTUNITY_WEIGHTS['time_decay_advantage']  # noqa: E501
                 )
 
                 # Store score for sorting
@@ -971,7 +971,7 @@ class TradingOpportunityScanner:
         try:
             from scipy.stats import spearmanr
             # Align indices and drop NaNs
-            aligned = pd.concat([factor_scores.rename('factor'), forward_returns.rename('fwd')], axis=1).dropna()
+            aligned = pd.concat([factor_scores.rename('factor'), forward_returns.rename('fwd')], axis=1).dropna()  # noqa: E501
             if len(aligned) < 20:
                 return _empty
 
@@ -1165,25 +1165,25 @@ class TradingOpportunityScanner:
     def _create_long_straddle_opportunity(self, context, market_data): return None
     def _create_volatility_arbitrage_opportunity(self, context, market_data): return None
     def _create_breakout_opportunity(self, context, market_data): return None
-    def _create_mean_reversion_opportunity(self, context, market_data, direction, level): return None
+    def _create_mean_reversion_opportunity(self, context, market_data, direction, level): return None  # noqa: E501
     def _create_gamma_scalping_opportunity(self, context, market_data): return None
     def _create_theta_harvesting_opportunity(self, context, market_data): return None
     def _create_skew_arbitrage_opportunity(self, context, market_data): return None
     def _create_calendar_spread_opportunity(self, context, market_data): return None
 
     # Strategy analysis placeholder methods
-    def _analyze_bull_call_spread(self, price): return {'name': 'Bull Call Spread', 'efficiency_score': 0.7}
-    def _analyze_bull_put_spread(self, price): return {'name': 'Bull Put Spread', 'efficiency_score': 0.8}
-    def _analyze_long_call_option(self, price): return {'name': 'Long Call', 'efficiency_score': 0.6}
-    def _analyze_cash_secured_put(self, price): return {'name': 'Cash Secured Put', 'efficiency_score': 0.7}
-    def _analyze_bear_call_spread(self, price): return {'name': 'Bear Call Spread', 'efficiency_score': 0.8}
-    def _analyze_bear_put_spread(self, price): return {'name': 'Bear Put Spread', 'efficiency_score': 0.7}
+    def _analyze_bull_call_spread(self, price): return {'name': 'Bull Call Spread', 'efficiency_score': 0.7}  # noqa: E501
+    def _analyze_bull_put_spread(self, price): return {'name': 'Bull Put Spread', 'efficiency_score': 0.8}  # noqa: E501
+    def _analyze_long_call_option(self, price): return {'name': 'Long Call', 'efficiency_score': 0.6}  # noqa: E501
+    def _analyze_cash_secured_put(self, price): return {'name': 'Cash Secured Put', 'efficiency_score': 0.7}  # noqa: E501
+    def _analyze_bear_call_spread(self, price): return {'name': 'Bear Call Spread', 'efficiency_score': 0.8}  # noqa: E501
+    def _analyze_bear_put_spread(self, price): return {'name': 'Bear Put Spread', 'efficiency_score': 0.7}  # noqa: E501
     def _analyze_long_put_option(self, price): return {'name': 'Long Put', 'efficiency_score': 0.6}
     def _analyze_covered_call(self, price): return {'name': 'Covered Call', 'efficiency_score': 0.5}
     def _analyze_iron_condor(self, price): return {'name': 'Iron Condor', 'efficiency_score': 0.9}
-    def _analyze_short_straddle(self, price): return {'name': 'Short Straddle', 'efficiency_score': 0.7}
-    def _analyze_butterfly_spread(self, price): return {'name': 'Butterfly', 'efficiency_score': 0.6}
-    def _analyze_calendar_spread(self, price): return {'name': 'Calendar Spread', 'efficiency_score': 0.8}
+    def _analyze_short_straddle(self, price): return {'name': 'Short Straddle', 'efficiency_score': 0.7}  # noqa: E501
+    def _analyze_butterfly_spread(self, price): return {'name': 'Butterfly', 'efficiency_score': 0.6}  # noqa: E501
+    def _analyze_calendar_spread(self, price): return {'name': 'Calendar Spread', 'efficiency_score': 0.8}  # noqa: E501
 
     def _is_market_condition_suitable(self, opp, context): return True
     def _calculate_regime_alignment_score(self, opp, context): return 0.8
@@ -1242,7 +1242,7 @@ class TradingOpportunityScanner:
                 'total_expected_profit': total_expected_profit,
                 'total_max_loss': total_max_loss,
                 'average_confidence': np.mean(confidence_scores) if confidence_scores else 0,
-                'high_confidence_count': sum(1 for score in confidence_scores if score >= HIGH_CONFIDENCE_THRESHOLD)
+                'high_confidence_count': sum(1 for score in confidence_scores if score >= HIGH_CONFIDENCE_THRESHOLD)  # noqa: E501
             }
 
 # ==============================================================================

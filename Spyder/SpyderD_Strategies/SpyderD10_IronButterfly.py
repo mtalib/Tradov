@@ -45,24 +45,24 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
-from typing import Any
-from dataclasses import dataclass
-from enum import Enum, auto
+from datetime import datetime  # noqa: E402
+from typing import Any  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+from enum import Enum, auto  # noqa: E402
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa: E402
 
 # Integration with consolidated multi-leg coordinator
 try:
@@ -301,7 +301,7 @@ class IronButterflyStrategy(BaseStrategy):
     # ==========================================================================
 
     async def analyze_iron_butterfly_opportunity(self, market_data: pd.DataFrame,
-                                               option_chain: pd.DataFrame = None) -> IronButterflyAnalysis:
+                                               option_chain: pd.DataFrame = None) -> IronButterflyAnalysis:  # noqa: E501
         """
         Analyze market conditions for Iron Butterfly entry.
 
@@ -422,7 +422,7 @@ class IronButterflyStrategy(BaseStrategy):
             self.logger.error("Neutral outlook analysis failed: %s", e)
             return False
 
-    def _analyze_atm_conditions(self, market_data: pd.DataFrame, current_price: float) -> dict[str, float]:
+    def _analyze_atm_conditions(self, market_data: pd.DataFrame, current_price: float) -> dict[str, float]:  # noqa: E501
         """Analyze ATM conditions for Iron Butterfly"""
         try:
             # Price stability around current level
@@ -560,7 +560,7 @@ class IronButterflyStrategy(BaseStrategy):
                 'expected_move_dollars': expected_move,
                 'expected_move_percent': expected_move_pct,
                 'expected_move_vs_wing_width': expected_move_vs_wings,
-                'expected_move_suitable_for_ib': expected_move_vs_wings <= IB_MAX_EXPECTED_MOVE_RATIO,
+                'expected_move_suitable_for_ib': expected_move_vs_wings <= IB_MAX_EXPECTED_MOVE_RATIO,  # noqa: E501
                 'move_quality_score': self._calculate_ib_move_quality_score(expected_move_vs_wings)
             }
 
@@ -594,7 +594,7 @@ class IronButterflyStrategy(BaseStrategy):
             return 0.0
 
     def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: dict,
-                                        expected_move_analysis: dict, time_decay_analysis: dict) -> bool:
+                                        expected_move_analysis: dict, time_decay_analysis: dict) -> bool:  # noqa: E501
         """Assess overall market suitability for Iron Butterfly"""
         try:
             # All conditions must be met for Iron Butterfly
@@ -670,7 +670,7 @@ class IronButterflyStrategy(BaseStrategy):
             # Use symmetric width (average of both sides)
             actual_wing_width = (actual_upper_width + actual_lower_width) / 2
 
-            return actual_wing_width if IB_WING_WIDTH_MIN <= actual_wing_width <= IB_WING_WIDTH_MAX else None
+            return actual_wing_width if IB_WING_WIDTH_MIN <= actual_wing_width <= IB_WING_WIDTH_MAX else None  # noqa: E501
 
         except Exception as e:
             self.logger.error("Wing width selection failed: %s", e)
@@ -749,7 +749,7 @@ class IronButterflyStrategy(BaseStrategy):
             self.logger.error("Exit criteria analysis failed: %s", e)
             return True, "Exit due to analysis error"
 
-    def suggest_iron_butterfly_adjustment(self, position_data: dict) -> IronButterflyAdjustmentType | None:
+    def suggest_iron_butterfly_adjustment(self, position_data: dict) -> IronButterflyAdjustmentType | None:  # noqa: E501
         """Suggest Iron Butterfly specific adjustments"""
         try:
             underlying_price = position_data.get('underlying_price', 0)
@@ -801,7 +801,7 @@ class IronButterflyStrategy(BaseStrategy):
             if overall_score >= 0.8:
                 recommendation = "Excellent Iron Butterfly opportunity - optimal neutral conditions"
             elif overall_score >= 0.6:
-                recommendation = "Good Iron Butterfly opportunity - favorable time decay environment"
+                recommendation = "Good Iron Butterfly opportunity - favorable time decay environment"  # noqa: E501
             elif overall_score >= 0.4:
                 recommendation = "Marginal Iron Butterfly opportunity - monitor closely"
             else:
@@ -821,7 +821,7 @@ class IronButterflyStrategy(BaseStrategy):
         try:
             # Neutral outlook warnings
             if not neutral_outlook:
-                warnings.append("Market showing directional bias - Iron Butterfly may not be optimal")
+                warnings.append("Market showing directional bias - Iron Butterfly may not be optimal")  # noqa: E501
 
             # IV warnings
             iv_rank = iv_analysis.get('iv_rank', 50)
@@ -852,9 +852,9 @@ class IronButterflyStrategy(BaseStrategy):
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
                 'timestamp': datetime.now().isoformat(),
-                'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,
-                'neutral_outlook': self.current_analysis.neutral_outlook_confirmed if self.current_analysis else False,
-                'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0
+                'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
+                'neutral_outlook': self.current_analysis.neutral_outlook_confirmed if self.current_analysis else False,  # noqa: E501
+                'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501
             }
         }
 

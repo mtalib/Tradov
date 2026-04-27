@@ -42,7 +42,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierClient,
     TradingEnvironment,
-    build_option_symbol,
+    build_option_symbol,  # noqa: F401
 )
 from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import (
     StrategyLifecycleState,
@@ -1428,7 +1428,7 @@ class PaperTradingQtWorker(QObject):
         return {
             "delta": (leg_greeks["long_delta"] - leg_greeks["short_delta"]) * mult,
             "gamma": (leg_greeks["long_gamma"] - leg_greeks["short_gamma"]) * mult,
-            "theta": (leg_greeks.get("long_theta", 0.0) - leg_greeks.get("short_theta", 0.0)) * mult,
+            "theta": (leg_greeks.get("long_theta", 0.0) - leg_greeks.get("short_theta", 0.0)) * mult,  # noqa: E501
             "vega": (leg_greeks["long_vega"] - leg_greeks["short_vega"]) * mult,
         }
 
@@ -2684,7 +2684,7 @@ class PaperTradingQtWorker(QObject):
         equity += self._spreads_unrealized_pnl()
 
         total_return = equity - self._initial_capital
-        return_pct = (total_return / self._initial_capital) * 100 if self._initial_capital > 0 else 0
+        return_pct = (total_return / self._initial_capital) * 100 if self._initial_capital > 0 else 0  # noqa: E501
         win_rate = (
             self._winning_trades / self._trades_executed
             if self._trades_executed > 0 else 0

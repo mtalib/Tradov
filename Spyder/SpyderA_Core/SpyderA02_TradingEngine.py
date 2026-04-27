@@ -565,7 +565,7 @@ class TradingEngine:
                     # Submit order
                     self.process_signal(position.strategy_id, reduce_order)
 
-                    self.logger.info("Reducing position %s by %s units", position_id, reduce_quantity)
+                    self.logger.info("Reducing position %s by %s units", position_id, reduce_quantity)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Failed to reduce position for risk: %s", e)
@@ -603,7 +603,7 @@ class TradingEngine:
                             self.logger.info("Risk manager initialized")
                             # Wire Y03 RiskSentinelAgent veto channel if message bus is available
                             message_bus = getattr(self, 'message_bus', None)
-                            if message_bus is not None and hasattr(self.risk_manager, 'wire_agent_bus'):
+                            if message_bus is not None and hasattr(self.risk_manager, 'wire_agent_bus'):  # noqa: E501
                                 self.risk_manager.wire_agent_bus(message_bus)
                         else:
                             self.logger.warning("Risk manager not available")
@@ -970,7 +970,7 @@ class TradingEngine:
                 # Check for open positions
                 open_positions = self._get_strategy_positions(strategy_id)
                 if open_positions and not force:
-                    self.logger.error("Cannot unregister strategy %s with %s open positions", strategy_id, len(open_positions))
+                    self.logger.error("Cannot unregister strategy %s with %s open positions", strategy_id, len(open_positions))  # noqa: E501
                     return False
 
                 # Stop strategy if active
@@ -1181,7 +1181,7 @@ class TradingEngine:
             priority = 1 if signal.get('urgent', False) else 5
             self.order_queue.put((priority, order.order_id, order))
 
-            self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))
+            self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))  # noqa: E501
 
             # Emit signal event
             if self.event_manager:
@@ -1255,9 +1255,9 @@ class TradingEngine:
                     },
                 )
                 result = self.risk_manager.validate_signal(request)
-                approved = bool(result.approved) if hasattr(result, 'approved') else bool(result.get('approved', False))
+                approved = bool(result.approved) if hasattr(result, 'approved') else bool(result.get('approved', False))  # noqa: E501
                 if not approved:
-                    reason = getattr(result, 'rejection_reason', None) or result.get('reason', 'Unknown')
+                    reason = getattr(result, 'rejection_reason', None) or result.get('reason', 'Unknown')  # noqa: E501
                     self.logger.warning("Risk check failed: %s", reason)
                 return approved
             else:
@@ -1337,10 +1337,10 @@ class TradingEngine:
         """Fetch the latest S07 market conditions for trust-policy gating."""
         if self._metrics_orchestrator is None:
             try:
-                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator
+                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # noqa: E501
             except ImportError:
                 try:
-                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]
+                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]  # noqa: E501
                 except ImportError:
                     self.logger.debug("A02: S07 metrics orchestrator unavailable")
                     return {}
@@ -1359,7 +1359,7 @@ class TradingEngine:
 
         return conditions if isinstance(conditions, dict) else {}
 
-    def _passes_entry_trust_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:
+    def _passes_entry_trust_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:  # noqa: E501
         """Apply F09 trust-policy checks to direct A02 signal processing."""
         entry_gate = self._get_entry_filter_gate()
         if entry_gate is None:
@@ -1370,11 +1370,11 @@ class TradingEngine:
             return True, ""
 
         metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
-        action = str(signal.get('action') or signal.get('side') or metadata.get('action') or '').strip().lower()
+        action = str(signal.get('action') or signal.get('side') or metadata.get('action') or '').strip().lower()  # noqa: E501
         params = {
-            'strategy_type': signal.get('strategy_type') or metadata.get('strategy_type') or strategy_id,
+            'strategy_type': signal.get('strategy_type') or metadata.get('strategy_type') or strategy_id,  # noqa: E501
             'position_type': signal.get('position_type') or metadata.get('position_type') or '',
-            'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,
+            'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,  # noqa: E501
             'action': action,
             'market_conditions': market_conditions,
         }
@@ -1400,7 +1400,7 @@ class TradingEngine:
 
         return False, '; '.join(str(check.message) for check in failures)
 
-    def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:
+    def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:  # noqa: E501
         """Create order object from signal"""
         try:
             order_id = f"{strategy_id}_{uuid.uuid4().hex[:8]}"
@@ -1487,7 +1487,7 @@ class TradingEngine:
         while not self._shutdown_event.is_set():
             try:
                 # Perform health check
-                if (datetime.now() - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:
+                if (datetime.now() - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:  # noqa: E501
                     self._perform_health_check()
                     self.last_health_check = datetime.now()
 
@@ -1594,7 +1594,7 @@ class TradingEngine:
             if not event:
                 return
 
-            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')
+            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')  # noqa: E501
 
             order = self.orders.get(order_id)
             if order:
@@ -1613,7 +1613,7 @@ class TradingEngine:
             if not event:
                 return
 
-            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')
+            order_id = event.data.get('order_id') if hasattr(event, 'data') else event.get('order_id')  # noqa: E501
 
             order = self.orders.get(order_id)
             if order:

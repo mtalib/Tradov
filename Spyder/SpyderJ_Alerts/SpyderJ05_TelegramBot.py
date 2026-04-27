@@ -438,7 +438,7 @@ class TelegramBot:
             message += f"\n<b>🏆 Best Trade:</b>\n{best_trade['symbol']} +${best_trade['pnl']:.2f}"
 
         if worst_trade:
-            message += f"\n<b>😞 Worst Trade:</b>\n{worst_trade['symbol']} -${abs(worst_trade['pnl']):.2f}"
+            message += f"\n<b>😞 Worst Trade:</b>\n{worst_trade['symbol']} -${abs(worst_trade['pnl']):.2f}"  # noqa: E501
 
         if account_balance:
             message += f"\n\n<b>💼 Account Balance:</b> ${account_balance:,.2f}"
@@ -638,7 +638,7 @@ class TelegramBot:
                             timeout=CONNECTION_TIMEOUT,
                         )
                     except Exception as _ack_err:
-                        self.logger.debug("Telegram callback ack failed (non-critical): %s", _ack_err)
+                        self.logger.debug("Telegram callback ack failed (non-critical): %s", _ack_err)  # noqa: E501
 
                     operator = cq.get("from", {}).get("username", "operator")
                     if data == approve_data:
@@ -712,7 +712,7 @@ class TelegramBot:
             # Retry if possible
             if message.retry_count < MAX_RETRIES:
                 message.retry_count += 1
-                time.sleep(RETRY_DELAY * message.retry_count)  # thread-safe: time.sleep() intentional
+                time.sleep(RETRY_DELAY * message.retry_count)  # thread-safe: time.sleep() intentional  # noqa: E501
                 return self._send_message_now(message)
 
             return False

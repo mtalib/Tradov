@@ -209,7 +209,7 @@ class MACrossoverStrategy(BaseStrategy):
             'worst_trade': 0.0
         }
 
-        self.logger.info("Initialized %s with %s/%s EMA", self.name, self.fast_period, self.slow_period)
+        self.logger.info("Initialized %s with %s/%s EMA", self.name, self.fast_period, self.slow_period)  # noqa: E501
 
     # ==========================================================================
     # MOVING AVERAGE CALCULATIONS
@@ -612,8 +612,8 @@ class MACrossoverStrategy(BaseStrategy):
                 strength=strength,
                 confidence=confidence,
                 entry_price=float(current_price),
-                stop_loss=float(current_price + (STOP_LOSS_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),
-                take_profit=float(current_price - (PROFIT_TARGET_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),
+                stop_loss=float(current_price + (STOP_LOSS_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),  # noqa: E501
+                take_profit=float(current_price - (PROFIT_TARGET_ATR_MULTIPLE * max(current_price * 0.01, 0.01))),  # noqa: E501
                 position_size=self.calculate_position_size(None),
                 timestamp=signal_timestamp,
                 expires_at=signal_timestamp + timedelta(minutes=15),
@@ -878,7 +878,7 @@ def test_ma_crossover():
     logging.info("MA Periods: %s/%s", strategy.fast_period, strategy.slow_period)
 
     # Create trending market data
-    dates = pd.date_range(start=datetime.now().replace(hour=10, minute=30), periods=100, freq='5min')
+    dates = pd.date_range(start=datetime.now().replace(hour=10, minute=30), periods=100, freq='5min')  # noqa: E501
 
     # Create trend with crossovers
     trend = np.zeros(100)
@@ -906,13 +906,13 @@ def test_ma_crossover():
     # Add volume surge at crossovers
     for i in range(1, len(market_data)):
         if i >= SLOW_EMA_PERIOD:
-            fast_ema = market_data['close'].iloc[:i+1].ewm(span=FAST_EMA_PERIOD, adjust=False).mean()
-            slow_ema = market_data['close'].iloc[:i+1].ewm(span=SLOW_EMA_PERIOD, adjust=False).mean()
+            fast_ema = market_data['close'].iloc[:i+1].ewm(span=FAST_EMA_PERIOD, adjust=False).mean()  # noqa: E501
+            slow_ema = market_data['close'].iloc[:i+1].ewm(span=SLOW_EMA_PERIOD, adjust=False).mean()  # noqa: E501
 
             if len(fast_ema) >= 2 and len(slow_ema) >= 2:
                 # Check for crossover
-                if ((fast_ema.iloc[-2] <= slow_ema.iloc[-2] and fast_ema.iloc[-1] > slow_ema.iloc[-1]) or
-                    (fast_ema.iloc[-2] >= slow_ema.iloc[-2] and fast_ema.iloc[-1] < slow_ema.iloc[-1])):
+                if ((fast_ema.iloc[-2] <= slow_ema.iloc[-2] and fast_ema.iloc[-1] > slow_ema.iloc[-1]) or  # noqa: E501
+                    (fast_ema.iloc[-2] >= slow_ema.iloc[-2] and fast_ema.iloc[-1] < slow_ema.iloc[-1])):  # noqa: E501
                     market_data.loc[i, 'volume'] *= 2  # Volume surge
 
     # Process data
@@ -941,12 +941,12 @@ def test_ma_crossover():
                     signal=CrossoverSignal(**crossover),
                     entry_time=datetime.now(),
                     entry_price=prices[i],
-                    option_type=OptionType.CALL if signal.metadata['direction'] == 'bullish' else OptionType.PUT,
+                    option_type=OptionType.CALL if signal.metadata['direction'] == 'bullish' else OptionType.PUT,  # noqa: E501
                     spread_type=signal.metadata['spread_type'],
                     strikes=signal.metadata['strikes'],
                     contracts=1,
-                    target_price=prices[i] + 2 if signal.metadata['direction'] == 'bullish' else prices[i] - 2,
-                    stop_price=prices[i] - 1 if signal.metadata['direction'] == 'bullish' else prices[i] + 1
+                    target_price=prices[i] + 2 if signal.metadata['direction'] == 'bullish' else prices[i] - 2,  # noqa: E501
+                    stop_price=prices[i] - 1 if signal.metadata['direction'] == 'bullish' else prices[i] + 1  # noqa: E501
                 )
                 strategy.active_positions[position.position_id] = position
                 strategy.performance_stats['total_crossovers'] += 1
@@ -973,7 +973,7 @@ def test_ma_crossover():
     logging.info("Strategy Statistics:")
     logging.info("MA State: %s", stats['ma_state'])
     logging.info(f"Current 9 EMA: ${stats['fast_ema']:.2f}" if stats['fast_ema'] else "9 EMA: N/A")
-    logging.info(f"Current 21 EMA: ${stats['slow_ema']:.2f}" if stats['slow_ema'] else "21 EMA: N/A")
+    logging.info(f"Current 21 EMA: ${stats['slow_ema']:.2f}" if stats['slow_ema'] else "21 EMA: N/A")  # noqa: E501
     logging.info("Total Crossovers: %s", stats['total_crossovers'])
     logging.info("Traded Crossovers: %s", stats['traded_crossovers'])
     logging.info(f"Win Rate: {stats['win_rate']:.1%}")

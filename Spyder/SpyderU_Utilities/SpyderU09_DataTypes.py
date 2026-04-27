@@ -606,7 +606,7 @@ def create_market_data(symbol: str, **kwargs) -> MarketData:
     data_types = SpyderDataTypes()
     return data_types.create_market_data(symbol, **kwargs)
 
-def create_option_contract(underlying: str, expiry: str, strike: float, right: str) -> OptionContract:
+def create_option_contract(underlying: str, expiry: str, strike: float, right: str) -> OptionContract:  # noqa: E501
     """
     Factory function for OptionContract.
 

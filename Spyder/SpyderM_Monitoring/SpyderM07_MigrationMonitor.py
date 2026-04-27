@@ -356,7 +356,7 @@ class MigrationMonitor:
         logging.info("  🚫 Critical Issues: %s", len(report['summary']['critical_issues']))
 
         if report['summary']['ready_for_migration']:
-            logging.info("\n🚀 Ready for migration: %s", ', '.join(report['summary']['ready_for_migration']))
+            logging.info("\n🚀 Ready for migration: %s", ', '.join(report['summary']['ready_for_migration']))  # noqa: E501
 
 
 # ==============================================================================

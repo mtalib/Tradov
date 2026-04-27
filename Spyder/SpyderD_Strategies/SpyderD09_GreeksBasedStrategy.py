@@ -536,7 +536,7 @@ class GreeksBasedStrategy(BaseStrategy):
                     return True, "Gamma too low for scalping"
 
                 # Exit if profit target reached
-                if greeks_pos.gamma_pnl >= GAMMA_PROFIT_TARGET * greeks_pos.net_gamma * SPY_CONTRACT_MULTIPLIER:
+                if greeks_pos.gamma_pnl >= GAMMA_PROFIT_TARGET * greeks_pos.net_gamma * SPY_CONTRACT_MULTIPLIER:  # noqa: E501
                     return True, "Gamma scalp profit target reached"
 
             elif greeks_pos.strategy_type == GreeksStrategy.VEGA_TRADING:
@@ -591,7 +591,7 @@ class GreeksBasedStrategy(BaseStrategy):
                     )
                     return
                 except Exception as exc:
-                    self.logger.debug("N04 portfolio_greeks unavailable, using OPRA fallback: %s", exc)
+                    self.logger.debug("N04 portfolio_greeks unavailable, using OPRA fallback: %s", exc)  # noqa: E501
 
             # Fallback: reset and sum Greeks across all tracked positions
             self.portfolio_greeks = {
@@ -829,7 +829,7 @@ class GreeksBasedStrategy(BaseStrategy):
 
                 # Calculate expected gamma profit
                 price_move = market_data['close'].pct_change().rolling(5).std().iloc[-1]
-                expected_gamma_profit = 0.5 * self.portfolio_greeks['gamma'] * (price_move ** 2) * current_price ** 2
+                expected_gamma_profit = 0.5 * self.portfolio_greeks['gamma'] * (price_move ** 2) * current_price ** 2  # noqa: E501
 
                 if expected_gamma_profit > GAMMA_PROFIT_TARGET:
                     # Find ATM straddle for gamma scalping
@@ -1002,7 +1002,7 @@ class GreeksBasedStrategy(BaseStrategy):
                 strength = SignalStrength.STRONG
             elif signal_type == GreeksSignalType.GAMMA_SCALP:
                 contracts = 10  # Standard size for gamma scalping
-                strength = SignalStrength.VERY_STRONG if option.gamma > 0.03 else SignalStrength.MODERATE
+                strength = SignalStrength.VERY_STRONG if option.gamma > 0.03 else SignalStrength.MODERATE  # noqa: E501
             elif signal_type == GreeksSignalType.VEGA_TRADE:
                 contracts = int(abs(target_value) / option.vega)
                 strength = SignalStrength.MODERATE
@@ -1022,7 +1022,7 @@ class GreeksBasedStrategy(BaseStrategy):
                 take_profit=0,  # Managed by Greeks
                 position_size=abs(contracts),
                 timestamp=datetime.now(),
-                expires_at=datetime.now() + timedelta(seconds=30),  # Short expiry for fast execution
+                expires_at=datetime.now() + timedelta(seconds=30),  # Short expiry for fast execution  # noqa: E501
                 metadata={
                     'strategy': 'greeks_based',
                     'greeks_data': {
@@ -1255,7 +1255,7 @@ class GreeksBasedStrategy(BaseStrategy):
             if latency_ms <= self.max_latency_ms:
                 filtered.append(signal)
             else:
-                self.logger.warning("Signal %s filtered due to latency: %sms", signal.signal_id, latency_ms)
+                self.logger.warning("Signal %s filtered due to latency: %sms", signal.signal_id, latency_ms)  # noqa: E501
 
         return filtered
 
@@ -1400,7 +1400,7 @@ class GreeksBasedStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Closed Greeks position {position_id}: P&L ${position.realized_pnl:.2f}")
+            self.logger.info(f"Closed Greeks position {position_id}: P&L ${position.realized_pnl:.2f}")  # noqa: E501
             return True
 
         except Exception as e:

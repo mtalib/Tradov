@@ -740,7 +740,7 @@ async def main():
     diagnostics = lstm_pricer.get_model_diagnostics()
     logging.info("Model Version: %s", diagnostics['model_info']['version'])
     logging.info(f"Total Parameters: {diagnostics['model_info']['total_parameters']:,}")
-    logging.info(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")
+    logging.info(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")  # noqa: E501
     if "training" in diagnostics:
         logging.info(f"Final Validation RMSE: ${diagnostics['training']['final_val_rmse']:.3f}")
         logging.info(f"Improvement vs BS: {diagnostics['training']['improvement_vs_bs']:.1f}%")

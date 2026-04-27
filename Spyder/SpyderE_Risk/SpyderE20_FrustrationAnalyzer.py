@@ -676,7 +676,7 @@ class FrustrationAnalyzer:
             total_triangle_count=total_triangles,
             frustration_level=level,
             weak_frustration=weak_frustrated / total_triangles if total_triangles > 0 else 0,
-            moderate_frustration=moderate_frustrated / total_triangles if total_triangles > 0 else 0,
+            moderate_frustration=moderate_frustrated / total_triangles if total_triangles > 0 else 0,  # noqa: E501
             strong_frustration=strong_frustrated / total_triangles if total_triangles > 0 else 0,
             sector_frustration=sector_frustration,
             most_frustrated_pairs=frustrated_pairs[:5]
@@ -1336,7 +1336,7 @@ class FrustrationAnalyzer:
         """Assess overall market stability."""
         if phase.current_phase in [MarketPhase.CRISIS, MarketPhase.PHASE_TRANSITION]:
             return "critical"
-        elif phase.current_phase == MarketPhase.REPLICA_SYMMETRY_BREAKING or phase.warning_score > 40 or energy.stability_score < 50:
+        elif phase.current_phase == MarketPhase.REPLICA_SYMMETRY_BREAKING or phase.warning_score > 40 or energy.stability_score < 50:  # noqa: E501
             return "unstable"
         else:
             return "stable"
@@ -1568,7 +1568,7 @@ async def main():
 
     logging.info("\nFRUSTRATION METRICS:")
     logging.info(f"  Frustration Index: {analysis.frustration.frustration_index:.1%}")
-    logging.info("  Frustrated Triangles: %s/%s", analysis.frustration.frustrated_triangle_count, analysis.frustration.total_triangle_count)
+    logging.info("  Frustrated Triangles: %s/%s", analysis.frustration.frustrated_triangle_count, analysis.frustration.total_triangle_count)  # noqa: E501
     logging.info("  Level: %s", analysis.frustration.frustration_level.value.upper())
     logging.info(f"  Strong Frustration: {analysis.frustration.strong_frustration:.1%}")
 
@@ -1582,7 +1582,7 @@ async def main():
     logging.info("  Current Phase: %s", analysis.phase_transition.current_phase.value.upper())
     logging.info(f"  Warning Score: {analysis.phase_transition.warning_score:.1f}/100")
     logging.info("  Transition Detected: %s", analysis.phase_transition.transition_detected)
-    logging.info("  Trading Implication: %s", analysis.phase_transition.trading_implication.value.upper())
+    logging.info("  Trading Implication: %s", analysis.phase_transition.trading_implication.value.upper())  # noqa: E501
 
     logging.info("\nREPLICA SYMMETRY:")
     logging.info("  RSB Detected: %s", analysis.replica_symmetry.rsb_detected)

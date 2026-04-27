@@ -163,7 +163,7 @@ class FeatureFlag:
         elif self.rollout_strategy == RolloutStrategy.PERCENTAGE:
             # Use hash of user_id + feature name for consistent rollout
             hash_input = f"{user_id}:{self.name}"
-            hash_value = int(hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest(), 16)
+            hash_value = int(hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest(), 16)  # noqa: E501
             percentage = (hash_value % 100) + 1
             return percentage <= self.rollout_percentage
 

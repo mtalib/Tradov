@@ -78,9 +78,9 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+import logging  # noqa: E402
 try:
     from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 except ImportError:
@@ -1032,7 +1032,7 @@ class SPYOptionsEnvironment(OptionsEnvironment):
                 "description": f"Added protective call hedge at {hedge_strike:.2f}",
             })
         else:
-            result.update({"success": True, "cost": 0.0, "description": "Delta neutral — no hedge needed"})
+            result.update({"success": True, "cost": 0.0, "description": "Delta neutral — no hedge needed"})  # noqa: E501
 
         return result
 
@@ -1060,7 +1060,7 @@ class SPYOptionsEnvironment(OptionsEnvironment):
         result.update({
             "success": True,
             "cost": round(n_legs * 0.65, 2),
-            "description": f"{'Reduced' if factor < 1 else 'Increased'} position size by {abs(factor - 1) * 100:.0f}%",
+            "description": f"{'Reduced' if factor < 1 else 'Increased'} position size by {abs(factor - 1) * 100:.0f}%",  # noqa: E501
         })
         return result
 
@@ -1757,7 +1757,7 @@ class OptionsAdjustmentRL:
                 env='CartPole-v1',  # Placeholder — replace with custom env registration
                 env_config={
                     'strategy': strategy,
-                    'historical_data': self.historical_data.to_dict() if self.historical_data is not None else {},
+                    'historical_data': self.historical_data.to_dict() if self.historical_data is not None else {},  # noqa: E501
                 }
             )
             .rollouts(
@@ -1808,7 +1808,7 @@ class OptionsAdjustmentRL:
                 'total_iterations': training_iterations,
                 'best_reward': best_reward,
                 'final_reward': results_history[-1]['reward_mean'] if results_history else 0,
-                'total_timesteps': results_history[-1].get('timesteps_total', 0) if results_history else 0,
+                'total_timesteps': results_history[-1].get('timesteps_total', 0) if results_history else 0,  # noqa: E501
                 'history': results_history,
             }
 

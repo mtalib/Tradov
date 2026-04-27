@@ -817,14 +817,14 @@ class SkewMonitorDialog(QDialog):
         # Update regime
         self.regime_label.setText(data.regime.replace("_", " "))
         self.regime_label.setStyleSheet(
-            f"background-color: {self.get_regime_color(data.regime)}; color: white; padding: 5px; border-radius: 3px;"
+            f"background-color: {self.get_regime_color(data.regime)}; color: white; padding: 5px; border-radius: 3px;"  # noqa: E501
         )
         self.regime_description.setText(self.get_regime_description(data.regime))
 
         # Update signal
         self.signal_label.setText(data.signal.replace("_", " "))
         self.signal_label.setStyleSheet(
-            f"background-color: {self.get_signal_color(data.signal)}; color: white; padding: 5px; border-radius: 3px;"
+            f"background-color: {self.get_signal_color(data.signal)}; color: white; padding: 5px; border-radius: 3px;"  # noqa: E501
         )
         self.signal_description.setText(self.get_signal_description(data.signal))
 
@@ -1148,7 +1148,7 @@ class SkewMonitorDialog(QDialog):
             interp += "This often occurs before major events or during heightened uncertainty. "
             interp += "While crashes rarely materialize, the cost of protection is very high.\n\n"
             interp += "Historical Context: Similar levels seen before Brexit, 2018 Q4 selloff.\n\n"
-            interp += "Implications: Expensive to hedge, opportunities in selling volatility to sophisticated buyers."
+            interp += "Implications: Expensive to hedge, opportunities in selling volatility to sophisticated buyers."  # noqa: E501
 
         elif data.value >= SKEW_HIGH:
             interp += "ELEVATED TAIL RISK CONCERN\n"

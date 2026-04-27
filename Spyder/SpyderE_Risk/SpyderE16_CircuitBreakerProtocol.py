@@ -349,7 +349,7 @@ class SpyderCircuitBreakerProtocol:
         }
         self.event_clock_blackout_active = state in {'pre', 'live', 'post'}
 
-    async def check_order_restrictions(self, order_type: str, strategy_id: str | None = None) -> tuple[bool, str]:
+    async def check_order_restrictions(self, order_type: str, strategy_id: str | None = None) -> tuple[bool, str]:  # noqa: E501
         """
         Check if an order type is allowed under current conditions.
         Args:

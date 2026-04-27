@@ -399,7 +399,7 @@ class AfterHoursDataManager:
                     with self._lock:
                         self.closing_snapshots[symbol] = snapshot
 
-                    self.logger.info(f"✅ Closing snapshot for {symbol}: ${snapshot.closing_price:.2f}")
+                    self.logger.info(f"✅ Closing snapshot for {symbol}: ${snapshot.closing_price:.2f}")  # noqa: E501
 
                     # Cancel market data
                     self.client.cancel_market_data(req_id)
@@ -422,7 +422,7 @@ class AfterHoursDataManager:
             return False
 
         except Exception as e:
-            self.logger.error("Error requesting closing snapshot for %s: %s", symbol, e, exc_info=True)
+            self.logger.error("Error requesting closing snapshot for %s: %s", symbol, e, exc_info=True)  # noqa: E501
             return False
 
     # ==========================================================================
@@ -676,7 +676,7 @@ class AfterHoursDataManager:
                             self.closing_snapshots[symbol] = snapshot
 
                         except Exception as e:
-                            self.logger.warning("Error loading snapshot for %s: %s", symbol, e, exc_info=True)
+                            self.logger.warning("Error loading snapshot for %s: %s", symbol, e, exc_info=True)  # noqa: E501
 
                 self.logger.info("Loaded %s closing price snapshots", len(self.closing_snapshots))
 

@@ -628,7 +628,7 @@ if __name__ == "__main__":
             print(f"  Trade {i + 1}: allowed")  # noqa: T201
             scb.record_success(STRATEGY)
 
-    # ------------------------------------------------------------------ trip via consecutive failures
+    # ------------------------------------------------------------------ trip via consecutive failures  # noqa: E501
     print("\n--- Injecting 3 consecutive failures (threshold=3) ---")  # noqa: T201
     for i in range(3):
         if scb.is_allowed(STRATEGY):
@@ -650,7 +650,7 @@ if __name__ == "__main__":
     print(f"  State after timeout: {scb.get_state(STRATEGY).name}")  # noqa: T201
     print(f"  is_allowed (HALF_OPEN probe): {scb.is_allowed(STRATEGY)}")  # noqa: T201
 
-    # ------------------------------------------------------------------ successful probe closes circuit
+    # ------------------------------------------------------------------ successful probe closes circuit  # noqa: E501
     print("\n--- Recording success in HALF_OPEN ---")  # noqa: T201
     scb.record_success(STRATEGY)
     print(f"  State after success: {scb.get_state(STRATEGY).name}")  # noqa: T201

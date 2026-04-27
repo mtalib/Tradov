@@ -246,7 +246,7 @@ class PerformanceAnalyticsEngine:
 
         # Calculate strategy-specific metrics
         strategy_pnl = sum(t['pnl'] for t in trades)
-        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now(timezone.utc).date())
+        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now(timezone.utc).date())  # noqa: E501
 
         # Calculate win rate
         winning = [t for t in trades if t['pnl'] > 0]
@@ -470,7 +470,7 @@ class PerformanceAnalyticsEngine:
         if max_dd == 0:
             return 0
 
-        annual_return = (1 + self.cumulative_pnl / self.portfolio_value) ** (252 / max(len(self.daily_returns), 1)) - 1
+        annual_return = (1 + self.cumulative_pnl / self.portfolio_value) ** (252 / max(len(self.daily_returns), 1)) - 1  # noqa: E501
         return annual_return / abs(max_dd)
 
     def _calculate_drawdowns(self) -> tuple[float, float]:
@@ -557,13 +557,13 @@ class PerformanceAnalyticsEngine:
         perf = self.strategy_performance[strategy_id]
 
         # Try empyrical first for validated VaR
-        if HAS_EMPYRICAL and hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:
+        if HAS_EMPYRICAL and hasattr(perf, 'returns_history') and len(getattr(perf, 'returns_history', [])) >= 20:  # noqa: E501
             try:
                 returns = pd.Series(perf.returns_history)
                 var_5 = empyrical.value_at_risk(returns, cutoff=0.05)
                 return abs(float(var_5))
             except Exception as e:
-                logging.getLogger(__name__).debug("VaR calculation failed for %s, using fallback: %s", strategy_id, e)
+                logging.getLogger(__name__).debug("VaR calculation failed for %s, using fallback: %s", strategy_id, e)  # noqa: E501
 
         # Fallback: estimate from available data
         if hasattr(perf, 'total_pnl') and hasattr(perf, 'capital_allocated'):
@@ -633,7 +633,7 @@ class PerformanceAnalyticsEngine:
         impacts = []
         for order in orders:
             if 'expected_price' in order and 'fill_price' in order:
-                impact = abs(order['fill_price'] - order['expected_price']) / order['expected_price']
+                impact = abs(order['fill_price'] - order['expected_price']) / order['expected_price']  # noqa: E501
                 impacts.append(impact)
 
         return statistics.mean(impacts) * 10000 if impacts else 0  # in bps
@@ -739,7 +739,7 @@ class PerformanceAnalyticsEngine:
         latest = self.execution_metrics_history[-1]
 
         return {
-            'fill_rate': latest.filled_orders / latest.total_orders if latest.total_orders > 0 else 0,
+            'fill_rate': latest.filled_orders / latest.total_orders if latest.total_orders > 0 else 0,  # noqa: E501
             'avg_fill_time': latest.avg_fill_time,
             'avg_slippage_bps': latest.avg_slippage,
             'total_commissions': latest.total_commissions,
@@ -772,7 +772,7 @@ class PerformanceAnalyticsEngine:
             latest = self.metrics_history[-1]
 
             if latest.sharpe_ratio < 0.5:
-                recommendations.append("Consider reviewing strategy selection - Sharpe ratio below 0.5")
+                recommendations.append("Consider reviewing strategy selection - Sharpe ratio below 0.5")  # noqa: E501
 
             if latest.max_drawdown < -0.15:
                 recommendations.append("High drawdown detected - Consider reducing position sizes")
@@ -824,7 +824,7 @@ class PerformanceAnalyticsEngine:
                 exec_risk = min(0.20, avg_loss / (avg_win + avg_loss) * 0.3)
 
         # Total portfolio volatility
-        total_vol = np.std(self.daily_returns) * np.sqrt(252) if len(self.daily_returns) > 1 else 0.15
+        total_vol = np.std(self.daily_returns) * np.sqrt(252) if len(self.daily_returns) > 1 else 0.15  # noqa: E501
 
         # Normalize into risk decomposition
         strategy_pct = min(0.40, strategy_vol_contrib / total_vol) if total_vol > 0 else 0.25
@@ -863,7 +863,7 @@ class PerformanceAnalyticsEngine:
         else:
             sorted_returns = sorted(returns)
             var_5 = sorted_returns[int(len(sorted_returns) * 0.05)] if sorted_returns else -0.02
-            cvar_5 = np.mean(sorted_returns[:max(1, int(len(sorted_returns) * 0.05))]) if sorted_returns else -0.03
+            cvar_5 = np.mean(sorted_returns[:max(1, int(len(sorted_returns) * 0.05))]) if sorted_returns else -0.03  # noqa: E501
             max_dd = min(returns) if returns else -0.05
 
         # Portfolio beta estimate (sensitivity to market moves)

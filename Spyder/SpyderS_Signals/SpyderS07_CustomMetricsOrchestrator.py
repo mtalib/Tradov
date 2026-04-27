@@ -86,7 +86,7 @@ except ImportError:
 
 try:
     from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
-    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import DataUnavailableError as GEXDataUnavailableError
+    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import DataUnavailableError as GEXDataUnavailableError  # noqa: E501
     GEX_AVAILABLE = True
 except ImportError:
     GEX_AVAILABLE = False
@@ -96,7 +96,7 @@ except ImportError:
 try:
     from SpyderS_Signals.SpyderS06_SKEWCalculator import (
         SpyderS06_SKEWCalculator, get_skew_calculator)  # noqa: F401
-    from SpyderS_Signals.SpyderS06_SKEWCalculator import DataUnavailableError as SKEWDataUnavailableError
+    from SpyderS_Signals.SpyderS06_SKEWCalculator import DataUnavailableError as SKEWDataUnavailableError  # noqa: E501
     SKEW_AVAILABLE = True
 except ImportError:
     SKEW_AVAILABLE = False
@@ -125,7 +125,7 @@ except ImportError:
     logging.info("⚠️ S02_DIXScheduler not available")
 
 try:
-    from SpyderS_Signals.SpyderS04_BlackSwanScheduler import BlackSwanScheduler as BlackSwanSchedulerCls
+    from SpyderS_Signals.SpyderS04_BlackSwanScheduler import BlackSwanScheduler as BlackSwanSchedulerCls  # noqa: E501
     SWAN_SCHEDULER_AVAILABLE = True
 except ImportError:
     SWAN_SCHEDULER_AVAILABLE = False
@@ -364,7 +364,7 @@ class CustomMetricsOrchestrator(QObject):
         self.update_timer.setInterval(self.current_update_interval * 1000)
 
         self.logger.debug("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
-        self.logger.debug("⚠️ Regime detection functions removed - now handled by L09_UnifiedRegimeEngine")
+        self.logger.debug("⚠️ Regime detection functions removed - now handled by L09_UnifiedRegimeEngine")  # noqa: E501
 
         # Auto-start if configured
         if self.config.get("auto_start", True):
@@ -473,7 +473,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG']
+        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG']  # noqa: E501
 
         for metric in metrics:
             self.metric_quality[metric] = MetricQuality(
@@ -506,7 +506,7 @@ class CustomMetricsOrchestrator(QObject):
             # in the background thread below.
             if self.swan_scheduler is not None:
                 self.swan_scheduler.start(daemon=True)
-                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")
+                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")  # noqa: E501
 
             self.logger.debug("✅ Orchestrator started — background fetch beginning")
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
@@ -536,7 +536,7 @@ class CustomMetricsOrchestrator(QObject):
                     self.dix_scheduler.start()
                     self.logger.debug("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
                 else:
-                    self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")
+                    self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")  # noqa: E501
             except Exception as e:
                 self.logger.error("DIX scheduler startup failed: %s", e)
 
@@ -630,19 +630,19 @@ class CustomMetricsOrchestrator(QObject):
                 breadth_success = self._update_tv_breadth_metrics(updated_metrics, update_errors)
 
                 # Options analytics metrics (ATM IV, IV rank, volatility risk premium)
-                options_success = self._update_options_analytics_metrics(updated_metrics, update_errors)
+                options_success = self._update_options_analytics_metrics(updated_metrics, update_errors)  # noqa: E501
 
                 # Volatility surface term-structure metrics
-                vol_surface_success = self._update_vol_surface_metrics(updated_metrics, update_errors)
+                vol_surface_success = self._update_vol_surface_metrics(updated_metrics, update_errors)  # noqa: E501
 
                 # Dealer-flow structure: N09 gamma walls + N11 vanna/charm pressure
-                dealer_flow_success = self._update_dealer_flow_metrics(updated_metrics, update_errors)
+                dealer_flow_success = self._update_dealer_flow_metrics(updated_metrics, update_errors)  # noqa: E501
 
                 # ES/SPY lead-lag context from C11 FuturesBasis
                 lead_lag_success = self._update_lead_lag_metrics(updated_metrics, update_errors)
 
                 # Observe-only liquidity diagnostics for candidate contracts
-                liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)
+                liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)  # noqa: E501
 
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
@@ -837,7 +837,7 @@ class CustomMetricsOrchestrator(QObject):
             else:
                 # Simulation fallback
                 current_swan = self.current_metrics.get("SWAN", 1.85)
-                updated_metrics["SWAN"] = max(1.0, min(5.0, current_swan + np.random.normal(0, 0.1)))
+                updated_metrics["SWAN"] = max(1.0, min(5.0, current_swan + np.random.normal(0, 0.1)))  # noqa: E501
                 return False
         except Exception as e:
             errors.append(f"SWAN update error: {e}")
@@ -925,7 +925,7 @@ class CustomMetricsOrchestrator(QObject):
             except (TypeError, ValueError):
                 return default
 
-        def _first_from(snapshot: dict[str, Any], keys: tuple[str, ...], default: float = float("nan")) -> float:
+        def _first_from(snapshot: dict[str, Any], keys: tuple[str, ...], default: float = float("nan")) -> float:  # noqa: E501
             for key in keys:
                 if key in snapshot and snapshot.get(key) is not None:
                     return _coerce_float(snapshot.get(key), default)
@@ -937,7 +937,7 @@ class CustomMetricsOrchestrator(QObject):
             "BREADTH_CYCLICAL": self.current_metrics.get("BREADTH_CYCLICAL", float("nan")),
             "BREADTH_SPREAD": self.current_metrics.get("BREADTH_SPREAD", float("nan")),
             "SECTOR_ADV_DEC": self.current_metrics.get("SECTOR_ADV_DEC", float("nan")),
-            "SECTOR_MOMENTUM_DISPERSION": self.current_metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")),
+            "SECTOR_MOMENTUM_DISPERSION": self.current_metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")),  # noqa: E501
             "PARTICIPATION_SCORE": self.current_metrics.get("PARTICIPATION_SCORE", float("nan")),
         }
         for key, value in sector_defaults.items():
@@ -992,7 +992,7 @@ class CustomMetricsOrchestrator(QObject):
                     tick = _coerce_float(updated_metrics.get("TICK", float("nan")))
                     trin = _coerce_float(updated_metrics.get("TRIN", float("nan")))
                     if not math.isnan(tick) and not math.isnan(trin):
-                        participation = max(0.0, min(100.0, 50.0 + (tick / 40.0) - (trin - 1.0) * 20.0))
+                        participation = max(0.0, min(100.0, 50.0 + (tick / 40.0) - (trin - 1.0) * 20.0))  # noqa: E501
 
                 updated_metrics["BREADTH_DEFENSIVE"] = defensive
                 updated_metrics["BREADTH_CYCLICAL"] = cyclical
@@ -1022,7 +1022,7 @@ class CustomMetricsOrchestrator(QObject):
             else:
                 for key in ("TICK", "ADD", "TRIN"):
                     updated_metrics[key] = self.current_metrics.get(key, float("nan"))
-                updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
+                updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")  # noqa: E501
                 updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
                 return False
         except Exception as e:
@@ -1030,11 +1030,11 @@ class CustomMetricsOrchestrator(QObject):
             self.logger.error("Breadth update error: %s", e, exc_info=True)
             for key in ("TICK", "ADD", "TRIN"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
-            updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")
+            updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")  # noqa: E501
             updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
             return False
 
-    def _build_data_quality_feed(self, updated_metrics: dict[str, Any], errors: list[str]) -> dict[str, Any]:
+    def _build_data_quality_feed(self, updated_metrics: dict[str, Any], errors: list[str]) -> dict[str, Any]:  # noqa: E501
         """Build a normalized data-quality/SLO envelope for downstream consumers."""
         now = datetime.now()
         stale_threshold_sec = int(self.config.get("data_quality", {}).get("stale_after_sec", 180))
@@ -1056,12 +1056,12 @@ class CustomMetricsOrchestrator(QObject):
                 "stale": stale,
             }
 
-        overall_quality = float(np.mean([q.quality_score for q in self.metric_quality.values()])) if self.metric_quality else 0.0
+        overall_quality = float(np.mean([q.quality_score for q in self.metric_quality.values()])) if self.metric_quality else 0.0  # noqa: E501
         total_buckets = len(buckets)
-        freshness_score = 1.0 if total_buckets == 0 else max(0.0, 1.0 - (stale_count / total_buckets))
+        freshness_score = 1.0 if total_buckets == 0 else max(0.0, 1.0 - (stale_count / total_buckets))  # noqa: E501
 
         slo_targets = {
-            "overall_quality_min": float(self.config.get("data_quality", {}).get("overall_quality_min", 0.75)),
+            "overall_quality_min": float(self.config.get("data_quality", {}).get("overall_quality_min", 0.75)),  # noqa: E501
             "freshness_min": float(self.config.get("data_quality", {}).get("freshness_min", 0.70)),
         }
         slo_status = {
@@ -1108,48 +1108,48 @@ class CustomMetricsOrchestrator(QObject):
             "min_oi_change_pct": float(liquidity_cfg.get("min_oi_change_pct", -0.20)),
         }
 
-    def _evaluate_liquidity_snapshot(self, snapshot: dict[str, Any], thresholds: dict[str, float]) -> list[str]:
+    def _evaluate_liquidity_snapshot(self, snapshot: dict[str, Any], thresholds: dict[str, float]) -> list[str]:  # noqa: E501
         """Evaluate a liquidity snapshot using the same contract as F09/B02."""
         reasons: list[str] = []
 
         spread_pct = snapshot.get("spread_pct")
-        if isinstance(spread_pct, (int, float)) and float(spread_pct) > thresholds["max_spread_pct"]:
+        if isinstance(spread_pct, (int, float)) and float(spread_pct) > thresholds["max_spread_pct"]:  # noqa: E501
             reasons.append(
-                f"spread_pct {float(spread_pct):.4f} > max_spread_pct {thresholds['max_spread_pct']:.4f}"
+                f"spread_pct {float(spread_pct):.4f} > max_spread_pct {thresholds['max_spread_pct']:.4f}"  # noqa: E501
             )
 
         spread_abs = snapshot.get("spread_abs")
-        if isinstance(spread_abs, (int, float)) and float(spread_abs) > thresholds["max_spread_abs"]:
+        if isinstance(spread_abs, (int, float)) and float(spread_abs) > thresholds["max_spread_abs"]:  # noqa: E501
             reasons.append(
-                f"spread_abs {float(spread_abs):.4f} > max_spread_abs {thresholds['max_spread_abs']:.4f}"
+                f"spread_abs {float(spread_abs):.4f} > max_spread_abs {thresholds['max_spread_abs']:.4f}"  # noqa: E501
             )
 
         quote_age_ms = snapshot.get("quote_age_ms")
-        if isinstance(quote_age_ms, (int, float)) and float(quote_age_ms) > thresholds["max_quote_age_ms"]:
+        if isinstance(quote_age_ms, (int, float)) and float(quote_age_ms) > thresholds["max_quote_age_ms"]:  # noqa: E501
             reasons.append(
-                f"quote_age_ms {float(quote_age_ms):.0f} > max_quote_age_ms {thresholds['max_quote_age_ms']:.0f}"
+                f"quote_age_ms {float(quote_age_ms):.0f} > max_quote_age_ms {thresholds['max_quote_age_ms']:.0f}"  # noqa: E501
             )
 
         top_of_book_size = snapshot.get("top_of_book_size")
-        if isinstance(top_of_book_size, (int, float)) and float(top_of_book_size) < thresholds["min_top_of_book_size"]:
+        if isinstance(top_of_book_size, (int, float)) and float(top_of_book_size) < thresholds["min_top_of_book_size"]:  # noqa: E501
             reasons.append(
-                f"top_of_book_size {float(top_of_book_size):.0f} < min_top_of_book_size {thresholds['min_top_of_book_size']:.0f}"
+                f"top_of_book_size {float(top_of_book_size):.0f} < min_top_of_book_size {thresholds['min_top_of_book_size']:.0f}"  # noqa: E501
             )
 
         open_interest = snapshot.get("open_interest")
-        if isinstance(open_interest, (int, float)) and float(open_interest) < thresholds["min_open_interest"]:
+        if isinstance(open_interest, (int, float)) and float(open_interest) < thresholds["min_open_interest"]:  # noqa: E501
             reasons.append(
-                f"open_interest {float(open_interest):.0f} < min_open_interest {thresholds['min_open_interest']:.0f}"
+                f"open_interest {float(open_interest):.0f} < min_open_interest {thresholds['min_open_interest']:.0f}"  # noqa: E501
             )
 
         volume = snapshot.get("volume")
         if isinstance(volume, (int, float)) and float(volume) < thresholds["min_volume"]:
-            reasons.append(f"volume {float(volume):.0f} < min_volume {thresholds['min_volume']:.0f}")
+            reasons.append(f"volume {float(volume):.0f} < min_volume {thresholds['min_volume']:.0f}")  # noqa: E501
 
         oi_change_pct = snapshot.get("oi_change_pct")
-        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < thresholds["min_oi_change_pct"]:
+        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < thresholds["min_oi_change_pct"]:  # noqa: E501
             reasons.append(
-                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {thresholds['min_oi_change_pct']:.4f}"
+                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {thresholds['min_oi_change_pct']:.4f}"  # noqa: E501
             )
 
         return reasons
@@ -1157,14 +1157,14 @@ class CustomMetricsOrchestrator(QObject):
     def _load_options_chain_dataframe(self):
         """Load the live SPY options chain as a DataFrame from the nearest owner."""
         try:
-            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")
+            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
         except ImportError:
-            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")
+            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
 
         chain_manager = chain_module.OptionsChainManager()
         return chain_manager.get_chain("SPY")
 
-    def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:
+    def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:  # noqa: E501
         """Convert one option-chain row into an observe-mode liquidity payload."""
         bid = float(row.get("bid") or 0.0)
         ask = float(row.get("ask") or 0.0)
@@ -1207,7 +1207,7 @@ class CustomMetricsOrchestrator(QObject):
         return {
             "symbol": row.get("symbol", "SPY"),
             "strike": float(row.get("strike") or 0.0),
-            "expiry": row.get("expiry").isoformat() if isinstance(row.get("expiry"), datetime) else str(row.get("expiry")),
+            "expiry": row.get("expiry").isoformat() if isinstance(row.get("expiry"), datetime) else str(row.get("expiry")),  # noqa: E501
             "option_type": str(row.get("option_type", "")).lower(),
             "snapshot": snapshot,
             "gate_passed": len(reasons) == 0,
@@ -1216,7 +1216,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def _update_liquidity_diagnostics_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Publish observe-mode liquidity diagnostics for nearby SPY option candidates."""
-        updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))
+        updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))  # noqa: E501
 
         try:
             chain_df = self._load_options_chain_dataframe()
@@ -1360,11 +1360,11 @@ class CustomMetricsOrchestrator(QObject):
                 return self._options_tradier_client
 
         try:
-            tradier_module = importlib.import_module("Spyder.SpyderB_Broker.SpyderB40_TradierClient")
+            tradier_module = importlib.import_module("Spyder.SpyderB_Broker.SpyderB40_TradierClient")  # noqa: E501
         except ImportError:
             tradier_module = importlib.import_module("SpyderB_Broker.SpyderB40_TradierClient")
 
-        environment_enum = getattr(tradier_module.TradingEnvironment, environment_name.upper(), None)
+        environment_enum = getattr(tradier_module.TradingEnvironment, environment_name.upper(), None)  # noqa: E501
         if environment_enum is None:
             environment_enum = tradier_module.TradingEnvironment.SANDBOX
 
@@ -1382,9 +1382,9 @@ class CustomMetricsOrchestrator(QObject):
             return self._vol_surface_builder
 
         try:
-            vol_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")
+            vol_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")  # noqa: E501
         except ImportError:
-            vol_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")
+            vol_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder")  # noqa: E501
 
         self._vol_surface_builder = vol_module.VolatilitySurfaceBuilder(config={"smoothing": 0.0})
         return self._vol_surface_builder
@@ -1405,7 +1405,7 @@ class CustomMetricsOrchestrator(QObject):
         if self._n11_flow_analyzer is not None:
             return self._n11_flow_analyzer
         try:
-            mod = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow")
+            mod = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow")  # noqa: E501
         except ImportError:
             mod = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow")
         self._n11_flow_analyzer = mod.OptionsGreeksFlowAnalyzer()
@@ -1513,7 +1513,7 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["LEAD_LAG_MS"] = float(snap.get("lead_lag_ms", float("nan")))
             updated_metrics["ES_IMPULSE_SCORE"] = float(snap.get("es_impulse_score", float("nan")))
             updated_metrics["CONFIRM_DIRECTION"] = snap.get("confirm_direction", "unknown")
-            updated_metrics["CONFIRM_CONFIDENCE"] = float(snap.get("confirm_confidence", float("nan")))
+            updated_metrics["CONFIRM_CONFIDENCE"] = float(snap.get("confirm_confidence", float("nan")))  # noqa: E501
             updated_metrics["LEAD_LAG"] = {
                 "es_price": snap.get("es_price"),
                 "spy_price": snap.get("spy_price"),
@@ -1582,7 +1582,7 @@ class CustomMetricsOrchestrator(QObject):
             "SURFACE_CONFIDENCE": self.current_metrics.get("SURFACE_CONFIDENCE", float("nan")),
             "SURFACE_AGE_MS": self.current_metrics.get("SURFACE_AGE_MS", float("nan")),
         }
-        updated_metrics.update({key: updated_metrics.get(key, value) for key, value in metric_defaults.items()})
+        updated_metrics.update({key: updated_metrics.get(key, value) for key, value in metric_defaults.items()})  # noqa: E501
 
         try:
             builder = self._get_vol_surface_builder()
@@ -1592,10 +1592,10 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["ATM_IV_7DTE"] = float(snapshot.get("atm_iv_7dte", float("nan")))
             updated_metrics["ATM_IV_30DTE"] = float(snapshot.get("atm_iv_30dte", float("nan")))
             updated_metrics["TERM_SLOPE_0_7"] = float(snapshot.get("term_slope_0_7", float("nan")))
-            updated_metrics["TERM_SLOPE_7_30"] = float(snapshot.get("term_slope_7_30", float("nan")))
+            updated_metrics["TERM_SLOPE_7_30"] = float(snapshot.get("term_slope_7_30", float("nan")))  # noqa: E501
             updated_metrics["RR_25D"] = float(snapshot.get("rr_25d", float("nan")))
             updated_metrics["FLY_25D"] = float(snapshot.get("fly_25d", float("nan")))
-            updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))
+            updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))  # noqa: E501
             updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
             return True
         except Exception as e:
@@ -1644,7 +1644,7 @@ class CustomMetricsOrchestrator(QObject):
             self.stress_history.append((datetime.now(), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
 
-            self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())
+            self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
 
         # Adjust update frequency if needed
         if new_interval != self.current_update_interval:
@@ -1652,7 +1652,7 @@ class CustomMetricsOrchestrator(QObject):
             self.update_timer.setInterval(new_interval * 1000)
             self.last_frequency_change = datetime.now()
 
-            self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)
+            self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
@@ -1802,7 +1802,7 @@ class CustomMetricsOrchestrator(QObject):
             },
             "SECTOR_MOMENTUM_DISPERSION": {
                 "value": metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")),
-                "formatted": _format_float(metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")), 2),
+                "formatted": _format_float(metrics.get("SECTOR_MOMENTUM_DISPERSION", float("nan")), 2),  # noqa: E501
                 "timestamp": timestamp,
                 "quality": self.metric_quality['SECTOR_BREADTH'].quality_score
             },
@@ -1976,13 +1976,13 @@ class CustomMetricsOrchestrator(QObject):
             },
             "LIQUIDITY_DIAGNOSTICS": {
                 "value": metrics.get("LIQUIDITY_DIAGNOSTICS", {}),
-                "formatted": f"{len(metrics.get('LIQUIDITY_DIAGNOSTICS', {}).get('data', {}).get('candidates', []))} candidates",
+                "formatted": f"{len(metrics.get('LIQUIDITY_DIAGNOSTICS', {}).get('data', {}).get('candidates', []))} candidates",  # noqa: E501
                 "timestamp": timestamp,
                 "quality": self.metric_quality['LIQUIDITY'].quality_score
             },
             "DATA_QUALITY_FEED": {
                 "value": metrics.get("DATA_QUALITY_FEED", {}),
-                "formatted": f"{(metrics.get('DATA_QUALITY_FEED', {}).get('data', {}).get('overall_quality', float('nan')) * 100.0):.0f}% healthy",
+                "formatted": f"{(metrics.get('DATA_QUALITY_FEED', {}).get('data', {}).get('overall_quality', float('nan')) * 100.0):.0f}% healthy",  # noqa: E501
                 "timestamp": timestamp,
                 "quality": 1.0
             },
@@ -2103,8 +2103,8 @@ class CustomMetricsOrchestrator(QObject):
                 'breadth_cyclical': self.current_metrics.get('BREADTH_CYCLICAL', float('nan')),
                 'breadth_spread': self.current_metrics.get('BREADTH_SPREAD', float('nan')),
                 'sector_adv_dec': self.current_metrics.get('SECTOR_ADV_DEC', float('nan')),
-                'sector_momentum_dispersion': self.current_metrics.get('SECTOR_MOMENTUM_DISPERSION', float('nan')),
-                'participation_score': self.current_metrics.get('PARTICIPATION_SCORE', float('nan')),
+                'sector_momentum_dispersion': self.current_metrics.get('SECTOR_MOMENTUM_DISPERSION', float('nan')),  # noqa: E501
+                'participation_score': self.current_metrics.get('PARTICIPATION_SCORE', float('nan')),  # noqa: E501
                 'sector_breadth': self.current_metrics.get('SECTOR_BREADTH', {}),
                 'ivr': self.current_metrics.get('IVR', float('nan')),
                 'atm_iv': self.current_metrics.get('ATM_IV', float('nan')),

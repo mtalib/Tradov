@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: F401
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -50,9 +50,9 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import (
     EventManager,
     Event,
     EventType,
-    get_event_manager,
+    get_event_manager,  # noqa: F401
 )
-import logging
+import logging  # noqa: F401
 
 # ==============================================================================
 # CONSTANTS
@@ -740,7 +740,7 @@ class BaseStrategy(ABC):
 
         # Check account risk
         total_exposure = sum(p.position_size * p.entry_price for p in self.positions.values())
-        return not total_exposure >= self.risk_profile.account_size * self.risk_profile.max_portfolio_risk
+        return not total_exposure >= self.risk_profile.account_size * self.risk_profile.max_portfolio_risk  # noqa: E501
 
     def _process_signal(self, signal: TradingSignal) -> None:
         """Process a trading signal"""

@@ -107,11 +107,11 @@ SYMBOL_DESCRIPTIONS = {
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
-    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",
+    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
     # Options Analytics
     "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
-    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",
-    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",
+    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",  # noqa: E501
+    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",  # noqa: E501
 }
 
 
@@ -366,7 +366,7 @@ class EventClockState:
             'state_label': self.state_label,
             'enabled': self.enabled,
             'sources': self.sources,
-            'allowed_strategies': ', '.join(self.allowed_strategies) if self.allowed_strategies else 'None',
+            'allowed_strategies': ', '.join(self.allowed_strategies) if self.allowed_strategies else 'None',  # noqa: E501
             'blackout_pre_minutes': self.blackout_pre_minutes,
             'blackout_post_minutes': self.blackout_post_minutes,
             'max_size_multiplier': f'{self.max_size_multiplier:.2%}',

@@ -119,7 +119,7 @@ class BearCallSpreadStrategy(CreditSpreadStrategy):
 
             if "close" in market_data.columns and len(market_data) >= 2:
                 closes = market_data["close"]
-                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])
+                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])  # noqa: E501
                 if momentum > BEAR_CALL_MAX_MOMENTUM:
                     self.logger.debug(
                         f"BearCallSpread: skipping — momentum {momentum:.4f} above threshold"

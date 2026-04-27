@@ -1182,7 +1182,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def validate_signal(self, signal: TradingSignal) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""
@@ -1320,7 +1320,7 @@ def test_diagonal_spread():
                         if signal.signal_type == SignalType.ADJUST:
                             logging.info("\nRoll Signal Day %s", i)
                             logging.info("Action: %s", signal.metadata['action'])
-                            logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")
+                            logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")  # noqa: E501
                             logging.info("Short DTE: %s", signal.metadata['current_short_dte'])
                             logging.info("Roll Count: %s", signal.metadata['roll_count'])
                         elif signal.signal_type == SignalType.EXIT:
@@ -1328,7 +1328,7 @@ def test_diagonal_spread():
                             logging.info("Reason: %s", signal.metadata['exit_reason'])
                             logging.info("Days Held: %s", signal.metadata['days_held'])
                             logging.info(f"Total P&L: ${signal.metadata['total_pnl']:.2f}")
-                            logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")
+                            logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")  # noqa: E501
 
     # Print position summary
     positions = strategy.get_position_summary()

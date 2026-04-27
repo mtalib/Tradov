@@ -119,7 +119,7 @@ class BullPutSpreadStrategy(CreditSpreadStrategy):
 
             if "close" in market_data.columns and len(market_data) >= 2:
                 closes = market_data["close"]
-                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])
+                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])  # noqa: E501
                 if momentum < BULL_PUT_MIN_MOMENTUM:
                     self.logger.debug(
                         f"BullPutSpread: skipping — momentum {momentum:.4f} below threshold"

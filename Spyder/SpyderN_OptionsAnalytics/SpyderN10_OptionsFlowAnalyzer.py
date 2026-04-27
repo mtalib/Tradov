@@ -42,8 +42,8 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # SpyderC07_OPRAFeed is not yet implemented; OPRA path is disabled
 OPRAFeedHandler = None  # type: ignore[assignment,misc]
 _OPRA_AVAILABLE = False
-from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
+from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager  # noqa: E402
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager  # noqa: E402
 
 MIN_PREMIUM_VALUE = 25000  # Minimum premium for tracking
 BLOCK_TRADE_SIZE = 500  # Minimum contracts for block
@@ -270,7 +270,7 @@ class AdvancedOptionsFlowAnalyzer:
             self.opra_feed = OPRAFeedHandler()
         else:
             self.opra_feed = None
-            self.logger.warning("SpyderC07_OPRAFeed unavailable — flow analyzer running without OPRA feed")
+            self.logger.warning("SpyderC07_OPRAFeed unavailable — flow analyzer running without OPRA feed")  # noqa: E501
         self.option_chain_mgr = option_chain_mgr or OptionChainManager()
         self.event_manager = get_event_manager()
 
@@ -428,7 +428,7 @@ class AdvancedOptionsFlowAnalyzer:
                 # Log significant sweeps
                 if cluster.total_premium > INSTITUTIONAL_SIZE * 100:
                     self.logger.info(f"Major sweep detected: {key[0]} "
-                                   f"${cluster.total_premium:,.0f} across {len(exchanges)} exchanges")
+                                   f"${cluster.total_premium:,.0f} across {len(exchanges)} exchanges")  # noqa: E501
 
         # Update sweep candidates
         with self._lock:

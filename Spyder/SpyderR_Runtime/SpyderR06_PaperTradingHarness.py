@@ -810,7 +810,7 @@ class PaperTradingHarness:
         if not self._session_active or self._starting_equity <= 0:
             return None
 
-        dd = (self._peak_equity - self._current_equity) / self._peak_equity if self._peak_equity > 0 else 0.0
+        dd = (self._peak_equity - self._current_equity) / self._peak_equity if self._peak_equity > 0 else 0.0  # noqa: E501
 
         level: DrawdownLevel | None = None
         threshold: float = 0.0

@@ -48,11 +48,11 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from scipy import stats
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
-from Spyder.SpyderF_Analysis import SpyderF20_Indicators as talib
+from scipy import stats  # noqa: E402
+from sklearn.mixture import GaussianMixture  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+from sklearn.ensemble import RandomForestClassifier  # noqa: E402
+from Spyder.SpyderF_Analysis import SpyderF20_Indicators as talib  # noqa: E402
 
 # Institutional Analytics
 try:
@@ -70,9 +70,9 @@ except ImportError:
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority  # noqa: E402
 
 try:
     from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
@@ -470,11 +470,11 @@ class StrategyRotation:
             # Volatility
             features['volatility'] = np.std(returns) * np.sqrt(252)
             features['vix_level'] = vix[-1] if len(vix) > 0 else 20
-            features['vix_change'] = (vix[-1] - np.mean(vix[-5:])) / np.mean(vix[-5:]) if len(vix) >= 5 else 0
+            features['vix_change'] = (vix[-1] - np.mean(vix[-5:])) / np.mean(vix[-5:]) if len(vix) >= 5 else 0  # noqa: E501
 
             # Volume
             features['volume_ratio'] = volumes[-1] / np.mean(volumes) if len(volumes) > 0 else 1
-            features['volume_trend'] = np.polyfit(range(len(volumes)), volumes, 1)[0] if len(volumes) > 1 else 0
+            features['volume_trend'] = np.polyfit(range(len(volumes)), volumes, 1)[0] if len(volumes) > 1 else 0  # noqa: E501
 
             # Momentum
             if len(prices) >= 14:
@@ -482,12 +482,12 @@ class StrategyRotation:
                 features['rsi'] = rsi[-1] if not np.isnan(rsi[-1]) else 50
 
                 macd, signal, _ = talib.MACD(prices)
-                features['macd_signal'] = (macd[-1] - signal[-1]) if len(macd) > 0 and not np.isnan(macd[-1]) else 0
+                features['macd_signal'] = (macd[-1] - signal[-1]) if len(macd) > 0 and not np.isnan(macd[-1]) else 0  # noqa: E501
 
             # Mean reversion
             if len(prices) >= 20:
                 bb_upper, bb_middle, bb_lower = talib.BBANDS(prices, timeperiod=20)
-                features['bb_position'] = (prices[-1] - bb_middle[-1]) / (bb_upper[-1] - bb_lower[-1]) if not np.isnan(bb_middle[-1]) else 0
+                features['bb_position'] = (prices[-1] - bb_middle[-1]) / (bb_upper[-1] - bb_lower[-1]) if not np.isnan(bb_middle[-1]) else 0  # noqa: E501
 
             # Distribution
             if len(returns) > 0:
@@ -1186,12 +1186,12 @@ class StrategyRotation:
                 results['sharpe_ratio'] = float(empyrical.sharpe_ratio(ret_series, period='daily'))
                 results['max_drawdown'] = float(empyrical.max_drawdown(ret_series))
                 results['total_return'] = float(empyrical.cum_returns_final(ret_series))
-                results['annual_return'] = float(empyrical.annual_return(ret_series, period='daily'))
-                results['annual_volatility'] = float(empyrical.annual_volatility(ret_series, period='daily'))
-                results['sortino_ratio'] = float(empyrical.sortino_ratio(ret_series, period='daily'))
+                results['annual_return'] = float(empyrical.annual_return(ret_series, period='daily'))  # noqa: E501
+                results['annual_volatility'] = float(empyrical.annual_volatility(ret_series, period='daily'))  # noqa: E501
+                results['sortino_ratio'] = float(empyrical.sortino_ratio(ret_series, period='daily'))  # noqa: E501
                 results['calmar_ratio'] = float(empyrical.calmar_ratio(ret_series, period='daily'))
                 results['var_5'] = float(empyrical.value_at_risk(ret_series, cutoff=0.05))
-                results['cvar_5'] = float(empyrical.conditional_value_at_risk(ret_series, cutoff=0.05))
+                results['cvar_5'] = float(empyrical.conditional_value_at_risk(ret_series, cutoff=0.05))  # noqa: E501
                 results['stability'] = float(empyrical.stability_of_timeseries(ret_series))
             else:
                 # Basic calculations without empyrical

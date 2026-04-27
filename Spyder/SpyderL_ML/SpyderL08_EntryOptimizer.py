@@ -60,7 +60,7 @@ except ImportError:
     FeatureSet = None  # type: ignore
 
 try:
-    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime  # noqa: E501
 except ImportError:
     RegimeClassifier = None  # type: ignore
     RegimeType = None  # type: ignore
@@ -142,7 +142,7 @@ class EntryFilter:
     """Entry filter criteria"""
     min_confidence: float = CONFIDENCE_THRESHOLD
     allowed_regimes: list[RegimeType] = field(default_factory=list)
-    required_features: dict[str, tuple[float, float]] = field(default_factory=dict)  # feature: (min, max)
+    required_features: dict[str, tuple[float, float]] = field(default_factory=dict)  # feature: (min, max)  # noqa: E501
     time_windows: list[tuple[time, time]] = field(default_factory=list)
     max_risk_score: float = 0.7
     min_expected_return: float = 0.01  # 1%
@@ -562,13 +562,13 @@ class EntryOptimizer:
 
             # Apply TCA slippage penalty: reduce confidence when this strategy
             # type has been producing high post-fill slippage costs in recent trades.
-            strategy_hint = entry_filter.strategy_type if entry_filter and hasattr(entry_filter, 'strategy_type') else ""
+            strategy_hint = entry_filter.strategy_type if entry_filter and hasattr(entry_filter, 'strategy_type') else ""  # noqa: E501
             slippage_penalty = self._get_slippage_confidence_penalty(strategy_hint)
             if slippage_penalty < 1.0:
                 penalised = confidence * slippage_penalty
                 self.logger.debug(
                     f"TCA slippage penalty for '{strategy_hint}': "
-                    f"confidence {confidence:.3f} → {penalised:.3f} (penalty={slippage_penalty:.3f})"
+                    f"confidence {confidence:.3f} → {penalised:.3f} (penalty={slippage_penalty:.3f})"  # noqa: E501
                 )
                 confidence = penalised
                 if confidence < CONFIDENCE_THRESHOLD:
@@ -1257,7 +1257,7 @@ class EntryOptimizer:
 
                self.regime_models[regime] = regime_model
 
-               self.logger.info("Trained model for %s regime (%s samples)", regime.value, len(X_regime))
+               self.logger.info("Trained model for %s regime (%s samples)", regime.value, len(X_regime))  # noqa: E501
 
     def _calculate_feature_importance(self, X: np.ndarray, y: np.ndarray) -> None:
        """Calculate and store feature importance"""
@@ -1425,7 +1425,7 @@ class EntryOptimizer:
                    'samples': int(regime_mask.sum()),
                    'win_rate': float(np.mean(y_regime)),
                    'model_accuracy': float(np.mean((ensemble_pred > 0.5) == y_regime)),
-                   'auc': float(roc_auc_score(y_regime, ensemble_pred)) if len(np.unique(y_regime)) > 1 else 0.5
+                   'auc': float(roc_auc_score(y_regime, ensemble_pred)) if len(np.unique(y_regime)) > 1 else 0.5  # noqa: E501
                }
 
        return regime_performance
@@ -1842,7 +1842,7 @@ def get_default_entry_filter() -> EntryFilter:
 if __name__ == "__main__":
    # Test entry optimizer
    from SpyderL_ML.SpyderL10_FeatureEngineering import create_feature_engineer
-   from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import create_unified_regime_engine as create_regime_classifier
+   from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import create_unified_regime_engine as create_regime_classifier  # noqa: E501
 
    # Initialize components
    feature_engineer = create_feature_engineer()

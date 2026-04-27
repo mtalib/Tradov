@@ -706,7 +706,7 @@ class PositionSizer:
         # Volatility warnings
         if (self.current_market_conditions and
             self.current_market_conditions.vix_level > HIGH_VOL_THRESHOLD):
-            warnings.append(f"High volatility environment (VIX={self.current_market_conditions.vix_level:.1f})")
+            warnings.append(f"High volatility environment (VIX={self.current_market_conditions.vix_level:.1f})")  # noqa: E501
 
         # Streak warnings
         stats = self.strategy_stats.get(request.strategy_name)
@@ -879,7 +879,7 @@ class PositionSizer:
                 'avg_confidence': np.mean([r.confidence_score for r in recent_sizes])
             }
 
-    def _get_method_distribution(self, recommendations: list[PositionSizeRecommendation]) -> dict[str, float]:
+    def _get_method_distribution(self, recommendations: list[PositionSizeRecommendation]) -> dict[str, float]:  # noqa: E501
         """Get distribution of sizing methods used."""
         method_counts = defaultdict(int)
 

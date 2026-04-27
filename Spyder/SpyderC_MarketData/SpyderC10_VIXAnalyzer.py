@@ -39,7 +39,7 @@ import yfinance as yf
 from scipy import stats
 
 try:
-    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: F401
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: E501, F401
     _C29_AVAILABLE = True
 except ImportError:
     _C29_AVAILABLE = False
@@ -207,7 +207,7 @@ class TermStructure:
     @property
     def is_backwardation(self) -> bool:
         """Check if term structure is in backwardation."""
-        return self.state in [TermStructureState.BACKWARDATION, TermStructureState.STEEP_BACKWARDATION]
+        return self.state in [TermStructureState.BACKWARDATION, TermStructureState.STEEP_BACKWARDATION]  # noqa: E501
 
 @dataclass
 class VolatilityRiskPremium:
@@ -297,7 +297,7 @@ class VIXAnalyzer:
         # Technical indicators
         import inspect
         self.rsi_calculator = RSI(period=14) if RSI is not None and inspect.isclass(RSI) else None
-        self.bb_calculator = BollingerBands(period=20, std_dev=2.0) if BollingerBands is not None and inspect.isclass(BollingerBands) else None
+        self.bb_calculator = BollingerBands(period=20, std_dev=2.0) if BollingerBands is not None and inspect.isclass(BollingerBands) else None  # noqa: E501
 
         # Analysis state
         self.is_analyzing = False
@@ -337,7 +337,7 @@ class VIXAnalyzer:
         try:
             # Load initial historical data
             if not self._load_historical_data():
-                self.logger.warning("Failed to load historical data, continuing with limited functionality")
+                self.logger.warning("Failed to load historical data, continuing with limited functionality")  # noqa: E501
 
             # Register event callbacks
             self._register_event_callbacks()
@@ -603,7 +603,7 @@ class VIXAnalyzer:
         """Check if it's appropriate time to update data."""
         # Update during market hours and for 2 hours after close
         market_open = current_time.replace(hour=9, minute=30, second=0, microsecond=0)
-        market_close = current_time.replace(hour=18, minute=0, second=0, microsecond=0)  # 2 hours after close
+        market_close = current_time.replace(hour=18, minute=0, second=0, microsecond=0)  # 2 hours after close  # noqa: E501
 
         # Skip weekends
         if current_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
@@ -724,8 +724,8 @@ class VIXAnalyzer:
             vix_history = [data.value for data in self.historical_data['VIX']]
             if len(vix_history) >= 20:
                 percentile_20d = stats.percentileofscore(vix_history[-20:], vix) / 100.0
-                percentile_50d = stats.percentileofscore(vix_history[-50:], vix) / 100.0 if len(vix_history) >= 50 else 0.5
-                percentile_200d = stats.percentileofscore(vix_history[-200:], vix) / 100.0 if len(vix_history) >= 200 else 0.5
+                percentile_50d = stats.percentileofscore(vix_history[-50:], vix) / 100.0 if len(vix_history) >= 50 else 0.5  # noqa: E501
+                percentile_200d = stats.percentileofscore(vix_history[-200:], vix) / 100.0 if len(vix_history) >= 200 else 0.5  # noqa: E501
             else:
                 percentile_20d = percentile_50d = percentile_200d = 0.5
 
@@ -756,7 +756,7 @@ class VIXAnalyzer:
                 vxmt=vxmt,
                 regime=regime,
                 trend=trend,
-                term_structure=self.term_structure.state if self.term_structure else TermStructureState.FLAT,
+                term_structure=self.term_structure.state if self.term_structure else TermStructureState.FLAT,  # noqa: E501
                 percentile_20d=percentile_20d,
                 percentile_50d=percentile_50d,
                 percentile_200d=percentile_200d,
@@ -836,7 +836,7 @@ class VIXAnalyzer:
             # Calculate percentile rank of current risk premium
             historical_premiums = self._get_historical_risk_premiums()
             if historical_premiums:
-                percentile_rank = stats.percentileofscore(historical_premiums, avg_risk_premium) / 100.0
+                percentile_rank = stats.percentileofscore(historical_premiums, avg_risk_premium) / 100.0  # noqa: E501
             else:
                 percentile_rank = 0.5
 
@@ -909,7 +909,7 @@ class VIXAnalyzer:
         else:
             return VolatilityTrend.STABLE
 
-    def _classify_term_structure_state(self, overall_slope: float, vix_vxv_ratio: float) -> TermStructureState:
+    def _classify_term_structure_state(self, overall_slope: float, vix_vxv_ratio: float) -> TermStructureState:  # noqa: E501
         """Classify term structure state."""
         if overall_slope > 0.15:  # 15% slope
             return TermStructureState.STEEP_CONTANGO
@@ -1136,7 +1136,7 @@ class VIXAnalyzer:
             )
             self.event_manager.emit(event)
 
-    def _emit_regime_change_event(self, old_regime: VolatilityRegime, new_regime: VolatilityRegime) -> None:
+    def _emit_regime_change_event(self, old_regime: VolatilityRegime, new_regime: VolatilityRegime) -> None:  # noqa: E501
         """Emit regime change event."""
         if self.event_manager:
             event = Event(

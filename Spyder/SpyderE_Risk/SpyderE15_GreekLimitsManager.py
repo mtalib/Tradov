@@ -307,7 +307,7 @@ class GreekLimitsManager:
 
             # Initialize regime classifier
             try:
-                from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector as RegimeClassifier
+                from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector as RegimeClassifier  # noqa: E501
                 self.regime_classifier = RegimeClassifier()
             except (ImportError, Exception):
                 self.regime_classifier = None
@@ -541,7 +541,7 @@ class GreekLimitsManager:
                     self.alert_manager.send_alert(
                         level=AlertLevel.CRITICAL,
                         title="Correlation Breakdown Detected",
-                        message=f"Correlation breakdown severity: {breakdown.breakdown_severity:.1%}. "
+                        message=f"Correlation breakdown severity: {breakdown.breakdown_severity:.1%}. "  # noqa: E501
                                f"Limits reduced by {(1-reduction_factor)*100:.0f}%",
                         category="RISK"
                     )
@@ -857,7 +857,7 @@ class GreekLimitsManager:
             self.error_handler.handle_error(e, {
                 'method': '_format_violation_message'
             })
-            return f"Greek limit violation: {violation.greek_type} at {violation.utilization_pct:.1f}%"
+            return f"Greek limit violation: {violation.greek_type} at {violation.utilization_pct:.1f}%"  # noqa: E501
 
     def _send_regime_change_alert(self, new_regime: MarketRegime, vix_level: float,
                                  adjustment_factor: float) -> None:
@@ -948,7 +948,7 @@ class GreekLimitsManager:
                 # Log status periodically
                 if self.monitoring_stats['checks_performed'] % 60 == 0:  # Every 5 minutes
                     self.logger.debug(
-                        f"📊 Monitoring status: {self.monitoring_stats['checks_performed']} checks, "
+                        f"📊 Monitoring status: {self.monitoring_stats['checks_performed']} checks, "  # noqa: E501
                         f"{self.monitoring_stats['violations_detected']} violations detected"
                     )
 
@@ -1024,7 +1024,7 @@ class GreekLimitsManager:
             if n04 is not None:
                 try:
                     abs_gamma = abs(n04.portfolio_greeks.total_gamma)
-                    if abs_gamma > 20 and regime in (MarketRegime.LOW_VOLATILITY, MarketRegime.NORMAL):
+                    if abs_gamma > 20 and regime in (MarketRegime.LOW_VOLATILITY, MarketRegime.NORMAL):  # noqa: E501
                         self.logger.debug(
                             "N04 gamma %.2f escalates regime %s → HIGH_VOLATILITY",
                             abs_gamma, regime.name,

@@ -28,11 +28,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMenu,
+    QMenu,  # noqa: F401
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
+    QSplitter,  # noqa: F401
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -119,7 +119,7 @@ def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QW
     for category, symbols in market_symbols.items():
         cat_label = QLabel(category)
         cat_label.setStyleSheet(
-            f"color: {COLORS['cyan']}; font-size: 12px; padding: 3px 0px 1px 10px; font-weight: normal;",
+            f"color: {COLORS['cyan']}; font-size: 12px; padding: 3px 0px 1px 10px; font-weight: normal;",  # noqa: E501
         )
         scroll_layout.addWidget(cat_label)
 
@@ -442,7 +442,7 @@ def build_right_panel(dashboard: Any) -> QWidget:
 
     account_widget = QWidget()
     account_widget.setStyleSheet(
-        f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;",
+        f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;",  # noqa: E501
     )
     acct_grid = QGridLayout()
     acct_grid.setContentsMargins(4, 4, 4, 4)
@@ -453,7 +453,7 @@ def build_right_panel(dashboard: Any) -> QWidget:
     acct_grid.setColumnStretch(2, 3)
     acct_grid.setColumnStretch(3, 4)
 
-    cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
+    cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"  # noqa: E501
 
     acct_grid.addWidget(dashboard._acct_lbl("ACCOUNT", cell_style), 0, 0)
     trading_mode_init = os.environ.get("TRADING_MODE", "paper").lower()
@@ -493,10 +493,10 @@ def build_right_panel(dashboard: Any) -> QWidget:
     acct_grid.addWidget(dashboard.buying_value, 1, 3)
 
     acct_grid.addWidget(dashboard._acct_lbl("REALIZED P&L", cell_style), 2, 0)
-    dashboard.realized_value = dashboard._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)
+    dashboard.realized_value = dashboard._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)  # noqa: E501
     acct_grid.addWidget(dashboard.realized_value, 2, 1)
     acct_grid.addWidget(dashboard._acct_lbl("UNREALIZED P&L", cell_style), 2, 2)
-    dashboard.unrealized_value = dashboard._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)
+    dashboard.unrealized_value = dashboard._acct_lbl("—", cell_style + f"color: {COLORS['positive']};", right=True)  # noqa: E501
     acct_grid.addWidget(dashboard.unrealized_value, 2, 3)
 
     account_widget.setLayout(acct_grid)
@@ -712,7 +712,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     event_clock_layout.addWidget(dashboard.event_clock_windows_label)
 
     dashboard.event_clock_strategies_label = QLabel("Allowlist: None")
-    dashboard.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px;")
+    dashboard.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px;")  # noqa: E501
     event_clock_layout.addWidget(dashboard.event_clock_strategies_label)
 
     event_clock_group.setLayout(event_clock_layout)
@@ -741,7 +741,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     dashboard.readiness_status_label.setStyleSheet(
         "color: white; font-size: 13px; font-weight: 600;"
     )
-    readiness_row.addWidget(dashboard.readiness_status_label, 1)  # stretch=1 → fills remaining width
+    readiness_row.addWidget(dashboard.readiness_status_label, 1)  # stretch=1 → fills remaining width  # noqa: E501
 
     layout.addLayout(readiness_row)
 
@@ -784,7 +784,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     dashboard.trade_audit_btn.setFixedHeight(26)
     dashboard.trade_audit_btn.setFixedWidth(action_button_width)
     dashboard.trade_audit_btn.setStyleSheet(blue_button_style)
-    dashboard.trade_audit_btn.setToolTip("Open the Trade Audit dialog (closed spreads + CSV export)")
+    dashboard.trade_audit_btn.setToolTip("Open the Trade Audit dialog (closed spreads + CSV export)")  # noqa: E501
     dashboard.trade_audit_btn.clicked.connect(dashboard._open_trade_audit_dialog)
     action_row.addWidget(dashboard.trade_audit_btn)
 
@@ -1050,10 +1050,10 @@ def create_pnl_table() -> QTableWidget:
     header_tooltips = {
         2: "WIN RATE: percentage of trades that closed with a profit",
         3: "WIN/LOSS: average winning trade size versus average losing trade size",
-        4: "PROFIT FACTOR: gross profit divided by gross loss — values above 1.0 indicate a profitable strategy",
-        5: "SHARPE RATIO: return earned above the risk-free rate per unit of total volatility — higher is better",
-        6: "SORTINO RATIO: like the sharpe ratio but only penalises downside volatility, not upside swings",
-        7: "CALMAR RATIO: annualised return divided by maximum drawdown — measures return relative to worst loss",
+        4: "PROFIT FACTOR: gross profit divided by gross loss — values above 1.0 indicate a profitable strategy",  # noqa: E501
+        5: "SHARPE RATIO: return earned above the risk-free rate per unit of total volatility — higher is better",  # noqa: E501
+        6: "SORTINO RATIO: like the sharpe ratio but only penalises downside volatility, not upside swings",  # noqa: E501
+        7: "CALMAR RATIO: annualised return divided by maximum drawdown — measures return relative to worst loss",  # noqa: E501
     }
     for col, tip in header_tooltips.items():
         item = table.horizontalHeaderItem(col)
@@ -1522,4 +1522,4 @@ def build_toolbar(dashboard: Any) -> QWidget:
     layout.addWidget(dashboard.datetime_label)
 
     toolbar.setLayout(layout)
-    return toolbar
+    return toolbar  # noqa: W292

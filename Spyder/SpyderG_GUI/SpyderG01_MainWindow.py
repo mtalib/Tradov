@@ -31,7 +31,7 @@ except ImportError as e:
     logging.info("⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: %s", e)
     # Try alternative import path
     try:
-        from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
+        from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow  # noqa: E501
         logging.info("✅ SpyderG01_MainWindow: Successfully bridged via alternative path")
         BRIDGE_SUCCESSFUL = True
     except ImportError as e2:

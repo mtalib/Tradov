@@ -34,17 +34,17 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import logging
-import inspect
-import threading
-import uuid
-from collections import deque
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
-import numpy as np
-import pandas as pd
+import logging  # noqa: E402
+import inspect  # noqa: E402
+import threading  # noqa: E402
+import uuid  # noqa: E402
+from collections import deque  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from enum import Enum  # noqa: E402
+from typing import Any  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -128,20 +128,20 @@ try:
         "Spyder.SpyderD_Strategies.SpyderD13_MACrossover", "MACrossoverStrategy"
     )
     RenaissanceMeanReversionStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"
+        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"  # noqa: E501
     )
     PivotMeanReversionStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion", "PivotMeanReversionStrategy"
     )
 
     # Event management
-    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501
 
     # Connectivity integration
-    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState
+    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState  # noqa: E501
 
     # Prometheus rejection telemetry
-    from Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection
+    from Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection  # noqa: E501
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -425,7 +425,7 @@ class StrategyOrchestrator:
                 pass
             if self.event_manager is None:
                 try:
-                    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem2
+                    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem2  # noqa: E501
                     self.event_manager = _gem2()
                 except Exception:
                     self.event_manager = None
@@ -521,7 +521,7 @@ class StrategyOrchestrator:
         # Setup event subscriptions
         self._setup_event_subscriptions()
 
-        self.logger.info(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")
+        self.logger.info(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")  # noqa: E501
 
     # ==========================================================================
     # PUBLIC INTERFACE - ORCHESTRATION CONTROL
@@ -580,7 +580,7 @@ class StrategyOrchestrator:
             self.orchestration_active = True
             self.shutdown_event.clear()
 
-            self.orchestration_thread = threading.Thread(target=self._orchestration_loop, daemon=True)
+            self.orchestration_thread = threading.Thread(target=self._orchestration_loop, daemon=True)  # noqa: E501
             self.orchestration_thread.start()
 
             self.monitoring_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
@@ -628,7 +628,7 @@ class StrategyOrchestrator:
                     try:
                         strategy.stop()
                     except Exception as e:
-                        self.logger.error("Error stopping strategy %s: %s", strategy_id, e, exc_info=True)
+                        self.logger.error("Error stopping strategy %s: %s", strategy_id, e, exc_info=True)  # noqa: E501
 
             # Wait for threads to complete
             if self.orchestration_thread:
@@ -675,7 +675,7 @@ class StrategyOrchestrator:
                 raise ValueError("Strategy class must inherit from BaseStrategy")
             if inspect.isabstract(strategy_class):
                 raise ValueError(
-                    f"Strategy class is abstract and cannot be instantiated: {strategy_class.__name__}"
+                    f"Strategy class is abstract and cannot be instantiated: {strategy_class.__name__}"  # noqa: E501
                 )
 
             # Generate strategy ID
@@ -708,7 +708,7 @@ class StrategyOrchestrator:
 
             if strategy is None:
                 raise TypeError(
-                    f"Could not instantiate {strategy_class.__name__}; unsupported constructor signature"
+                    f"Could not instantiate {strategy_class.__name__}; unsupported constructor signature"  # noqa: E501
                 ) from last_error
 
             # Calculate initial allocation
@@ -748,7 +748,7 @@ class StrategyOrchestrator:
             # The ExitMonitor is owned by SessionSupervisor and may not exist in
             # all execution contexts (e.g. tests), so we look it up lazily.
             try:
-                from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import get_session_supervisor
+                from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import get_session_supervisor  # noqa: E501
                 sup = get_session_supervisor()
                 if sup is not None and getattr(sup, "exit_monitor", None) is not None:
                     sup.exit_monitor.register_strategy(strategy_id, strategy)
@@ -758,7 +758,7 @@ class StrategyOrchestrator:
             # Update portfolio metrics
             self._update_portfolio_metrics()
 
-            self.logger.info(f"✅ Added strategy: {strategy_id} with {initial_allocation:.1%} allocation")
+            self.logger.info(f"✅ Added strategy: {strategy_id} with {initial_allocation:.1%} allocation")  # noqa: E501
             return strategy_id
 
         except Exception as e:
@@ -957,7 +957,7 @@ class StrategyOrchestrator:
             # Check for overlapping positions
             for i, (id1, strategy1) in enumerate(strategies):
                 for id2, strategy2 in strategies[i+1:]:
-                    conflict = self._analyze_strategy_pair_for_conflicts(id1, strategy1, id2, strategy2)
+                    conflict = self._analyze_strategy_pair_for_conflicts(id1, strategy1, id2, strategy2)  # noqa: E501
                     if conflict:
                         conflicts.append(conflict)
 
@@ -1141,7 +1141,7 @@ class StrategyOrchestrator:
             self.logger.error("❌ Rebalancing execution failed: %s", e, exc_info=True)
             return False
 
-    def _get_risk_profile_for_strategy(self, strategy_class: type) -> "RiskProfile":
+    def _get_risk_profile_for_strategy(self, strategy_class: type) -> "RiskProfile":  # noqa: F821
         """Return a RiskProfile sized to this strategy's capital slice."""
         from SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # lazy to avoid circular
         # Fraction of base_capital for a single strategy slot
@@ -1226,11 +1226,11 @@ class StrategyOrchestrator:
                     performance_score = (
                         allocation.performance_score * 0.4 +  # Historical performance
                         allocation.health_score * 0.3 +       # Current health
-                        (1 - allocation.risk_score) * 0.3     # Risk-adjusted (lower risk = higher score)
+                        (1 - allocation.risk_score) * 0.3     # Risk-adjusted (lower risk = higher score)  # noqa: E501
                     )
 
                     # Apply regime adjustment
-                    regime_multiplier = self._get_strategy_regime_multiplier(allocation.strategy_type)
+                    regime_multiplier = self._get_strategy_regime_multiplier(allocation.strategy_type)  # noqa: E501
                     performance_score *= regime_multiplier
 
                     performance_scores[strategy_id] = max(0.1, performance_score)  # Minimum score
@@ -1259,7 +1259,7 @@ class StrategyOrchestrator:
             return allocations
 
         except Exception as e:
-            self.logger.error("Error calculating performance-based allocations: %s", e, exc_info=True)
+            self.logger.error("Error calculating performance-based allocations: %s", e, exc_info=True)  # noqa: E501
             return {}
 
     def _calculate_equal_weight_allocations(self) -> dict[str, float]:
@@ -1451,7 +1451,7 @@ class StrategyOrchestrator:
             trend_strength = self._calculate_trend_strength()
 
             # Classify regime — prefer L09 UnifiedRegimeEngine when injected
-            new_regime = self._classify_market_regime_unified(current_vix, vix_percentile, trend_strength)
+            new_regime = self._classify_market_regime_unified(current_vix, vix_percentile, trend_strength)  # noqa: E501
 
             # Update regime data
             regime_changed = new_regime != self.market_regime.current_regime
@@ -1537,14 +1537,14 @@ class StrategyOrchestrator:
                 if l09_r in (_L09R.BEAR, _L09R.TRENDING_DOWN):
                     return MarketRegime.BEAR_HIGH_VOL if is_high_vol else MarketRegime.BEAR_LOW_VOL
                 # SIDEWAYS, RANGE_BOUND, UNKNOWN — vol-split via vix_level
-                return MarketRegime.SIDEWAYS_HIGH_VOL if is_high_vol else MarketRegime.SIDEWAYS_LOW_VOL
+                return MarketRegime.SIDEWAYS_HIGH_VOL if is_high_vol else MarketRegime.SIDEWAYS_LOW_VOL  # noqa: E501
 
             except Exception as e:
                 self.logger.warning("L09 regime detection failed, using fallback: %s", e)
 
         return self._classify_market_regime(vix_level, vix_percentile, trend_strength)
 
-    def _classify_market_regime(self, vix_level: float, vix_percentile: float, trend_strength: float) -> MarketRegime:
+    def _classify_market_regime(self, vix_level: float, vix_percentile: float, trend_strength: float) -> MarketRegime:  # noqa: E501
         """Classify current market regime"""
         # Simplified regime classification
         is_high_vol = vix_level > VIX_REGIME_THRESHOLDS['high']
@@ -2154,7 +2154,7 @@ class StrategyOrchestrator:
         reason = (getattr(event, "data", None) or {}).get("reason", "KILL_SWITCH")
         self._paused_kill = True
         self.logger.critical(
-            "⛔ StrategyOrchestrator HALTED by KILL_SWITCH (%s) — restart required to resume.", reason
+            "⛔ StrategyOrchestrator HALTED by KILL_SWITCH (%s) — restart required to resume.", reason  # noqa: E501
         )
 
     def _on_data_stale(self, event) -> None:  # type: ignore[override]
@@ -2260,7 +2260,7 @@ class StrategyOrchestrator:
         market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
         if not market_gate_ok:
             _count_drop("pre_risk", "entry_trust_gate")
-            self.logger.warning("Strategy signal rejected by entry trust gate: %s", market_gate_reason)
+            self.logger.warning("Strategy signal rejected by entry trust gate: %s", market_gate_reason)  # noqa: E501
             if self.event_manager:
                 try:
                     self.event_manager.publish(
@@ -2312,7 +2312,7 @@ class StrategyOrchestrator:
             "sell": _BST.SELL, "sell_to_open": _BST.SELL, "sell_to_close": _BST.SELL,
             "close": _BST.CLOSE, "adjust": _BST.ADJUST, "hold": _BST.HOLD,
         }
-        _sig: dict = signal if isinstance(signal, dict) else (signal.to_dict() if hasattr(signal, "to_dict") else {})
+        _sig: dict = signal if isinstance(signal, dict) else (signal.to_dict() if hasattr(signal, "to_dict") else {})  # noqa: E501
         _action_raw = str(_sig.get("action", _sig.get("side", "buy"))).lower()
         _signal_type = _ACTION_MAP.get(_action_raw, _BST.BUY)
         _known = {"signal_id", "strategy_id", "symbol", "action", "side",
@@ -2324,7 +2324,7 @@ class StrategyOrchestrator:
                 quantity=int(float(_sig.get("quantity", 0) or 0)),
                 signal_type=_signal_type,
                 strategy_id=str(_sig.get("strategy_id", "")),
-                entry_price=float(_sig.get("price") or _sig.get("limit_price") or _sig.get("entry_price") or 0.0),
+                entry_price=float(_sig.get("price") or _sig.get("limit_price") or _sig.get("entry_price") or 0.0),  # noqa: E501
                 stop_loss=float(_sig.get("stop_loss") or 0.0),
                 take_profit=float(_sig.get("take_profit") or 0.0),
                 confidence=float(_sig.get("confidence") or 0.0),
@@ -2350,7 +2350,7 @@ class StrategyOrchestrator:
             approved = result
 
         if not approved:
-            strategy_id = signal.get("strategy_id", "unknown") if isinstance(signal, dict) else "unknown"
+            strategy_id = signal.get("strategy_id", "unknown") if isinstance(signal, dict) else "unknown"  # noqa: E501
             if isinstance(result, dict):
                 reason = result.get("rejection_reason") or result.get("reason", "unknown")
             else:
@@ -2412,10 +2412,10 @@ class StrategyOrchestrator:
         """Fetch the latest S07 market conditions for trust-policy gating."""
         if self._metrics_orchestrator is None:
             try:
-                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator
+                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # noqa: E501
             except ImportError:
                 try:
-                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]
+                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]  # noqa: E501
                 except ImportError:
                     self.logger.debug("D31: S07 metrics orchestrator unavailable")
                     return {}
@@ -2448,11 +2448,11 @@ class StrategyOrchestrator:
             return True, ""
 
         metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
-        action = str(signal.get("action") or signal.get("side") or metadata.get("action") or "").strip().lower()
+        action = str(signal.get("action") or signal.get("side") or metadata.get("action") or "").strip().lower()  # noqa: E501
         params = {
-            "strategy_type": signal.get("strategy_type") or metadata.get("strategy_type") or signal.get("strategy_id") or metadata.get("strategy_id") or "",
+            "strategy_type": signal.get("strategy_type") or metadata.get("strategy_type") or signal.get("strategy_id") or metadata.get("strategy_id") or "",  # noqa: E501
             "position_type": signal.get("position_type") or metadata.get("position_type") or "",
-            "direction": signal.get("direction") or metadata.get("direction") or signal.get("bias") or metadata.get("bias") or action,
+            "direction": signal.get("direction") or metadata.get("direction") or signal.get("bias") or metadata.get("bias") or action,  # noqa: E501
             "action": action,
             "market_conditions": market_conditions,
         }
@@ -2789,7 +2789,7 @@ class StrategyOrchestrator:
         try:
             import ray
         except ImportError:
-            self.logger.warning("Ray not available for distributed strategy execution", exc_info=True)
+            self.logger.warning("Ray not available for distributed strategy execution", exc_info=True)  # noqa: E501
             return {'status': 'failed', 'reason': 'Ray not installed'}
 
         import multiprocessing as mproc
@@ -2829,7 +2829,7 @@ class StrategyOrchestrator:
                 'strategy_name': config.get('name', 'unknown'),
                 'signal': signal_strength,
                 'confidence': confidence,
-                'recommended_action': 'buy' if signal_strength > 0.3 else ('sell' if signal_strength < -0.3 else 'hold'),
+                'recommended_action': 'buy' if signal_strength > 0.3 else ('sell' if signal_strength < -0.3 else 'hold'),  # noqa: E501
                 'execution_time': _time.time() - start,
                 'status': 'completed',
             }
@@ -2843,8 +2843,8 @@ class StrategyOrchestrator:
             'status': 'completed',
             'n_strategies': len(results),
             'results': results,
-            'consensus_signal': float(np.mean([r['signal'] for r in results if r.get('status') == 'completed'])),
-            'mean_confidence': float(np.mean([r['confidence'] for r in results if r.get('status') == 'completed'])),
+            'consensus_signal': float(np.mean([r['signal'] for r in results if r.get('status') == 'completed'])),  # noqa: E501
+            'mean_confidence': float(np.mean([r['confidence'] for r in results if r.get('status') == 'completed'])),  # noqa: E501
         }
 
     # --------------------------------------------------------------------------
@@ -3091,7 +3091,7 @@ class StrategyOrchestratorDashboard(QWidget):
         self.strategies_table = QTableWidget()
         self.strategies_table.setColumnCount(8)
         self.strategies_table.setHorizontalHeaderLabels([
-            'Strategy', 'Type', 'Allocation', 'Capital', 'P&L', 'Performance Score', 'Health', 'Status'
+            'Strategy', 'Type', 'Allocation', 'Capital', 'P&L', 'Performance Score', 'Health', 'Status'  # noqa: E501
         ])
 
         header = self.strategies_table.horizontalHeader()
@@ -3157,7 +3157,7 @@ class StrategyOrchestratorDashboard(QWidget):
 
         self.regime_weights_table = QTableWidget()
         self.regime_weights_table.setColumnCount(3)
-        self.regime_weights_table.setHorizontalHeaderLabels(['Strategy Type', 'Optimal Weight', 'Current Weight'])
+        self.regime_weights_table.setHorizontalHeaderLabels(['Strategy Type', 'Optimal Weight', 'Current Weight'])  # noqa: E501
 
         weights_layout.addWidget(self.regime_weights_table)
         weights_group.setLayout(weights_layout)
@@ -3325,14 +3325,14 @@ class StrategyOrchestratorDashboard(QWidget):
     def update_portfolio_metrics(self, status: dict[str, Any]):
         """Update portfolio metrics display"""
         try:
-            self.total_capital_label.setText(f"Total Capital: ${status.get('total_capital', 0):,.2f}")
-            self.allocated_capital_label.setText(f"Allocated: ${status.get('allocated_capital', 0):,.2f}")
+            self.total_capital_label.setText(f"Total Capital: ${status.get('total_capital', 0):,.2f}")  # noqa: E501
+            self.allocated_capital_label.setText(f"Allocated: ${status.get('allocated_capital', 0):,.2f}")  # noqa: E501
             self.total_pnl_label.setText(f"Total P&L: ${status.get('total_pnl', 0):,.2f}")
             self.daily_pnl_label.setText(f"Daily P&L: ${status.get('daily_pnl', 0):,.2f}")
 
-            self.sharpe_ratio_label.setText(f"Sharpe Ratio: {status.get('portfolio_sharpe', 0):.2f}")
+            self.sharpe_ratio_label.setText(f"Sharpe Ratio: {status.get('portfolio_sharpe', 0):.2f}")  # noqa: E501
             self.max_drawdown_label.setText(f"Max Drawdown: {status.get('max_drawdown', 0):.1%}")
-            self.active_strategies_label.setText(f"Active Strategies: {status.get('active_strategies', 0)}")
+            self.active_strategies_label.setText(f"Active Strategies: {status.get('active_strategies', 0)}")  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error updating portfolio metrics: %s", e, exc_info=True)
@@ -3355,10 +3355,10 @@ class StrategyOrchestratorDashboard(QWidget):
                 self.strategies_table.setItem(row, 0, QTableWidgetItem(data['strategy_name']))
                 self.strategies_table.setItem(row, 1, QTableWidgetItem(data['strategy_type']))
                 self.strategies_table.setItem(row, 2, QTableWidgetItem(f"{data['allocation']:.1%}"))
-                self.strategies_table.setItem(row, 3, QTableWidgetItem(f"${data['allocated_capital']:,.0f}"))
-                self.strategies_table.setItem(row, 4, QTableWidgetItem(f"${data['strategy_pnl']:,.2f}"))
-                self.strategies_table.setItem(row, 5, QTableWidgetItem(f"{data['performance_score']:.2f}"))
-                self.strategies_table.setItem(row, 6, QTableWidgetItem(f"{data['health_score']:.2f}"))
+                self.strategies_table.setItem(row, 3, QTableWidgetItem(f"${data['allocated_capital']:,.0f}"))  # noqa: E501
+                self.strategies_table.setItem(row, 4, QTableWidgetItem(f"${data['strategy_pnl']:,.2f}"))  # noqa: E501
+                self.strategies_table.setItem(row, 5, QTableWidgetItem(f"{data['performance_score']:.2f}"))  # noqa: E501
+                self.strategies_table.setItem(row, 6, QTableWidgetItem(f"{data['health_score']:.2f}"))  # noqa: E501
                 self.strategies_table.setItem(row, 7, QTableWidgetItem("Active"))
 
         except Exception as e:
@@ -3441,12 +3441,12 @@ class StrategyOrchestratorDashboard(QWidget):
 
 def create_strategy_orchestrator(base_capital: float = DEFAULT_BASE_CAPITAL,
                                 orchestration_mode: OrchestrationMode = OrchestrationMode.BALANCED,
-                                allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,
-                                connectivity_manager: IntegratedConnectivityManager | None = None) -> StrategyOrchestrator:
+                                allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,  # noqa: E501
+                                connectivity_manager: IntegratedConnectivityManager | None = None) -> StrategyOrchestrator:  # noqa: E501
     """Factory function to create strategy orchestrator"""
-    return StrategyOrchestrator(base_capital, orchestration_mode, allocation_method, connectivity_manager)
+    return StrategyOrchestrator(base_capital, orchestration_mode, allocation_method, connectivity_manager)  # noqa: E501
 
-def create_orchestrator_dashboard(orchestrator: StrategyOrchestrator | None = None) -> StrategyOrchestratorDashboard:
+def create_orchestrator_dashboard(orchestrator: StrategyOrchestrator | None = None) -> StrategyOrchestratorDashboard:  # noqa: E501
     """Factory function to create orchestrator dashboard"""
     return StrategyOrchestratorDashboard(orchestrator)
 

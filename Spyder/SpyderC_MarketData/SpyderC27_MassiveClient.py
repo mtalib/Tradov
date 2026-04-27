@@ -475,7 +475,7 @@ class MassiveClient:
                     f"{type(exc).__name__}: {exc}"
                 )
                 if attempt < MAX_REST_RETRIES - 1:
-                    time.sleep(REST_RETRY_DELAY * (2 ** attempt))  # thread-safe: time.sleep() intentional
+                    time.sleep(REST_RETRY_DELAY * (2 ** attempt))  # thread-safe: time.sleep() intentional  # noqa: E501
 
         raise last_exc  # type: ignore[misc]
 
@@ -664,7 +664,7 @@ class MassiveClient:
                 ts_ms = getattr(agg, "timestamp", 0) or 0
                 rows.append({
                     "timestamp": (
-                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)
+                        datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(timezone.utc)  # noqa: E501
                     ),
                     "open":         float(getattr(agg, "open", 0.0) or 0.0),
                     "high":         float(getattr(agg, "high", 0.0) or 0.0),
@@ -1534,13 +1534,13 @@ class MassiveClient:
         return {
             "symbol":           str(getattr(details, "ticker", "") if details else ""),
             "underlying":       str(getattr(underlying_a, "ticker", "") if underlying_a else ""),
-            "strike":           float(getattr(details, "strike_price", 0.0) or 0.0) if details else 0.0,
+            "strike":           float(getattr(details, "strike_price", 0.0) or 0.0) if details else 0.0,  # noqa: E501
             "expiration_date":  str(getattr(details, "expiration_date", "") if details else ""),
             "option_type":      str(getattr(details, "contract_type", "") if details else ""),
             "exercise_style":   str(getattr(details, "exercise_style", "") if details else ""),
-            "bid":              float(getattr(last_quote, "bid", 0.0) or 0.0) if last_quote else 0.0,
-            "ask":              float(getattr(last_quote, "ask", 0.0) or 0.0) if last_quote else 0.0,
-            "mid":              float(getattr(last_quote, "midpoint", 0.0) or 0.0) if last_quote else 0.0,
+            "bid":              float(getattr(last_quote, "bid", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
+            "ask":              float(getattr(last_quote, "ask", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
+            "mid":              float(getattr(last_quote, "midpoint", 0.0) or 0.0) if last_quote else 0.0,  # noqa: E501
             "implied_volatility": float(getattr(snapshot, "implied_volatility", 0.0) or 0.0),
             "delta":            float(getattr(greeks, "delta", 0.0) or 0.0) if greeks else 0.0,
             "gamma":            float(getattr(greeks, "gamma", 0.0) or 0.0) if greeks else 0.0,

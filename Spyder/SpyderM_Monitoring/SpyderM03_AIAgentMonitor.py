@@ -119,7 +119,7 @@ class AgentMetricHistory:
     """Historical metrics for an agent"""
     agent_name: str
     metric_type: MetricType
-    values: deque = field(default_factory=lambda: deque(maxlen=1440))  # 24 hours at 1-minute intervals
+    values: deque = field(default_factory=lambda: deque(maxlen=1440))  # 24 hours at 1-minute intervals  # noqa: E501
     timestamps: deque = field(default_factory=lambda: deque(maxlen=1440))
 
     def add_value(self, value: float, timestamp: datetime):
@@ -627,8 +627,8 @@ class AIAgentMonitor:
         # Success rate
         if 'success_rate' in agent_metrics:
             success_rate = float(agent_metrics['success_rate'].rstrip('%')) / 100
-            self.metric_history[agent_name][MetricType.SUCCESS_RATE].add_value(success_rate, timestamp)
-            self.metric_history[agent_name][MetricType.ERROR_RATE].add_value(1 - success_rate, timestamp)
+            self.metric_history[agent_name][MetricType.SUCCESS_RATE].add_value(success_rate, timestamp)  # noqa: E501
+            self.metric_history[agent_name][MetricType.ERROR_RATE].add_value(1 - success_rate, timestamp)  # noqa: E501
 
         # Throughput (calls per minute)
         if 'total_calls' in agent_metrics and 'last_call' in agent_metrics:
@@ -639,7 +639,7 @@ class AIAgentMonitor:
                 minutes = (timestamp - self.agent_start_times[agent_name]).total_seconds() / 60
                 if minutes > 0:
                     throughput = total_calls / minutes
-                    self.metric_history[agent_name][MetricType.THROUGHPUT].add_value(throughput, timestamp)
+                    self.metric_history[agent_name][MetricType.THROUGHPUT].add_value(throughput, timestamp)  # noqa: E501
 
     # ==========================================================================
     # PRIVATE METHODS - ALERT MANAGEMENT

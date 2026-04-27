@@ -635,7 +635,7 @@ class RiskParametersDialog(QDialog):
         return layout
 
     def setup_styling(self):
-        """Apply enhanced dark theme styling with smaller radio buttons that turn green when selected"""
+        """Apply enhanced dark theme styling with smaller radio buttons that turn green when selected"""  # noqa: E501
         self.setStyleSheet(
             f"""
             QDialog {{

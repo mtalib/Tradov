@@ -349,7 +349,7 @@ class TradingEnvironment(gym.Env):
 
         # Flatten market features
         market_features = market_window[['open', 'high', 'low', 'close', 'volume',
-                                       'volatility', 'delta', 'gamma', 'theta', 'vega']].values.flatten()
+                                       'volatility', 'delta', 'gamma', 'theta', 'vega']].values.flatten()  # noqa: E501
 
         # Portfolio state
         portfolio_features = np.array([
@@ -442,7 +442,7 @@ class TradingEnvironment(gym.Env):
             if position['quantity'] > 0:
                 unrealized_pnl += (current_price - position['entry_price']) * position['quantity']
             else:
-                unrealized_pnl += (position['entry_price'] - current_price) * abs(position['quantity'])
+                unrealized_pnl += (position['entry_price'] - current_price) * abs(position['quantity'])  # noqa: E501
 
         self.portfolio_value = self.cash + unrealized_pnl
 
@@ -730,7 +730,7 @@ class SpyderAIModels:
             model_used='ensemble',
             computation_time_ms=0.0,
             greeks=transformer_result.greeks,
-            ai_insights={'ensemble_method': 'weighted_average', 'weights': self.config.ensemble_weights}
+            ai_insights={'ensemble_method': 'weighted_average', 'weights': self.config.ensemble_weights}  # noqa: E501
         )
 
     async def _train_transformer(self, data: pd.DataFrame) -> bool:
@@ -750,15 +750,15 @@ class SpyderAIModels:
                 targets_scaled = self.target_scaler.transform(targets.reshape(-1, 1)).flatten()
 
             # Create dataset
-            dataset = OptionsDataset(features_scaled, targets_scaled, self.config.transformer_config.max_seq_length)
-            dataloader = DataLoader(dataset, batch_size=self.config.transformer_config.batch_size, shuffle=True)
+            dataset = OptionsDataset(features_scaled, targets_scaled, self.config.transformer_config.max_seq_length)  # noqa: E501
+            dataloader = DataLoader(dataset, batch_size=self.config.transformer_config.batch_size, shuffle=True)  # noqa: E501
 
             # Initialize model
             input_dim = features.shape[1]
-            self.transformer_model = TransformerOptionsPricer(self.config.transformer_config, input_dim)
+            self.transformer_model = TransformerOptionsPricer(self.config.transformer_config, input_dim)  # noqa: E501
 
             # Training setup
-            optimizer = optim.Adam(self.transformer_model.parameters(), lr=self.config.transformer_config.learning_rate)
+            optimizer = optim.Adam(self.transformer_model.parameters(), lr=self.config.transformer_config.learning_rate)  # noqa: E501
             criterion = nn.MSELoss()
 
             # Training loop
@@ -804,7 +804,7 @@ class SpyderAIModels:
             self.rl_agent = PolicyNetwork(state_dim, action_dim, self.config.rl_config.hidden_dim)
 
             # Training setup
-            optimizer = optim.Adam(self.rl_agent.parameters(), lr=self.config.rl_config.learning_rate)
+            optimizer = optim.Adam(self.rl_agent.parameters(), lr=self.config.rl_config.learning_rate)  # noqa: E501
 
             # Training loop (simplified PPO)
             num_episodes = 1000
@@ -897,7 +897,7 @@ class SpyderAIModels:
 
     def _prepare_transformer_training_features(self, data: pd.DataFrame) -> np.ndarray:
         """Prepare training features from historical data."""
-        required_cols = ['spot_price', 'strike_price', 'time_to_expiry', 'risk_free_rate', 'volatility']
+        required_cols = ['spot_price', 'strike_price', 'time_to_expiry', 'risk_free_rate', 'volatility']  # noqa: E501
 
         # Check for required columns
         for col in required_cols:
@@ -951,7 +951,7 @@ class SpyderAIModels:
         # In practice, this could use ensemble uncertainty or dropout
         return min(0.95, max(0.5, 0.8 + 0.1 * np.random.random()))
 
-    def _estimate_transformer_greeks(self, request: PricingRequest, option_price: float) -> dict[str, float]:
+    def _estimate_transformer_greeks(self, request: PricingRequest, option_price: float) -> dict[str, float]:  # noqa: E501
         """Estimate Greeks using finite differences."""
         # Simplified Greeks estimation
         # In practice, use automatic differentiation or finite differences
@@ -963,7 +963,7 @@ class SpyderAIModels:
             'rho': 0.1
         }
 
-    def _generate_transformer_insights(self, request: PricingRequest, price: float) -> dict[str, Any]:
+    def _generate_transformer_insights(self, request: PricingRequest, price: float) -> dict[str, Any]:  # noqa: E501
         """Generate AI insights for pricing."""
         return {
             'model_type': 'transformer',
@@ -973,7 +973,7 @@ class SpyderAIModels:
                 'time_decay': 'medium',
                 'interest_rate': 'low'
             },
-            'recommendation': 'fair_value' if abs(price - request.spot_price * 0.1) < 5 else 'investigate_further'
+            'recommendation': 'fair_value' if abs(price - request.spot_price * 0.1) < 5 else 'investigate_further'  # noqa: E501
         }
 
     def _generate_fallback_signal(self, market_state: dict[str, Any]) -> TradingSignal:
@@ -1006,7 +1006,7 @@ class SpyderAIModels:
         else:
             return 0.8
 
-    def _generate_action_reasoning(self, action: ActionType, market_state: dict[str, Any], confidence: float) -> str:
+    def _generate_action_reasoning(self, action: ActionType, market_state: dict[str, Any], confidence: float) -> str:  # noqa: E501
         """Generate human-readable reasoning for action."""
         base_reasoning = {
             ActionType.HOLD: "Market conditions suggest maintaining current positions",
@@ -1020,7 +1020,7 @@ class SpyderAIModels:
         reasoning = base_reasoning.get(action, "AI model recommendation")
         return f"{reasoning} (Confidence: {confidence:.1%})"
 
-    def _suggest_portfolio_allocation(self, action: ActionType, market_state: dict[str, Any]) -> dict[str, float]:
+    def _suggest_portfolio_allocation(self, action: ActionType, market_state: dict[str, Any]) -> dict[str, float]:  # noqa: E501
         """Suggest portfolio allocation based on action."""
         if action == ActionType.HOLD:
             return {'cash': 0.5, 'options': 0.3, 'hedge': 0.2}
@@ -1127,7 +1127,7 @@ async def main():
         logging.info("   Attempting AI pricing (without training - will demonstrate fallback)...")
         # result = await ai_engine.price_option(pricing_request)
         logging.info("   Pricing request prepared successfully")
-        logging.info(f"   Request: SPY ${pricing_request.spot_price} -> ${pricing_request.strike_price} call, {pricing_request.time_to_expiry:.2f}Y")
+        logging.info(f"   Request: SPY ${pricing_request.spot_price} -> ${pricing_request.strike_price} call, {pricing_request.time_to_expiry:.2f}Y")  # noqa: E501
     except Exception as e:
         logging.info("   Expected error (models not trained): %s", type(e).__name__)
 

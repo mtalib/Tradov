@@ -276,7 +276,7 @@ if HAS_QT:
 
         def _show_placeholder(self) -> None:
             self._table.setRowCount(1)
-            item = QTableWidgetItem("AgentRegistry not available — check SpyderU12_AgentIntegration import")
+            item = QTableWidgetItem("AgentRegistry not available — check SpyderU12_AgentIntegration import")  # noqa: E501
             item.setForeground(QColor("#e74c3c"))
             self._table.setItem(0, 0, item)
             for col in range(1, len(_TABLE_COLS)):

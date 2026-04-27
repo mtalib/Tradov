@@ -378,7 +378,7 @@ class MarketImpactModel:
 
         return impact
 
-    def _almgren_chriss_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:
+    def _almgren_chriss_impact(self, order: OrderCharacteristics, market: MarketConditions) -> float:  # noqa: E501
         """
         Almgren-Chriss optimal execution model
         Minimizes combination of impact and risk

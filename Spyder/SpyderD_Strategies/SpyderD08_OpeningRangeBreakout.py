@@ -251,7 +251,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             'other_day_trades': 0
         }
 
-        self.logger.info("OpeningRangeBreakout strategy initialized with %smin range", self.range_minutes)
+        self.logger.info("OpeningRangeBreakout strategy initialized with %smin range", self.range_minutes)  # noqa: E501
 
     # ==========================================================================
     # REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
@@ -511,7 +511,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 # Update stats
                 self._update_range_statistics()
 
-                self.logger.info(f"Opening range established: ${self.current_range.low:.2f} - ${self.current_range.high:.2f}")
+                self.logger.info(f"Opening range established: ${self.current_range.low:.2f} - ${self.current_range.high:.2f}")  # noqa: E501
 
         except Exception as e:
             self.error_handler.handle_error(e, {'method': '_update_opening_range'})
@@ -933,7 +933,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info("Opened %s breakout: %s", position.breakout_signal.breakout_type.name, position.position_id)
+            self.logger.info("Opened %s breakout: %s", position.breakout_signal.breakout_type.name, position.position_id)  # noqa: E501
             return position
 
         except Exception as e:
@@ -1023,7 +1023,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
 
             # Update average (simplified)
             self.breakout_stats['avg_breakout_move'] = (
-                (self.breakout_stats['avg_breakout_move'] * (self.breakout_stats['total_breakouts'] - 1) + move) /
+                (self.breakout_stats['avg_breakout_move'] * (self.breakout_stats['total_breakouts'] - 1) + move) /  # noqa: E501
                 self.breakout_stats['total_breakouts']
             )
 
@@ -1042,7 +1042,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Closed breakout position {position_id}: P&L ${position.realized_pnl:.2f}")
+            self.logger.info(f"Closed breakout position {position_id}: P&L ${position.realized_pnl:.2f}")  # noqa: E501
             return True
 
         except Exception as e:

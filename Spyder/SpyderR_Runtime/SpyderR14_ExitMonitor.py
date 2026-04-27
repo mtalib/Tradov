@@ -33,7 +33,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable  # noqa: F401
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -234,7 +234,7 @@ class ExitMonitor:
         try:
             raw_decision = strategy.check_exit(view)
             if raw_decision is not None:
-                decision = ExitDecision(raw_decision) if not isinstance(raw_decision, ExitDecision) else raw_decision
+                decision = ExitDecision(raw_decision) if not isinstance(raw_decision, ExitDecision) else raw_decision  # noqa: E501
         except AttributeError:
             # Strategy doesn't implement check_exit — skip silently
             return

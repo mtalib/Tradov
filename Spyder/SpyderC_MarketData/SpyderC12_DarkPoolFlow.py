@@ -386,7 +386,7 @@ class DarkPoolFlowAnalyzer:
             'total_value': total_value,
             'avg_block_size': total_volume / total_blocks if total_blocks > 0 else 0,
             'avg_block_value': total_value / total_blocks if total_blocks > 0 else 0,
-            'dark_pool_percentage': sum(b.size for b in period_blocks if b.is_dark_pool) / total_volume if total_volume > 0 else 0,
+            'dark_pool_percentage': sum(b.size for b in period_blocks if b.is_dark_pool) / total_volume if total_volume > 0 else 0,  # noqa: E501
             'venue_breakdown': dict(venue_stats),
             'largest_block': max(period_blocks, key=lambda x: x.value) if period_blocks else None,
             'net_direction': self._calculate_net_direction(period_blocks)
@@ -419,9 +419,9 @@ class DarkPoolFlowAnalyzer:
         current_sweep = [recent_blocks[0]]
 
         for i in range(1, len(recent_blocks)):
-            if (recent_blocks[i].timestamp - current_sweep[-1].timestamp).total_seconds() <= window_seconds:
+            if (recent_blocks[i].timestamp - current_sweep[-1].timestamp).total_seconds() <= window_seconds:  # noqa: E501
                 # Check if similar price (potential sweep)
-                if abs(recent_blocks[i].price - current_sweep[0].price) / current_sweep[0].price < 0.001:
+                if abs(recent_blocks[i].price - current_sweep[0].price) / current_sweep[0].price < 0.001:  # noqa: E501
                     current_sweep.append(recent_blocks[i])
             else:
                 if len(current_sweep) >= 3:  # Minimum 3 venues for sweep

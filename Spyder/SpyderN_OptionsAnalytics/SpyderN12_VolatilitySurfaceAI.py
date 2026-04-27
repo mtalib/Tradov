@@ -41,21 +41,21 @@ warnings.filterwarnings("ignore")
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 # Scientific computing
-from scipy import interpolate
-from scipy.optimize import minimize
-from scipy.stats import norm
-from scipy.signal import savgol_filter
+from scipy import interpolate  # noqa: E402
+from scipy.optimize import minimize  # noqa: E402
+from scipy.stats import norm  # noqa: E402
+from scipy.signal import savgol_filter  # noqa: E402
 
 # Machine Learning
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+import torch.optim as optim  # noqa: E402
+from sklearn.ensemble import RandomForestRegressor  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
 # Visualization
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import plotly.graph_objects as go  # noqa: E402
+from plotly.subplots import make_subplots  # noqa: E402
 
 # Quantitative Finance
 try:
@@ -68,11 +68,11 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChain
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator  # noqa: E402
+from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChain  # noqa: E402
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS

@@ -214,7 +214,7 @@ class TradingMetrics:
         # Metrics storage
         self.trade_history: list[TradeMetrics] = []
         self.current_trades: dict[str, TradeMetrics] = {}
-        self.strategy_metrics: dict[str, StrategyMetrics] = defaultdict(self._create_strategy_metrics)
+        self.strategy_metrics: dict[str, StrategyMetrics] = defaultdict(self._create_strategy_metrics)  # noqa: E501
         self.portfolio_history: deque = deque(maxlen=10000)
 
         # Real-time tracking
@@ -855,7 +855,7 @@ class TradingMetrics:
 
         # Check win rate
         if self.trade_history:
-            win_rate = sum(1 for t in self.trade_history[-20:] if t.is_winner) / min(20, len(self.trade_history))
+            win_rate = sum(1 for t in self.trade_history[-20:] if t.is_winner) / min(20, len(self.trade_history))  # noqa: E501
             if win_rate >= 0.6:
                 score += 2
             elif win_rate >= 0.5:

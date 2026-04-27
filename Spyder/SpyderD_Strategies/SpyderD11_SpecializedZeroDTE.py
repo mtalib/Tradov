@@ -1143,7 +1143,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def validate_signal(self, signal: TradingSignal) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""

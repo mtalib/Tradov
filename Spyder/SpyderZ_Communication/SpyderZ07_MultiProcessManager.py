@@ -694,7 +694,7 @@ class MultiProcessManager:
 
         elif action == ResourceAction.RESTART:
             # Schedule restart
-            self.logger.info("Scheduling restart of %s due to resource limits", proc_info.engine_type.value)
+            self.logger.info("Scheduling restart of %s due to resource limits", proc_info.engine_type.value)  # noqa: E501
             threading.Thread(
                 target=lambda: self._restart_process(proc_info),
                 daemon=True

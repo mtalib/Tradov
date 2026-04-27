@@ -285,7 +285,7 @@ class IntegrationHub:
 
             self.stats['modules_discovered'] = len(self.modules)
 
-            self.logger.info("📦 Discovered %s new modules (%s total)", discovered_count, len(self.modules))
+            self.logger.info("📦 Discovered %s new modules (%s total)", discovered_count, len(self.modules))  # noqa: E501
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -340,7 +340,7 @@ class IntegrationHub:
 
                 # Extract metadata
                 version = getattr(module, '__version__', '1.0')
-                description = getattr(module, '__doc__', '').split('\n')[0] if hasattr(module, '__doc__') else ''
+                description = getattr(module, '__doc__', '').split('\n')[0] if hasattr(module, '__doc__') else ''  # noqa: E501
 
                 # Find main class
                 main_class = self._find_main_class(module)
@@ -464,7 +464,7 @@ class IntegrationHub:
                 }
 
                 for capability, patterns in capability_patterns.items():
-                    if any(any(pattern in method.lower() for pattern in patterns) for method in methods):
+                    if any(any(pattern in method.lower() for pattern in patterns) for method in methods):  # noqa: E501
                         capabilities.append(capability)
 
         except Exception as e:
@@ -497,7 +497,7 @@ class IntegrationHub:
             # Calculate load order
             self._calculate_load_order()
 
-            self.logger.info("📊 Built dependency graph: %s modules, %s dependencies", len(self.modules), self.dependency_graph.number_of_edges())
+            self.logger.info("📊 Built dependency graph: %s modules, %s dependencies", len(self.modules), self.dependency_graph.number_of_edges())  # noqa: E501
 
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -634,7 +634,7 @@ class IntegrationHub:
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': 'register_module',
-                'module_id': getattr(module_info, 'module_id', 'unknown') if module_info else 'unknown'
+                'module_id': getattr(module_info, 'module_id', 'unknown') if module_info else 'unknown'  # noqa: E501
             })
             return False
 
@@ -702,7 +702,7 @@ class IntegrationHub:
             group_name=group_name,
             file_path=inspect.getfile(instance.__class__),
             class_name=class_name,
-            description=instance.__class__.__doc__.split('\n')[0] if instance.__class__.__doc__ else '',
+            description=instance.__class__.__doc__.split('\n')[0] if instance.__class__.__doc__ else '',  # noqa: E501
             state=ModuleState.ACTIVE,
             capabilities=self._extract_capabilities_from_instance(instance)
         )
@@ -727,7 +727,7 @@ class IntegrationHub:
             }
 
             for capability, patterns in capability_patterns.items():
-                if any(any(pattern in method.lower() for pattern in patterns) for method in methods):
+                if any(any(pattern in method.lower() for pattern in patterns) for method in methods):  # noqa: E501
                     capabilities.append(capability)
 
         except Exception as e:
@@ -797,7 +797,7 @@ class IntegrationHub:
                 timestamp=datetime.now(),
                 response_time=response_time,
                 memory_usage=0.0,  # Would implement actual memory monitoring
-                error_rate=module_info.error_count / max(1, (datetime.now() - (module_info.load_time or datetime.now())).total_seconds()),
+                error_rate=module_info.error_count / max(1, (datetime.now() - (module_info.load_time or datetime.now())).total_seconds()),  # noqa: E501
                 dependencies_healthy=dependencies_healthy,
                 issues=issues,
                 metrics=metrics

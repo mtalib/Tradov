@@ -648,7 +648,7 @@ class SpyderX06_BacktestingAgent:
         """Use K07 for strategy comparison, or return a simple text comparison."""
         benchmarks = {
             "Buy & Hold SPY": {"sharpe_ratio": 0.65, "total_return": 0.12, "max_drawdown": 0.34},
-            "Iron Condor (0.16Δ, 45 DTE)": {"sharpe_ratio": 0.82, "total_return": 0.09, "max_drawdown": 0.15},
+            "Iron Condor (0.16Δ, 45 DTE)": {"sharpe_ratio": 0.82, "total_return": 0.09, "max_drawdown": 0.15},  # noqa: E501
         }
 
         if _K07_AVAILABLE and StrategyComparison is not None:
@@ -757,7 +757,7 @@ def _main() -> None:
     parser.add_argument("--strategy", required=True, help="Natural-language strategy description.")
     parser.add_argument("--start", required=True, help="Start date (YYYY-MM-DD).")
     parser.add_argument("--end", required=True, help="End date (YYYY-MM-DD).")
-    parser.add_argument("--capital", type=float, default=100_000.0, help="Initial capital (default: 100000).")
+    parser.add_argument("--capital", type=float, default=100_000.0, help="Initial capital (default: 100000).")  # noqa: E501
     parser.add_argument(
         "--mode", choices=["fast", "enhanced", "auto"], default="auto",
         help="Backtest engine mode (default: auto)."
@@ -765,7 +765,7 @@ def _main() -> None:
     parser.add_argument("--no-compare", action="store_true", help="Skip benchmark comparison.")
     args = parser.parse_args()
 
-    mode_map = {"fast": BacktestMode.FAST, "enhanced": BacktestMode.ENHANCED, "auto": BacktestMode.AUTO}
+    mode_map = {"fast": BacktestMode.FAST, "enhanced": BacktestMode.ENHANCED, "auto": BacktestMode.AUTO}  # noqa: E501
     request = BacktestRequest(
         strategy_description=args.strategy,
         start_date=args.start,

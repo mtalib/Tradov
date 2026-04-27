@@ -1466,7 +1466,7 @@ def test_evolved_strategy():
             if analysis.technical_indicators.volume_ratio is not None:
                 logging.info(f"   Volume Ratio: {analysis.technical_indicators.volume_ratio:.2f}")
             if analysis.technical_indicators.breakout_score is not None:
-                logging.info(f"   Breakout Score: {analysis.technical_indicators.breakout_score:.3f}")
+                logging.info(f"   Breakout Score: {analysis.technical_indicators.breakout_score:.3f}")  # noqa: E501
 
         # Display entry signals
         logging.info("\n🎯 Entry Signals:")

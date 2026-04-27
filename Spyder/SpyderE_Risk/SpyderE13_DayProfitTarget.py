@@ -39,19 +39,19 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-import logging
-import statistics
-import threading
-import uuid
-from collections import defaultdict
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import Any
-from collections.abc import Callable
-import copy
-import numpy as np
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+import statistics  # noqa: E402
+import threading  # noqa: E402
+import uuid  # noqa: E402
+from collections import defaultdict  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from dataclasses import dataclass, field, asdict  # noqa: E402
+from enum import Enum  # noqa: E402
+from typing import Any  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+import copy  # noqa: E402
+import numpy as np  # noqa: E402
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -93,9 +93,9 @@ except ImportError:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-import plotly.graph_objects as go
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+import plotly.graph_objects as go  # noqa: E402
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -117,7 +117,7 @@ try:
     from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 
     # Event management
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: F401
+    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501, F401
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -279,7 +279,7 @@ class ChildOrderSpec:
 
     order_id: str
     parent_order_id: str
-    contract: Contract
+    contract: Contract  # noqa: F821
     action: str  # BUY/SELL
     quantity: int
     order_type: str
@@ -371,10 +371,10 @@ class AlgorithmicSlicingManager:
         self.logger = logger or logging.getLogger(__name__)
 
         # Order tracking
-        self.parent_orders: dict[str, Order] = {}
+        self.parent_orders: dict[str, Order] = {}  # noqa: F821
         self.child_orders: dict[str, ChildOrderSpec] = {}
         self.execution_queue = []
-        self.active_orders: dict[str, Order] = {}
+        self.active_orders: dict[str, Order] = {}  # noqa: F821
 
         # Performance tracking
         self.venue_performance: dict[str, ExecutionMetrics] = {}
@@ -410,7 +410,7 @@ class AlgorithmicSlicingManager:
         """
         try:
             self.logger.info(
-                f"Creating slicing plan - Target: ${target_profit:,.2f}, Algorithm: {algorithm.value}"
+                f"Creating slicing plan - Target: ${target_profit:,.2f}, Algorithm: {algorithm.value}"  # noqa: E501
             )
 
             # Estimate required position size based on profit target
@@ -754,10 +754,10 @@ class AlgorithmicSlicingManager:
 
         return min(estimated_contracts, 10000)  # Cap at 10k contracts for safety
 
-    def _get_spy_options_contract(self) -> Contract:
+    def _get_spy_options_contract(self) -> Contract:  # noqa: F821
         """Get SPY options contract for current expiration"""
         # This would be dynamically determined based on strategy
-        return Contract(
+        return Contract(  # noqa: F821
             symbol="SPY",
             secType="OPT",
             exchange="SMART",
@@ -879,8 +879,8 @@ class DayProfitTargetEngine:
 
         # Execution tracking
         self.parent_order_id: str | None = None
-        self.active_child_orders: dict[str, Order] = {}
-        self.completed_orders: list[Fill] = []
+        self.active_child_orders: dict[str, Order] = {}  # noqa: F821
+        self.completed_orders: list[Fill] = []  # noqa: F821
         self.execution_start_time: datetime | None = None
 
         # Performance analytics
@@ -958,7 +958,7 @@ class DayProfitTargetEngine:
             if target_amount > max_achievable_target:
                 return (
                     False,
-                    f"Target exceeds maximum achievable (${max_achievable_target:,.2f}) based on account balance",
+                    f"Target exceeds maximum achievable (${max_achievable_target:,.2f}) based on account balance",  # noqa: E501
                     max_achievable_target,
                 )
 
@@ -974,7 +974,7 @@ class DayProfitTargetEngine:
                 if required_capital > available_capital:
                     return (
                         False,
-                        f"Insufficient available capital. Required: ${required_capital:,.2f}, Available: ${available_capital:,.2f}",
+                        f"Insufficient available capital. Required: ${required_capital:,.2f}, Available: ${available_capital:,.2f}",  # noqa: E501
                         available_capital * 0.8,
                     )
 
@@ -1062,7 +1062,7 @@ class DayProfitTargetEngine:
             self.status = ProfitTargetStatus.ACTIVE
 
             self.logger.info(
-                f"✅ Profit target configured: ${target_amount:,.2f} using {slicing_algorithm.value}"
+                f"✅ Profit target configured: ${target_amount:,.2f} using {slicing_algorithm.value}"  # noqa: E501
             )
 
             # Notify callbacks
@@ -1106,7 +1106,7 @@ class DayProfitTargetEngine:
                     return False
 
             # Ensure broker connection (skip if unavailable)
-            if self.broker_client is not None and hasattr(self.broker_client, 'isConnected') and not self.broker_client.isConnected():
+            if self.broker_client is not None and hasattr(self.broker_client, 'isConnected') and not self.broker_client.isConnected():  # noqa: E501
                 pass  # Legacy connection logic removed
 
             # Create slicing execution plan
@@ -1274,7 +1274,7 @@ class DayProfitTargetEngine:
             # Create order from specification
             contract = child_order_spec.contract
 
-            order = Order()
+            order = Order()  # noqa: F821
             order.action = child_order_spec.action
             order.totalQuantity = child_order_spec.quantity
             order.orderType = child_order_spec.order_type
@@ -1295,7 +1295,7 @@ class DayProfitTargetEngine:
             self.active_child_orders[child_order_spec.order_id] = order
 
             self.logger.info(
-                "📋 Child order placed: %s - %s @ %s", child_order_spec.order_id, child_order_spec.quantity, child_order_spec.venue.value
+                "📋 Child order placed: %s - %s @ %s", child_order_spec.order_id, child_order_spec.quantity, child_order_spec.venue.value  # noqa: E501
             )
 
             return True

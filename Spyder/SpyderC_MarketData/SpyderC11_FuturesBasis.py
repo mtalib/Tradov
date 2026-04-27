@@ -573,7 +573,7 @@ class FuturesBasisAnalyzer:
                 confirm_confidence = float(min(1.0, abs(es_impulse_score)))
             else:
                 # Fall back to static basis magnitude
-                confirm_direction = "up" if basis_bps > 2.0 else ("down" if basis_bps < -2.0 else "neutral")
+                confirm_direction = "up" if basis_bps > 2.0 else ("down" if basis_bps < -2.0 else "neutral")  # noqa: E501
                 confirm_confidence = float(min(1.0, abs(basis_bps) / 10.0))
 
             return {
@@ -629,9 +629,9 @@ class FuturesBasisAnalyzer:
                 'theoretical_es': f"{fair_value.theoretical_es_price:.2f}",
                 'regime': regime.value,
                 'arbitrage_opportunities': len([o for o in opportunities
-                                               if o.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY]),
-                'best_opportunity': opportunities[0].opportunity_type.value if opportunities else 'none',
-                'expected_profit_bps': f"{opportunities[0].profit_bps:.1f}" if opportunities else "0.0",
+                                               if o.opportunity_type != ArbitrageOpportunity.NO_OPPORTUNITY]),  # noqa: E501
+                'best_opportunity': opportunities[0].opportunity_type.value if opportunities else 'none',  # noqa: E501
+                'expected_profit_bps': f"{opportunities[0].profit_bps:.1f}" if opportunities else "0.0",  # noqa: E501
                 'dividend_impact': dividend_info,
                 'session': self.current_session.value,
                 'last_update': self.last_update.isoformat() if self.last_update else None
@@ -675,7 +675,7 @@ class FuturesBasisAnalyzer:
                 'period_days': days,
                 'total_signals': total_signals,
                 'profitable_signals': profitable_signals,
-                'success_rate': f"{(profitable_signals/total_signals)*100:.1f}%" if total_signals > 0 else "0%",
+                'success_rate': f"{(profitable_signals/total_signals)*100:.1f}%" if total_signals > 0 else "0%",  # noqa: E501
                 'avg_profit_bps': f"{avg_profit_bps:.2f}",
                 'max_profit_bps': f"{max_profit_bps:.2f}",
                 'signal_distribution': signal_types,
@@ -953,7 +953,7 @@ class FuturesBasisAnalyzer:
                     timestamp=datetime.now(),
                     alert_type="ARBITRAGE_OPPORTUNITY",
                     severity="INFO",
-                    message=f"Arbitrage opportunity: {best_op.opportunity_type.value} ({best_op.profit_bps:.1f} bps)",
+                    message=f"Arbitrage opportunity: {best_op.opportunity_type.value} ({best_op.profit_bps:.1f} bps)",  # noqa: E501
                     current_basis=self.current_basis.basis_points,
                     threshold_breached=MIN_PROFIT_THRESHOLD,
                     recommended_action=best_op.opportunity_type.value.upper()
@@ -1084,7 +1084,7 @@ class ArbitrageDetector:
 
         # Calculate expected profit
         expected_profit = abs(mispricing) - TRANSACTION_COSTS
-        profit_bps = abs(mispricing_bps) - (TRANSACTION_COSTS / (spy_data.price * ES_MULTIPLIER) * 10000)
+        profit_bps = abs(mispricing_bps) - (TRANSACTION_COSTS / (spy_data.price * ES_MULTIPLIER) * 10000)  # noqa: E501
 
         # Calculate confidence and risk scores
         confidence_score = self._calculate_confidence_score(mispricing_bps, historical_basis)
@@ -1102,7 +1102,7 @@ class ArbitrageDetector:
                 entry_price_es=es_data.price,
                 entry_price_spy=spy_data.price,
                 take_profit=theoretical_es,
-                max_holding_period=min(240, basis_data.days_to_expiry * 24 * 60)  # Max 4 hours or expiry
+                max_holding_period=min(240, basis_data.days_to_expiry * 24 * 60)  # Max 4 hours or expiry  # noqa: E501
             ))
         else:
             signals.append(ArbitrageSignal(

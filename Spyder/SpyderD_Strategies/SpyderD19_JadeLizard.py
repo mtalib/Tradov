@@ -226,7 +226,7 @@ class JadeLizardStrategy(BaseStrategy):
         # Configuration
         self.max_positions = resolved_config.get('max_positions', MAX_JADE_POSITIONS)
         self.min_credit = resolved_config.get('min_credit', MIN_CREDIT_REQUIREMENT)
-        self.enforce_no_upside_risk = resolved_config.get('enforce_no_upside_risk', NO_UPSIDE_RISK_CHECK)
+        self.enforce_no_upside_risk = resolved_config.get('enforce_no_upside_risk', NO_UPSIDE_RISK_CHECK)  # noqa: E501
         self.signal_symbol = str(resolved_config.get('symbol', 'SPY'))
 
         # Performance tracking
@@ -528,7 +528,7 @@ class JadeLizardStrategy(BaseStrategy):
             )
 
             # Expected return
-            expected_return = (prob_profit * max_profit - (1 - prob_profit) * max_loss * 0.3) / max_loss
+            expected_return = (prob_profit * max_profit - (1 - prob_profit) * max_loss * 0.3) / max_loss  # noqa: E501
 
             setup = JadeLizardSetup(
                 short_put=short_put,
@@ -616,14 +616,14 @@ class JadeLizardStrategy(BaseStrategy):
             premium = spot * stats.norm.cdf(d1) - strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2)
             delta = stats.norm.cdf(d1)
         else:
-            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)
+            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)  # noqa: E501
             delta = stats.norm.cdf(d1) - 1
 
         # Greeks
         gamma = stats.norm.pdf(d1) / (spot * iv * np.sqrt(dte))
         vega = spot * stats.norm.pdf(d1) * np.sqrt(dte) / 100
         theta = -(spot * stats.norm.pdf(d1) * iv / (2 * np.sqrt(dte)) +
-                 0.02 * strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2 if option_type == OptionType.CALL else -d2)) / 365
+                 0.02 * strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2 if option_type == OptionType.CALL else -d2)) / 365  # noqa: E501
 
         # Bid-ask spread (simplified)
         spread = premium * 0.05  # 5% spread
@@ -750,7 +750,7 @@ class JadeLizardStrategy(BaseStrategy):
                 }
             )
 
-            self.logger.info(f"Generated Jade Lizard signal with {setup.probability_profit:.1%} probability")
+            self.logger.info(f"Generated Jade Lizard signal with {setup.probability_profit:.1%} probability")  # noqa: E501
             return signal
 
         except Exception as e:
@@ -876,7 +876,7 @@ class JadeLizardStrategy(BaseStrategy):
             )['premium']
 
             # Current position value (negative because we're short)
-            current_value = -(put_value + short_call_value - long_call_value) * SPY_CONTRACT_MULTIPLIER
+            current_value = -(put_value + short_call_value - long_call_value) * SPY_CONTRACT_MULTIPLIER  # noqa: E501
 
             position.current_value = current_value
             position.unrealized_pnl = setup.total_credit + current_value
@@ -899,7 +899,7 @@ class JadeLizardStrategy(BaseStrategy):
                 position.management_triggers.append("pin_risk")
                 self.logger.warning("Pin risk detected for %s", position.position_id)
 
-            if new_metrics.early_assignment_risk and "assignment_risk" not in position.management_triggers:
+            if new_metrics.early_assignment_risk and "assignment_risk" not in position.management_triggers:  # noqa: E501
                 position.management_triggers.append("assignment_risk")
                 self.logger.warning("Early assignment risk for %s", position.position_id)
 
@@ -974,7 +974,7 @@ class JadeLizardStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit Jade Lizard {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f} ({position.pnl_percent:.1f}%)")
+        self.logger.info(f"Exit Jade Lizard {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f} ({position.pnl_percent:.1f}%)")  # noqa: E501
         return signal
 
     def _close_position(self, position: JadeLizardPosition):
@@ -995,7 +995,7 @@ class JadeLizardStrategy(BaseStrategy):
         # Update averages
         n = self.performance_stats['total_trades']
         avg_credit = self.performance_stats['avg_credit']
-        self.performance_stats['avg_credit'] = (avg_credit * (n-1) + position.setup.total_credit) / n
+        self.performance_stats['avg_credit'] = (avg_credit * (n-1) + position.setup.total_credit) / n  # noqa: E501
 
         avg_days = self.performance_stats['avg_holding_days']
         self.performance_stats['avg_holding_days'] = (avg_days * (n-1) + position.days_held) / n
@@ -1053,7 +1053,7 @@ class JadeLizardStrategy(BaseStrategy):
                     'short_call': position.setup.short_call.strike if position.setup else 0,
                     'long_call': position.setup.long_call.strike if position.setup else 0
                 },
-                'risk_level': position.risk_metrics.current_risk_level.value if position.risk_metrics else 'unknown',
+                'risk_level': position.risk_metrics.current_risk_level.value if position.risk_metrics else 'unknown',  # noqa: E501
                 'state': position.state.name,
                 'triggers': position.management_triggers
             }
@@ -1064,8 +1064,8 @@ class JadeLizardStrategy(BaseStrategy):
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy performance statistics"""
         total_trades = self.performance_stats['total_trades']
-        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
-        perfect_rate = self.performance_stats['perfect_trades'] / total_trades if total_trades > 0 else 0
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0  # noqa: E501
+        perfect_rate = self.performance_stats['perfect_trades'] / total_trades if total_trades > 0 else 0  # noqa: E501
 
         return {
             'active_positions': len(self.active_positions),

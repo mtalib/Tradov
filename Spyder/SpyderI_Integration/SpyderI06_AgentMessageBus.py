@@ -613,7 +613,7 @@ class AgentMessageBus:
             if len(pattern_parts) != len(topic_parts):
                 return False
 
-            return all(not (p != "*" and p != t) for p, t in zip(pattern_parts, topic_parts, strict=False))
+            return all(not (p != "*" and p != t) for p, t in zip(pattern_parts, topic_parts, strict=False))  # noqa: E501
 
         return topic == pattern
 

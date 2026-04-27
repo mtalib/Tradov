@@ -32,22 +32,22 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import optimize
-from scipy.interpolate import RBFInterpolator, griddata
-from scipy.ndimage import gaussian_filter
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from scipy import optimize  # noqa: E402
+from scipy.interpolate import RBFInterpolator, griddata  # noqa: E402
+from scipy.ndimage import gaussian_filter  # noqa: E402
+import plotly.graph_objects as go  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from pathlib import Path
+from pathlib import Path  # noqa: E402
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-import logging
+import logging  # noqa: E402
 
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -75,13 +75,13 @@ except ImportError:
 # Import other options modules if available
 try:
     from Spyder.SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
     from Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
     ANALYTICS_AVAILABLE = True
 except ImportError:
     try:
         from SpyderN_OptionsAnalytics.SpyderN01_OptionsPricer import OptionsPricer
-        from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine
+        from SpyderN_OptionsAnalytics.SpyderN02_ImpliedVolatilityEngine import ImpliedVolatilityEngine  # noqa: E501
         from SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
         ANALYTICS_AVAILABLE = True
     except ImportError:
@@ -733,10 +733,10 @@ class VolatilitySurfaceBuilder:
                     # Create arbitrage opportunity
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.CALENDAR,
-                        strikes=[surface.strikes[m_idx] if m_idx < len(surface.strikes) else surface.underlying_price],
-                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),
-                                 datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],
-                        current_ivs=[surface.iv_surface[t_idx-1, m_idx], surface.iv_surface[t_idx, m_idx]],
+                        strikes=[surface.strikes[m_idx] if m_idx < len(surface.strikes) else surface.underlying_price],  # noqa: E501
+                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),  # noqa: E501
+                                 datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
+                        current_ivs=[surface.iv_surface[t_idx-1, m_idx], surface.iv_surface[t_idx, m_idx]],  # noqa: E501
                         theoretical_bound=total_variance[t_idx-1],
                         violation_amount=total_variance[t_idx-1] - total_variance[t_idx],
                         profit_potential=100 * (total_variance[t_idx-1] - total_variance[t_idx]),
@@ -764,12 +764,12 @@ class VolatilitySurfaceBuilder:
                     violations += 1
 
                     # Create arbitrage opportunity
-                    strikes = [surface.underlying_price * moneyness[i] for i in [m_idx-1, m_idx, m_idx+1]]
+                    strikes = [surface.underlying_price * moneyness[i] for i in [m_idx-1, m_idx, m_idx+1]]  # noqa: E501
 
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.BUTTERFLY,
                         strikes=strikes,
-                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],
+                        expiries=[datetime.now() + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
                         current_ivs=[ivs[m_idx-1], ivs[m_idx], ivs[m_idx+1]],
                         theoretical_bound=0,
                         violation_amount=abs(butterfly),
@@ -866,8 +866,8 @@ class VolatilitySurfaceBuilder:
         node_30 = self._sample_atm_node(surface, unique_times, target_days=30.0)
 
         age_ms = max(0, int((datetime.now() - surface.timestamp).total_seconds() * 1000))
-        coverage = float(np.count_nonzero(np.isfinite(surface.iv_surface)) / surface.iv_surface.size)
-        age_penalty = 1.0 if age_ms <= 60000 else max(0.0, 1.0 - min(age_ms - 60000, 240000) / 240000.0)
+        coverage = float(np.count_nonzero(np.isfinite(surface.iv_surface)) / surface.iv_surface.size)  # noqa: E501
+        age_penalty = 1.0 if age_ms <= 60000 else max(0.0, 1.0 - min(age_ms - 60000, 240000) / 240000.0)  # noqa: E501
         surface_confidence = max(0.0, min(1.0, coverage * age_penalty))
 
         return {

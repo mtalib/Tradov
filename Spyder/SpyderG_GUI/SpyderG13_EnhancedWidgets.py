@@ -39,7 +39,7 @@ if str(project_root) not in sys.path:
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
     QDialog,
@@ -59,8 +59,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen  # noqa: E402
 
 # Enhanced widgets from superqt
 try:
@@ -74,8 +74,8 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import SpyderColors, get_style_manager
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import SpyderColors, get_style_manager  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ SYMBOL_DESCRIPTIONS = {
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
-    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",
+    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
 }
 
 COLORS = {
@@ -293,7 +293,7 @@ class SpyderStrikeRangeSlider(QWidget):
 
         for name, min_factor, max_factor in presets:
             btn = QPushButton(name)
-            btn.clicked.connect(lambda checked, mf=min_factor, xf=max_factor: self._apply_preset(mf, xf))
+            btn.clicked.connect(lambda checked, mf=min_factor, xf=max_factor: self._apply_preset(mf, xf))  # noqa: E501
             preset_layout.addWidget(btn)
 
         layout.addLayout(preset_layout)
@@ -751,7 +751,7 @@ class SpyderTradingTooltip:
                 <tr><td>Theta:</td><td>{option_data.get('theta', 0):.3f}</td></tr>
             </table>
         </div>
-        """
+        """  # noqa: E501
 
         # Show tooltip
         QToolTip.showText(widget.mapToGlobal(widget.rect().center()), tooltip_html, widget)
@@ -778,7 +778,7 @@ class SpyderTradingTooltip:
                 <tr><td>Entry Time:</td><td>{trade_data.get('entry_time', 'N/A')}</td></tr>
             </table>
         </div>
-        """
+        """  # noqa: E501
 
         QToolTip.showText(widget.mapToGlobal(widget.rect().center()), tooltip_html, widget)
 
@@ -1229,7 +1229,7 @@ class SignalMonitorPanel(QWidget):
                 self,
                 "Market Internals",
                 "TICK / ADD / TRIN monitor unavailable.\n"
-                "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",
+                "Ensure SpyderG17_MarketInternalsWidget.py is present and pyqtgraph / yfinance are installed.",  # noqa: E501
             )
 
     def update_regime(
@@ -1801,7 +1801,7 @@ def main():
 
         # Strike range slider
         strike_slider = SpyderWidgetFactory.create_strike_range_slider(400.0, 500.0)
-        strike_slider.range_changed.connect(lambda min_val, max_val: logging.debug(f"Strike range: ${min_val:.2f} - ${max_val:.2f}"))
+        strike_slider.range_changed.connect(lambda min_val, max_val: logging.debug(f"Strike range: ${min_val:.2f} - ${max_val:.2f}"))  # noqa: E501
         layout.addWidget(strike_slider)
 
         # Trading inputs
@@ -1825,7 +1825,7 @@ def main():
     else:
         logging.info("SuperQt not available - using fallback widgets")
         fallback_label = QLabel("Install superqt for enhanced widgets: pip install superqt")
-        fallback_label.setStyleSheet(f"color: {SpyderColors.WARNING}; font-size: 14px; padding: 20px;")
+        fallback_label.setStyleSheet(f"color: {SpyderColors.WARNING}; font-size: 14px; padding: 20px;")  # noqa: E501
         layout.addWidget(fallback_label)
 
     central_widget.setLayout(layout)

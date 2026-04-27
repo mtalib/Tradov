@@ -45,7 +45,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import sys
+import sys  # noqa: F401
 import time
 import threading
 from abc import ABC, abstractmethod
@@ -68,7 +68,7 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event, get_event_manager
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event, get_event_manager  # noqa: E501
 
 
 def _is_massive_disabled() -> bool:
@@ -79,8 +79,8 @@ def _is_massive_disabled() -> bool:
         "yes",
         "on",
     }
-from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
-from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
+from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity  # noqa: E402
+from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator  # noqa: E402
 
 try:
     from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
@@ -1101,7 +1101,7 @@ class DataFeedManager:
         provider_connected = bool(self._provider and self._provider.is_connected)
 
         if provider_connected:
-            if self.status in {DataFeedStatus.CONNECTING, DataFeedStatus.DEGRADED, DataFeedStatus.ERROR}:
+            if self.status in {DataFeedStatus.CONNECTING, DataFeedStatus.DEGRADED, DataFeedStatus.ERROR}:  # noqa: E501
                 self.status = DataFeedStatus.CONNECTED
         else:
             # During runtime, disconnected provider means degraded service.

@@ -1181,7 +1181,7 @@ def test_calendar_spread():
     logging.info(f"Current IV: {iv_analysis.get('current_iv', 0):.1%}")
     logging.info(f"IV Rank: {iv_analysis.get('iv_rank', 0):.1f}")
     logging.info("IV Regime: %s", iv_analysis.get('iv_regime', IVRegime.NORMAL).value)
-    logging.info("Term Structure: %s", iv_analysis.get('term_structure', TermStructure.CONTANGO).value)
+    logging.info("Term Structure: %s", iv_analysis.get('term_structure', TermStructure.CONTANGO).value)  # noqa: E501
     logging.info("Calendar Favorable: %s", iv_analysis.get('calendar_favorable', False))
 
     # Test expiry selection
@@ -1189,10 +1189,10 @@ def test_calendar_spread():
     near_expiry, far_expiry = strategy._select_optimal_expiries(iv_analysis)
     if near_expiry and far_expiry:
         logging.info(
-            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now()).days
+            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now()).days  # noqa: E501
         )
         logging.info(
-            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now()).days
+            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now()).days  # noqa: E501
         )
         logging.info("Time Spread: %s days", (far_expiry - near_expiry).days)
 

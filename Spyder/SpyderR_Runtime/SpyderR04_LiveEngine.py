@@ -49,7 +49,7 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventT
 
 # Soft import: TradierServerError is only available when the broker layer is present.
 try:
-    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierServerError as _TradierServerError
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierServerError as _TradierServerError  # noqa: E501
 except ImportError:
     class _TradierServerError(Exception):  # type: ignore[no-redef]
         """Stub used when SpyderB40_TradierClient is not importable."""
@@ -67,20 +67,20 @@ MAX_DAILY_LOSS = float(os.environ.get('MAX_DAILY_LOSS_USD', 10000))  # dollars
 EMERGENCY_STOP_LOSS = float(os.environ.get('EMERGENCY_STOP_LOSS_PCT', 0.05))  # 5% portfolio loss
 
 # Confirmation settings - Opt-in for development mode
-REQUIRE_LIVE_ORDER_CONFIRMATION = os.environ.get('REQUIRE_LIVE_ORDER_CONFIRMATION', 'false').lower() == 'true'
-HIGH_RISK_ORDER_CONFIRMATION = os.environ.get('HIGH_RISK_ORDER_CONFIRMATION', 'true').lower() == 'true'
-HIGH_RISK_ORDER_THRESHOLD_USD = float(os.environ.get('HIGH_RISK_ORDER_THRESHOLD_USD', 50000))  # $50k
+REQUIRE_LIVE_ORDER_CONFIRMATION = os.environ.get('REQUIRE_LIVE_ORDER_CONFIRMATION', 'false').lower() == 'true'  # noqa: E501
+HIGH_RISK_ORDER_CONFIRMATION = os.environ.get('HIGH_RISK_ORDER_CONFIRMATION', 'true').lower() == 'true'  # noqa: E501
+HIGH_RISK_ORDER_THRESHOLD_USD = float(os.environ.get('HIGH_RISK_ORDER_THRESHOLD_USD', 50000))  # $50k  # noqa: E501
 # Consecutive Tradier 5xx errors before entering API Panic Mode and halting all trading.
 API_PANIC_THRESHOLD = int(os.environ.get("API_PANIC_THRESHOLD", "3"))
 ORPHAN_ORDER_PANIC_THRESHOLD = int(os.environ.get("ORPHAN_ORDER_PANIC_THRESHOLD", "3"))
 ORPHAN_ORDER_PANIC_WINDOW_SECONDS = int(os.environ.get("ORPHAN_ORDER_PANIC_WINDOW_SECONDS", "300"))
-HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_PCT', 0.25))  # 25% of portfolio
+HIGH_RISK_ORDER_PORTFOLIO_PCT = float(os.environ.get('HIGH_RISK_ORDER_PORTFOLIO_PCT', 0.25))  # 25% of portfolio  # noqa: E501
 # CLOSE_POSITIONS_ON_EMERGENCY: when true, emergency_stop flattens all open positions
 # immediately via market orders. Default is false so that a transient Tradier API outage
 # (which now triggers emergency_stop via API Panic Mode after 3 consecutive 5xx errors)
 # does not auto-liquidate legitimate positions. Operators who want automatic flattening
 # must opt in explicitly by setting CLOSE_POSITIONS_ON_EMERGENCY=true in .env.
-CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'false').lower() == 'true'
+CLOSE_POSITIONS_ON_EMERGENCY = os.environ.get('CLOSE_POSITIONS_ON_EMERGENCY', 'false').lower() == 'true'  # noqa: E501
 
 # Regime gate — SWAN tail-risk threshold (mirrors R08 paper engine)
 SWAN_BLOCK_THRESHOLD = float(os.environ.get("SWAN_BLOCK_THRESHOLD", "2.0"))
@@ -144,13 +144,13 @@ class LiveTradingConfig:
     max_daily_loss: float = MAX_DAILY_LOSS
     enable_extended_hours: bool = False
     require_confirmation: bool = REQUIRE_LIVE_ORDER_CONFIRMATION  # Autonomous by default
-    high_risk_confirmation: bool = HIGH_RISK_ORDER_CONFIRMATION  # Selective confirmation for large orders
+    high_risk_confirmation: bool = HIGH_RISK_ORDER_CONFIRMATION  # Selective confirmation for large orders  # noqa: E501
     high_risk_threshold_usd: float = HIGH_RISK_ORDER_THRESHOLD_USD
     high_risk_portfolio_pct: float = HIGH_RISK_ORDER_PORTFOLIO_PCT
     use_limit_orders_only: bool = False
     slippage_tolerance: float = 0.01  # 1%
     partial_fill_timeout: int = 60  # seconds
-    close_positions_on_emergency: bool = CLOSE_POSITIONS_ON_EMERGENCY  # Env: CLOSE_POSITIONS_ON_EMERGENCY (default false, opt-in)
+    close_positions_on_emergency: bool = CLOSE_POSITIONS_ON_EMERGENCY  # Env: CLOSE_POSITIONS_ON_EMERGENCY (default false, opt-in)  # noqa: E501
 
 
 @dataclass
@@ -450,7 +450,7 @@ class LiveEngine:
 
             # Log trading start
             mode_label = "Paper" if self._mode_name() == "paper" else "Live"
-            self.logger.info("%s trading started - Session: %s", mode_label, self.current_session.session_id)
+            self.logger.info("%s trading started - Session: %s", mode_label, self.current_session.session_id)  # noqa: E501
 
             # Emit trading started event
             self._emit_event(
@@ -630,7 +630,7 @@ class LiveEngine:
         swan = self._regime_scalar(self._regime_metrics.get("SWAN"))
         try:
             if swan is not None and swan >= SWAN_BLOCK_THRESHOLD:
-                return False, f"SWAN={swan:.2f} >= {SWAN_BLOCK_THRESHOLD} (extreme tail-risk regime)"
+                return False, f"SWAN={swan:.2f} >= {SWAN_BLOCK_THRESHOLD} (extreme tail-risk regime)"  # noqa: E501
         except (TypeError, ValueError):
             pass
         return True, ""
@@ -714,18 +714,18 @@ class LiveEngine:
             if self.mode == TradingMode.LIVE:
                 confirmation_result = self._check_order_confirmation_required(order)
                 if confirmation_result['requires_confirmation']:
-                    confirmed = self._request_order_confirmation(order, confirmation_result['reason'])
+                    confirmed = self._request_order_confirmation(order, confirmation_result['reason'])  # noqa: E501
                     if not confirmed:
-                        self.logger.warning("Order %s rejected: %s", order.get('symbol'), confirmation_result['reason'])
+                        self.logger.warning("Order %s rejected: %s", order.get('symbol'), confirmation_result['reason'])  # noqa: E501
                         return {
                             "status": "rejected",
-                            "reason": f"Order requires confirmation: {confirmation_result['reason']}",
+                            "reason": f"Order requires confirmation: {confirmation_result['reason']}",  # noqa: E501
                             "confirmation_declined": True,
                             "confirmation_reason": confirmation_result['reason']
                         }
                 else:
                     # Autonomous mode - log and proceed
-                    self.logger.info("Order %s proceeding autonomously (confirmation not required)", order.get('symbol'))
+                    self.logger.info("Order %s proceeding autonomously (confirmation not required)", order.get('symbol'))  # noqa: E501
 
             # Add to order queue
             order["timestamp"] = datetime.now(_ET)
@@ -900,13 +900,13 @@ class LiveEngine:
             # 1) Paper-like adapters exposing is_connected()/get_account_info()
             # 2) TradierClient exposing account/balance endpoints directly
             connected_ok = True
-            if hasattr(self.broker, "is_connected") and callable(getattr(self.broker, "is_connected")):
+            if hasattr(self.broker, "is_connected") and callable(getattr(self.broker, "is_connected")):  # noqa: B009, E501
                 connected_ok = bool(self.broker.is_connected())
 
             account_ok = False
-            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):  # noqa: B009, E501
                 account_ok = self.broker.get_account_info() is not None
-            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):  # noqa: B009, E501
                 balances = self.broker.get_account_balances()
                 account_ok = bool(balances)
 
@@ -917,7 +917,7 @@ class LiveEngine:
     def _verify_account_access(self) -> bool:
         """Verify account access and permissions."""
         try:
-            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):  # noqa: B009, E501
                 account_info = self.broker.get_account_info()
                 if account_info is None:
                     return False
@@ -933,7 +933,7 @@ class LiveEngine:
 
             # Tradier compatibility path: successful balance call + matching client
             # account id implies credentials and account access are valid.
-            if hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            if hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):  # noqa: B009, E501
                 balances = self.broker.get_account_balances()
                 broker_account_id = getattr(self.broker, "account_id", None)
                 return bool(balances) and broker_account_id == self.config.account_id
@@ -1261,12 +1261,12 @@ class LiveEngine:
 
             # Check absolute dollar threshold
             if order_value > self.config.high_risk_threshold_usd:
-                reasons.append(f"Order value ${order_value:,.2f} exceeds threshold ${self.config.high_risk_threshold_usd:,.2f}")
+                reasons.append(f"Order value ${order_value:,.2f} exceeds threshold ${self.config.high_risk_threshold_usd:,.2f}")  # noqa: E501
                 risk_level = 'high'
 
             # Check portfolio percentage threshold
             if order_pct > self.config.high_risk_portfolio_pct:
-                reasons.append(f"Order represents {order_pct*100:.1f}% of portfolio (limit: {self.config.high_risk_portfolio_pct*100:.1f}%)")
+                reasons.append(f"Order represents {order_pct*100:.1f}% of portfolio (limit: {self.config.high_risk_portfolio_pct*100:.1f}%)")  # noqa: E501
                 risk_level = 'critical' if order_pct > 0.5 else 'high'
 
             if reasons:
@@ -1337,8 +1337,8 @@ class LiveEngine:
             })
 
             # Integration points:
-            # 1. SpyderJ05_TelegramBot — mobile push notification with APPROVE/REJECT inline keyboard
-            # 2. SpyderG09_RiskParametersDialog — GUI dialog (not applicable in headless/backend mode)
+            # 1. SpyderJ05_TelegramBot — mobile push notification with APPROVE/REJECT inline keyboard  # noqa: E501
+            # 2. SpyderG09_RiskParametersDialog — GUI dialog (not applicable in headless/backend mode)  # noqa: E501
             confirm_timeout = int(os.environ.get('HIGH_RISK_CONFIRM_TIMEOUT_SECS', '60'))
             if self.telegram_bot is not None:
                 try:
@@ -1358,12 +1358,12 @@ class LiveEngine:
                     )
                 except Exception as _tg_err:
                     self.logger.error(
-                        "Telegram confirmation error: %s — falling back to autonomous decision.", _tg_err
+                        "Telegram confirmation error: %s — falling back to autonomous decision.", _tg_err  # noqa: E501
                     )
 
             # Testing override (sandbox/paper only)
             if os.environ.get('AUTO_CONFIRM_HIGH_RISK_ORDERS', 'false').lower() == 'true':
-                self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled — auto-approved (TESTING ONLY)")
+                self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled — auto-approved (TESTING ONLY)")  # noqa: E501
                 return True
 
             # Autonomous decision: delegate to the E-series risk engine
@@ -1371,7 +1371,7 @@ class LiveEngine:
             if approved:
                 self.logger.warning("Autonomous risk assessment: APPROVED")
             else:
-                self.logger.critical("Autonomous risk assessment: REJECTED — order blocked by risk engine")
+                self.logger.critical("Autonomous risk assessment: REJECTED — order blocked by risk engine")  # noqa: E501
             return approved
 
         except Exception as e:
@@ -1456,9 +1456,9 @@ class LiveEngine:
                         quote = quote[0]
                     price = float(quote.get('last', 0) or quote.get('close', 0) or 0)
                 except Exception:
-                    self.logger.warning("Could not fetch live price for %s, using order price", symbol)
+                    self.logger.warning("Could not fetch live price for %s, using order price", symbol)  # noqa: E501
                 if price == 0:
-                    self.logger.warning("No price available for order value calculation on %s", symbol)
+                    self.logger.warning("No price available for order value calculation on %s", symbol)  # noqa: E501
                     return 0.0
 
             # For options, multiply by contract multiplier (usually 100)
@@ -1634,7 +1634,7 @@ class LiveEngine:
         order_id = (getattr(event, "data", None) or {}).get("order_id")
         if order_id:
             with self._pending_orders_lock:  # B4: thread-safe removal
-                removed = self.pending_orders.pop(order_id, None)  # B4: pop avoids KeyError on duplicate events
+                removed = self.pending_orders.pop(order_id, None)  # B4: pop avoids KeyError on duplicate events  # noqa: E501
             if removed is not None:
                 self.logger.debug(
                     "Removed terminal order %s from pending_orders (event: %s)",
@@ -1820,7 +1820,7 @@ class LiveEngine:
         reason = (getattr(event, "data", None) or {}).get("reason", "KILL_SWITCH event received")
         self._kill_switch_event.set()
         self._write_kill_lock(reason)
-        self.logger.critical("🔴 KILL SWITCH ACTIVATED: %s — no further orders will be submitted", reason)
+        self.logger.critical("🔴 KILL SWITCH ACTIVATED: %s — no further orders will be submitted", reason)  # noqa: E501
 
     def _on_emergency_bridge(self, event: Any) -> None:
         """P0-2: Bridge EMERGENCY events from E11/E13 to the KILL_SWITCH handler.
@@ -1986,7 +1986,7 @@ class LiveEngine:
                 # Prefer explicit "side" if provided by the emitter (R14 sets it);
                 # fall back to querying the position tracker.
                 _qty: float = 0.0
-                _pt = getattr(self, "_position_tracker", None) or getattr(self, "position_tracker", None)
+                _pt = getattr(self, "_position_tracker", None) or getattr(self, "position_tracker", None)  # noqa: E501
                 if _pt is not None:
                     try:
                         _pos = _pt.get_position(order.get("symbol", ""))
@@ -2055,7 +2055,7 @@ class LiveEngine:
             self.logger.error("broker.place_order failed: %s", exc, exc_info=True)
             return {"status": "error", "reason": str(exc)}
 
-    def _resolve_order_future(self, order_id: str, order: dict[str, Any], result: dict[str, Any]) -> None:
+    def _resolve_order_future(self, order_id: str, order: dict[str, Any], result: dict[str, Any]) -> None:  # noqa: E501
         """Store result in pending_orders and signal the associated Future.
 
         A2 (v14): take ``_pending_orders_lock`` for the read+write, then release
@@ -2077,7 +2077,7 @@ class LiveEngine:
                 # Raced with another resolver — already done. Idempotent no-op.
                 pass
 
-    def _wait_for_execution(self, order_id: str, timeout: int = ORDER_TIMEOUT_SECONDS) -> dict[str, Any]:
+    def _wait_for_execution(self, order_id: str, timeout: int = ORDER_TIMEOUT_SECONDS) -> dict[str, Any]:  # noqa: E501
         """Block until the broker confirms order execution or timeout expires.
 
         Waits on a ``concurrent.futures.Future`` pre-registered by
@@ -2091,7 +2091,7 @@ class LiveEngine:
             try:
                 return fut.result(timeout=timeout)
             except concurrent.futures.TimeoutError:
-                return {"status": "timeout", "reason": f"Order {order_id} not confirmed within {timeout}s"}
+                return {"status": "timeout", "reason": f"Order {order_id} not confirmed within {timeout}s"}  # noqa: E501
             except Exception as exc:
                 return {"status": "error", "reason": str(exc)}
         # Fallback: no Future registered — return whatever is already stored.

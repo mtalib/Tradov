@@ -725,11 +725,11 @@ Market Outlook:
                 body += f"{calc.dix_percentage:.2f}% ({calc.sentiment})\n"
 
         # Get report path
-        _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+        _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))  # noqa: E501
         _charts_dir = os.path.join(_data_dir, "dix_charts")
         os.makedirs(_charts_dir, exist_ok=True)
         report_path = os.path.join(_charts_dir, f"dix_analysis_report_{
-            result.timestamp.strftime('%Y%m%d')}.md")
+            result.timestamp.strftime('%Y%m%d')}.md")  # noqa: F841
 
         self.email_sender.send_email(
             subject=subject,
@@ -820,9 +820,9 @@ Today's Trading Bias:
                 "execution_time": result.execution_time,
             }
 
-            _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+            _data_dir = os.environ.get("SPYDER_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))  # noqa: E501
             os.makedirs(_data_dir, exist_ok=True)
-            filename = os.path.join(_data_dir, f"dix_history_{result.timestamp.strftime('%Y%m%d')}.json")
+            filename = os.path.join(_data_dir, f"dix_history_{result.timestamp.strftime('%Y%m%d')}.json")  # noqa: E501
             with open(filename, "w") as f:
                 json.dump(data, f, indent=2)
 

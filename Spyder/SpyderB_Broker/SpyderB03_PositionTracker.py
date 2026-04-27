@@ -534,7 +534,7 @@ class PositionTracker:
                         with self.lock:
                             # Find discrepancies
                             internal_symbols = set(self.positions.keys())
-                            broker_symbols = set(broker_positions.keys()) if broker_positions else set()
+                            broker_symbols = set(broker_positions.keys()) if broker_positions else set()  # noqa: E501
 
                             # Positions we have but broker doesn't
                             orphaned = internal_symbols - broker_symbols

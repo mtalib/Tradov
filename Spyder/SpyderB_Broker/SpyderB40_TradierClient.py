@@ -667,7 +667,7 @@ class TradierClient:
         except requests.exceptions.Timeout:
             error_msg = f"Request timeout after {self.timeout}s: {endpoint}"
             logger.warning(error_msg)  # transient; full traceback is noise
-            raise TradierAPIError(error_msg)
+            raise TradierAPIError(error_msg)  # noqa: B904
 
         except requests.exceptions.ConnectionError as e:
             # Includes ReadTimeoutError wrapped by urllib3 after max retries.
@@ -679,7 +679,7 @@ class TradierClient:
                 detail = detail.splitlines()[0]
             error_msg = f"Connection error: {detail}"
             logger.warning(error_msg)
-            raise TradierAPIError(error_msg)
+            raise TradierAPIError(error_msg)  # noqa: B904
 
         except (TradierAuthenticationError, TradierValidationError,
                 TradierRateLimitError, TradierServerError, TradierAPIError):
@@ -688,7 +688,7 @@ class TradierClient:
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg, exc_info=True)
-            raise TradierAPIError(error_msg)
+            raise TradierAPIError(error_msg)  # noqa: B904
 
     def get_rate_limit_info(self) -> RateLimitInfo | None:
         """
@@ -2176,7 +2176,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def place_order_async(
         self,
         symbol: str,
@@ -2248,7 +2248,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def get_quotes_async(self, symbols: list[str]) -> dict[str, Any]:
         """
         Get real-time quotes asynchronously with rate limiting and circuit breaker.
@@ -2279,7 +2279,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def get_account_balances_async(self) -> dict[str, Any]:
         """
         Get account balances asynchronously with protection.
@@ -2298,7 +2298,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def get_positions_async(self) -> dict[str, Any]:
         """
         Get current positions asynchronously with protection.
@@ -2317,7 +2317,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def cancel_order_async(self, order_id: int) -> dict[str, Any]:
         """
         Cancel an order asynchronously with protection.
@@ -2340,7 +2340,7 @@ class TradierClient:
 
     @rate_limit(service="tradier")
     @retry_async(max_attempts=3, base_delay=1.0, max_delay=8.0,
-                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))
+                 exceptions=(TradierServerError, TradierRateLimitError, ConnectionError, TimeoutError))  # noqa: E501
     async def get_option_chain_async(self, symbol: str, expiration: str) -> dict[str, Any]:
         """
         Get option chain asynchronously with protection.
@@ -3043,7 +3043,7 @@ class TradierMarketStream:
         self.on_disconnected: Callable[[], None] | None = None
 
         logger.info(
-            "TradierMarketStream initialised for %s symbol(s): %s", len(self._symbols), self._symbols
+            "TradierMarketStream initialised for %s symbol(s): %s", len(self._symbols), self._symbols  # noqa: E501
         )
 
     # ------------------------------------------------------------------

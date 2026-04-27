@@ -751,7 +751,7 @@ class CapitalAllocator:
 
     def allocate_capital(self,
                         strategy_ids: list[str],
-                        method: AllocationMethod = AllocationMethod.DYNAMIC) -> list[AllocationDecision]:
+                        method: AllocationMethod = AllocationMethod.DYNAMIC) -> list[AllocationDecision]:  # noqa: E501
         """
         Main capital allocation method
 
@@ -813,7 +813,7 @@ class CapitalAllocator:
                     mode=mode_map.get(method, 'risk_parity')
                 )
             else:
-                self.logger.warning("Insufficient returns data for RiskFolio — falling back to equal weight")
+                self.logger.warning("Insufficient returns data for RiskFolio — falling back to equal weight")  # noqa: E501
                 n = len(active_strategies)
                 allocations = {sid: 1/n for sid in active_strategies}
 
@@ -855,7 +855,7 @@ class CapitalAllocator:
         # Update portfolio state
         self._update_portfolio_state()
 
-        self.logger.info("Allocated capital to %s strategies using %s", len(decisions), method.value)
+        self.logger.info("Allocated capital to %s strategies using %s", len(decisions), method.value)  # noqa: E501
 
         return decisions
 

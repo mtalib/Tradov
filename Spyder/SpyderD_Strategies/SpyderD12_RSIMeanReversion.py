@@ -501,7 +501,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             contracts = self._calculate_position_size(stop_price, current_price)
 
             # Determine signal strength
-            if self.rsi_state == RSIState.EXTREME_OVERSOLD or divergence and divergence.divergence_type == DivergenceType.BULLISH_DIVERGENCE:
+            if self.rsi_state == RSIState.EXTREME_OVERSOLD or divergence and divergence.divergence_type == DivergenceType.BULLISH_DIVERGENCE:  # noqa: E501
                 strength = SignalStrength.STRONG
             else:
                 strength = SignalStrength.MODERATE
@@ -580,7 +580,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             contracts = self._calculate_position_size(current_price, stop_price)
 
             # Determine signal strength
-            if self.rsi_state == RSIState.EXTREME_OVERBOUGHT or divergence and divergence.divergence_type == DivergenceType.BEARISH_DIVERGENCE:
+            if self.rsi_state == RSIState.EXTREME_OVERBOUGHT or divergence and divergence.divergence_type == DivergenceType.BEARISH_DIVERGENCE:  # noqa: E501
                 strength = SignalStrength.STRONG
             else:
                 strength = SignalStrength.MODERATE
@@ -723,7 +723,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
                 quality_score += 1
 
             # Trend alignment
-            if condition == 'oversold' and current_price < sma_20 or condition == 'overbought' and current_price > sma_20:
+            if condition == 'oversold' and current_price < sma_20 or condition == 'overbought' and current_price > sma_20:  # noqa: E501
                 quality_score += 1
 
             # RSI extreme
@@ -820,17 +820,17 @@ class RSIMeanReversionStrategy(BaseStrategy):
 
     def _update_trailing_stop(self, position: RSIPosition, current_price: float):
         """Update trailing stop loss"""
-        if position.pnl_percent >= TRAILING_STOP_ACTIVATION * abs(position.signal.stop_price - position.signal.entry_price) / position.signal.entry_price:
+        if position.pnl_percent >= TRAILING_STOP_ACTIVATION * abs(position.signal.stop_price - position.signal.entry_price) / position.signal.entry_price:  # noqa: E501
             # Activate trailing stop
             if position.signal.option_type == OptionType.CALL:
                 # Trail stop below current price
-                new_stop = current_price - (position.signal.entry_price - position.signal.stop_price) * 0.5
+                new_stop = current_price - (position.signal.entry_price - position.signal.stop_price) * 0.5  # noqa: E501
                 if position.trailing_stop is None or new_stop > position.trailing_stop:
                     position.trailing_stop = new_stop
                     position.state = ReversionState.PROFIT_TARGET
             else:  # PUT
                 # Trail stop above current price
-                new_stop = current_price + (position.signal.stop_price - position.signal.entry_price) * 0.5
+                new_stop = current_price + (position.signal.stop_price - position.signal.entry_price) * 0.5  # noqa: E501
                 if position.trailing_stop is None or new_stop < position.trailing_stop:
                     position.trailing_stop = new_stop
                     position.state = ReversionState.PROFIT_TARGET
@@ -869,7 +869,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit RSI position {position.position_id}: {reason}, P&L: ${position.pnl:.2f}")
+        self.logger.info(f"Exit RSI position {position.position_id}: {reason}, P&L: ${position.pnl:.2f}")  # noqa: E501
         return signal
 
     def _update_performance_stats(self, position: RSIPosition):
@@ -919,7 +919,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         """Get comprehensive strategy statistics"""
         win_rate = 0.0
         if self.performance_stats['total_trades'] > 0:
-            win_rate = self.performance_stats['winning_trades'] / self.performance_stats['total_trades']
+            win_rate = self.performance_stats['winning_trades'] / self.performance_stats['total_trades']  # noqa: E501
 
         return {
             'current_rsi': self.current_rsi,

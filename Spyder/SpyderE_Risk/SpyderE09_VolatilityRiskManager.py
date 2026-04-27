@@ -287,7 +287,7 @@ class VolatilityRiskManager:
     # ==========================================================================
     # PUBLIC METHODS - RISK ASSESSMENT
     # ==========================================================================
-    def assess_volatility_risk(self, positions: list[dict[str, Any]] | None = None) -> VolRiskProfile:
+    def assess_volatility_risk(self, positions: list[dict[str, Any]] | None = None) -> VolRiskProfile:  # noqa: E501
         """
         Perform comprehensive volatility risk assessment.
 
@@ -350,7 +350,7 @@ class VolatilityRiskManager:
                 self.error_handler.handle_error(e, {"method": "assess_volatility_risk"})
                 return self._create_default_risk_profile()
 
-    def activate_protection_protocol(self, level: ProtectionLevel | None = None) -> VolProtectionProtocol:
+    def activate_protection_protocol(self, level: ProtectionLevel | None = None) -> VolProtectionProtocol:  # noqa: E501
         """
         Activate volatility protection protocol.
 
@@ -390,7 +390,7 @@ class VolatilityRiskManager:
 
             return protocol
 
-    def execute_gamma_scalping(self, position_id: str, position_data: dict[str, Any]) -> dict[str, Any] | None:
+    def execute_gamma_scalping(self, position_id: str, position_data: dict[str, Any]) -> dict[str, Any] | None:  # noqa: E501
         """
         Execute gamma scalping for a position.
 
@@ -449,7 +449,7 @@ class VolatilityRiskManager:
                 self.scalp_history.append(scalp_result)
 
                 self.logger.info(
-                    f"Gamma scalp executed: {scalp_direction} {scalp_quantity} @ {current_price:.2f}"
+                    f"Gamma scalp executed: {scalp_direction} {scalp_quantity} @ {current_price:.2f}"  # noqa: E501
                 )
 
                 return scalp_result
@@ -746,7 +746,7 @@ class VolatilityRiskManager:
             hedges.append({
                 'type': 'vix_call',
                 'strike': self.current_metrics.spot_vix + 5 if self.current_metrics else 25,
-                'quantity': int(abs(self.current_exposure.vega_exposure / 100)) if self.current_exposure else 1,
+                'quantity': int(abs(self.current_exposure.vega_exposure / 100)) if self.current_exposure else 1,  # noqa: E501
                 'expiry': '30d'
             })
 
@@ -755,7 +755,7 @@ class VolatilityRiskManager:
             hedges.append({
                 'type': 'spy_put',
                 'strike': 'ATM-2%',
-                'quantity': int(abs(self.current_exposure.gamma_exposure / 10)) if self.current_exposure else 1,
+                'quantity': int(abs(self.current_exposure.gamma_exposure / 10)) if self.current_exposure else 1,  # noqa: E501
                 'expiry': '30d'
             })
 
@@ -798,12 +798,12 @@ class VolatilityRiskManager:
         if self.current_metrics:
             if self.current_metrics.spot_vix > VIX_HIGH_THRESHOLD:
                 recommendations.append(
-                    f"VIX elevated at {self.current_metrics.spot_vix:.1f} - consider reducing position sizes"
+                    f"VIX elevated at {self.current_metrics.spot_vix:.1f} - consider reducing position sizes"  # noqa: E501
                 )
 
             if abs(self.current_metrics.vix_change_1d) > 3:
                 recommendations.append(
-                    f"Large VIX move ({self.current_metrics.vix_change_1d:+.1f}) - monitor for continuation"
+                    f"Large VIX move ({self.current_metrics.vix_change_1d:+.1f}) - monitor for continuation"  # noqa: E501
                 )
 
         # Exposure recommendations
@@ -967,8 +967,8 @@ class VolatilityRiskManager:
                 self.assess_volatility_risk()
 
                 # Check if protection needed
-                if self.current_metrics and self.current_metrics.spot_vix > VIX_PROTECTION_ACTIVATION:
-                    if not self.active_protocols or all(p.status == 'completed' for p in self.active_protocols):
+                if self.current_metrics and self.current_metrics.spot_vix > VIX_PROTECTION_ACTIVATION:  # noqa: E501
+                    if not self.active_protocols or all(p.status == 'completed' for p in self.active_protocols):  # noqa: E501
                         self.logger.warning("VIX elevated - considering protection")
 
                 # Update vol surface periodically
@@ -1037,7 +1037,7 @@ if __name__ == "__main__":
     # Reassess risk
     high_risk_profile = vol_mgr.assess_volatility_risk()
 
-    if high_risk_profile.risk_assessment.risk_signal in [VolRiskSignal.WARNING, VolRiskSignal.DANGER]:
+    if high_risk_profile.risk_assessment.risk_signal in [VolRiskSignal.WARNING, VolRiskSignal.DANGER]:  # noqa: E501
 
         protocol = vol_mgr.activate_protection_protocol()
 

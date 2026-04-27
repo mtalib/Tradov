@@ -106,7 +106,7 @@ except ImportError:
     YFINANCE_AVAILABLE = False
 
 try:
-    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: E501
     _C29_AVAILABLE = True
 except ImportError:
     _get_c29_provider = None  # type: ignore[assignment]
@@ -325,7 +325,7 @@ class BlackSwanIndicator:
             )
 
             _swan_key = (round(result.overall_score, 2), status.value)
-            _log_swan = self.logger.info if _swan_key != getattr(self, "_last_swan_key", None) else self.logger.debug
+            _log_swan = self.logger.info if _swan_key != getattr(self, "_last_swan_key", None) else self.logger.debug  # noqa: E501
             self._last_swan_key = _swan_key
             _log_swan(f"SWAN Score calculated: {result.overall_score:.2f} ({status.value})")
             return result
@@ -726,5 +726,5 @@ if __name__ == "__main__":
     print()  # noqa: T201
     print("Component Breakdown:")  # noqa: T201
     for name, score in result.component_scores.items():
-        print(f"  {name:<20} raw={score.raw_score:.2f}  weighted={score.weighted_score:.3f}  — {score.description}")  # noqa: T201
+        print(f"  {name:<20} raw={score.raw_score:.2f}  weighted={score.weighted_score:.3f}  — {score.description}")  # noqa: E501, T201
 

@@ -370,7 +370,7 @@ class OrderRouter:
         """
         # Check circuit breaker
         if self.circuit_breaker.state == CircuitBreakerState.TRIGGERED:
-            if self.circuit_breaker.cooldown_until and datetime.now() < self.circuit_breaker.cooldown_until:
+            if self.circuit_breaker.cooldown_until and datetime.now() < self.circuit_breaker.cooldown_until:  # noqa: E501
                 self.logger.warning("Circuit breaker active - order rejected: %s", order.order_id)
                 self._record_event(order.order_id, RoutingEvent.REJECTED,
                                  {'reason': 'circuit_breaker'})
@@ -479,7 +479,7 @@ class OrderRouter:
         self.routing_latencies.append(routing_latency)
 
         if routing_latency > MAX_ROUTING_LATENCY_MS:
-            self.logger.warning(f"High routing latency: {routing_latency:.1f}ms for {order.order_id}")
+            self.logger.warning(f"High routing latency: {routing_latency:.1f}ms for {order.order_id}")  # noqa: E501
 
         self.total_orders_routed += 1
 
@@ -756,7 +756,7 @@ class OrderRouter:
             return False
 
         # Check latency requirements for IOC orders
-        return not (order.time_in_force == "IOC" and VENUE_CHARACTERISTICS[venue]['latency_ms'] > 10)
+        return not (order.time_in_force == "IOC" and VENUE_CHARACTERISTICS[venue]['latency_ms'] > 10)  # noqa: E501
 
     def _score_venue(self, venue: ExecutionVenue, order: RoutableOrder) -> float:
         """
@@ -989,10 +989,10 @@ class OrderRouter:
         """Trigger circuit breaker"""
         self.circuit_breaker.state = CircuitBreakerState.TRIGGERED
         self.circuit_breaker.last_triggered = datetime.now()
-        self.circuit_breaker.cooldown_until = datetime.now() + timedelta(seconds=CIRCUIT_BREAKER_COOLDOWN)
+        self.circuit_breaker.cooldown_until = datetime.now() + timedelta(seconds=CIRCUIT_BREAKER_COOLDOWN)  # noqa: E501
         self.circuit_breaker.triggers_count += 1
 
-        self.logger.critical(f"🚨 Circuit breaker triggered! Orders: {self.circuit_breaker.orders_per_second}/s, "
+        self.logger.critical(f"🚨 Circuit breaker triggered! Orders: {self.circuit_breaker.orders_per_second}/s, "  # noqa: E501
                            f"Rejection rate: {self.circuit_breaker.rejection_rate:.1%}")
 
     def _reset_circuit_breaker(self):
@@ -1008,7 +1008,7 @@ class OrderRouter:
     def _generate_order_id(self) -> str:
         """Generate unique order ID"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        random_suffix = hashlib.md5(str(random.random()).encode(), usedforsecurity=False).hexdigest()[:6]
+        random_suffix = hashlib.md5(str(random.random()).encode(), usedforsecurity=False).hexdigest()[:6]  # noqa: E501
         return f"ORD_{timestamp}_{random_suffix}"
 
     def _start_router(self):
@@ -1020,7 +1020,7 @@ class OrderRouter:
 
         # Start monitor thread
         if not self.monitor_thread or not self.monitor_thread.is_alive():
-            self.monitor_thread = threading.Thread(target=self._monitor_circuit_breaker, daemon=True)
+            self.monitor_thread = threading.Thread(target=self._monitor_circuit_breaker, daemon=True)  # noqa: E501
             self.monitor_thread.start()
 
     # ==========================================================================

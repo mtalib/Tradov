@@ -855,7 +855,7 @@ class MarketInternalsAnalyzer:
                 if tnx_chg >= TNX_SPIKE_PCT:
                     direction = "up" if tnx_now > self._tnx_session_open else "down"
                     warnings.append(
-                        f"TNX spike {direction} {tnx_chg * 100:.2f}% intraday — cancel pending pivots"
+                        f"TNX spike {direction} {tnx_chg * 100:.2f}% intraday — cancel pending pivots"  # noqa: E501
                     )
 
             # RVOL abort / confirmation gate

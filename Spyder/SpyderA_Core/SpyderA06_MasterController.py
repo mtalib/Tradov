@@ -772,14 +772,14 @@ class MasterController:
             try:
                 from SpyderY_AutoAgents.SpyderY10_AgentScheduler import AgentScheduler
                 from SpyderY_AutoAgents.SpyderY01_MarketSenseAgent import SpyderY01_MarketSenseAgent
-                from SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent import SpyderY02_StrategyPilotAgent
-                from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import SpyderY03_RiskSentinelAgent
-                from SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent import SpyderY04_AlphaLearnerAgent
-                from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import SpyderY05_ExecutionOptimizerAgent
-                from SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent import SpyderY06_NewsSentinelAgent
-                from SpyderY_AutoAgents.SpyderY07_TradeJournalAgent import SpyderY07_TradeJournalAgent
-                from SpyderY_AutoAgents.SpyderY08_MetaOrchestratorAgent import SpyderY08_MetaOrchestratorAgent
-                from SpyderY_AutoAgents.SpyderY09_CodeReviewerAgent import SpyderY09_CodeReviewerAgent
+                from SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent import SpyderY02_StrategyPilotAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import SpyderY03_RiskSentinelAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent import SpyderY04_AlphaLearnerAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import SpyderY05_ExecutionOptimizerAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent import SpyderY06_NewsSentinelAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY07_TradeJournalAgent import SpyderY07_TradeJournalAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY08_MetaOrchestratorAgent import SpyderY08_MetaOrchestratorAgent  # noqa: E501
+                from SpyderY_AutoAgents.SpyderY09_CodeReviewerAgent import SpyderY09_CodeReviewerAgent  # noqa: E501
 
                 telegram_bot = self.components.get("J05_TelegramBot")
                 message_bus = self.components.get("I06_AgentMessageBus")
@@ -969,9 +969,9 @@ class MasterController:
                 _t.start()
                 _t.join(timeout=15)
                 if _start_exc:
-                    logger.warning("E01 start() raised: %s — risk gate may reject early signals", _start_exc[0])
+                    logger.warning("E01 start() raised: %s — risk gate may reject early signals", _start_exc[0])  # noqa: E501
                 elif _t.is_alive():
-                    logger.warning("E01 start() did not complete within 15 s — risk gate may reject early signals")
+                    logger.warning("E01 start() did not complete within 15 s — risk gate may reject early signals")  # noqa: E501
                 elif not _start_result or not _start_result[0]:
                     # A06-B1: start() returned False — real-money safety component
                     # reported a failure; treat as a warning so operator is alerted.
@@ -994,7 +994,7 @@ class MasterController:
                 logger.info("E19_UnifiedRiskCoordinator initialized")
                 return coordinator
             except Exception as e:
-                logger.warning("Could not initialize E19_UnifiedRiskCoordinator: %s", e, exc_info=True)
+                logger.warning("Could not initialize E19_UnifiedRiskCoordinator: %s", e, exc_info=True)  # noqa: E501
                 return None
 
         # ── Modules with complex cross-dependencies: return an initialized stub ─
@@ -1059,7 +1059,7 @@ class MasterController:
             {"name": "Autonomous Agents", "modules": ["Y10_AgentScheduler"]},
             {"name": "Task Scheduler", "modules": ["A04_Scheduler"]},
             {"name": "Notifications", "modules": ["J05_TelegramBot"]},
-            {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"]},
+            {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"]},  # noqa: E501
             {"name": "Strategies", "modules": ["D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"]},
             {
                 "name": "AI Agents",
@@ -1256,7 +1256,7 @@ class MasterController:
                         is_healthy = module.health_check()
                         module.status = ModuleStatus.HEALTHY if is_healthy else ModuleStatus.WARNING
                     except Exception as e:
-                        logger.warning("Health check failed for %s: %s", module_id, e, exc_info=True)
+                        logger.warning("Health check failed for %s: %s", module_id, e, exc_info=True)  # noqa: E501
                         module.status = ModuleStatus.WARNING
 
     def _check_system_resources(self, metrics: HealthMetrics):
@@ -1499,7 +1499,7 @@ class MasterController:
 
         # Wire D31 with R04_LiveEngine as the execution fallback
         live_engine = self.components.get("R04_LiveEngine")
-        if orchestrator is not None and hasattr(orchestrator, "set_live_engine") and live_engine is not None:
+        if orchestrator is not None and hasattr(orchestrator, "set_live_engine") and live_engine is not None:  # noqa: E501
             try:
                 orchestrator.set_live_engine(live_engine)
                 logger.info("D31: R04_LiveEngine wired as execution fallback")

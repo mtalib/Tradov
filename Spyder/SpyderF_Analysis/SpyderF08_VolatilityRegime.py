@@ -243,7 +243,7 @@ class VolatilityRegimeAnalyzer:
                 prediction=prediction,
                 model_info={
                     'version': self.model_version,
-                    'last_retrain': self.last_retrain_date.isoformat() if self.last_retrain_date else None,
+                    'last_retrain': self.last_retrain_date.isoformat() if self.last_retrain_date else None,  # noqa: E501
                     'performance_score': self._calculate_model_performance()
                 }
             )
@@ -251,7 +251,7 @@ class VolatilityRegimeAnalyzer:
             # Record metrics
             elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
             self.monitor.record_metric('regime_analysis.execution_ms', elapsed_ms)
-            self.monitor.record_metric('regime_analysis.current_regime', self.current_regime.value if self.current_regime else 0)
+            self.monitor.record_metric('regime_analysis.current_regime', self.current_regime.value if self.current_regime else 0)  # noqa: E501
 
             return analysis
 
@@ -529,7 +529,7 @@ class VolatilityRegimeAnalyzer:
             lambda x: np.sqrt(np.sum(x) / len(x))
         ) * np.sqrt(252)
 
-    def _calculate_volume_weighted_volatility(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+    def _calculate_volume_weighted_volatility(self, data: pd.DataFrame, period: int = 20) -> pd.Series:  # noqa: E501
         """Calculate volume-weighted volatility."""
         returns = data['close'].pct_change()
         volume_weights = data['volume'] / data['volume'].rolling(period).sum()
@@ -728,7 +728,7 @@ class VolatilityRegimeAnalyzer:
             feature_trends = {}
             for col in recent_features.columns:
                 if 'volatility' in col:
-                    trend = (recent_features[col].iloc[-1] - recent_features[col].iloc[0]) / recent_features[col].iloc[0]
+                    trend = (recent_features[col].iloc[-1] - recent_features[col].iloc[0]) / recent_features[col].iloc[0]  # noqa: E501
                     feature_trends[col] = trend
 
             # Simple prediction based on trends
@@ -822,7 +822,7 @@ class VolatilityRegimeAnalyzer:
         prev_state = self.regime_history[-1]
 
         # Check volatility spike
-        vol_change = (new_state.volatility_level - prev_state.volatility_level) / prev_state.volatility_level
+        vol_change = (new_state.volatility_level - prev_state.volatility_level) / prev_state.volatility_level  # noqa: E501
         if abs(vol_change) > 0.3:
             return f'volatility_{"spike" if vol_change > 0 else "drop"}'
 

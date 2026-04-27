@@ -145,9 +145,9 @@ RECESSION_BANDS: list[tuple[str, str, str]] = [
 # Strategy gate table exposed for regime gating layer
 STRATEGY_GATES: dict[str, str] = {
     "NORMAL":   "Full strategy palette; no working-class credit stress detected.",
-    "CAUTION":  "Pawn sector outperforming banks — credit tightening signal. Reduce short-put exposure.",
-    "WARNING":  "Significant consumer liquidity stress. Defensive posture only — bear call spreads, reduced size.",
-    "CRITICAL": "Systemic credit crunch confirmed. Minimum size; put-bias on 0-DTE bounces; maximum hedges.",
+    "CAUTION":  "Pawn sector outperforming banks — credit tightening signal. Reduce short-put exposure.",  # noqa: E501
+    "WARNING":  "Significant consumer liquidity stress. Defensive posture only — bear call spreads, reduced size.",  # noqa: E501
+    "CRITICAL": "Systemic credit crunch confirmed. Minimum size; put-bias on 0-DTE bounces; maximum hedges.",  # noqa: E501
 }
 
 
@@ -421,7 +421,7 @@ def _fetch_series_yfinance(
         _save_cache(cache_key, series)
         return series
     except ImportError:
-        raise PSRDataError("yfinance not installed — Tradier is required")
+        raise PSRDataError("yfinance not installed — Tradier is required")  # noqa: B904
 
 
 # ==============================================================================
@@ -561,34 +561,34 @@ def interpret_dual_signal(
     if w >= 2 and p <= 0:
         return {
             "regime":           "MIDDLE_CLASS_PULLBACK",
-            "description":      "Middle class down-trading (WRS elevated) but credit still available (PSR low). Mild bearish bias.",
+            "description":      "Middle class down-trading (WRS elevated) but credit still available (PSR low). Mild bearish bias.",  # noqa: E501
             "trading_bias":     "Slight bear bias; reduce Iron Condor long-delta tilt.",
             "size_multiplier":  "0.80",
         }
     if p >= 2 and w <= 0:
         return {
             "regime":           "WORKING_CLASS_STRESS",
-            "description":      "Pawn shops outperforming banks (PSR elevated) without middle-class stress. Watch for contagion upward.",
+            "description":      "Pawn shops outperforming banks (PSR elevated) without middle-class stress. Watch for contagion upward.",  # noqa: E501
             "trading_bias":     "Defensive; reduce short-put exposure; monitor WRS.",
             "size_multiplier":  "0.75",
         }
     if combined >= 5:
         return {
             "regime":           "SYSTEMIC_CRISIS",
-            "description":      "CONFIRMED MULTI-TIERED CONSUMER CRISIS — both WRS and PSR critical. Maximum bearish posture.",
-            "trading_bias":     "Heavy put-side bias; sell call credit spreads on rallies; 0-DTE mean reversion down.",
+            "description":      "CONFIRMED MULTI-TIERED CONSUMER CRISIS — both WRS and PSR critical. Maximum bearish posture.",  # noqa: E501
+            "trading_bias":     "Heavy put-side bias; sell call credit spreads on rallies; 0-DTE mean reversion down.",  # noqa: E501
             "size_multiplier":  "0.40",
         }
     if combined >= 3:
         return {
             "regime":           "BROAD_STRESS",
-            "description":      "Broad consumer stress across income tiers. Both indicators elevated.",
+            "description":      "Broad consumer stress across income tiers. Both indicators elevated.",  # noqa: E501
             "trading_bias":     "Bearish regime; favour put spreads; reduce naked premium selling.",
             "size_multiplier":  "0.60",
         }
     return {
         "regime":           "EARLY_DETERIORATION",
-        "description":      "Early consumer stress signals. One or both indicators moving into caution territory.",
+        "description":      "Early consumer stress signals. One or both indicators moving into caution territory.",  # noqa: E501
         "trading_bias":     "Reduce size; avoid aggressive premium selling.",
         "size_multiplier":  "0.85",
     }
@@ -961,7 +961,7 @@ def _cli_main() -> None:
     result = signal.compute(force_refresh=args.refresh)
 
     if result.error:
-        print(f"ERROR: {result.error}")
+        print(f"ERROR: {result.error}")  # noqa: T201
         return
 
     _ICONS = {
@@ -982,35 +982,35 @@ def _cli_main() -> None:
 
     width = 52
     border = "─" * width
-    print(f"┌{border}┐")
-    print(f"│{'PAWN SHOP RATIO (PSR)':^{width}}│")
-    print(f"│{f'As of: {result.date}':^{width}}│")
-    print(f"│{'Formula: (FCFS + EZPW) / XLF':^{width}}│")
-    print(f"├{border}┤")
-    print(f"│  {'PSR Value':22}: {result.psr:.4f}{' ' * (width - 30)}│")
-    print(f"│  {'30-Day MA':22}: {result.psr_30d_ma:.4f}{' ' * (width - 30)}│")
-    print(f"│  {'90-Day MA':22}: {result.psr_90d_ma:.4f}{' ' * (width - 30)}│")
-    print(f"│  {'YoY Change':22}: {yoy_str}{' ' * (width - 10 - len(yoy_str))}│")
+    print(f"┌{border}┐")  # noqa: T201
+    print(f"│{'PAWN SHOP RATIO (PSR)':^{width}}│")  # noqa: T201
+    print(f"│{f'As of: {result.date}':^{width}}│")  # noqa: T201
+    print(f"│{'Formula: (FCFS + EZPW) / XLF':^{width}}│")  # noqa: T201
+    print(f"├{border}┤")  # noqa: T201
+    print(f"│  {'PSR Value':22}: {result.psr:.4f}{' ' * (width - 30)}│")  # noqa: T201
+    print(f"│  {'30-Day MA':22}: {result.psr_30d_ma:.4f}{' ' * (width - 30)}│")  # noqa: T201
+    print(f"│  {'90-Day MA':22}: {result.psr_90d_ma:.4f}{' ' * (width - 30)}│")  # noqa: T201
+    print(f"│  {'YoY Change':22}: {yoy_str}{' ' * (width - 10 - len(yoy_str))}│")  # noqa: T201
     pct_str = f"{result.psr_pct_rank:.1f}%"
-    print(f"│  {'Percentile Rank':22}: {pct_str}{' ' * (width - 10 - len(pct_str))}│")
+    print(f"│  {'Percentile Rank':22}: {pct_str}{' ' * (width - 10 - len(pct_str))}│")  # noqa: T201
     z_str = f"{result.psr_zscore:.2f}"
-    print(f"│  {'Z-Score (252d)':22}: {z_str}{' ' * (width - 10 - len(z_str))}│")
+    print(f"│  {'Z-Score (252d)':22}: {z_str}{' ' * (width - 10 - len(z_str))}│")  # noqa: T201
     lvl_str = f"{icon} {result.signal_level.value}"
-    print(f"│  {'Signal Level':22}: {lvl_str}{' ' * (width - 10 - len(lvl_str))}│")
-    print(f"├{border}┤")
-    print(f"│  {'FCFS (FirstCash)':22}: ${result.fcfs_price:.2f}{' ' * max(0, width - 12 - len(f'${result.fcfs_price:.2f}'))}│")
-    print(f"│  {'EZPW (EZCORP)':22}: ${result.ezpw_price:.2f}{' ' * max(0, width - 12 - len(f'${result.ezpw_price:.2f}'))}│")
-    print(f"│  {'XLF (Fin. Sector)':22}: ${result.xlf_price:.2f}{' ' * max(0, width - 12 - len(f'${result.xlf_price:.2f}'))}│")
+    print(f"│  {'Signal Level':22}: {lvl_str}{' ' * (width - 10 - len(lvl_str))}│")  # noqa: T201
+    print(f"├{border}┤")  # noqa: T201
+    print(f"│  {'FCFS (FirstCash)':22}: ${result.fcfs_price:.2f}{' ' * max(0, width - 12 - len(f'${result.fcfs_price:.2f}'))}│")  # noqa: E501, T201
+    print(f"│  {'EZPW (EZCORP)':22}: ${result.ezpw_price:.2f}{' ' * max(0, width - 12 - len(f'${result.ezpw_price:.2f}'))}│")  # noqa: E501, T201
+    print(f"│  {'XLF (Fin. Sector)':22}: ${result.xlf_price:.2f}{' ' * max(0, width - 12 - len(f'${result.xlf_price:.2f}'))}│")  # noqa: E501, T201
     rng_str = f"{result.data_start} → {result.data_end}"
-    print(f"│  {'Data Range':22}: {rng_str}{' ' * max(0, width - 10 - len(rng_str))}│")
-    print(f"│  {'Last Crossover':22}: {last_cross}{' ' * max(0, width - 10 - len(last_cross))}│")
-    print(f"└{border}┘")
-    print(f"\nGuidance: {result.strategy_guidance}")
+    print(f"│  {'Data Range':22}: {rng_str}{' ' * max(0, width - 10 - len(rng_str))}│")  # noqa: T201
+    print(f"│  {'Last Crossover':22}: {last_cross}{' ' * max(0, width - 10 - len(last_cross))}│")  # noqa: T201
+    print(f"└{border}┘")  # noqa: T201
+    print(f"\nGuidance: {result.strategy_guidance}")  # noqa: T201
 
     if args.chart or args.show:
         path = plot_psr(show=args.show)
         if path:
-            print(f"\nChart saved: {path}")
+            print(f"\nChart saved: {path}")  # noqa: T201
 
 
 if __name__ == "__main__":

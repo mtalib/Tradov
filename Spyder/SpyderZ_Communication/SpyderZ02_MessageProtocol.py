@@ -563,7 +563,7 @@ class VersionManager:
         # Try multi-step migration
         return self._multi_step_migration(message_dict, message_version)
 
-    def _multi_step_migration(self, message_dict: dict[str, Any], from_version: str) -> dict[str, Any]:
+    def _multi_step_migration(self, message_dict: dict[str, Any], from_version: str) -> dict[str, Any]:  # noqa: E501
         """Perform multi-step migration."""
         current = from_version
         result = message_dict.copy()

@@ -428,7 +428,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                             )
                         filled_orders.append(order_id)
                 except Exception as e:
-                    self.logger.error("Failed to poll order status for %s: %s", order_id, e, exc_info=True)
+                    self.logger.error("Failed to poll order status for %s: %s", order_id, e, exc_info=True)  # noqa: E501
 
         # Remove filled orders from active tracking
         for order_id in filled_orders:
@@ -486,7 +486,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                 "filled_orders": self._fill_metrics.filled_orders,
             },
             confidence=0.9,
-            reasoning=f"Fill rate: {self._fill_metrics.fill_rate:.0%}, slippage: {self._fill_metrics.avg_slippage_bps:.1f}bps",
+            reasoning=f"Fill rate: {self._fill_metrics.fill_rate:.0%}, slippage: {self._fill_metrics.avg_slippage_bps:.1f}bps",  # noqa: E501
             priority="LOW",
         ))
 

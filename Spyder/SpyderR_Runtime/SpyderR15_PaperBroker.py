@@ -41,9 +41,9 @@ Module Description:
 # ==============================================================================
 import threading
 import time
-import uuid
+import uuid  # noqa: F401
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional  # noqa: F401
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -361,7 +361,7 @@ class PaperBroker:
             # Underlying must be ≥1 char; tail must have room for 6+1+8 chars.
             if idx == 0 or idx + 15 > len(sym):
                 return False
-            if sym[idx:idx + 6].isdigit() and sym[idx + 6] in "CP" and sym[idx + 7:idx + 15].isdigit():
+            if sym[idx:idx + 6].isdigit() and sym[idx + 6] in "CP" and sym[idx + 7:idx + 15].isdigit():  # noqa: E501
                 return True
             return False
 

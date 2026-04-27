@@ -45,7 +45,7 @@ except ImportError:
     YFINANCE_AVAILABLE = False
 
 try:
-    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider
+    from Spyder.SpyderC_MarketData.SpyderC29_DataProviderRouter import get_data_provider as _get_c29_provider  # noqa: E501
     _C29_AVAILABLE = True
 except ImportError:
     _get_c29_provider = None  # type: ignore[assignment]
@@ -331,7 +331,7 @@ class FactorDataProvider:
             # Connect to F-Series Orchestrator (C21 was removed in v2; replaced by A08)
             if C21_AVAILABLE:
                 self.integration_hub = get_fseries_integration_hub()
-                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")
+                self.logger.info("Connected to F-Series integration hub via A08_FSeriesOrchestrator")  # noqa: E501
 
         except Exception as e:
             self.logger.warning("External connection initialization failed: %s", e, exc_info=True)
@@ -394,7 +394,7 @@ class FactorDataProvider:
                 self.factor_models[model_name].last_updated = datetime.now()
                 self.factor_models[model_name].correlation_matrix = factor_df.corr()
 
-            self.logger.info("Retrieved %s factor data: %s observations", model_name, len(factor_df))
+            self.logger.info("Retrieved %s factor data: %s observations", model_name, len(factor_df))  # noqa: E501
             return factor_df
 
         except Exception as e:
@@ -422,7 +422,7 @@ class FactorDataProvider:
         """
         try:
             # Check cache first
-            cache_key = f"{factor_name}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{frequency}"
+            cache_key = f"{factor_name}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{frequency}"  # noqa: E501
 
             if self.enable_caching and cache_key in self.factor_cache:
                 cached_data = self.factor_cache[cache_key]
@@ -442,11 +442,11 @@ class FactorDataProvider:
 
             # Fetch data based on provider
             if provider == 'yahoo':
-                factor_data = await self._fetch_yahoo_factor_data(factor_name, source_config, start_date, end_date)
+                factor_data = await self._fetch_yahoo_factor_data(factor_name, source_config, start_date, end_date)  # noqa: E501
             elif provider == 'fred':
-                factor_data = await self._fetch_fred_factor_data(factor_name, source_config, start_date, end_date)
+                factor_data = await self._fetch_fred_factor_data(factor_name, source_config, start_date, end_date)  # noqa: E501
             elif provider == 'custom':
-                factor_data = await self._calculate_custom_factor(factor_name, source_config, start_date, end_date)
+                factor_data = await self._calculate_custom_factor(factor_name, source_config, start_date, end_date)  # noqa: E501
             else:
                 self.logger.error("Unknown provider for factor %s: %s", factor_name, provider)
                 return None
@@ -470,7 +470,7 @@ class FactorDataProvider:
                         'timestamp': datetime.now()
                     }
 
-                self.logger.debug("Retrieved %s data: %s observations", factor_name, len(factor_data))
+                self.logger.debug("Retrieved %s data: %s observations", factor_name, len(factor_data))  # noqa: E501
 
             return factor_data
 
@@ -608,7 +608,7 @@ class FactorDataProvider:
     # ==============================================================================
     # CUSTOM FACTOR CALCULATION METHODS
     # ==============================================================================
-    async def _calculate_excess_return(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_excess_return(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate market excess return factor."""
         try:
             # Try C29 / MassiveClient for SPY first; fall back to yfinance
@@ -647,7 +647,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_excess_return")
             return None
 
-    async def _calculate_level_change(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_level_change(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate level change factor."""
         try:
             # This would get the actual VIX or SKEW data and calculate changes
@@ -671,7 +671,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_level_change")
             return None
 
-    async def _calculate_vix_term_structure(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_vix_term_structure(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate VIX term structure factor."""
         try:
             # Calculate VIX term structure slope (VIX9D vs VIX)
@@ -688,7 +688,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_vix_term_structure")
             return None
 
-    async def _calculate_gamma_flip_level(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_gamma_flip_level(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate gamma flip level factor."""
         try:
             # Calculate the level where gamma flips from positive to negative
@@ -707,7 +707,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_gamma_flip_level")
             return None
 
-    async def _calculate_momentum_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_momentum_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate momentum factor."""
         try:
             # This would calculate actual momentum factor from universe of stocks
@@ -723,7 +723,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_momentum_factor")
             return None
 
-    async def _calculate_size_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_size_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate size factor (SMB)."""
         try:
             dates = pd.date_range(start=start_date, end=end_date, freq='D')
@@ -738,7 +738,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_size_factor")
             return None
 
-    async def _calculate_value_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_value_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate value factor (HML)."""
         try:
             dates = pd.date_range(start=start_date, end=end_date, freq='D')
@@ -753,7 +753,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_value_factor")
             return None
 
-    async def _calculate_profitability_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_profitability_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate profitability factor (RMW)."""
         try:
             dates = pd.date_range(start=start_date, end=end_date, freq='D')
@@ -768,7 +768,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_profitability_factor")
             return None
 
-    async def _calculate_investment_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:
+    async def _calculate_investment_factor(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate investment factor (CMA)."""
         try:
             dates = pd.date_range(start=start_date, end=end_date, freq='D')
@@ -783,7 +783,7 @@ class FactorDataProvider:
             self.error_handler.handle_error(e, context="_calculate_investment_factor")
             return None
 
-    def _generate_synthetic_factor_data(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series:
+    def _generate_synthetic_factor_data(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series:  # noqa: E501
         """Generate synthetic factor data for testing/fallback."""
         dates = pd.date_range(start=start_date, end=end_date, freq='D')
 
@@ -1058,7 +1058,7 @@ class FactorDataProvider:
                     quality_report = self.validate_factor_data_quality(factor_name)
 
                     if quality_report.overall_quality < 0.8:
-                        self.logger.warning(f"Quality issue detected for {factor_name}: {quality_report.overall_quality:.3f}")
+                        self.logger.warning(f"Quality issue detected for {factor_name}: {quality_report.overall_quality:.3f}")  # noqa: E501
 
                 # Sleep for 6 hours
                 if self._stop_event.wait(21600):
@@ -1132,7 +1132,7 @@ class FactorDataProvider:
             'description': model_config['description'],
             'factors': model_config['factors'],
             'last_updated': model_obj.last_updated if model_obj else None,
-            'correlation_matrix': model_obj.correlation_matrix.to_dict() if model_obj and model_obj.correlation_matrix is not None else None
+            'correlation_matrix': model_obj.correlation_matrix.to_dict() if model_obj and model_obj.correlation_matrix is not None else None  # noqa: E501
         }
 
         return info
@@ -1235,7 +1235,7 @@ async def main():
             if factor_data is not None:
                 logging.info("   ✅ Retrieved %s observations", len(factor_data))
                 logging.info("   Factors: %s", list(factor_data.columns))
-                logging.info("   Date range: %s to %s", factor_data.index.min().strftime('%Y-%m-%d'), factor_data.index.max().strftime('%Y-%m-%d'))
+                logging.info("   Date range: %s to %s", factor_data.index.min().strftime('%Y-%m-%d'), factor_data.index.max().strftime('%Y-%m-%d'))  # noqa: E501
 
                 # Show sample statistics
                 logging.info("   Sample statistics:")
@@ -1250,7 +1250,7 @@ async def main():
         logging.info("\n🔍 Testing factor exposure calculation...")
 
         # Create sample return series
-        dates = pd.date_range(start=datetime.now() - timedelta(days=60), end=datetime.now(), freq='D')
+        dates = pd.date_range(start=datetime.now() - timedelta(days=60), end=datetime.now(), freq='D')  # noqa: E501
         sample_returns = pd.Series(
             np.random.normal(0.001, 0.02, len(dates)),
             index=dates,

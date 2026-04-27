@@ -307,7 +307,7 @@ class TradingCalendar:
                 return True
 
             # Check afterhours
-            return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)
+            return bool(hours.afterhours_close and current_time > hours.market_close and current_time <= hours.afterhours_close)  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error checking extended hours: %s", e)

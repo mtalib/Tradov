@@ -530,7 +530,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                 expiry=expiry,
                 net_credit=net_credit * SPY_CONTRACT_MULTIPLIER,
                 max_profit=max_profit * SPY_CONTRACT_MULTIPLIER,
-                max_loss=max_loss * SPY_CONTRACT_MULTIPLIER if max_loss != float('inf') else max_loss,
+                max_loss=max_loss * SPY_CONTRACT_MULTIPLIER if max_loss != float('inf') else max_loss,  # noqa: E501
                 breakeven_points=breakevens,
                 profit_zone=profit_zone,
                 unlimited_risk_side=risk_side,
@@ -1165,13 +1165,13 @@ class RatioSpreadsStrategy(BaseStrategy):
                              market_data: pd.DataFrame) -> TradingSignal | None:
         """Check position exit conditions"""
         # Profit target
-        max_profit = position.setup.max_profit if hasattr(position.setup, 'max_profit') else position.setup.total_credit
+        max_profit = position.setup.max_profit if hasattr(position.setup, 'max_profit') else position.setup.total_credit  # noqa: E501
 
         if position.unrealized_pnl >= max_profit * (PROFIT_TARGET_PERCENT / 100):
             return self._create_exit_signal(position, "profit_target")
 
         # Stop loss
-        stop_loss_amount = abs(position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit) * STOP_LOSS_RATIO
+        stop_loss_amount = abs(position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit) * STOP_LOSS_RATIO  # noqa: E501
 
         if position.unrealized_pnl <= -stop_loss_amount:
             return self._create_exit_signal(position, "stop_loss")
@@ -1211,7 +1211,7 @@ class RatioSpreadsStrategy(BaseStrategy):
             }
         )
 
-        self.logger.info(f"Exit {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f}")
+        self.logger.info(f"Exit {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f}")  # noqa: E501
         return signal
 
     def _close_position(self, position: RatioPosition):
@@ -1244,7 +1244,7 @@ class RatioSpreadsStrategy(BaseStrategy):
         # Update average credit
         n = self.performance_stats['total_trades']
         avg = self.performance_stats['avg_credit']
-        credit = position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit
+        credit = position.setup.net_credit if hasattr(position.setup, 'net_credit') else position.setup.total_credit  # noqa: E501
         self.performance_stats['avg_credit'] = (avg * (n-1) + credit) / n
 
     # ==========================================================================
@@ -1278,11 +1278,11 @@ class RatioSpreadsStrategy(BaseStrategy):
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy statistics"""
         total_trades = self.performance_stats['total_trades']
-        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0  # noqa: E501
 
         jade_win_rate = 0
         if self.performance_stats['jade_lizard_trades'] > 0:
-            jade_win_rate = self.performance_stats['jade_lizard_wins'] / self.performance_stats['jade_lizard_trades']
+            jade_win_rate = self.performance_stats['jade_lizard_wins'] / self.performance_stats['jade_lizard_trades']  # noqa: E501
 
         return {
             'active_positions': len(self.active_positions),
@@ -1303,7 +1303,7 @@ class RatioSpreadsStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def validate_signal(self, signal: TradingSignal) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal: TradingSignal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""

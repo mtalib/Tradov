@@ -206,7 +206,7 @@ if SpyderX03_StrategyDirectorAgent is not None:
         "class": SpyderX03_StrategyDirectorAgent,
         "factory": create_strategy_director_agent,
         "description": "AI-enhanced strategy selection and management",
-        "capabilities": ["strategy_selection", "parameter_optimization", "multi_strategy_management"],
+        "capabilities": ["strategy_selection", "parameter_optimization", "multi_strategy_management"],  # noqa: E501
     }
 if SpyderX04_RiskGuardianAgent is not None:
     AGENT_REGISTRY["risk_guardian"] = {
@@ -279,7 +279,7 @@ try:
         create_orchestrator_agent,
         get_orchestrator_agent,
     )
-    __all__.extend(["SpyderX14_OrchestratorAgent", "create_orchestrator_agent", "get_orchestrator_agent"])
+    __all__.extend(["SpyderX14_OrchestratorAgent", "create_orchestrator_agent", "get_orchestrator_agent"])  # noqa: E501
     if SpyderX14_OrchestratorAgent is not None:
         AGENT_REGISTRY["orchestrator"] = {
             "class": SpyderX14_OrchestratorAgent,

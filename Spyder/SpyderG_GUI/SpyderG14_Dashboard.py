@@ -39,7 +39,7 @@ def main():
         except ImportError as e:
             logging.info("PySide6 import error: %s", e)
             # Fall back to basic window
-            raise ImportError("PySide6 not available")
+            raise ImportError("PySide6 not available")  # noqa: B904
 
         # Then try to import the dashboard
         try:
@@ -48,7 +48,7 @@ def main():
             logging.info("Dashboard import error: %s", e)
             logging.info("This might be due to missing dependencies in the dashboard modules.")
             # Fall back to basic window
-            raise ImportError("Dashboard modules not found")
+            raise ImportError("Dashboard modules not found")  # noqa: B904
 
         app = QApplication(sys.argv)
         app.setApplicationName("Spyder Trading System")

@@ -381,7 +381,7 @@ class Scheduler:
         # Read configurable intervals from SCHEDULER_CONFIG (with fallback defaults)
         try:
             from config.config import SCHEDULER_CONFIG
-            self._data_update_interval: int = SCHEDULER_CONFIG.get("data_update_interval_minutes", 5)
+            self._data_update_interval: int = SCHEDULER_CONFIG.get("data_update_interval_minutes", 5)  # noqa: E501
             self._risk_check_interval: int = SCHEDULER_CONFIG.get("risk_check_interval_minutes", 15)
         except Exception:
             self._data_update_interval = 5
@@ -476,7 +476,7 @@ class Scheduler:
             except Exception:
                 mode = "paper"
 
-            base_config = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}
+            base_config = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}  # noqa: E501
             readiness = cm.validate_autonomous_readiness_config(base_config, mode)
             event_cfg = (
                 readiness.get("effective", {})
@@ -494,9 +494,9 @@ class Scheduler:
             self.event_clock_config.update({
                 "enabled": bool(event_cfg.get("enabled", self.event_clock_config["enabled"])),
                 "sources": str(event_cfg.get("sources", self.event_clock_config["sources"])),
-                "high_impact_only": bool(event_cfg.get("high_impact_only", self.event_clock_config["high_impact_only"])),
-                "blackout_pre_minutes": int(event_cfg.get("blackout_pre_minutes", self.event_clock_config["blackout_pre_minutes"])),
-                "blackout_post_minutes": int(event_cfg.get("blackout_post_minutes", self.event_clock_config["blackout_post_minutes"])),
+                "high_impact_only": bool(event_cfg.get("high_impact_only", self.event_clock_config["high_impact_only"])),  # noqa: E501
+                "blackout_pre_minutes": int(event_cfg.get("blackout_pre_minutes", self.event_clock_config["blackout_pre_minutes"])),  # noqa: E501
+                "blackout_post_minutes": int(event_cfg.get("blackout_post_minutes", self.event_clock_config["blackout_post_minutes"])),  # noqa: E501
                 "allowlist_strategies": [
                     s.strip() for s in allowlist if isinstance(s, str) and s.strip()
                 ],
@@ -1390,10 +1390,10 @@ class Scheduler:
             return {
                 "state": "clear",
                 "event": None,
-                "blackout_pre_minutes": int(self.event_clock_config.get("blackout_pre_minutes", 30)),
-                "blackout_post_minutes": int(self.event_clock_config.get("blackout_post_minutes", 30)),
-                "allowlist_strategies": list(self.event_clock_config.get("allowlist_strategies", [])),
-                "max_size_multiplier": float(self.event_clock_config.get("max_size_multiplier", 0.25)),
+                "blackout_pre_minutes": int(self.event_clock_config.get("blackout_pre_minutes", 30)),  # noqa: E501
+                "blackout_post_minutes": int(self.event_clock_config.get("blackout_post_minutes", 30)),  # noqa: E501
+                "allowlist_strategies": list(self.event_clock_config.get("allowlist_strategies", [])),  # noqa: E501
+                "max_size_multiplier": float(self.event_clock_config.get("max_size_multiplier", 0.25)),  # noqa: E501
                 "source": "disabled",
             }
 
@@ -1418,7 +1418,7 @@ class Scheduler:
                     },
                     "blackout_pre_minutes": pre_mins,
                     "blackout_post_minutes": post_mins,
-                    "allowlist_strategies": list(self._event_clock_manual_state.get("allowed_strategies", [])),
+                    "allowlist_strategies": list(self._event_clock_manual_state.get("allowed_strategies", [])),  # noqa: E501
                     "max_size_multiplier": float(
                         self._event_clock_manual_state.get(
                             "max_size_multiplier",
@@ -1465,7 +1465,7 @@ class Scheduler:
             'source': 'calendar' if use_calendar else 'manual',
         }
 
-    def publish_event_clock_state(self, now: datetime | None = None, force_emit: bool = False) -> dict[str, Any]:
+    def publish_event_clock_state(self, now: datetime | None = None, force_emit: bool = False) -> dict[str, Any]:  # noqa: E501
         """Publish unified event-clock feed envelope and return it."""
         now_et = (now or datetime.now(EASTERN_TZ)).astimezone(EASTERN_TZ)
         state = self._evaluate_event_clock_state(now_et)
@@ -1482,7 +1482,7 @@ class Scheduler:
                 'event_type': event.get('event_type'),
                 'importance': event.get('importance'),
                 'source': event.get('source', 'calendar'),
-                'event_time_et': event.get('event_time_et').isoformat() if isinstance(event.get('event_time_et'), datetime) else None,
+                'event_time_et': event.get('event_time_et').isoformat() if isinstance(event.get('event_time_et'), datetime) else None,  # noqa: E501
                 'blackout_pre_minutes': state['blackout_pre_minutes'],
                 'blackout_post_minutes': state['blackout_post_minutes'],
                 'state': state['state'],
@@ -1610,7 +1610,7 @@ class Scheduler:
                             MIN(duration_ms) as min_duration
                         FROM task_history
                         WHERE task_id = ? AND execution_time >= ?
-                    """
+                    """  # noqa: E501
                     params = (task_id, since_date)
                 else:
                     query = """
@@ -1624,7 +1624,7 @@ class Scheduler:
                             MIN(duration_ms) as min_duration
                         FROM task_history
                         WHERE execution_time >= ?
-                    """
+                    """  # noqa: E501
                     params = (since_date,)
 
                 cursor = conn.execute(query, params)
@@ -1780,7 +1780,7 @@ class Scheduler:
         if not jobs:
             return None
 
-        next_times = [getattr(job, 'next_run_time', None) for job in jobs if getattr(job, 'next_run_time', None)]
+        next_times = [getattr(job, 'next_run_time', None) for job in jobs if getattr(job, 'next_run_time', None)]  # noqa: E501
         return min(next_times) if next_times else None
 
     def print_schedule(self):
@@ -1825,7 +1825,7 @@ class Scheduler:
                     'schedule_type': task.schedule_type.name,
                     'schedule_params': task.schedule_params,
                     'enabled': task.enabled,
-                    'next_run': getattr(job, 'next_run_time', None).isoformat() if job and getattr(job, 'next_run_time', None) else None,
+                    'next_run': getattr(job, 'next_run_time', None).isoformat() if job and getattr(job, 'next_run_time', None) else None,  # noqa: E501
                     'last_run': task.last_run.isoformat() if task.last_run else None,
                     'run_count': task.run_count,
                     'error_count': task.error_count,

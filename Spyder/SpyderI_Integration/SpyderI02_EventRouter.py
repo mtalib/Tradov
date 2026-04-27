@@ -361,7 +361,7 @@ class EventRouter:
                     rule_id="market_data_to_analysis",
                     name="Route market data to analysis",
                     pattern="market.*",
-                    target_modules=["SpyderF04_VolatilityAnalysis", "SpyderF10_MarketRegimeDetector"],
+                    target_modules=["SpyderF04_VolatilityAnalysis", "SpyderF10_MarketRegimeDetector"],  # noqa: E501
                     strategy=RoutingStrategy.ROUND_ROBIN,
                     priority=70
                 )
@@ -851,7 +851,7 @@ class EventRouter:
             routing_time = (time.time() - start_time) * 1000  # ms
             self.metrics.events_routed += 1
             self.metrics.average_routing_time = (
-                (self.metrics.average_routing_time * (self.metrics.events_routed - 1) + routing_time) /
+                (self.metrics.average_routing_time * (self.metrics.events_routed - 1) + routing_time) /  # noqa: E501
                 self.metrics.events_routed
             )
 
@@ -1015,7 +1015,7 @@ class EventRouter:
                         handler.state = HandlerState.CIRCUIT_OPEN
                         handler.circuit_breaker_count += 1
                         self.metrics.circuit_breaker_trips += 1
-                        self.logger.warning("🔌 Circuit breaker opened for handler %s", handler.handler_id)
+                        self.logger.warning("🔌 Circuit breaker opened for handler %s", handler.handler_id)  # noqa: E501
 
                 raise e
 
@@ -1106,7 +1106,7 @@ class EventRouter:
 
             except Exception as e:
                 self.logger.error("Error in correlation analysis: %s", e)
-                time.sleep(CORRELATION_ANALYSIS_INTERVAL * 2)  # thread-safe: time.sleep() intentional
+                time.sleep(CORRELATION_ANALYSIS_INTERVAL * 2)  # thread-safe: time.sleep() intentional  # noqa: E501
 
     def _analyze_correlations(self) -> None:
         """Analyze event patterns for correlations."""

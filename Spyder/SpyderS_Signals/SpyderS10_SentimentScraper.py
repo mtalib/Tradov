@@ -56,7 +56,7 @@ import logging
 import os
 import re
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta  # noqa: F401
 from typing import Optional
 
 # ==============================================================================
@@ -562,7 +562,7 @@ class SentimentScraper:
                 re.IGNORECASE,
             )
             naaim_links = [
-                l for l in links
+                l for l in links  # noqa: E741
                 if "naaim" in l.lower() or "exposure" in l.lower()
             ]
             if not naaim_links:

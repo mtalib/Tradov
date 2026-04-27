@@ -370,10 +370,10 @@ class StateManager:
                     command.command_id,
                     command.timestamp,
                     command.command_type.value,
-                    command.target_engine or command.target_type.value if command.target_type else "",
+                    command.target_engine or command.target_type.value if command.target_type else "",  # noqa: E501
                     json.dumps(command.payload),
                     json.dumps(asdict(response)) if response else None,
-                    "SUCCESS" if response and response.success else "PENDING" if not response else "FAILED"
+                    "SUCCESS" if response and response.success else "PENDING" if not response else "FAILED"  # noqa: E501
                 ))
                 conn.commit()
 

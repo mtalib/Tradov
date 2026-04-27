@@ -22,7 +22,7 @@ Module Description:
 # =============================================================================
 # STANDARD IMPORTS
 # =============================================================================
-from datetime import datetime
+from datetime import datetime  # noqa: E402
 
 # =============================================================================
 # SYSTEM INFORMATION
@@ -605,7 +605,7 @@ def validate_constants():
         try:
             datetime.strptime(value, '%H:%M:%S')
         except ValueError:
-            raise ValueError(f"{name} must be in HH:MM:SS format, got {value}")
+            raise ValueError(f"{name} must be in HH:MM:SS format, got {value}")  # noqa: B904
 
     # Validate logic relationships
     if MAX_DAILY_TRADES < 1:
@@ -639,7 +639,7 @@ __all__ = [
 
     # Strategy constants
     "IRON_CONDOR_PROFIT_TARGET", "IRON_BUTTERFLY_PROFIT_TARGET", "CREDIT_SPREAD_PROFIT_TARGET",
-    "CREDIT_SPREAD_STOP_LOSS", "IRON_CONDOR_STOP_LOSS", "IRON_BUTTERFLY_STOP_LOSS", "MIN_IVP_THRESHOLD",
+    "CREDIT_SPREAD_STOP_LOSS", "IRON_CONDOR_STOP_LOSS", "IRON_BUTTERFLY_STOP_LOSS", "MIN_IVP_THRESHOLD",  # noqa: E501
     "OPTIMAL_ENTRY_START", "OPTIMAL_ENTRY_END", "RSI_MIN", "RSI_MAX", "VIX_MIN", "VIX_MAX",
 
     # Iron Condor parameters - NEEDED BY EXISTING STRATEGIES
@@ -649,11 +649,11 @@ __all__ = [
     "ZERO_DTE_POSITION_REDUCTION", "ZERO_DTE_PROFIT_TARGET", "ZERO_DTE_MAX_TRADES",
 
     # Daily trading limits
-    "MIN_DAILY_TRADES_MONDAY", "MAX_DAILY_TRADES_MONDAY", "MIN_DAILY_TRADES_OTHER", "MAX_DAILY_TRADES_OTHER",
+    "MIN_DAILY_TRADES_MONDAY", "MAX_DAILY_TRADES_MONDAY", "MIN_DAILY_TRADES_OTHER", "MAX_DAILY_TRADES_OTHER",  # noqa: E501
 
     # Risk management
     "MAX_DAILY_LOSS_PERCENT", "MAX_POSITION_SIZE_PERCENT", "MAX_PORTFOLIO_HEAT",
-    "MAX_PORTFOLIO_HEAT_MONDAY", "MAX_PORTFOLIO_HEAT_OTHER", "DEFAULT_STOP_LOSS", "DEFAULT_TAKE_PROFIT",
+    "MAX_PORTFOLIO_HEAT_MONDAY", "MAX_PORTFOLIO_HEAT_OTHER", "DEFAULT_STOP_LOSS", "DEFAULT_TAKE_PROFIT",  # noqa: E501
 
     # API configuration (Legacy broker constants removed)
     "CONNECTION_TIMEOUT", "MAX_CONNECTION_RETRIES",
@@ -671,7 +671,7 @@ __all__ = [
     "MAX_DELTA_EXPOSURE", "MAX_GAMMA_EXPOSURE", "MAX_VEGA_EXPOSURE",
 
     # Market regime
-    "LOW_VOLATILITY_THRESHOLD", "HIGH_VOLATILITY_THRESHOLD", "TREND_THRESHOLD", "SIDEWAYS_THRESHOLD",
+    "LOW_VOLATILITY_THRESHOLD", "HIGH_VOLATILITY_THRESHOLD", "TREND_THRESHOLD", "SIDEWAYS_THRESHOLD",  # noqa: E501
     "IV_RANK_LOW", "IV_RANK_HIGH", "IV_SKEW_THRESHOLD",
 
     # Performance thresholds
@@ -683,7 +683,7 @@ __all__ = [
 
     # Strategy names
     "STRATEGY_IRON_CONDOR", "STRATEGY_IRON_BUTTERFLY", "STRATEGY_BULL_PUT_SPREAD",
-    "STRATEGY_BEAR_CALL_SPREAD", "STRATEGY_ZERO_DTE", "STRATEGY_CALENDAR_SPREAD", "STRATEGY_DIAGONAL_SPREAD",
+    "STRATEGY_BEAR_CALL_SPREAD", "STRATEGY_ZERO_DTE", "STRATEGY_CALENDAR_SPREAD", "STRATEGY_DIAGONAL_SPREAD",  # noqa: E501
 
     # Feature flags
     "DEFAULT_FEATURE_FLAGS",

@@ -715,7 +715,7 @@ class KernelRegression:
         )
 
     def get_envelope_bounds(self,
-                          sigma_level: float = DEFAULT_SIGMA_LEVEL) -> tuple[np.ndarray, np.ndarray]:
+                          sigma_level: float = DEFAULT_SIGMA_LEVEL) -> tuple[np.ndarray, np.ndarray]:  # noqa: E501
         """
         Get envelope bounds for visualization or analysis.
 
@@ -755,7 +755,7 @@ class KernelRegression:
             'cv_score': self.result.cv_score,
             'fit_time': self.result.fit_time,
             'envelope_sigma': self.envelope.sigma if self.envelope else None,
-            'mean_reversion_potential': np.mean(self.envelope.mean_reversion_potential) if self.envelope else None
+            'mean_reversion_potential': np.mean(self.envelope.mean_reversion_potential) if self.envelope else None  # noqa: E501
         }
 
 

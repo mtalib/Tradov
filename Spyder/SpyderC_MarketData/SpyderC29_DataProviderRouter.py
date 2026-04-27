@@ -74,14 +74,14 @@ class DataProvider(StrEnum):
         if raw == "massive":
             if _is_massive_disabled():
                 logger.info(
-                    "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"
+                    "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"  # noqa: E501
                 )
                 return cls.TRADIER
             return cls.MASSIVE
         if raw == "polygon":
             if _is_massive_disabled():
                 logger.info(
-                    "Polygon/Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"
+                    "Polygon/Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"  # noqa: E501
                 )
                 return cls.TRADIER
             return cls.MASSIVE

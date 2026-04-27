@@ -209,10 +209,10 @@ class SystemHealthChecker:
                     category=DiagnosticCategory.SYSTEM,
                     severity=ProblemSeverity.CRITICAL,
                     title="Critical CPU Usage",
-                    description=f"CPU usage is at {metrics.cpu_percent:.1f}%, exceeding critical threshold",
+                    description=f"CPU usage is at {metrics.cpu_percent:.1f}%, exceeding critical threshold",  # noqa: E501
                     affected_components=["system"],
                     symptoms=["High CPU usage", "System slowdown"],
-                    recommendations=["Identify CPU-intensive processes", "Scale resources", "Optimize algorithms"],
+                    recommendations=["Identify CPU-intensive processes", "Scale resources", "Optimize algorithms"],  # noqa: E501
                     impact_score=0.9
                 ))
             elif metrics.cpu_percent > CPU_USAGE_WARNING:
@@ -221,7 +221,7 @@ class SystemHealthChecker:
                     category=DiagnosticCategory.SYSTEM,
                     severity=ProblemSeverity.MEDIUM,
                     title="High CPU Usage",
-                    description=f"CPU usage is at {metrics.cpu_percent:.1f}%, approaching critical levels",
+                    description=f"CPU usage is at {metrics.cpu_percent:.1f}%, approaching critical levels",  # noqa: E501
                     affected_components=["system"],
                     symptoms=["Elevated CPU usage"],
                     recommendations=["Monitor CPU usage trends", "Consider optimization"],
@@ -235,10 +235,10 @@ class SystemHealthChecker:
                     category=DiagnosticCategory.SYSTEM,
                     severity=ProblemSeverity.CRITICAL,
                     title="Critical Memory Usage",
-                    description=f"Memory usage is at {metrics.memory_percent:.1f}%, system may become unstable",
+                    description=f"Memory usage is at {metrics.memory_percent:.1f}%, system may become unstable",  # noqa: E501
                     affected_components=["system"],
                     symptoms=["High memory usage", "Potential OOM errors"],
-                    recommendations=["Free memory", "Restart memory-intensive processes", "Add more RAM"],
+                    recommendations=["Free memory", "Restart memory-intensive processes", "Add more RAM"],  # noqa: E501
                     impact_score=0.95
                 ))
             elif metrics.memory_percent > MEMORY_USAGE_WARNING:
@@ -261,10 +261,10 @@ class SystemHealthChecker:
                     category=DiagnosticCategory.SYSTEM,
                     severity=ProblemSeverity.CRITICAL,
                     title="Critical Disk Usage",
-                    description=f"Disk usage is at {metrics.disk_usage_percent:.1f}%, system may fail",
+                    description=f"Disk usage is at {metrics.disk_usage_percent:.1f}%, system may fail",  # noqa: E501
                     affected_components=["system"],
                     symptoms=["Very high disk usage", "Write failures possible"],
-                    recommendations=["Free disk space immediately", "Clean logs", "Archive old data"],
+                    recommendations=["Free disk space immediately", "Clean logs", "Archive old data"],  # noqa: E501
                     impact_score=0.9
                 ))
 
@@ -409,7 +409,7 @@ class ModuleHealthChecker:
                         description=f"Module {module_health.module_name} is in failing state",
                         affected_components=[module_health.module_id],
                         symptoms=["Module not responding", "High error rate", "No heartbeat"],
-                        recommendations=["Restart module", "Check module logs", "Verify dependencies"],
+                        recommendations=["Restart module", "Check module logs", "Verify dependencies"],  # noqa: E501
                         impact_score=0.8
                     ))
                 elif module_health.status == HealthStatus.CRITICAL:
@@ -466,11 +466,11 @@ class IntegrationHealthChecker:
                         issue_id=f"integration_failing_{integration_health.source_module}_{integration_health.target_module}_{int(time.time())}",
                         category=DiagnosticCategory.INTEGRATION,
                         severity=ProblemSeverity.HIGH,
-                        title=f"Integration Failure: {integration_health.source_module} → {integration_health.target_module}",
-                        description=f"Communication between {integration_health.source_module} and {integration_health.target_module} is failing",
-                        affected_components=[integration_health.source_module, integration_health.target_module],
+                        title=f"Integration Failure: {integration_health.source_module} → {integration_health.target_module}",  # noqa: E501
+                        description=f"Communication between {integration_health.source_module} and {integration_health.target_module} is failing",  # noqa: E501
+                        affected_components=[integration_health.source_module, integration_health.target_module],  # noqa: E501
                         symptoms=["Connection failures", "Message delivery issues"],
-                        recommendations=["Check network connectivity", "Verify module status", "Restart modules"],
+                        recommendations=["Check network connectivity", "Verify module status", "Restart modules"],  # noqa: E501
                         impact_score=0.7
                     ))
 
@@ -555,7 +555,7 @@ class ConfigurationHealthChecker:
                         category=DiagnosticCategory.CONFIGURATION,
                         severity=ProblemSeverity.MEDIUM,
                         title=f"Invalid Configuration: {config_name}",
-                        description=f"Configuration {config_name} contains invalid or inconsistent values",
+                        description=f"Configuration {config_name} contains invalid or inconsistent values",  # noqa: E501
                         affected_components=[config_name],
                         symptoms=["Configuration warnings", "Module errors"],
                         recommendations=["Review configuration", "Fix invalid values"],

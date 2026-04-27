@@ -56,7 +56,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from datetime import time as dt_time
+from datetime import time as dt_time  # noqa: F401
 from pathlib import Path
 
 # Matplotlib for charting
@@ -65,10 +65,10 @@ import numpy as np
 import pytz
 from PySide6.QtCore import (
     QModelIndex,
-    QMutex,
-    QMutexLocker,
+    QMutex,  # noqa: F401
+    QMutexLocker,  # noqa: F401
     QObject,
-    QRect,
+    QRect,  # noqa: F401
     Qt,
     QThread,
     QTimer,
@@ -76,11 +76,11 @@ from PySide6.QtCore import (
     Slot,
 )
 from PySide6.QtGui import (
-    QBrush,
+    QBrush,  # noqa: F401
     QColor,
-    QFont,
-    QPainter,
-    QPen,
+    QFont,  # noqa: F401
+    QPainter,  # noqa: F401
+    QPen,  # noqa: F401
     QTextCursor,
 )
 
@@ -91,22 +91,22 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
-    QFrame,
-    QGridLayout,
+    QFrame,  # noqa: F401
+    QGridLayout,  # noqa: F401
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
+    QHeaderView,  # noqa: F401
     QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
+    QScrollArea,  # noqa: F401
+    QSizePolicy,  # noqa: F401
     QSplitter,
     QTableWidget,
-    QTableWidgetItem,
+    QTableWidgetItem,  # noqa: F401
     QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
@@ -116,9 +116,9 @@ from PySide6.QtWidgets import (
 
 matplotlib.use("QtAgg")
 import pandas as pd
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from matplotlib.transforms import blended_transform_factory
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas  # noqa: F401
+from matplotlib.figure import Figure  # noqa: F401
+from matplotlib.transforms import blended_transform_factory  # noqa: F401
 
 # ==============================================================================
 # BROKER/DATA IMPORTS (Tradier + Massive)
@@ -133,7 +133,7 @@ project_root = Path(__file__).parent.parent.parent.absolute()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-import logging
+import logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -159,20 +159,20 @@ class _ReadinessCheckWorker(QObject):
         except Exception as exc:
             self.failed.emit(str(exc))
 
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (  # noqa: E402
     COLORS,
     ConnectionInfo,
-    GreekBar,
+    GreekBar,  # noqa: F401
     GreekRisk,
-    MarketData,
-    MarketSymbolWidget,
-    SignalMonitorPanel,
+    MarketData,  # noqa: F401
+    MarketSymbolWidget,  # noqa: F401
+    SignalMonitorPanel,  # noqa: F401
     TradingMode,
-    TrafficLightButton,
+    TrafficLightButton,  # noqa: F401
     apply_tooltip_theme,
 )
-from Spyder.SpyderG_GUI.SpyderG20_DashboardBuilder import (
+from Spyder.SpyderG_GUI.SpyderG20_DashboardBuilder import (  # noqa: E402
     build_center_panel,
     build_left_panel,
     build_right_panel,
@@ -182,7 +182,7 @@ from Spyder.SpyderG_GUI.SpyderG20_DashboardBuilder import (
     create_positions_table as build_positions_table,
     create_unified_prometheus_metrics as build_unified_prometheus_metrics,
 )
-from Spyder.SpyderG_GUI.SpyderG21_DashboardSignalHandlers import (
+from Spyder.SpyderG_GUI.SpyderG21_DashboardSignalHandlers import (  # noqa: E402
     handle_connection_status_changed,
     handle_heartbeat_received,
     handle_heartbeat_status_changed,
@@ -304,12 +304,12 @@ WINDOW_HEIGHT = 1080
 
 # Dashboard session & Tradier active window come from U03_DateTimeUtils —
 # module-level aliases kept for readability at use sites within this file.
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
-    DASHBOARD_SESSION_OPEN as MARKET_OPEN_TIME,
-    DASHBOARD_SESSION_CLOSE as MARKET_CLOSE_TIME,
-    TRADIER_CONNECT_TIME,
-    TRADIER_DISCONNECT_TIME,
-    LogThrottle,
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (  # noqa: E402
+    DASHBOARD_SESSION_OPEN as MARKET_OPEN_TIME,  # noqa: F401
+    DASHBOARD_SESSION_CLOSE as MARKET_CLOSE_TIME,  # noqa: F401
+    TRADIER_CONNECT_TIME,  # noqa: F401
+    TRADIER_DISCONNECT_TIME,  # noqa: F401
+    LogThrottle,  # noqa: F401
     is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
@@ -326,23 +326,23 @@ def is_market_hours(now_et: datetime | None = None) -> bool:
 # Market data worker, heartbeat constants, quote-freshness helpers, and
 # check_api_connection now live in SpyderG18_MarketDataWorker (audit §1/§14/§23).
 # G05 re-imports them here so existing references continue to resolve.
-from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import (
-    HEARTBEAT_INTERVAL,
-    HEARTBEAT_LOG_INTERVAL,
-    HEARTBEAT_WARNING_TIME,
+from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import (  # noqa: E402
+    HEARTBEAT_INTERVAL,  # noqa: F401
+    HEARTBEAT_LOG_INTERVAL,  # noqa: F401
+    HEARTBEAT_WARNING_TIME,  # noqa: F401
     REALTIME_QUOTE_MAX_AGE_SECONDS,
-    REALTIME_SENTINEL_SYMBOLS,
+    REALTIME_SENTINEL_SYMBOLS,  # noqa: F401
     ThreadSafeMarketDataWorker,
-    _coerce_epoch_ms,
+    _coerce_epoch_ms,  # noqa: F401
     _datetime_from_epoch_ms,
     _freshest_live_data_timestamp,
-    _freshest_quote_timestamp_ms,
+    _freshest_quote_timestamp_ms,  # noqa: F401
     check_api_connection,
 )
 # Chart indicator computation extracted per audit §3.
-from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (
-    ChartIndicators,
-    PivotLevels,
+from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (  # noqa: E402
+    ChartIndicators,  # noqa: F401
+    PivotLevels,  # noqa: F401
     compute_chart_indicators,
 )
 
@@ -350,7 +350,7 @@ from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (
 MARKET_SYMBOLS = {
     "S&P CORE": ["SPY", "SPX"],
     "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "NYMO", "CPC", "SKEW", "$VOLD", "XLK", "XLF", "TNX", "RVOL"],
+    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "NYMO", "CPC", "SKEW", "$VOLD", "XLK", "XLF", "TNX", "RVOL"],  # noqa: E501
     "MAJOR INDICES": ["QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
     "CORRELATIONS": ["DXY", "GLD", "USO"],
@@ -361,10 +361,10 @@ MARKET_SYMBOLS = {
 # ==============================================================================
 # PAPER TRADING WORKER (runs off the GUI thread)
 # ==============================================================================
-from Spyder.SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import (
+from Spyder.SpyderR_Runtime.SpyderR08_PaperTradingQtWorker import (  # noqa: E402
     PaperTradingQtWorker as _PaperTradingWorker,
 )
-from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import StrategyLifecycleState
+from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import StrategyLifecycleState  # noqa: E402
 
 
 # ==============================================================================
@@ -721,7 +721,7 @@ class SpyderTradingDashboard(QMainWindow):
                 logger.debug("Could not connect aboutToQuit snapshot hook: %s", _quit_hook_err)
 
         self.logger.info(
-            "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring",
+            "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring",  # noqa: E501
         )
 
     def create_api_connection(self) -> bool:
@@ -789,7 +789,7 @@ class SpyderTradingDashboard(QMainWindow):
                     # Start file-read timer so widgets populate immediately;
                     # skip fast-fetch (no Tradier polling outside trading hours).
                     self.real_data_active = True
-                    if not getattr(self, "_real_data_timer", None) or not self._real_data_timer.isActive():
+                    if not getattr(self, "_real_data_timer", None) or not self._real_data_timer.isActive():  # noqa: E501
                         self._real_data_timer = QTimer()
                         self._real_data_timer.timeout.connect(self.update_with_real_data)
                         self._real_data_timer.start(1000)
@@ -962,7 +962,7 @@ class SpyderTradingDashboard(QMainWindow):
             # quotes flip the UI promptly instead of waiting for the next heartbeat.
             _correct_status = self.determine_data_status()
             _label_map = {"REAL-TIME": "REAL-TIME", "EOD": "EOD", "FROZEN": "FROZEN"}
-            _current_label = self.data_status_label.text() if hasattr(self, "data_status_label") else ""
+            _current_label = self.data_status_label.text() if hasattr(self, "data_status_label") else ""  # noqa: E501
             _target_label = _label_map.get(_correct_status, "SIMULATED")
             if _current_label != _target_label:
                 self.update_data_status(_correct_status)
@@ -1024,7 +1024,7 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
-            # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).
+            # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).  # noqa: E501
             # Use RUT last directly; derive change from IWM ETF change_pct as proxy.
             rut_src = live_data.get("RUT") or live_data.get("IWM")
             rut_mult = 1 if "RUT" in live_data else 10
@@ -1206,7 +1206,7 @@ class SpyderTradingDashboard(QMainWindow):
         - Policy configuration (enabled/sources)
         - Blackout window settings
         - Allowed strategies
-        """
+        """  # noqa: W293
         panel = QGroupBox("EVENT-CLOCK STATUS")
         panel.setStyleSheet(f"""
             QGroupBox {{
@@ -1225,34 +1225,34 @@ class SpyderTradingDashboard(QMainWindow):
                 padding: 0 3px 0 3px;
             }}
         """)
-        
+  # noqa: W293
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
-        
+  # noqa: W293
         # State label (main indicator)
         self.event_clock_state_label = QLabel("✓ CLEAR")
-        self.event_clock_state_label.setStyleSheet(f"color: {COLORS['positive']}; font-weight: bold; font-size: 12px;")
+        self.event_clock_state_label.setStyleSheet(f"color: {COLORS['positive']}; font-weight: bold; font-size: 12px;")  # noqa: E501
         layout.addWidget(self.event_clock_state_label)
-        
+  # noqa: W293
         # Policy label
         self.event_clock_policy_label = QLabel("Policy: ✓ Enabled | Sources: calendar+manual")
-        self.event_clock_policy_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        self.event_clock_policy_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")  # noqa: E501
         layout.addWidget(self.event_clock_policy_label)
-        
+  # noqa: W293
         # Blackout windows label
         self.event_clock_windows_label = QLabel("Blackout: -30m / +30m | Size: 25%")
-        self.event_clock_windows_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        self.event_clock_windows_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")  # noqa: E501
         layout.addWidget(self.event_clock_windows_label)
-        
+  # noqa: W293
         # Allowed strategies label
         self.event_clock_strategies_label = QLabel("Allowlist: None")
-        self.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        self.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")  # noqa: E501
         layout.addWidget(self.event_clock_strategies_label)
-        
+  # noqa: W293
         panel.setLayout(layout)
         self.event_clock_panel = panel
-        
+  # noqa: W293
         return panel
 
     def create_toolbar(self) -> QWidget:
@@ -1372,7 +1372,7 @@ class SpyderTradingDashboard(QMainWindow):
         # the "where we started" anchor (analogous to prior-close in Google Finance)
         prev_close = opens_raw[0]
         last_close = closes_raw[-1]
-        line_color = COLORS["positive"] if last_close >= prev_close else COLORS["negative"]
+        line_color = COLORS["positive"] if last_close >= prev_close else COLORS["negative"]  # noqa: F841
 
         # --- Compute chart indicators on raw bars (audit §3) ---
         # Load previous session's daily H/L/C so pivot levels stay fixed all
@@ -1388,7 +1388,7 @@ class SpyderTradingDashboard(QMainWindow):
                 pass
 
         try:
-            indicators = compute_chart_indicators(highs_raw, lows_raw, closes_raw, volumes_raw, prev_day=_prev_day_tuple)
+            indicators = compute_chart_indicators(highs_raw, lows_raw, closes_raw, volumes_raw, prev_day=_prev_day_tuple)  # noqa: E501
         except ValueError:
             indicators = None
 
@@ -1433,24 +1433,24 @@ class SpyderTradingDashboard(QMainWindow):
         ax.set_xlim(-0.5, 78.5)
 
         # Fibonacci Daily Pivot Points
-        ax.axhline(y=pivot, color="#FFFF00", linewidth=1.5, linestyle="-", alpha=0.7, label="Pivot", zorder=1)
-        ax.axhline(y=r1, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R1", zorder=1)
-        ax.axhline(y=r2, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R2", zorder=1)
-        ax.axhline(y=r3, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R3", zorder=1)
-        ax.axhline(y=s1, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S1", zorder=1)
-        ax.axhline(y=s2, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S2", zorder=1)
-        ax.axhline(y=s3, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S3", zorder=1)
+        ax.axhline(y=pivot, color="#FFFF00", linewidth=1.5, linestyle="-", alpha=0.7, label="Pivot", zorder=1)  # noqa: E501
+        ax.axhline(y=r1, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R1", zorder=1)  # noqa: E501
+        ax.axhline(y=r2, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R2", zorder=1)  # noqa: E501
+        ax.axhline(y=r3, color="#00FF41", linewidth=1.5, linestyle="-", alpha=0.6, label="R3", zorder=1)  # noqa: E501
+        ax.axhline(y=s1, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S1", zorder=1)  # noqa: E501
+        ax.axhline(y=s2, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S2", zorder=1)  # noqa: E501
+        ax.axhline(y=s3, color="#FF073A", linewidth=1.5, linestyle="-", alpha=0.6, label="S3", zorder=1)  # noqa: E501
 
         # Prior-close reference line (dashed grey — anchors the day's move)
-        ax.axhline(y=prev_close, color="#888888", linewidth=1.0, linestyle="--", alpha=0.8, zorder=1)
+        ax.axhline(y=prev_close, color="#888888", linewidth=1.0, linestyle="--", alpha=0.8, zorder=1)  # noqa: E501
 
         # MA(20) overlay
         if ma_slot_x:
-            ax.plot(ma_slot_x, ma_slot_y, color="#00FFFF", linewidth=1.8, alpha=0.95, label="MA(20)", zorder=2)
+            ax.plot(ma_slot_x, ma_slot_y, color="#00FFFF", linewidth=1.8, alpha=0.95, label="MA(20)", zorder=2)  # noqa: E501
 
         # VWAP overlay — smooth solid white line
         if vwap_slot_x:
-            ax.plot(vwap_slot_x, vwap_slot_y, color="#FFFFFF", linewidth=1.5, linestyle="-", alpha=0.90, label="VWAP", zorder=4)
+            ax.plot(vwap_slot_x, vwap_slot_y, color="#FFFFFF", linewidth=1.5, linestyle="-", alpha=0.90, label="VWAP", zorder=4)  # noqa: E501
 
         # Candlestick bars — bodies via bar(), wicks via vlines()
         slot_indices = np.arange(TOTAL_SLOTS)
@@ -1465,7 +1465,7 @@ class SpyderTradingDashboard(QMainWindow):
         is_up   = cl >= op
         bar_colors = np.where(is_up, COLORS["positive"], COLORS["negative"])
         # Draw wicks first (behind bodies)
-        for xi, loi, hii, ci in zip(xs, lo, hi, np.where(is_up, COLORS["positive"], COLORS["negative"])):
+        for xi, loi, hii, ci in zip(xs, lo, hi, np.where(is_up, COLORS["positive"], COLORS["negative"])):  # noqa: B905, E501
             ax.vlines(xi, loi, hii, color=ci, linewidth=0.8, zorder=2)
         # Draw bodies
         ax.bar(xs, height=body_hi - body_lo, bottom=body_lo, width=0.7,
@@ -1484,7 +1484,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Fixed hourly x-axis ticks — always present regardless of bars received
         # slot 0=9:30, 6=10:00, 18=11:00, 30=12:00, 42=1:00, 54=2:00, 66=3:00, 78=4:00
         ax.set_xticks([0, 6, 18, 30, 42, 54, 66, 78])
-        ax.set_xticklabels(["9:30", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00"], fontsize=9)
+        ax.set_xticklabels(["9:30", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00"], fontsize=9)  # noqa: E501
 
         ax.grid(True, alpha=0.2, color=COLORS["grid"], zorder=0)
         ax.tick_params(colors="#FFFFFF")
@@ -1508,7 +1508,7 @@ class SpyderTradingDashboard(QMainWindow):
         is_strategy = item.parent() is None
         strategy_item = item if is_strategy else item.parent()
         strategy_item.data(0, Qt.ItemDataRole.UserRole) or ""
-        status = strategy_item.data(1, Qt.ItemDataRole.UserRole) or ""
+        status = strategy_item.data(1, Qt.ItemDataRole.UserRole) or ""  # noqa: F841
 
         menu = QMenu(self)
         menu.setStyleSheet(
@@ -1674,7 +1674,7 @@ class SpyderTradingDashboard(QMainWindow):
     # ORDERS & POSITIONS — LIVE DATA
     # ==========================================================================
 
-    def _get_tradier_client_for_mode(self, mode: "TradingMode | None" = None) -> "TradierClient | None":
+    def _get_tradier_client_for_mode(self, mode: "TradingMode | None" = None) -> "TradierClient | None":  # noqa: E501
         """Return a usable TradierClient for the given mode.
 
         Uses SANDBOX for PAPER, LIVE for LIVE.  Re-uses ``self.tradier_client``
@@ -1781,7 +1781,7 @@ class SpyderTradingDashboard(QMainWindow):
             QLabel as _QLabel,
             QPushButton as _QPB,
             QTableWidget as _QTW,
-            QTableWidgetItem as _QTWI,
+            QTableWidgetItem as _QTWI,  # noqa: F401
             QVBoxLayout as _QVBox,
         )
 
@@ -2054,7 +2054,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self.unrealized_value.setText(f"${_u:+,.2f}")
                         self.unrealized_value.setStyleSheet(
                             f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"  # noqa: E501
                         )
                     if self.realized_value:
                         _r = float(hydrated.get("realized_pnl", 0.0) or 0.0)
@@ -2062,7 +2062,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self.realized_value.setText(f"${_r:+,.2f}")
                         self.realized_value.setStyleSheet(
                             f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"  # noqa: E501
                         )
                     self.add_system_log("♻️ Loaded paper positions from saved session state")
                 else:
@@ -2457,7 +2457,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         for sp in spreads_detail:
             spread_id = str(sp.get("id", ""))
-            structure = str(sp.get("structure") or sp.get("type") or "SPREAD").replace("_", " ").upper()
+            structure = str(sp.get("structure") or sp.get("type") or "SPREAD").replace("_", " ").upper()  # noqa: E501
             lifecycle_state = str(
                 sp.get("lifecycle_state") or StrategyLifecycleState.MANAGED_BY_AI.value
             )
@@ -2545,9 +2545,9 @@ class SpyderTradingDashboard(QMainWindow):
                                 or raw.get("name")
                                 or ""
                             ).strip(),
-                            "strike": _coerce_float(raw.get("strike", raw.get("strike_price")), None),
+                            "strike": _coerce_float(raw.get("strike", raw.get("strike_price")), None),  # noqa: E501
                             "qty": _coerce_int(raw.get("qty", raw.get("quantity", qty)), qty),
-                            "type": str(raw.get("type") or raw.get("option_type") or raw.get("right") or ""),
+                            "type": str(raw.get("type") or raw.get("option_type") or raw.get("right") or ""),  # noqa: E501
                             "cost": _coerce_float(raw.get("cost"), None),
                             "pnl": _coerce_float(raw.get("pnl"), None),
                         }
@@ -2610,10 +2610,10 @@ class SpyderTradingDashboard(QMainWindow):
                 pnl = _coerce_float(leg.get("pnl"), None)
                 if cost is not None:
                     leg_row.setText(4, f"{cost:+,.0f}")
-                    leg_row.setForeground(4, QColor(COLORS["positive"] if cost >= 0 else COLORS["negative"]))
+                    leg_row.setForeground(4, QColor(COLORS["positive"] if cost >= 0 else COLORS["negative"]))  # noqa: E501
                 if pnl is not None:
                     leg_row.setText(5, f"{pnl:+,.0f}")
-                    leg_row.setForeground(5, QColor(COLORS["positive"] if pnl >= 0 else COLORS["negative"]))
+                    leg_row.setForeground(5, QColor(COLORS["positive"] if pnl >= 0 else COLORS["negative"]))  # noqa: E501
 
     def _request_manual_close_spread(self, spread_id: str) -> None:
         """Queue a manual close request to the paper worker thread.
@@ -2661,14 +2661,14 @@ class SpyderTradingDashboard(QMainWindow):
                 "max_loss_dollars":     float(target.get("max_loss_per_contract", 0)) * qty * 100,
                 "open_commission":      0.0,
                 "close_commission":     0.0,
-                "return_on_credit_pct": (realized_pnl / credit_received * 100) if credit_received else 0.0,
+                "return_on_credit_pct": (realized_pnl / credit_received * 100) if credit_received else 0.0,  # noqa: E501
                 "return_on_risk_pct":   0.0,
                 "closed_at":            now,
                 "hold_seconds":         now - float(target.get("opened_at", now)),
                 "close_reason":         "MANUAL_CLOSE (worker offline)",
                 "lifecycle_state":      "CLOSED BY USER",
             })
-            state["_open_spreads"] = [s for s in open_spreads if str(s.get("id", "")) != str(spread_id)]
+            state["_open_spreads"] = [s for s in open_spreads if str(s.get("id", "")) != str(spread_id)]  # noqa: E501
             state.setdefault("_closed_trades", []).append(closed_trade)
             state["_cash"]               = float(state.get("_cash", 0)) + debit_paid
             state["_trades_executed"]    = int(state.get("_trades_executed", 0)) + 1
@@ -2924,7 +2924,7 @@ class SpyderTradingDashboard(QMainWindow):
             import os as _os_mode
             _paper_acct_id = _os_mode.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT")
             self.acct_number_lbl.setText(_paper_acct_id if is_paper else "—")
-        for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):
+        for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):  # noqa: E501
             if lbl:
                 lbl.setText("—")
 
@@ -2966,7 +2966,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self.unrealized_value.setText(f"${_u:+,.2f}")
                         self.unrealized_value.setStyleSheet(
                             f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_uc}; text-align: right;"  # noqa: E501
                         )
                     if self.realized_value:
                         _r = float(hydrated.get("realized_pnl", 0.0) or 0.0)
@@ -2974,7 +2974,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self.realized_value.setText(f"${_r:+,.2f}")
                         self.realized_value.setStyleSheet(
                             f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"
+                            f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"  # noqa: E501
                         )
         saved_account = self._account_snapshot_by_mode.get(new_mode)
         if isinstance(saved_account, dict) and saved_account:
@@ -2989,10 +2989,10 @@ class SpyderTradingDashboard(QMainWindow):
         is_paper = self.trading_mode == TradingMode.PAPER
         if is_paper:
             self.pnl_title_lbl.setText("P&L PERFORMANCE - PAPER TRADING")
-            self.pnl_title_lbl.setStyleSheet("font-size: 15px; font-weight: normal; letter-spacing: 1px; color: #FFA500;")
+            self.pnl_title_lbl.setStyleSheet("font-size: 15px; font-weight: normal; letter-spacing: 1px; color: #FFA500;")  # noqa: E501
         else:
             self.pnl_title_lbl.setText("P&L PERFORMANCE - LIVE TRADING")
-            self.pnl_title_lbl.setStyleSheet("font-size: 15px; font-weight: normal; letter-spacing: 1px; color: #00FF00;")
+            self.pnl_title_lbl.setStyleSheet("font-size: 15px; font-weight: normal; letter-spacing: 1px; color: #00FF00;")  # noqa: E501
 
     def _update_orders_title(self):
         """Update the ORDERS & POSITIONS title label text and color based on trading mode."""
@@ -3001,10 +3001,10 @@ class SpyderTradingDashboard(QMainWindow):
         is_paper = self.trading_mode == TradingMode.PAPER
         if is_paper:
             self.orders_title_label.setText("ORDERS & POSITIONS - PAPER TRADING")
-            self.orders_title_label.setStyleSheet("font-weight: normal; font-size: 11pt; color: #FFA500;")
+            self.orders_title_label.setStyleSheet("font-weight: normal; font-size: 11pt; color: #FFA500;")  # noqa: E501
         else:
             self.orders_title_label.setText("ORDERS & POSITIONS - LIVE TRADING")
-            self.orders_title_label.setStyleSheet("font-weight: normal; font-size: 11pt; color: #00FF00;")
+            self.orders_title_label.setStyleSheet("font-weight: normal; font-size: 11pt; color: #00FF00;")  # noqa: E501
 
     def _update_mode_buttons(self):
         """Apply active/inactive styles to the LIVE / PAPER toggle buttons."""
@@ -3012,7 +3012,7 @@ class SpyderTradingDashboard(QMainWindow):
             return
         is_live = self.trading_mode == TradingMode.LIVE
         _active_base = "font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none;"
-        _inactive_base = f"font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none; background-color: {COLORS['panel']}; color: #aaaaaa;"
+        _inactive_base = f"font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none; background-color: {COLORS['panel']}; color: #aaaaaa;"  # noqa: E501
         self.live_btn.setStyleSheet(
             f"background-color: {COLORS['positive']}; color: black; {_active_base}"
             if is_live else _inactive_base
@@ -3144,7 +3144,7 @@ class SpyderTradingDashboard(QMainWindow):
         confirm_btn.setText("CONFIRM LIVE TRADING")
         confirm_btn.setEnabled(False)
         confirm_btn.setStyleSheet(
-            f"background-color: {COLORS['negative']}; color: white; font-weight: bold; padding: 6px 14px;"
+            f"background-color: {COLORS['negative']}; color: white; font-weight: bold; padding: 6px 14px;"  # noqa: E501
         )
         btn_box.rejected.connect(dlg.reject)
         btn_box.accepted.connect(dlg.accept)
@@ -3165,7 +3165,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         if self._startup_readiness_state.get("safe_fallback_applied", False):
             self.add_system_log(
-                "⚠️ Safe mode reminder: automation fallback is active from startup readiness validation"
+                "⚠️ Safe mode reminder: automation fallback is active from startup readiness validation"  # noqa: E501
             )
 
         # Apply the same readiness evaluation gate to both PAPER and LIVE starts.
@@ -3178,7 +3178,7 @@ class SpyderTradingDashboard(QMainWindow):
             self._append_readiness_bypass_audit("blocked", "NO hard-block", "")
             return
 
-        latest_result = self._last_readiness_result if isinstance(self._last_readiness_result, dict) else {}
+        latest_result = self._last_readiness_result if isinstance(self._last_readiness_result, dict) else {}  # noqa: E501
         if bool(latest_result.get("conditional", False)):
             reason = self._prompt_conditional_readiness_reason()
             if reason is None:
@@ -3229,7 +3229,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.start_btn.setStyleSheet(
             f"background-color: {COLORS['automation_active']}; color: white;",
         )
-        self.start_btn.setText("PAPER ACTIVE" if self.trading_mode == TradingMode.PAPER else "TRADING ACTIVE")
+        self.start_btn.setText("PAPER ACTIVE" if self.trading_mode == TradingMode.PAPER else "TRADING ACTIVE")  # noqa: E501
 
         mode_label = self.trading_mode.value
         self.add_system_log(f"{mode_label} trading started successfully via SessionSupervisor")
@@ -3248,7 +3248,7 @@ class SpyderTradingDashboard(QMainWindow):
         """
         mode_label = (mode or self.trading_mode).value.upper()
         now = time.time()
-        if isinstance(self._last_readiness_ts, (int, float)) and isinstance(self._last_readiness_result, dict):
+        if isinstance(self._last_readiness_ts, (int, float)) and isinstance(self._last_readiness_result, dict):  # noqa: E501
             age = now - float(self._last_readiness_ts)
             if age <= float(self._readiness_ttl_seconds):
                 return str(self._last_readiness_result.get("decision", "NO"))
@@ -3281,7 +3281,7 @@ class SpyderTradingDashboard(QMainWindow):
             button.setEnabled(False)
 
         self._readiness_worker_thread = QThread(self)
-        self._readiness_worker = _ReadinessCheckWorker(snapshot, self._evaluate_trading_readiness_snapshot)
+        self._readiness_worker = _ReadinessCheckWorker(snapshot, self._evaluate_trading_readiness_snapshot)  # noqa: E501
         self._readiness_worker.moveToThread(self._readiness_worker_thread)
 
         self._readiness_worker_thread.started.connect(self._readiness_worker.run)
@@ -3342,8 +3342,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         with self._event_clock_lock:
             event_state = getattr(self, "event_clock_state", None)
-            event_enabled = bool(getattr(event_state, "enabled", True)) if event_state is not None else True
-            event_name = str(getattr(event_state, "state", "clear")) if event_state is not None else "clear"
+            event_enabled = bool(getattr(event_state, "enabled", True)) if event_state is not None else True  # noqa: E501
+            event_name = str(getattr(event_state, "state", "clear")) if event_state is not None else "clear"  # noqa: E501
 
         et_now = datetime.now(pytz.timezone("US/Eastern"))
 
@@ -3370,9 +3370,9 @@ class SpyderTradingDashboard(QMainWindow):
         startup_state = snapshot.get("startup_state", {})
         if isinstance(startup_state, dict):
             if startup_state.get("live_blocking", False):
-                reasons.append("A03 readiness validation reports live-blocking configuration errors")
+                reasons.append("A03 readiness validation reports live-blocking configuration errors")  # noqa: E501
             if startup_state.get("safe_fallback_applied", False):
-                reasons.append("Automation safe fallback is active from startup readiness validation")
+                reasons.append("Automation safe fallback is active from startup readiness validation")  # noqa: E501
 
         if not bool(snapshot.get("api_connected", False)):
             reasons.append("Tradier execution API is disconnected")
@@ -3386,7 +3386,7 @@ class SpyderTradingDashboard(QMainWindow):
         if bool(snapshot.get("event_clock_enabled", True)):
             state_name = str(snapshot.get("event_clock_state", "clear"))
             if state_name in {"pre", "live", "post"}:
-                warnings.append(f"Event-clock state is {state_name}; reduced-risk policy recommended")
+                warnings.append(f"Event-clock state is {state_name}; reduced-risk policy recommended")  # noqa: E501
 
         decision = "OK"
         conditional = False
@@ -3410,7 +3410,7 @@ class SpyderTradingDashboard(QMainWindow):
         result = self._evaluate_trading_readiness_snapshot(snapshot)
         return self._apply_readiness_result(result, show_dialog=show_dialog)
 
-    def _apply_readiness_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:
+    def _apply_readiness_result(self, result: dict[str, object], show_dialog: bool = True) -> dict[str, object]:  # noqa: E501
         """Persist, display, and log readiness result."""
         reasons = list(result.get("reasons", []))
         warnings = list(result.get("warnings", []))
@@ -3576,7 +3576,7 @@ class SpyderTradingDashboard(QMainWindow):
                     f"(CONDITIONAL) | Warnings: {detail_text}"
                 )
             else:
-                status_text = f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING (CONDITIONAL)"
+                status_text = f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING (CONDITIONAL)"  # noqa: E501
         else:
             status_text = f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING"
         label.setText(status_text)
@@ -3608,7 +3608,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _start_unified_session_supervisor(self) -> bool:
         """Start SessionSupervisor using the currently selected trading mode."""
-        if self._session_supervisor is not None and getattr(self._session_supervisor, "is_running", False):
+        if self._session_supervisor is not None and getattr(self._session_supervisor, "is_running", False):  # noqa: E501
             self.add_system_log("Unified session already running")
             return True
         try:
@@ -3664,7 +3664,7 @@ class SpyderTradingDashboard(QMainWindow):
         # stay stuck on "Connecting…" indefinitely.)
         if self.acct_number_lbl:
             import os as _os_pt
-            self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
+            self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
         # Single source of truth for paper-trading starting capital. Used to
         # initialise the worker AND to scale the E01 risk-manager limits so
         # percentage-based dialog inputs map to the correct dollar amounts.
@@ -3848,7 +3848,7 @@ class SpyderTradingDashboard(QMainWindow):
           <li><b>Signal classification</b> — expanding percentile rank of the raw ratio
               against its full history. Crossovers of 30d/90d MAs trigger early alerts.</li>
         </ol>
-        """
+        """  # noqa: E501
 
         dlg = QDialog(self)
         dlg.setWindowTitle("WRS — Walmart Recession Signal (S12)")
@@ -4017,7 +4017,7 @@ class SpyderTradingDashboard(QMainWindow):
           <li><b>Signal classification</b> \u2014 expanding percentile rank of the raw ratio
               against its full history since 2000. Crossovers of 30d/90d MAs trigger early alerts.</li>
         </ol>
-        """
+        """  # noqa: E501
 
         dlg = QDialog(self)
         dlg.setWindowTitle("PSR — Pawn Shop Ratio (S13)")
@@ -4142,7 +4142,7 @@ class SpyderTradingDashboard(QMainWindow):
           <li><b>▼ &lt;score&gt;</b> — fade-resistance fired (bearish bias)</li>
           <li><b>▲ &lt;score&gt;</b> — fade-support fired (bullish bias)</li>
         </ul>
-        """
+        """  # noqa: E501
         body.setHtml(html)
         v.addWidget(body)
 
@@ -4170,14 +4170,14 @@ class SpyderTradingDashboard(QMainWindow):
             self.unrealized_value.setText(f"${unrealized:+,.2f}")
             self.unrealized_value.setStyleSheet(
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"  # noqa: E501
             )
         if self.realized_value:
             color = COLORS["positive"] if realized >= 0 else COLORS["negative"]
             self.realized_value.setText(f"${realized:+,.2f}")
             self.realized_value.setStyleSheet(
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"  # noqa: E501
             )
         # Log to system for visibility
         qty = data.get("position_qty", 0)
@@ -4194,7 +4194,7 @@ class SpyderTradingDashboard(QMainWindow):
                 f"MTM: ${data.get('spreads_unrealized_pnl', 0.0):+,.2f} | Equity: ${equity:,.2f}"
             )
         else:
-            self.add_system_log(f"Paper: SPY ${spy_last:.2f} | No position | Equity: ${equity:,.2f}")
+            self.add_system_log(f"Paper: SPY ${spy_last:.2f} | No position | Equity: ${equity:,.2f}")  # noqa: E501
 
         # Persist most recent account panel values for startup restore.
         self._remember_current_account_snapshot()
@@ -4449,7 +4449,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.realized_value.setText(realized_str)
             self.realized_value.setStyleSheet(
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"  # noqa: E501
             )
 
         # Persist most recent account panel values for startup restore.
@@ -4476,8 +4476,8 @@ class SpyderTradingDashboard(QMainWindow):
             # Prefer explicit counts if present; otherwise infer from
             # total_trades + win_rate for a live-updating summary.
             try:
-                wins = int(enriched.get("winning_trades")) if enriched.get("winning_trades") is not None else None
-                losses = int(enriched.get("losing_trades")) if enriched.get("losing_trades") is not None else None
+                wins = int(enriched.get("winning_trades")) if enriched.get("winning_trades") is not None else None  # noqa: E501
+                losses = int(enriched.get("losing_trades")) if enriched.get("losing_trades") is not None else None  # noqa: E501
             except (TypeError, ValueError):
                 wins = None
                 losses = None
@@ -4513,7 +4513,7 @@ class SpyderTradingDashboard(QMainWindow):
                     if closed_at is None:
                         continue
                     try:
-                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)
+                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)  # noqa: E501
                     except (TypeError, ValueError, OSError, OverflowError):
                         continue
                     if closed_dt.date() != today_et:
@@ -4547,7 +4547,7 @@ class SpyderTradingDashboard(QMainWindow):
                     if closed_at is None:
                         continue
                     try:
-                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)
+                        closed_dt = datetime.fromtimestamp(float(closed_at), tz=pytz.UTC).astimezone(et_tz)  # noqa: E501
                     except (TypeError, ValueError, OSError, OverflowError):
                         continue
                     if closed_dt.date() != today_et:
@@ -4608,7 +4608,7 @@ class SpyderTradingDashboard(QMainWindow):
                     )
                 realized_pnl = 0.0
                 if isinstance(realized_raw, str):
-                    realized_pnl = float(realized_raw.replace("$", "").replace(",", "").replace("+", "") or 0.0)
+                    realized_pnl = float(realized_raw.replace("$", "").replace(",", "").replace("+", "") or 0.0)  # noqa: E501
                 elif isinstance(realized_raw, (int, float)):
                     realized_pnl = float(realized_raw)
 
@@ -4678,7 +4678,7 @@ class SpyderTradingDashboard(QMainWindow):
                     try:
                         num = float(value.replace("$", "").replace(",", "").replace("+", ""))
                         from PySide6.QtGui import QColor
-                        item.setForeground(QColor(COLORS["positive"] if num >= 0 else COLORS["negative"]))
+                        item.setForeground(QColor(COLORS["positive"] if num >= 0 else COLORS["negative"]))  # noqa: E501
                     except (ValueError, TypeError):
                         pass
 
@@ -4712,8 +4712,8 @@ class SpyderTradingDashboard(QMainWindow):
         # Reset account container to idle state
         if self.acct_number_lbl:
             import os as _os_stop
-            self.acct_number_lbl.setText(_os_stop.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
-        for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):
+            self.acct_number_lbl.setText(_os_stop.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
+        for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):  # noqa: E501
             if lbl:
                 lbl.setText("—")
 
@@ -4765,7 +4765,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_data_status("PAPER")
             if self.acct_number_lbl:
                 import os as _os_conn
-                self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))
+                self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
             self.add_automation_log("PAPER TRADING ACTIVE — Connected to Tradier sandbox")
         else:
             self.add_system_log("❌ Paper trading could not connect to Tradier")
@@ -4777,7 +4777,7 @@ class SpyderTradingDashboard(QMainWindow):
                 QMessageBox.information(
                     self,
                     "API Disconnected",
-                    "API is disconnected - further trading has already stopped, but open orders at Tradier still remain in effect. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
+                    "API is disconnected - further trading has already stopped, but open orders at Tradier still remain in effect. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",  # noqa: E501
                 )
             self.add_system_log("No active trading to stop")
             return
@@ -4802,7 +4802,7 @@ class SpyderTradingDashboard(QMainWindow):
             QMessageBox.critical(
                 self,
                 "API Disconnected",
-                "API is disconnected - unable to close open orders at Tradier. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
+                "API is disconnected - unable to close open orders at Tradier. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",  # noqa: E501
             )
             return
 
@@ -4883,7 +4883,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.data_status_container.setToolTip("Simulated data — click to switch to EOD")
 
     def determine_data_status(self) -> str:
-        """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""
+        """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""  # noqa: E501
         market_hours = is_market_hours()
 
         # FIXED: Check for simulation mode first with better detection.
@@ -5089,7 +5089,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("📊 Real EOD data loaded from Tradier — prices are last close")
             self.apply_real_data_patch()
         else:
-            self.add_system_log("⚠️ EOD snapshot unavailable — Tradier unreachable or not configured")
+            self.add_system_log("⚠️ EOD snapshot unavailable — Tradier unreachable or not configured")  # noqa: E501
             self.update_data_status("SIMULATION")
 
     # ==========================================================================
@@ -5107,7 +5107,7 @@ class SpyderTradingDashboard(QMainWindow):
             self._metrics_orchestrator = get_metrics_orchestrator()
             # Wire S07 output → custom metric widgets in the Market Overview panel
             self._metrics_orchestrator.metrics_updated.connect(self._on_custom_metrics_updated)
-            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")
+            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
         except Exception as e:
             self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
             self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
@@ -5162,16 +5162,16 @@ class SpyderTradingDashboard(QMainWindow):
             add_entry  = metrics.get("ADD",  {})
             trin_entry = metrics.get("TRIN", {})
             nymo_entry = metrics.get("NYMO", {})
-            if isinstance(tick_entry, dict) and isinstance(add_entry, dict) and isinstance(trin_entry, dict):
+            if isinstance(tick_entry, dict) and isinstance(add_entry, dict) and isinstance(trin_entry, dict):  # noqa: E501
                 tick = tick_entry.get("value", float("nan"))
                 add  = add_entry.get("value",  float("nan"))
                 trin = trin_entry.get("value", float("nan"))
-                nymo = nymo_entry.get("value", float("nan")) if isinstance(nymo_entry, dict) else float("nan")
+                nymo = nymo_entry.get("value", float("nan")) if isinstance(nymo_entry, dict) else float("nan")  # noqa: E501
                 if not (isinstance(tick, float) and math.isnan(tick)
                         and isinstance(add, float) and math.isnan(add)
                         and isinstance(trin, float) and math.isnan(trin)):
                     breadth_entry = metrics.get("BREADTH_REGIME", {})
-                    regime = breadth_entry.get("value", "") if isinstance(breadth_entry, dict) else ""
+                    regime = breadth_entry.get("value", "") if isinstance(breadth_entry, dict) else ""  # noqa: E501
                     dlg.on_breadth_updated({
                         "tick": tick,
                         "add":  add,
@@ -5242,7 +5242,7 @@ class SpyderTradingDashboard(QMainWindow):
                 if isinstance(reason, str) and reason:
                     reason_counts[reason] = reason_counts.get(reason, 0) + 1
 
-            snapshot = candidate.get("snapshot", {}) if isinstance(candidate.get("snapshot", {}), dict) else {}
+            snapshot = candidate.get("snapshot", {}) if isinstance(candidate.get("snapshot", {}), dict) else {}  # noqa: E501
             quote_age_ms = snapshot.get("quote_age_ms")
             if isinstance(quote_age_ms, (int, float)):
                 freshness_samples.append(float(quote_age_ms))
@@ -5251,7 +5251,7 @@ class SpyderTradingDashboard(QMainWindow):
         top_failure = "none"
         if reason_counts:
             top_failure = max(reason_counts.items(), key=lambda item: item[1])[0]
-        median_freshness_ms = float(np.median(freshness_samples)) if freshness_samples else float("nan")
+        median_freshness_ms = float(np.median(freshness_samples)) if freshness_samples else float("nan")  # noqa: E501
 
         return {
             "total": total,
@@ -5415,10 +5415,10 @@ class SpyderTradingDashboard(QMainWindow):
 
         yes_btn = msg_box.button(QMessageBox.StandardButton.Yes)
         yes_btn.setText("CLOSE ALL POSITIONS")
-        yes_btn.setStyleSheet(f"background-color: {COLORS['negative']}; color: white; padding: 5px 15px;")
+        yes_btn.setStyleSheet(f"background-color: {COLORS['negative']}; color: white; padding: 5px 15px;")  # noqa: E501
 
         cancel_btn = msg_box.button(QMessageBox.StandardButton.Cancel)
-        cancel_btn.setStyleSheet(f"background-color: {COLORS['panel']}; color: white; padding: 5px 15px;")
+        cancel_btn.setStyleSheet(f"background-color: {COLORS['panel']}; color: white; padding: 5px 15px;")  # noqa: E501
 
         msg_box.setStyleSheet(f"""
             QMessageBox {{
@@ -5472,7 +5472,7 @@ class SpyderTradingDashboard(QMainWindow):
                 f"Type: Market / Day\n\n"
                 "Positions will update once fills are confirmed.",
             )
-        except (TradierAPIError if TradierAPIError is not None else Exception) as e:
+        except (TradierAPIError if TradierAPIError is not None else Exception) as e:  # noqa: B030
             self.logger.exception(
                 "Tradier API error closing strategy '%s': %s", strategy_name, e,
             )
@@ -5525,15 +5525,15 @@ class SpyderTradingDashboard(QMainWindow):
         
         Subscribes to RISK events from the event bus so the dashboard can display
         live event-clock state updates as they occur during trading.
-        """
+        """  # noqa: W293
         try:
             from Spyder.SpyderA_Core.SpyderA05_EventManager import (
                 EventManager,
                 EventType,
             )
-            
+  # noqa: W293
             event_manager = EventManager.get_instance()
-            
+  # noqa: W293
             # Subscribe to RISK events to receive event-clock state updates
             self._event_clock_handler_id = event_manager.subscribe(
                 EventType.RISK,
@@ -5559,7 +5559,7 @@ class SpyderTradingDashboard(QMainWindow):
         try:
             event_payload = event
             if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
-                event_payload = getattr(event, "data")
+                event_payload = getattr(event, "data")  # noqa: B009
 
             if not isinstance(event_payload, dict):
                 return
@@ -5605,11 +5605,11 @@ class SpyderTradingDashboard(QMainWindow):
             return
 
         latest_slippage = next(
-            (s.get("slippage_bps") for s in reversed(samples) if isinstance(s.get("slippage_bps"), (int, float))),
+            (s.get("slippage_bps") for s in reversed(samples) if isinstance(s.get("slippage_bps"), (int, float))),  # noqa: E501
             None,
         )
         latest_latency = next(
-            (s.get("fill_latency_ms") for s in reversed(samples) if isinstance(s.get("fill_latency_ms"), (int, float))),
+            (s.get("fill_latency_ms") for s in reversed(samples) if isinstance(s.get("fill_latency_ms"), (int, float))),  # noqa: E501
             None,
         )
 
@@ -5637,11 +5637,11 @@ class SpyderTradingDashboard(QMainWindow):
         
         Args:
             event: Event dict with keys 'type', 'data', 'timestamp', etc.
-        """
+        """  # noqa: W293
         try:
             event_payload = event
             if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
-                event_payload = getattr(event, "data")
+                event_payload = getattr(event, "data")  # noqa: B009
 
             if not isinstance(event_payload, dict):
                 return
@@ -5654,7 +5654,7 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             # Unwrap A04 scheduler emission shape when present.
-            if event_data.get('feed') != 'event_clock' and isinstance(event_data.get('payload'), dict):
+            if event_data.get('feed') != 'event_clock' and isinstance(event_data.get('payload'), dict):  # noqa: E501
                 wrapped_payload = event_data.get('payload')
                 if isinstance(wrapped_payload.get('data'), dict):
                     event_data = dict(wrapped_payload.get('data'))
@@ -5664,11 +5664,11 @@ class SpyderTradingDashboard(QMainWindow):
             # Check if this is an event-clock state event
             if event_data.get('feed') != 'event_clock':
                 return
-            
+  # noqa: W293
             # Update event-clock state safely
             with self._event_clock_lock:
                 from Spyder.SpyderG_GUI.SpyderG06_DashboardData import EventClockState
-                
+  # noqa: W293
                 # Build new state from event data
                 new_state = EventClockState(
                     state=event_data.get('state', 'clear'),
@@ -5681,7 +5681,7 @@ class SpyderTradingDashboard(QMainWindow):
                     timestamp=datetime.now(pytz.timezone("US/Eastern")),
                 )
                 self.event_clock_state = new_state
-            
+  # noqa: W293
             # Update UI display (defer to main thread if needed)
             QTimer.singleShot(0, self._update_event_clock_display)
         except Exception as e:
@@ -5692,15 +5692,15 @@ class SpyderTradingDashboard(QMainWindow):
         try:
             if self.event_clock_state_label is None and self.event_clock_compact_label is None:
                 return
-            
+  # noqa: W293
             with self._event_clock_lock:
                 state = self.event_clock_state
-            
+  # noqa: W293
             # Update state label with color
             state_color = state.state_color
             if self.event_clock_state_label:
                 self.event_clock_state_label.setText(state.state_label)
-                self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")
+                self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")  # noqa: E501
 
             if self.event_clock_compact_label:
                 compact_text = f"EC: {state.state_label.replace('✓ ', '').replace('✗ ', '')}"
@@ -5708,19 +5708,19 @@ class SpyderTradingDashboard(QMainWindow):
                 self.event_clock_compact_label.setStyleSheet(
                     f"color: {state_color}; font-size: 13px; font-weight: normal;"
                 )
-            
+  # noqa: W293
             # Update policy label
-            policy_text = f"Policy: {'✓ Enabled' if state.enabled else '✗ Disabled'} | Sources: {state.sources}"
+            policy_text = f"Policy: {'✓ Enabled' if state.enabled else '✗ Disabled'} | Sources: {state.sources}"  # noqa: E501
             if self.event_clock_policy_label:
                 self.event_clock_policy_label.setText(policy_text)
-            
+  # noqa: W293
             # Update blackout windows label
-            windows_text = f"Blackout: -{state.blackout_pre_minutes}m / +{state.blackout_post_minutes}m | Size: {state.max_size_multiplier:.0%}"
+            windows_text = f"Blackout: -{state.blackout_pre_minutes}m / +{state.blackout_post_minutes}m | Size: {state.max_size_multiplier:.0%}"  # noqa: E501
             if self.event_clock_windows_label:
                 self.event_clock_windows_label.setText(windows_text)
-            
+  # noqa: W293
             # Update allowed strategies label
-            strategies_text = f"Allowlist: {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"
+            strategies_text = f"Allowlist: {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"  # noqa: E501
             if self.event_clock_strategies_label:
                 self.event_clock_strategies_label.setText(strategies_text)
         except Exception as e:
@@ -5880,7 +5880,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Toggle system-log verbosity between NORMAL and DEBUG, updating button color/text."""
         new_mode = "DEBUG" if self.system_log_mode == "NORMAL" else "NORMAL"
         self._set_system_log_verbosity(new_mode, announce=True)
-        
+  # noqa: W293
         # Update button appearance based on new mode
         if hasattr(self, "system_log_mode_btn") and self.system_log_mode_btn is not None:
             if new_mode == "DEBUG":
@@ -5953,7 +5953,7 @@ class SpyderTradingDashboard(QMainWindow):
         state = self._startup_readiness_state
         if not state.get("checked", False):
             self.system_logs.append(
-                f"[{startup_hms}] ℹ️ STARTUP READINESS: unavailable ({state.get('source', 'unknown')})"
+                f"[{startup_hms}] ℹ️ STARTUP READINESS: unavailable ({state.get('source', 'unknown')})"  # noqa: E501
             )
             return
 
@@ -5965,7 +5965,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.system_logs.extend(
                 [
                     f"[{startup_hms}] ⚠️ STARTUP READINESS: SAFE MODE ACTIVE ({mode})",
-                    f"[{startup_hms}] ⚠️ automation.enabled=false due to {len(errors)} blocking config error(s)",
+                    f"[{startup_hms}] ⚠️ automation.enabled=false due to {len(errors)} blocking config error(s)",  # noqa: E501
                 ]
             )
         elif state.get("live_blocking", False):
@@ -5974,7 +5974,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
         else:
             self.system_logs.append(
-                f"[{startup_hms}] ✅ STARTUP READINESS: mode={mode} warnings={len(warnings)} errors={len(errors)}"
+                f"[{startup_hms}] ✅ STARTUP READINESS: mode={mode} warnings={len(warnings)} errors={len(errors)}"  # noqa: E501
             )
 
     def _emit_startup_readiness_logs(self) -> None:
@@ -6012,7 +6012,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
         else:
             self.add_system_log(
-                f"✅ Startup readiness validated (mode={mode}, warnings={len(warnings)}, errors={len(errors)})"
+                f"✅ Startup readiness validated (mode={mode}, warnings={len(warnings)}, errors={len(errors)})"  # noqa: E501
             )
 
     # ------------------------------------------------------------------
@@ -6038,8 +6038,8 @@ class SpyderTradingDashboard(QMainWindow):
         """Capture current account-panel numeric values from QLabel text."""
         settled = self._parse_money_text(self.settled_value.text() if self.settled_value else "0")
         buying = self._parse_money_text(self.buying_value.text() if self.buying_value else "0")
-        realized = self._parse_money_text(self.realized_value.text() if self.realized_value else "0")
-        unrealized = self._parse_money_text(self.unrealized_value.text() if self.unrealized_value else "0")
+        realized = self._parse_money_text(self.realized_value.text() if self.realized_value else "0")  # noqa: E501
+        unrealized = self._parse_money_text(self.unrealized_value.text() if self.unrealized_value else "0")  # noqa: E501
         return {
             "settled_cash": settled,
             "buying_power": buying,
@@ -6068,14 +6068,14 @@ class SpyderTradingDashboard(QMainWindow):
             self.realized_value.setText(f"${realized:+,.2f}")
             self.realized_value.setStyleSheet(
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {r_color}; text-align: right;"
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {r_color}; text-align: right;"  # noqa: E501
             )
         if self.unrealized_value:
             u_color = COLORS["positive"] if unrealized >= 0 else COLORS["negative"]
             self.unrealized_value.setText(f"${unrealized:+,.2f}")
             self.unrealized_value.setStyleSheet(
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
-                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {u_color}; text-align: right;"
+                f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {u_color}; text-align: right;"  # noqa: E501
             )
 
     def _save_snapshot(self) -> None:

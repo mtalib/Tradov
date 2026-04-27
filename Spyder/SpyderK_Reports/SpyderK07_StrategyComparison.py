@@ -346,7 +346,7 @@ class StrategyComparisonAnalyzer:
         # Risk metrics
         volatility = returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         downside_returns = returns[returns < 0]
-        downside_deviation = downside_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR) if len(downside_returns) > 0 else 0
+        downside_deviation = downside_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR) if len(downside_returns) > 0 else 0  # noqa: E501
 
         # Drawdown calculation
         cumulative = (1 + returns).cumprod()
@@ -423,7 +423,7 @@ class StrategyComparisonAnalyzer:
         metrics.total_trades = len(trades)
         metrics.winning_trades = (pnl > 0).sum()
         metrics.losing_trades = (pnl < 0).sum()
-        metrics.win_rate = metrics.winning_trades / metrics.total_trades if metrics.total_trades > 0 else 0
+        metrics.win_rate = metrics.winning_trades / metrics.total_trades if metrics.total_trades > 0 else 0  # noqa: E501
 
         winning_pnl = pnl[pnl > 0]
         losing_pnl = pnl[pnl < 0]
@@ -523,7 +523,7 @@ class StrategyComparisonAnalyzer:
         for name, m in metrics.items():
             score = 0
             # Normalize and weight each metric
-            score += weights.get('sharpe_ratio', 0) * min(m.sharpe_ratio / EXCELLENT_SHARPE_RATIO, 1)
+            score += weights.get('sharpe_ratio', 0) * min(m.sharpe_ratio / EXCELLENT_SHARPE_RATIO, 1)  # noqa: E501
             score += weights.get('total_return', 0) * min(m.total_return, 1)
             score += weights.get('max_drawdown', 0) * (1 - min(m.max_drawdown, 0.5) / 0.5)
             score += weights.get('win_rate', 0) * m.win_rate
@@ -555,7 +555,7 @@ class StrategyComparisonAnalyzer:
             reasons.append(f"good win rate ({metrics.win_rate*100:.1f}%)")
 
         if metrics.monthly_win_rate >= 0.70:
-            reasons.append(f"consistent monthly performance ({metrics.monthly_win_rate*100:.1f}% profitable months)")
+            reasons.append(f"consistent monthly performance ({metrics.monthly_win_rate*100:.1f}% profitable months)")  # noqa: E501
 
         if not reasons:
             reasons.append("best overall composite score across all metrics")
@@ -578,11 +578,11 @@ class StrategyComparisonAnalyzer:
                 avg_corr = np.mean(off_diagonal)
                 if avg_corr < 0.3:
                     recommendations.append(
-                        "Strategies show low correlation - consider running them in parallel for diversification"
+                        "Strategies show low correlation - consider running them in parallel for diversification"  # noqa: E501
                     )
                 elif avg_corr > 0.7:
                     recommendations.append(
-                        "Strategies are highly correlated - limited diversification benefit from running both"
+                        "Strategies are highly correlated - limited diversification benefit from running both"  # noqa: E501
                     )
 
         # Recommendations based on best strategy characteristics
@@ -594,7 +594,7 @@ class StrategyComparisonAnalyzer:
 
         if best.sharpe_ratio < GOOD_SHARPE_RATIO:
             recommendations.append(
-                "All strategies have below-average risk-adjusted returns - consider parameter optimization"
+                "All strategies have below-average risk-adjusted returns - consider parameter optimization"  # noqa: E501
             )
 
         # Compare to identify specific improvements
@@ -652,7 +652,7 @@ class StrategyComparisonAnalyzer:
 
         # Performance table header
         headers = ["Strategy", "Return", "Sharpe", "Sortino", "Max DD", "Win Rate", "Trades"]
-        lines.append(f"{headers[0]:<20} {headers[1]:>10} {headers[2]:>8} {headers[3]:>8} {headers[4]:>8} {headers[5]:>10} {headers[6]:>8}")
+        lines.append(f"{headers[0]:<20} {headers[1]:>10} {headers[2]:>8} {headers[3]:>8} {headers[4]:>8} {headers[5]:>10} {headers[6]:>8}")  # noqa: E501
         lines.append("-" * 80)
 
         # Performance data rows

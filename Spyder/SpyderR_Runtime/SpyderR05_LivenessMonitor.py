@@ -190,7 +190,7 @@ class LivenessMonitor:
         tracked = None
         try:
             if engine is not None:
-                kill = bool(getattr(engine, "_kill_switch_event", None) and engine._kill_switch_event.is_set())
+                kill = bool(getattr(engine, "_kill_switch_event", None) and engine._kill_switch_event.is_set())  # noqa: E501
                 broker_connected = bool(getattr(engine, "broker_connected", True))
                 pending = len(getattr(engine, "pending_orders", {}) or {})
                 rec = getattr(engine, "_reconciler", None)
@@ -258,7 +258,7 @@ class LivenessMonitor:
         if self._is_paper_mode():
             if (lag > self._deadman_seconds) and (not self._paper_deadman_logged):
                 self.logger.debug(
-                    "DEADMAN advisory (paper mode): no events for %.1fs (threshold=%.1fs); kill-switch emission suppressed",
+                    "DEADMAN advisory (paper mode): no events for %.1fs (threshold=%.1fs); kill-switch emission suppressed",  # noqa: E501
                     lag,
                     self._deadman_seconds,
                 )

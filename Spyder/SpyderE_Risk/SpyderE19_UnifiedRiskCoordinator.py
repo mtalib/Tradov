@@ -62,8 +62,8 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 
 # Core E-Series Risk Management (18 modules)
 try:
@@ -80,7 +80,7 @@ except ImportError as e:
 
 # V04 Quantitative Risk Specialist
 try:
-    from SpyderV_QuantModels.SpyderV04_RiskManager import create_risk_manager as create_quant_risk_manager
+    from SpyderV_QuantModels.SpyderV04_RiskManager import create_risk_manager as create_quant_risk_manager  # noqa: E501
     QUANT_RISK_AVAILABLE = True
 except ImportError:
     QUANT_RISK_AVAILABLE = False
@@ -257,7 +257,7 @@ class UnifiedRiskProfile:
             'portfolio_cvar_95': self.portfolio_cvar_95,
             'max_drawdown': self.max_drawdown,
             'current_drawdown': self.current_drawdown,
-            'correlation_matrix': self.correlation_matrix.tolist() if self.correlation_matrix is not None else None,
+            'correlation_matrix': self.correlation_matrix.tolist() if self.correlation_matrix is not None else None,  # noqa: E501
             'beta_exposure': self.beta_exposure,
             'gamma_risk': self.gamma_risk,
             'vega_risk': self.vega_risk,
@@ -305,7 +305,7 @@ class RiskCalculationCache:
         # Create hash of calculation type and relevant data
         key_data = {
             'type': calculation_type.value,
-            'data_hash': hashlib.md5(str(sorted(data.items())).encode(), usedforsecurity=False).hexdigest()
+            'data_hash': hashlib.md5(str(sorted(data.items())).encode(), usedforsecurity=False).hexdigest()  # noqa: E501
         }
         return f"{calculation_type.value}_{key_data['data_hash']}"
 
@@ -369,7 +369,7 @@ class RiskCalculationCache:
                 'size': len(self.cache),
                 'max_size': self.max_size,
                 'expiry_seconds': self.expiry_seconds,
-                'oldest_entry': min(self.cache.values(), key=lambda x: x[1])[1].isoformat() if self.cache else None
+                'oldest_entry': min(self.cache.values(), key=lambda x: x[1])[1].isoformat() if self.cache else None  # noqa: E501
             }
 
 # ==============================================================================
@@ -483,7 +483,7 @@ class UnifiedRiskCoordinator:
     async def calculate_unified_risk_profile(self,
                                            positions: list[dict[str, Any]],
                                            portfolio_value: float,
-                                           market_data: dict[str, Any] | None = None) -> UnifiedRiskProfile:
+                                           market_data: dict[str, Any] | None = None) -> UnifiedRiskProfile:  # noqa: E501
         """
         Calculate comprehensive risk profile using all available sources.
 
@@ -512,7 +512,7 @@ class UnifiedRiskCoordinator:
                 position_risks.update(core_results.get('position_risks', {}))
 
             # Quantitative risk analysis (V04)
-            quant_results = await self._get_quantitative_risk_analysis(positions, portfolio_value, market_data)
+            quant_results = await self._get_quantitative_risk_analysis(positions, portfolio_value, market_data)  # noqa: E501
             if quant_results:
                 calculation_sources.append(RiskSource.QUANT_SPECIALIST)
 
@@ -571,7 +571,7 @@ class UnifiedRiskCoordinator:
         try:
             # Check cache first
             cache_key_data = {
-                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),
+                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),  # noqa: E501
                 'portfolio_value': portfolio_value
             }
 
@@ -581,7 +581,7 @@ class UnifiedRiskCoordinator:
                 return cached_result
 
             # Calculate using core risk manager
-            portfolio_risk = self.core_risk_manager.calculate_portfolio_risk(positions, portfolio_value)
+            portfolio_risk = self.core_risk_manager.calculate_portfolio_risk(positions, portfolio_value)  # noqa: E501
 
             # Get position sizing recommendations
             position_risks = {}
@@ -607,7 +607,7 @@ class UnifiedRiskCoordinator:
             # Get drawdown analysis
             drawdown_info = {}
             if self.drawdown_controller:
-                current_drawdown = self.drawdown_controller.calculate_current_drawdown(portfolio_value)
+                current_drawdown = self.drawdown_controller.calculate_current_drawdown(portfolio_value)  # noqa: E501
                 drawdown_info = {
                     'current_drawdown': current_drawdown,
                     'max_drawdown': self.drawdown_controller.max_drawdown,
@@ -632,7 +632,7 @@ class UnifiedRiskCoordinator:
 
     async def _get_quantitative_risk_analysis(self, positions: list[dict[str, Any]],
                                             portfolio_value: float,
-                                            market_data: dict[str, Any] | None) -> dict[str, Any] | None:
+                                            market_data: dict[str, Any] | None) -> dict[str, Any] | None:  # noqa: E501
         """Get quantitative risk analysis from V04 specialist"""
         if not self.quant_risk_manager:
             return None
@@ -640,8 +640,8 @@ class UnifiedRiskCoordinator:
         try:
             # Check cache
             cache_key_data = {
-                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),
-                'market_data_hash': hashlib.md5(str(market_data).encode(), usedforsecurity=False).hexdigest() if market_data else 'none'
+                'positions_hash': hashlib.md5(str(positions).encode(), usedforsecurity=False).hexdigest(),  # noqa: E501
+                'market_data_hash': hashlib.md5(str(market_data).encode(), usedforsecurity=False).hexdigest() if market_data else 'none'  # noqa: E501
             }
 
             cached_result = self.cache.get(RiskCalculationType.VAR_ANALYSIS, cache_key_data)
@@ -746,7 +746,7 @@ class UnifiedRiskCoordinator:
 
         try:
             # Use cached consensus history when available (zero-cost)
-            if hasattr(self.regime_engine, 'consensus_history') and self.regime_engine.consensus_history:
+            if hasattr(self.regime_engine, 'consensus_history') and self.regime_engine.consensus_history:  # noqa: E501
                 latest = self.regime_engine.consensus_history[-1]
                 return latest.regime.value
 
@@ -855,13 +855,13 @@ class UnifiedRiskCoordinator:
             alert = RiskAlert(
                 alert_id=str(uuid.uuid4()),
                 alert_type='portfolio_risk_elevated',
-                priority=RiskPriority.HIGH if risk_profile.risk_level == RiskLevel.HIGH else RiskPriority.EMERGENCY,
+                priority=RiskPriority.HIGH if risk_profile.risk_level == RiskLevel.HIGH else RiskPriority.EMERGENCY,  # noqa: E501
                 message=f"Portfolio risk elevated to {risk_profile.risk_level.value} level "
                        f"({risk_profile.risk_percentage:.1%})",
-                data={'risk_percentage': risk_profile.risk_percentage, 'risk_level': risk_profile.risk_level.value},
+                data={'risk_percentage': risk_profile.risk_percentage, 'risk_level': risk_profile.risk_level.value},  # noqa: E501
                 timestamp=risk_profile.timestamp,
                 source=RiskSource.COORDINATOR,
-                suggested_actions=['Reduce position sizes', 'Hedge existing positions', 'Review stop losses'],
+                suggested_actions=['Reduce position sizes', 'Hedge existing positions', 'Review stop losses'],  # noqa: E501
                 requires_immediate_action=risk_profile.risk_level == RiskLevel.EMERGENCY
             )
             new_alerts.append(alert)
@@ -873,10 +873,10 @@ class UnifiedRiskCoordinator:
                 alert_type='drawdown_alert',
                 priority=RiskPriority.HIGH,
                 message=f"Portfolio drawdown at {risk_profile.current_drawdown:.1%}",
-                data={'current_drawdown': risk_profile.current_drawdown, 'max_drawdown': risk_profile.max_drawdown},
+                data={'current_drawdown': risk_profile.current_drawdown, 'max_drawdown': risk_profile.max_drawdown},  # noqa: E501
                 timestamp=risk_profile.timestamp,
                 source=RiskSource.COORDINATOR,
-                suggested_actions=['Review positions', 'Consider stop losses', 'Assess market regime'],
+                suggested_actions=['Review positions', 'Consider stop losses', 'Assess market regime'],  # noqa: E501
                 requires_immediate_action=risk_profile.current_drawdown > 0.10
             )
             new_alerts.append(alert)
@@ -905,7 +905,7 @@ class UnifiedRiskCoordinator:
         if new_alerts:
             self.logger.warning("Generated %s risk alerts", len(new_alerts))
 
-    def _create_emergency_profile(self, portfolio_value: float, timestamp: datetime) -> UnifiedRiskProfile:
+    def _create_emergency_profile(self, portfolio_value: float, timestamp: datetime) -> UnifiedRiskProfile:  # noqa: E501
         """Create emergency risk profile when calculations fail"""
         return UnifiedRiskProfile(
             timestamp=timestamp,
@@ -965,7 +965,7 @@ class UnifiedRiskCoordinator:
 
     def get_performance_metrics(self) -> dict[str, Any]:
         """Get coordinator performance metrics"""
-        avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0
+        avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0  # noqa: E501
         cache_hit_rate = self.cache_hits / max(self.total_calculations, 1)
 
         return {
@@ -983,7 +983,7 @@ class UnifiedRiskCoordinator:
             'cache_stats': self.cache.get_stats()
         }
 
-    def get_active_alerts(self, priority_filter: RiskPriority | None = None) -> list[dict[str, Any]]:
+    def get_active_alerts(self, priority_filter: RiskPriority | None = None) -> list[dict[str, Any]]:  # noqa: E501
         """Get active risk alerts"""
         alerts = self.active_alerts
 
@@ -1013,7 +1013,7 @@ class UnifiedRiskCoordinator:
     def get_consolidation_report(self) -> dict[str, Any]:
         """Get consolidation effectiveness report"""
         cache_hit_rate = self.cache_hits / max(self.total_calculations, 1)
-        avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0
+        avg_calculation_time = np.mean(list(self.calculation_times)) if self.calculation_times else 0  # noqa: E501
         return {
             'consolidation_status': 'active',
             'eliminated_overlaps': [
@@ -1022,8 +1022,8 @@ class UnifiedRiskCoordinator:
                 'E-Series vs X04 position risk assessment'
             ],
             'performance_gains': {
-                'calculation_efficiency': f"{cache_hit_rate:.1%} cache hit rate" if self.total_calculations > 0 else "No calculations yet",
-                'response_time': f"{avg_calculation_time:.3f}s average" if self.calculation_times else "No data yet",
+                'calculation_efficiency': f"{cache_hit_rate:.1%} cache hit rate" if self.total_calculations > 0 else "No calculations yet",  # noqa: E501
+                'response_time': f"{avg_calculation_time:.3f}s average" if self.calculation_times else "No data yet",  # noqa: E501
                 'memory_optimization': f"{len(self.cache.cache)} cached results"
             },
             'component_utilization': {

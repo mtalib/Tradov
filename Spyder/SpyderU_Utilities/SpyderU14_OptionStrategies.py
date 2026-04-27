@@ -510,7 +510,7 @@ class OptionStrategies:
         ]
 
         strategy = OptionStrategy(
-            name=f"Iron Condor {put_long_strike}/{put_short_strike}/{call_short_strike}/{call_long_strike}",
+            name=f"Iron Condor {put_long_strike}/{put_short_strike}/{call_short_strike}/{call_long_strike}",  # noqa: E501
             strategy_type=StrategyType.IRON_CONDOR,
             legs=legs,
             underlying_price=underlying_price,

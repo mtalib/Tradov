@@ -44,7 +44,7 @@ Usage
 # ==============================================================================
 import logging
 import math
-import os
+import os  # noqa: F401
 import queue
 import threading
 import time
@@ -55,7 +55,7 @@ from typing import Any, Dict, Optional
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
+    from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page  # noqa: F401
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
@@ -244,9 +244,9 @@ class TradingViewInternals:
                         name.upper(), page_exc,
                     )
             if not pages:
-                raise RuntimeError("TradingView: all symbol pages failed to open — browser unusable.")
+                raise RuntimeError("TradingView: all symbol pages failed to open — browser unusable.")  # noqa: E501
             initialised = True
-            logger.debug("TradingView headless browser launched with %d/%d tabs.", len(pages), len(_SYMBOLS))
+            logger.debug("TradingView headless browser launched with %d/%d tabs.", len(pages), len(_SYMBOLS))  # noqa: E501
 
         def close_browser() -> None:
             nonlocal pw, browser, ctx, pages, initialised

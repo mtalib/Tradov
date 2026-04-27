@@ -149,7 +149,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             try:
                 self._x03_agent = SpyderX03_StrategyDirectorAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to initialize X03 StrategyDirectorAgent: %s", e)
+                logging.getLogger(__name__).warning("Failed to initialize X03 StrategyDirectorAgent: %s", e)  # noqa: E501
 
     # ==========================================================================
     # LIFECYCLE
@@ -227,7 +227,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
 
         # Check regime alignment
         direction = signal.get("direction", "neutral")
-        if self._current_regime in ("bull_quiet", "bull_volatile") and direction == "bullish" or self._current_regime in ("bear_quiet", "bear_volatile") and direction == "bearish":
+        if self._current_regime in ("bull_quiet", "bull_volatile") and direction == "bullish" or self._current_regime in ("bear_quiet", "bear_volatile") and direction == "bearish":  # noqa: E501
             validation.regime_alignment = True
         elif self._current_regime == "neutral":
             validation.regime_alignment = True  # Neutral allows both
@@ -306,7 +306,7 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             f"(confidence: {self._regime_confidence:.0%})\n"
             f"Session: {session.value}\n"
             f"Base allocation from quant model: {base_allocation}\n"
-            f"Recent signal approvals: {recent_approvals}/{recent_approvals + recent_rejections}\n\n"
+            f"Recent signal approvals: {recent_approvals}/{recent_approvals + recent_rejections}\n\n"  # noqa: E501
             f"Recommend strategy allocation percentages for:\n"
             f"1. Iron Condors (range-bound)\n"
             f"2. Vertical Spreads (directional)\n"
@@ -389,8 +389,8 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
             f"Power hour positioning analysis:\n"
             f"- Current regime: {self._current_regime}\n"
             f"- Today's signals approved: "
-            f"{sum(1 for v in self._validated_signals if v.approved and v.timestamp.date() == datetime.now().date())}\n"
-            f"- Current allocation: {[a.strategy_name + ':' + str(a.allocation_pct) + '%' for a in self._current_allocation]}\n\n"
+            f"{sum(1 for v in self._validated_signals if v.approved and v.timestamp.date() == datetime.now().date())}\n"  # noqa: E501
+            f"- Current allocation: {[a.strategy_name + ':' + str(a.allocation_pct) + '%' for a in self._current_allocation]}\n\n"  # noqa: E501
             f"Should any positions be adjusted before close? "
             f"Consider overnight risk, theta decay, and next-day catalysts."
         )

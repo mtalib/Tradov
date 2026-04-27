@@ -222,7 +222,7 @@ class AnalysisManager:
             category=DiagnosticCategory.SYSTEM,
             severity=ProblemSeverity.HIGH,
             title="Disk space critically low",
-            description=f"Disk usage is {disk:.1f}%, exceeding the {DISK_HIGH_THRESHOLD}% threshold.",
+            description=f"Disk usage is {disk:.1f}%, exceeding the {DISK_HIGH_THRESHOLD}% threshold.",  # noqa: E501
             components=["storage"],
             symptoms=[f"Disk at {disk:.1f}%"],
             root_cause="Log files, historical data, or SQLite databases consuming disk space.",
@@ -241,7 +241,7 @@ class AnalysisManager:
             category=DiagnosticCategory.PERFORMANCE,
             severity=ProblemSeverity.MEDIUM,
             title="High thread count",
-            description=f"Process thread count is {threads}, exceeding the {THREAD_HIGH_THRESHOLD} threshold.",
+            description=f"Process thread count is {threads}, exceeding the {THREAD_HIGH_THRESHOLD} threshold.",  # noqa: E501
             components=["system"],
             symptoms=[f"Thread count: {threads}"],
             root_cause="Thread leak from unclosed executors or background workers.",
@@ -261,7 +261,7 @@ class AnalysisManager:
         if not mem_series:
             return []
         first_half = sum(mem_series[: len(mem_series) // 2]) / max(len(mem_series) // 2, 1)
-        second_half = sum(mem_series[len(mem_series) // 2:]) / max(len(mem_series) - len(mem_series) // 2, 1)
+        second_half = sum(mem_series[len(mem_series) // 2:]) / max(len(mem_series) - len(mem_series) // 2, 1)  # noqa: E501
         growth = second_half - first_half
         if growth < 5.0:  # less than 5 pp growth over the window → not a concern
             return []

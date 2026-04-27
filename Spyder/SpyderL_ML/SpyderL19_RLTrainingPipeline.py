@@ -200,7 +200,7 @@ if HAS_SB3:
 
                 if self.no_improvement_count >= self.patience:
                     if self.verbose > 0:
-                        logging.info("Early stopping after %s evals without improvement", self.patience)
+                        logging.info("Early stopping after %s evals without improvement", self.patience)  # noqa: E501
                     return False
             return True
 
@@ -575,7 +575,7 @@ class RLTrainingPipeline:
         )
 
         # Update best metrics
-        if env_name not in self._best_metrics or sharpe > self._best_metrics[env_name].get('sharpe_ratio', float('-inf')):
+        if env_name not in self._best_metrics or sharpe > self._best_metrics[env_name].get('sharpe_ratio', float('-inf')):  # noqa: E501
             self._best_metrics[env_name] = {
                 'sharpe_ratio': sharpe,
                 'mean_return': mean_return,
@@ -702,7 +702,7 @@ class RLTrainingPipeline:
         for name, metrics in self._best_metrics.items():
             rows.append({
                 'environment': name,
-                'algorithm': self._registry[name].algorithm.value if name in self._registry else 'unknown',
+                'algorithm': self._registry[name].algorithm.value if name in self._registry else 'unknown',  # noqa: E501
                 **metrics,
             })
         return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -727,8 +727,8 @@ class RLTrainingPipeline:
         """
         results = {}
         for env_name in self._registry:
-            self.logger.info("Training %s (%s)...", env_name, self._registry[env_name].algorithm.value)
-            results[env_name] = self.train(env_name, total_timesteps=total_timesteps, **train_kwargs)
+            self.logger.info("Training %s (%s)...", env_name, self._registry[env_name].algorithm.value)  # noqa: E501
+            results[env_name] = self.train(env_name, total_timesteps=total_timesteps, **train_kwargs)  # noqa: E501
         return results
 
     # ==========================================================================

@@ -19,13 +19,13 @@ Last Updated: 2026-04-24 Time: 00:00:00
 # ==============================================================================
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Optional  # noqa: F401
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderA_Core.SpyderA05_EventManager import (
-    Event,
+    Event,  # noqa: F401
     EventType,
     get_event_manager,
 )
@@ -146,7 +146,7 @@ class DataFreshnessMonitor:
             try:
                 self._em.unsubscribe(handler_id)
             except Exception as exc:
-                self.logger.warning("Failed to unsubscribe freshness handler %s: %s", handler_id, exc)
+                self.logger.warning("Failed to unsubscribe freshness handler %s: %s", handler_id, exc)  # noqa: E501
         self._handler_ids.clear()
         self.logger.info("DataFreshnessMonitor stopped")
 

@@ -23,7 +23,7 @@ Consolidation Notes:
     - Creates intelligent model routing for optimal performance
     - Eliminates 4-way duplication in options pricing
     - Single interface for all pricing requests in V-series
-"""
+"""  # noqa: E501
 
 # ==============================================================================
 # STANDARD IMPORTS
@@ -1045,7 +1045,7 @@ class SpyderPricingEngine:
         contract_dict[parameter] = getattr(contract, parameter) + bump_amount
 
         # Ensure positive values
-        if parameter == "time_to_expiry" or parameter in ["underlying_price", "strike_price", "volatility"]:
+        if parameter == "time_to_expiry" or parameter in ["underlying_price", "strike_price", "volatility"]:  # noqa: E501
             contract_dict[parameter] = max(contract_dict[parameter], 0.001)
 
         return OptionContract(**contract_dict)

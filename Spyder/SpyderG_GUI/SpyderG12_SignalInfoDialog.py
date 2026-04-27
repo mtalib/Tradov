@@ -223,7 +223,7 @@ class SignalInfoDialog(QDialog):
 
         <p style="margin-top: 10px; margin-bottom: 4px;">
         <span style="color: {COLORS['cyan']}; font-size: 13px; font-weight: 400;">SIGNAL COLORS:</span>
-        """
+        """  # noqa: E501
 
         for color_info in content["signal_colors"]:
             color_style = COLORS[color_info["color"]]
@@ -245,7 +245,7 @@ class SignalInfoDialog(QDialog):
 
         </body>
         </html>
-        """
+        """  # noqa: E501
 
         return html
 
@@ -296,7 +296,7 @@ class SignalInfoDialog(QDialog):
         if gex_raw is not None:
             gex_b = gex_raw / 1e9
             gex_regime = "Positive Gamma" if gex_b >= 0 else "Negative Gamma"
-            gex_impact = "Volatility suppression expected" if gex_b >= 0 else "Increased volatility expected"
+            gex_impact = "Volatility suppression expected" if gex_b >= 0 else "Increased volatility expected"  # noqa: E501
             gex_status = (
                 f"GEX: {gex_b:+.2f}B<br/>"
                 f"Market Impact: {gex_impact}<br/>"
@@ -416,7 +416,7 @@ class SignalInfoDialog(QDialog):
             "VIX MONITOR": {
                 "full_name": "VIX - CBOE Volatility Index",
                 "description": "Measures 30-day implied volatility of S&P 500 options",
-                "concept": "Market's expectation of future volatility, often called the 'fear gauge'",
+                "concept": "Market's expectation of future volatility, often called the 'fear gauge'",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: VIX < 15 (Low volatility, calm markets)"},
                     {"color": "neutral", "text": "Yellow: VIX 15-20 (Normal volatility)"},
@@ -427,7 +427,7 @@ class SignalInfoDialog(QDialog):
             "AI DECISION": {
                 "full_name": "AI DECISION ENGINE",
                 "description": "Machine Learning-based trade signal generator",
-                "concept": "Analyzes multiple indicators using ML models to generate buy/sell signals for SPY options",
+                "concept": "Analyzes multiple indicators using ML models to generate buy/sell signals for SPY options",  # noqa: E501
                 "signal_colors": [
                     {
                         "color": "positive",
@@ -449,7 +449,7 @@ class SignalInfoDialog(QDialog):
             "GEX": {
                 "full_name": "GEX - Gamma Exposure",
                 "description": "Net gamma exposure of market makers in billions",
-                "concept": "Measures hedging pressure from options market makers; negative GEX increases volatility",
+                "concept": "Measures hedging pressure from options market makers; negative GEX increases volatility",  # noqa: E501
                 "signal_colors": [
                     {
                         "color": "positive",
@@ -466,7 +466,7 @@ class SignalInfoDialog(QDialog):
             "DIX": {
                 "full_name": "DIX - Dark Pool Index",
                 "description": "Percentage of S&P 500 shares bought in dark pools",
-                "concept": "Tracks institutional buying; high DIX suggests smart money accumulation",
+                "concept": "Tracks institutional buying; high DIX suggests smart money accumulation",  # noqa: E501
                 "signal_colors": [
                     {
                         "color": "positive",
@@ -483,7 +483,7 @@ class SignalInfoDialog(QDialog):
             "RSI CONFLUENCE": {
                 "full_name": "RSI - Relative Strength Index Confluence",
                 "description": "Multiple timeframe RSI alignment analysis",
-                "concept": "Identifies overbought/oversold conditions across different timeframes for better entry/exit timing",
+                "concept": "Identifies overbought/oversold conditions across different timeframes for better entry/exit timing",  # noqa: E501
                 "signal_colors": [
                     {
                         "color": "positive",
@@ -505,7 +505,7 @@ class SignalInfoDialog(QDialog):
             "RISK TRIGGERS": {
                 "full_name": "RISK MANAGEMENT TRIGGERS",
                 "description": "Automated risk control system status",
-                "concept": "Monitors and enforces position limits, drawdowns, and risk parameters to protect capital",
+                "concept": "Monitors and enforces position limits, drawdowns, and risk parameters to protect capital",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: All risk parameters within limits"},
                     {
@@ -525,7 +525,7 @@ class SignalInfoDialog(QDialog):
             "OGL": {
                 "full_name": "OGL - Zero Gamma Level",
                 "description": "Price level where gamma exposure flips from positive to negative",
-                "concept": "Key support/resistance level based on options positioning; acts as a magnet for price",
+                "concept": "Key support/resistance level based on options positioning; acts as a magnet for price",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: SPY > OGL + 0.5% (Bullish positioning)"},
                     {"color": "neutral", "text": "Yellow: SPY within ±0.5% of OGL (Neutral zone)"},
@@ -536,7 +536,7 @@ class SignalInfoDialog(QDialog):
             "DIVERGENCE": {
                 "full_name": "DIVERGENCE DETECTOR",
                 "description": "Price vs Indicator divergence analysis",
-                "concept": "Identifies when price and indicators move in opposite directions, signaling potential reversals",
+                "concept": "Identifies when price and indicators move in opposite directions, signaling potential reversals",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: No divergence detected"},
                     {"color": "neutral", "text": "Yellow: Weak divergence forming"},
@@ -552,7 +552,7 @@ class SignalInfoDialog(QDialog):
             "DEX": {
                 "full_name": "DEX - Delta Exposure",
                 "description": "Net delta exposure of options market in millions",
-                "concept": "Measures directional hedging flow; indicates market maker positioning bias",
+                "concept": "Measures directional hedging flow; indicates market maker positioning bias",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: Positive DEX (>$500M) - Bullish flow"},
                     {"color": "neutral", "text": "Yellow: Neutral (-$500M to $500M)"},
@@ -563,7 +563,7 @@ class SignalInfoDialog(QDialog):
             "BLACK SWAN": {
                 "full_name": "BLACK SWAN RISK INDICATOR",
                 "description": "Extreme tail risk monitoring system",
-                "concept": "Monitors multiple factors to detect potential for rare, extreme market events",
+                "concept": "Monitors multiple factors to detect potential for rare, extreme market events",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: SWAN Score < 2.0 (Minimal tail risk)"},
                     {"color": "neutral", "text": "Yellow: SWAN Score 2.0-3.0 (Elevated tail risk)"},
@@ -577,7 +577,7 @@ class SignalInfoDialog(QDialog):
             "HMM REGIME": {
                 "full_name": "HMM - Hidden Markov Model Regime Detector",
                 "description": "Statistical model identifying market regime states",
-                "concept": "Uses probabilistic modeling to identify current market regime (low/normal/high volatility)",
+                "concept": "Uses probabilistic modeling to identify current market regime (low/normal/high volatility)",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: Low volatility regime"},
                     {"color": "neutral", "text": "Yellow: Transitioning between regimes"},
@@ -589,7 +589,7 @@ class SignalInfoDialog(QDialog):
             "SKEW": {
                 "full_name": "SKEW - CBOE SKEW Index",
                 "description": "Measures tail risk in S&P 500 options",
-                "concept": "Tracks the relative cost of out-of-the-money puts vs calls; high skew indicates elevated tail risk",
+                "concept": "Tracks the relative cost of out-of-the-money puts vs calls; high skew indicates elevated tail risk",  # noqa: E501
                 "signal_colors": [
                     {"color": "positive", "text": "Green: SKEW < 125 (Normal tail risk)"},
                     {"color": "neutral", "text": "Yellow: SKEW 125-135 (Elevated tail risk)"},

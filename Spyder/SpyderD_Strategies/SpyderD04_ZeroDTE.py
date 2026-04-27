@@ -434,7 +434,7 @@ class ZeroDTEStrategy(BaseStrategy):
             return False
 
         if abs(self.current_conditions.gap_percentage) > MAX_OVERNIGHT_GAP:
-            self.logger.debug(f"Overnight gap too large: {self.current_conditions.gap_percentage:.2%}")
+            self.logger.debug(f"Overnight gap too large: {self.current_conditions.gap_percentage:.2%}")  # noqa: E501
             return False
 
         return True
@@ -777,7 +777,7 @@ class ZeroDTEStrategy(BaseStrategy):
                 strikes=setup_data['strikes'],
                 contracts=signal.position_size,
                 entry_premium=setup_data['estimated_credit'],
-                max_profit=setup_data['max_profit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                max_profit=setup_data['max_profit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,  # noqa: E501
                 max_loss=setup_data['max_loss'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
                 state=ZeroDTEState.ACTIVE,
                 entry_conditions={
@@ -830,22 +830,22 @@ class ZeroDTEStrategy(BaseStrategy):
                 if current_price < short_strike:
                     # ITM - losing money
                     intrinsic = short_strike - current_price
-                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER
+                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER  # noqa: E501
                 else:
                     # OTM - keeping premium
                     time_decay = position.time_to_expiry / 6.5  # Trading hours
-                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER
+                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER  # noqa: E501
 
             elif position.strategy_type == ZeroDTEStrategy.SHORT_CALL:
                 short_strike = position.strikes.get('short_call', 0)
                 if current_price > short_strike:
                     # ITM - losing money
                     intrinsic = current_price - short_strike
-                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER
+                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER  # noqa: E501
                 else:
                     # OTM - keeping premium
                     time_decay = position.time_to_expiry / 6.5  # Trading hours
-                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER
+                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER  # noqa: E501
 
             # Cap P&L at max profit/loss
             position.unrealized_pnl = max(-position.max_loss,
@@ -924,7 +924,7 @@ class ZeroDTEStrategy(BaseStrategy):
                 }
             ))
 
-            self.logger.info(f"Closed 0DTE position {position_id}: PnL ${position.realized_pnl:.2f}")
+            self.logger.info(f"Closed 0DTE position {position_id}: PnL ${position.realized_pnl:.2f}")  # noqa: E501
             return True
 
         except Exception as e:
@@ -999,7 +999,7 @@ class ZeroDTEStrategy(BaseStrategy):
             'market_conditions': {
                 'spot_price': self.current_conditions.spot_price if self.current_conditions else 0,
                 'vix': self.current_conditions.vix if self.current_conditions else 0,
-                'market_phase': self.current_conditions.market_phase.name if self.current_conditions else 'UNKNOWN'
+                'market_phase': self.current_conditions.market_phase.name if self.current_conditions else 'UNKNOWN'  # noqa: E501
             }
         }
 

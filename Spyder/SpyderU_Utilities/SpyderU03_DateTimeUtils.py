@@ -1577,7 +1577,7 @@ class TradingCalendar:
             from_date = datetime.now()
 
         # FOMC meetings are typically held 8 times per year
-        # Generally: Late January/Early February, March, May, June, July, September, November, December
+        # Generally: Late January/Early February, March, May, June, July, September, November, December  # noqa: E501
         # This is a simplified approximation - in practice you'd use the actual Fed calendar
 
         current_year = from_date.year

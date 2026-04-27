@@ -1186,7 +1186,7 @@ class MarketRegimeDetector:
             metric_factor = 1.0
 
             # VIX trend supports transition
-            if metrics.vix_trend > 0 and to_idx > from_idx or metrics.vix_trend < 0 and to_idx < from_idx:
+            if metrics.vix_trend > 0 and to_idx > from_idx or metrics.vix_trend < 0 and to_idx < from_idx:  # noqa: E501
                 metric_factor *= 1.5
 
             # Stress indicators
@@ -1228,7 +1228,7 @@ class MarketRegimeDetector:
         try:
             self.logger.info(
                 f"Regime transition detected: {transition.from_regime.value} -> "
-                f"{transition.to_regime.value} (confidence: {transition.transition_probability:.2%})"
+                f"{transition.to_regime.value} (confidence: {transition.transition_probability:.2%})"  # noqa: E501
             )
 
             # Notify callbacks

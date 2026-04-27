@@ -441,7 +441,7 @@ class BlackSwanScheduler:
                 try:
                     self.spyder_scheduler.remove_task(task_id)
                 except Exception as e:
-                    self.logger.debug("Failed to remove task %s from Spyder scheduler: %s", task_id, e)
+                    self.logger.debug("Failed to remove task %s from Spyder scheduler: %s", task_id, e)  # noqa: E501
 
             del self.scheduled_tasks[task_id]
             self.logger.info("Removed task: %s", task_id)
@@ -708,7 +708,7 @@ Component Breakdown:
 """
 
         for name, score in result.component_scores.items():
-            message += f"- {name.replace('_', ' ').title()}: {score.raw_score:.2f} - {score.description}\n"
+            message += f"- {name.replace('_', ' ').title()}: {score.raw_score:.2f} - {score.description}\n"  # noqa: E501
 
         message += f"""
 Data Quality: {result.data_quality.value}
@@ -835,7 +835,7 @@ Please review market conditions and adjust positions accordingly.
             from SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
             bot = TelegramBot()
             last_status = getattr(self, "_last_alert_status", None)
-            severity = "critical" if last_status and getattr(last_status, "value", "") == "RED" else "warning"
+            severity = "critical" if last_status and getattr(last_status, "value", "") == "RED" else "warning"  # noqa: E501
             bot.send_alert(title="Black Swan Alert", message=message, severity=severity)
             self.logger.info("Telegram alert dispatched via SpyderJ05_TelegramBot")
             return
@@ -948,7 +948,7 @@ STATUS DISTRIBUTION
 """
 
         for status, count in report.status_distribution.items():
-            percentage = (count / report.checks_performed * 100) if report.checks_performed > 0 else 0
+            percentage = (count / report.checks_performed * 100) if report.checks_performed > 0 else 0  # noqa: E501
             content += f"{status:6}: {count:3d} ({percentage:5.1f}%)\n"
 
         # Add detailed results

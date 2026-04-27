@@ -52,9 +52,9 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-import logging
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -360,7 +360,7 @@ class SpyderMemoryMonitor:
             self.last_gc_time = time.time()
 
             if freed_memory > 0:
-                self.logger.info(f"GC freed {freed_memory/1e6:.1f}MB, collected {collected} objects")
+                self.logger.info(f"GC freed {freed_memory/1e6:.1f}MB, collected {collected} objects")  # noqa: E501
 
         except Exception as e:
             self.error_handler.handle_error(e, "Garbage collection failed")
@@ -390,7 +390,7 @@ class SpyderMemoryMonitor:
                 'collections_performed': collected
             }
 
-            self.logger.info(f"Manual GC: freed {freed_memory/1e6:.1f}MB and {freed_objects} objects")
+            self.logger.info(f"Manual GC: freed {freed_memory/1e6:.1f}MB and {freed_objects} objects")  # noqa: E501
             return results
 
         except Exception as e:
@@ -491,12 +491,12 @@ class SpyderMemoryMonitor:
                 'peak_memory_gb': self.peak_memory_usage / 1e9,
                 'average_memory_gb': avg_memory / 1e9,
                 'baseline_memory_gb': self.baseline_memory / 1e9,
-                'memory_growth_percent': ((current.rss - self.baseline_memory) / self.baseline_memory) * 100,
+                'memory_growth_percent': ((current.rss - self.baseline_memory) / self.baseline_memory) * 100,  # noqa: E501
                 'available_memory_gb': current.available / 1e9,
                 'process_count': current.process_count,
                 'gc_collections': current.gc_count,
                 'total_gc_triggered': self.total_gc_triggered,
-                'monitoring_duration_hours': len(self.memory_history) * MEMORY_CHECK_INTERVAL / 3600,
+                'monitoring_duration_hours': len(self.memory_history) * MEMORY_CHECK_INTERVAL / 3600,  # noqa: E501
                 'last_updated': current.timestamp.isoformat()
             }
 

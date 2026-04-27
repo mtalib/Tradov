@@ -169,7 +169,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
             try:
                 self._x11_agent = SpyderX11_SentimentAnalysisAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to initialize X11 SentimentAnalysisAgent: %s", e)
+                logging.getLogger(__name__).warning("Failed to initialize X11 SentimentAnalysisAgent: %s", e)  # noqa: E501
 
     # ==========================================================================
     # LIFECYCLE

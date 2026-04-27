@@ -53,20 +53,20 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 import importlib as _importlib
 
 _AGENT_CLASS_REGISTRY: dict[str, tuple[str, str]] = {
-    "X01_Greeks":          ("Spyder.SpyderX_Agents.SpyderX01_GreeksAgent",             "GreeksAgent"),
-    "X02_Flow":            ("Spyder.SpyderX_Agents.SpyderX02_FlowAgent",                "FlowAgent"),
-    "X03_StrategyDirector":("Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",   "StrategyDirectorAgent"),
-    "X04_RiskGuardian":    ("Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",        "RiskGuardianAgent"),
-    "X05_MLResearch":      ("Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",          "MLResearchAgent"),
-    "X07_ExecutionStrategy":("Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent", "ExecutionStrategyAgent"),
-    "X08_Performance":     ("Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent","PerformanceAnalyticsAgent"),
-    "X09_AlertManager":    ("Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",        "AlertManagerAgent"),
-    "X10_QuantModels":     ("Spyder.SpyderX_Agents.SpyderX10_QuantModelsAgent",         "QuantModelsAgent"),
-    "X11_Sentiment":       ("Spyder.SpyderX_Agents.SpyderX11_SentimentAnalysisAgent",   "SentimentAnalysisAgent"),
-    "X12_SystemHealth":    ("Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent",        "SystemHealthAgent"),
-    "X13_MarketAnalysis":  ("Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent",      "MarketAnalysisAgent"),
-    "X14_Orchestrator":    ("Spyder.SpyderX_Agents.SpyderX14_OrchestratorAgent",        "OrchestratorAgent"),
-    "X15_StrategyGenerator":("Spyder.SpyderX_Agents.SpyderX15_StrategyGeneratorAgent", "StrategyGeneratorAgent"),
+    "X01_Greeks":          ("Spyder.SpyderX_Agents.SpyderX01_GreeksAgent",             "GreeksAgent"),  # noqa: E501
+    "X02_Flow":            ("Spyder.SpyderX_Agents.SpyderX02_FlowAgent",                "FlowAgent"),  # noqa: E501
+    "X03_StrategyDirector":("Spyder.SpyderX_Agents.SpyderX03_StrategyDirectorAgent",   "StrategyDirectorAgent"),  # noqa: E501
+    "X04_RiskGuardian":    ("Spyder.SpyderX_Agents.SpyderX04_RiskGuardianAgent",        "RiskGuardianAgent"),  # noqa: E501
+    "X05_MLResearch":      ("Spyder.SpyderX_Agents.SpyderX05_MLResearchAgent",          "MLResearchAgent"),  # noqa: E501
+    "X07_ExecutionStrategy":("Spyder.SpyderX_Agents.SpyderX07_ExecutionStrategyAgent", "ExecutionStrategyAgent"),  # noqa: E501
+    "X08_Performance":     ("Spyder.SpyderX_Agents.SpyderX08_PerformanceAnalyticsAgent","PerformanceAnalyticsAgent"),  # noqa: E501
+    "X09_AlertManager":    ("Spyder.SpyderX_Agents.SpyderX09_AlertManagerAgent",        "AlertManagerAgent"),  # noqa: E501
+    "X10_QuantModels":     ("Spyder.SpyderX_Agents.SpyderX10_QuantModelsAgent",         "QuantModelsAgent"),  # noqa: E501
+    "X11_Sentiment":       ("Spyder.SpyderX_Agents.SpyderX11_SentimentAnalysisAgent",   "SentimentAnalysisAgent"),  # noqa: E501
+    "X12_SystemHealth":    ("Spyder.SpyderX_Agents.SpyderX12_SystemHealthAgent",        "SystemHealthAgent"),  # noqa: E501
+    "X13_MarketAnalysis":  ("Spyder.SpyderX_Agents.SpyderX13_MarketAnalysisAgent",      "MarketAnalysisAgent"),  # noqa: E501
+    "X14_Orchestrator":    ("Spyder.SpyderX_Agents.SpyderX14_OrchestratorAgent",        "OrchestratorAgent"),  # noqa: E501
+    "X15_StrategyGenerator":("Spyder.SpyderX_Agents.SpyderX15_StrategyGeneratorAgent", "StrategyGeneratorAgent"),  # noqa: E501
 }
 _AGENT_CLASS_CACHE: dict[str, type | None] = {}
 
@@ -652,7 +652,7 @@ class MetaCoordinator:
 
         return 5  # Default priority
 
-    def _identify_conflicts(self, recommendations: list[AgentRecommendation]) -> list[ConflictEvent]:
+    def _identify_conflicts(self, recommendations: list[AgentRecommendation]) -> list[ConflictEvent]:  # noqa: E501
         """Identify conflicts between agent recommendations"""
         conflicts = []
 
@@ -985,7 +985,7 @@ class MetaCoordinator:
             execution_params={'action': 'HOLD', 'safe_mode': True}
         )
 
-    def update_agent_performance(self, agent_id: str, was_correct: bool, return_contribution: float):
+    def update_agent_performance(self, agent_id: str, was_correct: bool, return_contribution: float):  # noqa: E501
         """Update agent performance metrics"""
         if agent_id not in self.agent_performance:
             return
@@ -1129,7 +1129,7 @@ class MetaCoordinator:
                 'agent_id': agent_id,
                 'sentiment': sentiment,
                 'confidence': confidence,
-                'recommendation': 'bullish' if sentiment > 0.2 else ('bearish' if sentiment < -0.2 else 'neutral'),
+                'recommendation': 'bullish' if sentiment > 0.2 else ('bearish' if sentiment < -0.2 else 'neutral'),  # noqa: E501
                 'analysis_time': _time.time() - start,
                 'status': 'completed',
             }
@@ -1150,8 +1150,8 @@ class MetaCoordinator:
             'n_agents': len(completed),
             'consensus_sentiment': float(np.mean(sentiments)) if sentiments else 0,
             'weighted_sentiment': float(weighted_sentiment),
-            'consensus_direction': 'bullish' if weighted_sentiment > 0.15 else ('bearish' if weighted_sentiment < -0.15 else 'neutral'),
-            'agreement_ratio': float(sum(1 for s in sentiments if s * weighted_sentiment > 0) / len(sentiments)) if sentiments else 0,
+            'consensus_direction': 'bullish' if weighted_sentiment > 0.15 else ('bearish' if weighted_sentiment < -0.15 else 'neutral'),  # noqa: E501
+            'agreement_ratio': float(sum(1 for s in sentiments if s * weighted_sentiment > 0) / len(sentiments)) if sentiments else 0,  # noqa: E501
             'results': results,
         }
 

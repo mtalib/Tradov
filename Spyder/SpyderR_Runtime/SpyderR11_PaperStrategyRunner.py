@@ -761,8 +761,8 @@ class PaperStrategyRunner:
     @staticmethod
     def quote_of(opt: Any) -> tuple[float, float, float]:
         """Extract (bid, ask, delta) from a GreekData/dict-like option."""
-        bid = float(getattr(opt, "bid", None) or (opt.get("bid") if isinstance(opt, dict) else 0.0) or 0.0)
-        ask = float(getattr(opt, "ask", None) or (opt.get("ask") if isinstance(opt, dict) else 0.0) or 0.0)
+        bid = float(getattr(opt, "bid", None) or (opt.get("bid") if isinstance(opt, dict) else 0.0) or 0.0)  # noqa: E501
+        ask = float(getattr(opt, "ask", None) or (opt.get("ask") if isinstance(opt, dict) else 0.0) or 0.0)  # noqa: E501
         delta = float(
             getattr(opt, "delta", None)
             or (opt.get("delta") if isinstance(opt, dict) else 0.0)

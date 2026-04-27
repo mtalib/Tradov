@@ -328,7 +328,7 @@ class ConfigManager:
         except Exception as e:
             self.logger.error("Configuration loading failed: %s", e)
             self.error_handler.handle_error(e, "load_all_configurations")
-            if isinstance(e, StartupValidationError) or e.__class__.__name__ == "ConfigurationError":
+            if isinstance(e, StartupValidationError) or e.__class__.__name__ == "ConfigurationError":  # noqa: E501
                 raise
             # Use defaults on error
             self._load_defaults()
@@ -1169,12 +1169,12 @@ class ConfigManager:
                 filtered = [item for item in allowlist if isinstance(item, str) and item.strip()]
                 if len(filtered) != len(allowlist):
                     warnings.append(
-                        "autonomous_readiness.event_clock.allowlist_strategies contains invalid items; dropping invalid values"
+                        "autonomous_readiness.event_clock.allowlist_strategies contains invalid items; dropping invalid values"  # noqa: E501
                     )
                 self._set_nested_value(effective, allowlist_path, filtered)
             else:
                 warnings.append(
-                    "autonomous_readiness.event_clock.allowlist_strategies must be list[str]; fallback=[]"
+                    "autonomous_readiness.event_clock.allowlist_strategies must be list[str]; fallback=[]"  # noqa: E501
                 )
                 self._set_nested_value(effective, allowlist_path, [])
 
@@ -1189,7 +1189,7 @@ class ConfigManager:
         if isinstance(degrade, (int, float)) and isinstance(event_mult, (int, float)):
             if float(degrade) < float(event_mult):
                 errors.append(
-                    "autonomous_readiness.execution.degrade_size_multiplier should be >= autonomous_readiness.event_clock.max_size_multiplier_during_event"
+                    "autonomous_readiness.execution.degrade_size_multiplier should be >= autonomous_readiness.event_clock.max_size_multiplier_during_event"  # noqa: E501
                 )
 
         pre = self._get_nested_path_value(
@@ -1200,10 +1200,10 @@ class ConfigManager:
             effective,
             "autonomous_readiness.event_clock.blackout_post_minutes",
         )
-        event_enabled = self._get_nested_path_value(effective, "autonomous_readiness.event_clock.enabled")
+        event_enabled = self._get_nested_path_value(effective, "autonomous_readiness.event_clock.enabled")  # noqa: E501
         if event_enabled is True and pre == 0 and post == 0:
             errors.append(
-                "autonomous_readiness.event_clock.enabled=true requires non-zero pre or post blackout window"
+                "autonomous_readiness.event_clock.enabled=true requires non-zero pre or post blackout window"  # noqa: E501
             )
 
         halt_on_quality_breach = self._get_nested_path_value(
@@ -1219,7 +1219,7 @@ class ConfigManager:
             }
             if not required_keys.issubset(set(execution_cfg.keys())):
                 errors.append(
-                    "autonomous_readiness.execution.halt_on_quality_breach=true requires max_slippage_bps, max_fill_latency_ms, and max_reject_rate_5m"
+                    "autonomous_readiness.execution.halt_on_quality_breach=true requires max_slippage_bps, max_fill_latency_ms, and max_reject_rate_5m"  # noqa: E501
                 )
 
         normalized_mode = mode.strip().lower() if isinstance(mode, str) else "paper"
@@ -1245,28 +1245,28 @@ class ConfigManager:
             "SPYDER_LIQUIDITY_MAX_SPREAD_PCT": "autonomous_readiness.liquidity.max_spread_pct",
             "SPYDER_LIQUIDITY_MAX_SPREAD_ABS": "autonomous_readiness.liquidity.max_spread_abs",
             "SPYDER_LIQUIDITY_MAX_QUOTE_AGE_MS": "autonomous_readiness.liquidity.max_quote_age_ms",
-            "SPYDER_LIQUIDITY_MIN_TOP_OF_BOOK_SIZE": "autonomous_readiness.liquidity.min_top_of_book_size",
-            "SPYDER_LIQUIDITY_MIN_OPEN_INTEREST": "autonomous_readiness.liquidity.min_open_interest",
+            "SPYDER_LIQUIDITY_MIN_TOP_OF_BOOK_SIZE": "autonomous_readiness.liquidity.min_top_of_book_size",  # noqa: E501
+            "SPYDER_LIQUIDITY_MIN_OPEN_INTEREST": "autonomous_readiness.liquidity.min_open_interest",  # noqa: E501
             "SPYDER_LIQUIDITY_MIN_VOLUME": "autonomous_readiness.liquidity.min_volume",
-            "SPYDER_LIQUIDITY_MIN_OI_CHANGE_PCT": "autonomous_readiness.liquidity.min_oi_change_pct",
+            "SPYDER_LIQUIDITY_MIN_OI_CHANGE_PCT": "autonomous_readiness.liquidity.min_oi_change_pct",  # noqa: E501
             "SPYDER_EXECUTION_ENABLED": "autonomous_readiness.execution.enabled",
             "SPYDER_EXECUTION_MAX_SLIPPAGE_BPS": "autonomous_readiness.execution.max_slippage_bps",
-            "SPYDER_EXECUTION_MAX_FILL_LATENCY_MS": "autonomous_readiness.execution.max_fill_latency_ms",
-            "SPYDER_EXECUTION_MAX_PARTIAL_FILL_RATIO": "autonomous_readiness.execution.max_partial_fill_ratio",
-            "SPYDER_EXECUTION_MAX_REJECT_RATE_5M": "autonomous_readiness.execution.max_reject_rate_5m",
-            "SPYDER_EXECUTION_DEGRADE_SIZE_MULTIPLIER": "autonomous_readiness.execution.degrade_size_multiplier",
-            "SPYDER_EXECUTION_HALT_ON_QUALITY_BREACH": "autonomous_readiness.execution.halt_on_quality_breach",
+            "SPYDER_EXECUTION_MAX_FILL_LATENCY_MS": "autonomous_readiness.execution.max_fill_latency_ms",  # noqa: E501
+            "SPYDER_EXECUTION_MAX_PARTIAL_FILL_RATIO": "autonomous_readiness.execution.max_partial_fill_ratio",  # noqa: E501
+            "SPYDER_EXECUTION_MAX_REJECT_RATE_5M": "autonomous_readiness.execution.max_reject_rate_5m",  # noqa: E501
+            "SPYDER_EXECUTION_DEGRADE_SIZE_MULTIPLIER": "autonomous_readiness.execution.degrade_size_multiplier",  # noqa: E501
+            "SPYDER_EXECUTION_HALT_ON_QUALITY_BREACH": "autonomous_readiness.execution.halt_on_quality_breach",  # noqa: E501
             "SPYDER_EVENT_CLOCK_ENABLED": "autonomous_readiness.event_clock.enabled",
             "SPYDER_EVENT_CLOCK_SOURCES": "autonomous_readiness.event_clock.sources",
-            "SPYDER_EVENT_CLOCK_HIGH_IMPACT_ONLY": "autonomous_readiness.event_clock.high_impact_only",
-            "SPYDER_EVENT_CLOCK_BLACKOUT_PRE_MINUTES": "autonomous_readiness.event_clock.blackout_pre_minutes",
-            "SPYDER_EVENT_CLOCK_BLACKOUT_POST_MINUTES": "autonomous_readiness.event_clock.blackout_post_minutes",
-            "SPYDER_EVENT_CLOCK_MAX_SIZE_MULTIPLIER_DURING_EVENT": "autonomous_readiness.event_clock.max_size_multiplier_during_event",
-            "SPYDER_EVENT_CLOCK_ALLOWLIST_STRATEGIES": "autonomous_readiness.event_clock.allowlist_strategies",
-            "SPYDER_ESCALATION_WARN_ON_SINGLE_BREACH": "autonomous_readiness.escalation.warn_on_single_breach",
-            "SPYDER_ESCALATION_DEGRADE_ON_TWO_BREACHES": "autonomous_readiness.escalation.degrade_on_two_breaches",
-            "SPYDER_ESCALATION_HALT_ON_THREE_BREACHES": "autonomous_readiness.escalation.halt_on_three_breaches",
-            "SPYDER_ESCALATION_SUSTAINED_BREACH_MINUTES": "autonomous_readiness.escalation.sustained_breach_minutes",
+            "SPYDER_EVENT_CLOCK_HIGH_IMPACT_ONLY": "autonomous_readiness.event_clock.high_impact_only",  # noqa: E501
+            "SPYDER_EVENT_CLOCK_BLACKOUT_PRE_MINUTES": "autonomous_readiness.event_clock.blackout_pre_minutes",  # noqa: E501
+            "SPYDER_EVENT_CLOCK_BLACKOUT_POST_MINUTES": "autonomous_readiness.event_clock.blackout_post_minutes",  # noqa: E501
+            "SPYDER_EVENT_CLOCK_MAX_SIZE_MULTIPLIER_DURING_EVENT": "autonomous_readiness.event_clock.max_size_multiplier_during_event",  # noqa: E501
+            "SPYDER_EVENT_CLOCK_ALLOWLIST_STRATEGIES": "autonomous_readiness.event_clock.allowlist_strategies",  # noqa: E501
+            "SPYDER_ESCALATION_WARN_ON_SINGLE_BREACH": "autonomous_readiness.escalation.warn_on_single_breach",  # noqa: E501
+            "SPYDER_ESCALATION_DEGRADE_ON_TWO_BREACHES": "autonomous_readiness.escalation.degrade_on_two_breaches",  # noqa: E501
+            "SPYDER_ESCALATION_HALT_ON_THREE_BREACHES": "autonomous_readiness.escalation.halt_on_three_breaches",  # noqa: E501
+            "SPYDER_ESCALATION_SUSTAINED_BREACH_MINUTES": "autonomous_readiness.escalation.sustained_breach_minutes",  # noqa: E501
         }
 
         for env_key, path in env_key_to_path.items():

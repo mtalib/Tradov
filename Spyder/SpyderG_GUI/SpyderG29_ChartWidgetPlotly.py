@@ -62,7 +62,7 @@ if str(project_root) not in sys.path:
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -73,8 +73,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer, Signal
-import logging
+from PySide6.QtCore import Qt, QTimer, Signal  # noqa: E402
+import logging  # noqa: E402
 
 # Import WebEngine for Plotly embedding
 WEBENGINE_AVAILABLE = False

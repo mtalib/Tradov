@@ -53,7 +53,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics  # noqa: E501
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetricsCalculator
 from Spyder.SpyderJ_Alerts.SpyderJ02_EmailNotifier import EmailNotifier
@@ -490,19 +490,19 @@ class DailyTradingReport:
                 metrics['error'] = 'Insufficient return history'
                 return metrics
 
-            returns = pd.Series(returns_data) if not isinstance(returns_data, pd.Series) else returns_data
+            returns = pd.Series(returns_data) if not isinstance(returns_data, pd.Series) else returns_data  # noqa: E501
 
             # Rolling metrics (last 30 days)
             if len(returns) >= 30:
                 recent = returns.iloc[-30:]
-                metrics['rolling_30d_sharpe'] = float(empyrical.sharpe_ratio(recent, period='daily'))
-                metrics['rolling_30d_sortino'] = float(empyrical.sortino_ratio(recent, period='daily'))
-                metrics['rolling_30d_volatility'] = float(empyrical.annual_volatility(recent, period='daily'))
+                metrics['rolling_30d_sharpe'] = float(empyrical.sharpe_ratio(recent, period='daily'))  # noqa: E501
+                metrics['rolling_30d_sortino'] = float(empyrical.sortino_ratio(recent, period='daily'))  # noqa: E501
+                metrics['rolling_30d_volatility'] = float(empyrical.annual_volatility(recent, period='daily'))  # noqa: E501
                 metrics['rolling_30d_max_dd'] = float(empyrical.max_drawdown(recent))
 
             # Full period metrics
             metrics['annual_return'] = float(empyrical.annual_return(returns, period='daily'))
-            metrics['annual_volatility'] = float(empyrical.annual_volatility(returns, period='daily'))
+            metrics['annual_volatility'] = float(empyrical.annual_volatility(returns, period='daily'))  # noqa: E501
             metrics['sharpe_ratio'] = float(empyrical.sharpe_ratio(returns, period='daily'))
             metrics['sortino_ratio'] = float(empyrical.sortino_ratio(returns, period='daily'))
             metrics['calmar_ratio'] = float(empyrical.calmar_ratio(returns, period='daily'))
@@ -514,7 +514,7 @@ class DailyTradingReport:
             metrics['cvar_5'] = float(empyrical.conditional_value_at_risk(returns, cutoff=0.05))
             metrics['cumulative_return'] = float(empyrical.cum_returns_final(returns))
 
-            self.logger.info(f"Institutional metrics generated: Sharpe={metrics['sharpe_ratio']:.3f}")
+            self.logger.info(f"Institutional metrics generated: Sharpe={metrics['sharpe_ratio']:.3f}")  # noqa: E501
 
         except Exception as e:
             self.logger.error("Error generating institutional metrics: %s", e)
@@ -574,7 +574,7 @@ class DailyTradingReport:
         for _, order in orders_df.iterrows():
             if order['status'] == 'FILLED':
                 # Calculate slippage (simplified)
-                expected_price = order['limit_price'] if order['order_type'] == 'LIMIT' else order['submitted_price']
+                expected_price = order['limit_price'] if order['order_type'] == 'LIMIT' else order['submitted_price']  # noqa: E501
                 actual_price = order['fill_price']
                 slippage = abs(actual_price - expected_price)
                 slippages.append(slippage)
@@ -643,7 +643,7 @@ class DailyTradingReport:
         risk_checks = self.dal.get_risk_violations(date=report_date)
         for _, violation in risk_checks.iterrows():
             risk_violations.append(
-                f"{violation['rule']}: {violation['current_value']} exceeds limit {violation['limit']}"
+                f"{violation['rule']}: {violation['current_value']} exceeds limit {violation['limit']}"  # noqa: E501
             )
 
         # Check system alerts
@@ -916,7 +916,7 @@ class DailyTradingReport:
         ), row=1, col=1)
 
         # VaR utilization gauge
-        var_utilization = (abs(report_data.daily_pnl) / report_data.var_95 * 100) if report_data.var_95 > 0 else 0
+        var_utilization = (abs(report_data.daily_pnl) / report_data.var_95 * 100) if report_data.var_95 > 0 else 0  # noqa: E501
 
         fig.add_trace(go.Indicator(
             mode="gauge+number",
@@ -1043,7 +1043,7 @@ class DailyTradingReport:
         pdf.set_font("Arial", size=12)
         pdf.cell(200, 10, txt=f"Net P&L: ${report_data.net_pnl:,.2f}", ln=True)
         pdf.cell(200, 10, txt=f"Total Trades: {report_data.total_positions}", ln=True)
-        pdf.cell(200, 10, txt=f"Win Rate: {(report_data.winning_trades / max(1, report_data.total_positions)) * 100:.1f}%", ln=True)
+        pdf.cell(200, 10, txt=f"Win Rate: {(report_data.winning_trades / max(1, report_data.total_positions)) * 100:.1f}%", ln=True)  # noqa: E501
 
         # Save charts as images and add to PDF
         for name, fig in charts.items():
@@ -1080,7 +1080,7 @@ class DailyTradingReport:
                     report_data.total_positions,
                     report_data.winning_trades,
                     report_data.losing_trades,
-                    f"{(report_data.winning_trades / max(1, report_data.total_positions)) * 100:.1f}%"
+                    f"{(report_data.winning_trades / max(1, report_data.total_positions)) * 100:.1f}%"  # noqa: E501
                 ]
             })
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
@@ -1372,7 +1372,7 @@ class DailyTradingReport:
                           output_files: dict[str, str]) -> None:
         """Send report via email"""
         try:
-            subject = f"Spyder Daily Report - {report_data.report_date} - Net P&L: ${report_data.net_pnl:,.2f}"
+            subject = f"Spyder Daily Report - {report_data.report_date} - Net P&L: ${report_data.net_pnl:,.2f}"  # noqa: E501
 
             # Create email body
             body = f"""
@@ -1417,7 +1417,7 @@ Please find detailed reports attached.
         """Archive report data and files"""
         try:
             # Create archive directory
-            archive_dir = self.output_dir / "archive" / str(report_date.year) / f"{report_date.month:02d}"
+            archive_dir = self.output_dir / "archive" / str(report_date.year) / f"{report_date.month:02d}"  # noqa: E501
             archive_dir.mkdir(parents=True, exist_ok=True)
 
             # Save report data.  DailyReportData is a pure dataclass (scalars,
@@ -1608,7 +1608,7 @@ Please find detailed reports attached.
         blocks: list[dict[str, Any]] = []
 
         # Reconnect audit log
-        reconnect_log = project_root / "market_data" / "reconnect_log" / f"reconnect_{date_str}.jsonl"
+        reconnect_log = project_root / "market_data" / "reconnect_log" / f"reconnect_{date_str}.jsonl"  # noqa: E501
         if reconnect_log.exists():
             try:
                 for line in reconnect_log.read_text(encoding="utf-8").splitlines():

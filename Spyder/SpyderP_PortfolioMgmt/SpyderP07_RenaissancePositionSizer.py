@@ -272,7 +272,7 @@ class RenaissancePositionSizer:
             position_value = num_contracts * entry_price * 100
             risk_per_trade = num_contracts * risk_per_contract
             max_loss = risk_per_trade
-            portfolio_risk_pct = risk_per_trade / self.current_capital if self.current_capital > 0 else 0
+            portfolio_risk_pct = risk_per_trade / self.current_capital if self.current_capital > 0 else 0  # noqa: E501
 
             # Check if position exceeds available capital
             if position_value > self.current_capital:
@@ -502,7 +502,7 @@ class RenaissancePositionSizer:
             'total_pnl': f"${self.metrics.total_pnl:,.2f}",
             'sharpe_ratio': f"{self.metrics.sharpe_ratio:.2f}",
             'current_capital': f"${self.current_capital:,.2f}",
-            'total_return': f"{((self.current_capital - self.initial_capital) / self.initial_capital * 100):.2f}%"
+            'total_return': f"{((self.current_capital - self.initial_capital) / self.initial_capital * 100):.2f}%"  # noqa: E501
         }
 
     def get_trade_history_df(self) -> pd.DataFrame:

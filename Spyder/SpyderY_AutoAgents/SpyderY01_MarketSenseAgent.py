@@ -391,7 +391,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
             f"- VIX: {snapshot.vix:.1f} (term structure: {snapshot.vix_term_structure})\n"
             f"- Volume ratio: {snapshot.volume_ratio:.2f}x average\n"
             f"- GEX: {snapshot.gex_level:.0f} | DEX: {snapshot.dex_level:.0f}\n"
-            f"- Key support: ${snapshot.key_support:.2f} | Resistance: ${snapshot.key_resistance:.2f}\n"
+            f"- Key support: ${snapshot.key_support:.2f} | Resistance: ${snapshot.key_resistance:.2f}\n"  # noqa: E501
             f"- Regime stable: {'Yes' if regime_stability else 'No (changing)'}\n\n"
             f"Provide a 3-sentence market summary with actionable implication for "
             f"SPY options trading."

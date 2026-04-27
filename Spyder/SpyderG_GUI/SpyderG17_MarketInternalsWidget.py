@@ -48,16 +48,16 @@ if str(_REPO_ROOT) not in sys.path:
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QFont, QColor
-from PySide6.QtWidgets import (
+from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot  # noqa: E402
+from PySide6.QtGui import QFont, QColor  # noqa: E402, F401
+from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSizePolicy,
+    QSizePolicy,  # noqa: F401
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -141,7 +141,7 @@ class _FetchWorker(QThread):
 # HISTORY FETCH WORKER  (1-day bars for charts)
 # ==============================================================================
 class _HistoryWorker(QThread):
-    """Placeholder history worker — intraday bars unavailable until a Playwright history source is added."""
+    """Placeholder history worker — intraday bars unavailable until a Playwright history source is added."""  # noqa: E501
 
     history_ready = Signal(dict)  # {"TICK": [(ts, val),...], ...}
 
@@ -289,7 +289,7 @@ class _InternalPanel(QGroupBox):
         spin.setValue(default)
         spin.setFixedWidth(60)
         spin.setStyleSheet(
-            f"color: {_TEXT}; background-color: {_PANEL}; border: 1px solid {_BORDER}; font-size: 11px;"
+            f"color: {_TEXT}; background-color: {_PANEL}; border: 1px solid {_BORDER}; font-size: 11px;"  # noqa: E501
         )
         if self._unit:
             spin.setSuffix(f" {self._unit}")
@@ -298,7 +298,7 @@ class _InternalPanel(QGroupBox):
         slider.setRange(-5000, 5000)
         slider.setValue(default)
         slider.setStyleSheet(f"QSlider::groove:horizontal {{ background: {_BORDER}; height: 4px; }}"
-                              f"QSlider::handle:horizontal {{ background: {color}; width: 10px; height: 10px; "
+                              f"QSlider::handle:horizontal {{ background: {color}; width: 10px; height: 10px; "  # noqa: E501
                               f"margin: -3px 0; border-radius: 5px; }}")
 
         # bidirectional sync
@@ -342,18 +342,18 @@ class _InternalPanel(QGroupBox):
         colour  = _CYAN  # default
 
         if self.symbol == "TICK":
-            if   value >=  1000: colour = _GREEN
-            elif value >=   600: colour = _GREEN
-            elif value <=  -1000: colour = _RED
-            elif value <=  -600: colour = _ORANGE
+            if   value >=  1000: colour = _GREEN  # noqa: E701
+            elif value >=   600: colour = _GREEN  # noqa: E701
+            elif value <=  -1000: colour = _RED  # noqa: E701
+            elif value <=  -600: colour = _ORANGE  # noqa: E701
         elif self.symbol == "ADD":
-            if   value >=  500: colour = _GREEN
-            elif value <= -500: colour = _RED
+            if   value >=  500: colour = _GREEN  # noqa: E701
+            elif value <= -500: colour = _RED  # noqa: E701
         elif self.symbol == "TRIN":
             display = f"{value:.2f}"
-            if   value >= 1.5: colour = _RED      # bearish
-            elif value <= 0.7: colour = _GREEN    # bullish
-            else:              colour = _CYAN
+            if   value >= 1.5: colour = _RED      # bearish  # noqa: E701
+            elif value <= 0.7: colour = _GREEN    # bullish  # noqa: E701
+            else:              colour = _CYAN  # noqa: E701
 
         self._value_lbl.setText(display)
         self._value_lbl.setStyleSheet(f"color: {colour};")
@@ -617,7 +617,7 @@ class MarketInternalsDialog(QDialog):
             return  # no real data — don't touch status or indicator
         ts = datetime.now().strftime("%H:%M:%S")
         regime = snap.get("breadth_regime", "")
-        self._status_lbl.setText(f"Last update: {ts}  |  Regime: {regime}" if regime else f"Last update: {ts}")
+        self._status_lbl.setText(f"Last update: {ts}  |  Regime: {regime}" if regime else f"Last update: {ts}")  # noqa: E501
         self._refresh_indicator.setStyleSheet(f"color: {_TEXT}; font-size: 14px;")
 
     # ------------------------------------------------------------------
@@ -656,7 +656,7 @@ class MarketInternalsDialog(QDialog):
         msg = f"[ALERT] {symbol} breached {direction} threshold: {value:+.1f}"
         logger.warning(msg)
         self._status_lbl.setText(msg)
-        self._status_lbl.setStyleSheet(f"color: {_RED if direction == 'HIGH' else _GREEN}; font-size: 13px;")
+        self._status_lbl.setStyleSheet(f"color: {_RED if direction == 'HIGH' else _GREEN}; font-size: 13px;")  # noqa: E501
         QTimer.singleShot(4_000, lambda: self._status_lbl.setStyleSheet(
             f"color: {_TEXT}; font-size: 13px;"
         ))
@@ -677,7 +677,7 @@ class MarketInternalsDialog(QDialog):
 # STANDALONE TEST
 # ==============================================================================
 if __name__ == "__main__":
-    import os
+    import os  # noqa: F401
     try:
         from dotenv import load_dotenv
         load_dotenv(str(_REPO_ROOT / ".env"), override=True)

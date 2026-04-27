@@ -336,7 +336,7 @@ class StopLossManager:
                     metadata={
                         'strategy': strategy,
                         'method': config.initial_stop_method,
-                        'atr_multiplier': config.atr_multiplier if config.initial_stop_method == 'atr' else None
+                        'atr_multiplier': config.atr_multiplier if config.initial_stop_method == 'atr' else None  # noqa: E501
                     }
                 )
 
@@ -422,7 +422,7 @@ class StopLossManager:
                         updated_stops.append(trailing_stop)
 
                 # Update trailing stop if active
-                if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:
+                if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:  # noqa: E501
                     if self._update_trailing_stop(position_stops, market_data):
                         updated_stops.append(position_stops.trailing_stop)
 
@@ -966,7 +966,7 @@ class StopLossManager:
         try:
             # Prepare broker order
             broker_order = {
-                'action': OrderAction.SELL if stop_order.side == PositionSide.LONG else OrderAction.BUY,
+                'action': OrderAction.SELL if stop_order.side == PositionSide.LONG else OrderAction.BUY,  # noqa: E501
                 'quantity': stop_order.quantity,
                 'order_type': OrderType.STOP,
                 'stop_price': stop_order.stop_price,
@@ -1039,7 +1039,7 @@ class StopLossManager:
             return
 
         for i, exit_level in enumerate(config.partial_exit_levels):
-            scale_pct = config.scale_out_percentages[i] if i < len(config.scale_out_percentages) else 1.0
+            scale_pct = config.scale_out_percentages[i] if i < len(config.scale_out_percentages) else 1.0  # noqa: E501
             quantity = int(position_stops.quantity * scale_pct)
 
             if quantity > 0:
@@ -1065,7 +1065,7 @@ class StopLossManager:
                 position_stops.partial_stops.append(partial_stop)
                 self.stop_orders[partial_stop.order_id] = partial_stop
 
-    def _check_partial_exits(self, position_stops: PositionStops, current_price: float) -> list[StopOrder]:
+    def _check_partial_exits(self, position_stops: PositionStops, current_price: float) -> list[StopOrder]:  # noqa: E501
         """Check if any partial exit levels have been reached."""
         triggered_partials = []
 
@@ -1075,9 +1075,9 @@ class StopLossManager:
 
             # Calculate profit percentage
             if position_stops.position_side == PositionSide.LONG:
-                profit_pct = (current_price - position_stops.entry_price) / position_stops.entry_price
+                profit_pct = (current_price - position_stops.entry_price) / position_stops.entry_price  # noqa: E501
             else:
-                profit_pct = (position_stops.entry_price - current_price) / position_stops.entry_price
+                profit_pct = (position_stops.entry_price - current_price) / position_stops.entry_price  # noqa: E501
 
             exit_level = partial_stop.metadata.get('exit_level', 0)
 
@@ -1100,7 +1100,7 @@ class StopLossManager:
     # ==========================================================================
     # PRIVATE METHODS - TIME STOPS
     # ==========================================================================
-    def _setup_time_stop(self, position_stops: PositionStops, config: StopLossConfig, strategy: str) -> None:
+    def _setup_time_stop(self, position_stops: PositionStops, config: StopLossConfig, strategy: str) -> None:  # noqa: E501
         """Set up time-based stop."""
         if not config.use_time_stops:
             return
@@ -1179,9 +1179,9 @@ class StopLossManager:
     def _get_active_stop(self, position_stops: PositionStops) -> StopOrder | None:
         """Get the currently active stop order."""
         # Priority: Trailing > Breakeven > Initial
-        if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:
+        if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:  # noqa: E501
             return position_stops.trailing_stop
-        elif position_stops.breakeven_stop and position_stops.breakeven_stop.status == StopStatus.ACTIVE:
+        elif position_stops.breakeven_stop and position_stops.breakeven_stop.status == StopStatus.ACTIVE:  # noqa: E501
             return position_stops.breakeven_stop
         elif position_stops.initial_stop.status == StopStatus.ACTIVE:
             return position_stops.initial_stop
@@ -1240,7 +1240,7 @@ class StopLossManager:
             initial_stop=emergency_stop
         )
 
-    def _update_stop_history(self, position_stops: PositionStops, updated_stops: list[StopOrder]) -> None:
+    def _update_stop_history(self, position_stops: PositionStops, updated_stops: list[StopOrder]) -> None:  # noqa: E501
         """Update stop history for position."""
         for stop in updated_stops:
             position_stops.stop_history.append({
@@ -1265,7 +1265,7 @@ class StopLossManager:
         # Record by stop type
         self.stop_performance[stop_order.stop_type.name].append(performance)
 
-    def _emit_stop_event(self, action: str, stop_order: StopOrder, position_stops: PositionStops) -> None:
+    def _emit_stop_event(self, action: str, stop_order: StopOrder, position_stops: PositionStops) -> None:  # noqa: E501
         """Emit stop-related event."""
         if not self.event_manager:
             return

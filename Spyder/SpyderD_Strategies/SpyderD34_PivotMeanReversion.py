@@ -37,9 +37,9 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
-from enum import Enum
+from dataclasses import dataclass, field  # noqa: F401
+from datetime import date, datetime, timedelta, timezone  # noqa: F401
+from enum import Enum  # noqa: F401
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -56,8 +56,8 @@ from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy,
     EventManager,
-    PositionState,
-    PositionType,
+    PositionState,  # noqa: F401
+    PositionType,  # noqa: F401
     RiskProfile,
     SignalStrength,
     SignalType,
@@ -71,7 +71,7 @@ from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
     PivotMRInputs,
     PivotMRSignal,
 )
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: F401
 
 # ==============================================================================
 # CONSTANTS
@@ -258,7 +258,7 @@ def _compute_atr(bars: list[IntradayBar], period: int = 14) -> float:
         return float("nan")
     trs = []
     for i in range(1, len(bars)):
-        h, l, pc = bars[i].high, bars[i].low, bars[i - 1].close
+        h, l, pc = bars[i].high, bars[i].low, bars[i - 1].close  # noqa: E741
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
     if len(trs) < period:
         return float("nan")

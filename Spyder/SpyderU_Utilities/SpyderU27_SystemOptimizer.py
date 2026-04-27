@@ -162,7 +162,7 @@ class SystemOptimizer:
                 self._update_sysctl_conf(tcp_settings)
 
             success = len(failed_settings) == 0
-            message = "TCP keep-alive optimized" if success else f"Failed settings: {failed_settings}"
+            message = "TCP keep-alive optimized" if success else f"Failed settings: {failed_settings}"  # noqa: E501
 
             result = OptimizationResult(
                 component=SystemComponent.NETWORK,
@@ -303,7 +303,7 @@ class SystemOptimizer:
         self.logger.info("Starting system optimization (level: %s)", self.optimization_level.value)
 
         # Run optimizations based on level
-        if self.optimization_level in [OptimizationLevel.STANDARD, OptimizationLevel.AGGRESSIVE, OptimizationLevel.ULTRA]:
+        if self.optimization_level in [OptimizationLevel.STANDARD, OptimizationLevel.AGGRESSIVE, OptimizationLevel.ULTRA]:  # noqa: E501
             results.append(self.optimize_tcp_keepalive())
             results.append(self.configure_firewall())
 

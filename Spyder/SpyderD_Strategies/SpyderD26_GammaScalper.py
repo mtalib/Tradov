@@ -48,14 +48,14 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
 
 # Optional analytics imports
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator  # noqa: E501
     HAS_GREEKS_CALC = True
 except ImportError:
     OptionsGreeksCalculator = None
     HAS_GREEKS_CALC = False
 
 try:
-    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling  # noqa: E501
     HAS_VOL_MODELING = True
 except ImportError:
     VolatilityModeling = None
@@ -388,7 +388,7 @@ class GammaScalperStrategy(BaseStrategy):
         # Components
         if OptionsGreeksCalculator is None:
             raise ImportError(
-                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"
+                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"  # noqa: E501
             )
         if VolatilityModeling is None:
             raise ImportError(
@@ -660,7 +660,7 @@ class GammaScalperStrategy(BaseStrategy):
         total_delta += self.stock_position
 
         # Calculate weighted average IV
-        weighted_iv = total_iv / max(1, total_weight) if total_weight > 0 else self.implied_volatility
+        weighted_iv = total_iv / max(1, total_weight) if total_weight > 0 else self.implied_volatility  # noqa: E501
 
         # Calculate gamma concentration (Herfindahl index)
         if total_gamma > 0:
@@ -913,7 +913,7 @@ class GammaScalperStrategy(BaseStrategy):
             price=spot,
             portfolio_delta_before=delta_to_hedge,
             portfolio_delta_after=delta_to_hedge + hedge_shares,
-            cost=abs(hedge_shares) * STOCK_COMMISSION + abs(hedge_shares) * spot * SLIPPAGE_BPS / 10000,
+            cost=abs(hedge_shares) * STOCK_COMMISSION + abs(hedge_shares) * spot * SLIPPAGE_BPS / 10000,  # noqa: E501
             reason=f"Delta hedge: {delta_to_hedge:.1f} -> {delta_to_hedge + hedge_shares:.1f}"
         )
 
@@ -1032,13 +1032,13 @@ class GammaScalperStrategy(BaseStrategy):
             self.hedge_pnl = self.stock_position * price_move
 
             # Total P&L
-            self.daily_pnl = self.gamma_pnl + self.theta_decay + self.hedge_pnl - self.transaction_costs
+            self.daily_pnl = self.gamma_pnl + self.theta_decay + self.hedge_pnl - self.transaction_costs  # noqa: E501
 
             # Update metrics
             self.metrics.total_gamma_pnl += self.gamma_pnl
             self.metrics.total_theta_decay += self.theta_decay
             self.metrics.total_hedge_pnl += self.hedge_pnl
-            self.metrics.net_pnl = self.metrics.total_gamma_pnl + self.metrics.total_theta_decay + self.metrics.total_hedge_pnl - self.metrics.transaction_costs
+            self.metrics.net_pnl = self.metrics.total_gamma_pnl + self.metrics.total_theta_decay + self.metrics.total_hedge_pnl - self.metrics.transaction_costs  # noqa: E501
 
     def get_strategy_stats(self) -> dict[str, Any]:
         """Get strategy performance statistics"""
@@ -1087,7 +1087,7 @@ class GammaScalperStrategy(BaseStrategy):
 
     def validate_signal(self, signal, account_value: float = 0) -> bool:
         """Validate a generated signal meets minimum requirements."""
-        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)
+        return bool(signal and getattr(signal, 'symbol', None) and getattr(signal, 'quantity', 0) > 0)  # noqa: E501
 
     def calculate_position_size(self, signal, account_value: float) -> int:
         """Return contract count scaled by account value and per-trade risk budget."""
@@ -1132,13 +1132,13 @@ if __name__ == "__main__":
         'implied_volatility': 0.18,
         'options_chain': {
             'calls': {
-                450: {'delta': 0.50, 'gamma': 0.05, 'theta': -0.15, 'vega': 0.20, 'price': 3.50, 'volume': 1000},
-                451: {'delta': 0.45, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 3.00, 'volume': 800},
-                449: {'delta': 0.55, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 4.00, 'volume': 900}
+                450: {'delta': 0.50, 'gamma': 0.05, 'theta': -0.15, 'vega': 0.20, 'price': 3.50, 'volume': 1000},  # noqa: E501
+                451: {'delta': 0.45, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 3.00, 'volume': 800},  # noqa: E501
+                449: {'delta': 0.55, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 4.00, 'volume': 900}  # noqa: E501
             },
             'puts': {
-                450: {'delta': -0.50, 'gamma': 0.05, 'theta': -0.15, 'vega': 0.20, 'price': 3.50, 'volume': 1100},
-                449: {'delta': -0.45, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 3.00, 'volume': 750}
+                450: {'delta': -0.50, 'gamma': 0.05, 'theta': -0.15, 'vega': 0.20, 'price': 3.50, 'volume': 1100},  # noqa: E501
+                449: {'delta': -0.45, 'gamma': 0.048, 'theta': -0.14, 'vega': 0.19, 'price': 3.00, 'volume': 750}  # noqa: E501
             }
         }
     }

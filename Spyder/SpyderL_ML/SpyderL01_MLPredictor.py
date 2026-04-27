@@ -938,7 +938,7 @@ class MLPredictor:
         # Feature importance
         if hasattr(model, "feature_importances_"):
             feature_names = self.model_configs[config.model_type.value].features
-            performance.feature_importance = dict(zip(feature_names, model.feature_importances_, strict=False))
+            performance.feature_importance = dict(zip(feature_names, model.feature_importances_, strict=False))  # noqa: E501
 
         return performance
 

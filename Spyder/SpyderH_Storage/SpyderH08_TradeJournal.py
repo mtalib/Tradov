@@ -258,9 +258,9 @@ class TradeJournal:
                 """)
 
                 # Create indexes
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON trade_journal(timestamp)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON trade_journal(timestamp)")  # noqa: E501
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbol ON trade_journal(symbol)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_strategy ON trade_journal(strategy_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_strategy ON trade_journal(strategy_name)")  # noqa: E501
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_outcome ON trade_journal(outcome)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_id ON trade_journal(order_id)")
 
@@ -503,7 +503,7 @@ class TradeJournal:
             override_reason=row['override_reason'],
             outcome=TradeOutcome(row['outcome']),
             exit_price=row['exit_price'],
-            exit_timestamp=datetime.fromisoformat(row['exit_timestamp']) if row['exit_timestamp'] else None,
+            exit_timestamp=datetime.fromisoformat(row['exit_timestamp']) if row['exit_timestamp'] else None,  # noqa: E501
             realized_pnl=row['realized_pnl'],
             realized_pnl_pct=row['realized_pnl_pct'],
             exit_reason=row['exit_reason'],

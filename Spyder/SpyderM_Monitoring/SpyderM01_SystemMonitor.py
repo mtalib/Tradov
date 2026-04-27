@@ -554,7 +554,7 @@ class SystemMonitor:
                 self._emit_alert_event(alert)
 
         # Set cooldown
-        self.alert_cooldowns[alert_key] = datetime.datetime.now(timezone.utc) + datetime.timedelta(seconds=ALERT_COOLDOWN)
+        self.alert_cooldowns[alert_key] = datetime.datetime.now(timezone.utc) + datetime.timedelta(seconds=ALERT_COOLDOWN)  # noqa: E501
 
     def _resolve_alert(self, metric_type: MetricType) -> None:
         """Resolve an active alert"""
@@ -609,7 +609,7 @@ class SystemMonitor:
                     )
 
             except Exception as e:
-                self.logger.error("Error running health check for %s: %s", component, e, exc_info=True)
+                self.logger.error("Error running health check for %s: %s", component, e, exc_info=True)  # noqa: E501
 
                 self.health_checks[component] = HealthCheck(
                     component=component,
@@ -726,7 +726,7 @@ class SystemMonitor:
             Metrics summary
         """
         with self._monitor_lock:
-            cutoff_time = datetime.datetime.now(timezone.utc) - datetime.timedelta(minutes=window_minutes)
+            cutoff_time = datetime.datetime.now(timezone.utc) - datetime.timedelta(minutes=window_minutes)  # noqa: E501
 
             # Filter metrics
             system_metrics = [m for m in self.system_metrics if m.timestamp > cutoff_time]
@@ -756,7 +756,7 @@ class SystemMonitor:
 
             if performance_metrics:
                 summary['performance'] = {
-                    'avg_event_latency_ms': statistics.mean(m.event_latency_ms for m in performance_metrics),
+                    'avg_event_latency_ms': statistics.mean(m.event_latency_ms for m in performance_metrics),  # noqa: E501
                     'avg_error_rate': statistics.mean(m.error_rate for m in performance_metrics),
                     'total_errors': sum(m.error_count for m in performance_metrics)
                 }
@@ -793,7 +793,7 @@ class SystemMonitor:
             metrics = status['current_metrics']['system']
             report.append("\nRESOURCE USAGE:")
             report.append(f"  CPU: {metrics['cpu_percent']:.1f}%")
-            report.append(f"  Memory: {metrics['memory_percent']:.1f}% ({metrics['memory_used_mb']:.0f} MB)")
+            report.append(f"  Memory: {metrics['memory_percent']:.1f}% ({metrics['memory_used_mb']:.0f} MB)")  # noqa: E501
             report.append(f"  Disk: {metrics['disk_percent']:.1f}%")
             report.append(f"  Threads: {metrics['thread_count']}")
 

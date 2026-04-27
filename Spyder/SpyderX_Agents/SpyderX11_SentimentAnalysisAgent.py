@@ -42,22 +42,22 @@ warnings.filterwarnings("ignore")
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 # NLP Libraries
-from transformers import (
+from transformers import (  # noqa: E402
     AutoTokenizer,
     AutoModelForSequenceClassification,
     pipeline,
 )
-import torch
+import torch  # noqa: E402
 try:
     import spacy
     SPACY_AVAILABLE = True
 except ImportError:
     spacy = None  # type: ignore
     SPACY_AVAILABLE = False
-from textblob import TextBlob
-import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
+from textblob import TextBlob  # noqa: E402
+import nltk  # noqa: E402
+from nltk.tokenize import sent_tokenize, word_tokenize  # noqa: E402
+from nltk.corpus import stopwords  # noqa: E402
 
 # Audio Processing
 try:
@@ -97,19 +97,19 @@ except ImportError:
     GOOGLETRANS_AVAILABLE = False
 
 # Topic Modeling
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: E402
+from sklearn.decomposition import LatentDirichletAllocation  # noqa: E402
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 try:
     from Spyder.SpyderU_Utilities.SpyderU07_Constants import MAX_SENTIMENT_HISTORY
 except ImportError:
     MAX_SENTIMENT_HISTORY = 1000
-import logging
+import logging  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -337,7 +337,7 @@ class EnhancedSentimentAnalysisAgent:
         """Initialize API clients for data sources"""
         try:
             # Reddit API
-            if PRAW_AVAILABLE and all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):
+            if PRAW_AVAILABLE and all(key in self.config for key in ["reddit_client_id", "reddit_secret"]):  # noqa: E501
                 self.reddit_client = praw.Reddit(
                     client_id=self.config["reddit_client_id"],
                     client_secret=self.config["reddit_secret"],
@@ -1452,7 +1452,7 @@ async def main():
         for topic, data in analysis.get("topics", {}).items():
             if data["mentioned"]:
                 logging.info(
-                    f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"
+                    f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"  # noqa: E501
                 )
         logging.info("\nRate Implications: %s", analysis.get('rate_implications', {}))
 

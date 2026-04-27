@@ -157,7 +157,7 @@ class SecretsManager:
     """
 
     def __init__(self, secrets_file: Path | None = None) -> None:
-        self._file   = Path(os.getenv("SPYDER_SECRETS_FILE", "")) or secrets_file or _DEFAULT_SECRETS_FILE
+        self._file   = Path(os.getenv("SPYDER_SECRETS_FILE", "")) or secrets_file or _DEFAULT_SECRETS_FILE  # noqa: E501
         self._lock   = threading.RLock()
         self._cache: dict[str, str] = {}
         self._yaml_data: dict[str, str] = {}

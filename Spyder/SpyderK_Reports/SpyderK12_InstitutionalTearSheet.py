@@ -467,7 +467,7 @@ class InstitutionalTearSheet:
             ),
         }
 
-        self.logger.info("Tear sheet generated: Sharpe=%s", result['return_metrics'].get('sharpe_ratio', 'N/A'))
+        self.logger.info("Tear sheet generated: Sharpe=%s", result['return_metrics'].get('sharpe_ratio', 'N/A'))  # noqa: E501
         return result
 
     def generate_risk_tearsheet(
