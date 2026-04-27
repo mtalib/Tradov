@@ -36,7 +36,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -82,7 +82,7 @@ class CircuitBreakerState(Enum):
 @dataclass
 class RiskSnapshot:
     """Point-in-time risk assessment."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     circuit_breaker: str = CircuitBreakerState.NORMAL.value
     portfolio_delta: float = 0.0
     portfolio_gamma: float = 0.0
@@ -102,7 +102,7 @@ class RiskSnapshot:
 class TradeVeto:
     """Record of a trade veto decision."""
     signal_id: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     vetoed: bool = False
     reason: str = ""
     risk_level: str = ""

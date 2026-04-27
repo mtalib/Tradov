@@ -204,7 +204,7 @@ class MetricSnapshot:
     lead_lag_ms: float = float("nan")
     es_impulse_score: float = float("nan")
     confirm_confidence: float = float("nan")
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     update_frequency: int = UPDATE_INTERVAL
 
 @dataclass

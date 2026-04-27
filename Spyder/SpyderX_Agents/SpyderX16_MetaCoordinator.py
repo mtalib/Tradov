@@ -148,7 +148,7 @@ class AgentRecommendation:
     confidence: float  # 0-1
     reasoning: str
     data: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     priority: int = 5  # 1-10, higher is more important
 
 @dataclass
@@ -165,7 +165,7 @@ class CoordinatedDecision:
     agent_recommendations: list[AgentRecommendation]
     market_regime: MarketRegime
     risk_score: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     execution_params: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -176,7 +176,7 @@ class AgentPerformance:
     total_predictions: int = 0
     avg_confidence: float = 0.0
     avg_return_contribution: float = 0.0
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     weight_multiplier: float = 1.0  # Dynamic weight based on performance
     recent_accuracy: deque = field(default_factory=lambda: deque(maxlen=100))
 

@@ -137,7 +137,7 @@ class ConfigValue:
     key: str
     value: Any
     source: ConfigSource
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     encrypted: bool = False
     schema_validated: bool = False
     description: str | None = None

@@ -105,7 +105,7 @@ class VaRResult:
     expected_shortfall: float  # CVaR
     calculation_method: str
     lookback_days: int
-    calculated_at: datetime = field(default_factory=datetime.now)
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

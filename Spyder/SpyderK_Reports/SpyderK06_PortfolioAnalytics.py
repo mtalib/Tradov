@@ -45,7 +45,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetrics
-from Spyder.SpyderN_OptionsAnalytics.SpyderN03_GreeksCalculator import GreeksCalculator
+from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator as GreeksCalculator
 
 RISK_CONCENTRATION_THRESHOLD = 0.15  # 15% of portfolio risk
 CORRELATION_HIGH_THRESHOLD = 0.7

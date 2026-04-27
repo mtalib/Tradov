@@ -213,7 +213,7 @@ class VolatilitySurface:
     model_used: VolatilityModel
     spot_price: float
     surface_quality: float  # Quality score 0-1
-    generation_time: datetime = field(default_factory=datetime.now)
+    generation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -231,7 +231,7 @@ class VolatilityMetrics:
     jarque_bera_stat: float
     ljung_box_stat: float
     arch_lm_stat: float
-    calculation_time: datetime = field(default_factory=datetime.now)
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

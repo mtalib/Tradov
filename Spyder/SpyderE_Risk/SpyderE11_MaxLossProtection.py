@@ -143,7 +143,7 @@ class LossLimit:
     dollar_limit: float
     current_loss: float = 0.0
     is_active: bool = True
-    last_reset: datetime = field(default_factory=datetime.now)
+    last_reset: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     breach_count: int = 0
 
     @property

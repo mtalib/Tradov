@@ -32,7 +32,7 @@ Consolidation Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -109,7 +109,7 @@ class QuantRequest:
     request_type: RequestType
     priority: Priority
     data: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     timeout_seconds: float = 30.0
     retry_count: int = 0
     max_retries: int = 3
@@ -125,7 +125,7 @@ class QuantResponse:
     execution_time_ms: float
     model_used: str | None = None
     warnings: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -141,7 +141,7 @@ class OrchestrationMetrics:
     requests_by_priority: dict[str, int] = field(default_factory=dict)
     pricing_engine_calls: int = 0
     risk_manager_calls: int = 0
-    last_reset: datetime = field(default_factory=datetime.now)
+    last_reset: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

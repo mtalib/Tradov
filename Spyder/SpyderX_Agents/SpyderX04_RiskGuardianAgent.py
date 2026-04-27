@@ -140,7 +140,7 @@ class RiskMetrics:
     sortino_ratio: float
     beta: float
     risk_contribution: dict[str, float]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskAssessment:

@@ -138,7 +138,7 @@ class SupportResistanceAnalysis:
     current_price: float
     nearest_support: float | None = None
     nearest_resistance: float | None = None
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN CLASS

@@ -34,7 +34,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +68,7 @@ class CodeIssue:
 class ReviewReport:
     """A complete review report for a file or module."""
     target: str = ""         # File path or module name
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     issues: list[CodeIssue] = field(default_factory=list)
     summary: str = ""
     risk_score: float = 0.0  # 0-10

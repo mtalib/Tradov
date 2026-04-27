@@ -198,7 +198,7 @@ class GreeksData:
     risk_free_rate: float
     option_type: str  # 'call' or 'put'
     position_value: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -241,7 +241,7 @@ class AIGreeksAnalysis:
     prediction_accuracy: float
     feature_importance: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -275,7 +275,7 @@ class PortfolioGreeksAnalysis:
     optimal_hedges: list[dict[str, Any]]
     risk_attribution: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -289,7 +289,7 @@ class MarketContext:
     correlation_environment: float
     liquidity_conditions: str
     recent_events: list[str]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

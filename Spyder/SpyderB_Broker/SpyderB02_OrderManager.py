@@ -231,8 +231,8 @@ class Order:
     liquidity_snapshot: dict[str, Any] | None = None
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self):
         """Set remaining_quantity from quantity if not set."""
@@ -260,7 +260,7 @@ class OrderResult:
     message: str | None = None
     error_code: str | None = None
     raw_response: dict[str, Any] | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -273,7 +273,7 @@ class ExecutionReport:
     quantity: int = 0
     price: float = 0.0
     execution_id: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     commission: float | None = None
 
 # ==============================================================================

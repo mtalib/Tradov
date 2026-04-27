@@ -39,7 +39,7 @@ from datetime import datetime, time as dt_time, timezone
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay import ETTimeDisplay
+from Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay import SimpleETDisplay as ETTimeDisplay
 
 # Deprecated B01/B07 imports removed — IB-era modules no longer exist.
 BROKER_AVAILABLE = False

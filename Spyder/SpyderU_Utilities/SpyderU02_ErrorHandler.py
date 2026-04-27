@@ -108,7 +108,7 @@ class ErrorContext:
     """Context information for an error"""
 
     error_id: str = field(default_factory=lambda: f"ERR_{int(time.time() * 1000)}")
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     category: ErrorCategory = ErrorCategory.UNKNOWN
     severity: ErrorSeverity = ErrorSeverity.LOW
     error_type: str = ""

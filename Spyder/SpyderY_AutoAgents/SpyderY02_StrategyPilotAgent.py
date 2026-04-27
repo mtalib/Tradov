@@ -71,7 +71,7 @@ class SignalValidation:
     regime_alignment: bool = False
     llm_assessment: str = ""  # LLM's reasoning
     approved: bool = False
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -83,7 +83,7 @@ class StrategyAllocation:
     reasoning: str = ""
     confidence: float = 0.0
     parameters: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

@@ -200,7 +200,7 @@ class FederatedRound:
     selected_clients: list[str]
     model_updates: list[ModelUpdate]
     aggregation_result: AggregationResult | None = None
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     end_time: datetime | None = None
     success: bool = False
 

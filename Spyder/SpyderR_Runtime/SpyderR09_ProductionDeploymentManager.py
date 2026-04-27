@@ -142,7 +142,7 @@ class ComponentConfig:
 @dataclass
 class SystemMetrics:
     """System-wide performance metrics"""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     cpu_usage_percent: float = 0.0
     memory_usage_percent: float = 0.0
     memory_used_gb: float = 0.0
@@ -160,7 +160,7 @@ class ComponentHealth:
     """Individual component health status"""
     component_id: str
     status: HealthStatus = HealthStatus.UNKNOWN
-    last_check: datetime = field(default_factory=datetime.now)
+    last_check: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     response_time_ms: float = 0.0
     cpu_usage: float = 0.0
     memory_usage_mb: float = 0.0
@@ -176,8 +176,8 @@ class DeploymentStatus:
     """Production deployment status"""
     deployment_id: str
     stage: DeploymentStage = DeploymentStage.PRE_FLIGHT
-    start_time: datetime = field(default_factory=datetime.now)
-    current_stage_start: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    current_stage_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_stages: list[DeploymentStage] = field(default_factory=list)
     failed_stages: list[DeploymentStage] = field(default_factory=list)
     deployed_components: list[str] = field(default_factory=list)

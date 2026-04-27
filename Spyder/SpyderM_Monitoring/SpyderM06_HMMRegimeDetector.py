@@ -134,7 +134,7 @@ class RegimeData:
     regime: MarketRegime
     confidence: float
     state_probabilities: np.ndarray
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     persistence: int = 0
     transition_probability: float = 0.0
     features: dict[str, float] | None = None
@@ -150,7 +150,7 @@ class RegimeSignal:
     strategy_hint: str
     position_size_multiplier: float
     risk_parameters: dict[str, float]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RegimeTransition:
@@ -159,7 +159,7 @@ class RegimeTransition:
     to_regime: MarketRegime
     confidence: float
     transition_probability: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expected_duration: int | None = None
 
 # ==============================================================================

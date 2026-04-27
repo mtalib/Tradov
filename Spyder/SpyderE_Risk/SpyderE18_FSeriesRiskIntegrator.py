@@ -120,7 +120,7 @@ class FSeriesRiskMetrics:
     microstructure_impact: float = 0.0
     backtest_stability: float = 0.0
     overall_risk_score: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class GreeksRiskProfile:

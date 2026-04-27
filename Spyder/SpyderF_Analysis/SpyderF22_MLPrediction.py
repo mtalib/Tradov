@@ -209,7 +209,7 @@ class ModelMetrics:
     f1: float
     sharpe_ratio: float | None = None
     max_drawdown: float | None = None
-    training_date: datetime = field(default_factory=datetime.now)
+    training_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     samples_used: int = 0
 
     def to_dict(self) -> dict[str, Any]:

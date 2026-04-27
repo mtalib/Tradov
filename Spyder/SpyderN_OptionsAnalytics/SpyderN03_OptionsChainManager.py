@@ -130,7 +130,7 @@ class OptionContract:
     theta: float = 0.0
     vega: float = 0.0
     rho: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     exchange: str = "CBOE"
 
     @property

@@ -187,7 +187,7 @@ class StressResult:
     correlation_impact: float = 0.0       # Correlation change impact
 
     # Metadata
-    test_timestamp: datetime = field(default_factory=datetime.now)
+    test_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     computation_time: float = 0.0         # Seconds to compute
     passed_thresholds: bool = True        # Whether result passes risk limits
 
@@ -237,7 +237,7 @@ class StressAlert:
     message: str
     portfolio_impact: float
     threshold_breached: str
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
 
     def __post_init__(self):

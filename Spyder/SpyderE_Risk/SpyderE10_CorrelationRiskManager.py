@@ -215,7 +215,7 @@ class CorrelationAlert:
     affected_assets: list[str]
 
     # Metadata
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
     auto_resolved: bool = False
 

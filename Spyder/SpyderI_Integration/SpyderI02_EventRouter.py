@@ -129,7 +129,7 @@ class RoutingRule:
     conditions: dict[str, Any] = field(default_factory=dict)
     transformations: list[str] = field(default_factory=list)
     enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     usage_count: int = 0
     success_count: int = 0
     error_count: int = 0
@@ -186,7 +186,7 @@ class PrioritizedEvent:
     routing_rules: list[str]
     correlation_id: str | None = None
     retry_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # EVENT ROUTER CLASS

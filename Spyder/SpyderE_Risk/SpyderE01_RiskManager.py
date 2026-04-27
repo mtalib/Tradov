@@ -40,7 +40,7 @@ Change Log:
 import os  # noqa: F401
 import threading
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -152,7 +152,7 @@ class Position:
     expiry: str | None = None
     strike: float | None = None
     right: str | None = None  # CALL/PUT
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskMetrics:
@@ -185,7 +185,7 @@ class RiskCheckResponse:
     order_id: str | None = None
     reason: str | None = None
     risk_metrics: RiskMetrics | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN CLASS
@@ -298,6 +298,10 @@ class RiskManager:
         # Caches portfolio Greeks between metric calculations.
         self._n04_calculator: Any | None = None
         self._last_portfolio_greeks: dict[str, float] = {}
+
+        # Cached account balances from last successful Tradier sync.
+        # Keys match _request_account_summary summary dict.
+        self._cached_account_balances: dict[str, float] = {}
 
         # Register message handlers
         self._register_handlers()
@@ -1438,16 +1442,28 @@ class RiskManager:
         Handle account summary update message.
 
         Args:
-            data: Account summary data
+            data: Account summary data with keys NetLiquidation, TotalCashValue,
+                  MarginUsed, MarginAvailable (floats).
         """
         try:
-            # Update account summary
             with self._risk_lock:
-                # Update risk metrics
+                # Cache the fetched balances so _calculate_risk_metrics can use
+                # them directly instead of falling back to an AccountManager import.
+                self._cached_account_balances = {
+                    "net_liquidation": float(data.get("NetLiquidation") or 0.0),
+                    "total_cash": float(data.get("TotalCashValue") or 0.0),
+                    "margin_used": float(data.get("MarginUsed") or 0.0),
+                    "margin_available": float(data.get("MarginAvailable") or 0.0),
+                }
+                # Recompute risk metrics with the freshly cached values.
                 self._risk_metrics = self._calculate_risk_metrics()
 
-                # Log account summary update
-                self.logger.debug("Account summary updated")
+                self.logger.debug(
+                    "Account summary cached — NLV=%.2f cash=%.2f margin_used=%.2f",
+                    self._cached_account_balances["net_liquidation"],
+                    self._cached_account_balances["total_cash"],
+                    self._cached_account_balances["margin_used"],
+                )
 
         except Exception as e:
             self.logger.error("Error handling account summary update: %s", e, exc_info=True)
@@ -1511,24 +1527,25 @@ class RiskManager:
                     risk_level = RiskLevel.MEDIUM
                 warnings.append(f"Options exposure {options_exposure} exceeds maximum {self.config.risk_limits['max_options_exposure']}")  # noqa: E501
 
-            # Get account data from AccountManager if available
-            net_liq = 0.0
-            margin_used_val = 0.0
-            margin_avail = 0.0
+            # Use cached Tradier account balances when available; fall back to
+            # AccountManager singleton for backwards-compatibility with older callers.
+            cached = getattr(self, "_cached_account_balances", {})
+            net_liq = cached.get("net_liquidation", 0.0)
+            margin_used_val = cached.get("margin_used", 0.0)
+            margin_avail = cached.get("margin_available", 0.0)
 
-            try:
-                # Import AccountManager and get account data
-                from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
-                account_mgr = AccountManager.get_instance()
-                if account_mgr:
-                    net_liq = account_mgr.get_net_liquidation()
-                    # Get margin from account info
-                    account_info = account_mgr.get_account_info()
-                    if account_info:
-                        margin_used_val = getattr(account_info, 'margin_used', 0.0)
-                        margin_avail = getattr(account_info, 'margin_available', 0.0)
-            except (ImportError, AttributeError) as e:
-                self.logger.debug("Could not retrieve account data: %s", e)
+            if net_liq == 0.0:
+                try:
+                    from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
+                    account_mgr = AccountManager.get_instance()
+                    if account_mgr:
+                        net_liq = account_mgr.get_net_liquidation()
+                        account_info = account_mgr.get_account_info()
+                        if account_info:
+                            margin_used_val = getattr(account_info, 'margin_used', 0.0)
+                            margin_avail = getattr(account_info, 'margin_available', 0.0)
+                except (ImportError, AttributeError) as e:
+                    self.logger.debug("Could not retrieve account data: %s", e)
 
             # Create risk metrics
             risk_metrics = RiskMetrics(

@@ -110,7 +110,7 @@ class Trade:
     # Execution details
     status: TradeStatus = TradeStatus.PENDING
     executed_at: datetime | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # P&L
     realized_pnl: float = 0.0

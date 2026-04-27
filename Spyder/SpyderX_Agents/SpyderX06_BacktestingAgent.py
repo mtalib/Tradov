@@ -153,7 +153,7 @@ class BacktestRequest:
     compare_benchmarks: bool = True
     include_tear_sheet: bool = True
     extra_params: dict[str, Any] = field(default_factory=dict)
-    requested_at: datetime = field(default_factory=datetime.now)
+    requested_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
         # Normalise dates to strings
@@ -212,7 +212,7 @@ class BacktestResult:
     raw_trades: pd.DataFrame | None
     error_message: str | None = None
     engine_used: str = "unknown"
-    completed_at: datetime = field(default_factory=datetime.now)
+    completed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     elapsed_seconds: float = 0.0
 
     def to_report(self) -> str:

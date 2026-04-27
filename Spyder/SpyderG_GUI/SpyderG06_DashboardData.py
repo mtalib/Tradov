@@ -169,7 +169,7 @@ class MarketData:
     last: float
     change: float = 0.0
     change_pct: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     bid: float | None = None
     ask: float | None = None
     volume: int | None = None
@@ -244,7 +244,7 @@ class Order:
     stop_price: float | None = None
     filled_quantity: int = 0
     avg_fill_price: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     filled_timestamp: datetime | None = None
 
     @property
@@ -311,7 +311,7 @@ class SignalData:
     signal_name: str
     value: float
     status: str  # BULLISH, BEARISH, NEUTRAL, WARNING
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     description: str | None = None
 
     def get_status_color(self) -> str:
@@ -335,7 +335,7 @@ class EventClockState:
     blackout_pre_minutes: int = 30
     blackout_post_minutes: int = 30
     max_size_multiplier: float = 0.25
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def state_color(self) -> str:

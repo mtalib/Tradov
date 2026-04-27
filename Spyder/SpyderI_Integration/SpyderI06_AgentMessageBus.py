@@ -126,7 +126,7 @@ class Message:
     priority: MessagePriority = MessagePriority.NORMAL
     payload: Any = None
     headers: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ttl: int = DEFAULT_TTL
     correlation_id: str | None = None
     reply_to: str | None = None

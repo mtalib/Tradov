@@ -117,7 +117,7 @@ class FilterThreshold:
     min_value: float
     max_value: float
     adaptation_rate: float = 0.1
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     performance_history: list[float] = field(default_factory=list)
 
     def adapt(self, performance_score: float):
@@ -165,7 +165,7 @@ class EntryFilterResult:
     checks: list[FilterCheck]
     warnings: list[str]
     recommendations: list[str]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def get_failed_filters(self) -> list[FilterCheck]:
         """Get all failed filter checks."""

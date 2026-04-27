@@ -66,7 +66,7 @@ class NewsItem:
     """A news item with sentiment analysis."""
     headline: str = ""
     source: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     category: str = ""        # macro | earnings | fed | geopolitical | sector
     sentiment_score: float = 0.0   # -1.0 (bearish) to 1.0 (bullish)
     spy_impact: str = "none"       # none | low | medium | high | critical
@@ -96,7 +96,7 @@ class SentimentState:
     fear_greed_index: float = 50.0  # 0-100
     trend: str = "neutral"          # improving | deteriorating | neutral
     dominant_theme: str = ""
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

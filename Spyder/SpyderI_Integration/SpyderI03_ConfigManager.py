@@ -149,8 +149,8 @@ class ConfigMetadata:
     scope: ConfigScope
     format: ConfigFormat
     file_path: Path | None = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     version: int = 1
     checksum: str | None = None
     encrypted: bool = False
@@ -179,7 +179,7 @@ class ConfigSubscription:
     callback: Callable[[dict[str, Any]], None]
     key_patterns: list[str] | None = None
     immediate_notify: bool = True
-    subscribed_at: datetime = field(default_factory=datetime.now)
+    subscribed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class ConfigValidationRule:

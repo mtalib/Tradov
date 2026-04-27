@@ -322,7 +322,7 @@ class ProfitTargetProgress:
     orders_pending: int
     risk_utilization_pct: float
     execution_metrics: ExecutionMetrics
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -336,7 +336,7 @@ class RiskAlert:
     current_value: float
     threshold_value: float
     recommended_action: str
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

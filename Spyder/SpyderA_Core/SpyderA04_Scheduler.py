@@ -141,7 +141,7 @@ class ScheduledTask:
     max_instances: int = 1
     misfire_grace_time: int = 30  # seconds
     coalesce: bool = True
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_run: datetime | None = None
     next_run: datetime | None = None
     run_count: int = 0

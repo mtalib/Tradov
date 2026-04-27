@@ -136,8 +136,8 @@ class FeatureFlag:
     rollout_strategy: RolloutStrategy = RolloutStrategy.ALL
     enabled_users: list[str] = field(default_factory=list)
     environments: list[str] = field(default_factory=lambda: ["all"])
-    created_date: datetime = field(default_factory=datetime.now)
-    modified_date: datetime = field(default_factory=datetime.now)
+    created_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    modified_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expires_date: datetime | None = None
     dependencies: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

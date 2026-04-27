@@ -133,7 +133,7 @@ class ModelOutput:
     confidence_interval: tuple[float, float]
     model_metrics: dict[str, float]
     ai_insights: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class VolatilityForecast:

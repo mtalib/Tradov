@@ -128,7 +128,7 @@ class GapAnalysis:
     statistics: GapStatistics
     current_gap: Gap | None = None
     gap_zones: list[tuple[float, float]] = field(default_factory=list)  # Unfilled gap zones
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def is_acceptable_for_entry(self) -> bool:
         """Check if current gap conditions are acceptable for entry."""

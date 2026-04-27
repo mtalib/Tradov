@@ -74,7 +74,7 @@ class OptionData:
     gamma: float | None = None
     vega: float | None = None
     theta: float | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class MarketSentiment:
@@ -84,7 +84,7 @@ class MarketSentiment:
     vix_level: float
     skew_indicator: float
     fear_greed_index: float | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class InternationalData:
@@ -94,7 +94,7 @@ class InternationalData:
     price: float
     change_pct: float
     correlation_spy: float | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 class DataSource(Enum):
     """Logical data source channels for market data."""

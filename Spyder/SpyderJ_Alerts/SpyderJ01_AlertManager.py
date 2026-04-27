@@ -120,7 +120,7 @@ class PredictiveAlert:
     recommended_actions: list[str]
     model_version: str
     features_used: dict[str, float]
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime | None = None
     triggered: bool = False
     false_positive: bool | None = None  # For model learning

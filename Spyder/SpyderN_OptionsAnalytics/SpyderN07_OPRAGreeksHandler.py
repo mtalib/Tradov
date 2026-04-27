@@ -16,7 +16,7 @@ Description:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 
@@ -48,7 +48,7 @@ class ValidatedGreeks:
     theta: float = 0.0
     vega: float = 0.0
     rho: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

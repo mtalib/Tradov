@@ -86,7 +86,7 @@ class AgentStatus:
 class SystemDecision:
     """A system-wide decision made by the orchestrator."""
     decision_id: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     category: str = ""      # conflict_resolution | threshold_adj | escalation | coordination
     description: str = ""
     agents_involved: list[str] = field(default_factory=list)
@@ -102,7 +102,7 @@ class ConflictRecord:
     topics: list[str] = field(default_factory=list)
     description: str = ""
     resolution: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

@@ -231,7 +231,7 @@ class ConfigChange:
     old_value: Any
     new_value: Any
     change_type: ConfigChangeType
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

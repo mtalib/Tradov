@@ -241,7 +241,7 @@ class StrategyPerformance:
     max_drawdown: float
     trade_count: int
     days_active: int
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RotationPlan:

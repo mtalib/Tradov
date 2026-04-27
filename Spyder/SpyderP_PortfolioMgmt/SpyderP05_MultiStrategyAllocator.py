@@ -170,7 +170,7 @@ class StrategyMetrics:
     kelly_fraction: float = 0.0
     current_positions: int = 0
     capital_allocated: float = 0.0
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class AllocationResult:
@@ -184,7 +184,7 @@ class AllocationResult:
     max_drawdown_estimate: float
     diversification_ratio: float
     effective_strategies: int
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     constraints_satisfied: bool = True
     warnings: list[str] = field(default_factory=list)
 

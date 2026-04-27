@@ -25,7 +25,9 @@ Change Log:
 import time
 import threading
 from datetime import datetime, timedelta, date, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum
@@ -42,7 +44,8 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # SpyderC07_OPRAFeed is not yet implemented; OPRA path is disabled
 OPRAFeedHandler = None  # type: ignore[assignment,misc]
 _OPRA_AVAILABLE = False
-from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager  # noqa: E402
+# OptionChainManager is imported lazily inside __init__ to prevent a circular-
+# import cycle: X02 → N10 → SpyderN_OptionsAnalytics (init) → C03 → ...
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager  # noqa: E402
 
 MIN_PREMIUM_VALUE = 25000  # Minimum premium for tracking
@@ -252,7 +255,7 @@ class AdvancedOptionsFlowAnalyzer:
 
     def __init__(self,
                  opra_feed: "OPRAFeedHandler | None" = None,
-                 option_chain_mgr: OptionChainManager | None = None):
+                 option_chain_mgr: "OptionChainManager | None" = None):
         """
         Initialize flow analyzer.
 
@@ -271,7 +274,10 @@ class AdvancedOptionsFlowAnalyzer:
         else:
             self.opra_feed = None
             self.logger.warning("SpyderC07_OPRAFeed unavailable — flow analyzer running without OPRA feed")  # noqa: E501
-        self.option_chain_mgr = option_chain_mgr or OptionChainManager()
+        if option_chain_mgr is None:
+            from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager as _OCM
+            option_chain_mgr = _OCM()
+        self.option_chain_mgr = option_chain_mgr
         self.event_manager = get_event_manager()
 
         # Flow storage

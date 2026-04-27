@@ -167,7 +167,7 @@ class StrategyInfo:
     class_instance: Any
     state: StrategyState = StrategyState.REGISTERED
     config: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_signal: datetime | None = None
     signal_count: int = 0
     order_count: int = 0
@@ -187,7 +187,7 @@ class OrderInfo:
     quantity: int
     price: float | None
     state: OrderState = OrderState.PENDING
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     submitted_at: datetime | None = None
     filled_at: datetime | None = None
     fill_price: float | None = None
@@ -230,7 +230,7 @@ class PerformanceMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
     uptime_seconds: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class CircuitBreakerConfig:
@@ -695,6 +695,7 @@ class TradingEngine:
             self.logger.error("TradingEngine start failed: %s", e)
             self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
+            return False
 
     def stop(self, reason: str = "Manual stop") -> bool:
         """

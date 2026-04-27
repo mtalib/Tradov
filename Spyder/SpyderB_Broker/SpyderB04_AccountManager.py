@@ -317,7 +317,7 @@ class AccountInfo:
     restrictions: list[RestrictionType] = field(default_factory=list)
 
     # Timestamps
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class BalanceSnapshot:
@@ -328,7 +328,7 @@ class BalanceSnapshot:
     total_cash: float
     equity_with_loan: float
     daily_pnl: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskMetrics:
@@ -352,7 +352,7 @@ class RiskMetrics:
     concentration_warning: bool = False
 
     # Calculation timestamp
-    calculated_at: datetime = field(default_factory=datetime.now)
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class PerformanceMetrics:
@@ -381,7 +381,7 @@ class PerformanceMetrics:
     avg_win: float = 0.0
     avg_loss: float = 0.0
 
-    calculated_at: datetime = field(default_factory=datetime.now)
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN ACCOUNT MANAGER CLASS

@@ -157,7 +157,7 @@ class VaRResult:
     var_percentage: float  # Percentage VaR
     cvar_amount: float  # Conditional VaR
     cvar_percentage: float
-    calculation_time: datetime = field(default_factory=datetime.now)
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_breach: bool = False
     breach_severity: str | None = None
 
@@ -213,7 +213,7 @@ class PortfolioRiskMetrics:
     concentration_risk: float
     tail_risk_measure: float
     stress_test_results: list[StressTestResult]
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN PORTFOLIO VAR CLASS

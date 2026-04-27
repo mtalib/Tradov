@@ -195,8 +195,8 @@ class PositionStops:
     time_stop: StopOrder | None = None
     partial_stops: list[StopOrder] = field(default_factory=list)
     stop_history: list[dict[str, Any]] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    last_checked: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_checked: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # STOP LOSS MANAGER CLASS

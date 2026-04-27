@@ -149,8 +149,8 @@ class PositionLeg:
     rho: float = 0.0
     # Metadata
     position_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    entry_time: datetime = field(default_factory=datetime.now)
-    last_updated: datetime = field(default_factory=datetime.now)
+    entry_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class PositionGroup:

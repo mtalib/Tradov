@@ -107,7 +107,7 @@ class ResearchTask:
     priority: int = 5         # 1=highest, 10=lowest
     status: str = "pending"   # pending | running | completed | failed
     result: str = ""
-    created: datetime = field(default_factory=datetime.now)
+    created: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed: datetime | None = None
 
 

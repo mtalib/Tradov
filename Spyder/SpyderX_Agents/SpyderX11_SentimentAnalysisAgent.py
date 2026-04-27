@@ -175,7 +175,7 @@ class EntitySentiment:
     entity_type: str
     sentiment_scores: deque = field(default_factory=lambda: deque(maxlen=100))
     mention_count: int = 0
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def current_sentiment(self) -> float:

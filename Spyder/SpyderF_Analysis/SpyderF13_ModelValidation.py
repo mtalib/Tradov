@@ -263,7 +263,7 @@ class ModelAlert:
     deviation_magnitude: float
 
     # Metadata
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
     resolved: bool = False
     resolution_time: datetime | None = None

@@ -207,7 +207,7 @@ class WRSResult:
     last_crossover_date: Optional[str] = None
     last_crossover_dir: Optional[str] = None
     strategy_guidance: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error: str = ""
 
 

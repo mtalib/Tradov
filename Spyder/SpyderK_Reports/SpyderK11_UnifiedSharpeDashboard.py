@@ -143,7 +143,7 @@ class UnifiedSharpeMetrics:
 
     # Metadata
     num_observations: int
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class SharpeAlert:

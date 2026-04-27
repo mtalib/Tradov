@@ -220,7 +220,7 @@ class RoutableOrder:
     allow_dark: bool = True
     min_fill_size: int | None = None
     max_display_size: int | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -263,7 +263,7 @@ class VenuePerformance:
     avg_spread: float = 0
     fill_rate: float = 0
     rejection_rate: float = 0
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class OrderLifecycle:
@@ -276,7 +276,7 @@ class OrderLifecycle:
     avg_fill_price: float = 0
     total_fees: float = 0
     total_rebates: float = 0
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     end_time: datetime | None = None
     status: OrderStatus = OrderStatus.PENDING
 

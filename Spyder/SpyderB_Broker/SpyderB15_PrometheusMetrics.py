@@ -227,7 +227,7 @@ class StrategyMetrics:
     var_95: float = 0.0  # Value at Risk 95%
 
     # Timing
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class PortfolioMetrics:
@@ -260,7 +260,7 @@ class PortfolioMetrics:
     return_ytd: float = 0.0
 
     # Timestamps
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class ExecutionMetrics:
@@ -341,12 +341,12 @@ class ClientMetrics:
     # Status
     health_status: ComponentHealth = ComponentHealth.UNKNOWN
     last_error: str | None = None
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class MetricsSnapshot:
     """Complete metrics snapshot for a point in time."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Core metrics
     portfolio: PortfolioMetrics = field(default_factory=PortfolioMetrics)

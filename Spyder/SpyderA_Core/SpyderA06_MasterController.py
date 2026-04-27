@@ -35,6 +35,18 @@ from enum import Enum
 from typing import Any
 from collections.abc import Callable
 
+try:
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et as _now_et
+except ImportError:
+    try:
+        import pytz as _pytz
+        def _now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_pytz.timezone("US/Eastern"))
+    except ImportError:
+        import zoneinfo as _zi
+        def _now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_zi.ZoneInfo("America/New_York"))
+
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -1202,10 +1214,7 @@ class MasterController:
                 self._handle_failed_modules()
 
                 # Sleep for monitoring interval (interruptible)
-                if hasattr(self, '_shutdown_event'):
-                    self._shutdown_event.wait(timeout=10)
-                else:
-                    time.sleep(10)  # thread-safe: time.sleep() intentional
+                self.shutdown_event.wait(timeout=10)
 
             except Exception as e:
                 logger.error("Health monitor error: %s", e, exc_info=True)
@@ -1224,7 +1233,15 @@ class MasterController:
             module_health[module_id] = module.status.value
 
         # Trading metrics (placeholder)
-        active_positions = len(self.components.get("B03_PositionTracker", {}).get("positions", []))
+        pt = self.components.get("B03_PositionTracker")
+        if pt is not None and hasattr(pt, "positions"):
+            try:
+                pos_data = pt.positions
+                active_positions = len(pos_data) if isinstance(pos_data, dict) else 0
+            except Exception:
+                active_positions = 0
+        else:
+            active_positions = 0
         daily_pnl = 0  # Would get from position tracker
         risk_utilization = 0  # Would get from risk manager
 
@@ -1332,7 +1349,7 @@ class MasterController:
     def _update_market_state(self):
         """Update current market state"""
 
-        now = datetime.now(timezone.utc)
+        now = _now_et()  # US Eastern Time — market hours are expressed in ET
         current_time = now.time()
         weekday = now.weekday()
 

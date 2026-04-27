@@ -185,7 +185,7 @@ class AgentHeartbeat:
     """Periodic health signal from an agent."""
     agent_id: str
     state: AgentState
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     uptime_seconds: float = 0.0
     messages_sent: int = 0
     messages_received: int = 0
@@ -206,7 +206,7 @@ class AgentOutput:
     payload: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0   # 0.0 - 1.0
     reasoning: str = ""       # LLM-generated explanation
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_seconds: int = 300    # 5-minute default TTL
     priority: str = "NORMAL"  # Maps to MessagePriority
 

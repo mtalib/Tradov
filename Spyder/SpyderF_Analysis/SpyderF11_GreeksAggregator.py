@@ -89,7 +89,7 @@ class PositionGreeks:
     rho: float
     dollar_delta: float
     dollar_gamma: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
         """Convert to dictionary for caching."""
@@ -125,7 +125,7 @@ class AggregatedGreeks:
     dollar_gamma: float = 0.0
     net_contracts: int = 0
     position_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def add_position(self, position: PositionGreeks) -> None:
         """Add position Greeks to aggregate."""
@@ -178,7 +178,7 @@ class GreeksAlert:
     breach_percentage: float
     limit_type: GreeksLimitType
     action_required: HedgingAction | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # GREEKS CALCULATION ENGINE

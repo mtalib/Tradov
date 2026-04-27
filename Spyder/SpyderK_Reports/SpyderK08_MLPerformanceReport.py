@@ -50,7 +50,7 @@ from sklearn.inspection import permutation_importance
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
-from Spyder.SpyderL_ML.SpyderL01_MLFramework import MLFramework
+from Spyder.SpyderL_ML.SpyderL01_MLPredictor import MLPredictor as MLFramework
 
 # ==============================================================================
 # CONSTANTS

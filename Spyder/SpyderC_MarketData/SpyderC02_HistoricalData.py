@@ -203,7 +203,7 @@ class HistoricalDataRequest:
 
     # Request metadata
     request_id: int | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     status: RequestStatus = RequestStatus.PENDING
     priority: int = 5  # 1=highest, 10=lowest
 

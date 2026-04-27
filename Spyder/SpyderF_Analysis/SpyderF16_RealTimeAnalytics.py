@@ -171,7 +171,7 @@ class StreamSubscription:
     stream_type: str
     filters: dict[str, Any] = field(default_factory=dict)
     update_interval: float = 0.1
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     active: bool = True
     websocket: Any = None
     callback: Callable | None = None

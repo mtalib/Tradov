@@ -43,7 +43,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -107,7 +107,7 @@ class IndicatorSnapshot:
     """
 
     symbol: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     rsi: float = field(default_factory=lambda: math.nan)
     macd_signal: float = field(default_factory=lambda: math.nan)
     atr: float = field(default_factory=lambda: math.nan)
@@ -158,7 +158,7 @@ class RegimeSnapshot:
     """
 
     symbol: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     regime: str = "unknown"
     confidence: float = 0.0
     iv_rank: float = 0.0

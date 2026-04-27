@@ -1155,3 +1155,27 @@ def create_data_feed(
 
     return feed
 
+
+def get_data_feed_manager(
+    provider: "str | MarketDataProvider | None" = None,
+) -> DataFeedManager:
+    """
+    Convenience factory that creates a ``DataFeedManager`` for the given provider.
+
+    Unlike ``create_data_feed``, this function is intentionally simple — it does
+    not subscribe to any symbols and does not require symbols as input.  It is
+    intended for modules that manage their own subscription lifecycle (e.g.
+    ``SpyderC11_FuturesBasis``, ``SpyderL14_RealTimePredictor``).
+
+    Args:
+        provider: Provider name (``"massive"``) or a pre-built
+            ``MarketDataProvider`` instance.  Defaults to the configured value.
+
+    Returns:
+        A configured (but not yet started) ``DataFeedManager`` instance.
+    """
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem
+
+    em = _gem()
+    return DataFeedManager(provider=provider, event_manager=em)
+

@@ -84,7 +84,7 @@ class CorrelationMetrics:
     diversification_ratio: float = 1.0
     concentration_index: float = 0.0
     regime: CorrelationRegime = CorrelationRegime.NORMAL_CORRELATION
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

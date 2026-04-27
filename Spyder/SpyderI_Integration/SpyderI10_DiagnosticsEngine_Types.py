@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -166,7 +166,7 @@ class DiagnosticIssue:
     root_cause: str | None = None
     recommendations: list[str] = field(default_factory=list)
     auto_fixable: bool = False
-    detected_at: datetime = field(default_factory=datetime.now)
+    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     resolution_status: str = "open"  # open, investigating, resolved
     impact_score: float = 0.0  # 0-1 scale
 

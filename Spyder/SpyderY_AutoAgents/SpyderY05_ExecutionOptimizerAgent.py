@@ -97,7 +97,7 @@ class ExecutionPlan:
     kelly_fraction: float = 0.0   # Position size from Kelly
     reasoning: str = ""
     status: str = "planned"       # planned | submitted | filled | cancelled | failed
-    created: datetime = field(default_factory=datetime.now)
+    created: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     filled_price: float | None = None
     slippage_bps: float = 0.0
 

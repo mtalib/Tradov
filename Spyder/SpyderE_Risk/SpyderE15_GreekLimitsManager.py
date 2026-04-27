@@ -181,7 +181,7 @@ class GreekExposure:
     vega: float = 0.0
     theta: float = 0.0
     rho: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     position_count: int = 0
     total_notional: float = 0.0
 

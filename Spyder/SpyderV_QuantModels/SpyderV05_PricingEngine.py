@@ -185,7 +185,7 @@ class Greeks:
     color: float = 0.0  # Gamma sensitivity to time
 
     # Calculation metadata
-    calculation_time: datetime = field(default_factory=datetime.now)
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     model_used: PricingModel = PricingModel.AUTO
     numerical_precision: float = 1e-6
 
@@ -218,7 +218,7 @@ class ModelPerformance:
     accuracy_scores: list[float] = field(default_factory=list)
     convergence_failures: int = 0
     cache_hits: int = 0
-    last_used: datetime = field(default_factory=datetime.now)
+    last_used: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==============================================================================

@@ -124,7 +124,7 @@ class ModuleTask:
     parameters: dict[str, Any]
     dependencies: list[str] = field(default_factory=list)
     resource_requirements: ResourceAllocation = field(default_factory=ResourceAllocation)
-    created_time: datetime = field(default_factory=datetime.now)
+    created_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     scheduled_time: datetime | None = None
     started_time: datetime | None = None
     completed_time: datetime | None = None
@@ -147,7 +147,7 @@ class ModuleMetrics:
     current_memory_usage_mb: float = 0.0
     peak_memory_usage_mb: float = 0.0
     error_rate: float = 0.0
-    last_activity: datetime = field(default_factory=datetime.now)
+    last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     health_score: float = 100.0
 
 @dataclass

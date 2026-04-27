@@ -157,7 +157,7 @@ class TrainingResult:
     final_metrics: dict[str, float]
     best_metrics: dict[str, float]
     model_path: str
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

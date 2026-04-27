@@ -164,7 +164,7 @@ class RiskMetrics:
     concentration_risk: float  # Concentration measure
 
     # Timestamps and metadata
-    calculation_time: datetime = field(default_factory=datetime.now)
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     data_quality_score: float = 1.0
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -197,7 +197,7 @@ class StressTestResult:
     position_impacts: dict[str, float]
     hedge_recommendations: list[str]
     recovery_time_estimate: int  # Days to recover
-    calculation_time: datetime = field(default_factory=datetime.now)
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
