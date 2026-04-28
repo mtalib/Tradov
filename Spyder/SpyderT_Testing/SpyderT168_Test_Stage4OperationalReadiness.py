@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pathlib
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -30,6 +32,16 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# ---------------------------------------------------------------------------
+# Save real pathlib.Path methods at import time so autouse fixtures can
+# restore them if an earlier test leaks a global patch (e.g. via
+# patch("pathlib.Path.exists", return_value=False) not properly cleaned up).
+# ---------------------------------------------------------------------------
+_REAL_PATH_EXISTS = pathlib.Path.exists
+_REAL_PATH_MKDIR = pathlib.Path.mkdir
+_REAL_PATH_OPEN = pathlib.Path.open
+_REAL_PATH_READ_TEXT = pathlib.Path.read_text
 
 
 # ===========================================================================
@@ -366,6 +378,21 @@ def _make_k02(tmp_project: Path):
 
 
 class TestGenerateEodReview:
+    @pytest.fixture(autouse=True)
+    def _restore_pathlib_methods(self):
+        """Restore real pathlib.Path methods before each test.
+
+        Guards against order-dependent test failures caused by an earlier test
+        leaving a global patch on pathlib.Path.exists (or mkdir/open/read_text)
+        active.  The real method references are captured at module import time
+        before any test has had a chance to patch them.
+        """
+        pathlib.Path.exists = _REAL_PATH_EXISTS
+        pathlib.Path.mkdir = _REAL_PATH_MKDIR
+        pathlib.Path.open = _REAL_PATH_OPEN
+        pathlib.Path.read_text = _REAL_PATH_READ_TEXT
+        yield
+
     def test_returns_required_keys(self, tmp_path):
         rpt = _make_k02(tmp_path)
         rpt._get_execution_quality_metrics = MagicMock(

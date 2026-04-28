@@ -508,6 +508,12 @@ class StrategyOrchestrator:
         self._paused_kill: bool = False   # set by KILL_SWITCH; sticky — only restart clears
         self._paused_stale: bool = False  # set by DATA_STALE; cleared by DATA_FRESH
 
+        # Y02 StrategyPilotAgent advisory: tracks the last time each strategy type
+        # received an LLM-validated approval on the agent bus.  Updated by
+        # _on_y02_validated_signal(); consulted (advisory-only) in the signal
+        # dispatch path to surface patterns of Y02 disapproval in the logs.
+        self._y02_advisory: dict[str, Any] = {}  # strategy_type → last approval datetime
+
         # Market data cache (replaced entirely each update, not appended)
         self.market_data_cache = {}
         self.last_market_update = None
@@ -2085,10 +2091,16 @@ class StrategyOrchestrator:
         return conflicts
 
     def subscribe_agent_bus(self, bus: Any) -> None:
-        """Subscribe D31 to Y01/Y02 regime updates on the agent message bus.
+        """Subscribe D31 to autonomous-agent topics on the agent message bus.
 
-        Call this after construction (e.g. from A02) to wire autonomous agent
-        regime signals into the strategy-selector loop.
+        Subscribes to:
+        - ``market.regime``   — Y01 MarketSenseAgent regime updates (GAP-4)
+        - ``signals.validated`` — Y02 StrategyPilotAgent LLM approvals (GAP-2,
+          advisory: tracks approval patterns but does not hard-block signals
+          because Y02's LLM inference is asynchronous relative to the hot-path)
+
+        Call this after construction (e.g. from A06) to wire autonomous agent
+        outputs into the strategy-selector and monitoring loop.
 
         Args:
             bus: AgentMessageBus instance (SpyderI06).
@@ -2100,9 +2112,65 @@ class StrategyOrchestrator:
                 callback=self._on_agent_regime_update,
                 name="StrategyOrchestrator",
             )
-            self.logger.info("📡 D31: Subscribed to agent bus 'market.regime' topic (Y01/Y02)")
+            self.logger.info("📡 D31: Subscribed to agent bus 'market.regime' topic (Y01)")
         except Exception as e:
-            self.logger.warning("D31: Could not subscribe to agent bus: %s", e)
+            self.logger.warning("D31: Could not subscribe to 'market.regime': %s", e)
+        try:
+            bus.subscribe(
+                subscriber_id="D31_StrategyOrchestrator_Y02",
+                topics=["signals.validated"],
+                callback=self._on_y02_validated_signal,
+                name="StrategyOrchestrator_Y02Advisory",
+            )
+            self.logger.info("📡 D31: Subscribed to agent bus 'signals.validated' topic (Y02)")
+        except Exception as e:
+            self.logger.warning("D31: Could not subscribe to 'signals.validated': %s", e)
+
+    def _on_y02_validated_signal(self, message: Any) -> None:
+        """Handle Y02 StrategyPilotAgent validated-signal advisory from the agent bus.
+
+        Y02 publishes ``signals.validated`` payloads only for *approved* signals.
+        We record the strategy type and timestamp so the orchestrator can surface
+        patterns where Y02 has stopped approving a particular strategy.
+
+        Args:
+            message: AgentOutput or dict with payload containing ``original_signal``
+                     and ``validation`` keys.
+        """
+        try:
+            if isinstance(message, dict):
+                payload = message.get("payload") or message.get("data") or {}
+            else:
+                payload = getattr(message, "payload", None) or getattr(message, "data", {}) or {}
+
+            original_signal = payload.get("original_signal") or {}
+            validation = payload.get("validation") or {}
+            approved = bool(validation.get("approved", True))  # only published when True
+
+            strategy_type = str(
+                original_signal.get("strategy_type")
+                or original_signal.get("strategy")
+                or original_signal.get("type")
+                or "unknown"
+            )
+            now = datetime.now(timezone.utc)
+
+            if approved:
+                self._y02_advisory[strategy_type] = {
+                    "last_approved": now,
+                    "regime_alignment": validation.get("regime_alignment", ""),
+                    "assessment": validation.get("llm_assessment", "")[:120],
+                }
+                self.logger.debug(
+                    "✅ Y02 approved signal from strategy '%s' (regime_alignment=%s)",
+                    strategy_type, validation.get("regime_alignment", ""),
+                )
+            else:
+                self.logger.info(
+                    "⚠️  Y02 did not approve signal from strategy '%s'", strategy_type
+                )
+        except Exception as e:
+            self.logger.debug("D31: _on_y02_validated_signal error: %s", e)
 
     def _on_agent_regime_update(self, message: Any) -> None:
         """Handle regime updates from Y01 MarketSenseAgent via the agent bus.

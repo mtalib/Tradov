@@ -1523,6 +1523,29 @@ class MasterController:
             except Exception as e:
                 logger.warning("D31: set_live_engine failed: %s", e)
 
+        # Wire D31 and E01 to the agent message bus.
+        # GAP-4: activates Y01 → D31 market-regime updates.
+        # GAP-2: activates Y02 → D31 validated-signal advisory tracking.
+        # GAP-3: activates Y03 → E01 circuit-breaker veto channel.
+        message_bus = self.components.get("I06_AgentMessageBus")
+        if message_bus is not None:
+            if orchestrator is not None and hasattr(orchestrator, "subscribe_agent_bus"):
+                try:
+                    orchestrator.subscribe_agent_bus(message_bus)
+                    logger.info(
+                        "D31: subscribed to agent bus "
+                        "(Y01 regime updates + Y02 signal advisory active)"
+                    )
+                except Exception as e:
+                    logger.warning("D31: subscribe_agent_bus failed: %s", e)
+            risk_mgr = self.components.get("E01_RiskManager")
+            if risk_mgr is not None and hasattr(risk_mgr, "wire_agent_bus"):
+                try:
+                    risk_mgr.wire_agent_bus(message_bus)
+                    logger.info("E01: wired to agent bus (Y03 circuit-breaker veto active)")
+                except Exception as e:
+                    logger.warning("E01: wire_agent_bus failed: %s", e)
+
         # Start E19 portfolio risk monitor in a background daemon thread
         e19 = self.components.get("E19_UnifiedRiskCoordinator")
         if e19 is not None:

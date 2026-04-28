@@ -573,6 +573,13 @@ class ThreadSafeMarketDataWorker(QObject):
                     last = float(q.get("last") or q.get("close") or 0.0)
                     change = float(q.get("change") or 0.0)
                     change_pct = float(q.get("change_percentage") or 0.0)
+                    # Tradier returns null change for index symbols (e.g. SPX).
+                    # Fall back to last - prevclose so CHG/CHG% display correctly.
+                    if change == 0.0 and last > 0.0:
+                        prevclose = float(q.get("prevclose") or 0.0)
+                        if prevclose > 0.0:
+                            change = last - prevclose
+                            change_pct = (change / prevclose) * 100.0
                     timestamp_ms = _freshest_quote_timestamp_ms(q)
                     if last:
                         key = _SYMBOL_REMAP.get(sym, sym)
@@ -762,6 +769,13 @@ class ThreadSafeMarketDataWorker(QObject):
                 last = float(q.get("last") or q.get("close") or 0.0)
                 change = float(q.get("change") or 0.0)
                 change_pct = float(q.get("change_percentage") or 0.0)
+                # Tradier returns null change for index symbols (e.g. SPX).
+                # Fall back to last - prevclose so CHG/CHG% display correctly.
+                if change == 0.0 and last > 0.0:
+                    prevclose = float(q.get("prevclose") or 0.0)
+                    if prevclose > 0.0:
+                        change = last - prevclose
+                        change_pct = (change / prevclose) * 100.0
                 timestamp_ms = _freshest_quote_timestamp_ms(q)
                 if last:
                     key = _SYMBOL_REMAP.get(sym, sym)
@@ -856,6 +870,13 @@ class ThreadSafeMarketDataWorker(QObject):
                 last = float(q.get("last") or q.get("close") or 0.0)
                 change = float(q.get("change") or 0.0)
                 change_pct = float(q.get("change_percentage") or 0.0)
+                # Tradier returns null change for index symbols (e.g. SPX).
+                # Fall back to last - prevclose so CHG/CHG% display correctly.
+                if change == 0.0 and last > 0.0:
+                    prevclose = float(q.get("prevclose") or 0.0)
+                    if prevclose > 0.0:
+                        change = last - prevclose
+                        change_pct = (change / prevclose) * 100.0
                 timestamp_ms = _freshest_quote_timestamp_ms(q)
                 if last:
                     key = _SYMBOL_REMAP.get(sym, sym)
