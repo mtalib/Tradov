@@ -3,12 +3,12 @@
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderC_MarketData
-Purpose: Market Data Management (Massive)
+Purpose: Market Data Management (Tradier)
 
 This package handles all market data operations including real-time feeds,
 historical data, option chains, and market internals.
 
-Primary Data Source: Massive (SpyderC27_MassiveClient — live and paper trading)
+Primary Data Source: Tradier (SpyderB40_TradierClient — live and paper trading)
 
 Author: Mohamed Talib
 Date: 2025-06-24
@@ -109,27 +109,6 @@ try:
     __all__.extend(["SPYDataFeed"])
 except ImportError:
     logging.info("Warning: SpyderC08_SPYFeed not available")
-
-# ==============================================================================
-# MASSIVE MARKET DATA CLIENT (PRIMARY DATA SOURCE)
-# ==============================================================================
-try:
-    from .SpyderC27_MassiveClient import (
-        MassiveClient,
-        MassiveQuoteUpdate,
-        MassiveTradeUpdate,
-        ConnectionStatus as MassiveConnectionStatus,
-        create_massive_client_from_env,
-    )
-    __all__.extend([
-        "MassiveClient",
-        "MassiveQuoteUpdate",
-        "MassiveTradeUpdate",
-        "MassiveConnectionStatus",
-        "create_massive_client_from_env",
-    ])
-except ImportError as e:
-    logging.info("Warning: SpyderC27_MassiveClient not available: %s", e)
 
 # SpyderC29 — DataProviderRouter
 try:

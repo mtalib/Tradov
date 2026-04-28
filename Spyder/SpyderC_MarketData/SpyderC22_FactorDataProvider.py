@@ -490,7 +490,7 @@ class FactorDataProvider:
             symbol = config['symbol']
             transformation = config.get('transformation', 'return')
 
-            # Try C29 / MassiveClient first; fall back to yfinance
+            # Try C29 first; fall back to yfinance
             hist_data: pd.DataFrame | None = None
             if _C29_AVAILABLE:
                 try:
@@ -611,7 +611,7 @@ class FactorDataProvider:
     async def _calculate_excess_return(self, factor_name: str, start_date: datetime, end_date: datetime) -> pd.Series | None:  # noqa: E501
         """Calculate market excess return factor."""
         try:
-            # Try C29 / MassiveClient for SPY first; fall back to yfinance
+            # Try C29 for SPY first; fall back to yfinance
             hist_data: pd.DataFrame | None = None
             if _C29_AVAILABLE:
                 try:

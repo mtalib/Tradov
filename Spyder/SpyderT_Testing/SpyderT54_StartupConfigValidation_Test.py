@@ -76,8 +76,7 @@ _VALID_SANDBOX_ENV = {
     "TRADIER_ACCOUNT_ID": "123456",
     "TRADING_MODE": "sandbox",
     "TRADIER_ENVIRONMENT": "sandbox",
-    "DATA_PROVIDER": "massive",
-    "MASSIVE_API_KEY": "massive-key-xyz",
+    "DATA_PROVIDER": "tradier",
     "LIVE_TRADING_CONFIRMED": "false",
 }
 
@@ -91,22 +90,18 @@ def _patched_module(env_overrides: dict) -> Iterator[None]:
     """
     # Save original values
     orig_tradier = dict(_cfg_mod.TRADIER_CONFIG)
-    orig_massive = dict(_cfg_mod.MASSIVE_CONFIG)
     orig_provider = _cfg_mod.DATA_PROVIDER
 
     # Apply env-driven state to module-level dicts
     _cfg_mod.TRADIER_CONFIG["api_key"] = env_overrides.get("TRADIER_API_KEY", "")
     _cfg_mod.TRADIER_CONFIG["account_id"] = env_overrides.get("TRADIER_ACCOUNT_ID", "")
-    provider = env_overrides.get("DATA_PROVIDER", "massive")
-    _cfg_mod.DATA_PROVIDER = provider
-    _cfg_mod.MASSIVE_CONFIG["api_key"] = env_overrides.get("MASSIVE_API_KEY", "")
+    _cfg_mod.DATA_PROVIDER = env_overrides.get("DATA_PROVIDER", "tradier")
 
     with patch.dict(os.environ, env_overrides, clear=False):
         try:
             yield
         finally:
             _cfg_mod.TRADIER_CONFIG.update(orig_tradier)
-            _cfg_mod.MASSIVE_CONFIG.update(orig_massive)
             _cfg_mod.DATA_PROVIDER = orig_provider
 
 
@@ -152,15 +147,6 @@ class TestValidateStartupConfigSuccess(unittest.TestCase):
             **_VALID_SANDBOX_ENV,
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "true",
-        }
-        with _patched_module(env):
-            validate_startup_config()
-
-    def test_massive_provider_with_key(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "massive-key-123",
         }
         with _patched_module(env):
             validate_startup_config()
@@ -223,40 +209,15 @@ class TestValidateStartupConfigInvalidMode(unittest.TestCase):
 
 
 class TestValidateStartupConfigDataProvider(unittest.TestCase):
-    """Missing data-provider key must be caught."""
-
-    def test_missing_massive_key_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "MASSIVE_API_KEY": "", "DATA_PROVIDER": "massive"}
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        self.assertIn("MASSIVE_API_KEY", str(ctx.exception))
+    """DATA_PROVIDER configuration is accepted (no validation enforced)."""
 
     def test_polygon_alias_is_accepted(self):
         env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "polygon"}
         with _patched_module(env):
             validate_startup_config()
 
-    def test_unknown_provider_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "quandl"}
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        self.assertIn("DATA_PROVIDER", str(ctx.exception))
-
-    def test_massive_key_required_when_massive_mode(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "massive-key",
-        }
-        with _patched_module(env):
-            validate_startup_config()  # must not raise
-
-    def test_tradier_provider_does_not_require_massive_key(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "tradier",
-            "MASSIVE_API_KEY": "",
-        }
+    def test_tradier_provider_accepted(self):
+        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "tradier"}
         with _patched_module(env):
             validate_startup_config()
 
@@ -315,23 +276,6 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("TRADIER_API_KEY", msg)
         self.assertIn("TRADIER_ACCOUNT_ID", msg)
-
-    def test_three_missing_vars_all_reported(self):
-        env = {
-            "TRADIER_API_KEY": "",
-            "TRADIER_ACCOUNT_ID": "",
-            "TRADING_MODE": "sandbox",
-            "TRADIER_ENVIRONMENT": "sandbox",
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "",
-            "LIVE_TRADING_CONFIRMED": "false",
-        }
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        msg = str(ctx.exception)
-        self.assertIn("TRADIER_API_KEY", msg)
-        self.assertIn("TRADIER_ACCOUNT_ID", msg)
-        self.assertIn("MASSIVE_API_KEY", msg)
 
     def test_error_message_mentions_problem_count(self):
         env = {

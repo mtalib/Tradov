@@ -61,7 +61,7 @@ class IntegratedConnectivityManager:
 
     Args:
         broker_client: Optional broker client instance (e.g. B40 TradierClient).
-        data_client: Optional market-data client instance (e.g. C27 MassiveClient).
+        data_client: Optional market-data client instance (e.g. C29 DataProviderRouter).
         config: Optional configuration dict.
 
     Example:

@@ -231,16 +231,6 @@ def sample_multileg_order():
 
 
 # ==============================================================================
-# MASSIVE / LEGACY SHIM FIXTURES
-# ==============================================================================
-
-@pytest.fixture
-def massive_env(monkeypatch):
-    """Set Massive environment variables."""
-    monkeypatch.setenv("MASSIVE_API_KEY", "test_massive_key_12345678")
-
-
-# ==============================================================================
 # TRADIER API RESPONSE FIXTURES
 # ==============================================================================
 

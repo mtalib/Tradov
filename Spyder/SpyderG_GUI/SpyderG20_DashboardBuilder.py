@@ -1475,7 +1475,7 @@ def build_toolbar(dashboard: Any) -> QWidget:
     mkt_layout.setSpacing(4)
 
     _current_provider = _os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-    if _current_provider not in ("tradier", "massive"):
+    if _current_provider != "tradier":
         _current_provider = "tradier"
     # Start red (disconnected); turns green once data feed connects
     _provider_color = COLORS["negative"]

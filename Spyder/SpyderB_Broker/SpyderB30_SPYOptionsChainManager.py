@@ -12,7 +12,7 @@ Last Updated: 2026-03-08 Time: 02:00:00
 
 BROKER NOTE:
     Broker execution via Tradier API (SpyderB40_TradierClient).
-    Market data via Massive SDK (SpyderC27_MassiveClient) with Tradier
+    Market data via Tradier
     option-chain snapshots as fallback.
 
 Module Description:
@@ -30,7 +30,6 @@ Key Features:
 
 Dependencies:
     • SpyderB40_TradierClient for order execution and chain snapshots
-    • SpyderC27_MassiveClient for real-time streaming
     • Standard Python libraries for data processing
 """
 

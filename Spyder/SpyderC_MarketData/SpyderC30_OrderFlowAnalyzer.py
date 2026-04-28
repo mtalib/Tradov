@@ -1478,7 +1478,7 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
 
     Reads:
 
-        * ``MARKET_DATA_PROVIDER`` — options chain provider (``tradier`` / ``massive``)
+        * ``MARKET_DATA_PROVIDER`` — options chain provider (``tradier``)
         * ``FLOW_SYMBOLS``         — comma-separated symbols (default: ``SPY,QQQ``)
         * ``ENABLE_REALTIME_FLOW`` — ``true`` / ``false`` (default ``false``)
     """

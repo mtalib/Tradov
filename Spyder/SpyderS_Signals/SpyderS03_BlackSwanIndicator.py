@@ -401,7 +401,7 @@ class BlackSwanIndicator:
 
     def _fetch_quote(self, symbol: str) -> float | None:
         """Fetch single quote from data source"""
-        # Try C29 / MassiveClient first (mid-price from bid/ask)
+        # Try C29 first (mid-price from bid/ask)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()

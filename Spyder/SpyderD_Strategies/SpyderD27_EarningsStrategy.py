@@ -1119,7 +1119,7 @@ class EarningsStrategyHandler:
         )
 
     # DATA FETCHING (Provider-backed stub implementations)
-    # Options chain data is sourced via SpyderC27_MassiveClient or SpyderC03_OptionChain
+    # Options chain data is sourced via SpyderC03_OptionChain
     # ==========================================================================
 
     @staticmethod

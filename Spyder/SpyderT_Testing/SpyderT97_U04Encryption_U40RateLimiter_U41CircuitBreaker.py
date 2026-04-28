@@ -472,10 +472,6 @@ class TestU40MultiRateLimiter:
         assert callable(u40_mod.acquire_tradier)
         # Should not raise (high rate in global defaults)
 
-    @pytest.mark.asyncio
-    async def test_acquire_massive_convenience(self):
-        assert callable(u40_mod.acquire_massive)
-
 
 class TestU40RateLimitDecorator:
     """Tests for rate_limit decorator."""
@@ -1004,16 +1000,7 @@ class TestU41GetCircuitBreaker:
         assert hasattr(u41_mod, "tradier_breaker")
         assert isinstance(u41_mod.tradier_breaker, CircuitBreaker)
 
-    def test_predefined_massive_breaker_exists(self):
-        assert hasattr(u41_mod, "massive_breaker")
-        assert isinstance(u41_mod.massive_breaker, CircuitBreaker)
-
     def test_tradier_breaker_config(self):
         tb = u41_mod.tradier_breaker
         assert tb.failure_threshold == 5
         assert tb.recovery_timeout == 60.0
-
-    def test_massive_breaker_config(self):
-        mb = u41_mod.massive_breaker
-        assert mb.failure_threshold == 5
-        assert mb.recovery_timeout == 60.0

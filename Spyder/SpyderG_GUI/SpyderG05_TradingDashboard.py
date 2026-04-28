@@ -10,7 +10,7 @@ Last Updated: 2026-03-18 Time: 02:00:00
 
 Data Sources:
     - Tradier API for account data and order execution (SpyderB40_TradierClient)
-    - Massive for real-time & historical market data (SpyderC27_MassiveClient)
+    - Tradier API for real-time & historical market data (SpyderB40_TradierClient)
     - SpyderC01_DataFeed for provider-agnostic data abstraction
 
 Module Description:
@@ -36,7 +36,7 @@ FEATURES:
 
 DATA SOURCES:
     • Tradier API for account data, quotes, and order execution
-    • Massive for real-time streaming and historical market data
+    • Tradier for real-time streaming and historical market data
     • Auto-detection with fallback to simulation mode
     • Status indicators show real vs simulation data source
 
@@ -121,10 +121,9 @@ from matplotlib.figure import Figure  # noqa: F401
 from matplotlib.transforms import blended_transform_factory  # noqa: F401
 
 # ==============================================================================
-# BROKER/DATA IMPORTS (Tradier + Massive)
+# BROKER/DATA IMPORTS (Tradier)
 # ==============================================================================
-# Tradier API for execution, Massive for market data
-# Massive: primary market data source (live and paper trading)
+# Tradier API for execution and market data
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -287,12 +286,10 @@ except ImportError:
 try:
     from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
         tradier_breaker as _tradier_breaker,
-        massive_breaker as _massive_breaker,
     )
     _circuit_breakers_available = True
 except ImportError:
     _tradier_breaker = None  # type: ignore
-    _massive_breaker = None  # type: ignore
     _circuit_breakers_available = False
 
 # ==============================================================================
@@ -2838,7 +2835,7 @@ class SpyderTradingDashboard(QMainWindow):
                 QMessageBox.critical(
                     self,
                     "No Data Feed Connected",
-                    "You must connect a market data feed (MASSIVE DATA or TRADIER DATA)\n"
+                    "You must connect a market data feed (TRADIER DATA)\n"
                     "before switching to LIVE trading.\n\n"
                     "Click the data feed indicator in the toolbar to connect.",
                 )
@@ -5029,38 +5026,9 @@ class SpyderTradingDashboard(QMainWindow):
         self.update_data_status(data_status)
 
     def toggle_market_data_provider(self, event):
-        """Switch market data source between Tradier and Massive."""
-        import os
-        current = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
-        new_provider = "massive" if current == "tradier" else "tradier"
-
-        disable_massive = os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower() in {
-            "1", "true", "yes", "on"
-        }
-        if new_provider == "massive" and disable_massive:
-            os.environ["MARKET_DATA_PROVIDER"] = "tradier"
-            os.environ["ACTIVE_DATA_PROVIDER"] = "tradier"
-            self._apply_mkt_provider_display("tradier")
-            self.add_system_log(
-                "ℹ️ Massive disabled by SPYDER_DISABLE_MASSIVE; staying on TRADIER"
-            )
-            return
-
-        try:
-            from Spyder.SpyderC_MarketData.SpyderC00_MarketDataProtocol import (
-                switch_market_data_provider,
-            )
-            switch_market_data_provider(new_provider)
-        except ImportError:
-            os.environ["MARKET_DATA_PROVIDER"] = new_provider
-        except Exception as exc:
-            self.add_system_log(f"❌ Market data provider switch error: {exc}")
-            return
-
-        self._apply_mkt_provider_display(new_provider)
-        self.add_system_log(
-            f"🔄 Market data provider → {new_provider.upper()} (takes effect on next reconnect)",
-        )
+        """Market data is always Tradier; this handler is a no-op."""
+        self.add_system_log("ℹ️ Tradier is the only market data provider")
+        self._apply_mkt_provider_display("tradier")
 
     def _apply_mkt_provider_display(self, provider: str) -> None:
         """Update the market data provider indicator label in the toolbar.
@@ -6363,7 +6331,7 @@ def main():
     logger.info("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
     logger.info("=" * 70)
     logger.info("🔗 Tradier API integration")
-    logger.info("📡 Massive market data feeds")
+    logger.info("📡 Tradier market data feeds")
     logger.info("💔💚💙 30-second heartbeat monitoring")
     logger.info("📊 Clean 4-status data display")
     logger.info("=" * 70)
@@ -6428,7 +6396,7 @@ def main():
             logger.info(
                 "   • Clean data status: SIMULATED, EOD, LIVE",
             )
-            logger.info("   • Market data source: TRADIER DATA or MASSIVE DATA")
+            logger.info("   • Market data source: TRADIER DATA")
             logger.info("   • Blue simulation button only visible when Tradier disconnected")
             logger.info("   • Fixed-width status containers (no UI jumping)")
 
@@ -6494,7 +6462,7 @@ def main():
             logger.info(
                 "   • Clean data status: SIMULATED, EOD, LIVE",
             )
-            logger.info("   • Market data source: TRADIER DATA or MASSIVE DATA")
+            logger.info("   • Market data source: TRADIER DATA")
             logger.info("   • Blue simulation button only visible when Tradier disconnected")
             logger.info("   • Fixed-width status containers (no UI jumping)")
 

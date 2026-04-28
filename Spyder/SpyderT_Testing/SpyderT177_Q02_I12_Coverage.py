@@ -67,36 +67,6 @@ def test_q02_validate_tradier_config_paths(monkeypatch, capsys):
     assert "LIVE" in capsys.readouterr().out
 
 
-def test_q02_validate_massive_system_notifications_and_summary(monkeypatch, capsys):
-    monkeypatch.setenv("MASSIVE_API_KEY", "massive-key")
-    monkeypatch.setenv("MASSIVE_BASE_URL", "https://example.test")
-    monkeypatch.setenv("DATA_PROVIDER", "other")
-    errors, warnings = q02.validate_massive_config()
-    assert errors == []
-    assert warnings == ["DATA_PROVIDER='other' — expected 'massive'"]
-
-    monkeypatch.setenv("DEBUG_MODE", "true")
-    errors, warnings = q02.validate_system_config()
-    assert errors == []
-    assert warnings == []
-
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "chat")
-    monkeypatch.setenv("EMAIL_ADDRESS", "user@example.com")
-    monkeypatch.setenv("EMAIL_PASSWORD", "secret")
-    errors, warnings = q02.validate_notifications()
-    assert errors == []
-    assert warnings == []
-
-    assert q02.print_summary([[]], [[]]) is True
-    assert q02.print_summary([["bad"]], [["warn"]]) is False
-    assert q02.print_summary([[]], [["warn"]]) is True
-    output = capsys.readouterr().out
-    assert "CONFIGURATION VALID" in output
-    assert "CONFIGURATION INVALID" in output
-    assert "warning(s) found" in output
-
-
 def test_q02_main_exit_codes(monkeypatch, capsys):
     monkeypatch.setattr(q02, "validate_env_file", lambda: False)
     with pytest.raises(SystemExit) as excinfo:
@@ -106,7 +76,6 @@ def test_q02_main_exit_codes(monkeypatch, capsys):
     monkeypatch.setattr(q02, "validate_env_file", lambda: True)
     monkeypatch.setattr(q02, "validate_trading_mode", lambda: ([], []))
     monkeypatch.setattr(q02, "validate_tradier_config", lambda: ([], []))
-    monkeypatch.setattr(q02, "validate_massive_config", lambda: ([], []))
     monkeypatch.setattr(q02, "validate_system_config", lambda: ([], []))
     monkeypatch.setattr(q02, "validate_notifications", lambda: ([], []))
     monkeypatch.setattr(q02, "print_summary", lambda _errors, _warnings: True)

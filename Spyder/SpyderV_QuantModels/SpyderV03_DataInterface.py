@@ -11,8 +11,8 @@ Year Created: 2025
 Last Updated: 2025-08-20 Time: 12:30:00
 
 Module Description:
-    Provides seamless data integration between Tradier (SpyderB40) and
-    Massive (SpyderC27) market data feeds and quantitative models.
+    Provides seamless data integration between Tradier (SpyderB40)
+    market data feeds and quantitative models.
     Normalizes data formats, handles real-time streaming, caches for
     performance, and provides a unified interface for pricing and risk
     models to access market data.
@@ -41,7 +41,7 @@ import pandas as pd
 # LOCAL IMPORTS
 # ==============================================================================
 # Legacy SpyderB08_MultiClientDataManager (IBKR) has been removed.
-# Data is sourced via SpyderB40_TradierClient and SpyderC27_MassiveClient.
+# Data is sourced via SpyderB40_TradierClient.
 
 # ==============================================================================
 # DATA STRUCTURES

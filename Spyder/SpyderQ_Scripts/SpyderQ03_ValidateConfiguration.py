@@ -92,7 +92,6 @@ class ConfigurationValidator:
         # Run all validation checks
         self._validate_trading_mode()
         self._validate_tradier_config()
-        self._validate_massive_config()
         self._validate_risk_config()
         self._validate_logging_config()
         self._validate_security_config()
@@ -200,39 +199,6 @@ class ConfigurationValidator:
                 "TRADIER_ACCOUNT_ID",
                 ValidationLevel.INFO,
                 f"Set to '{account_id}'",
-                None
-            ))
-
-    def _validate_massive_config(self):
-        """Validate Massive market data configuration"""
-        api_key = os.environ.get("MASSIVE_API_KEY", "")
-
-        if not api_key:
-            self.add_result(ValidationResult(
-                "MASSIVE_API_KEY",
-                ValidationLevel.ERROR,
-                "Not set",
-                "Get API key from your Massive account dashboard"
-            ))
-        elif api_key == "your_massive_api_key_here":
-            self.add_result(ValidationResult(
-                "MASSIVE_API_KEY",
-                ValidationLevel.ERROR,
-                "Using template value",
-                "Replace with actual Massive API key"
-            ))
-        elif len(api_key) < 10:
-            self.add_result(ValidationResult(
-                "MASSIVE_API_KEY",
-                ValidationLevel.WARNING,
-                "Appears too short, may be invalid",
-                "Verify API key format"
-            ))
-        else:
-            self.add_result(ValidationResult(
-                "MASSIVE_API_KEY",
-                ValidationLevel.INFO,
-                "Present (not validating actual key)",
                 None
             ))
 

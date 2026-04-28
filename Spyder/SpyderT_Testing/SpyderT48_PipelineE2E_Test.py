@@ -48,8 +48,6 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierAPIError,
 )
 
-from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import MassiveClient
-
 
 class MockMarketDataUpdate:
     """Minimal market-data update shape for pipeline tests."""
@@ -166,7 +164,7 @@ class TestDataToOrderPipeline:
         """
         # Step 1: Option quote represented with a Massive ticker
         option_quote = MockMarketDataUpdate(
-            symbol=MassiveClient.build_option_ticker("SPY", "2026-02-20", "call", 585.0),
+            symbol="SPY260220C00585000",
             timestamp_ns=int(datetime.now().timestamp() * 1e9),
             schema="quotes",
             data={"bid_px": 3.45, "ask_px": 3.55},

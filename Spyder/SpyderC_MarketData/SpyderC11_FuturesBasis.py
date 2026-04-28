@@ -1334,7 +1334,7 @@ def create_futures_basis_analyzer(config: dict | None = None,
 
     Args:
         config: Configuration dictionary
-        provider: Market data provider name (e.g. 'tradier' or 'massive')
+        provider: Market data provider name (e.g. 'tradier')
 
     Returns:
         Configured FuturesBasisAnalyzer instance

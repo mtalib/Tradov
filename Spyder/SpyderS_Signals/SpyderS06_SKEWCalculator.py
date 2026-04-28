@@ -1045,7 +1045,7 @@ class SpyderS06_SKEWCalculator:
 
     def _fetch_spot_price(self) -> float | None:
         """Fetch current SPY spot price"""
-        # Try C29 / MassiveClient first (bid/ask mid-price)
+        # Try C29 first (bid/ask mid-price)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()
@@ -1120,7 +1120,7 @@ class SpyderS06_SKEWCalculator:
         except Exception as _e:
             logger.debug("Tradier B40 option chain unavailable for SPY: %s", _e)
 
-        # Try C29 / MassiveClient next (returns list of dicts per contract)
+        # Try C29 next (returns list of dicts per contract)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()

@@ -1445,6 +1445,7 @@ class TradierClient:
             List of GreekData objects.
         """
         result = []
+        rejected = 0
         options = response.get("options", {})
         if not options:
             return result
@@ -1457,6 +1458,44 @@ class TradierClient:
             greeks_data = opt.get("greeks", {}) or {}
             bid = opt.get("bid", 0.0) or 0.0
             ask = opt.get("ask", 0.0) or 0.0
+            sym = opt.get("symbol", "")
+
+            # --- Inline data-quality sanity guards ---
+            # Crossed market: bid/ask both present but inverted — data error.
+            if bid > 0 and ask > 0 and bid >= ask:
+                logger.warning(
+                    "_parse_greeks_from_chain: dropping %s — crossed market "
+                    "(bid=%.4f >= ask=%.4f)",
+                    sym, bid, ask,
+                )
+                rejected += 1
+                continue
+
+            # Delta outside [-1, 1] is a calculation error on Tradier's side.
+            raw_delta = greeks_data.get("delta", 0.0) or 0.0
+            if raw_delta != 0.0 and not (-1.0 <= raw_delta <= 1.0):
+                logger.warning(
+                    "_parse_greeks_from_chain: dropping %s — delta %.4f outside [-1,1]",
+                    sym, raw_delta,
+                )
+                rejected += 1
+                continue
+
+            # Negative IV is a math impossibility; zero IV on traded options is
+            # suspicious but allowed (e.g. far-OTM illiquid strikes).
+            raw_iv = (
+                greeks_data.get("mid_iv", 0.0)
+                or greeks_data.get("smv_vol", 0.0)
+                or 0.0
+            )
+            if raw_iv < 0.0:
+                logger.warning(
+                    "_parse_greeks_from_chain: dropping %s — negative IV %.6f",
+                    sym, raw_iv,
+                )
+                rejected += 1
+                continue
+
             mid = round((bid + ask) / 2, 4) if (bid + ask) > 0 else 0.0
 
             gd = GreekData(
@@ -1471,16 +1510,22 @@ class TradierClient:
                 mid=mid,
                 volume=opt.get("volume", 0) or 0,
                 open_interest=opt.get("open_interest", 0) or 0,
-                delta=greeks_data.get("delta", 0.0) or 0.0,
+                delta=raw_delta,
                 gamma=greeks_data.get("gamma", 0.0) or 0.0,
                 theta=greeks_data.get("theta", 0.0) or 0.0,
                 vega=greeks_data.get("vega", 0.0) or 0.0,
                 rho=greeks_data.get("rho", 0.0) or 0.0,
-                iv=greeks_data.get("mid_iv", 0.0) or greeks_data.get("smv_vol", 0.0) or 0.0,
+                iv=raw_iv,
                 in_the_money=(opt.get("in_the_money") is True),
             )
             result.append(gd)
 
+        if rejected:
+            logger.warning(
+                "_parse_greeks_from_chain: dropped %d/%d contracts for %s "
+                "(crossed markets / invalid Greeks)",
+                rejected, rejected + len(result), underlying,
+            )
         return result
 
     def find_options_by_delta(

@@ -666,10 +666,10 @@ class ShortSqueezeDetector:
             except Exception as exc:
                 self.logger.debug("yfinance SPY fetch failed: %s", exc)
 
-        # VIX — not available from MassiveClient; yfinance-only
+        # VIX — yfinance-only
         if _YFINANCE_AVAILABLE:
             try:
-                self.logger.debug("Fetching ^VIX via yfinance (not available from MassiveClient)")
+                self.logger.debug("Fetching ^VIX via yfinance")
                 vix = yf.download(
                     "^VIX",
                     period="1d",

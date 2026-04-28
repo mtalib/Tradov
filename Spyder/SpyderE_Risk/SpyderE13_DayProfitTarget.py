@@ -14,7 +14,7 @@ Last Updated: 2025-08-28 Time: 19:00:00
 BROKER NOTE:
     Order execution uses SpyderB40_TradierClient (Tradier REST API).
     Order execution is via SpyderB40_TradierClient (Tradier REST API).
-    Market data is sourced from SpyderC27_MassiveClient (Massive).
+    Market data is sourced from SpyderB40_TradierClient (Tradier).
 
 Module Description:
     Advanced daily profit targeting system with institutional-grade algorithmic

@@ -23,7 +23,7 @@ Key Features:
 
 Dependencies:
     • SpyderB40_TradierClient (Tradier API)
-    • SpyderC27_MassiveClient (market data)
+    • SpyderB40_TradierClient (market data)
 """
 
 # ==============================================================================

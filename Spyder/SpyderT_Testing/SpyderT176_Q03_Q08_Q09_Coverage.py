@@ -52,7 +52,6 @@ def test_q03_validate_all_safe_mode(monkeypatch):
         "TRADING_MODE": "paper",
         "TRADIER_API_KEY": "x" * 24,
         "TRADIER_ACCOUNT_ID": "ABC123",
-        "MASSIVE_API_KEY": "x" * 16,
         "MAX_POSITION_SIZE": "0.10",
         "MAX_DAILY_LOSS": "0.05",
         "MAX_OPEN_POSITIONS": "5",
@@ -81,7 +80,6 @@ def test_q03_live_mode_and_invalid_numeric_values(monkeypatch):
         "LIVE_TRADING_CONFIRMED": "false",
         "TRADIER_API_KEY": "short",
         "TRADIER_ACCOUNT_ID": "your_account_id_here",
-        "MASSIVE_API_KEY": "short",
         "MAX_POSITION_SIZE": "2.0",
         "MAX_DAILY_LOSS": "oops",
         "MAX_OPEN_POSITIONS": "0",
@@ -95,7 +93,6 @@ def test_q03_live_mode_and_invalid_numeric_values(monkeypatch):
     validator = q03.ConfigurationValidator()
     validator._validate_trading_mode()
     validator._validate_tradier_config()
-    validator._validate_massive_config()
     validator._validate_risk_config()
     validator._validate_logging_config()
     validator._validate_security_config()

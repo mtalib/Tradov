@@ -334,7 +334,6 @@ class MarketDataWidget(QWidget):
 💡 Troubleshooting:
    - Ensure TRADIER_API_KEY is set in your .env file
    - Check TRADIER_ENVIRONMENT (sandbox or production)
-    - Verify MASSIVE_API_KEY only if Massive fallback is enabled
         """)
 
         layout.addWidget(self.data_display)

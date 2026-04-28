@@ -528,13 +528,13 @@ class VIXAnalyzer:
 
             # --- Extended term structure: yfinance fallback ---
             # VIX variants (VIX9D, VVIX, VXV, VXMT) are not available
-            # from MassiveClient; yfinance is the only data source for these.
+            # yfinance is the only data source for these.
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
                 # Skip VIX itself if Tradier already delivered it
                 if symbol_key == 'VIX' and vix_from_tradier is not None:
                     continue
                 self.logger.debug(
-                    "Fetching %s (%s) via yfinance — not available from MassiveClient",
+                    "Fetching %s (%s) via yfinance",
                     symbol_key, yahoo_symbol,
                 )
                 try:

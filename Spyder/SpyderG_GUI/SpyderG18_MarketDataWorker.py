@@ -745,7 +745,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
                 # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
                 # $TICK/$ADD/$TRIN: Yahoo Finance removed ^TICK/^ADD/^TRIN (404 as of 2025);
-                # Tradier requires an index data add-on; route via SpyderC27_MassiveClient once enabled  # noqa: E501
+                # Tradier requires an index data add-on for live index feeds
                 "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
             ]
             raw = client.get_quotes(symbols)

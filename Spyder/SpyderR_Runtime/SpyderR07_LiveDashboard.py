@@ -31,7 +31,7 @@ INTEGRATION:
     • Professional startup experience with comprehensive checks
 
 NOTE: Broker integration uses Tradier API (SpyderB40_TradierClient).
-      Market data via Massive (SpyderC27_MassiveClient).
+      Market data via Tradier (SpyderB40_TradierClient).
 
 """
 

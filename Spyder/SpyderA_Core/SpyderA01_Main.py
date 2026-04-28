@@ -423,7 +423,6 @@ class SpyderApplication:
             ("PySide6",                "GUI Dashboard (PySide6)",          True,  "run: pip install PySide6"),  # noqa: E501
             ("sklearn",                "ML Regime Detection (scikit-learn)",False, "run: pip install scikit-learn"),  # noqa: E501
             ("hmmlearn",               "HMM Regime Models (hmmlearn)",     False, "run: pip install hmmlearn"),  # noqa: E501
-            ("requests",               "Massive Market Data (HTTP)",       False, "set MASSIVE_API_KEY in .env when enabling Massive"),  # noqa: E501
             ("zmq",                    "ZeroMQ Messaging (pyzmq)",         False, "run: pip install pyzmq"),  # noqa: E501
             ("prometheus_client",      "Prometheus Metrics",               False, "run: pip install prometheus-client"),  # noqa: E501
             ("QuantLib",               "QuantLib Pricing Engine",          False, "run: pip install QuantLib"),  # noqa: E501

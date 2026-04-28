@@ -17,23 +17,19 @@ Module Description:
 
     Provider Abstraction:
         ``MarketDataProvider`` is the abstract base class that any data source
-        must implement.  The concrete provider is:
-
-                - **MassiveProvider** — wraps ``SpyderC27_MassiveClient``
-                    for current live and fallback market data.
-
-        The active provider is selected from ``config/config.py``
-                ``DATA_PROVIDER`` setting (default ``"massive"`` within this module).
+        must implement.  The concrete live provider is Tradier (via B40);
+        ``DataFeedManager`` holds a ``NullProvider`` when no streaming feed
+        is wired in.
 
     Data flow:
         Provider stream → _on_provider_data() → validate → MarketTick
         → cache → notify subscribers → EventManager publish
 
 Change Log:
-        2026-02-25 (Phase 3 — Tradier+Massive provider abstraction):
+        2026-02-25 (Phase 3 — Tradier provider abstraction):
         - Replaced legacy broker (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
           with provider abstraction layer
-                - Added MarketDataProvider ABC with MassiveProvider
+                - Added MarketDataProvider ABC with NullProvider
                 - Rewired get_historical_data() to use provider-backed historical REST
         - Updated singleton factory and __main__ test block
     2026-01-16:
@@ -71,29 +67,8 @@ from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event, get_event_manager  # noqa: E501
 
 
-def _is_massive_disabled() -> bool:
-    """Return whether Massive usage is disabled for the current process."""
-    return os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower().strip() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity  # noqa: E402
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator  # noqa: E402
-
-try:
-    from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
-        MassiveClient,
-        MassiveQuoteUpdate,
-        MassiveTradeUpdate,
-        ConnectionStatus as MassiveConnectionStatus,  # noqa: F401
-        create_massive_client_from_env,
-    )
-    HAS_MASSIVE = True
-except ImportError:
-    HAS_MASSIVE = False
-    MassiveClient = None
 
 # ==============================================================================
 # CONFIGURATION DEFAULTS
@@ -137,7 +112,7 @@ class DataFeedStatus(Enum):
 
 class DataSource(Enum):
     """Available data sources."""
-    MASSIVE = "massive"
+    TRADIER = "tradier"
     CACHE = "cache"
     CUSTOM = "custom"
     SYNTHETIC = "synthetic"
@@ -163,7 +138,7 @@ class MarketTick:
     low: float | None = None
     close: float | None = None
     vwap: float | None = None
-    source: DataSource = DataSource.MASSIVE
+    source: DataSource = DataSource.TRADIER
     quality: str = "realtime"
 
     def to_dict(self) -> dict[str, Any]:
@@ -191,7 +166,7 @@ class MarketTick:
 @dataclass
 class DataFeedConfig:
     """Enhanced data feed configuration."""
-    provider: str = "massive"
+    provider: str = "tradier"
     cache_enabled: bool = True
     validation_enabled: bool = True
     buffer_size: int = 1000
@@ -199,11 +174,6 @@ class DataFeedConfig:
     heartbeat_interval: int = 30
     error_threshold: int = 10
     custom_metrics_config: dict[str, Any] = field(default_factory=dict)
-    # Massive-specific
-    massive_schema: str = "quotes"
-    massive_dataset: str = "massive-live"
-    massive_api_key: str = ""
-    massive_symbols: list[str] = field(default_factory=lambda: ["SPY"])
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> 'DataFeedConfig':
@@ -274,185 +244,37 @@ class MarketDataProvider(ABC):
 
 
 # ==============================================================================
-# MASSIVE PROVIDER
+# NULL PROVIDER (stub — no streaming feed wired)
 # ==============================================================================
-class MassiveProvider(MarketDataProvider):
+class NullProvider(MarketDataProvider):
     """
-    Wraps ``SpyderC27_MassiveClient`` as a ``MarketDataProvider``.
+    No-op provider used when no streaming data feed is configured.
 
-    Streams real-time SPY equity quotes and trades from the Massive
-    WebSocket, delivering normalized ``MarketTick`` objects.
-    Historical OHLCV bars are served by the Massive REST API.
-
-    This is the preferred provider for SPY equity price ticks when pairing
-    Spyder with Tradier for order execution.
+    The live market data is delivered by ``SpyderB40_TradierClient``
+    (option chains / quotes via Tradier REST), not via a streaming feed
+    from this module.  NullProvider satisfies the MarketDataProvider ABC
+    so that DataFeedManager can be constructed without error.
     """
 
-    def __init__(
-        self,
-        symbols: list[str] | None = None,
-        api_key: str | None = None,
-    ) -> None:
-        super().__init__()
-
-        if not HAS_MASSIVE:
-            raise ImportError(
-                "massive package not installed.  Run: pip install massive"
-            )
-
-        self._logger = SpyderLogger.get_logger(f"{__name__}.MassiveProvider")
-        self._symbols: list[str] = symbols or ["SPY"]
-        self._api_key = api_key
-        self._client: MassiveClient | None = None
-        self._started = False
-
-    # ------------------------------------------------------------------
     @property
     def is_connected(self) -> bool:
-        return self._client is not None and self._client.is_streaming
+        return False
 
     @property
     def active_source(self) -> DataSource:
-        return DataSource.MASSIVE
+        return DataSource.TRADIER
 
     def connect(self) -> bool:
-        """Create the Massive client and start WebSocket streaming."""
-        if _is_massive_disabled():
-            self._logger.info(
-                "MassiveProvider connect skipped: SPYDER_DISABLE_MASSIVE is enabled"
-            )
-            return False
-
-        try:
-            self._client = (
-                MassiveClient(api_key=self._api_key)
-                if self._api_key
-                else create_massive_client_from_env()
-            )
-            self._client.on_status_change = self._on_connection_status
-            self._client.start_stream(
-                symbols=self._symbols,
-                on_quote=self._on_quote,
-                on_trade=self._on_trade,
-                include_quotes=True,
-                include_trades=True,
-            )
-            self._started = True
-            self._logger.info(
-                "MassiveProvider connected, streaming %s", self._symbols
-            )
-            return True
-
-        except Exception as exc:
-            self._logger.error("MassiveProvider connect failed: %s", exc)
-            return False
+        return False
 
     def disconnect(self) -> None:
-        if self._client:
-            self._client.stop_stream()
-            self._client = None
-        self._started = False
-        self._logger.info("MassiveProvider disconnected")
+        pass
 
     def subscribe(self, symbol: str) -> bool:
-        if symbol not in self._symbols:
-            self._symbols.append(symbol)
-            if self._client and self._client.is_streaming:
-                self._client.update_subscriptions(self._symbols)
         return True
 
     def unsubscribe(self, symbol: str) -> bool:
-        if symbol in self._symbols:
-            self._symbols.remove(symbol)
-            if self._client and self._client.is_streaming:
-                self._client.update_subscriptions(self._symbols)
         return True
-
-    def get_historical(
-        self,
-        symbol: str,
-        start: datetime,
-        end: datetime,
-        granularity: str = "1min",
-    ) -> pd.DataFrame:
-        """Fetch historical OHLCV bars from Massive REST API."""
-        if self._client is None:
-            self._client = (
-                MassiveClient(api_key=self._api_key)
-                if self._api_key
-                else create_massive_client_from_env()
-            )
-        timespan_map = {
-            "tick":  ("second", 1),
-            "1s":    ("second", 1),
-            "1min":  ("minute", 1),
-            "5min":  ("minute", 5),
-            "1hour": ("hour",   1),
-            "daily": ("day",    1),
-        }
-        timespan, multiplier = timespan_map.get(granularity, ("minute", 1))
-        try:
-            return self._client.get_historical_bars(
-                symbol=symbol,
-                start=start.strftime("%Y-%m-%d"),
-                end=end.strftime("%Y-%m-%d"),
-                timespan=timespan,
-                multiplier=multiplier,
-            )
-        except Exception as exc:
-            self._logger.error(
-                "MassiveProvider.get_historical(%s) failed: %s", symbol, exc
-            )
-            return pd.DataFrame()
-
-    # ------------------------------------------------------------------
-    # Massive callbacks → MarketTick
-    # ------------------------------------------------------------------
-    def _on_quote(self, update: "MassiveQuoteUpdate") -> None:
-        if not self.on_data:
-            return
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.timestamp,
-            price=update.mid,
-            size=update.bid_size,
-            bid=update.bid,
-            ask=update.ask,
-            bid_size=update.bid_size,
-            ask_size=update.ask_size,
-            source=DataSource.MASSIVE,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_trade(self, update: "MassiveTradeUpdate") -> None:
-        if not self.on_data:
-            return
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.timestamp,
-            price=update.price,
-            size=update.size,
-            source=DataSource.MASSIVE,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_connection_status(self, status) -> None:
-        if not self.on_status_change:
-            return
-        from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import ConnectionStatus
-        status_map = {
-            ConnectionStatus.STREAMING:    DataFeedStatus.CONNECTED,
-            ConnectionStatus.CONNECTED:    DataFeedStatus.CONNECTED,
-            ConnectionStatus.CONNECTING:   DataFeedStatus.CONNECTING,
-            ConnectionStatus.RECONNECTING: DataFeedStatus.CONNECTING,
-            ConnectionStatus.DISCONNECTED: DataFeedStatus.DISCONNECTED,
-            ConnectionStatus.STOPPED:      DataFeedStatus.DISCONNECTED,
-            ConnectionStatus.ERROR:        DataFeedStatus.ERROR,
-        }
-        feed_status = status_map.get(status, DataFeedStatus.ERROR)
-        self.on_status_change(feed_status)
 
 
 # ==============================================================================
@@ -465,39 +287,17 @@ def create_provider(
     """
     Create a ``MarketDataProvider`` by name.
 
+    Currently returns a ``NullProvider`` for all names because live data
+    is delivered by ``SpyderB40_TradierClient``, not via a streaming feed.
+
     Args:
-        provider_name: ``"massive"`` or ``"tradier"``.
-        config: Optional feed configuration for provider-specific settings.
+        provider_name: Any string (kept for API compatibility).
+        config: Optional feed configuration (unused by NullProvider).
 
     Returns:
-        Configured ``MarketDataProvider`` instance.
-
-    Raises:
-        ValueError: If the provider name is unknown or not installed.
+        A ``NullProvider`` instance.
     """
-    name = provider_name.lower().strip()
-    cfg = config or DataFeedConfig()
-
-    if name == "massive":
-        if _is_massive_disabled():
-            raise ValueError(
-                "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE"
-            )
-        if not HAS_MASSIVE:
-            raise ValueError(
-                "Massive provider requested but massive package is not "
-                "installed.  Run: pip install massive"
-            )
-        return MassiveProvider(
-            symbols=cfg.massive_symbols,
-            api_key=cfg.massive_api_key or None,
-        )
-
-    else:
-        raise ValueError(
-            f"Unknown provider '{provider_name}'.  "
-            f"Supported: 'massive'."
-        )
+    return NullProvider()
 
 # ==============================================================================
 # MAIN CLASS
@@ -507,7 +307,7 @@ class DataFeedManager:
     Central data feed orchestrator with provider abstraction.
 
     Coordinates between:
-    - A pluggable ``MarketDataProvider`` (Massive)
+    - A pluggable ``MarketDataProvider`` (NullProvider by default)
     - ``MarketDataCache`` for efficient storage
     - Custom metric calculators
     - Event-based distribution system
@@ -516,7 +316,7 @@ class DataFeedManager:
 
         from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 
-        feed = DataFeedManager(provider="massive")
+        feed = DataFeedManager()
         feed.subscribe("SPY", my_callback)
         feed.start()
     """
@@ -531,9 +331,9 @@ class DataFeedManager:
         Initialize enhanced data feed manager.
 
         Args:
-            provider: Provider name (``"massive"``) or a
-                pre-built ``MarketDataProvider`` instance.  Defaults to the
-                value in ``config/config.py`` → ``DATA_PROVIDER``.
+            provider: Provider name or a pre-built ``MarketDataProvider``
+                instance.  Defaults to the value in ``config/config.py``
+                → ``DATA_PROVIDER``.
             event_manager: Shared event manager instance.
             config: Feed configuration dict or ``DataFeedConfig``.
         """
@@ -609,7 +409,7 @@ class DataFeedManager:
             from config.config import DATA_PROVIDER
             return DATA_PROVIDER
         except Exception:
-            return "massive"
+            return "tradier"
 
     # ==========================================================================
     # INITIALIZATION
@@ -1043,7 +843,7 @@ class DataFeedManager:
 
         self.logger.error("System error from %s: %s", component, error)
 
-        if severity == 'critical' and component in ('MassiveProvider', 'MarketDataHub'):
+        if severity == 'critical' and component in ('NullProvider', 'MarketDataHub'):
             self.status = DataFeedStatus.ERROR
 
     # ==========================================================================
@@ -1133,7 +933,7 @@ def create_data_feed(
             the feed will request data for the symbol on connect.
         event_manager: Shared EventManager instance. When ``None`` the
             singleton from ``get_event_manager()`` is used.
-        provider: Provider name (``"massive"``) or pre-built
+        provider: Provider name (``"tradier"``) or a pre-built
             ``MarketDataProvider`` instance.  Defaults to the value in
             ``config/config.py``.
         config: ``DataFeedConfig`` or raw dict overrides.
@@ -1164,11 +964,10 @@ def get_data_feed_manager(
 
     Unlike ``create_data_feed``, this function is intentionally simple — it does
     not subscribe to any symbols and does not require symbols as input.  It is
-    intended for modules that manage their own subscription lifecycle (e.g.
-    ``SpyderC11_FuturesBasis``, ``SpyderL14_RealTimePredictor``).
+    intended for modules that manage their own subscription lifecycle.
 
     Args:
-        provider: Provider name (``"massive"``) or a pre-built
+        provider: Provider name (``"tradier"``) or a pre-built
             ``MarketDataProvider`` instance.  Defaults to the configured value.
 
     Returns:

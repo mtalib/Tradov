@@ -101,7 +101,6 @@ _SESSION_MINUTES: float = 390.0  # 9:30–16:00 ET
 TRADIER_FETCH_INTERVAL = 5
 
 # How often (seconds) to poll Massive (Polygon) for VOLD
-MASSIVE_FETCH_INTERVAL = 5
 
 # Thresholds
 TICK_EXTREME_HIGH = 1000
@@ -244,7 +243,7 @@ class MarketInternalsAnalyzer:
         >>> analysis = analyzer.get_current_analysis()
     """
 
-    def __init__(self, tradier_client: Any = None, massive_client: Any = None):
+    def __init__(self, tradier_client: Any = None):
         """Initialize the market internals analyzer.
 
         Args:
@@ -252,16 +251,11 @@ class MarketInternalsAnalyzer:
                 provided, market internals (TICK, TRIN, ADD, etc.) are fetched
                 directly from Tradier every TRADIER_FETCH_INTERVAL seconds
                 instead of relying solely on event-bus broadcasts.
-            massive_client: Optional SpyderC27_MassiveClient instance. When
-                provided, VOLD (NYSE Up/Down Volume) is fetched from Massive
-                (Polygon) every MASSIVE_FETCH_INTERVAL seconds via the
-                Indices API (I:VOLD). Tradier does not carry VOLD.
-        """
+"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_bus = EventBus()
         self.tradier_client = tradier_client
-        self.massive_client = massive_client
 
         # Data storage
         self.internals_data: dict[str, InternalData] = {}
@@ -285,7 +279,6 @@ class MarketInternalsAnalyzer:
         # Tradier fetch tracking
         self._last_tradier_fetch: float = 0.0
         # Massive fetch tracking
-        self._last_massive_fetch: float = 0.0
 
         # RVOL computation state
         # SPY average_volume from Tradier quote (20-day trailing average)
@@ -300,10 +293,6 @@ class MarketInternalsAnalyzer:
         sources: list[str] = []
         if tradier_client:
             sources.append("Tradier")
-        if massive_client:
-            sources.append("Massive (VOLD)")
-        source = ", ".join(sources) if sources else "event-bus only"
-        self.logger.info("MarketInternalsAnalyzer initialized (data source: %s)", source)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -609,14 +598,6 @@ class MarketInternalsAnalyzer:
                     self._fetch_from_tradier()
                     self._last_tradier_fetch = now
 
-                # Poll Massive for VOLD (not available from Tradier)
-                if (
-                    self.massive_client is not None
-                    and now - self._last_massive_fetch >= MASSIVE_FETCH_INTERVAL
-                ):
-                    self._fetch_vold_from_massive()
-                    self._last_massive_fetch = now
-
                 # Create snapshot
                 snapshot = self._create_snapshot()
                 if snapshot:
@@ -723,21 +704,6 @@ class MarketInternalsAnalyzer:
         fraction = elapsed / _SESSION_MINUTES
         expected = self._spy_avg_volume * fraction
         return round(current_volume / expected, 2) if expected > 0 else 1.0
-
-    def _fetch_vold_from_massive(self) -> None:
-        """Fetch VOLD (NYSE Up/Down Volume) from Massive (Polygon) Indices API.
-
-        VOLD is not available from Tradier. When a MassiveClient is injected,
-        this method polls ``I:VOLD`` every MASSIVE_FETCH_INTERVAL seconds and
-        pushes the value into the internals store via update_internal().
-        """
-        try:
-            internals = self.massive_client.get_market_internals(["I:VOLD"])
-            for key, value in internals.items():
-                if value != 0.0:
-                    self.update_internal(key, value)
-        except Exception as e:
-            self.logger.warning("Massive VOLD fetch failed: %s", e)
 
     def _analysis_loop(self) -> None:
         """Analysis loop for processing internals."""

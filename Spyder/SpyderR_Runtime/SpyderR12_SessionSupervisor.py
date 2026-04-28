@@ -306,25 +306,11 @@ class SessionSupervisor:
     def _start_data_feed(self) -> bool:
         try:
             provider_name = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower().strip()
-            disable_massive = os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower() in {
-                "1", "true", "yes", "on"
-            }
-
-            # Massive websocket is optional; skip C01 startup unless explicitly enabled.
-            if provider_name != "massive" or disable_massive:
-                self.feed = None
-                self.logger.info(
-                    "⏭️ DataFeed startup skipped (provider=%s, SPYDER_DISABLE_MASSIVE=%s)",
-                    provider_name,
-                    disable_massive,
-                )
-                return True
-
             from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import create_data_feed
             self.feed = create_data_feed(
                 symbols=self.symbols,
                 event_manager=self.em,
-                provider="massive",
+                provider=provider_name,
             )
             if not self.feed.start():
                 self.logger.error("❌ DataFeed.start() returned False")

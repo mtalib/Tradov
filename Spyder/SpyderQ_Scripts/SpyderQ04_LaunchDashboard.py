@@ -493,7 +493,6 @@ Broker:
 
 Market Data:
 - Tradier: primary live data source
-- Massive: optional fallback via MASSIVE_API_KEY env var
 """
         self.system_status.setPlainText(system_info)
 
