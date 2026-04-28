@@ -1427,7 +1427,22 @@ class TradierClient:
         logger.debug("Fetching option chain with greeks for %s exp %s", symbol, expiration)
         response = self._make_request("GET", "/markets/options/chains", params=params)
 
-        return self._parse_greeks_from_chain(response, symbol)
+        raw = self._parse_greeks_from_chain(response, symbol)
+
+        # Route through the central N14 vetting pipeline before returning.
+        # This ensures all consumers receive only structurally valid, market-quality
+        # contracts with bounded Greeks — regardless of which strategy calls this method.
+        try:
+            from Spyder.SpyderN_OptionsAnalytics.SpyderN14_OptionsDataVetter import get_vetter
+            raw = get_vetter().vet(raw)
+        except Exception as _vet_exc:  # pragma: no cover — import-time guard
+            logger.warning(
+                "get_option_chain_with_greeks: N14 vetter unavailable (%s) — "
+                "returning unvetted data",
+                _vet_exc,
+            )
+
+        return raw
 
     @staticmethod
     def _parse_greeks_from_chain(

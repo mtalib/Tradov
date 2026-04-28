@@ -87,6 +87,11 @@ try:
 except ImportError:
     logging.info("Warning: SpyderN13_MarketImpactModel not available")
 
+try:
+    from .SpyderN14_OptionsDataVetter import OptionsDataVetter, VetResult, VetReason, get_vetter
+except ImportError:
+    logging.info("Warning: SpyderN14_OptionsDataVetter not available")
+
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
@@ -106,6 +111,10 @@ __all__ = [
     "OptionsGreeksFlowAnalyzer",
     "VolatilitySurfaceAI",
     "MarketImpactModel",
+    "OptionsDataVetter",
+    "VetResult",
+    "VetReason",
+    "get_vetter",
 ]
 
 # ==============================================================================
