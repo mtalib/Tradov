@@ -149,17 +149,14 @@ def _get_cached_chain(
             )
             if not target_exp:
                 return None
-            chain_resp = client.get_option_chain("SPY", target_exp)
-            contracts = chain_resp.get("options", {}).get("option", [])
-            if isinstance(contracts, dict):
-                contracts = [contracts]
+            contracts = client.get_option_chain_with_greeks("SPY", target_exp)
             put_vol = sum(
-                float(c.get("volume") or 0)
-                for c in contracts if c.get("option_type") == "put"
+                float(getattr(c, "volume", 0) or 0)
+                for c in contracts if str(getattr(c, "option_type", "")).lower() == "put"
             )
             call_vol = sum(
-                float(c.get("volume") or 0)
-                for c in contracts if c.get("option_type") == "call"
+                float(getattr(c, "volume", 0) or 0)
+                for c in contracts if str(getattr(c, "option_type", "")).lower() == "call"
             )
             _CHAIN_CACHE = {
                 "contracts": contracts,

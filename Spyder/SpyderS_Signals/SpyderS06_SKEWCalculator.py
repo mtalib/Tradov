@@ -1135,35 +1135,37 @@ class SpyderS06_SKEWCalculator:
                 ] or (expirations[:1] if expirations else [])
                 all_calls, all_puts = [], []
                 for expiry in selected:
-                    contracts = client.get_option_chain("SPY", expiration=expiry)
+                    contracts = client.get_option_chain_with_greeks("SPY", expiration=expiry)
                     calls = pd.DataFrame(
                         [
                             {
-                                "strike": c["strike"],
-                                "lastPrice": c.get("close", 0.0),
-                                "bid": c["bid"],
-                                "ask": c["ask"],
-                                "impliedVolatility": c.get("implied_volatility", 0.0),
-                                "openInterest": c.get("open_interest", 0),
-                                "volume": c.get("volume", 0),
+                                "strike": float(getattr(c, "strike", 0.0) or 0.0),
+                                "lastPrice": float(getattr(c, "last", 0.0) or 0.0),
+                                "bid": float(getattr(c, "bid", 0.0) or 0.0),
+                                "ask": float(getattr(c, "ask", 0.0) or 0.0),
+                                "impliedVolatility": float(getattr(c, "iv", 0.0) or 0.0),
+                                "openInterest": int(getattr(c, "open_interest", 0) or 0),
+                                "volume": int(getattr(c, "volume", 0) or 0),
                                 "expiry": expiry,
                             }
-                            for c in contracts if c.get("option_type") == "call"
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "call"
                         ]
                     )
                     puts = pd.DataFrame(
                         [
                             {
-                                "strike": c["strike"],
-                                "lastPrice": c.get("close", 0.0),
-                                "bid": c["bid"],
-                                "ask": c["ask"],
-                                "impliedVolatility": c.get("implied_volatility", 0.0),
-                                "openInterest": c.get("open_interest", 0),
-                                "volume": c.get("volume", 0),
+                                "strike": float(getattr(c, "strike", 0.0) or 0.0),
+                                "lastPrice": float(getattr(c, "last", 0.0) or 0.0),
+                                "bid": float(getattr(c, "bid", 0.0) or 0.0),
+                                "ask": float(getattr(c, "ask", 0.0) or 0.0),
+                                "impliedVolatility": float(getattr(c, "iv", 0.0) or 0.0),
+                                "openInterest": int(getattr(c, "open_interest", 0) or 0),
+                                "volume": int(getattr(c, "volume", 0) or 0),
                                 "expiry": expiry,
                             }
-                            for c in contracts if c.get("option_type") == "put"
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "put"
                         ]
                     )
                     if not calls.empty:

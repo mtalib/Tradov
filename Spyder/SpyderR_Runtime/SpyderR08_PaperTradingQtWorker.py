@@ -1243,27 +1243,25 @@ class PaperTradingQtWorker(QObject):
         if not self._client:
             return (None, None)
         try:
-            chain_resp = self._client.get_option_chain("SPY", expiration)
+            rows = self._client.get_option_chain_with_greeks(
+                "SPY", expiration, option_type=option_type
+            )
         except Exception:  # noqa: BLE001
             return (None, None)
-        options = (chain_resp or {}).get("options", {})
-        rows = options.get("option") if isinstance(options, dict) else options
-        if isinstance(rows, dict):
-            rows = [rows]
         if not rows:
             return (None, None)
 
         short_mid: float | None = None
         long_mid: float | None = None
         for row in rows:
-            if row.get("option_type") != option_type:
+            if str(getattr(row, "option_type", "")).lower() != option_type.lower():
                 continue
             try:
-                strike = float(row.get("strike", 0))
+                strike = float(getattr(row, "strike", 0.0) or 0.0)
             except (TypeError, ValueError):
                 continue
-            bid = float(row.get("bid") or 0)
-            ask = float(row.get("ask") or 0)
+            bid = float(getattr(row, "bid", 0.0) or 0.0)
+            ask = float(getattr(row, "ask", 0.0) or 0.0)
             if bid <= 0 or ask <= 0:
                 continue
             mid = (bid + ask) / 2.0

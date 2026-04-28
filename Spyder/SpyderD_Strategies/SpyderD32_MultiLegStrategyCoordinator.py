@@ -496,13 +496,21 @@ class MultiLegMarketAnalyzer:
                 )
                 _tradier = create_tradier_client_from_env()
                 # Retrieve the nearest-expiry ATM option to sample current IV
-                _chain = _tradier.get_option_chain("SPY", expiration_date=None, greeks=True)
-                if _chain and "options" in _chain:
+                _exp_resp = _tradier.get_option_expirations("SPY")
+                _expiries = _exp_resp.get("expirations", {}).get("date", [])
+                if isinstance(_expiries, str):
+                    _expiries = [_expiries]
+
+                iv_samples = []
+                if _expiries:
+                    _greeks = _tradier.get_option_chain_with_greeks("SPY", _expiries[0])
                     iv_samples = [
-                        opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility", 0)
-                        for opt in _chain.get("options", {}).get("option", [])
-                        if opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility")
+                        float(g.iv)
+                        for g in _greeks
+                        if getattr(g, "iv", 0.0) and float(getattr(g, "iv", 0.0)) > 0.0
                     ]
+
+                if iv_samples:
                     if len(iv_samples) >= 5:
                         # Use the median ATM IV as a single-point estimate;
                         # a full IV time-series would require historical option snapshots.

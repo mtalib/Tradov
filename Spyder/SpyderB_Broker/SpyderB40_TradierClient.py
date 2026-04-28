@@ -142,6 +142,16 @@ WS_PING_INTERVAL = 30  # seconds between WebSocket pings
 WS_PING_TIMEOUT = 10   # seconds to wait for pong response
 SESSION_TTL = 270.0    # session token refresh threshold (4.5 min; Tradier TTL is 5 min)
 
+
+def _is_opra_vetter_required() -> bool:
+    """Return True when OPRA vetting is configured as mandatory.
+
+    Environment variable:
+        SPYDER_OPRA_REQUIRE_VETTER=true|1|yes|on
+    """
+    raw = str(os.environ.get("SPYDER_OPRA_REQUIRE_VETTER", "false")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
 # ==============================================================================
 # MODULE LOGGER
 # ==============================================================================
@@ -1436,6 +1446,13 @@ class TradierClient:
             from Spyder.SpyderN_OptionsAnalytics.SpyderN14_OptionsDataVetter import get_vetter
             raw = get_vetter().vet(raw)
         except Exception as _vet_exc:  # pragma: no cover — import-time guard
+            if _is_opra_vetter_required():
+                msg = (
+                    "get_option_chain_with_greeks: N14 vetter unavailable and "
+                    "SPYDER_OPRA_REQUIRE_VETTER=true; refusing unvetted OPRA data"
+                )
+                logger.error(msg, exc_info=True)
+                raise TradierAPIError(msg) from _vet_exc
             logger.warning(
                 "get_option_chain_with_greeks: N14 vetter unavailable (%s) — "
                 "returning unvetted data",

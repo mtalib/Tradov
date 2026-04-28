@@ -690,11 +690,28 @@ class ShortSqueezeDetector:
             if _C29_AVAILABLE:
                 try:
                     client = _get_c29_provider()
-                    expirations = client.get_option_expirations(self.symbol)
+                    expirations_raw = client.get_option_expirations(self.symbol)
+                    if isinstance(expirations_raw, dict):
+                        expirations = expirations_raw.get("expirations", {}).get("date", [])
+                        if isinstance(expirations, str):
+                            expirations = [expirations]
+                    else:
+                        expirations = list(expirations_raw or [])
+
                     if expirations:
-                        contracts = client.get_option_chain(self.symbol, expiration=expirations[0])
-                        call_vol = sum(c.get("volume", 0) or 0 for c in contracts if c.get("option_type") == "call")  # noqa: E501
-                        put_vol = sum(c.get("volume", 0) or 0 for c in contracts if c.get("option_type") == "put")  # noqa: E501
+                        contracts = client.get_option_chain_with_greeks(
+                            self.symbol, expiration=expirations[0]
+                        )
+                        call_vol = sum(
+                            getattr(c, "volume", 0) or 0
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "call"
+                        )
+                        put_vol = sum(
+                            getattr(c, "volume", 0) or 0
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "put"
+                        )
                         if call_vol > 0:
                             self._pcr_history.append(put_vol / call_vol)
                             _pcr_fetched = True
