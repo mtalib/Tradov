@@ -242,7 +242,6 @@
 **Timeline**: March – June 2027
 
 - [ ] **ETF universe expansion** (QQQ, IWM, etc.)
-- [ ] **Futures integration** (ES, NQ)
 - [ ] **Cross-asset strategies** (futures-options spreads)
 
 ---

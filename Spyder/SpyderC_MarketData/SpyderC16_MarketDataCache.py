@@ -85,7 +85,7 @@ DEFAULT_CACHE_CONFIG = {
     },
     'preload': {
         'enabled': True,
-        'symbols': ['SPY', 'VIX', 'SPX', '/ES'],
+        'symbols': ['SPY', 'VIX', 'SPX'],
         'lookback_minutes': 390  # Trading day
     }
 }

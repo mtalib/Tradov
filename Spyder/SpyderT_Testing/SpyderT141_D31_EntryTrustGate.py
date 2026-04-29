@@ -30,7 +30,7 @@ class _MockConfigManager:
             'autonomous_readiness.data_quality': {
                 'enforce_hard_slo': True,
                 'min_bucket_quality': 0.7,
-                'required_buckets': ['VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG'],
+                'required_buckets': ['VOL_SURFACE', 'DEALER_FLOW'],
             },
             'autonomous_readiness.market_structure': {
                 'min_surface_confidence': 0.6,
@@ -41,9 +41,6 @@ class _MockConfigManager:
                 'min_wall_confidence': 0.55,
                 'zero_gamma_buffer_pct': 0.01,
                 'max_flow_imbalance': 0.85,
-                'fast_regime_lead_lag_ms': 150.0,
-                'fast_regime_impulse_score': 0.7,
-                'min_confirm_confidence': 0.55,
             },
         }
         return values.get(key, default)
@@ -76,6 +73,11 @@ class _ApprovedRiskManager:
 
 def _healthy_conditions():
     return {
+        'spy_change_pct': 0.65,
+        'qqq_change_pct': 0.92,
+        'iwm_change_pct': 0.88,
+        'xlk_change_pct': 1.10,
+        'xlf_change_pct': 0.82,
         'surface_confidence': 0.88,
         'surface_age_ms': 15000.0,
         'term_slope_0_7': 0.03,
@@ -89,10 +91,6 @@ def _healthy_conditions():
             'spot_to_zero_gamma_pct': 0.03,
             'dealer_position': 'long_gamma',
         },
-        'lead_lag_ms': 220.0,
-        'es_impulse_score': 0.75,
-        'confirm_direction': 'up',
-        'confirm_confidence': 0.72,
         'data_quality_feed': {
             'data': {
                 'overall_quality': 0.94,
@@ -103,7 +101,6 @@ def _healthy_conditions():
                 'quality_buckets': {
                     'VOL_SURFACE': {'quality_score': 0.91, 'stale': False, 'source_available': True},
                     'DEALER_FLOW': {'quality_score': 0.9, 'stale': False, 'source_available': True},
-                    'LEAD_LAG': {'quality_score': 0.89, 'stale': False, 'source_available': True},
                 },
             }
         },
@@ -155,3 +152,139 @@ def test_d31_blocks_signal_when_data_quality_trust_gate_fails():
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
     orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_blocks_signal_when_qqq_confirmation_fails():
+    conditions = _healthy_conditions()
+    conditions['spy_change_pct'] = 0.70
+    conditions['qqq_change_pct'] = -0.25
+    orchestrator = _make_orchestrator(conditions)
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_blocks_signal_when_iwm_confirmation_fails():
+    conditions = _healthy_conditions()
+    conditions['spy_change_pct'] = 0.70
+    conditions['iwm_change_pct'] = -0.35
+    orchestrator = _make_orchestrator(conditions)
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_blocks_signal_when_xlk_confirmation_fails():
+    conditions = _healthy_conditions()
+    conditions['spy_change_pct'] = 0.70
+    conditions['xlk_change_pct'] = -0.40
+    orchestrator = _make_orchestrator(conditions)
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_blocks_signal_when_xlf_confirmation_fails():
+    conditions = _healthy_conditions()
+    conditions['spy_change_pct'] = 0.70
+    conditions['xlf_change_pct'] = -0.20
+    orchestrator = _make_orchestrator(conditions)
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_blocks_signal_when_strategy_not_allowlisted_for_regime():
+    conditions = _healthy_conditions()
+    conditions['regime'] = 'bull'
+    orchestrator = _make_orchestrator(conditions)
+    orchestrator._regime_policy = {
+        'regimes': {
+            'bull_trend': {
+                'allowed_strategies': ['bull_put_credit_spread'],
+                'blocked_strategies': [],
+                'hard_blocks': {'no_trade': False},
+            }
+        }
+    }
+    signal = {
+        'strategy_id': 'iron_condor_defined_risk',
+        'strategy_type': 'iron_condor_defined_risk',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+
+
+def test_d31_dispatches_signal_when_strategy_is_allowlisted_for_regime():
+    conditions = _healthy_conditions()
+    conditions['regime'] = 'bull'
+    orchestrator = _make_orchestrator(conditions)
+    orchestrator._regime_policy = {
+        'regimes': {
+            'bull_trend': {
+                'allowed_strategies': ['bull_put_credit_spread'],
+                'blocked_strategies': [],
+                'hard_blocks': {'no_trade': False},
+            }
+        }
+    }
+    signal = {
+        'strategy_id': 'bull_put_credit_spread_v2',
+        'strategy_type': 'bull_put_credit_spread_v2',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_called_once_with(signal)

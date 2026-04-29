@@ -133,12 +133,6 @@ except ImportError as e:
     logging.info("Warning: SpyderC10_VIXAnalyzer not available: %s", e)
 
 try:
-    from .SpyderC11_FuturesBasis import FuturesBasisAnalyzer
-    __all__.extend(["FuturesBasisAnalyzer"])
-except ImportError as e:
-    logging.info("Warning: SpyderC11_FuturesBasis not available: %s", e)
-
-try:
     from .SpyderC12_DarkPoolFlow import DarkPoolFlowAnalyzer
     __all__.extend(["DarkPoolFlowAnalyzer"])
 except ImportError as e:

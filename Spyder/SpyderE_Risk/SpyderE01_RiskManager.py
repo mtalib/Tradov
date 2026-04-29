@@ -834,7 +834,7 @@ class RiskManager:
     # ------------------------------------------------------------------
 
     def _check_decision_quality_slo(self) -> tuple[bool, str, list[str]]:
-        """Check vol-surface, dealer-flow, and lead-lag SLOs via S07.
+        """Check vol-surface and dealer-flow SLOs via S07.
 
         Called from validate_signal() as a risk-layer defense-in-depth gate
         (the primary enforcement point is the D31/F09 entry trust gate).
@@ -882,12 +882,6 @@ class RiskManager:
             failures.append("dealer_flow_absent")
         elif float(wall_confidence) < 0.55:
             failures.append(f"dealer_flow_confidence_low({float(wall_confidence):.2f})")
-
-        # Lead-lag: either lead_lag_ms or confirm_confidence must be available
-        lead_lag_ms = conditions.get("lead_lag_ms")
-        confirm_confidence = conditions.get("confirm_confidence")
-        if _absent(lead_lag_ms) and _absent(confirm_confidence):
-            failures.append("lead_lag_absent")
 
         if not failures:
             return True, "", []

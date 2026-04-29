@@ -508,6 +508,24 @@ class OptionChainManager:
         with self._data_lock:
             return sorted(self.option_chains.keys())
 
+    def get_expiry_dates(self) -> list[datetime.date]:
+        """Backward-compatible alias for callers expecting get_expiry_dates()."""
+        return self.get_expirations()
+
+    def get_underlying_price(self) -> float:
+        """Return current underlying price used by chain analytics."""
+        return float(self.underlying_price or 0.0)
+
+    def get_option_chain(self, expiry: datetime.date) -> pd.DataFrame:
+        """Backward-compatible chain accessor returning a DataFrame.
+
+        This normalizes legacy callers (e.g., N09) that expect a pandas table.
+        """
+        chain = self.get_chain(expiry)
+        if chain is None:
+            return pd.DataFrame()
+        return chain.to_dataframe()
+
     def select_options(self, criteria: OptionSelectionCriteria) -> list[OptionContract]:
         """
         Select options based on criteria.

@@ -1115,9 +1115,9 @@ class GammaExposureCalculator:
 
     def _emit_gex_update(self, profile: GEXProfile) -> None:
         """Emit GEX update event."""
-        event = Event(
-            type=EventType.ANALYTICS,
-            data={
+        self.event_manager.emit(
+            EventType.ANALYTICS,
+            {
                 'type': 'gex_update',
                 'timestamp': profile.timestamp.isoformat(),
                 'spot': profile.spot_price,
@@ -1127,7 +1127,6 @@ class GammaExposureCalculator:
                 'expected_flow': profile.expected_flow.value
             }
         )
-        self.event_manager.emit(event)
 
     # ==========================================================================
     # PUBLIC METHODS - MONITORING
@@ -1194,9 +1193,9 @@ class GammaExposureCalculator:
             self.logger.warning(f"Approaching gamma flip: Spot ${spot:.2f}, Flip ${flip:.2f}, Distance ${distance:.2f}")  # noqa: E501
 
             # Emit alert event
-            event = Event(
-                type=EventType.RISK_ALERT,
-                data={
+            self.event_manager.emit(
+                EventType.RISK_ALERT,
+                {
                     'type': 'gamma_flip_proximity',
                     'spot': spot,
                     'flip_level': flip,
@@ -1204,7 +1203,6 @@ class GammaExposureCalculator:
                     'direction': 'above' if spot > flip else 'below'
                 }
             )
-            self.event_manager.emit(event)
 
     # ==========================================================================
     # PUBLIC METHODS - VISUALIZATION

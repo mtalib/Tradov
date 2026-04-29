@@ -699,7 +699,6 @@ class TestE05AutomaticRebalancer:
     def test_hedge_instrument_members(self):
         HI = _e05.HedgeInstrument
         assert HI.SPY_SHARES
-        assert HI.ES_FUTURES
         assert HI.VIX_OPTIONS
 
     def test_rebalancer_no_args(self):

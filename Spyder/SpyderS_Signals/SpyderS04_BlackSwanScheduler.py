@@ -297,6 +297,7 @@ class BlackSwanScheduler:
         self.scheduled_tasks: dict[str, ScheduledTask] = {}
         self.alert_history: list[AlertRecord] = []
         self.daily_results: list[BlackSwanResult] = []
+        self._last_logged_check_status: RiskStatus | None = None
         self.running = False
         self.scheduler_thread: threading.Thread | None = None
 
@@ -350,7 +351,7 @@ class BlackSwanScheduler:
         else:
             schedule.every().day.at(time_str).do(check_callback).tag(task_id)
 
-        self.logger.info("Added daily check at %s", time_str)
+        self.logger.debug("Added daily check at %s", time_str)
         return task_id
 
     def add_interval_check(self, minutes: int, enabled: bool = True) -> str:
@@ -419,7 +420,7 @@ class BlackSwanScheduler:
         # Schedule
         schedule.every().day.at(time_str).do(report_callback).tag(task_id)
 
-        self.logger.info("Added daily report at %s", time_str)
+        self.logger.debug("Added daily report at %s", time_str)
         return task_id
 
     def remove_task(self, task_id: str) -> bool:
@@ -478,7 +479,7 @@ class BlackSwanScheduler:
             return
 
         self.running = True
-        self.logger.info("Starting Black Swan Scheduler")
+        self.logger.debug("Starting Black Swan Scheduler")
 
         # If integrated with Spyder, let it handle scheduling
         if self.spyder_scheduler and SPYDER_INTEGRATION:
@@ -584,7 +585,7 @@ class BlackSwanScheduler:
     def _perform_market_check(self):
         """Perform a market check and process results."""
         try:
-            self.logger.info("Performing scheduled market check")
+            self.logger.debug("Performing scheduled market check")
 
             # Calculate indicator using the unified S03 implementation.
             result = self.indicator.calculate_swan_score()
@@ -605,8 +606,22 @@ class BlackSwanScheduler:
                 if task.task_type == ScheduleType.MARKET_CHECK:
                     task.last_run = datetime.now(timezone.utc)
 
-            self.logger.info(f"Market check complete - Status: {result.status.value}, "
-                           f"Score: {result.overall_score:.2f}")
+            score = float(result.overall_score)
+            status_changed = result.status != self._last_logged_check_status
+            if status_changed:
+                self.logger.info(
+                    "Market check complete - Status: %s, Score: %.2f",
+                    result.status.value,
+                    score,
+                )
+            else:
+                self.logger.debug(
+                    "Market check complete - Status: %s, Score: %.2f",
+                    result.status.value,
+                    score,
+                )
+
+            self._last_logged_check_status = result.status
 
         except Exception as e:
             self.logger.error("Error in market check: %s", e)
@@ -1216,9 +1231,10 @@ Status Distribution:
             return
 
         self.logger.info(
-            "Startup catch-up: %d missed check(s) detected — running now: %s",
-            len(missed), missed,
+            "Startup catch-up: running %d missed Black Swan check(s)",
+            len(missed),
         )
+        self.logger.debug("Startup catch-up task list: %s", missed)
         for task_id in missed:
             self.run_now(task_id)
 
@@ -1358,7 +1374,7 @@ Status Distribution:
 
     def _run_scheduler(self):
         """Main scheduler loop."""
-        self.logger.info("Scheduler thread started")
+        self.logger.debug("Scheduler thread started")
 
         while self.running:
             try:
@@ -1380,7 +1396,7 @@ Status Distribution:
                 if self.error_handler:
                     self.error_handler.handle_error(e)
 
-        self.logger.info("Scheduler thread stopped")
+        self.logger.debug("Scheduler thread stopped")
 
     def _signal_handler(self, signum, frame):
         """Handle system signals."""

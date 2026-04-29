@@ -47,8 +47,10 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
             hasattr(dashboard, "data_status_label")
             and dashboard.data_status_label.text() == "FROZEN"
         ):
-            env = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
-            resolved_status = "PAPER" if env != "live" else "LIVE"
+            # Use TRADING_MODE (not TRADIER_ENVIRONMENT) to determine the correct
+            # label — TRADIER_ENVIRONMENT can be "live" even when running paper.
+            trading_mode = os.getenv("TRADING_MODE", "paper").lower()
+            resolved_status = "PAPER" if trading_mode == "paper" else "LIVE"
             dashboard.mkt_data_connected = True
             dashboard.update_data_status(resolved_status)
             provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()

@@ -21,6 +21,7 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import time
 import threading
 import uuid
@@ -360,6 +361,7 @@ class TradingEngine:
         # Entry trust gate (F09 + S07) is resolved lazily to avoid startup hard dependencies.
         self._entry_filter_gate: Any | None = None
         self._metrics_orchestrator: Any | None = None
+        self._regime_policy: dict[str, Any] | None = None
 
         # Worker threads
         self._monitor_thread = None
@@ -1385,7 +1387,17 @@ class TradingEngine:
             checks.extend(entry_gate._check_data_quality_filter(params))
             checks.extend(entry_gate._check_vol_surface_structure_filter(params))
             checks.extend(entry_gate._check_dealer_flow_filter(params))
-            checks.extend(entry_gate._check_lead_lag_confirmation_filter(params))
+            checks.extend(entry_gate._check_vix_term_structure_filter())
+            checks.extend(entry_gate._check_cboe_skew_filter())
+            checks.extend(entry_gate._check_market_internals_filter())
+            checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
+            checks.extend(entry_gate._check_vol_of_vol_stress_filter(params))
+            checks.extend(entry_gate._check_put_call_sentiment_filter(params))
+            checks.extend(entry_gate._check_participation_filter(params))
+            checks.extend(entry_gate._check_qqq_confirmation_filter(params))
+            checks.extend(entry_gate._check_iwm_confirmation_filter(params))
+            checks.extend(entry_gate._check_xlk_confirmation_filter(params))
+            checks.extend(entry_gate._check_xlf_confirmation_filter(params))
         except Exception as exc:
             self.logger.debug("A02: trust gate failed open: %s", exc, exc_info=True)
             return True, ""
@@ -1397,9 +1409,117 @@ class TradingEngine:
                 failures.append(check)
 
         if not failures:
-            return True, ""
+            return self._passes_regime_policy_gate(signal, market_conditions)
 
         return False, '; '.join(str(check.message) for check in failures)
+
+    def _get_regime_policy(self) -> dict[str, Any]:
+        """Load six-regime policy from config manager or repo config file."""
+        if self._regime_policy is not None:
+            return self._regime_policy
+
+        policy: dict[str, Any] = {}
+
+        # Prefer centralized config manager payload when available.
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            cfg = get_config_manager()
+            candidate = cfg.get('autonomous_readiness.regime_policy', {})
+            if isinstance(candidate, dict):
+                policy = candidate
+        except Exception:
+            policy = {}
+
+        # Fallback to repository policy file created for autonomous gating.
+        if not policy:
+            policy_path = Path(__file__).resolve().parents[2] / 'config' / 'regime_policy.json'
+            try:
+                policy = json.loads(policy_path.read_text(encoding='utf-8'))
+            except Exception:
+                policy = {}
+
+        self._regime_policy = policy if isinstance(policy, dict) else {}
+        return self._regime_policy
+
+    def _passes_regime_policy_gate(
+        self,
+        signal: dict[str, Any],
+        market_conditions: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Apply conservative regime-policy blocks (fail-open on missing context)."""
+        policy = self._get_regime_policy()
+        regimes = policy.get('regimes', {}) if isinstance(policy, dict) else {}
+        if not isinstance(regimes, dict) or not regimes:
+            return True, ""
+
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        raw_regime = str(
+            signal.get('regime')
+            or metadata.get('regime')
+            or market_conditions.get('regime')
+            or market_conditions.get('current_regime')
+            or market_conditions.get('market_regime')
+            or market_conditions.get('breadth_regime')
+            or ''
+        ).strip().lower()
+        if not raw_regime:
+            return True, ""
+
+        regime_aliases = {
+            'bull': 'bull_trend',
+            'strong_bull': 'bull_trend',
+            'bear': 'bear_trend',
+            'strong_bear': 'bear_trend',
+            'neutral': 'range_calm',
+            'bull_low_vol': 'bull_trend',
+            'bull_high_vol': 'high_vol_mean_reversion',
+            'bear_low_vol': 'bear_trend',
+            'bear_high_vol': 'crisis_turbulent',
+            'sideways_low_vol': 'range_calm',
+            'sideways_high_vol': 'high_vol_mean_reversion',
+            'crisis': 'crisis_turbulent',
+            'recovery': 'event_transition',
+        }
+        regime_key = raw_regime if raw_regime in regimes else regime_aliases.get(raw_regime, '')
+        regime_cfg = regimes.get(regime_key, {}) if regime_key else {}
+        if not isinstance(regime_cfg, dict) or not regime_cfg:
+            return True, ""
+
+        hard_blocks = regime_cfg.get('hard_blocks', {})
+        if isinstance(hard_blocks, dict) and bool(hard_blocks.get('no_trade', False)):
+            return False, f"regime_policy:no_trade:{regime_key}"
+
+        strategy_name = str(
+            signal.get('strategy_type')
+            or signal.get('strategy_id')
+            or metadata.get('strategy_type')
+            or metadata.get('strategy_id')
+            or ''
+        ).strip().lower()
+
+        allowed = regime_cfg.get('allowed_strategies', [])
+        if isinstance(allowed, list) and allowed:
+            if not strategy_name:
+                return False, f"regime_policy:missing_strategy:{regime_key}"
+
+            allow_match = False
+            for token in allowed:
+                token_str = str(token).strip().lower()
+                if token_str and token_str in strategy_name:
+                    allow_match = True
+                    break
+            if not allow_match:
+                return False, f"regime_policy:not_allowed_strategy:{strategy_name}:{regime_key}"
+
+        if strategy_name:
+            blocked = regime_cfg.get('blocked_strategies', [])
+            if isinstance(blocked, list):
+                for token in blocked:
+                    token_str = str(token).strip().lower()
+                    if token_str and token_str in strategy_name:
+                        return False, f"regime_policy:blocked_strategy:{token_str}:{regime_key}"
+
+        return True, ""
 
     def _create_order_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> OrderInfo | None:  # noqa: E501
         """Create order object from signal"""

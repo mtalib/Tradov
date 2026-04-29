@@ -55,10 +55,8 @@ class HedgeInstrument(Enum):
     """Available hedging instruments."""
 
     SPY_SHARES = "SPY_SHARES"
-    ES_FUTURES = "ES_FUTURES"
     SPY_OPTIONS = "SPY_OPTIONS"
     VIX_OPTIONS = "VIX_OPTIONS"
-    MICRO_ES = "MICRO_ES"  # Micro E-mini futures
 
 
 @dataclass
@@ -138,20 +136,6 @@ class SpyderAutomaticRebalancer:
                 "gamma": 0.0,
                 "min_size": 1,
                 "cost_basis": 0.01,  # $0.01 per share cost
-                "speed": "FAST",
-            },
-            HedgeInstrument.ES_FUTURES: {
-                "delta": 50.0,  # 50 SPY shares per contract
-                "gamma": 0.0,
-                "min_size": 1,
-                "cost_basis": 2.50,  # $2.50 per contract
-                "speed": "FAST",
-            },
-            HedgeInstrument.MICRO_ES: {
-                "delta": 5.0,  # 5 SPY shares per contract
-                "gamma": 0.0,
-                "min_size": 1,
-                "cost_basis": 0.50,  # $0.50 per contract
                 "speed": "FAST",
             },
             HedgeInstrument.SPY_OPTIONS: {
@@ -295,14 +279,9 @@ class SpyderAutomaticRebalancer:
         )
         # Calculate hedge quantity
         self.HEDGE_CHARACTERISTICS[hedge_instrument]
-        if hedge_instrument in [HedgeInstrument.SPY_SHARES]:
-            hedge_quantity = round(abs(greeks.delta))
-        elif hedge_instrument == HedgeInstrument.ES_FUTURES:
-            hedge_quantity = round(abs(greeks.delta) / 50)  # 50 delta per contract
-        elif hedge_instrument == HedgeInstrument.MICRO_ES:
-            hedge_quantity = round(abs(greeks.delta) / 5)  # 5 delta per contract
-        else:
+        if hedge_instrument != HedgeInstrument.SPY_SHARES:
             return None  # Complex option hedge not implemented here
+        hedge_quantity = round(abs(greeks.delta))
         if hedge_quantity == 0:
             return None
         # Determine side
@@ -402,23 +381,7 @@ class SpyderAutomaticRebalancer:
     def _select_hedge_instrument(self, greek: str, size: float, urgency: str) -> HedgeInstrument:
         """Select optimal hedging instrument based on requirements."""
         if greek == "delta":
-            # For delta hedging, choose based on size and urgency
-            if urgency == "IMMEDIATE":
-                # Use fastest instrument
-                if size < 100:
-                    return HedgeInstrument.SPY_SHARES
-                elif size < 500:
-                    return HedgeInstrument.MICRO_ES
-                else:
-                    return HedgeInstrument.ES_FUTURES
-            else:
-                # Optimize for cost
-                if size < 50:
-                    return HedgeInstrument.SPY_SHARES
-                elif size < 250:
-                    return HedgeInstrument.MICRO_ES
-                else:
-                    return HedgeInstrument.ES_FUTURES
+            return HedgeInstrument.SPY_SHARES
         elif greek == "vega":
             return HedgeInstrument.VIX_OPTIONS
         else:
@@ -511,17 +474,9 @@ class SpyderAutomaticRebalancer:
                 "limit_price": "MIDPOINT",  # Use midpoint pricing
                 "reason": f"Delta hedge: {action.current_value:.1f} -> 0",
             }
-        elif action.hedge_instrument in [HedgeInstrument.ES_FUTURES, HedgeInstrument.MICRO_ES]:
-            symbol = "ES" if action.hedge_instrument == HedgeInstrument.ES_FUTURES else "MES"
-            order = {
-                "symbol": symbol,
-                "quantity": action.hedge_quantity,
-                "side": action.hedge_side,
-                "order_type": "LIMIT",
-                "time_in_force": "IOC",
-                "limit_price": "MIDPOINT",
-                "reason": "Delta hedge via futures",
-            }
+        else:
+            logger.warning("Unsupported hedge instrument for delta hedge: %s", action.hedge_instrument)
+            return
         await self.order_manager.submit_order(order)
 
     async def _execute_gamma_hedge(self, action: RebalanceAction):

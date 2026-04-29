@@ -725,29 +725,8 @@ class SignalRegimeDetector:
         elif nymo < -20:
             regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
 
-        # Yield curve (S09/FRED) — macro regime signal
-        yield_slope = signals.get('yield_slope', float('nan'))
-        yield_inverted = signals.get('yield_inverted', False)
-        if yield_inverted:
-            regime_scores[MarketRegime.HIGH_VOLATILITY] += 0.5
-            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
-        elif yield_slope == yield_slope and yield_slope > 1.5:  # steep curve = reflationary
-            regime_scores[MarketRegime.BULL_TRENDING] += 0.3
-
-        # NAAIM exposure index (S10) — contrarian institutional sentiment
-        naaim = signals.get('naaim', float('nan'))
-        if naaim < 40:    # managers under-invested → contrarian bullish
-            regime_scores[MarketRegime.BULL_TRENDING] += 0.4
-        elif naaim > 90:  # managers over-invested → contrarian bearish risk
-            regime_scores[MarketRegime.BEAR_TRENDING] += 0.4
-
-        # AAII sentiment (S10) — contrarian retail signal
-        aaii_bear = signals.get('aaii_bearish', float('nan'))
-        aaii_bull = signals.get('aaii_bullish', float('nan'))
-        if aaii_bear > 40:   # extreme retail pessimism → contrarian bullish
-            regime_scores[MarketRegime.RECOVERY_MODE] += 0.4
-        elif aaii_bull > 50:  # extreme retail optimism → contrarian bearish risk
-            regime_scores[MarketRegime.BEAR_TRENDING] += 0.3
+        # Macro/yield/sentiment indicators are intentionally excluded from
+        # short-horizon regime scoring. They are retained as supervisory context.
 
         # Determine best regime
         if regime_scores:

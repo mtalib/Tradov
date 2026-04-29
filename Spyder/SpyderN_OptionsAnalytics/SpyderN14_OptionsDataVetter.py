@@ -182,6 +182,11 @@ class OptionsDataVetter:
         self.risk_free_rate = risk_free_rate
 
         self._pricer: Any = OptionsPricer() if (self.bsm_check and OptionsPricer) else None
+        # Rejection-summary log throttling: emit steady-state summaries less often
+        # while still surfacing meaningful quality changes immediately.
+        self._vet_log_lock = threading.Lock()
+        self._last_reject_log_ts: datetime | None = None
+        self._last_reject_accept_rate: float | None = None
 
         self.logger.debug(
             "OptionsDataVetter ready — spread_pct_max=%.0f%%, OI_min=%d, "
@@ -242,15 +247,37 @@ class OptionsDataVetter:
         result.elapsed_ms = elapsed
 
         if result.rejected:
-            self.logger.warning(
-                "OptionsDataVetter: rejected %d/%d contracts (%.1f%% acceptance) "
-                "in %.1f ms — reasons: %s",
-                len(result.rejected),
-                result.total_in,
-                result.accept_rate * 100,
-                elapsed,
-                self._summarise_reasons(result.rejected),
-            )
+            should_log = True
+            now_utc = datetime.now(timezone.utc)
+            # Always surface genuine quality degradation as warning.
+            if result.accept_rate < 0.70:
+                log_fn = self.logger.warning
+            else:
+                log_fn = self.logger.info
+                # For healthy acceptance, reduce repeated noise by logging only
+                # on a periodic heartbeat.
+                with self._vet_log_lock:
+                    last_ts = self._last_reject_log_ts
+                    time_elapsed = (
+                        last_ts is None
+                        or (now_utc - last_ts).total_seconds() >= 180
+                    )
+                    should_log = time_elapsed
+
+                    if should_log:
+                        self._last_reject_log_ts = now_utc
+                        self._last_reject_accept_rate = result.accept_rate
+
+            if should_log:
+                log_fn(
+                    "OptionsDataVetter: rejected %d/%d contracts (%.1f%% acceptance) "
+                    "in %.1f ms — reasons: %s",
+                    len(result.rejected),
+                    result.total_in,
+                    result.accept_rate * 100,
+                    elapsed,
+                    self._summarise_reasons(result.rejected),
+                )
 
         return result
 

@@ -342,18 +342,12 @@ from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (  # noqa: E402
     PivotLevels,  # noqa: F401
     compute_chart_indicators,
 )
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
+    get_market_overview_symbols,
+)
 
-# COMPLETE MARKET SYMBOLS FROM T09
-MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX"],
-    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "NYMO", "CPC", "SKEW", "$VOLD", "XLK", "XLF", "TNX", "RVOL"],  # noqa: E501
-    "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
-    "CORRELATIONS": ["DXY", "GLD", "USO"],
-    "OPTIONS ANALYTICS": ["IVR", "ATM_IV", "VRP"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "WRS", "PSR", "SWAN", "PMR"],
-}
+# Canonical market-overview symbol source (Phase 2 symbol-governance cleanup).
+MARKET_SYMBOLS: dict[str, list[str]] = get_market_overview_symbols()
 
 # ==============================================================================
 # PAPER TRADING WORKER (runs off the GUI thread)
@@ -371,6 +365,7 @@ class SpyderTradingDashboard(QMainWindow):
     """Complete dashboard with fixed API connection detection and heartbeat monitoring"""
 
     manual_close_spread_requested = Signal(str)
+    optional_metrics_refreshed = Signal(dict)
 
     # ------------------------------------------------------------------
     # S07 metric routing (audit §21 — display-unit adaptation layer)
@@ -468,6 +463,9 @@ class SpyderTradingDashboard(QMainWindow):
             f"[{startup_hms}] 🚀 SPYDER DASHBOARD STARTED: {startup_time}",
             f"[{startup_hms}] {'=' * 56}",
         ])
+        # Emit startup marker through module logger as well so it appears in
+        # the unified log stream (not only the in-widget system log buffer).
+        self.logger.info("🚀 SPYDER DASHBOARD STARTED: %s", startup_time)
 
         # Startup readiness snapshot (A03 config validation outcome) is read
         # once during launch so safe-mode automation fallback is explicit.
@@ -479,6 +477,9 @@ class SpyderTradingDashboard(QMainWindow):
         self._readiness_worker = None
         self._readiness_reports_dir = project_root / "market_data" / "trading_readiness_reports"
         self._append_startup_readiness_banner(startup_hms)
+
+        # Toolbar proxy multipliers (configurable with safe defaults).
+        self._dji_from_spx_multiplier = self._load_dji_proxy_multiplier()
 
         # System log verbosity mode (NORMAL suppresses routine signal chatter,
         # DEBUG restores full stream for diagnostics).
@@ -566,7 +567,11 @@ class SpyderTradingDashboard(QMainWindow):
         self.data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
         self._real_data_timer = None
         self._check_timer = None
+        self._optional_signal_timer = None
+        self._optional_signal_refresh_inflight = False
         self._error_count = 0
+        self._system_log_flush_pending = False
+        self._automation_log_flush_pending = False
 
         # Initialize UI elements that will be created in setup methods
         self.connection_status_label = None
@@ -674,6 +679,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.setup_ui()
         self.setup_timers()
         self.load_default_risk_parameters()
+        self.optional_metrics_refreshed.connect(self._on_optional_metrics_refreshed)
         # Subscribe to system events for real-time event-clock display (Phase 5-A)
         self._subscribe_to_events()
 
@@ -692,6 +698,9 @@ class SpyderTradingDashboard(QMainWindow):
         # Deferred 1 s so the Qt event loop is fully running before QTimer creation in S07
         self._metrics_orchestrator = None
         QTimer.singleShot(1000, self._start_metrics_orchestrator)
+        # Refresh optional WRS/PSR rows from signal-module caches on a background
+        # thread so Market Overview rows populate without blocking the UI.
+        QTimer.singleShot(2000, self._start_optional_signal_refresh_timer)
 
         # Apply white tooltip styling
         self.setup_white_tooltips()
@@ -700,7 +709,11 @@ class SpyderTradingDashboard(QMainWindow):
         _et_tz = pytz.timezone("US/Eastern")
         init_time = datetime.now(_et_tz).strftime("%H:%M:%S ET")
         self.add_system_log(f"🚀 Dashboard initialized at {init_time}")
+        self.logger.info("🚀 Dashboard initialized at %s", init_time)
         self._emit_startup_readiness_logs()
+        # Re-emit once after startup burst so users can still see startup state
+        # when the system log is rapidly populated by module initialization.
+        QTimer.singleShot(12000, lambda: self._emit_sticky_startup_marker(init_time))
 
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
@@ -720,6 +733,15 @@ class SpyderTradingDashboard(QMainWindow):
         self.logger.info(
             "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring",  # noqa: E501
         )
+
+    def _emit_sticky_startup_marker(self, init_time: str) -> None:
+        """Emit a one-time delayed startup marker for dashboard visibility."""
+        try:
+            self.add_system_log(f"📌 Startup confirmed — Dashboard initialized at {init_time}")
+            self.logger.info("📌 Startup confirmed — Dashboard initialized at %s", init_time)
+        except RuntimeError:
+            # QWidget may be closing during shutdown; ignore late timer emit.
+            return
 
     def create_api_connection(self) -> bool:
         """Check Tradier API connectivity.
@@ -790,7 +812,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self._real_data_timer = QTimer()
                         self._real_data_timer.timeout.connect(self.update_with_real_data)
                         self._real_data_timer.start(1000)
-                    self.update_with_real_data()
+                    QTimer.singleShot(250, self.update_with_real_data)
                     self.update_data_status("EOD")
                 except Exception as e:
                     self.add_system_log(f"⚠️ Could not load EOD snapshot: {e}")
@@ -858,8 +880,8 @@ class SpyderTradingDashboard(QMainWindow):
 
             self.real_data_active = True
 
-            # Initial update
-            self.update_with_real_data()
+            # Initial update after the event loop clears the startup burst.
+            QTimer.singleShot(250, self.update_with_real_data)
 
             # Update status
             self.update_status_for_real_data()
@@ -1006,10 +1028,10 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.comp_change.setStyleSheet(f"color: {color};")
 
-            # DJI — Tradier's $DJI index is ~15 min delayed (confirmed April 2026).
-            # Use DIA ETF * 100 instead: real-time, tracks within ~0.3% of actual DJIA.
-            dji_src = live_data.get("DIA")
-            dji_mult = 100
+            # DJI — remove DIA quote dependency from G18 worker basket.
+            # Approximate Dow from SPX with a stable scaling factor.
+            dji_src = live_data.get("SPX")
+            dji_mult = self._dji_from_spx_multiplier
             if dji_src:
                 if hasattr(self, "dji_value"):
                     self.dji_value.setText(f" {dji_src['last'] * dji_mult:,.0f}")
@@ -1021,26 +1043,16 @@ class SpyderTradingDashboard(QMainWindow):
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.dji_change.setStyleSheet(f"color: {color};")
 
-            # RUT — Tradier returns last price for the RUT index but change=None (confirmed April 2026).  # noqa: E501
-            # Use RUT last directly; derive change from IWM ETF change_pct as proxy.
-            rut_src = live_data.get("RUT") or live_data.get("IWM")
-            rut_mult = 1 if "RUT" in live_data else 10
+            # RUT proxy — remove direct RUT dependency and derive from IWM.
+            rut_src = live_data.get("IWM")
+            rut_mult = 10
             if rut_src:
                 rut_last = rut_src["last"] * rut_mult
                 if hasattr(self, "rut_value"):
                     self.rut_value.setText(f" {rut_last:,.0f}")
                 if hasattr(self, "rut_change"):
-                    # RUT index: change_pct is None from Tradier; borrow IWM's change_pct
-                    iwm = live_data.get("IWM")
-                    if rut_src.get("change_pct") is not None and rut_src["change_pct"] != 0:
-                        pct = rut_src["change_pct"]
-                        change = rut_src["change"] * rut_mult
-                    elif iwm and iwm.get("change_pct"):
-                        pct = iwm["change_pct"]
-                        change = rut_last * pct / 100
-                    else:
-                        pct = 0.0
-                        change = 0.0
+                    pct = rut_src.get("change_pct") or 0.0
+                    change = rut_src["change"] * rut_mult
                     sign = "+" if change >= 0 else ""
                     self.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#FF073A"
@@ -1184,6 +1196,10 @@ class SpyderTradingDashboard(QMainWindow):
         except (AttributeError, RuntimeError):
             pass
 
+            # Optional symbols may not have an active producer at startup. Render
+            # a clear unavailable state instead of leaving placeholder dashes.
+            self._seed_optional_symbol_placeholders()
+
         center_panel = self.create_center_panel()
         content_splitter.addWidget(center_panel)
 
@@ -1194,6 +1210,72 @@ class SpyderTradingDashboard(QMainWindow):
 
         main_layout.addWidget(content_splitter)
         central_widget.setLayout(main_layout)
+
+    def _seed_optional_symbol_placeholders(self) -> None:
+        """Set explicit placeholders for optional Market Overview symbols."""
+        optional_symbols = ("WRS", "PSR", "NYMO", "$VOLD")
+        for sym in optional_symbols:
+            widget = self.symbol_widgets.get(sym) if hasattr(self, "symbol_widgets") else None
+            if widget is None or not hasattr(widget, "price_label"):
+                continue
+            text = (widget.price_label.text() or "").strip()
+            if text.startswith("---"):
+                try:
+                    widget.set_unavailable("N/A")
+                except (AttributeError, RuntimeError):
+                    # Fallback for legacy widgets lacking set_unavailable().
+                    widget.update_data({"last": 0.0, "change": 0.0, "change_pct": 0.0})
+
+    def _start_optional_signal_refresh_timer(self) -> None:
+        """Start periodic, non-blocking refresh for optional Market Overview rows."""
+        if self._optional_signal_timer is not None:
+            return
+        self._optional_signal_timer = QTimer(self)
+        self._optional_signal_timer.setInterval(120000)  # 2 minutes
+        self._optional_signal_timer.timeout.connect(self._dispatch_optional_signal_refresh)
+        self._optional_signal_timer.start()
+        # Kick once immediately after startup to populate rows quickly.
+        self._dispatch_optional_signal_refresh()
+
+    def _dispatch_optional_signal_refresh(self) -> None:
+        """Spawn a background worker that reads WRS/PSR cache-backed signals."""
+        if self._optional_signal_refresh_inflight:
+            return
+        self._optional_signal_refresh_inflight = True
+
+        def _worker() -> None:
+            updates: dict[str, dict[str, float]] = {}
+            try:
+                try:
+                    from SpyderS_Signals.SpyderS12_WRSSignal import get_wrs_signal
+                    wrs_payload = get_wrs_signal().get_signal_dict()
+                    wrs_value = wrs_payload.get("wrs")
+                    if isinstance(wrs_value, (int, float)):
+                        updates["WRS"] = {"value": float(wrs_value)}
+                except Exception:
+                    pass
+
+                try:
+                    from SpyderS_Signals.SpyderS13_PSRSignal import get_psr_signal
+                    psr_payload = get_psr_signal().get_signal_dict()
+                    psr_value = psr_payload.get("psr")
+                    if isinstance(psr_value, (int, float)):
+                        updates["PSR"] = {"value": float(psr_value)}
+                except Exception:
+                    pass
+
+                if updates:
+                    self.optional_metrics_refreshed.emit(updates)
+            finally:
+                self._optional_signal_refresh_inflight = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_optional_metrics_refreshed(self, metrics: dict) -> None:
+        """Apply asynchronously fetched optional metrics onto Market Overview rows."""
+        if not isinstance(metrics, dict) or not metrics:
+            return
+        self._on_custom_metrics_updated(metrics)
 
     def _create_event_clock_panel(self) -> QGroupBox:
         """Create event-clock status display panel (Phase 5-A).
@@ -1316,11 +1398,18 @@ class SpyderTradingDashboard(QMainWindow):
             try:
                 with open(chart_file) as _f:
                     candles = json.load(_f)
+                # Guard responsiveness when cache grows unexpectedly large.
+                if isinstance(candles, list) and len(candles) > 900:
+                    candles = candles[-900:]
                 # Only accept bars whose date matches today in ET so the chart
                 # resets correctly at the start of each new trading session.
                 _today_et = datetime.now(pytz.timezone("US/Eastern")).date()
                 for bar in candles:
-                    bar_dt = pd.to_datetime(bar.get("time", ""))
+                    _raw_time = str(bar.get("time", ""))
+                    try:
+                        bar_dt = datetime.fromisoformat(_raw_time)
+                    except ValueError:
+                        bar_dt = pd.to_datetime(_raw_time)
                     if bar_dt.date() != _today_et:
                         continue
                     opens_raw.append(float(bar.get("open", 0)))
@@ -1344,7 +1433,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
             for spine in ax.spines.values():
                 spine.set_color(COLORS["border"])
-            self.canvas.draw()
+            self.canvas.draw_idle()
             return
 
         # --- Fixed 78-slot session skeleton: slots 0–77 map to 9:30–15:55 (5-min bars) ---
@@ -1462,8 +1551,10 @@ class SpyderTradingDashboard(QMainWindow):
         is_up   = cl >= op
         bar_colors = np.where(is_up, COLORS["positive"], COLORS["negative"])
         # Draw wicks first (behind bodies)
-        for xi, loi, hii, ci in zip(xs, lo, hi, np.where(is_up, COLORS["positive"], COLORS["negative"])):  # noqa: B905, E501
-            ax.vlines(xi, loi, hii, color=ci, linewidth=0.8, zorder=2)
+        # Vectorised wick drawing — one LineCollection per colour group instead of
+        # 78 individual vlines() calls (each creates a separate LineCollection).
+        wick_colors = np.where(is_up, COLORS["positive"], COLORS["negative"])
+        ax.vlines(xs, lo, hi, colors=wick_colors, linewidth=0.8, zorder=2)
         # Draw bodies
         ax.bar(xs, height=body_hi - body_lo, bottom=body_lo, width=0.7,
                color=bar_colors, align="center", edgecolor="none", linewidth=0, zorder=3)
@@ -1488,8 +1579,13 @@ class SpyderTradingDashboard(QMainWindow):
         for spine in ax.spines.values():
             spine.set_color(COLORS["border"])
 
-        self.figure.tight_layout()
-        self.canvas.draw()
+        # Use fixed margins instead of tight_layout() — tight_layout() synchronously
+        # measures font extents for every artist, which can take 1–5 s on a complex
+        # chart and stalls the Qt event loop long enough to trigger the OS
+        # "Not Responding" dialog.  The pivot labels at label_x=79 sit outside the
+        # axes clip region, so right=0.86 gives them enough room at any window size.
+        self.figure.subplots_adjust(left=0.07, right=0.86, top=0.97, bottom=0.10)
+        self.canvas.draw_idle()
 
     def create_positions_table(self) -> QTreeWidget:
         """Create positions tree with strategy headers and expandable trade legs."""
@@ -3344,10 +3440,28 @@ class SpyderTradingDashboard(QMainWindow):
 
         et_now = datetime.now(pytz.timezone("US/Eastern"))
 
+        # If the cached worker state shows disconnected, do a fresh inline check so a
+        # slow/async startup connection probe doesn't give a false NO.  The result is
+        # also pushed through the normal signal handlers so the toolbar labels update.
+        cached_api = bool(getattr(self, "api_connected", False))
+        cached_mkt = bool(getattr(self, "mkt_data_connected", False))
+        if not cached_api:
+            try:
+                fresh_connected, fresh_mode = check_api_connection()
+                if fresh_connected:
+                    # Drive through the normal handlers so toolbar labels go green.
+                    self.on_connection_status_changed(True, f"API CONNECTED ({fresh_mode})")
+                    _is_sandbox = "SANDBOX" in fresh_mode.upper() or "PAPER" in fresh_mode.upper()
+                    self.on_market_data_status_changed("PAPER" if _is_sandbox else "LIVE")
+                    cached_api = True
+                    cached_mkt = True
+            except Exception:
+                pass
+
         return {
             "startup_state": startup_state,
-            "api_connected": bool(getattr(self, "api_connected", False)),
-            "mkt_data_connected": bool(getattr(self, "mkt_data_connected", False)),
+            "api_connected": cached_api,
+            "mkt_data_connected": cached_mkt,
             "data_status_label": data_label,
             "event_clock_enabled": event_enabled,
             "event_clock_state": event_name,
@@ -5148,10 +5262,17 @@ class SpyderTradingDashboard(QMainWindow):
             self._metrics_orchestrator = get_metrics_orchestrator()
             # Wire S07 output → custom metric widgets in the Market Overview panel
             self._metrics_orchestrator.metrics_updated.connect(self._on_custom_metrics_updated)
+            self._metrics_orchestrator.stress_level_changed.connect(self._on_market_stress_changed)
             self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
+            self.add_automation_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
         except Exception as e:
             self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
             self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
+
+    def _on_market_stress_changed(self, stress_level: str) -> None:
+        """Surface market stress-regime transitions in Autonomous AI Activity."""
+        level = str(stress_level).strip().upper() or "UNKNOWN"
+        self.add_automation_log(f"MARKET STRESS REGIME → {level}")
 
     def _on_custom_metrics_updated(self, metrics: dict) -> None:
         """Slot for SpyderS07 CustomMetricsOrchestrator.metrics_updated signal.
@@ -5741,7 +5862,7 @@ class SpyderTradingDashboard(QMainWindow):
             state_color = state.state_color
             if self.event_clock_state_label:
                 self.event_clock_state_label.setText(state.state_label)
-                self.event_clock_state_label.setStyleSheet(f"color: {state_color}; font-weight: bold;")  # noqa: E501
+                self.event_clock_state_label.setStyleSheet(f"color: {state_color};")
 
             if self.event_clock_compact_label:
                 compact_text = f"EC: {state.state_label.replace('✓ ', '').replace('✗ ', '')}"
@@ -5751,17 +5872,21 @@ class SpyderTradingDashboard(QMainWindow):
                 )
   # noqa: W293
             # Update policy label
-            policy_text = f"Policy: {'✓ Enabled' if state.enabled else '✗ Disabled'} | Sources: {state.sources}"  # noqa: E501
+            policy_text = f"{'Enabled' if state.enabled else 'Disabled'} | Sources: {state.sources}"
             if self.event_clock_policy_label:
                 self.event_clock_policy_label.setText(policy_text)
   # noqa: W293
-            # Update blackout windows label
-            windows_text = f"Blackout: -{state.blackout_pre_minutes}m / +{state.blackout_post_minutes}m | Size: {state.max_size_multiplier:.0%}"  # noqa: E501
+            # Update compact detail line (window + size + allowlist)
+            windows_text = (
+                f"Window -{state.blackout_pre_minutes}m/+{state.blackout_post_minutes}m"
+                f" | Size {state.max_size_multiplier:.0%}"
+                f" | Allowlist {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"
+            )
             if self.event_clock_windows_label:
                 self.event_clock_windows_label.setText(windows_text)
   # noqa: W293
-            # Update allowed strategies label
-            strategies_text = f"Allowlist: {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"  # noqa: E501
+            # Optional legacy label if mounted elsewhere.
+            strategies_text = f"Allowlist {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"
             if self.event_clock_strategies_label:
                 self.event_clock_strategies_label.setText(strategies_text)
         except Exception as e:
@@ -5868,16 +5993,58 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _append_to_ring_log(self, buffer: list, widget, message: str,
                              max_buffer: int = 100, display_count: int = 20) -> None:
-        """Append to an in-memory ring buffer and refresh its widget (newest first)."""
+        """Append to a ring buffer and schedule a batched widget refresh."""
         timestamp = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S")
         buffer.append(f"[{timestamp}] {message}")
         if len(buffer) > max_buffer:
             del buffer[:-max_buffer]
-        widget.clear()
-        widget.append("\n".join(reversed(buffer[-display_count:])))
-        cursor = widget.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        widget.setTextCursor(cursor)
+        self._schedule_log_widget_refresh(buffer, widget, display_count)
+
+    def _schedule_log_widget_refresh(self, buffer: list, widget, display_count: int) -> None:
+        """Coalesce repeated log writes into a single UI refresh."""
+        if widget is None:
+            return
+
+        if widget is self.system_log:
+            if self._system_log_flush_pending:
+                return
+            self._system_log_flush_pending = True
+            QTimer.singleShot(
+                75,
+                lambda: self._flush_log_widget(buffer, widget, display_count, "system"),
+            )
+            return
+
+        if widget is self.auto_log:
+            if self._automation_log_flush_pending:
+                return
+            self._automation_log_flush_pending = True
+            QTimer.singleShot(
+                75,
+                lambda: self._flush_log_widget(buffer, widget, display_count, "automation"),
+            )
+            return
+
+        self._flush_log_widget(buffer, widget, display_count, "other")
+
+    def _flush_log_widget(self, buffer: list, widget, display_count: int, target: str) -> None:
+        """Render the latest slice of a buffered log widget."""
+        try:
+            if widget is None:
+                return
+            widget.setUpdatesEnabled(False)
+            widget.clear()
+            widget.append("\n".join(reversed(buffer[-display_count:])))
+            cursor = widget.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            widget.setTextCursor(cursor)
+        finally:
+            if widget is not None:
+                widget.setUpdatesEnabled(True)
+            if target == "system":
+                self._system_log_flush_pending = False
+            elif target == "automation":
+                self._automation_log_flush_pending = False
 
     def add_system_log(self, message: str):
         """Add message to system log."""
@@ -5909,8 +6076,11 @@ class SpyderTradingDashboard(QMainWindow):
         for logger_name in self._signal_noise_loggers:
             logging.getLogger(logger_name).setLevel(logger_level)
 
-        if hasattr(self, "system_log_mode_btn") and self.system_log_mode_btn is not None:
-            self.system_log_mode_btn.setText(selected)
+        if hasattr(self, "system_log_normal_btn") and self.system_log_normal_btn is not None:
+            self.system_log_normal_btn.setChecked(selected == "NORMAL")
+
+        if hasattr(self, "system_log_debug_btn") and self.system_log_debug_btn is not None:
+            self.system_log_debug_btn.setChecked(selected == "DEBUG")
 
         if announce:
             self.add_system_log(
@@ -5918,22 +6088,9 @@ class SpyderTradingDashboard(QMainWindow):
             )
 
     def toggle_system_log_verbosity(self) -> None:
-        """Toggle system-log verbosity between NORMAL and DEBUG, updating button color/text."""
+        """Toggle system-log verbosity between NORMAL and DEBUG."""
         new_mode = "DEBUG" if self.system_log_mode == "NORMAL" else "NORMAL"
         self._set_system_log_verbosity(new_mode, announce=True)
-  # noqa: W293
-        # Update button appearance based on new mode
-        if hasattr(self, "system_log_mode_btn") and self.system_log_mode_btn is not None:
-            if new_mode == "DEBUG":
-                self.system_log_mode_btn.setText("DEBUG")
-                self.system_log_mode_btn.setStyleSheet(
-                    getattr(self, "_system_log_mode_btn_debug_stylesheet", "")
-                )
-            else:
-                self.system_log_mode_btn.setText("NORMAL")
-                self.system_log_mode_btn.setStyleSheet(
-                    getattr(self, "_system_log_mode_btn_normal_stylesheet", "")
-                )
 
     def setup_white_tooltips(self):
         """Apply the white-tooltip theme to this window (delegates to module helper)."""
@@ -5988,6 +6145,21 @@ class SpyderTradingDashboard(QMainWindow):
             state["source"] = f"unavailable: {exc}"
 
         return state
+
+    def _load_dji_proxy_multiplier(self) -> float:
+        """Read configurable DJI proxy scale (SPX -> DJI) from A03 config."""
+        default_multiplier = 6.9
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            configured = cfg.get("dashboard.toolbar.dji_from_spx_multiplier", default_multiplier)
+            multiplier = float(configured)
+            if multiplier <= 0:
+                return default_multiplier
+            return multiplier
+        except Exception:
+            return default_multiplier
 
     def _append_startup_readiness_banner(self, startup_hms: str) -> None:
         """Append readiness banner lines to the startup ring-buffer before UI renders."""

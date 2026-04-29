@@ -4,6 +4,9 @@
 import importlib
 from unittest.mock import MagicMock
 from types import SimpleNamespace
+from datetime import datetime, timezone
+
+import pandas as pd
 
 
 def _make_orchestrator():
@@ -35,6 +38,8 @@ def test_d31_registry_includes_first_wave_base_strategies():
         "MACrossover",
         "RenaissanceMeanReversion",
         "PivotMeanReversion",
+        "EvolvedCreditSpread",
+        "VIXHedging",
     }
 
     missing = expected - set(orchestrator.available_strategies)
@@ -88,3 +93,82 @@ def test_d31_current_regime_weights_are_registry_reachable_and_constructible():
         except TypeError:
             instance = cls(event_manager=_StubEventManager(), risk_profile=risk_profile, config={})
         assert instance is not None, f"Failed to construct weighted strategy: {name}"
+
+
+def test_d31_evolved_credit_spread_adapter_maps_native_signal_to_base_signal():
+    orchestrator = _make_orchestrator()
+    cls = orchestrator.available_strategies["EvolvedCreditSpread"]
+
+    adapter = cls(
+        name="EvolvedCreditSpread",
+        event_manager=_StubEventManager(),
+        risk_profile=SimpleNamespace(account_size=100000),
+        config={},
+    )
+
+    native_signal = SimpleNamespace(
+        signal_id="ENTRY_TEST_1",
+        action="ENTER_CREDIT_SPREAD",
+        timestamp=datetime.now(timezone.utc),
+        ai_confidence=0.82,
+        signal_strength=0.74,
+        position_details={"estimated_credit": 1.25, "max_loss": 3.75, "contracts": 2},
+    )
+
+    adapter._core = SimpleNamespace(
+        analyze_market=lambda _market: SimpleNamespace(),
+        generate_signals=lambda _analysis: [native_signal],
+    )
+
+    signals = adapter.generate_signals(
+        pd.DataFrame({"SPY": [502.0, 503.5], "volume": [1000, 1200], "VIX": [18.0, 17.8]})
+    )
+
+    assert len(signals) == 1
+    mapped = signals[0]
+    assert mapped.signal_id == "ENTRY_TEST_1"
+    assert mapped.signal_type.value == "sell"
+    assert mapped.metadata["strategy_type"] == "evolved_credit_spread"
+    assert mapped.metadata["action"] == "sell_to_open"
+    assert mapped.position_size == 2
+    assert adapter.validate_signal(mapped)
+
+
+def test_d31_vix_hedging_adapter_maps_recommendation_to_base_signal():
+    orchestrator = _make_orchestrator()
+    cls = orchestrator.available_strategies["VIXHedging"]
+
+    adapter = cls(
+        name="VIXHedging",
+        event_manager=_StubEventManager(),
+        risk_profile=SimpleNamespace(account_size=100000),
+        config={"risk_tolerance": "moderate", "current_hedge_ratio": 0.01},
+    )
+
+    recommendation = SimpleNamespace(
+        action=SimpleNamespace(value="add_hedge"),
+        hedge_type=SimpleNamespace(value="vix_call"),
+        urgency="immediate",
+        portfolio_hedge_ratio=0.06,
+        notional_value=12000.0,
+        rationale="Add hedge for rising turbulence",
+        expected_cost=240.0,
+        expected_protection=85.0,
+    )
+
+    adapter._core = SimpleNamespace(
+        get_hedge_recommendation=lambda **_kwargs: recommendation,
+    )
+
+    signals = adapter.generate_signals(
+        pd.DataFrame({"SPY": [500.0, 501.0], "VIX": [17.0, 18.2]})
+    )
+
+    assert len(signals) == 1
+    mapped = signals[0]
+    assert mapped.signal_type.value == "buy"
+    assert mapped.symbol == "VIX"
+    assert mapped.metadata["strategy_type"] == "vix_hedging"
+    assert mapped.metadata["action"] == "buy_to_open"
+    assert mapped.position_size >= 1
+    assert adapter.validate_signal(mapped)

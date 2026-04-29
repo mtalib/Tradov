@@ -635,6 +635,30 @@ class TestS07Orchestrator(unittest.TestCase):
             orch = CustomMetricsOrchestrator(config={"auto_start": False})
             self.assertEqual(orch.current_stress_level, StressLevel.LOW)
 
+    def test_market_conditions_include_cross_index_confirmation_snapshot(self):
+        if _qt_app is None:
+            self.skipTest("QApplication unavailable in this environment")
+        with patch.object(CustomMetricsOrchestrator, "start", return_value=None):
+            orch = CustomMetricsOrchestrator(config={"auto_start": False})
+            with patch.object(
+                orch,
+                "_load_index_confirmation_snapshot",
+                return_value={
+                    "spy_change_pct": -0.45,
+                    "qqq_change_pct": -0.80,
+                    "iwm_change_pct": -1.10,
+                    "xlk_change_pct": -1.40,
+                    "xlf_change_pct": 0.05,
+                },
+            ):
+                conditions = orch.get_current_market_conditions()
+
+        self.assertAlmostEqual(conditions["spy_change_pct"], -0.45)
+        self.assertAlmostEqual(conditions["qqq_change_pct"], -0.80)
+        self.assertAlmostEqual(conditions["iwm_change_pct"], -1.10)
+        self.assertAlmostEqual(conditions["xlk_change_pct"], -1.40)
+        self.assertAlmostEqual(conditions["xlf_change_pct"], 0.05)
+
 
 # ==============================================================================
 # Cross-module consistency tests

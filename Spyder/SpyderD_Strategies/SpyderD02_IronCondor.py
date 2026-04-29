@@ -66,12 +66,19 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa
 
 # Integration with consolidated multi-leg coordinator
 try:
-    from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+    from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
         MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator  # noqa: F401
     )
     MULTILEG_COORDINATOR_AVAILABLE = True
 except ImportError:
-    MULTILEG_COORDINATOR_AVAILABLE = False
+    try:
+        # Compatibility path for legacy PYTHONPATH/module layouts.
+        from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+            MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator  # noqa: F401,E501
+        )
+        MULTILEG_COORDINATOR_AVAILABLE = True
+    except ImportError:
+        MULTILEG_COORDINATOR_AVAILABLE = False
 
 # Integration with event management
 try:

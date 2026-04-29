@@ -695,6 +695,14 @@ class TradierClient:
                 TradierRateLimitError, TradierServerError, TradierAPIError):
             raise  # Re-raise Tradier-specific errors without wrapping
 
+        except requests.exceptions.RetryError as e:
+            # RetryError wraps repeated 5xx/gateway-timeout responses from upstream.
+            # Logged as warning — transient sandbox/network condition, not a code bug.
+            first_line = str(e).splitlines()[0] if str(e) else "max retries exceeded"
+            error_msg = f"Transient retry error: {first_line}"
+            logger.warning(error_msg)
+            raise TradierAPIError(error_msg) from e  # noqa: B904
+
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -1495,7 +1503,7 @@ class TradierClient:
             # --- Inline data-quality sanity guards ---
             # Crossed market: bid/ask both present but inverted — data error.
             if bid > 0 and ask > 0 and bid >= ask:
-                logger.warning(
+                logger.debug(
                     "_parse_greeks_from_chain: dropping %s — crossed market "
                     "(bid=%.4f >= ask=%.4f)",
                     sym, bid, ask,
@@ -1506,7 +1514,7 @@ class TradierClient:
             # Delta outside [-1, 1] is a calculation error on Tradier's side.
             raw_delta = greeks_data.get("delta", 0.0) or 0.0
             if raw_delta != 0.0 and not (-1.0 <= raw_delta <= 1.0):
-                logger.warning(
+                logger.debug(
                     "_parse_greeks_from_chain: dropping %s — delta %.4f outside [-1,1]",
                     sym, raw_delta,
                 )
@@ -1521,7 +1529,7 @@ class TradierClient:
                 or 0.0
             )
             if raw_iv < 0.0:
-                logger.warning(
+                logger.debug(
                     "_parse_greeks_from_chain: dropping %s — negative IV %.6f",
                     sym, raw_iv,
                 )
@@ -1553,10 +1561,15 @@ class TradierClient:
             result.append(gd)
 
         if rejected:
-            logger.warning(
+            total = rejected + len(result)
+            reject_ratio = (rejected / total) if total > 0 else 0.0
+            log_fn = logger.warning if reject_ratio >= 0.05 else logger.info
+            log_fn(
                 "_parse_greeks_from_chain: dropped %d/%d contracts for %s "
                 "(crossed markets / invalid Greeks)",
-                rejected, rejected + len(result), underlying,
+                rejected,
+                total,
+                underlying,
             )
         return result
 

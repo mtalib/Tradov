@@ -107,7 +107,6 @@ class HedgeInstrument(Enum):
     SPY_STOCK = "SPY_STOCK"
     SPY_OPTIONS = "SPY_OPTIONS"
     SPX_OPTIONS = "SPX_OPTIONS"
-    ES_FUTURES = "ES_FUTURES"
     VIX_OPTIONS = "VIX_OPTIONS"
     COMBO = "COMBO"
 

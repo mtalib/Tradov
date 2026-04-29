@@ -344,7 +344,7 @@ def _load_cache(key: str) -> Optional[pd.Series]:
     path = _cache_path(key)
     if not path.exists():
         return None
-    age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime)
+    age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     if age > timedelta(hours=CACHE_TTL_HOURS):
         return None
     try:

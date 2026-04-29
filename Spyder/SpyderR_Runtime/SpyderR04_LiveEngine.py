@@ -1159,8 +1159,19 @@ class LiveEngine:
             account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
         else:
             account_info = {}
-        if account_info.get("buying_power", 0) < 1000:
+        margin = account_info.get("margin", {}) if isinstance(account_info, dict) else {}
+        buying_power = (
+            account_info.get("buying_power")
+            or margin.get("option_buying_power")
+            or margin.get("stock_buying_power")
+            or account_info.get("total_cash")
+            or 0
+        )
+        is_paper = getattr(self, "mode", None) == TradingMode.PAPER
+        if float(buying_power) < 1000 and not is_paper:
             self.logger.warning("Low buying power")
+        elif float(buying_power) < 1000 and is_paper:
+            self.logger.debug("Paper account buying power pre-sync: %.2f", float(buying_power))
 
         # Risk limits check
         if not self.risk_manager.check_daily_limits():

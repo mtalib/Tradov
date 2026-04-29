@@ -24,6 +24,8 @@ from datetime import datetime, time as dt_time, timezone
 from enum import Enum
 import pytz
 
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import get_market_overview_symbols
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -62,17 +64,8 @@ COLORS = {
     "purple": "#9370DB",
 }
 
-# Market symbols organized by category
-MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX"],
-    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
-    "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
-    "CORRELATIONS": ["DXY", "GLD", "USO"],
-    "OPTIONS ANALYTICS": ["IVR", "ATM_IV", "VRP"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN", "PMR"],
-}
+# Legacy constant kept for compatibility; sourced from canonical catalog.
+MARKET_SYMBOLS: dict[str, list[str]] = get_market_overview_symbols()
 
 # Symbol descriptions for tooltips
 SYMBOL_DESCRIPTIONS = {

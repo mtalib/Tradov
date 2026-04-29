@@ -18,8 +18,8 @@ Module Description:
 
     Relocated from SpyderG05 per audit §1/§14/§23 so the dashboard layer no
     longer owns live-data fetch logic. Behavior, signal contract, JSON cache
-    schema, and index-proxy math (UUP→DXY, QQQ×37.5 for IXIC, DIA×100 for
-    $DJI) are preserved bit-for-bit — this is a mechanical relocation, not a
+    schema, and index-proxy math (UUP→DXY, QQQ×37.5 for IXIC) are preserved
+    bit-for-bit — this is a mechanical relocation, not a
     MarketDataProtocol integration. Full protocol adoption is deferred until
     SpyderC00_MarketDataProtocol's contract can be validated end-to-end
     against a live feed in a GUI smoke test.
@@ -43,6 +43,7 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pytz
 from PySide6.QtCore import QObject, QMutex, QMutexLocker, QTimer, Signal, Slot
 
 # ==============================================================================
@@ -55,11 +56,16 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
     is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
+    get_quote_symbol_basket,
+    get_quote_symbol_remap,
+    get_realtime_sentinel_symbols,
+)
 
 
 def is_market_hours(now_et: datetime | None = None) -> bool:
     """Return True only when ET time is in session and weekday is Mon-Fri."""
-    eastern = pytz.timezone("US/Eastern")  # noqa: F821
+    eastern = pytz.timezone("US/Eastern")
     current_et = now_et or datetime.now(eastern)
     if current_et.weekday() >= 5:
         return False
@@ -98,7 +104,7 @@ HEARTBEAT_WARNING_TIME = 20000    # 20 seconds before next check (blue heart)
 HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 
 REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cycles + Tradier timeout  # noqa: E501
-REALTIME_SENTINEL_SYMBOLS = ("SPY", "SPX", "QQQ")
+REALTIME_SENTINEL_SYMBOLS = get_realtime_sentinel_symbols()
 
 # Options-chain fetch deduplication.
 # The SPY chain is expensive (~200-400ms, Tradier rate-limited).  Multiple
@@ -172,14 +178,13 @@ def _get_cached_chain(
 # Single canonical remap: Tradier symbol → dashboard widget key.
 # §1c: Consolidated from two inline dicts that previously lived independently
 # inside _fetch_live_data_from_tradier and _fetch_quotes_fast.
-_SYMBOL_REMAP: dict[str, str] = {
-    "UUP":   "DXY",   # Invesco USD ETF (~27) proxies DXY (~104) for display
-    # NDX, RUT are already the correct widget key names — no remap needed.
-    # $DJI confirmed ~15 min delayed on Tradier; DIA*100 used for display instead.
-    # NOTE: VIX9D is now a first-class dashboard widget; it stores as "VIX9D" directly.
-    # VXV (3-month CBOE vol) is fetched directly from Tradier; falls back to "---" if
-    # unavailable on the current data subscription.
-}
+_SYMBOL_REMAP: dict[str, str] = get_quote_symbol_remap()
+_QUOTE_SYMBOL_BASKET: tuple[str, ...] = tuple(get_quote_symbol_basket())
+
+
+def _build_quote_symbol_basket() -> list[str]:
+    """Return one canonical quote basket for slow, fast, and EOD fetch paths."""
+    return list(_QUOTE_SYMBOL_BASKET)
 
 
 # ==============================================================================
@@ -250,6 +255,10 @@ def _freshest_live_data_timestamp(live_data: dict) -> datetime | None:
 def check_api_connection():
     """Check if Tradier API is reachable.
 
+    Respects TRADING_MODE: when set to 'paper', uses TRADIER_SANDBOX_API_KEY and
+    TRADIER_SANDBOX_ACCOUNT_ID against the sandbox endpoint regardless of
+    TRADIER_ENVIRONMENT, matching the credential routing used by _fetch_balance_only.
+
     Returns:
         Tuple of (connected: bool, mode: str)
     """
@@ -260,24 +269,33 @@ def check_api_connection():
                 load_dotenv(override=True)
             except ImportError:
                 pass
+            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
             api_key = os.environ.get("TRADIER_API_KEY", "")
             account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
             env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
 
-            if api_key and account_id:
+            if trading_mode == "paper":
+                # In paper mode always use sandbox credentials and endpoint.
+                api_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
+                account_id = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
+                env_enum = TradingEnvironment.SANDBOX
+                mode_label = "PAPER"
+            else:
                 env_enum = (
                     TradingEnvironment.LIVE
                     if env.lower() == "live"
                     else TradingEnvironment.SANDBOX
                 )
+                mode_label = "SANDBOX" if env.lower() != "live" else "LIVE"
+
+            if api_key and account_id:
                 client = TradierClient(
                     api_key=api_key,
                     account_id=account_id,
                     environment=env_enum,
                 )
                 if client.test_connection():
-                    mode = "SANDBOX" if env.lower() != "live" else "LIVE"
-                    return True, f"Tradier API ({mode})"
+                    return True, f"Tradier API ({mode_label})"
 
         return False, "Tradier API not configured"
 
@@ -540,23 +558,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 pass
 
             # --- Fetch live quotes and write to data_file ---
-            symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VXV",   # S&P core + volatility (VIX confirmed on Tradier LIVE; $VIX is unmatched)  # noqa: E501
-                "VVIX", "UVXY",                           # Volatility ETFs
-                "SKEW",                                   # CBOE SKEW index
-                "DIA", "QQQ", "IWM",                      # Major index ETFs
-                "TLT", "HYG", "LQD", "GLD", "USO",         # Bonds & credit + correlations
-                "UUP",                                    # USD Index ETF (DXY proxy; Tradier: no DXY)  # noqa: E501
-                # NOTE: $DJI confirmed ~15 min delayed on Tradier (April 2026 testing).
-                # DIA ETF * 100 is used instead — real-time, tracks within 0.3%.
-                "RUT",                                    # Russell 2000 index (bare symbol confirmed on Tradier)  # noqa: E501
-                # NOTE: NASDAQ Composite (IXIC) is NOT available on Tradier.
-                # QQQ ETF * 37.5 is used as a Composite proxy (~23,079 vs actual ~23,111).
-                # NDX (NASDAQ 100, ~25,358) is a different, unrelated index.
-                # NOTE: $TICK, $ADD, $TRIN all confirmed unmatched on Tradier LIVE API (April 2026).
-                # NYSE market internals are not available on current Tradier data subscription.
-                "XLK", "XLF",                            # Sector ETFs for 0-DTE abort gates
-            ]
+            symbols = _build_quote_symbol_basket()
             try:
                 raw = client.get_quotes(symbols)
                 quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -646,8 +648,6 @@ class ThreadSafeMarketDataWorker(QObject):
                             "change": round(cpc_change, 3),
                             "change_pct": round(cpc_change / prev_cpc * 100 if prev_cpc else 0, 2),
                         }
-                        # PCALL: same ratio — SPY is the primary equity index proxy.
-                        live_data["PCALL"] = live_data["CPC"]
                         # Persist updated live_data with CPC (_fetch_time_ms already set above)
                         self.data_file.parent.mkdir(parents=True, exist_ok=True)
                         with open(self.data_file, "w") as f:
@@ -735,16 +735,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 else TradingEnvironment.SANDBOX
             )
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
-            symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VXV", "VVIX", "UVXY", "SKEW",
-                "DIA", "QQQ", "IWM", "TLT", "HYG", "LQD", "GLD", "UUP",
-                # $DJI excluded: ~15 min delayed on Tradier; DIA*100 used for display
-                "RUT",   # Russell 2000 bare symbol — confirmed on Tradier (not $RUT)
-                # NASDAQ Composite (IXIC) not available on Tradier; QQQ*37.5 proxy used instead
-                # $TICK/$ADD/$TRIN: Yahoo Finance removed ^TICK/^ADD/^TRIN (404 as of 2025);
-                # Tradier requires an index data add-on for live index feeds
-                "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
-            ]
+            symbols = _build_quote_symbol_basket()
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
             if isinstance(quotes_raw, dict):
@@ -852,11 +843,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 else TradingEnvironment.SANDBOX
             )
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
-            symbols = [
-                "SPY", "SPX", "VIX", "VIX9D", "VXV", "VVIX", "UVXY", "SKEW",
-                "DIA", "QQQ", "IWM", "TLT", "HYG", "LQD", "GLD", "USO", "UUP", "RUT",
-                "XLK", "XLF",   # Sector ETFs for 0-DTE abort gates
-            ]
+            symbols = _build_quote_symbol_basket()
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
             if isinstance(quotes_raw, dict):
@@ -913,20 +900,15 @@ class ThreadSafeMarketDataWorker(QObject):
         base_prices = {
             "SPY": 585.25,
             "SPX": 5850.75,
-            "/ES": 5852.50,
             "VIX": 15.32,
             "VIX9D": 14.8,
             "VXV": 16.2,
-            "VXMT": 17.5,
             "VVIX": 82.45,
-            "UVXY": 22.18,
             "$TICK": 234,
             "$TRIN": 0.85,
             "$ADD": 1245,
             "CPC": 0.95,
-            "PCALL": 0.88,
             "SKEW": 125.5,
-            "DIA": 425.33,
             "QQQ": 485.92,
             "IWM": 225.18,
             "TLT": 92.45,
@@ -1121,6 +1103,7 @@ __all__ = [
     "_CHAIN_CACHE",
     "_CHAIN_LOCK",
     "_CHAIN_TTL",
+    "_build_quote_symbol_basket",
     "_coerce_epoch_ms",
     "_datetime_from_epoch_ms",
     "_freshest_live_data_timestamp",

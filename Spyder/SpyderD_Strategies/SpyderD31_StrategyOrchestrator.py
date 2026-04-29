@@ -34,12 +34,14 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json  # noqa: E402
 import logging  # noqa: E402
 import os  # noqa: E402
 import inspect  # noqa: E402
 import threading  # noqa: E402
+import time  # noqa: E402
 import uuid  # noqa: E402
-from collections import deque  # noqa: E402
+from collections import deque, defaultdict  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
@@ -84,8 +86,16 @@ try:
     try:
         from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: F401
         from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import is_strategy_class as _is_strategy_class  # noqa: F401
+        from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+            TradingSignal as BaseTradingSignal,
+            SignalType as BaseSignalType,
+            SignalStrength as BaseSignalStrength,
+        )
     except ImportError:
         BaseStrategy = object  # type: ignore[assignment,misc]
+        BaseTradingSignal = None  # type: ignore[assignment]
+        BaseSignalType = None  # type: ignore[assignment]
+        BaseSignalStrength = None  # type: ignore[assignment]
 
         def _is_strategy_class(cls: Any) -> bool:  # type: ignore[misc]
             """Fallback when D01 is unavailable."""
@@ -114,6 +124,18 @@ try:
     StraddleStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD05_Straddle", "StraddleStrategy"
     )
+    BullPutSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD06_BullPutSpread", "BullPutSpreadStrategy"
+    )
+    BearCallSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"
+    )
+    OpeningRangeBreakoutStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"
+    )
+    GreeksBasedStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD09_GreeksBasedStrategy", "GreeksBasedStrategy"
+    )
     SpecializedZeroDTEStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"
     )
@@ -124,8 +146,26 @@ try:
     CalendarSpreadStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread", "CalendarSpreadStrategy"
     )
+    StraddleStrangleStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD15_StraddleStrangle", "StraddleStrangleStrategy"
+    )
+    RatioSpreadsStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD16_RatioSpreads", "RatioSpreadsStrategy"
+    )
+    DiagonalSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD17_DiagonalSpread", "DiagonalSpreadStrategy"
+    )
     JadeLizardStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD19_JadeLizard", "JadeLizardStrategy"
+    )
+    VerticalSpreadOptimizer = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD20_VerticalSpreadOptimizer", "VerticalSpreadOptimizer"
+    )
+    DoubleCalendarStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD21_DoubleCalendar", "DoubleCalendarStrategy"
+    )
+    AdaptiveVolatilityStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD22_AdaptiveVolatility", "AdaptiveVolatilityStrategy"
     )
     GammaScalperStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD26_GammaScalper", "GammaScalperStrategy"
@@ -142,6 +182,285 @@ try:
     PivotMeanReversionStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion", "PivotMeanReversionStrategy"
     )
+    EvolvedCreditSpreadCore = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD18_EvolvedCreditSpread", "EvolvedCreditSpreadStrategy"
+    )
+    VIXHedgingCore = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD28_VIXHedging", "VIXHedgingStrategy"
+    )
+
+    class EvolvedCreditSpreadAdapter(BaseStrategy):
+        """Adapter to expose D18 strategy through the BaseStrategy contract."""
+
+        def __init__(self, name=None, event_manager=None, risk_profile=None, config=None):
+            super().__init__(
+                name=name or "EvolvedCreditSpread",
+                event_manager=event_manager,
+                risk_profile=risk_profile,
+                config=config,
+                strategy_type="evolved_credit_spread",
+            )
+            self._core = EvolvedCreditSpreadCore(config=config or {}) if EvolvedCreditSpreadCore else None
+
+        @staticmethod
+        def _extract_series(data: pd.DataFrame, candidates: list[str]) -> list[float]:
+            for col in candidates:
+                if col in data.columns:
+                    return [float(v) for v in data[col].dropna().tolist()]
+            return []
+
+        def _to_d18_market_data(self, market_data: pd.DataFrame) -> dict[str, Any]:
+            prices = self._extract_series(market_data, ["SPY", "close", "Close", "price", "last"]) 
+            volumes = self._extract_series(market_data, ["volume", "Volume"])
+            vix_series = self._extract_series(market_data, ["VIX", "vix"])
+
+            current_price = float(prices[-1]) if prices else 0.0
+            daily_change = 0.0
+            if len(prices) >= 2 and prices[-2] != 0:
+                daily_change = (prices[-1] - prices[-2]) / prices[-2]
+
+            return {
+                "price_series": prices,
+                "volume_series": volumes,
+                "current_price": current_price,
+                "daily_change": daily_change,
+                "vix": float(vix_series[-1]) if vix_series else 20.0,
+            }
+
+        def _to_base_signal(self, native_signal: Any, default_symbol: str = "SPY") -> BaseTradingSignal | None:
+            if BaseTradingSignal is None:
+                return None
+
+            action_raw = str(getattr(native_signal, "action", "")).strip().upper()
+            position_details = getattr(native_signal, "position_details", {}) or {}
+
+            if action_raw.startswith("ENTER"):
+                signal_type = BaseSignalType.SELL
+                action = "sell_to_open"
+            elif action_raw.startswith("EXIT"):
+                signal_type = BaseSignalType.CLOSE
+                action = "close"
+            else:
+                signal_type = BaseSignalType.HOLD
+                action = "hold"
+
+            confidence = float(getattr(native_signal, "ai_confidence", 0.0) or 0.0)
+            strength_raw = float(getattr(native_signal, "signal_strength", 0.0) or 0.0)
+            if strength_raw >= 0.8:
+                strength = BaseSignalStrength.VERY_STRONG
+            elif strength_raw >= 0.6:
+                strength = BaseSignalStrength.STRONG
+            elif strength_raw >= 0.4:
+                strength = BaseSignalStrength.MODERATE
+            else:
+                strength = BaseSignalStrength.WEAK
+
+            entry_price = float(position_details.get("estimated_credit") or 0.0)
+            if entry_price <= 0:
+                entry_price = 1.0
+
+            max_loss = float(position_details.get("max_loss") or 0.0)
+            stop_loss = max(entry_price * 2.0, max_loss if max_loss > 0 else 0.0)
+            take_profit = max(entry_price * 0.5, 0.01)
+
+            if signal_type == BaseSignalType.CLOSE:
+                stop_loss = max(entry_price * 1.25, 0.01)
+                take_profit = max(entry_price * 0.75, 0.01)
+
+            timestamp = getattr(native_signal, "timestamp", None) or datetime.now(timezone.utc)
+
+            return BaseTradingSignal(
+                signal_id=str(getattr(native_signal, "signal_id", uuid.uuid4().hex)),
+                signal_type=signal_type,
+                symbol=default_symbol,
+                strength=strength,
+                confidence=max(0.0, min(1.0, confidence)),
+                entry_price=float(entry_price),
+                stop_loss=float(stop_loss),
+                take_profit=float(take_profit),
+                position_size=max(1, int(position_details.get("contracts") or 1)),
+                timestamp=timestamp,
+                expires_at=timestamp + timedelta(minutes=10),
+                metadata={
+                    "strategy_id": "evolved_credit_spread",
+                    "strategy_type": "evolved_credit_spread",
+                    "action": action,
+                    "native_action": action_raw,
+                    "ai_confidence": confidence,
+                    "signal_strength": strength_raw,
+                    "position_details": position_details,
+                },
+            )
+
+        def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
+            if self._core is None or BaseTradingSignal is None:
+                return []
+
+            try:
+                d18_market_data = self._to_d18_market_data(market_data)
+                analysis = self._core.analyze_market(d18_market_data)
+                native_signals = self._core.generate_signals(analysis)
+            except Exception as exc:
+                self.logger.error("EvolvedCreditSpreadAdapter signal generation failed: %s", exc, exc_info=True)
+                return []
+
+            mapped: list[BaseTradingSignal] = []
+            for native in native_signals or []:
+                signal = self._to_base_signal(native)
+                if signal is not None:
+                    mapped.append(signal)
+            return mapped
+
+        def validate_signal(self, signal: Any) -> bool:
+            return (
+                signal is not None
+                and getattr(signal, "symbol", "") == "SPY"
+                and float(getattr(signal, "confidence", 0.0) or 0.0) >= 0.5
+                and int(getattr(signal, "position_size", 0) or 0) > 0
+            )
+
+        def calculate_position_size(self, signal: Any) -> int:
+            try:
+                return max(1, int(getattr(signal, "position_size", 1) or 1))
+            except Exception:
+                return 1
+
+        def should_exit_position(self, position: Any, market_data: pd.DataFrame) -> tuple[bool, str]:
+            return False, ""
+
+
+    class VIXHedgingAdapter(BaseStrategy):
+        """Adapter to expose D28 strategy through the BaseStrategy contract."""
+
+        def __init__(self, name=None, event_manager=None, risk_profile=None, config=None):
+            super().__init__(
+                name=name or "VIXHedging",
+                event_manager=event_manager,
+                risk_profile=risk_profile,
+                config=config,
+                strategy_type="vix_hedging",
+            )
+            self._core = VIXHedgingCore() if VIXHedgingCore else None
+
+        @staticmethod
+        def _extract_last(data: pd.DataFrame, candidates: list[str], default: float) -> float:
+            for col in candidates:
+                if col in data.columns and len(data[col].dropna()) > 0:
+                    return float(data[col].dropna().iloc[-1])
+            return default
+
+        def _action_to_signal(self, action_value: str) -> tuple[Any, str]:
+            normalized = action_value.strip().lower()
+            if normalized == "add_hedge":
+                return BaseSignalType.BUY, "buy_to_open"
+            if normalized in {"reduce_hedge", "remove_hedge", "harvest_premium"}:
+                return BaseSignalType.SELL, "sell_to_close"
+            return BaseSignalType.HOLD, "hold"
+
+        def _recommendation_to_signal(
+            self,
+            recommendation: Any,
+            market_data: pd.DataFrame,
+            portfolio_value: float,
+        ) -> BaseTradingSignal | None:
+            if BaseTradingSignal is None:
+                return None
+
+            action_obj = getattr(recommendation, "action", "maintain")
+            action_value = str(getattr(action_obj, "value", action_obj))
+            signal_type, action = self._action_to_signal(action_value)
+            if signal_type == BaseSignalType.HOLD:
+                return None
+
+            target_ratio = float(getattr(recommendation, "portfolio_hedge_ratio", 0.0) or 0.0)
+            notional = float(getattr(recommendation, "notional_value", 0.0) or 0.0)
+            expected_cost = float(getattr(recommendation, "expected_cost", 0.0) or 0.0)
+            expected_protection = float(getattr(recommendation, "expected_protection", 0.0) or 0.0)
+            rationale = str(getattr(recommendation, "rationale", ""))
+
+            symbol = "SPY"
+            hedge_type_obj = getattr(recommendation, "hedge_type", "")
+            hedge_type = str(getattr(hedge_type_obj, "value", hedge_type_obj)).lower()
+            if "vix" in hedge_type:
+                symbol = "VIX"
+
+            qty = max(1, int(round(notional / max(portfolio_value * 0.01, 1000.0))))
+            reference_price = self._extract_last(market_data, [symbol, "SPY", "close", "Close"], 20.0)
+            entry_price = max(0.01, expected_cost / max(qty, 1))
+
+            if signal_type == BaseSignalType.BUY:
+                stop_loss = max(entry_price * 0.6, 0.01)
+                take_profit = max(entry_price * 1.8, entry_price + 0.01)
+            else:
+                stop_loss = max(entry_price * 1.5, 0.01)
+                take_profit = max(entry_price * 0.5, 0.01)
+
+            confidence = 0.75 if signal_type == BaseSignalType.BUY else 0.65
+            timestamp = datetime.now(timezone.utc)
+            return BaseTradingSignal(
+                signal_id=f"VIXHEDGE_{timestamp.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
+                signal_type=signal_type,
+                symbol=symbol,
+                strength=BaseSignalStrength.MODERATE,
+                confidence=confidence,
+                entry_price=entry_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                position_size=qty,
+                timestamp=timestamp,
+                expires_at=timestamp + timedelta(minutes=15),
+                metadata={
+                    "strategy_id": "vix_hedging",
+                    "strategy_type": "vix_hedging",
+                    "action": action,
+                    "hedge_type": hedge_type,
+                    "urgency": str(getattr(recommendation, "urgency", "")),
+                    "target_hedge_ratio": target_ratio,
+                    "notional_value": notional,
+                    "expected_cost": expected_cost,
+                    "expected_protection": expected_protection,
+                    "reference_price": reference_price,
+                    "rationale": rationale,
+                },
+            )
+
+        def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
+            if self._core is None or BaseTradingSignal is None:
+                return []
+
+            portfolio_value = float(getattr(self.risk_profile, "account_size", 100000.0) or 100000.0)
+            current_hedge_ratio = float((self.config or {}).get("current_hedge_ratio", 0.0) or 0.0)
+            risk_tolerance = str((self.config or {}).get("risk_tolerance", "moderate"))
+
+            try:
+                recommendation = self._core.get_hedge_recommendation(
+                    portfolio_value=portfolio_value,
+                    current_hedge_ratio=current_hedge_ratio,
+                    risk_tolerance=risk_tolerance,
+                )
+            except Exception as exc:
+                self.logger.error("VIXHedgingAdapter recommendation failed: %s", exc, exc_info=True)
+                return []
+
+            signal = self._recommendation_to_signal(recommendation, market_data, portfolio_value)
+            return [signal] if signal is not None else []
+
+        def validate_signal(self, signal: Any) -> bool:
+            return (
+                signal is not None
+                and str(getattr(signal, "symbol", "")).strip() != ""
+                and float(getattr(signal, "confidence", 0.0) or 0.0) >= 0.5
+                and int(getattr(signal, "position_size", 0) or 0) > 0
+            )
+
+        def calculate_position_size(self, signal: Any) -> int:
+            try:
+                return max(1, int(getattr(signal, "position_size", 1) or 1))
+            except Exception:
+                return 1
+
+        def should_exit_position(self, position: Any, market_data: pd.DataFrame) -> tuple[bool, str]:
+            return False, ""
 
     # Event management
     from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501
@@ -196,6 +515,7 @@ except ImportError as e:
 
 # Portfolio management
 MAX_CONCURRENT_STRATEGIES = 8
+MAX_ACTIVE_HORIZON_BUCKETS = 3
 DEFAULT_BASE_CAPITAL = 100000  # $100K base allocation
 REBALANCE_FREQUENCY_MINUTES = 30  # Rebalance every 30 minutes
 STRATEGY_HEALTH_CHECK_INTERVAL = 60  # Check health every minute
@@ -314,6 +634,7 @@ class StrategyAllocation:
     strategy_id: str
     strategy_name: str
     strategy_type: str
+    horizon_bucket: str
     allocated_capital: float
     target_allocation: float
     current_allocation: float
@@ -421,6 +742,14 @@ class StrategyOrchestrator:
         self.base_capital = base_capital
         self.orchestration_mode = orchestration_mode
         self.allocation_method = allocation_method
+        self.max_concurrent_strategies = max(
+            1,
+            int(os.environ.get("SPYDER_MAX_CONCURRENT_STRATEGIES", str(MAX_CONCURRENT_STRATEGIES)))
+        )
+        self.max_active_horizon_buckets = max(
+            1,
+            int(os.environ.get("SPYDER_MAX_ACTIVE_HORIZON_BUCKETS", str(MAX_ACTIVE_HORIZON_BUCKETS)))
+        )
         self.connectivity_manager = connectivity_manager
         self.event_manager = event_manager
         self._l09_engine: Any | None = regime_engine          # L09 UnifiedRegimeEngine (optional)
@@ -501,12 +830,27 @@ class StrategyOrchestrator:
         # so D31 can apply trust-policy gating without widening startup failures.
         self._entry_filter_gate: Any | None = None
         self._metrics_orchestrator: Any | None = None
+        self._regime_policy: dict[str, Any] | None = None
 
         # B5: Two distinct pause flags so DATA_FRESH can clear the stale-data
         # pause without also clearing a KILL_SWITCH halt (which is sticky and
         # requires a restart to clear).
         self._paused_kill: bool = False   # set by KILL_SWITCH; sticky — only restart clears
         self._paused_stale: bool = False  # set by DATA_STALE; cleared by DATA_FRESH
+
+        # Signal-flow visibility (runtime-only counters; complements Prometheus).
+        # These counters make it easy to see why trades are not being placed
+        # without needing external metrics tooling.
+        self._signal_flow_counts: dict[str, int] = {
+            "seen": 0,
+            "dropped": 0,
+            "approved": 0,
+            "dispatch_submitted": 0,
+            "dispatch_rejected": 0,
+        }
+        self._signal_drop_reasons: dict[str, int] = defaultdict(int)
+        self._signal_flow_log_interval_s: float = 30.0
+        self._signal_flow_last_log_monotonic: float = time.monotonic()
 
         # Y02 StrategyPilotAgent advisory: tracks the last time each strategy type
         # received an LLM-validated approval on the agent bus.  Updated by
@@ -537,6 +881,41 @@ class StrategyOrchestrator:
         self._setup_event_subscriptions()
 
         self.logger.info(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")  # noqa: E501
+
+    def _record_signal_drop(self, stage: str, reason: str) -> None:
+        """Track and expose why strategy signals are dropped."""
+        _count_drop(stage, reason)
+        self._signal_flow_counts["dropped"] += 1
+        self._signal_drop_reasons[f"{stage}:{reason}"] += 1
+        self._log_signal_flow_summary_if_due()
+
+    def _record_signal_dispatch_outcome(self, outcome: str) -> None:
+        """Track order-routing outcomes for approved signals."""
+        if outcome in self._signal_flow_counts:
+            self._signal_flow_counts[outcome] += 1
+        self._log_signal_flow_summary_if_due()
+
+    def _log_signal_flow_summary_if_due(self, force: bool = False) -> None:
+        """Emit periodic counters so operators can diagnose no-trade sessions."""
+        now = time.monotonic()
+        if not force and (now - self._signal_flow_last_log_monotonic) < self._signal_flow_log_interval_s:
+            return
+        self._signal_flow_last_log_monotonic = now
+
+        top_reason = "none"
+        if self._signal_drop_reasons:
+            reason, count = max(self._signal_drop_reasons.items(), key=lambda item: item[1])
+            top_reason = f"{reason} x{count}"
+
+        self.logger.info(
+            "📈 D31 signal flow: seen=%d approved=%d dropped=%d dispatched=%d rejected=%d top_drop=%s",
+            self._signal_flow_counts["seen"],
+            self._signal_flow_counts["approved"],
+            self._signal_flow_counts["dropped"],
+            self._signal_flow_counts["dispatch_submitted"],
+            self._signal_flow_counts["dispatch_rejected"],
+            top_reason,
+        )
 
     # ==========================================================================
     # PUBLIC INTERFACE - ORCHESTRATION CONTROL
@@ -695,6 +1074,27 @@ class StrategyOrchestrator:
                     f"Strategy class is abstract and cannot be instantiated: {strategy_class.__name__}"  # noqa: E501
                 )
 
+            strategy_name = strategy_class.__name__
+            horizon_bucket = self._resolve_horizon_bucket(strategy_name, config)
+
+            with self._strategies_lock:
+                current_active = len(self.active_strategies)
+                if current_active >= self.max_concurrent_strategies:
+                    raise ValueError(
+                        f"Concurrent strategy limit reached: {current_active}/{self.max_concurrent_strategies}"  # noqa: E501
+                    )
+
+                active_buckets = self._get_active_horizon_buckets_locked()
+                would_add_new_bucket = horizon_bucket not in active_buckets
+                if (
+                    would_add_new_bucket
+                    and len(active_buckets) >= self.max_active_horizon_buckets
+                ):
+                    raise ValueError(
+                        "Horizon-bucket limit reached: "
+                        f"{sorted(active_buckets)} (max={self.max_active_horizon_buckets})"
+                    )
+
             # Generate strategy ID
             strategy_id = f"{strategy_class.__name__}_{uuid.uuid4().hex[:8]}"
 
@@ -747,6 +1147,7 @@ class StrategyOrchestrator:
                 strategy_id=strategy_id,
                 strategy_name=strategy_class.__name__,
                 strategy_type=self._get_strategy_type(strategy_class),
+                horizon_bucket=horizon_bucket,
                 allocated_capital=allocated_capital,
                 target_allocation=initial_allocation,
                 current_allocation=initial_allocation,
@@ -775,7 +1176,12 @@ class StrategyOrchestrator:
             # Update portfolio metrics
             self._update_portfolio_metrics()
 
-            self.logger.info(f"✅ Added strategy: {strategy_id} with {initial_allocation:.1%} allocation")  # noqa: E501
+            self.logger.info(
+                "✅ Added strategy: %s with %.1f%% allocation (bucket=%s)",
+                strategy_id,
+                initial_allocation * 100,
+                horizon_bucket,
+            )
             return strategy_id
 
         except Exception as e:
@@ -1174,6 +1580,48 @@ class StrategyOrchestrator:
             if name.endswith(suffix):
                 name = name[: -len(suffix)]
         return name or strategy_class.__name__
+
+    def _resolve_horizon_bucket(self, strategy_name: str, config: dict[str, Any]) -> str:
+        """Resolve strategy horizon bucket used for admission guardrails.
+
+        Buckets:
+        - ``ultra_short``: same-day / 0DTE style strategies
+        - ``short``: intraday to 1DTE style strategies
+        - ``swing``: multi-day decay/structure strategies (calendar/diagonal)
+
+        A strategy can override classification via ``config['horizon_bucket']``.
+        """
+        raw = str((config or {}).get("horizon_bucket", "")).strip().lower()
+        if raw in {"ultra_short", "short", "swing"}:
+            return raw
+
+        name = strategy_name.lower()
+        if "zerodte" in name or "0dte" in name:
+            return "ultra_short"
+
+        if any(token in name for token in ("calendar", "diagonal", "doublecalendar", "swing")):
+            return "swing"
+
+        return "short"
+
+    def _infer_horizon_bucket_from_allocation(self, alloc: StrategyAllocation) -> str:
+        """Return allocation bucket, inferring from strategy_type when absent."""
+        bucket = str(getattr(alloc, "horizon_bucket", "")).strip().lower()
+        if bucket in {"ultra_short", "short", "swing"}:
+            return bucket
+
+        strategy_type = str(getattr(alloc, "strategy_type", ""))
+        return self._resolve_horizon_bucket(strategy_type, {})
+
+    def _get_active_horizon_buckets_locked(self) -> set[str]:
+        """Return active horizon buckets.
+
+        Must be called while ``self._strategies_lock`` is held.
+        """
+        buckets: set[str] = set()
+        for alloc in self.strategy_allocations.values():
+            buckets.add(self._infer_horizon_bucket_from_allocation(alloc))
+        return buckets
 
     def _calculate_optimal_allocation(self, strategy_name: str) -> float:
         """Return an initial capital fraction for a single new strategy.
@@ -1986,16 +2434,28 @@ class StrategyOrchestrator:
                 'CreditSpread': CreditSpreadStrategy,
                 'ZeroDTE': ZeroDTEStrategy,
                 'Straddle': StraddleStrategy,
+                'BullPutSpread': BullPutSpreadStrategy,
+                'BearCallSpread': BearCallSpreadStrategy,
+                'OpeningRangeBreakout': OpeningRangeBreakoutStrategy,
+                'GreeksBased': GreeksBasedStrategy,
                 'SpecializedZeroDTE': SpecializedZeroDTEStrategy,
                 # Phase 3: strategies referenced in regime weights but previously unregistered
                 'IronButterfly': IronButterflyStrategy,
                 'CalendarSpread': CalendarSpreadStrategy,
+                'StraddleStrangle': StraddleStrangleStrategy,
+                'RatioSpreads': RatioSpreadsStrategy,
+                'DiagonalSpread': DiagonalSpreadStrategy,
                 'JadeLizard': JadeLizardStrategy,
+                'VerticalSpreadOptimizer': VerticalSpreadOptimizer,
+                'DoubleCalendar': DoubleCalendarStrategy,
+                'AdaptiveVolatility': AdaptiveVolatilityStrategy,
                 'GammaScalper': GammaScalperStrategy,
                 'RSIMeanReversion': RSIMeanReversionStrategy,
                 'MACrossover': MACrossoverStrategy,
                 'RenaissanceMeanReversion': RenaissanceMeanReversionStrategy,
                 'PivotMeanReversion': PivotMeanReversionStrategy,
+                'EvolvedCreditSpread': EvolvedCreditSpreadAdapter,
+                'VIXHedging': VIXHedgingAdapter,
             }
 
             self.available_strategies = {
@@ -2089,6 +2549,64 @@ class StrategyOrchestrator:
             self.logger.error("Error checking concentration conflicts: %s", e, exc_info=True)
 
         return conflicts
+
+    def _analyze_strategy_pair_for_conflicts(
+        self,
+        strategy_id_1: str,
+        strategy_1: Any,
+        strategy_id_2: str,
+        strategy_2: Any,
+    ) -> StrategyConflict | None:
+        """Detect pairwise conflicts between two active strategies.
+
+        Keeps logic conservative: only raise conflicts for direct position overlap
+        or duplicate strategy-type deployment that can cause over-concentration.
+        """
+        try:
+            # Direct overlap: same instrument keys in positions dict.
+            pos_1 = getattr(strategy_1, "positions", {}) or {}
+            pos_2 = getattr(strategy_2, "positions", {}) or {}
+            keys_1 = set(pos_1.keys()) if isinstance(pos_1, dict) else set()
+            keys_2 = set(pos_2.keys()) if isinstance(pos_2, dict) else set()
+            overlap = sorted(keys_1 & keys_2)
+            if overlap:
+                overlap_preview = ", ".join(overlap[:3])
+                return StrategyConflict(
+                    strategy_ids=[strategy_id_1, strategy_id_2],
+                    conflict_type="position_overlap",
+                    severity="high",
+                    description=(
+                        f"Strategies share {len(overlap)} position key(s): {overlap_preview}"
+                    ),
+                    resolution_action="Pause one strategy or net overlapping exposure",
+                    detected_at=datetime.now(timezone.utc),
+                )
+
+            # Same-type overlap: medium severity concentration warning.
+            alloc_1 = self.strategy_allocations.get(strategy_id_1)
+            alloc_2 = self.strategy_allocations.get(strategy_id_2)
+            type_1 = getattr(alloc_1, "strategy_type", None)
+            type_2 = getattr(alloc_2, "strategy_type", None)
+            if type_1 and type_2 and type_1 == type_2:
+                return StrategyConflict(
+                    strategy_ids=[strategy_id_1, strategy_id_2],
+                    conflict_type="strategy_type_overlap",
+                    severity="medium",
+                    description=f"Multiple active strategies share type '{type_1}'",
+                    resolution_action="Rebalance allocation across similar strategy types",
+                    detected_at=datetime.now(timezone.utc),
+                )
+
+        except Exception as e:
+            self.logger.error(
+                "Error analyzing strategy pair conflict (%s, %s): %s",
+                strategy_id_1,
+                strategy_id_2,
+                e,
+                exc_info=True,
+            )
+
+        return None
 
     def subscribe_agent_bus(self, bus: Any) -> None:
         """Subscribe D31 to autonomous-agent topics on the agent message bus.
@@ -2306,14 +2824,16 @@ class StrategyOrchestrator:
         validate_signal() gate before it can be acted upon. If validation
         fails, the signal is dropped and a risk alert event is emitted.
         """
+        self._signal_flow_counts["seen"] += 1
+
         # B5/P1-1: Drop signals while paused (kill-switch sticky; data-stale transient).
         if self._paused_kill or self._paused_stale:
-            _count_drop("pre_risk", "orchestrator_paused")
+            self._record_signal_drop("pre_risk", "orchestrator_paused")
             return
 
         signal = getattr(event, "data", None)
         if not signal:
-            _count_drop("pre_risk", "empty_event")
+            self._record_signal_drop("pre_risk", "empty_event")
             return
 
         # P1-13: deterministic dry-run self-test path. When a synthetic signal
@@ -2337,7 +2857,7 @@ class StrategyOrchestrator:
 
         market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
         if not market_gate_ok:
-            _count_drop("pre_risk", "entry_trust_gate")
+            self._record_signal_drop("pre_risk", "entry_trust_gate")
             self.logger.warning("Strategy signal rejected by entry trust gate: %s", market_gate_reason)  # noqa: E501
             if self.event_manager:
                 try:
@@ -2363,7 +2883,7 @@ class StrategyOrchestrator:
                 pass
         risk_manager = self.risk_manager
         if risk_manager is None or not hasattr(risk_manager, "validate_signal"):
-            _count_drop("pre_risk", "no_risk_gate")
+            self._record_signal_drop("pre_risk", "no_risk_gate")
             return  # No risk gate wired — leave signal untouched
 
         # Build a typed RiskValidationRequest so E01's boundary check passes.
@@ -2382,7 +2902,7 @@ class StrategyOrchestrator:
                 )
             except ImportError:
                 self.logger.error("D31: RiskValidationRequest unavailable — signal dropped")
-                _count_drop("pre_risk", "rvr_import_failed")
+                self._record_signal_drop("pre_risk", "rvr_import_failed")
                 return
 
         _ACTION_MAP: dict[str, Any] = {
@@ -2410,7 +2930,7 @@ class StrategyOrchestrator:
             )
         except Exception as exc:
             self.logger.error("D31: Failed to build RiskValidationRequest: %s", exc, exc_info=True)
-            _count_drop("pre_risk", "rvr_build_failed")
+            self._record_signal_drop("pre_risk", "rvr_build_failed")
             return
 
         try:
@@ -2446,8 +2966,10 @@ class StrategyOrchestrator:
                 )
             except Exception:
                 pass
+            self._record_signal_drop("pre_risk", f"risk_gate:{reason}")
 
         if approved:
+            self._signal_flow_counts["approved"] += 1
             self._dispatch_approved_signal(signal)
 
     def _get_entry_filter_gate(self) -> Any | None:
@@ -2540,7 +3062,17 @@ class StrategyOrchestrator:
             checks.extend(entry_gate._check_data_quality_filter(params))
             checks.extend(entry_gate._check_vol_surface_structure_filter(params))
             checks.extend(entry_gate._check_dealer_flow_filter(params))
-            checks.extend(entry_gate._check_lead_lag_confirmation_filter(params))
+            checks.extend(entry_gate._check_vix_term_structure_filter())
+            checks.extend(entry_gate._check_cboe_skew_filter())
+            checks.extend(entry_gate._check_market_internals_filter())
+            checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
+            checks.extend(entry_gate._check_vol_of_vol_stress_filter(params))
+            checks.extend(entry_gate._check_put_call_sentiment_filter(params))
+            checks.extend(entry_gate._check_participation_filter(params))
+            checks.extend(entry_gate._check_qqq_confirmation_filter(params))
+            checks.extend(entry_gate._check_iwm_confirmation_filter(params))
+            checks.extend(entry_gate._check_xlk_confirmation_filter(params))
+            checks.extend(entry_gate._check_xlf_confirmation_filter(params))
         except Exception as exc:
             self.logger.debug("D31: entry trust gate failed open: %s", exc, exc_info=True)
             return True, ""
@@ -2551,9 +3083,120 @@ class StrategyOrchestrator:
             if getattr(result, "value", result) == "fail":
                 failures.append(check)
         if not failures:
-            return True, ""
+            return self._passes_regime_policy_gate(signal, market_conditions)
 
         return False, "; ".join(str(check.message) for check in failures)
+
+    def _get_regime_policy(self) -> dict[str, Any]:
+        """Load six-regime policy from config manager or repo config file."""
+        if self._regime_policy is not None:
+            return self._regime_policy
+
+        policy: dict[str, Any] = {}
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            cfg = get_config_manager()
+            candidate = cfg.get("autonomous_readiness.regime_policy", {})
+            if isinstance(candidate, dict):
+                policy = candidate
+        except Exception:
+            policy = {}
+
+        if not policy:
+            policy_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "config",
+                "regime_policy.json",
+            )
+            try:
+                with open(policy_path, encoding="utf-8") as f:
+                    policy = json.load(f)
+            except Exception:
+                policy = {}
+
+        self._regime_policy = policy if isinstance(policy, dict) else {}
+        return self._regime_policy
+
+    def _passes_regime_policy_gate(
+        self,
+        signal: dict[str, Any],
+        market_conditions: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Apply conservative regime-policy blocks (fail-open on missing context)."""
+        policy = self._get_regime_policy()
+        regimes = policy.get("regimes", {}) if isinstance(policy, dict) else {}
+        if not isinstance(regimes, dict) or not regimes:
+            return True, ""
+
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        raw_regime = str(
+            signal.get("regime")
+            or metadata.get("regime")
+            or market_conditions.get("regime")
+            or market_conditions.get("current_regime")
+            or market_conditions.get("market_regime")
+            or market_conditions.get("breadth_regime")
+            or ""
+        ).strip().lower()
+        if not raw_regime:
+            return True, ""
+
+        regime_aliases = {
+            "bull": "bull_trend",
+            "strong_bull": "bull_trend",
+            "bear": "bear_trend",
+            "strong_bear": "bear_trend",
+            "neutral": "range_calm",
+            "bull_low_vol": "bull_trend",
+            "bull_high_vol": "high_vol_mean_reversion",
+            "bear_low_vol": "bear_trend",
+            "bear_high_vol": "crisis_turbulent",
+            "sideways_low_vol": "range_calm",
+            "sideways_high_vol": "high_vol_mean_reversion",
+            "crisis": "crisis_turbulent",
+            "recovery": "event_transition",
+        }
+        regime_key = raw_regime if raw_regime in regimes else regime_aliases.get(raw_regime, "")
+        regime_cfg = regimes.get(regime_key, {}) if regime_key else {}
+        if not isinstance(regime_cfg, dict) or not regime_cfg:
+            return True, ""
+
+        hard_blocks = regime_cfg.get("hard_blocks", {})
+        if isinstance(hard_blocks, dict) and bool(hard_blocks.get("no_trade", False)):
+            return False, f"regime_policy:no_trade:{regime_key}"
+
+        strategy_name = str(
+            signal.get("strategy_type")
+            or signal.get("strategy_id")
+            or metadata.get("strategy_type")
+            or metadata.get("strategy_id")
+            or ""
+        ).strip().lower()
+
+        allowed = regime_cfg.get("allowed_strategies", [])
+        if isinstance(allowed, list) and allowed:
+            if not strategy_name:
+                return False, f"regime_policy:missing_strategy:{regime_key}"
+
+            allow_match = False
+            for token in allowed:
+                token_str = str(token).strip().lower()
+                if token_str and token_str in strategy_name:
+                    allow_match = True
+                    break
+            if not allow_match:
+                return False, f"regime_policy:not_allowed_strategy:{strategy_name}:{regime_key}"
+
+        if strategy_name:
+            blocked = regime_cfg.get("blocked_strategies", [])
+            if isinstance(blocked, list):
+                for token in blocked:
+                    token_str = str(token).strip().lower()
+                    if token_str and token_str in strategy_name:
+                        return False, f"regime_policy:blocked_strategy:{token_str}:{regime_key}"
+
+        return True, ""
 
     def set_live_engine(self, engine: Any) -> None:
         """Wire a LiveEngine instance so approved signals are dispatched as orders.
@@ -2640,7 +3283,7 @@ class StrategyOrchestrator:
             self.logger.error(
                 "D31: Approved signal dropped — no execution engine wired. signal=%s", signal
             )
-            _count_drop("dispatch", "no_execution_engine")
+            self._record_signal_drop("dispatch", "no_execution_engine")
             return
 
         try:
@@ -2664,6 +3307,7 @@ class StrategyOrchestrator:
                 self.logger.warning(
                     "Cannot dispatch approved signal — missing symbol or quantity: %s", signal
                 )
+                self._record_signal_drop("dispatch", "invalid_signal_payload")
                 return
 
             side = str(_get("action", _get("side", "buy"))).lower()
@@ -2688,11 +3332,13 @@ class StrategyOrchestrator:
                         "MidWalk filled: symbol=%s qty=%d %s",
                         symbol, quantity, walk_result.message,
                     )
+                    self._record_signal_dispatch_outcome("dispatch_submitted")
                 else:
                     self.logger.warning(
                         "MidWalk did not fill: symbol=%s reason=%s error=%s",
                         symbol, walk_result.message, walk_result.error_code,
                     )
+                    self._record_signal_dispatch_outcome("dispatch_rejected")
                 return  # Mid-price path handled — do not send a market order
 
             # ── Path 2: market order via live engine ─────────────────────────
@@ -2700,6 +3346,7 @@ class StrategyOrchestrator:
                 self.logger.warning(
                     "No live engine and no bid/ask quote — signal dropped: symbol=%s", symbol
                 )
+                self._record_signal_drop("dispatch", "no_live_engine_for_market_fallback")
                 return
 
             order: dict[str, Any] = {
@@ -2719,15 +3366,18 @@ class StrategyOrchestrator:
                 self.logger.warning(
                     "Market order rejected by live engine: symbol=%s reason=%s", symbol, reason
                 )
+                self._record_signal_dispatch_outcome("dispatch_rejected")
             else:
                 self.logger.info(
                     "Market order dispatched: symbol=%s qty=%d status=%s", symbol, quantity, status
                 )
+                self._record_signal_dispatch_outcome("dispatch_submitted")
 
         except Exception as exc:
             self.logger.error(
                 "Error dispatching approved signal: %s", exc, exc_info=True
             )
+            self._record_signal_drop("dispatch", "dispatch_exception")
 
 
     def _on_risk_alert(self, event: Event):

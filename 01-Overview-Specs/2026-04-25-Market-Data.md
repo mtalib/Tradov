@@ -100,7 +100,6 @@ Additional yfinance proof for Spyder fallback paths:
 The symbols below are used by market-data/signal modules but are not listed as rows in MARKET OVERVIEW.
 
 ### A) Market data worker / chart / proxy symbols
-- /ES (simulation baseline only)
 - VXMT (simulation baseline)
 - UVXY (fetched in market worker lists)
 - PCALL (alias/companion to CPC in market worker)
@@ -140,7 +139,6 @@ The current stack is strong for paper/autonomous validation, but the gaps below 
 | P0 | Event-risk clock and blackout windows (CPI, FOMC, NFP, OpEx + pre/post buffers) | Major event windows dominate short-DTE option behavior and can invalidate normal signal edges | A04 scheduler, F09 entry filters, E16 circuit breaker, S07 | Configurable event calendar with enforced no-trade/reduced-risk windows; all violations logged and tested |
 | P1 | Vol surface structure (0DTE/1DTE/7DTE/30DTE term nodes, 25d RR, fly/convexity, slope drift) | Improves strike selection and regime labeling beyond single ATM-IV snapshots | N06/N08/N12, S07 options analytics, F08/F10 | Surface metrics update intraday; strategy/risk rules consume thresholds for entry/position size |
 | P1 | Dealer-flow structure beyond aggregate GEX (zero-gamma path, call/put walls with confidence, vanna/charm pressure proxy) | Better identifies pin/break dynamics and intraday reversal odds | N09/N11, C30, S05 extension | Directional gate uses wall/zero-gamma context; measurable reduction in false entries on trend days |
-| P1 | Cross-asset lead/lag execution context (ES front month, optional MES) | Futures often lead SPY micro-moves around key levels and event prints | C11/C15, F14, S07 | Lead/lag signal available with latency stats; entry filter can require confirmation in fast markets |
 | P2 | Sector rotation breadth expansion (defensive vs cyclical spread panel beyond XLK/XLF) | Improves macro-state discrimination and helps avoid one-factor regime errors | C13/C22, F10, G05/G20 | Composite sector breadth score published and used as secondary regime input |
 | P2 | Data quality SLOs by metric (freshness, completeness, fallback provenance) | Autonomy requires explicit trust policy for each feed/metric | E24 DataFreshnessMonitor, S07 quality tracking, M01 monitoring | Per-metric SLO dashboard with alerting; strategy disables affected edges when SLOs fail |
 
@@ -619,7 +617,6 @@ This matrix converts the remaining readiness gaps into concrete feed contracts.
 | P0 | Event-risk clock | `SpyderA04_Scheduler`, `SpyderS07_CustomMetricsOrchestrator` | `SpyderF09_EntryFilters`, `SpyderE16_CircuitBreakerProtocol`, `SpyderG05_TradingDashboard` | `event_id`, `event_type`, `importance`, `source`, `event_time_et`, `blackout_pre_minutes`, `blackout_post_minutes`, `state` (`pre`/`live`/`post`/`clear`), `allowed_strategies`, `max_size_multiplier`, `published_ts` | 1 min scheduler + immediate on transition | Hard block/reduce risk in blackout state |
 | P1 | Vol surface structure | `SpyderN06_VolatilitySurfaceBuilder`, `SpyderN08_VolatilitySurface`, `SpyderS07_CustomMetricsOrchestrator` | `SpyderD31_StrategyOrchestrator`, `SpyderE09_VolatilityRiskManager`, `SpyderF10_MarketRegimeDetector` | `underlying`, `atm_iv_0dte`, `atm_iv_1dte`, `atm_iv_7dte`, `atm_iv_30dte`, `term_slope_0_7`, `term_slope_7_30`, `rr_25d`, `fly_25d`, `surface_confidence`, `surface_age_ms`, `snapshot_ts` | 30-60s | Disable vol-sensitive entries if stale/low confidence |
 | P1 | Dealer-flow structure | `SpyderN09_GammaExposure`, `SpyderN11_OptionsGreeksFlow`, `SpyderS05_GEXDEXCalculator` | `SpyderF09_EntryFilters`, `SpyderD30_RegimeGatedSelector`, `SpyderE15_GreekLimitsManager` | `zero_gamma_level`, `spot_to_zero_gamma_pct`, `call_wall_levels`, `put_wall_levels`, `wall_confidence`, `net_gex`, `net_dex`, `vanna_pressure`, `charm_pressure`, `flow_imbalance_score`, `snapshot_ts` | 30-60s | Tighten entries when confidence low / pressure extreme |
-| P1 | ES lead-lag context | `SpyderC11_FuturesBasis`, `SpyderC15_MicrostructureAnalyzer`, `SpyderS07_CustomMetricsOrchestrator` | `SpyderF14_MarketMicrostructure`, `SpyderF09_EntryFilters`, `SpyderD04_ZeroDTE` | `es_price`, `spy_price`, `basis_bps`, `lead_lag_ms`, `es_impulse_score`, `confirm_direction`, `confirm_confidence`, `snapshot_ts` | 1-5s | Require confirmation in fast regime |
 | P2 | Sector breadth expansion | `SpyderC13_IndexComponents`, `SpyderC22_FactorDataProvider`, `SpyderS07_CustomMetricsOrchestrator` | `SpyderF10_MarketRegimeDetector`, `SpyderD30_RegimeGatedSelector`, `SpyderG05_TradingDashboard` | `breadth_defensive`, `breadth_cyclical`, `breadth_spread`, `sector_adv_dec`, `sector_momentum_dispersion`, `participation_score`, `snapshot_ts` | 30-60s | Reduce risk on low participation/dispersion stress |
 | P2 | Data quality/provenance SLO feed | `SpyderS07_CustomMetricsOrchestrator`, `SpyderM01_SystemMonitor` | `SpyderE01_RiskManager`, `SpyderG05_TradingDashboard`, `SpyderK05_RiskReport` | `metric_name`, `freshness_ms`, `completeness_pct`, `source` (`tradier`/`massive`/`fred`/`yfinance`/`simulated`), `fallback_active`, `quality_score`, `slo_status`, `evaluated_ts` | 10-30s | Disable affected strategy edges when SLO fails |
 
@@ -629,7 +626,7 @@ Use a common envelope for all added feeds so routing and persistence are uniform
 
 ```json
 {
-	"feed": "liquidity|execution|event_clock|vol_surface|dealer_flow|lead_lag|breadth|quality",
+	"feed": "liquidity|execution|event_clock|vol_surface|dealer_flow|breadth|quality",
 	"version": "1.0",
 	"mode": "paper|live|backtest",
 	"session_id": "string",

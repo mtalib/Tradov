@@ -59,7 +59,6 @@ SpyderC06_DataValidator.py
 SpyderC08_SPYFeed.py
 SpyderC09_NewsManager.py
 SpyderC10_VIXAnalyzer.py
-SpyderC11_FuturesBasis.py
 SpyderC12_DarkPoolFlow.py
 SpyderC13_IndexComponents.py
 SpyderC15_MicrostructureAnalyzer.py

@@ -171,6 +171,9 @@ class EventType(Enum):
     # General events
     NOTIFICATION = "notification"
     ALERT = "alert"
+    ALERT_GENERATED = "alert_generated"  # Legacy alias used by C11/N-series
+    ANALYTICS = "analytics"              # Legacy analytics stream event
+    DATA_UPDATE = "data_update"          # Legacy market-data update event
     INFO = "info"
     DEBUG = "debug"
 
@@ -1192,6 +1195,14 @@ class EventManager:
             ttl=kwargs.get('ttl')
         )
 
+        return self.publish(event)
+
+    def emit_event(self, event: Event) -> bool:
+        """Backward-compatible alias used by older modules.
+
+        Several legacy modules still call ``emit_event(Event(...))`` while the
+        canonical API is ``emit(...)`` or ``publish(Event)``.
+        """
         return self.publish(event)
 
     def create_event(self, event_type: EventType, data: dict[str, Any],

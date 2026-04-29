@@ -1948,6 +1948,27 @@ def create_multileg_strategy_coordinator(config: dict[str, Any] = None) -> Multi
     """
     return MultiLegStrategyCoordinator(config)
 
+
+_coordinator_singleton: MultiLegStrategyCoordinator | None = None
+
+
+def get_multileg_coordinator(config: dict[str, Any] = None) -> MultiLegStrategyCoordinator:
+    """
+    Return the process-level singleton MultiLegStrategyCoordinator.
+
+    Creates the instance on first call; subsequent calls return the same object.
+
+    Args:
+        config: Optional configuration dictionary (only used on first call).
+
+    Returns:
+        Shared MultiLegStrategyCoordinator instance.
+    """
+    global _coordinator_singleton
+    if _coordinator_singleton is None:
+        _coordinator_singleton = MultiLegStrategyCoordinator(config)
+    return _coordinator_singleton
+
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================

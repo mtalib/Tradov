@@ -39,7 +39,7 @@ class _HardSLOConfigManager(_MockConfigManager):
 
     def get_config(self, key: str, default: Any = None) -> Any:
         if key == "autonomous_readiness.data_quality":
-            return {"enforce_hard_slo": True, "required_buckets": ["VOL_SURFACE", "DEALER_FLOW", "LEAD_LAG"]}
+            return {"enforce_hard_slo": True, "required_buckets": ["VOL_SURFACE", "DEALER_FLOW"]}
         return super().get_config(key, default)
 
 
@@ -48,7 +48,7 @@ class _SoftSLOConfigManager(_MockConfigManager):
 
     def get_config(self, key: str, default: Any = None) -> Any:
         if key == "autonomous_readiness.data_quality":
-            return {"enforce_hard_slo": False, "required_buckets": ["VOL_SURFACE", "DEALER_FLOW", "LEAD_LAG"]}
+            return {"enforce_hard_slo": False, "required_buckets": ["VOL_SURFACE", "DEALER_FLOW"]}
         return super().get_config(key, default)
 
 
@@ -135,27 +135,6 @@ def test_f09_dealer_flow_absent_soft_slo_skips():
 
 
 # ---------------------------------------------------------------------------
-# F09 — lead_lag_filter
-# ---------------------------------------------------------------------------
-
-def test_f09_lead_lag_absent_hard_slo_fails():
-    """All-None lead-lag values with enforce_hard_slo=True must return FAIL."""
-    ef = _make_ef(hard=True)
-    checks = ef._check_lead_lag_confirmation_filter({"market_conditions": {}})
-    assert len(checks) == 1
-    assert checks[0].result == FilterResult.FAIL
-    assert "hard SLO" in checks[0].message
-
-
-def test_f09_lead_lag_absent_soft_slo_skips():
-    """All-None lead-lag values with enforce_hard_slo=False must return SKIP."""
-    ef = _make_ef(hard=False)
-    checks = ef._check_lead_lag_confirmation_filter({"market_conditions": {}})
-    assert len(checks) == 1
-    assert checks[0].result == FilterResult.SKIP
-
-
-# ---------------------------------------------------------------------------
 # E01 — decision-quality SLO gate
 # ---------------------------------------------------------------------------
 
@@ -164,8 +143,6 @@ def _make_s07_conditions(**overrides: Any) -> dict[str, Any]:
     base = {
         "surface_confidence": 0.80,
         "wall_confidence": 0.75,
-        "lead_lag_ms": 1.2,
-        "confirm_confidence": 0.70,
     }
     base.update(overrides)
     return base
@@ -225,26 +202,6 @@ def test_e01_slo_gate_blocks_absent_dealer_flow():
 
     assert approved is False
     assert "dealer_flow" in reason
-    assert "DECISION_QUALITY_SLO_FAILED" in violations
-
-
-def test_e01_slo_gate_blocks_absent_lead_lag():
-    """_check_decision_quality_slo returns FAIL when lead_lag entirely absent."""
-    rm = _make_risk_manager()
-    nan = float("nan")
-    conditions = _make_s07_conditions(lead_lag_ms=nan, confirm_confidence=nan)
-
-    mock_orch = MagicMock()
-    mock_orch.get_current_market_conditions.return_value = conditions
-
-    with patch(
-        "Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator.get_metrics_orchestrator",
-        return_value=mock_orch,
-    ):
-        approved, reason, violations = rm._check_decision_quality_slo()
-
-    assert approved is False
-    assert "lead_lag" in reason
     assert "DECISION_QUALITY_SLO_FAILED" in violations
 
 

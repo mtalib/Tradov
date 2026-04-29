@@ -56,6 +56,7 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventManager, Even
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import build_default_symbol_config
 
 # ==============================================================================
 # CONSTANTS
@@ -81,71 +82,7 @@ CONFIG_CATEGORIES = {
 }
 
 # Default configurations
-DEFAULT_SYMBOL_CONFIG = {
-    "visible_symbols": {
-        "S&P_CORE": {
-            "symbols": ["SPY", "SPX", "/ES"],
-            "update_frequency": 1,
-            "priority": "CRITICAL",
-        },
-        "VOLATILITY": {
-            "symbols": ["VIX", "VIX9D", "VXV", "VXMT", "VVIX", "UVXY"],
-            "update_frequency": 5,
-            "priority": "HIGH",
-        },
-        "MARKET_INTERNALS": {
-            "symbols": ["TICK-NYSE", "TRIN-NYSE", "ADD-NYSE", "CPC", "PCALL", "SKEW"],
-            "update_frequency": 5,
-            "priority": "HIGH",
-        },
-        "MAJOR_INDICES": {
-            "symbols": ["DIA", "QQQ", "IWM"],
-            "update_frequency": 5,
-            "priority": "MEDIUM",
-        },
-        "BONDS_CREDIT": {"symbols": ["TLT", "LQD"], "update_frequency": 15, "priority": "LOW"},
-        "CORRELATIONS": {"symbols": ["DXY", "GLD", "USO"], "update_frequency": 15, "priority": "LOW"},  # noqa: E501
-    },
-    "hidden_symbols": {
-        "VIX_FUTURES": {"symbols": ["VX"], "update_frequency": 5, "priority": "MEDIUM"},
-        "ADDITIONAL_INTERNALS": {
-            "symbols": [
-                "ADVN-NYSE",
-                "DECN-NYSE",
-                "UVOL-NYSE",
-                "DVOL-NYSE",
-                "VOLD-NYSE",
-                "NYHL-NYSE",
-            ],
-            "update_frequency": 5,
-            "priority": "MEDIUM",
-        },
-        "SECTOR_ETFS": {
-            "symbols": [
-                "XLF",
-                "XLK",
-                "XLE",
-                "XLV",
-                "XLI",
-                "XLY",
-                "XLP",
-                "XLU",
-                "XLRE",
-                "XLC",
-                "XLB",
-            ],
-            "update_frequency": 30,
-            "priority": "LOW",
-        },
-    },
-    "custom_metrics": {
-        "GEX": {"update_frequency": 60, "priority": "HIGH"},
-        "DEX": {"update_frequency": 60, "priority": "HIGH"},
-        "OGL": {"update_frequency": 60, "priority": "HIGH"},
-        "DIX": {"update_frequency": 300, "priority": "MEDIUM"},
-        "SWAN": {"update_frequency": 60, "priority": "CRITICAL"},
-    },
-}
+DEFAULT_SYMBOL_CONFIG = build_default_symbol_config()
 
 DEFAULT_MARKET_DATA_CONFIG = {
     "hub": {

@@ -67,7 +67,6 @@ for _shortpkg in [
     "SpyderA_Core.SpyderA03_Configuration",
     "SpyderA_Core.SpyderA05_EventManager",
     "SpyderC_MarketData",
-    "SpyderC_MarketData.SpyderC11_FuturesBasis",
     "SpyderB_Broker",
 ]:
     sys.modules.setdefault(_shortpkg, _AnyAttr(_shortpkg))

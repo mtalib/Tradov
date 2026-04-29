@@ -90,7 +90,7 @@ class DirectConnectionWorker(QThread):
                 "description": "Administrative & News Feeds",
                 "symbols": ["SPY", "VIX", "TNX"],
             },
-            102: {"description": "Core Market Data", "symbols": ["SPY", "SPX", "/ES"]},
+            102: {"description": "Core Market Data", "symbols": ["SPY", "SPX", "VIX"]},
             103: {"description": "SPY Options Chains", "symbols": ["SPY_OPTIONS"]},
             104: {
                 "description": "Volatility & Market Internals",

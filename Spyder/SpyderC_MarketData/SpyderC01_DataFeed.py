@@ -43,6 +43,7 @@ Change Log:
 import os
 import sys  # noqa: F401
 import time
+import math
 import threading
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
@@ -69,6 +70,7 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, 
 
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity  # noqa: E402
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import get_backend_symbol_groups
 
 # ==============================================================================
 # CONFIGURATION DEFAULTS
@@ -87,15 +89,8 @@ DEFAULT_FEED_CONFIG = {
     }
 }
 
-# Symbol Groups for Efficient Management
-SYMBOL_GROUPS = {
-    'CORE': ['SPY', 'SPX', '/ES'],
-    'VOLATILITY': ['VIX', 'VIX9D', 'VXV', 'VXMT', 'VVIX', 'UVXY'],
-    'INTERNALS': ['TICK-NYSE', 'TRIN-NYSE', 'ADD-NYSE', 'CPC', 'PCALL', 'SKEW'],
-    'INDICES': ['DIA', 'QQQ', 'IWM'],
-    'FIXED_INCOME': ['TLT', 'LQD'],
-    'CORRELATIONS': ['DXY', 'GLD', 'USO']
-}
+# Symbol Groups for Efficient Management (canonical source)
+SYMBOL_GROUPS = get_backend_symbol_groups()
 
 
 # ==============================================================================
@@ -390,6 +385,13 @@ class DataFeedManager:
         self._monitor_thread: threading.Thread | None = None
         self.executor = ThreadPoolExecutor(max_workers=5)
 
+        # NullProvider fallback: poll Tradier REST quotes so the backend still
+        # emits MARKET_DATA ticks for strategy/risk pipelines.
+        self._quote_client: Any = None
+        self._last_quote_poll_monotonic: float = 0.0
+        self._quote_poll_interval_s: float = 1.0
+        self._quote_client_failed: bool = False
+
         # Error tracking
         self.error_counts: dict[str, int] = defaultdict(int)
         self.last_errors: dict[str, str] = {}
@@ -578,6 +580,37 @@ class DataFeedManager:
 
             return success
 
+    def _get_symbol_tier(self, symbol: str) -> str:
+        """Return cache/event tier for a symbol."""
+        normalized = (symbol or "").upper()
+
+        if normalized in {"SPY", "SPX", "VIX"}:
+            return "CRITICAL"
+
+        for group_name, symbols in SYMBOL_GROUPS.items():
+            if normalized in symbols:
+                if group_name in {"VOLATILITY", "INTERNALS"}:
+                    return "HIGH"
+                if group_name in {"INDICES", "FIXED_INCOME"}:
+                    return "MEDIUM"
+                return "LOW"
+
+        return "MEDIUM"
+
+    def _get_symbol_priority(self, symbol: str) -> int:
+        """Return numeric cache priority (1=highest, 4=lowest)."""
+        tier = (
+            self.symbol_status.get(symbol, {}).get("tier")
+            or self._get_symbol_tier(symbol)
+        )
+        priority_map = {
+            "CRITICAL": 1,
+            "HIGH": 2,
+            "MEDIUM": 3,
+            "LOW": 4,
+        }
+        return priority_map.get(str(tier).upper(), 3)
+
     def unsubscribe(
         self,
         symbol: str,
@@ -761,9 +794,14 @@ class DataFeedManager:
         try:
             symbol = tick.symbol
 
-            # Validate if enabled
-            if self.config.validation_enabled:
-                if not self.data_validator.validate_tick(tick.to_dict()):
+            # Validate if enabled. C06 exposes validate_data(), not validate_tick().
+            # Skip C06 validation for Tradier REST fallback ticks — price/finite
+            # checks are already enforced in _poll_quotes_fallback(), and indices
+            # (SPX, VIX) return bid=0/ask=0 which would trip SpreadValidationRule.
+            _skip_validation = tick.source == DataSource.TRADIER
+            if self.config.validation_enabled and not _skip_validation:
+                validation_result = self.data_validator.validate_data(tick.to_dict())
+                if not getattr(validation_result, "is_valid", False):
                     self.logger.warning("Invalid tick data for %s", symbol)
                     self.error_counts[symbol] += 1
                     return
@@ -853,12 +891,153 @@ class DataFeedManager:
         """Main update loop for processing market data."""
         while self.is_running:
             try:
+                self._poll_quotes_fallback()
                 self._update_custom_metrics()
                 self._check_stale_data()
             except Exception as e:
                 self.logger.error("Error in update loop: %s", e)
             if self._stop_event.wait(timeout=self.config.update_interval):
                 break
+
+    def _ensure_quote_client(self) -> Any | None:
+        """Lazily initialise a Tradier quote client for NullProvider fallback."""
+        if self._quote_client is not None:
+            return self._quote_client
+        if self._quote_client_failed:
+            return None
+
+        try:
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                TradierClient,
+                TradingEnvironment,
+            )
+        except Exception as exc:
+            self.logger.debug("Quote fallback unavailable (Tradier import failed): %s", exc)
+            self._quote_client_failed = True
+            return None
+
+        try:
+            trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+            env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+
+            if trading_mode == "paper":
+                api_key = (
+                    os.environ.get("TRADIER_SANDBOX_API_KEY")
+                    or os.environ.get("TRADIER_API_KEY")
+                    or ""
+                )
+                account_id = (
+                    os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID")
+                    or os.environ.get("TRADIER_ACCOUNT_ID")
+                    or ""
+                )
+                environment = TradingEnvironment.SANDBOX
+            else:
+                api_key = os.environ.get("TRADIER_API_KEY", "")
+                account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+                environment = TradingEnvironment.LIVE if env_raw == "live" else TradingEnvironment.SANDBOX
+
+            if not api_key or not account_id:
+                self._quote_client_failed = True
+                self.logger.debug("Quote fallback disabled: Tradier credentials unavailable")
+                return None
+
+            self._quote_client = TradierClient(
+                api_key=api_key,
+                account_id=account_id,
+                environment=environment,
+            )
+            self.logger.info("DataFeed quote fallback enabled via Tradier REST (%s)", environment.value)
+            return self._quote_client
+
+        except Exception as exc:
+            self._quote_client_failed = True
+            self.logger.warning("Quote fallback init failed: %s", exc)
+            return None
+
+    def _poll_quotes_fallback(self) -> None:
+        """Emit MarketTick updates when provider is NullProvider/degraded.
+
+        This keeps backend strategies (D31) fed with MARKET_DATA events even
+        when no streaming provider is wired.
+        """
+        # Only needed when the configured provider is not delivering stream data.
+        if self._provider.is_connected:
+            return
+
+        now_mono = time.monotonic()
+        if (now_mono - self._last_quote_poll_monotonic) < self._quote_poll_interval_s:
+            return
+        self._last_quote_poll_monotonic = now_mono
+
+        symbols = [s for s in self.symbol_status.keys() if s]
+        if not symbols:
+            return
+
+        client = self._ensure_quote_client()
+        if client is None:
+            return
+
+        try:
+            response = client.get_quotes(symbols)
+        except Exception as exc:
+            self.logger.debug("Quote fallback poll failed: %s", exc)
+            return
+
+        quote_node = ((response or {}).get("quotes") or {}).get("quote")
+        if not quote_node:
+            return
+
+        quotes = quote_node if isinstance(quote_node, list) else [quote_node]
+        for quote in quotes:
+            if not isinstance(quote, dict):
+                continue
+
+            symbol = str(quote.get("symbol") or "").strip()
+            if not symbol:
+                continue
+
+            last = quote.get("last")
+            bid = quote.get("bid")
+            ask = quote.get("ask")
+            close = quote.get("close")
+
+            try:
+                price = float(last if last is not None else (close if close is not None else 0.0))
+            except (TypeError, ValueError):
+                price = 0.0
+
+            if not math.isfinite(price) or price <= 0.0:
+                continue
+
+            def _to_float(value: Any) -> float | None:
+                if value is None:
+                    return None
+                try:
+                    out = float(value)
+                except (TypeError, ValueError):
+                    return None
+                if not math.isfinite(out):
+                    return None
+                return out
+
+            tick = MarketTick(
+                symbol=symbol,
+                timestamp=datetime.now(timezone.utc),
+                price=price,
+                size=0,
+                bid=_to_float(bid),
+                ask=_to_float(ask),
+                volume=int(quote.get("volume") or 0),
+                open=_to_float(quote.get("open")),
+                high=_to_float(quote.get("high")),
+                low=_to_float(quote.get("low")),
+                close=_to_float(close),
+                source=DataSource.TRADIER,
+                quality="realtime",
+            )
+
+            self._on_provider_data(tick)
 
     def _monitor_loop(self) -> None:
         """Monitor loop for system health."""
@@ -908,6 +1087,42 @@ class DataFeedManager:
             if self.status == DataFeedStatus.CONNECTED:
                 self.status = DataFeedStatus.DEGRADED
 
+    def _publish_status_update(self) -> None:
+        """Publish periodic feed status for observability and downstream routing."""
+        try:
+            self.event_manager.emit(
+                event_type=EventType.SYSTEM_METRICS,
+                source=self.__class__.__name__,
+                data={
+                    "component": "DataFeedManager",
+                    "feed_status": self.status.value,
+                    "provider": self._provider.__class__.__name__,
+                    "provider_connected": bool(self._provider.is_connected),
+                    "active_symbols": len(self.current_data),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as e:
+            self.logger.warning("Unable to publish data feed status update: %s", e)
+
+    def _cleanup_old_data(self) -> None:
+        """Remove stale entries from data buffers for symbols no longer receiving updates."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            with self._lock:
+                stale_symbols = [
+                    sym for sym, status in self.symbol_status.items()
+                    if status.get("last_update") and status["last_update"] < cutoff
+                ]
+                for sym in stale_symbols:
+                    self.current_data.pop(sym, None)
+                    if stale_symbols:
+                        self.logger.debug(
+                            "Cleaned up stale data for %d symbol(s)", len(stale_symbols)
+                        )
+        except Exception as e:
+            self.logger.warning("Data cleanup error: %s", e)
+
 
 # ==============================================================================
 # FACTORY  (S-02)
@@ -950,7 +1165,6 @@ def create_data_feed(
         for sym in symbols:
             # Register a no-op subscriber so the provider knows to pull data
             # for each symbol.  Real consumers add their own callbacks later.
-            # Pass priority explicitly to avoid the unimplemented _get_symbol_tier.
             feed.subscribe(sym, lambda _tick: None, priority="HIGH")
 
     return feed
