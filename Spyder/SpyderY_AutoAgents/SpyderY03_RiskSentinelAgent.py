@@ -174,11 +174,17 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
 
     TICK_INTERVAL = 15.0
 
-    def __init__(self, risk_limits: dict[str, float] | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        risk_limits: dict[str, float] | None = None,
+        enable_trade_veto: bool = True,
+        **kwargs: Any,
+    ):
         super().__init__(**kwargs)
 
         # Risk configuration
         self._limits = {**DEFAULT_RISK_LIMITS, **(risk_limits or {})}
+        self._enable_trade_veto = enable_trade_veto
 
         # State
         self._circuit_breaker = CircuitBreakerState.NORMAL
@@ -211,7 +217,8 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     def on_start(self) -> None:
         """Subscribe to all risk-relevant topics."""
-        self.subscribe("signals.validated")
+        if self._enable_trade_veto:
+            self.subscribe("signals.validated")
         self.subscribe("execution.*")
         self.subscribe("risk.*")
         self.subscribe("market.regime")
@@ -417,6 +424,10 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     def _process_pending_signals(self, session: MarketSession) -> None:
         """Review pending validated signals — veto any that violate risk limits."""
+        if not self._enable_trade_veto:
+            self._pending_signals.clear()
+            return
+
         if not self._pending_signals:
             return
 

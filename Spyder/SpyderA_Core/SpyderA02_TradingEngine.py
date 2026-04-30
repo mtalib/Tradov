@@ -22,6 +22,7 @@ Module Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
+import os
 import time
 import threading
 import uuid
@@ -308,6 +309,7 @@ class TradingEngine:
         self.max_orders_per_minute = self.config.get('max_orders_per_minute', MAX_ORDERS_PER_MINUTE)
         self.enable_circuit_breaker = self.config.get('enable_circuit_breaker', True)
         self.save_state_enabled = self.config.get('save_state', True)
+        self.lean_mode = self._resolve_lean_mode()
 
         # State management
         self.state = EngineState.INITIALIZING
@@ -1380,24 +1382,28 @@ class TradingEngine:
             'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,  # noqa: E501
             'action': action,
             'market_conditions': market_conditions,
+            'event_clock_state': (
+                signal.get('event_clock_state')
+                or metadata.get('event_clock_state')
+                or market_conditions.get('event_clock_state')
+                or {}
+            ),
+            'current_time': datetime.now(timezone.utc),
         }
 
         try:
             checks = []
-            checks.extend(entry_gate._check_data_quality_filter(params))
-            checks.extend(entry_gate._check_vol_surface_structure_filter(params))
-            checks.extend(entry_gate._check_dealer_flow_filter(params))
-            checks.extend(entry_gate._check_vix_term_structure_filter())
-            checks.extend(entry_gate._check_cboe_skew_filter())
-            checks.extend(entry_gate._check_market_internals_filter())
-            checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
-            checks.extend(entry_gate._check_vol_of_vol_stress_filter(params))
-            checks.extend(entry_gate._check_put_call_sentiment_filter(params))
-            checks.extend(entry_gate._check_participation_filter(params))
-            checks.extend(entry_gate._check_qqq_confirmation_filter(params))
-            checks.extend(entry_gate._check_iwm_confirmation_filter(params))
-            checks.extend(entry_gate._check_xlk_confirmation_filter(params))
-            checks.extend(entry_gate._check_xlf_confirmation_filter(params))
+            checks.extend(entry_gate._check_time_filters(params))
+            if self.lean_mode:
+                checks.extend(entry_gate._check_data_quality_filter(params))
+                checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
+                checks.extend(entry_gate._check_vix_term_structure_filter())
+            else:
+                checks.extend(entry_gate._check_data_quality_filter(params))
+                checks.extend(entry_gate._check_vol_surface_structure_filter(params))
+                checks.extend(entry_gate._check_dealer_flow_filter(params))
+                checks.extend(entry_gate._check_vix_term_structure_filter())
+                checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
         except Exception as exc:
             self.logger.debug("A02: trust gate failed open: %s", exc, exc_info=True)
             return True, ""
@@ -1412,6 +1418,25 @@ class TradingEngine:
             return self._passes_regime_policy_gate(signal, market_conditions)
 
         return False, '; '.join(str(check.message) for check in failures)
+
+    def _resolve_lean_mode(self) -> bool:
+        """Resolve lean-mode flag from env, local config, or A03 config manager."""
+        env = os.environ.get("SPYDER_LEAN_MODE")
+        if env is not None:
+            return env.strip().lower() == "true"
+
+        candidate = self.config.get("autonomous_readiness", {})
+        if isinstance(candidate, dict) and "lean_mode" in candidate:
+            return bool(candidate.get("lean_mode", True))
+        if "lean_mode" in self.config:
+            return bool(self.config.get("lean_mode", True))
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            cfg = get_config_manager()
+            return bool(cfg.get("autonomous_readiness.lean_mode", True))
+        except Exception:
+            return True
 
     def _get_regime_policy(self) -> dict[str, Any]:
         """Load six-regime policy from config manager or repo config file."""

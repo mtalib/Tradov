@@ -297,7 +297,7 @@ class VolatilitySurfaceBuilder:
         self.cache = {}
         self.cache_timestamp = {}
 
-        self.logger.info("VolatilitySurfaceBuilder initialized")
+        self.logger.debug("VolatilitySurfaceBuilder initialized")
 
     # ==========================================================================
     # SURFACE CONSTRUCTION

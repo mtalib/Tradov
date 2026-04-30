@@ -399,7 +399,7 @@ class DataFeedManager:
         # Initialize non-provider components
         self._initialize_components()
 
-        self.logger.info(
+        self.logger.debug(
             "DataFeedManager initialized — provider=%s", self._provider.__class__.__name__
         )
 
@@ -423,7 +423,7 @@ class DataFeedManager:
                 self.market_cache = MarketDataCache(
                     event_manager=self.event_manager
                 )
-                self.logger.info("MarketDataCache initialized")
+                self.logger.debug("MarketDataCache initialized")
 
             self._setup_event_subscriptions()
             self._load_custom_handlers()
@@ -510,7 +510,7 @@ class DataFeedManager:
             else:
                 self.status = DataFeedStatus.DEGRADED
 
-            self.logger.info("Data feed started — status: %s", self.status.value)
+            self.logger.debug("Data feed started — status: %s", self.status.value)
             return True
 
         except Exception as e:
@@ -666,6 +666,93 @@ class DataFeedManager:
                 self.subscribe(symbol, self._create_group_callback(group_name))
 
             return True
+
+    def _notify_subscribers(self, symbol: str, tick: MarketTick) -> None:
+        """Dispatch a symbol tick to all registered symbol subscribers."""
+        callbacks = list(self.subscribers.get(symbol, []))
+        for callback in callbacks:
+            try:
+                callback(tick)
+            except Exception as e:
+                self.logger.error("Subscriber callback failed for %s: %s", symbol, e)
+
+    def _create_group_callback(
+        self,
+        group_name: str,
+    ) -> Callable[[MarketTick], None]:
+        """Create a symbol callback that fans out grouped snapshots."""
+
+        def _group_callback(_tick: MarketTick) -> None:
+            symbols = SYMBOL_GROUPS.get(group_name, [])
+            with self._lock:
+                snapshot = {
+                    sym: self.current_data[sym]
+                    for sym in symbols
+                    if sym in self.current_data
+                }
+                callbacks = list(self.group_subscribers.get(group_name, []))
+
+            for callback in callbacks:
+                try:
+                    callback(snapshot)
+                except Exception as e:
+                    self.logger.error("Group callback failed for %s: %s", group_name, e)
+
+        return _group_callback
+
+    def _convert_cached_to_tick(self, symbol: str, cached_data: dict[str, Any]) -> MarketTick:
+        """Convert cached dict payload to MarketTick with safe defaults."""
+        timestamp_raw = cached_data.get('timestamp')
+        if isinstance(timestamp_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_raw)
+            except ValueError:
+                timestamp = datetime.now(timezone.utc)
+        elif isinstance(timestamp_raw, datetime):
+            timestamp = timestamp_raw
+        else:
+            timestamp = datetime.now(timezone.utc)
+
+        def _as_float(value: Any) -> float | None:
+            if value is None:
+                return None
+            try:
+                out = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(out):
+                return None
+            return out
+
+        price = _as_float(cached_data.get('price'))
+        if price is None or price <= 0:
+            price = _as_float(cached_data.get('last')) or _as_float(cached_data.get('close')) or 0.0
+
+        source_raw = str(cached_data.get('source', DataSource.CACHE.value)).lower()
+        source = DataSource.CACHE
+        for candidate in DataSource:
+            if candidate.value == source_raw:
+                source = candidate
+                break
+
+        return MarketTick(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=price,
+            size=int(cached_data.get('size') or 0),
+            bid=_as_float(cached_data.get('bid')),
+            ask=_as_float(cached_data.get('ask')),
+            bid_size=int(cached_data.get('bid_size') or 0) if cached_data.get('bid_size') is not None else None,
+            ask_size=int(cached_data.get('ask_size') or 0) if cached_data.get('ask_size') is not None else None,
+            volume=int(cached_data.get('volume') or 0) if cached_data.get('volume') is not None else None,
+            open=_as_float(cached_data.get('open')),
+            high=_as_float(cached_data.get('high')),
+            low=_as_float(cached_data.get('low')),
+            close=_as_float(cached_data.get('close')),
+            vwap=_as_float(cached_data.get('vwap')),
+            source=source,
+            quality=str(cached_data.get('quality') or 'cached'),
+        )
 
     def get_market_data(
         self, symbol: str, use_cache: bool = True
@@ -947,7 +1034,7 @@ class DataFeedManager:
                 account_id=account_id,
                 environment=environment,
             )
-            self.logger.info("DataFeed quote fallback enabled via Tradier REST (%s)", environment.value)
+            self.logger.debug("DataFeed quote fallback enabled via Tradier REST (%s)", environment.value)
             return self._quote_client
 
         except Exception as exc:

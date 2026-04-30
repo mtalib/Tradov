@@ -133,7 +133,7 @@ class FillReconciler:
         except Exception:
             pass
 
-        self.logger.info(
+        self.logger.debug(
             "FillReconciler created (market=%.1fs limit=%.1fs)",
             poll_cadence_market,
             poll_cadence_limit,
@@ -197,7 +197,7 @@ class FillReconciler:
             name="FillReconciler",
         )
         self._thread.start()
-        self.logger.info("FillReconciler started")
+        self.logger.debug("FillReconciler started")
         return True
 
     def stop(self) -> None:

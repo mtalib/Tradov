@@ -547,9 +547,8 @@ class SpyderDIXCalculator:
         dix = weighted_dpi_sum / total_market_cap
 
         _dix_key = round(dix, 4)
-        _log_dix = self.logger.info if _dix_key != getattr(self, "_last_dix_key", None) else self.logger.debug  # noqa: E501
         self._last_dix_key = _dix_key
-        _log_dix(f"DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
+        self.logger.debug(f"DIX calculated: {dix:.4f} ({dix*100:.2f}%)")
         self.logger.debug(f"Based on {len(dpi_data)} components, "
                          f"total market cap: ${total_market_cap:,.0f}")
 

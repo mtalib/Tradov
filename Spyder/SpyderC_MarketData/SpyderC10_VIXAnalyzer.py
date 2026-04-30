@@ -322,7 +322,7 @@ class VIXAnalyzer:
             'last_data_update': None
         }
 
-        self.logger.info("VIX Analyzer initialized")
+        self.logger.debug("VIX Analyzer initialized")
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -348,7 +348,7 @@ class VIXAnalyzer:
             # Perform initial analysis
             self._perform_initial_analysis()
 
-            self.logger.info("VIX analyzer initialized successfully")
+            self.logger.debug("VIX analyzer initialized successfully")
             return True
 
         except Exception as e:

@@ -46,6 +46,7 @@ Consolidation Benefits:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -156,6 +157,7 @@ class MarketRegime(Enum):
     LOW_VOLATILITY = "low_volatility"
     CRISIS_MODE = "crisis_mode"
     RECOVERY_MODE = "recovery_mode"
+    EVENT_TRANSITION = "event_transition"
     UNKNOWN = "unknown"
 
 class RegimeSource(Enum):
@@ -166,6 +168,7 @@ class RegimeSource(Enum):
     ATTRIBUTION = "attribution"
     HMM_MODEL = "hmm_model"
     CONSENSUS = "consensus"
+    LEAN_RULES = "lean_rules"
 
 class RegimeConfidence(Enum):
     """Regime confidence levels"""
@@ -266,6 +269,14 @@ class MarketConditions:
     spy_change_pct: float
     volume_ratio: float
     vix_level: float
+    vix9d_level: float = float("nan")
+    vxv_level: float = float("nan")
+    vix_percentile: float = float("nan")
+    spy_ema50: float = float("nan")
+    vix_ema50: float = float("nan")
+    spy_atr: float = float("nan")
+    spy_atr_pct: float = float("nan")
+    event_clock_state: str = "clear"
     dix_score: float = 0.0
     gex_level: float = 0.0
     swan_score: float = 1.0
@@ -1200,6 +1211,23 @@ class UnifiedRegimeEngine:
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
 
+        # Deterministic regime logic is the production default for v2 contract.
+        self.allow_legacy_consensus = bool(self.config.get("allow_legacy_consensus", False))
+        env_lean = os.environ.get("SPYDER_LEAN_MODE")
+        if env_lean is not None:
+            self.lean_mode = env_lean.strip().lower() == "true"
+        elif "lean_mode" in self.config:
+            self.lean_mode = bool(self.config.get("lean_mode", True))
+        else:
+            self.lean_mode = True
+
+        self.lean_settings = {
+            "atr_band_multiplier": float(self.config.get("lean_atr_band_multiplier", 1.0)),
+            "atr_elevated_pct": float(self.config.get("lean_atr_elevated_pct", 0.015)),
+            "vix_high_percentile": float(self.config.get("lean_vix_high_percentile", 80.0)),
+            "vix_high_level": float(self.config.get("lean_vix_high_level", 25.0)),
+        }
+
         # Component detectors
         self.ml_classifier = MLRegimeClassifier(self.config.get('ml_config', {}))
         self.signal_detector = SignalRegimeDetector(self.config.get('signal_config', {}))
@@ -1303,6 +1331,12 @@ class UnifiedRegimeEngine:
         """
         try:
             with self._lock:
+                if self.lean_mode and not self.allow_legacy_consensus:
+                    consensus = self._build_lean_consensus(market_conditions)
+                    self._update_regime_state(consensus)
+                    self.consensus_history.append(consensus)
+                    return consensus
+
                 # Get individual regime detections
                 individual_results = []
 
@@ -1365,6 +1399,163 @@ class UnifiedRegimeEngine:
                 individual_results=[],
                 regime_duration=timedelta(0)
             )
+
+    def _build_lean_consensus(self, market_conditions: MarketConditions) -> RegimeConsensus:
+        """Build a deterministic consensus using lean SPY/VIX regime rules."""
+        detection = self._detect_lean_regime(market_conditions)
+        now = market_conditions.timestamp
+        previous = self.current_regime
+        transition = (
+            RegimeTransition.JUST_CHANGED
+            if detection.regime != self.current_regime
+            else RegimeTransition.STABLE
+        )
+        duration = timedelta(0)
+        if self.regime_start_time and detection.regime == self.current_regime:
+            duration = now - self.regime_start_time
+
+        return RegimeConsensus(
+            regime=detection.regime,
+            confidence=detection.confidence,
+            consensus_score=detection.confidence,
+            transition_state=transition,
+            timestamp=now,
+            contributing_sources=[RegimeSource.LEAN_RULES],
+            source_weights={RegimeSource.LEAN_RULES: 1.0},
+            individual_results=[detection],
+            regime_duration=duration,
+            previous_regime=previous,
+            stability_score=detection.confidence,
+        )
+
+    def _detect_lean_regime(self, conditions: MarketConditions) -> RegimeDetectionResult:
+        """Detect regime using deterministic 6-regime v2 master logic."""
+        event_state = str(conditions.event_clock_state or "clear").lower()
+        if event_state in {"pre", "live", "post"}:
+            return RegimeDetectionResult(
+                regime=MarketRegime.EVENT_TRANSITION,
+                confidence=1.0,
+                source=RegimeSource.LEAN_RULES,
+                timestamp=conditions.timestamp,
+                features={"event_state": event_state},
+                metadata={"reason": "event_clock"},
+            )
+
+        vix = conditions.vix_level
+        vix9d = conditions.vix9d_level
+        vxv = conditions.vxv_level
+        spy_price = conditions.spy_price
+        spy_ema50 = conditions.spy_ema50
+        vix_ema50 = conditions.vix_ema50
+
+        if isinstance(vix9d, (int, float)) and isinstance(vix, (int, float)):
+            if np.isfinite(vix9d) and np.isfinite(vix) and vix > 0 and vix9d > vix:
+                return RegimeDetectionResult(
+                    regime=MarketRegime.CRISIS_MODE,
+                    confidence=1.0,
+                    source=RegimeSource.LEAN_RULES,
+                    timestamp=conditions.timestamp,
+                    features={"vix": vix, "vix9d": vix9d},
+                    metadata={"reason": "vix9d_inversion"},
+                )
+
+        spy_trend_ready = all(
+            isinstance(value, (int, float)) and np.isfinite(value)
+            for value in (spy_price, spy_ema50, vix, vix_ema50)
+        )
+        if spy_trend_ready:
+            if spy_price > spy_ema50 and vix < vix_ema50:
+                return RegimeDetectionResult(
+                    regime=MarketRegime.BULL_TRENDING,
+                    confidence=0.90,
+                    source=RegimeSource.LEAN_RULES,
+                    timestamp=conditions.timestamp,
+                    features={
+                        "spy_price": spy_price,
+                        "spy_ema50": spy_ema50,
+                        "vix": vix,
+                        "vix_ema50": vix_ema50,
+                    },
+                    metadata={"reason": "bull_trend"},
+                )
+            if spy_price < spy_ema50 and vix > vix_ema50:
+                return RegimeDetectionResult(
+                    regime=MarketRegime.BEAR_TRENDING,
+                    confidence=0.90,
+                    source=RegimeSource.LEAN_RULES,
+                    timestamp=conditions.timestamp,
+                    features={
+                        "spy_price": spy_price,
+                        "spy_ema50": spy_ema50,
+                        "vix": vix,
+                        "vix_ema50": vix_ema50,
+                    },
+                    metadata={"reason": "bear_trend"},
+                )
+
+        atr = conditions.spy_atr
+        atr_pct = conditions.spy_atr_pct
+        atr_band_mult = self.lean_settings["atr_band_multiplier"]
+        atr_elevated_pct = self.lean_settings["atr_elevated_pct"]
+
+        within_atr = False
+        if isinstance(atr, (int, float)) and np.isfinite(atr) and atr > 0 and np.isfinite(spy_ema50):
+            lower = spy_ema50 - (atr * atr_band_mult)
+            upper = spy_ema50 + (atr * atr_band_mult)
+            within_atr = lower <= spy_price <= upper
+        elif isinstance(atr_pct, (int, float)) and np.isfinite(atr_pct) and atr_pct > 0:
+            lower = spy_price * (1.0 - atr_pct * atr_band_mult)
+            upper = spy_price * (1.0 + atr_pct * atr_band_mult)
+            within_atr = lower <= spy_price <= upper
+
+        contango = False
+        if isinstance(vix, (int, float)) and np.isfinite(vix):
+            if isinstance(vxv, (int, float)) and np.isfinite(vxv):
+                contango = vix <= vxv
+            elif isinstance(vix9d, (int, float)) and np.isfinite(vix9d):
+                contango = vix9d <= vix
+
+        if within_atr and contango:
+            return RegimeDetectionResult(
+                regime=MarketRegime.SIDEWAYS_RANGE,
+                confidence=0.85,
+                source=RegimeSource.LEAN_RULES,
+                timestamp=conditions.timestamp,
+                features={"within_atr": 1.0, "contango": 1.0},
+                metadata={"reason": "range_calm"},
+            )
+
+        vix_percentile = conditions.vix_percentile
+        vix_pctl_ready = isinstance(vix_percentile, (int, float)) and np.isfinite(vix_percentile)
+        vix_high = (
+            vix_percentile >= self.lean_settings["vix_high_percentile"]
+            if vix_pctl_ready
+            else False
+        )
+
+        atr_elevated = False
+        if isinstance(atr_pct, (int, float)) and np.isfinite(atr_pct):
+            atr_elevated = atr_pct >= atr_elevated_pct
+
+        if atr_elevated and vix_high:
+            return RegimeDetectionResult(
+                regime=MarketRegime.HIGH_VOLATILITY,
+                confidence=0.85,
+                source=RegimeSource.LEAN_RULES,
+                timestamp=conditions.timestamp,
+                features={"atr_pct": atr_pct, "vix_high": float(vix_high)},
+                metadata={"reason": "high_vol_mean_reversion"},
+            )
+
+        # Safe fallback in v2 policy is neutral/range posture.
+        return RegimeDetectionResult(
+            regime=MarketRegime.SIDEWAYS_RANGE,
+            confidence=0.60,
+            source=RegimeSource.LEAN_RULES,
+            timestamp=conditions.timestamp,
+            features={},
+            metadata={"reason": "neutral_fallback"},
+        )
 
     def _calculate_consensus(self, individual_results: list[RegimeDetectionResult],
                            timestamp: datetime) -> RegimeConsensus:
@@ -2156,31 +2347,3 @@ if __name__ == "__main__":
     for _source, _weight in performance['source_weights'].items():
         pass
 
-
-
-from enum import Enum  # noqa: E402
-
-class RegimeType(Enum):
-    """Market regime types enumeration"""
-    BULL_MARKET = "bull_market"
-    BEAR_MARKET = "bear_market"
-    SIDEWAYS_MARKET = "sideways_market"
-    HIGH_VOLATILITY = "high_volatility"
-    LOW_VOLATILITY = "low_volatility"
-    TRENDING = "trending"
-    RANGE_BOUND = "range_bound"
-    CRISIS = "crisis"
-    RECOVERY = "recovery"
-    UNKNOWN = "unknown"
-
-class MarketRegime(Enum):
-    """Market regime enumeration"""
-    BULL = "bull"
-    BEAR = "bear"
-    SIDEWAYS = "sideways"
-    VOLATILE = "volatile"
-    CALM = "calm"
-    TRENDING_UP = "trending_up"
-    TRENDING_DOWN = "trending_down"
-    RANGE_BOUND = "range_bound"
-    UNKNOWN = "unknown"

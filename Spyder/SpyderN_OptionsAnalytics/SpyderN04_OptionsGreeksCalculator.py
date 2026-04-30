@@ -367,7 +367,7 @@ class OptionsGreeksCalculator:
         self.monitoring_thread = None
         self.update_callbacks: list[Callable] = []
 
-        self.logger.info("OptionsGreeksCalculator initialized")
+        self.logger.debug("OptionsGreeksCalculator initialized")
 
     # ==========================================================================
     # FIRST-ORDER GREEKS

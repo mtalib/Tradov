@@ -71,8 +71,10 @@ PEN_HIGH_VIX = -20
 
 # Trigger thresholds.
 ATR_DISTANCE_TRIGGER = 0.25         # |price - level| / ATR
+CENTER_PIVOT_PROXIMITY_ATR = 0.20   # |price - P| / ATR for center-bounce setup
 RSI_OVERBOUGHT = 70.0
 RSI_OVERSOLD = 30.0
+RSI_BULLISH_BIAS = 50.0
 GEX_POSITIVE_THRESHOLD = 1_000_000_000.0  # $1B net dealer long-gamma
 VIX_HIGH = 22.0
 
@@ -85,6 +87,7 @@ MIN_FIRE_SCORE = 60
 # Pivot levels we evaluate as fade targets.
 RESISTANCE_KEYS = ("R1", "R2", "R3")
 SUPPORT_KEYS = ("S1", "S2", "S3")
+CENTER_KEY = "P"
 
 
 # ==============================================================================
@@ -95,6 +98,10 @@ class PivotDirection(str, Enum):
     FADE_RESISTANCE = "fade_resistance"   # short bias / sell call spread
     FADE_SUPPORT = "fade_support"         # long bias / sell put spread
     NONE = "none"
+
+
+CENTER_BOUNCE_LONG_TAG = "pivot_center_bounce_long"
+CENTER_BOUNCE_SHORT_TAG = "pivot_center_bounce_short"
 
 
 @dataclass
@@ -166,6 +173,7 @@ class PivotMeanReversionSignal:
         best_support = self._closest_breached_level(
             inputs.spot_price, inputs.pivots, inputs.atr, SUPPORT_KEYS, side="below"
         )
+        center_candidate = self._center_pivot_candidate(inputs)
 
         # Score each candidate, return the better one.
         cand_resistance = (
@@ -176,8 +184,12 @@ class PivotMeanReversionSignal:
             self._score_candidate(inputs, *best_support, PivotDirection.FADE_SUPPORT)
             if best_support else None
         )
+        cand_center = (
+            self._score_candidate(inputs, *center_candidate)
+            if center_candidate else None
+        )
 
-        candidates = [c for c in (cand_resistance, cand_support) if c is not None]
+        candidates = [c for c in (cand_resistance, cand_support, cand_center) if c is not None]
         if not candidates:
             return _empty_signal("Price within all pivot bands — no fade trigger")
 
@@ -214,6 +226,31 @@ class PivotMeanReversionSignal:
                     best = (k, float(lvl), float(dist))
         return best
 
+    @staticmethod
+    def _center_pivot_candidate(
+        inp: PivotMRInputs,
+    ) -> Optional[tuple[str, float, float, PivotDirection]]:
+        """Return a center-pivot candidate when price is rotating around P.
+
+        Direction is inferred from local RSI bias so the signal can qualify
+        neutral-bull and neutral-bear rotations without creating a new strategy
+        type. Outside the proximity window we return no candidate.
+        """
+        p_level = inp.pivots.get(CENTER_KEY)
+        if p_level is None or inp.atr <= 0:
+            return None
+
+        atr_distance = abs(inp.spot_price - float(p_level)) / inp.atr
+        if atr_distance > CENTER_PIVOT_PROXIMITY_ATR:
+            return None
+
+        direction = (
+            PivotDirection.FADE_SUPPORT
+            if inp.rsi >= RSI_BULLISH_BIAS
+            else PivotDirection.FADE_RESISTANCE
+        )
+        return (CENTER_KEY, float(p_level), float(atr_distance), direction)
+
     def _score_candidate(
         self,
         inp: PivotMRInputs,
@@ -235,7 +272,18 @@ class PivotMeanReversionSignal:
             penalties.append(f"regime={inp.regime_label} not mean-reverting")
 
         # --- Tier 1: ATR-normalised distance trigger ---------------------
-        if atr_distance >= ATR_DISTANCE_TRIGGER:
+        if level_name == CENTER_KEY and atr_distance <= CENTER_PIVOT_PROXIMITY_ATR:
+            reasons.append(
+                CENTER_BOUNCE_LONG_TAG
+                if direction == PivotDirection.FADE_SUPPORT
+                else CENTER_BOUNCE_SHORT_TAG
+            )
+            score += W_ATR_DISTANCE
+            reasons.append(
+                f"+{W_ATR_DISTANCE} center-pivot rotation dist={atr_distance:.2f} ATR "
+                f"≤ {CENTER_PIVOT_PROXIMITY_ATR}"
+            )
+        elif atr_distance >= ATR_DISTANCE_TRIGGER:
             score += W_ATR_DISTANCE
             reasons.append(
                 f"+{W_ATR_DISTANCE} dist={atr_distance:.2f} ATR ≥ {ATR_DISTANCE_TRIGGER}"

@@ -12,7 +12,7 @@ Purpose: Smoke-test the latest evolved credit-spread strategy against the
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-22 Time: 22:30:00
+Last Updated: 2026-04-30 Time: 14:05:00
 
 Module Description:
     Standalone smoke-test that exercises the institutional pricing libraries
@@ -26,6 +26,14 @@ Module Description:
     pass/fail signal rather than print-only smoke output.
 
 Change Log:
+        2026-04-30 (Audit v25):
+                - CANONICAL_MODULES extended with veto-path modules:
+                    X16 MetaCoordinator, Y03 RiskSentinelAgent, Y05 ExecutionOptimizerAgent.
+                - Added TestVetoConfigAndWiring to validate:
+                    * veto keys exist and are bool in config/config.json,
+                        config/development.json, and config/production.json
+                    * A06 config loader reads all three veto toggles
+                    * Y03 and Y05 constructor signatures expose their new toggle args.
     2026-04-22 (Audit v20):
         - CANONICAL_MODULES extended with A06 MasterController, R04 LiveEngine,
           and E19 UnifiedRiskCoordinator (all newly wired in A06 headless path).
@@ -60,6 +68,7 @@ Change Log:
 # ==============================================================================
 import os
 import sys
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -88,7 +97,17 @@ CANONICAL_MODULES: dict[str, str] = {
     "A06 MasterController": "SpyderA_Core.SpyderA06_MasterController",
     "R04 LiveEngine": "SpyderR_Runtime.SpyderR04_LiveEngine",
     "E19 UnifiedRiskCoordinator": "SpyderE_Risk.SpyderE19_UnifiedRiskCoordinator",
+    # Veto-path modules wired by latest governance update
+    "X16 MetaCoordinator": "SpyderX_Agents.SpyderX16_MetaCoordinator",
+    "Y03 RiskSentinelAgent": "SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent",
+    "Y05 ExecutionOptimizerAgent": "SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent",
 }
+
+VETO_KEYS = (
+    "enable_x16_veto",
+    "enable_y03_trade_veto",
+    "enable_y05_veto_consumption",
+)
 
 
 # ==============================================================================
@@ -530,6 +549,54 @@ class TestPMROverrideEnvironment:
         assert 1 <= MIN_FIRE_SCORE <= 100, (
             f"MIN_FIRE_SCORE={MIN_FIRE_SCORE} outside expected range [1, 100]"
         )
+
+
+class TestVetoConfigAndWiring:
+    """Verify config and code wiring for X16/Y03/Y05 veto toggles."""
+
+    @staticmethod
+    def _load_profile(name: str) -> dict:
+        cfg_path = project_root.parent / "config" / f"{name}.json"
+        if not cfg_path.exists():
+            pytest.skip(f"Config profile not found: {cfg_path}")
+        return json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    @pytest.mark.parametrize("profile", ["config", "development", "production"])
+    def test_veto_keys_exist_and_boolean(self, profile: str):
+        payload = self._load_profile(profile)
+        for key in VETO_KEYS:
+            assert key in payload, f"{profile}.json missing key: {key}"
+            assert isinstance(payload[key], bool), (
+                f"{profile}.json key '{key}' must be bool, got {type(payload[key]).__name__}"
+            )
+
+    def test_master_controller_reads_veto_keys(self):
+        try:
+            from SpyderA_Core import SpyderA06_MasterController as a06
+            source = inspect.getsource(a06)
+        except Exception as exc:
+            pytest.skip(f"A06 source unavailable: {exc}")
+
+        for key in VETO_KEYS:
+            assert key in source, f"A06 missing veto key wiring: {key}"
+
+    def test_y03_exposes_enable_trade_veto_constructor_arg(self):
+        try:
+            from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import RiskSentinelAgent
+            sig = inspect.signature(RiskSentinelAgent.__init__)
+        except Exception as exc:
+            pytest.skip(f"Y03 unavailable: {exc}")
+
+        assert "enable_trade_veto" in sig.parameters
+
+    def test_y05_exposes_enable_veto_consumption_constructor_arg(self):
+        try:
+            from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import ExecutionOptimizerAgent
+            sig = inspect.signature(ExecutionOptimizerAgent.__init__)
+        except Exception as exc:
+            pytest.skip(f"Y05 unavailable: {exc}")
+
+        assert "enable_veto_consumption" in sig.parameters
 
 
 # ==============================================================================

@@ -77,6 +77,10 @@ _SYMBOLS: Dict[str, str] = {
     "trin": "https://www.tradingview.com/symbols/USI-TRIN.NY/",
     "add":  "https://www.tradingview.com/symbols/USI-ADD/",
     "vold": "https://www.tradingview.com/symbols/USI-VOLD/",
+    # TradingView's USI-VOLD has occasionally emitted unsigned-overflow
+    # values; UVOL/DVOL lets us deterministically reconstruct VOLD.
+    "uvol": "https://www.tradingview.com/symbols/USI-UVOL/",
+    "dvol": "https://www.tradingview.com/symbols/USI-DVOL/",
     # NOTE: USI-NYMO does not have a TradingView symbol page (returns 404).
     # NYMO is computed as an ADD-EMA oscillator proxy in SpyderS07.
 }
@@ -122,6 +126,7 @@ _NYMO_STRONG_BEAR = -60.0
 _NAV_TIMEOUT_MS  = 20_000
 _SEL_TIMEOUT_MS  = 25_000
 _TEXT_TIMEOUT_MS  =  5_000
+_UINT64_MAX = float(2 ** 64)
 
 
 # ==============================================================================
@@ -275,6 +280,12 @@ class TradingViewInternals:
                 except Exception as exc:
                     logger.warning("Failed to scrape %s: %s", name.upper(), exc)
                     result[name] = float("nan")
+
+            result["vold"] = self._normalise_vold(
+                raw_vold=result.get("vold", float("nan")),
+                uvol=result.get("uvol", float("nan")),
+                dvol=result.get("dvol", float("nan")),
+            )
             return result
 
         while True:
@@ -330,6 +341,40 @@ class TradingViewInternals:
                 .strip()
         )
         return float(cleaned)
+
+    @staticmethod
+    def _normalise_vold(raw_vold: Any, uvol: Any, dvol: Any) -> float:
+        """Return a sane VOLD value from available TradingView internals.
+
+        Priority:
+          1) UVOL - DVOL when both are finite.
+          2) Signed uint64 unwrap for overflowed USI-VOLD values.
+          3) Raw USI-VOLD when it is already sane.
+        """
+        def _to_float(value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float("nan")
+
+        def _is_finite(value: float) -> bool:
+            return not math.isnan(value) and math.isfinite(value)
+
+        raw = _to_float(raw_vold)
+        up = _to_float(uvol)
+        down = _to_float(dvol)
+
+        if _is_finite(up) and _is_finite(down):
+            return up - down
+
+        if _is_finite(raw) and raw > 9e18:
+            unwrapped = raw - _UINT64_MAX
+            if abs(unwrapped) < 5e9:
+                return unwrapped
+
+        if _is_finite(raw):
+            return raw
+        return float("nan")
 
     # ------------------------------------------------------------------
     # Breadth regime classification

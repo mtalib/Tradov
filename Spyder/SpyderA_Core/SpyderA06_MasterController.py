@@ -152,6 +152,9 @@ class SystemConfig:
     enable_paper_trading: bool
     enable_ml_predictions: bool
     enable_risk_management: bool
+    enable_x16_veto: bool = True
+    enable_y03_trade_veto: bool = True
+    enable_y05_veto_consumption: bool = True
 
 
 @dataclass
@@ -258,10 +261,20 @@ class MasterController:
             enable_paper_trading=config_data.get("enable_paper_trading", True),
             enable_ml_predictions=config_data.get("enable_ml_predictions", True),
             enable_risk_management=config_data.get("enable_risk_management", True),
+            enable_x16_veto=config_data.get("enable_x16_veto", True),
+            enable_y03_trade_veto=config_data.get("enable_y03_trade_veto", True),
+            enable_y05_veto_consumption=config_data.get("enable_y05_veto_consumption", True),
         )
 
     def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration — env vars take precedence over hardcoded defaults."""
+
+        def _env_bool(name: str, default: bool) -> bool:
+            value = os.environ.get(name)
+            if value is None:
+                return default
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+
         return {
             "trading_mode": os.environ.get("TRADING_MODE", "paper"),
             "environment": os.environ.get("ENVIRONMENT", "development"),
@@ -277,6 +290,9 @@ class MasterController:
             "enable_paper_trading": True,
             "enable_ml_predictions": True,
             "enable_risk_management": True,
+            "enable_x16_veto": _env_bool("ENABLE_X16_VETO", True),
+            "enable_y03_trade_veto": _env_bool("ENABLE_Y03_TRADE_VETO", True),
+            "enable_y05_veto_consumption": _env_bool("ENABLE_Y05_VETO_CONSUMPTION", True),
         }
 
     # ==================================================================================
@@ -698,6 +714,9 @@ class MasterController:
             return _load("SpyderL_ML.SpyderL18_EnhancedMLIntegration", "EnhancedMLEngine")
 
         if module_id == "X16_MetaCoordinator":
+            if not self.config.enable_x16_veto:
+                logger.info("X16 MetaCoordinator disabled by config (enable_x16_veto=false)")
+                return {"module_id": module_id, "status": "disabled"}
             return _load("SpyderX_Agents.SpyderX16_MetaCoordinator", "MetaCoordinator")
 
         # ── Broker client — requires env-var credentials ──────────────────────
@@ -805,13 +824,20 @@ class MasterController:
                 for agent_cls in [
                     SpyderY01_MarketSenseAgent,
                     SpyderY02_StrategyPilotAgent,
-                    SpyderY03_RiskSentinelAgent,
                     SpyderY04_AlphaLearnerAgent,
-                    SpyderY05_ExecutionOptimizerAgent,
                     SpyderY06_NewsSentinelAgent,
                     SpyderY07_TradeJournalAgent,
                 ]:
                     scheduler.register(agent_cls)
+
+                scheduler.register(
+                    SpyderY03_RiskSentinelAgent,
+                    enable_trade_veto=self.config.enable_y03_trade_veto,
+                )
+                scheduler.register(
+                    SpyderY05_ExecutionOptimizerAgent,
+                    enable_veto_consumption=self.config.enable_y05_veto_consumption,
+                )
 
                 # Y08 MetaOrchestrator gets the telegram_bot too
                 scheduler.register(

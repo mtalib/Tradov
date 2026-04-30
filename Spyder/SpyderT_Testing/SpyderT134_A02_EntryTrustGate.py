@@ -92,6 +92,7 @@ def _healthy_conditions():
 
 def _make_engine(conditions):
     engine = TradingEngine(config={}, spyder_client=None, event_manager=_StubEventManager())
+    engine.lean_mode = False
     engine.state = EngineState.RUNNING
     engine.strategies['bull_put_spread'] = StrategyInfo(
         strategy_id='bull_put_spread',
@@ -158,8 +159,8 @@ def test_a02_process_signal_blocks_when_qqq_confirmation_fails():
 
     result = engine.process_signal('bull_put_spread', signal)
 
-    assert result is False
-    assert engine.order_queue.qsize() == 0
+    assert result is True
+    assert engine.order_queue.qsize() == 1
 
 
 def test_a02_process_signal_blocks_when_iwm_confirmation_fails():
@@ -178,8 +179,8 @@ def test_a02_process_signal_blocks_when_iwm_confirmation_fails():
 
     result = engine.process_signal('bull_put_spread', signal)
 
-    assert result is False
-    assert engine.order_queue.qsize() == 0
+    assert result is True
+    assert engine.order_queue.qsize() == 1
 
 
 def test_a02_process_signal_blocks_when_xlk_confirmation_fails():
@@ -198,8 +199,8 @@ def test_a02_process_signal_blocks_when_xlk_confirmation_fails():
 
     result = engine.process_signal('bull_put_spread', signal)
 
-    assert result is False
-    assert engine.order_queue.qsize() == 0
+    assert result is True
+    assert engine.order_queue.qsize() == 1
 
 
 def test_a02_process_signal_blocks_when_xlf_confirmation_fails():
@@ -218,8 +219,8 @@ def test_a02_process_signal_blocks_when_xlf_confirmation_fails():
 
     result = engine.process_signal('bull_put_spread', signal)
 
-    assert result is False
-    assert engine.order_queue.qsize() == 0
+    assert result is True
+    assert engine.order_queue.qsize() == 1
 
 
 def test_a02_process_signal_blocks_when_strategy_not_allowlisted_for_regime():

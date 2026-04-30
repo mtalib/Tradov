@@ -403,7 +403,7 @@ class OptionChainManager:
         # Setup callbacks
         self._setup_callbacks()
 
-        self.logger.info("Option Chain Manager initialized")
+        self.logger.debug("Option Chain Manager initialized")
 
     # ==========================================================================
     # PUBLIC INTERFACE

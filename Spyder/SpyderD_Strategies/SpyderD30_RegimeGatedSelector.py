@@ -49,6 +49,7 @@ References:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -149,6 +150,7 @@ def _get_l09_to_d30_regime_map() -> dict:
                 L09MarketRegime.LOW_VOLATILITY: MarketRegime.BULL,
                 L09MarketRegime.CRISIS_MODE: MarketRegime.CRISIS,
                 L09MarketRegime.RECOVERY_MODE: MarketRegime.BULL,
+                L09MarketRegime.EVENT_TRANSITION: MarketRegime.CRISIS,
                 L09MarketRegime.UNKNOWN: MarketRegime.UNKNOWN,
             }
         else:
@@ -162,6 +164,11 @@ def _get_l09_to_d30_regime_map() -> dict:
 # Strategy Types
 class StrategyType(Enum):
     """Available strategy types."""
+    BULL_PUT_SPREAD = "bull_put_spread"
+    BEAR_CALL_SPREAD = "bear_call_spread"
+    IRON_CONDOR = "iron_condor"
+    IRON_BUTTERFLY = "iron_butterfly"
+    NO_TRADE = "no_trade"
     CALENDAR_SPREADS = "calendar_spreads"  # Optimal for Bull regime
     IRON_CONDORS = "iron_condors"  # Optimal for Chop regime
     LONG_STRADDLES = "long_straddles"  # Optimal for Crisis regime
@@ -337,44 +344,39 @@ STRATEGY_PROFILES = {
 REGIME_STRATEGY_MAPPINGS = {
     MarketRegime.BULL: RegimeStrategyMapping(
         regime=MarketRegime.BULL,
-        primary_strategy=StrategyType.CALENDAR_SPREADS,
+        primary_strategy=StrategyType.BULL_PUT_SPREAD,
         secondary_strategies=[
-            StrategyType.CREDIT_SPREADS,
-            StrategyType.VERTICAL_SPREADS
+            StrategyType.IRON_CONDOR,
+            StrategyType.IRON_BUTTERFLY,
         ],
         avoid_strategies=[
-            StrategyType.LONG_STRADDLES,
-            StrategyType.DEBIT_SPREADS
+            StrategyType.NO_TRADE,
         ],
         confidence_threshold=0.70
     ),
     MarketRegime.CHOP: RegimeStrategyMapping(
         regime=MarketRegime.CHOP,
-        primary_strategy=StrategyType.IRON_CONDORS,
+        primary_strategy=StrategyType.IRON_CONDOR,
         secondary_strategies=[
-            StrategyType.IRON_BUTTERFLIES,
-            StrategyType.CREDIT_SPREADS,
-            StrategyType.VERTICAL_SPREADS
+            StrategyType.BULL_PUT_SPREAD,
+            StrategyType.BEAR_CALL_SPREAD,
         ],
         avoid_strategies=[
-            StrategyType.CALENDAR_SPREADS,
-            StrategyType.LONG_STRADDLES
+            StrategyType.NO_TRADE,
         ],
         confidence_threshold=0.70
     ),
     MarketRegime.CRISIS: RegimeStrategyMapping(
         regime=MarketRegime.CRISIS,
-        primary_strategy=StrategyType.LONG_STRADDLES,
+        primary_strategy=StrategyType.NO_TRADE,
         secondary_strategies=[
-            StrategyType.DEBIT_SPREADS,
-            StrategyType.RATIO_SPREADS
+            StrategyType.NO_TRADE,
         ],
         avoid_strategies=[
-            StrategyType.CALENDAR_SPREADS,
-            StrategyType.CREDIT_SPREADS,
-            StrategyType.IRON_CONDORS,
-            StrategyType.IRON_BUTTERFLIES,
-            StrategyType.VERTICAL_SPREADS
+            StrategyType.BULL_PUT_SPREAD,
+            StrategyType.BEAR_CALL_SPREAD,
+            StrategyType.IRON_CONDOR,
+            StrategyType.IRON_BUTTERFLY,
         ],
         confidence_threshold=0.70
     ),
@@ -557,7 +559,8 @@ class RegimeGatedSelector:
     def __init__(self,
                  confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
                  min_regime_duration: int = DEFAULT_MIN_REGIME_DURATION,
-                 transition_period: int = DEFAULT_TRANSITION_PERIOD):
+                 transition_period: int = DEFAULT_TRANSITION_PERIOD,
+                 lean_mode: bool | None = None):
         """
         Initialize Regime-Gated Strategy Selector.
 
@@ -573,6 +576,11 @@ class RegimeGatedSelector:
         self.confidence_threshold = confidence_threshold
         self.min_regime_duration = min_regime_duration
         self.transition_period = transition_period
+        # Deterministic regime-gated mapping is mandatory for v2 policy.
+        if lean_mode is None:
+            self.lean_mode = True
+        else:
+            self.lean_mode = bool(lean_mode)
 
         # HMM Regime Detector (E21 — fallback)
         self.hmm_detector: HMMRegimeDetector | None = None
@@ -610,8 +618,7 @@ class RegimeGatedSelector:
 
         # RL strategy selection agent (optional)
         self._rl_selector_model = None
-        self._rl_enabled = HAS_SB3
-        self._load_rl_selector_model()
+        self._rl_enabled = False
 
     def _load_rl_selector_model(self, model_path: str | None = None) -> None:
         """Load pre-trained RL strategy selection model if available."""
@@ -754,6 +761,7 @@ class RegimeGatedSelector:
     def select_strategy_from_consensus(
         self,
         consensus: 'RegimeConsensus',
+        pivot_signal: dict[str, Any] | None = None,
         force_switch: bool = False,
     ) -> StrategySelection:
         """
@@ -765,30 +773,79 @@ class RegimeGatedSelector:
 
         Args:
             consensus: L09 RegimeConsensus result
+            pivot_signal: Optional SpyderS08 pivot signal payload
             force_switch: Force strategy switch regardless of confidence
 
         Returns:
             StrategySelection with selected strategy
         """
-        # Map L09 regime → D30 regime
-        regime_map = _get_l09_to_d30_regime_map()
-        mapped_regime = regime_map.get(
-            consensus.regime, MarketRegime.UNKNOWN
-        )
+        # v2 policy requires deterministic L09 regime-to-strategy mapping only.
+        return self._select_lean_strategy(consensus, pivot_signal=pivot_signal)
 
-        # Build a RegimePrediction-compatible object for internal reuse
-        prediction = RegimePrediction(
+    def _select_lean_strategy(
+        self,
+        consensus: 'RegimeConsensus',
+        pivot_signal: dict[str, Any] | None = None,
+    ) -> StrategySelection:
+        """Select strategy using lean L09 regime consensus."""
+        l09_regime = consensus.regime
+        confidence = consensus.confidence
+
+        if l09_regime == L09MarketRegime.EVENT_TRANSITION:
+            strategy = StrategyType.NO_TRADE
+            reason = "Event-transition regime — halt new entries"
+        elif l09_regime == L09MarketRegime.CRISIS_MODE:
+            strategy = StrategyType.NO_TRADE
+            reason = "Crisis regime — halt new entries"
+        elif l09_regime == L09MarketRegime.BULL_TRENDING:
+            strategy = StrategyType.BULL_PUT_SPREAD
+            reason = "Bull trend — Bull Put Spread"
+        elif l09_regime == L09MarketRegime.BEAR_TRENDING:
+            strategy = StrategyType.BEAR_CALL_SPREAD
+            reason = "Bear trend — Bear Call Spread"
+        elif l09_regime == L09MarketRegime.SIDEWAYS_RANGE:
+            strategy = StrategyType.IRON_CONDOR
+            reason = "Range/calm — Iron Condor"
+        elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
+            strategy = StrategyType.IRON_BUTTERFLY
+            reason = "High-vol mean reversion — Iron Butterfly"
+        else:
+            strategy = StrategyType.IRON_CONDOR
+            reason = "Fallback neutral posture — Iron Condor"
+
+        # Pivot overlay is an execution qualifier only; annotate reason for downstream gates.
+        if isinstance(pivot_signal, dict):
+            fired = bool(pivot_signal.get("fired", False))
+            direction = str(pivot_signal.get("direction", "none"))
+            score = int(pivot_signal.get("score", 0) or 0)
+            level_name = str(pivot_signal.get("nearest_level_name", "") or "")
+            if fired:
+                reason = (
+                    f"{reason} | pivot_overlay=fired direction={direction} "
+                    f"score={score} level={level_name or '-'}"
+                )
+            else:
+                reason = (
+                    f"{reason} | pivot_overlay=watching direction={direction} "
+                    f"score={score} level={level_name or '-'}"
+                )
+
+        selection = StrategySelection(
             timestamp=consensus.timestamp,
-            current_regime=mapped_regime,
-            regime_probabilities={mapped_regime: consensus.confidence},
-            confidence=consensus.confidence,
-            transition_probability=0.0,
-            expected_duration=consensus.regime_duration.total_seconds() / 86400,
-            reason=f"L09 consensus: {consensus.regime.value} "
-                   f"(mapped to {mapped_regime.value})",
+            current_regime=MarketRegime.UNKNOWN,
+            selected_strategy=strategy,
+            previous_strategy=self.current_strategy,
+            confidence=confidence,
+            transition_state=TransitionState.STABLE,
+            transition_progress=1.0,
+            reason=reason,
         )
 
-        return self.select_strategy(prediction, force_switch=force_switch)
+        self.previous_strategy = self.current_strategy
+        self.current_strategy = strategy
+        self.selection_history.append(selection)
+
+        return selection
 
     def select_strategy(self,
                        regime_prediction: RegimePrediction,

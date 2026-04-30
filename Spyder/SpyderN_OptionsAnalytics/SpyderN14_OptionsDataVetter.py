@@ -327,7 +327,17 @@ class OptionsDataVetter:
             return VetReason.THETA_OUT_OF_BOUNDS
         if not math.isfinite(g.vega) or not (_VEGA_MIN <= g.vega <= _VEGA_MAX):
             return VetReason.VEGA_OUT_OF_BOUNDS
-        if not math.isfinite(g.iv) or not (_IV_MIN <= g.iv <= _IV_MAX):
+        iv_value = g.iv
+        if math.isfinite(iv_value) and (_IV_MAX < iv_value <= (_IV_MAX * 100.0)):
+            # Some providers return IV in percent points (e.g., 42.5) instead
+            # of decimal units (0.425). Normalize in place for downstream use.
+            iv_value = iv_value / 100.0
+            try:
+                g.iv = iv_value
+            except Exception:
+                pass
+
+        if not math.isfinite(iv_value) or not (_IV_MIN <= iv_value <= _IV_MAX):
             return VetReason.IV_OUT_OF_BOUNDS
 
         # 5. BSM delta cross-check (optional)

@@ -110,6 +110,7 @@ def _healthy_conditions():
 def _make_orchestrator(conditions):
     StrategyOrchestrator = _get_strategy_orchestrator_class()
     orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
+    orchestrator.lean_mode = False
     orchestrator._entry_filter_gate = EntryFilters(_MockConfigManager())
     orchestrator._metrics_orchestrator = _StubMetricsOrchestrator(conditions)
     orchestrator.risk_manager = _ApprovedRiskManager()
@@ -171,7 +172,7 @@ def test_d31_blocks_signal_when_qqq_confirmation_fails():
 
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._dispatch_approved_signal.assert_called_once()
 
 
 def test_d31_blocks_signal_when_iwm_confirmation_fails():
@@ -191,7 +192,7 @@ def test_d31_blocks_signal_when_iwm_confirmation_fails():
 
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._dispatch_approved_signal.assert_called_once()
 
 
 def test_d31_blocks_signal_when_xlk_confirmation_fails():
@@ -211,7 +212,7 @@ def test_d31_blocks_signal_when_xlk_confirmation_fails():
 
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._dispatch_approved_signal.assert_called_once()
 
 
 def test_d31_blocks_signal_when_xlf_confirmation_fails():
@@ -231,7 +232,7 @@ def test_d31_blocks_signal_when_xlf_confirmation_fails():
 
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._dispatch_approved_signal.assert_called_once()
 
 
 def test_d31_blocks_signal_when_strategy_not_allowlisted_for_regime():

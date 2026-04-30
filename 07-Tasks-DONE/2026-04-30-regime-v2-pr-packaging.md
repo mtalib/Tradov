@@ -13,14 +13,14 @@ Authoritative full-suite run:
 - Coverage gate: failed at 34.04% (required 60%)
 
 Isolated deterministic contract run:
-- Command: /home/adam/Projects/Spyder/.venv/bin/python -m pytest Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py -q -o addopts=''
+- Command: /home/adam/Projects/Spyder/.venv/bin/python -m pytest Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py -q -o addopts=''
 - Result: 8 passed
 
 ## Scope Isolation Facts
 
 Current branch is broad (75 changed files). For regime-v2 packaging from this session:
 - Trackable code file in scope:
-  - Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py (new)
+   - Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py (new)
 - Non-trackable evidence file (gitignored):
   - 11-TestLogs/2026-04-30-regime-v2-finalization.md
 
@@ -30,7 +30,7 @@ Gitignore proof:
 ## Clean Commit Recipe (Single-File Scope)
 
 1. Stage only scope file:
-   git add Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py
+   git add Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py
 
 2. Verify staged scope:
    git diff --staged --name-only

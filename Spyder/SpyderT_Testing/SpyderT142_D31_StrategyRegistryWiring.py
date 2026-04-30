@@ -13,7 +13,11 @@ def _make_orchestrator():
     """Lazily import D31 to avoid heavy GUI/native import at collection time."""
     mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
     strategy_orchestrator_cls = mod.StrategyOrchestrator
-    return strategy_orchestrator_cls(event_manager=_StubEventManager())
+    orchestrator = strategy_orchestrator_cls(event_manager=_StubEventManager())
+    # These tests validate legacy/full registry wiring rather than lean-mode allowlisting.
+    orchestrator.lean_mode = False
+    orchestrator._initialize_strategy_registry()
+    return orchestrator
 
 
 class _StubEventManager:

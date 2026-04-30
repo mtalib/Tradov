@@ -143,7 +143,7 @@ class SessionSupervisor:
         Returns:
             ``True`` on success, ``False`` if any required component fails.
         """
-        self.logger.info("SessionSupervisor.start() — mode=%s symbols=%s", self.mode, self.symbols)
+        self.logger.debug("SessionSupervisor.start() — mode=%s symbols=%s", self.mode, self.symbols)
         if self.dry_run:
             self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
 
@@ -201,7 +201,7 @@ class SessionSupervisor:
             return self._abort("BootSelfTest")
 
         self._running = True
-        self.logger.info("✅ SessionSupervisor fully started in %s mode", self.mode)
+        self.logger.debug("✅ SessionSupervisor fully started in %s mode", self.mode)
 
         return True
 
@@ -297,7 +297,7 @@ class SessionSupervisor:
             self.em = get_event_manager()
             if not self.em.is_running:
                 self.em.start()
-            self.logger.info("✅ EventManager started")
+            self.logger.debug("✅ EventManager started")
             return True
         except Exception as exc:
             self.logger.error("❌ EventManager failed: %s", exc)
@@ -316,7 +316,7 @@ class SessionSupervisor:
                 self.logger.error("❌ DataFeed.start() returned False")
                 return False
             self._components.append(self.feed)
-            self.logger.info("✅ DataFeed started — symbols: %s", self.symbols)
+            self.logger.debug("✅ DataFeed started — symbols: %s", self.symbols)
             return True
         except Exception as exc:
             self.logger.error("❌ DataFeed failed: %s", exc)
@@ -330,7 +330,7 @@ class SessionSupervisor:
             )
             self.freshness_monitor.start()
             self._components.append(self.freshness_monitor)
-            self.logger.info("✅ DataFreshnessMonitor started")
+            self.logger.debug("✅ DataFreshnessMonitor started")
             return True
         except Exception as exc:
             self.logger.error("❌ DataFreshnessMonitor failed: %s", exc)
@@ -370,7 +370,7 @@ class SessionSupervisor:
                 self.broker.place_order = _dry_place_order  # type: ignore[method-assign]
             self.broker.start()
             self._components.append(self.broker)
-            self.logger.info("✅ PaperBroker started for paper mode")
+            self.logger.debug("✅ PaperBroker started for paper mode")
             return True
         except Exception as exc:
             self.logger.error("❌ PaperBroker failed in paper mode: %s", exc)
@@ -382,7 +382,7 @@ class SessionSupervisor:
             self.reconciler = FillReconciler(broker=self.broker, event_manager=self.em)
             self.reconciler.start()
             self._components.append(self.reconciler)
-            self.logger.info("✅ FillReconciler started")
+            self.logger.debug("✅ FillReconciler started")
         except Exception as exc:
             self.logger.warning("⚠️ FillReconciler non-fatal: %s", exc)
 
@@ -395,7 +395,7 @@ class SessionSupervisor:
             )
             self.position_tracker.start()
             self._components.append(self.position_tracker)
-            self.logger.info("✅ PositionTracker started")
+            self.logger.debug("✅ PositionTracker started")
         except Exception as exc:
             self.logger.warning("⚠️ PositionTracker non-fatal: %s", exc)
 
@@ -425,7 +425,7 @@ class SessionSupervisor:
                 def stop(self):
                     _risk.stop_sync()
             self._components.append(_RiskStopper())
-            self.logger.info("✅ RiskManager ready and started")
+            self.logger.debug("✅ RiskManager ready and started")
             return True
         except Exception as exc:
             self.logger.error("❌ RiskManager failed: %s", exc)
@@ -483,7 +483,7 @@ class SessionSupervisor:
             except Exception as _pm_err:
                 self.logger.debug("Could not publish global portfolio manager: %s", _pm_err)
             self._components.append(self.engine)
-            self.logger.info("✅ LiveEngine started")
+            self.logger.debug("✅ LiveEngine started")
             return True
         except Exception as exc:
             self.logger.error("❌ LiveEngine failed: %s", exc)
@@ -523,7 +523,7 @@ class SessionSupervisor:
             self.orchestrator.set_live_engine(self.engine)
             self.orchestrator.start_orchestration()
             self._components.append(self.orchestrator)
-            self.logger.info("✅ StrategyOrchestrator started")
+            self.logger.debug("✅ StrategyOrchestrator started")
             return True
         except Exception as exc:
             self.logger.error("❌ StrategyOrchestrator failed: %s", exc)
@@ -541,7 +541,7 @@ class SessionSupervisor:
             )
             self.liveness.start()
             self._components.append(self.liveness)
-            self.logger.info("✅ LivenessMonitor started")
+            self.logger.debug("✅ LivenessMonitor started")
         except Exception as exc:
             self.logger.warning("⚠️ LivenessMonitor non-fatal: %s", exc)
 
@@ -586,7 +586,7 @@ class SessionSupervisor:
             )
             self.exit_monitor.start()
             self._components.append(self.exit_monitor)
-            self.logger.info("✅ ExitMonitor started")
+            self.logger.debug("✅ ExitMonitor started")
         except Exception as exc:
             self.logger.warning("⚠️ ExitMonitor non-fatal: %s", exc)
 
@@ -614,7 +614,7 @@ class SessionSupervisor:
                 self.logger.info("⏭ Boot-time orphan sweep skipped (--skip-orphan-sweep).")
                 return
             self.exit_monitor._sweep_once()
-            self.logger.info("✅ Boot-time orphan sweep completed")
+            self.logger.debug("✅ Boot-time orphan sweep completed")
         except Exception as exc:
             self.logger.warning("⚠️ Boot-time orphan sweep error (non-fatal): %s", exc)
 
@@ -686,7 +686,7 @@ class SessionSupervisor:
                 self.logger.error("❌ Boot self-test failed: rejection reason was not dry_run")
                 return False
 
-            self.logger.info("✅ Boot self-test passed (order_id=%s)", test_order_id)
+            self.logger.debug("✅ Boot self-test passed (order_id=%s)", test_order_id)
             return True
         finally:
             try:

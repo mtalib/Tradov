@@ -546,6 +546,14 @@ class TradierClient:
         # Rate limit snapshot updated after every successful API call (ENH-03)
         self._last_rate_limit: RateLimitInfo | None = None
 
+        # Last-known-good balances snapshot for transient timeout degradation.
+        self._cached_balances: dict[str, Any] | None = None
+        self._cached_balances_ts: float = 0.0
+        self._balances_stale_ttl_seconds: int = max(
+            30,
+            int(os.environ.get("SPYDER_BALANCE_STALE_TTL_SECONDS", "180")),
+        )
+
         logger.debug("TradierClient initialized for %s environment", environment.value)
 
     def _create_session(self) -> requests.Session:
@@ -756,7 +764,31 @@ class TradierClient:
             >>> print(balances["balances"]["total_equity"])
         """
         logger.debug("Fetching balances for account %s", self.account_id)
-        return self._make_request("GET", f"/accounts/{self.account_id}/balances")
+        endpoint = f"/accounts/{self.account_id}/balances"
+        try:
+            payload = self._make_request("GET", endpoint)
+        except TradierAPIError as exc:
+            if self._cached_balances is not None:
+                age_s = time.time() - self._cached_balances_ts
+                if age_s <= self._balances_stale_ttl_seconds:
+                    logger.warning(
+                        "Balances endpoint degraded (%s); using cached snapshot "
+                        "age=%.1fs (ttl=%ss)",
+                        exc,
+                        age_s,
+                        self._balances_stale_ttl_seconds,
+                    )
+                    return self._cached_balances
+            logger.warning(
+                "Balances fetch failed and no fresh cache is available: %s",
+                exc,
+            )
+            raise
+
+        if isinstance(payload, dict) and "balances" in payload:
+            self._cached_balances = payload
+            self._cached_balances_ts = time.time()
+        return payload
 
     def get_positions(self) -> dict[str, Any]:
         """

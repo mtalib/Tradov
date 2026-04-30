@@ -105,6 +105,7 @@ class FilterType(Enum):
     IWM_CONFIRMATION = "iwm_confirmation"  # IWM breadth confirmation gate
     XLK_CONFIRMATION = "xlk_confirmation"  # XLK sector leadership confirmation gate
     XLF_CONFIRMATION = "xlf_confirmation"  # XLF financial confirmation gate
+    PIVOT_OVERLAY = "pivot_overlay"  # S08 pivot overlay gate (execution qualifier)
 
 
 class LiquidityGateMode(Enum):
@@ -266,6 +267,9 @@ class EntryFilters:
         self.enable_all_filters = config.get('enable_all_filters', True)
         self.min_quality_rating = EntryQuality(config.get('min_quality_rating', 3))
         self.strict_mode = config.get('strict_mode', False)
+        self.lean_mode = bool(
+            self.config_manager.get_config('autonomous_readiness.lean_mode', False)
+        )
 
         # Time filters
         self.restricted_hours = config.get('restricted_hours', {
@@ -466,6 +470,7 @@ class EntryFilters:
             FilterType.IWM_CONFIRMATION: 1.0,
             FilterType.XLK_CONFIRMATION: 1.0,
             FilterType.XLF_CONFIRMATION: 1.0,
+            FilterType.PIVOT_OVERLAY: 1.3,
         }
 
         # Override with config values
@@ -680,30 +685,18 @@ class EntryFilters:
         # Technical filters
         checks.extend(self._check_technical_filters(params))
         checks.extend(self._check_support_resistance_filters(params))
+        checks.extend(self._check_pivot_overlay_filter(params))
 
         # Risk filters
         checks.extend(self._check_risk_filters(params))
-
-        # Time filters
         checks.extend(self._check_time_filters(params))
-
-        # Greeks filters
-        checks.extend(self._check_greeks_filters(params))
 
         # Market-structure / trust-policy filters
         checks.extend(self._check_data_quality_filter(params))
         checks.extend(self._check_vol_surface_structure_filter(params))
         checks.extend(self._check_dealer_flow_filter(params))
-
-        # Additional macro/participation gates sourced from live symbol feeds
         checks.extend(self._check_short_term_vol_stress_filter(params))
-        checks.extend(self._check_vol_of_vol_stress_filter(params))
-        checks.extend(self._check_put_call_sentiment_filter(params))
-        checks.extend(self._check_participation_filter(params))
-        checks.extend(self._check_qqq_confirmation_filter(params))
-        checks.extend(self._check_iwm_confirmation_filter(params))
-        checks.extend(self._check_xlk_confirmation_filter(params))
-        checks.extend(self._check_xlf_confirmation_filter(params))
+        checks.extend(self._check_vix_term_structure_filter())
 
         # Execution quality filters
         checks.extend(self._check_spread_width_filter(params))
@@ -711,11 +704,6 @@ class EntryFilters:
 
         # Correlation risk filters
         checks.extend(self._check_correlation_filters(params, checks))
-
-        # Macro / market-internals filters (live data sources — skip gracefully if unavailable)
-        checks.extend(self._check_vix_term_structure_filter())
-        checks.extend(self._check_cboe_skew_filter())
-        checks.extend(self._check_market_internals_filter())
 
         return checks
 
@@ -966,6 +954,134 @@ class EntryFilters:
                 threshold=max_delta,
                 message="Risk parameters acceptable",
                 weight=self.filter_weights[FilterType.PORTFOLIO_EXPOSURE]
+            ))
+
+        return checks
+
+    def _check_pivot_overlay_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Apply SpyderS08 pivot signal as execution qualifier for entry timing."""
+        checks = []
+
+        signal = params.get('pivot_mr_signal')
+        if not isinstance(signal, dict):
+            market_conditions = params.get('market_conditions') or {}
+            signal = (
+                market_conditions.get('pivot_mr_signal')
+                or market_conditions.get('s08_pivot_signal')
+                or market_conditions.get('pivot_signal')
+            )
+
+        if not isinstance(signal, dict):
+            return checks
+
+        strategy_type = str(params.get('strategy_type', '')).strip().lower()
+        direction = str(signal.get('direction', 'none')).strip().lower()
+        fired = bool(signal.get('fired', False))
+        score = int(signal.get('score', 0) or 0)
+        level_name = str(signal.get('nearest_level_name', '') or '')
+        level_price = signal.get('nearest_level_price')
+        atr_distance = signal.get('atr_distance')
+        penalties = signal.get('penalties') or []
+        penalty_text = ' | '.join(str(p) for p in penalties if p)
+
+        if isinstance(level_price, (int, float)):
+            level_ctx = f"{level_name}@{level_price:.2f}" if level_name else f"@{level_price:.2f}"
+        else:
+            level_ctx = level_name or "-"
+
+        if strategy_type == 'bull_put_spread':
+            if fired and direction == 'fade_resistance':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.FAIL,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_direction_conflict; "
+                        f"strategy=bull_put_spread; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+            elif fired and direction == 'fade_support':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.PASS,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"Pivot overlay aligned for bullish entry; "
+                        f"direction={direction}; nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        elif strategy_type == 'bear_call_spread':
+            if fired and direction == 'fade_support':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.FAIL,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_direction_conflict; "
+                        f"strategy=bear_call_spread; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+            elif fired and direction == 'fade_resistance':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.PASS,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"Pivot overlay aligned for bearish entry; "
+                        f"direction={direction}; nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        elif strategy_type in {'iron_condor', 'iron_butterfly'}:
+            if fired and direction in {'fade_resistance', 'fade_support'}:
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.WARNING,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_directional_pressure; "
+                        f"strategy={strategy_type}; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        if not fired and penalty_text:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PIVOT_OVERLAY,
+                result=FilterResult.WARNING,
+                value=float(score),
+                threshold=60.0,
+                message=(
+                    f"pivot_block_reason=pivot_signal_not_armed; penalties={penalty_text}; "
+                    f"nearest={level_ctx}; atr_distance={atr_distance}"
+                ),
+                weight=self.filter_weights[FilterType.PIVOT_OVERLAY] * 0.8,
+            ))
+
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PIVOT_OVERLAY,
+                result=FilterResult.PASS,
+                value=float(score),
+                threshold=60.0,
+                message=(
+                    f"Pivot overlay neutral; direction={direction}; fired={fired}; "
+                    f"nearest={level_ctx}; atr_distance={atr_distance}"
+                ),
+                weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
             ))
 
         return checks
@@ -2228,6 +2344,7 @@ class EntryFilters:
             FilterType.DATA_QUALITY,
             FilterType.VOL_SURFACE,
             FilterType.DEALER_FLOW,
+            FilterType.PIVOT_OVERLAY,
         }
         hard_fail_present = any(
             check.result == FilterResult.FAIL and check.filter_type in hard_fail_filters

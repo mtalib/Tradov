@@ -312,7 +312,7 @@ class BlackSwanScheduler:
         # Initialize default tasks
         self._setup_default_tasks()
 
-        self.logger.info("Black Swan Scheduler initialized")
+        self.logger.debug("Black Swan Scheduler initialized")
 
     # ==========================================================================
     # PUBLIC METHODS - Task Management
@@ -607,19 +607,11 @@ class BlackSwanScheduler:
                     task.last_run = datetime.now(timezone.utc)
 
             score = float(result.overall_score)
-            status_changed = result.status != self._last_logged_check_status
-            if status_changed:
-                self.logger.info(
-                    "Market check complete - Status: %s, Score: %.2f",
-                    result.status.value,
-                    score,
-                )
-            else:
-                self.logger.debug(
-                    "Market check complete - Status: %s, Score: %.2f",
-                    result.status.value,
-                    score,
-                )
+            self.logger.debug(
+                "Market check complete - Status: %s, Score: %.2f",
+                result.status.value,
+                score,
+            )
 
             self._last_logged_check_status = result.status
 
@@ -1230,7 +1222,7 @@ Status Distribution:
         if not missed:
             return
 
-        self.logger.info(
+        self.logger.debug(
             "Startup catch-up: running %d missed Black Swan check(s)",
             len(missed),
         )

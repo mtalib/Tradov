@@ -559,7 +559,7 @@ class EventManager:
                 self.logger.warning("EventManager already running")
                 return True
 
-            self.logger.info("Starting EventManager...")
+            self.logger.debug("Starting EventManager...")
 
             # Clear shutdown event
             self._shutdown_event.clear()
@@ -592,7 +592,7 @@ class EventManager:
             self._metrics_thread.start()
 
             self.is_running = True
-            self.logger.info("EventManager started successfully")
+            self.logger.debug("EventManager started successfully")
 
             # Emit startup event
             self.emit(
@@ -737,7 +737,7 @@ class EventManager:
     # ==========================================================================
     def _process_events(self):
         """Main event processing loop"""
-        self.logger.info("Event processor started")
+        self.logger.debug("Event processor started")
 
         while not self._shutdown_event.is_set():
             try:
@@ -1095,7 +1095,7 @@ class EventManager:
                 for i, handler in enumerate(handlers):
                     if handler.handler_id == handler_id:
                         removed = handlers.pop(i)
-                        self.logger.info("Handler %s unsubscribed", removed.name)
+                        self.logger.debug("Handler %s unsubscribed", removed.name)
 
                         with self._metrics_lock:
                             self.metrics.handlers_registered -= 1
@@ -1106,7 +1106,7 @@ class EventManager:
             for i, handler in enumerate(self.global_handlers):
                 if handler.handler_id == handler_id:
                     removed = self.global_handlers.pop(i)
-                    self.logger.info("Global handler %s unsubscribed", removed.name)
+                    self.logger.debug("Global handler %s unsubscribed", removed.name)
 
                     with self._metrics_lock:
                         self.metrics.handlers_registered -= 1

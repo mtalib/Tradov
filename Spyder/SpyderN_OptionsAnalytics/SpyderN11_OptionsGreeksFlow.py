@@ -251,7 +251,7 @@ class OptionsGreeksFlowAnalyzer:
         self._monitoring_thread: threading.Thread | None = None
         self._running = False
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - GREEKS FLOW ANALYSIS

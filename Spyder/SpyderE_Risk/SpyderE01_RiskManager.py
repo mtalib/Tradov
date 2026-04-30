@@ -271,6 +271,7 @@ class RiskManager:
         # Y03 RiskSentinelAgent veto state — updated via wire_agent_bus().
         # Values mirror CircuitBreakerState: "normal" | "caution" | "warning" | "halt"
         self._y03_veto_state: str = "normal"
+        self._observe_only_agents: bool = self._resolve_observe_only_agents()
 
         # Stage 3: decision-quality SLO gate (vol-surface / dealer-flow / lead-lag).
         # When True, validate_signal() rejects entries if S07 reports absent or
@@ -311,9 +312,25 @@ class RiskManager:
         # are refused to prevent mid-session account/env swaps.
         self._register_hot_reload_callback()
 
-        self.logger.info("RiskManager initialized")
+        self.logger.debug("RiskManager initialized")
 
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
+
+    def _resolve_observe_only_agents(self) -> bool:
+        """Resolve whether agent vetoes should be telemetry-only by default."""
+        env_value = os.getenv("SPYDER_OBSERVE_ONLY_AGENTS")
+        if env_value is not None:
+            normalized = env_value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+
+        readiness_cfg = self._config.get("autonomous_readiness", {}) if isinstance(self._config, dict) else {}
+        configured = readiness_cfg.get("observe_only_agents") if isinstance(readiness_cfg, dict) else None
+        if isinstance(configured, bool):
+            return configured
+        return True
 
     def wire_agent_bus(self, bus: Any) -> None:
         """Subscribe to Y03 RiskSentinelAgent circuit-breaker veto signals.
@@ -431,7 +448,7 @@ class RiskManager:
             bool: True if start successful
         """
         try:
-            self.logger.info("Starting RiskManager...")
+            self.logger.debug("Starting RiskManager...")
 
             # Connect to Connect API if not already connected
             if self.connect_api is not None:
@@ -439,7 +456,7 @@ class RiskManager:
                     if not await self.connect_api.connect():
                         return False
             else:
-                self.logger.info(
+                self.logger.debug(
                     "RiskManager: no connect_api configured — "
                     "running in standalone mode (position sync via ConnectAPI unavailable)"
                 )
@@ -455,7 +472,7 @@ class RiskManager:
                 self._start_risk_monitoring()
                 self._start_position_monitoring()
 
-            self.logger.info("RiskManager started successfully")
+            self.logger.debug("RiskManager started successfully")
             return True
 
         except Exception as e:
@@ -517,7 +534,7 @@ class RiskManager:
                 name="RiskMonitoring"
             )
             self._risk_thread.start()
-            self.logger.info("Risk monitoring started")
+            self.logger.debug("Risk monitoring started")
 
     def _stop_risk_monitoring(self):
         """Stop risk monitoring thread."""
@@ -582,7 +599,7 @@ class RiskManager:
                 name="PositionMonitoring"
             )
             self._position_thread.start()
-            self.logger.info("Position monitoring started")
+            self.logger.debug("Position monitoring started")
 
     def _stop_position_monitoring(self):
         """Stop position monitoring thread."""
@@ -1117,11 +1134,16 @@ class RiskManager:
 
                 # --- Y03 RiskSentinelAgent veto gate ---
                 if self._y03_veto_state in ("warning", "halt"):
-                    return RiskValidationResult(
-                        approved=False,
-                        rejection_reason=f"Y03 RiskSentinel veto active: circuit_breaker={self._y03_veto_state}",  # noqa: E501
-                        risk_score=1.0,
-                        violations=["AGENT_VETO"],
+                    if not self._observe_only_agents:
+                        return RiskValidationResult(
+                            approved=False,
+                            rejection_reason=f"Y03 RiskSentinel veto active: circuit_breaker={self._y03_veto_state}",  # noqa: E501
+                            risk_score=1.0,
+                            violations=["AGENT_VETO"],
+                        )
+                    self.logger.warning(
+                        "Y03 veto observed (non-blocking): circuit_breaker=%s",
+                        self._y03_veto_state,
                     )
 
                 # --- Stage 3: decision-quality SLO gate ---

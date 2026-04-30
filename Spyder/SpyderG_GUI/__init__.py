@@ -71,9 +71,9 @@ try:
             "AppConfig",
         ]
     )
-    logging.info("✅ SpyderG_GUI: Application Manager loaded successfully")
+    logging.debug("SpyderG_GUI: Application Manager loaded successfully")
 except Exception as e:
-    logging.info("⚠️ SpyderG_GUI: Application Manager not available: %s", e)
+    logging.debug("SpyderG_GUI: Application Manager not available: %s", e)
 
 # Import GUI modules with error handling and proper initialization
 modules_to_import = [
@@ -118,12 +118,12 @@ for module_info in modules_to_import:
             globals()[items_to_import] = getattr(module, items_to_import)
             __all__.append(items_to_import)
 
-        logging.info("✅ SpyderG_GUI: %s loaded successfully", module_name)
+        logging.debug("SpyderG_GUI: %s loaded successfully", module_name)
         successful_imports += 1
     except Exception as e:
-        logging.info("⚠️ SpyderG_GUI: %s not available: %s", module_name, e)
+        logging.debug("SpyderG_GUI: %s not available: %s", module_name, e)
 
-logging.info("✅ SpyderG_GUI: %s components loaded successfully", successful_imports)
+logging.info("SpyderG_GUI components loaded: %s", successful_imports)
 
 # Import broker status widget (Tradier + Massive)
 try:
@@ -137,9 +137,9 @@ try:
         "BrokerStatusWidget",
         "StatusConfig", "StatusLevel", "create_status_widget",
     ])
-    logging.info("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
+    logging.debug("SpyderG_GUI: BrokerStatusWidget loaded successfully")
 except Exception as e:
-    logging.info("⚠️ SpyderG_GUI: BrokerStatusWidget not available: %s", e)
+    logging.debug("SpyderG_GUI: BrokerStatusWidget not available: %s", e)
 
 # Import circuit breaker monitor
 try:
@@ -148,18 +148,18 @@ try:
         create_circuit_breaker_monitor,
     )
     __all__.extend(["CircuitBreakerMonitor", "create_circuit_breaker_monitor"])
-    logging.info("✅ SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
+    logging.debug("SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
 except Exception as e:
-    logging.info("⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: %s", e)
+    logging.debug("SpyderG_GUI: CircuitBreakerMonitor not available: %s", e)
 
 
 # Import agent health dashboard (v2 addition)
 try:
     from .SpyderG32_AgentHealthDashboard import AgentHealthDashboard
     __all__.extend(["AgentHealthDashboard"])
-    logging.info("✅ SpyderG_GUI: AgentHealthDashboard loaded successfully")
+    logging.debug("SpyderG_GUI: AgentHealthDashboard loaded successfully")
 except Exception as e:
-    logging.info("⚠️ SpyderG_GUI: AgentHealthDashboard not available: %s", e)
+    logging.debug("SpyderG_GUI: AgentHealthDashboard not available: %s", e)
 
 
 # Add convenience functions for safe widget creation
@@ -238,10 +238,10 @@ def check_optional_dependencies():
             missing.append(f"{dep} ({description})")
 
     if missing:
-        logging.info("Warning: Optional dependencies not available:")
+        logging.debug("Optional dependencies not available:")
         for dep in missing:
-            logging.info("  - %s", dep)
-        logging.info("Install with: pip install [package_name]")
+            logging.debug("  - %s", dep)
+        logging.debug("Install with: pip install [package_name]")
 
 
 # Run dependency check
@@ -272,19 +272,19 @@ try:
     from .SpyderG11_SkewMonitorDialog import SkewMonitorDialog
     __all__.extend(["SkewMonitorDialog"])
 except ImportError as e:
-    logging.info("Warning: SpyderG11_SkewMonitorDialog not available: %s", e)
+    logging.debug("Optional module SpyderG11_SkewMonitorDialog not available: %s", e)
 
 try:
     from .SpyderG12_SignalInfoDialog import SignalInfoDialog
     __all__.extend(["SignalInfoDialog"])
 except ImportError as e:
-    logging.info("Warning: SpyderG12_SignalInfoDialog not available: %s", e)
+    logging.debug("Optional module SpyderG12_SignalInfoDialog not available: %s", e)
 
 try:
     from .SpyderG99_GUILogHandler import GUILogHandler, FilteredGUILogHandler
     __all__.extend(["GUILogHandler", "FilteredGUILogHandler"])
 except ImportError as e:
-    logging.info("Warning: SpyderG99_GUILogHandler not available: %s", e)
+    logging.debug("Optional module SpyderG99_GUILogHandler not available: %s", e)
 
 try:
     from .SpyderG06_DashboardData import MarketData, SignalData

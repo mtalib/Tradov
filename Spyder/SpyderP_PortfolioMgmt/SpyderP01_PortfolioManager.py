@@ -335,7 +335,7 @@ class PortfolioManager:
             if hub:
                 hub.register_module(self, dependencies=['SpyderE01_RiskManager'])
 
-        self.logger.info(f"PortfolioManager initialized with ${initial_capital:,.0f} capital")
+        self.logger.debug(f"PortfolioManager initialized with ${initial_capital:,.0f} capital")
 
     # ==========================================================================
     # PUBLIC METHODS - STRATEGY MANAGEMENT
@@ -836,7 +836,7 @@ class PortfolioManager:
         try:
             self.portfolio_metrics_history.clear()
             self._refresh_vix_snapshot()
-            self.logger.info("Portfolio components initialized")
+            self.logger.debug("Portfolio components initialized")
 
         except Exception as e:
             self.error_handler.handle_error(e, "_initialize_portfolio")

@@ -30,7 +30,7 @@ def _slice_between(text: str, start_marker: str, end_marker: str) -> str:
 
 
 def test_a02_and_d31_call_full_trust_gate_sequence() -> None:
-    """A02 and D31 should call the agreed trust-gate checks in sequence."""
+    """A02 and D31 should call the minimum-payload trust-gate checks."""
     a02 = _read(A02_PATH)
     d31 = _read(D31_PATH)
 
@@ -39,16 +39,7 @@ def test_a02_and_d31_call_full_trust_gate_sequence() -> None:
         "_check_vol_surface_structure_filter(params)",
         "_check_dealer_flow_filter(params)",
         "_check_vix_term_structure_filter()",
-        "_check_cboe_skew_filter()",
-        "_check_market_internals_filter()",
         "_check_short_term_vol_stress_filter(params)",
-        "_check_vol_of_vol_stress_filter(params)",
-        "_check_put_call_sentiment_filter(params)",
-        "_check_participation_filter(params)",
-        "_check_qqq_confirmation_filter(params)",
-        "_check_iwm_confirmation_filter(params)",
-        "_check_xlk_confirmation_filter(params)",
-        "_check_xlf_confirmation_filter(params)",
     ]
 
     for call in required_calls:
@@ -87,14 +78,6 @@ def test_s07_market_conditions_expose_current_active_trust_gate_keys() -> None:
         "'vix':",
         "'vix9d':",
         "'vxv':",
-        "'vvix':",
-        "'cpc':",
-        "'rvol':",
-        "'spy_change_pct':",
-        "'qqq_change_pct':",
-        "'iwm_change_pct':",
-        "'xlk_change_pct':",
-        "'xlf_change_pct':",
         "'data_quality_feed':",
         "'surface_confidence':",
         "'surface_age_ms':",

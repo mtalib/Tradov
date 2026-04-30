@@ -452,6 +452,8 @@ class TestA03AutonomousReadinessValidation(unittest.TestCase):
         return {
             "automation": {"enabled": True},
             "autonomous_readiness": {
+                "lean_mode": True,
+                "observe_only_agents": True,
                 "liquidity": {
                     "max_spread_pct": 0.12,
                     "max_spread_abs": 0.20,
@@ -733,6 +735,34 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
         self.assertFalse(state["live_blocking"])
         self.assertEqual(state["source"], "A03.ConfigManager")
 
+    def test_collect_state_prefers_effective_runtime_mode_from_env(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        fake_cfg = MagicMock()
+        fake_cfg.get.side_effect = lambda key, default=None: {
+            "trading.mode": "live",
+            "automation.enabled": True,
+            "runtime.paper_mode": None,
+        }.get(key, default)
+        fake_cfg.config_data = {}
+        fake_cfg.validate_autonomous_readiness_config.return_value = {
+            "warnings": [],
+            "errors": [],
+        }
+        fake_cfg_module = MagicMock()
+        fake_cfg_module.get_config_manager.return_value = fake_cfg
+
+        with patch.dict(
+            sys.modules,
+            {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
+            clear=False,
+        ):
+            with patch.dict(os.environ, {"TRADING_MODE": "paper"}, clear=False):
+                state = dashboard._collect_startup_readiness_state()
+
+        self.assertEqual(state["mode"], "paper")
+
     def test_emit_logs_styles_button_for_safe_mode(self):
         g05 = self._load_g05()
         dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
@@ -770,6 +800,28 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
 
         self.assertEqual(len(dashboard.system_logs), 1)
         self.assertIn("STARTUP READINESS: unavailable", dashboard.system_logs[0])
+
+    def test_readiness_snapshot_accepts_real_time_data_label(self):
+        g05 = self._load_g05()
+
+        snapshot = {
+            "is_weekend": False,
+            "startup_state": {
+                "live_blocking": False,
+                "safe_fallback_applied": False,
+            },
+            "api_connected": True,
+            "mkt_data_connected": True,
+            "data_status_label": "REAL-TIME",
+            "event_clock_enabled": False,
+            "event_clock_state": "clear",
+            "checked_at_et": "2026-04-29T12:00:00-04:00",
+        }
+
+        result = g05.SpyderTradingDashboard._evaluate_trading_readiness_snapshot(snapshot)
+
+        self.assertEqual(result["decision"], "OK")
+        self.assertEqual(result["warnings"], [])
 
 
 # ==============================================================================

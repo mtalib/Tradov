@@ -171,7 +171,7 @@ class TradingCalendar:
         # Initialize holidays automatically
         self._load_holidays()
 
-        self.logger.info("%s initialized for %s", self.__class__.__name__, exchange.value)
+        self.logger.debug("%s initialized for %s", self.__class__.__name__, exchange.value)
 
     # ==========================================================================
     # PUBLIC METHODS - HOLIDAY MANAGEMENT
@@ -643,7 +643,7 @@ class TradingCalendar:
         # Load custom holidays from file if exists
         self._load_custom_holidays()
 
-        self.logger.info("Loaded %s holidays", len(self.holidays))
+        self.logger.debug("Loaded %s holidays", len(self.holidays))
 
     def _add_fixed_holidays(self, year: int):
         """Add fixed US market holidays for a given year."""

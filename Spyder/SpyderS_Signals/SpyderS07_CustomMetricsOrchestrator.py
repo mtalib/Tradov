@@ -356,6 +356,10 @@ class CustomMetricsOrchestrator(QObject):
         self._liquidity_diag_heartbeat_seconds = int(
             self.config.get("liquidity_diag_heartbeat_seconds", 300)
         )
+        self._issue_log_heartbeat_seconds = int(
+            self.config.get("issue_log_heartbeat_seconds", 300)
+        )
+        self._issue_log_state: dict[str, tuple[str, datetime]] = {}
 
         # Connection status
         self.ib_connected = False
@@ -722,8 +726,8 @@ class CustomMetricsOrchestrator(QObject):
                     liquidity_success,
                 ])
 
-                # Only log at INFO when key values change or on periodic heartbeat;
-                # use DEBUG for unchanged cycles to reduce startup/runtime chatter.
+                # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
+                # remain focused on lifecycle, warnings, and errors.
                 _summary = (
                     f"{success_count}/12 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
@@ -739,9 +743,7 @@ class CustomMetricsOrchestrator(QObject):
                     or (_now - self._last_metrics_info_log_ts).total_seconds()
                     >= self._metrics_info_heartbeat_seconds
                 )
-                _use_info = (_summary != _last) or _heartbeat_due
-                _log = self.logger.info if _use_info else self.logger.debug
-                _log(
+                self.logger.debug(
                     f"📊 Metrics updated: {success_count}/12 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
@@ -751,13 +753,94 @@ class CustomMetricsOrchestrator(QObject):
                     f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%) "
                     f"[{calculation_time:.2f}s]"
                 )
-                if _use_info:
+                if _heartbeat_due:
                     self._last_metrics_info_log_ts = _now
                 self._last_metrics_summary = _summary
+
+                self._emit_update_error_summary(update_errors, success_count)
 
         except Exception as e:
             self.logger.error("Critical error updating metrics: %s", e, exc_info=True)
             self.error_occurred.emit(str(e))
+
+    def _log_deduped_issue(
+        self,
+        channel: str,
+        message: str,
+        *,
+        level: str = "warning",
+        emit_error: bool = False,
+    ) -> None:
+        """Log issue messages once per change/heartbeat to suppress repetitive noise."""
+        now = datetime.now(timezone.utc)
+        last = self._issue_log_state.get(channel)
+        changed = last is None or last[0] != message
+        heartbeat_due = (
+            last is None
+            or (now - last[1]).total_seconds() >= self._issue_log_heartbeat_seconds
+        )
+        if not (changed or heartbeat_due):
+            return
+
+        if level == "error":
+            self.logger.error(message)
+        elif level == "debug":
+            self.logger.debug(message)
+        elif level == "info":
+            self.logger.info(message)
+        else:
+            self.logger.warning(message)
+
+        self._issue_log_state[channel] = (message, now)
+        if emit_error:
+            self.error_occurred.emit(message)
+
+    @staticmethod
+    def _error_key(error_message: str) -> str:
+        """Extract stable error key for compact cycle summaries."""
+        if not error_message:
+            return "unknown"
+        return error_message.split(":", 1)[0].strip().lower()
+
+    def _emit_update_error_summary(self, update_errors: list[str], success_count: int) -> None:
+        """Emit a compact warning summary for update-cycle failures."""
+        if not update_errors:
+            return
+
+        keys = sorted({self._error_key(err) for err in update_errors})
+        summary = ", ".join(keys)
+        benign_keys = {
+            "options analytics update failed",
+            "vol surface update failed",
+        }
+        only_benign = bool(keys) and all(key in benign_keys for key in keys)
+        self._log_deduped_issue(
+            channel="update_cycle_info" if only_benign else "update_cycle_errors",
+            message=(
+                "S07 update-cycle issues: "
+                f"{len(update_errors)} issue(s), "
+                f"{success_count}/12 sources successful, keys=[{summary}]"
+            ),
+            level="debug" if only_benign else "warning",
+            emit_error=not only_benign,
+        )
+
+    @staticmethod
+    def _is_transient_options_unavailable(message: str) -> bool:
+        """Return True when options/surface data is temporarily unavailable by design."""
+        text = str(message or "").strip().lower()
+        transient_markers = (
+            "spot unavailable",
+            "no spy option expirations",
+            "atm iv unavailable",
+            "insufficient",
+            "unavailable",
+            "not available",
+            "no option",
+            "empty",
+            "not ready",
+        )
+        return any(marker in text for marker in transient_markers)
 
     def _update_gex_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update GEX, DEX, OGL metrics"""
@@ -784,7 +867,11 @@ class CustomMetricsOrchestrator(QObject):
         except GEXDataUnavailableError as e:
             # Expected when options chain is not yet available — log quietly
             errors.append(f"GEX update error: {e}")
-            self.logger.warning("GEX data unavailable (options chain not ready): %s", e)
+            self._log_deduped_issue(
+                channel="gex_data_unavailable",
+                message=f"GEX data unavailable (options chain not ready): {e}",
+                level="warning",
+            )
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
                 "DEX": self.current_metrics.get("DEX", 850),
@@ -795,7 +882,12 @@ class CustomMetricsOrchestrator(QObject):
             return False
         except Exception as e:
             errors.append(f"GEX update error: {e}")
-            self.logger.error("GEX update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="gex_update_error",
+                message=f"GEX update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
                 "DEX": self.current_metrics.get("DEX", 850),
@@ -823,7 +915,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"DIX update error: {e}")
-            self.logger.error("DIX update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="dix_update_error",
+                message=f"DIX update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
             return False
 
@@ -848,7 +945,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"SWAN update error: {e}")
-            self.logger.error("SWAN update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="swan_update_error",
+                message=f"SWAN update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["SWAN"] = self.current_metrics.get("SWAN", 1.85)
             return False
 
@@ -871,12 +973,21 @@ class CustomMetricsOrchestrator(QObject):
         except SKEWDataUnavailableError as e:
             # Expected when options chain is not yet available — log quietly
             errors.append(f"SKEW update error: {e}")
-            self.logger.warning("SKEW data unavailable (options chain not ready): %s", e)
+            self._log_deduped_issue(
+                channel="skew_data_unavailable",
+                message=f"SKEW data unavailable (options chain not ready): {e}",
+                level="warning",
+            )
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
         except Exception as e:
             errors.append(f"SKEW update error: {e}")
-            self.logger.error("SKEW update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="skew_update_error",
+                message=f"SKEW update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
 
@@ -896,7 +1007,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"FRED update error: {e}")
-            self.logger.error("FRED update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="fred_update_error",
+                message=f"FRED update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             for key in ("YIELD_10Y", "YIELD_SLOPE", "YIELD_INVERTED"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             return False
@@ -917,7 +1033,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"Sentiment update error: {e}")
-            self.logger.error("Sentiment update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="sentiment_update_error",
+                message=f"Sentiment update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             return False
@@ -1056,7 +1177,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"Breadth update error: {e}")
-            self.logger.error("Breadth update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="breadth_update_error",
+                message=f"Breadth update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             for key in ("TICK", "ADD", "TRIN", "NYMO", "VOLD"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")  # noqa: E501
@@ -1123,9 +1249,45 @@ class CustomMetricsOrchestrator(QObject):
 
     def _get_spy_spot(self) -> float | None:
         """Return the best available SPY spot estimate."""
-        spot = self.current_metrics.get("OGL")
-        if isinstance(spot, (int, float)) and spot > 0:
-            return float(spot)
+        def _to_valid_price(value: Any) -> float | None:
+            """Convert candidate values to a finite positive float."""
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(price) or price <= 0:
+                return None
+            return price
+
+        for key in ("OGL", "SPY_LAST", "SPY_PRICE", "SPY", "UNDERLYING_PRICE"):
+            spot = _to_valid_price(self.current_metrics.get(key))
+            if spot is not None:
+                return spot
+
+        # Reuse the most recent snapshot price before issuing an API request.
+        if self.metrics_history:
+            history_spot = _to_valid_price(getattr(self.metrics_history[-1], "ogl", None))
+            if history_spot is not None:
+                return history_spot
+
+        client = self._get_options_tradier_client()
+        if client is not None:
+            try:
+                quote_response = client.get_quotes(["SPY"])
+                quote = quote_response.get("quotes", {}).get("quote", {})
+                if isinstance(quote, list):
+                    quote = next(
+                        (item for item in quote if str(item.get("symbol", "")).upper() == "SPY"),
+                        quote[0] if quote else {},
+                    )
+
+                for price_field in ("last", "close", "bid", "ask"):
+                    quote_spot = _to_valid_price(quote.get(price_field))
+                    if quote_spot is not None:
+                        return quote_spot
+            except Exception as exc:
+                self.logger.debug("SPY quote fallback unavailable: %s", exc)
+
         return None
 
     def _get_liquidity_thresholds(self) -> dict[str, float]:
@@ -1188,14 +1350,92 @@ class CustomMetricsOrchestrator(QObject):
         return reasons
 
     def _load_options_chain_dataframe(self):
-        """Load the live SPY options chain as a DataFrame from the nearest owner."""
+        """Load the live SPY options chain from N03, falling back to Tradier when needed."""
+        chain_data = None
         try:
-            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
-        except ImportError:
-            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+            try:
+                chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+            except ImportError:
+                chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
 
-        chain_manager = chain_module.OptionsChainManager()
-        return chain_manager.get_chain("SPY")
+            chain_manager = chain_module.OptionsChainManager()
+            chain_data = chain_manager.get_chain("SPY")
+            if chain_data is not None:
+                if hasattr(chain_data, "empty") and not bool(chain_data.empty):
+                    return chain_data
+                if isinstance(chain_data, list) and len(chain_data) > 0:
+                    return chain_data
+        except Exception:
+            pass
+
+        client = self._get_options_tradier_client()
+        if client is None:
+            return chain_data
+
+        try:
+            expirations_response = client.get_option_expirations("SPY")
+            expirations = expirations_response.get("expirations", {}).get("date", [])
+            if not expirations:
+                return chain_data
+
+            contracts = client.get_option_chain_with_greeks("SPY", expirations[0])
+            if not contracts:
+                return chain_data
+
+            now = datetime.now(timezone.utc)
+            rows: list[dict[str, Any]] = []
+            for contract in contracts:
+                bid = float(getattr(contract, "bid", 0.0) or 0.0)
+                ask = float(getattr(contract, "ask", 0.0) or 0.0)
+                mid_price = float(getattr(contract, "mid", 0.0) or 0.0)
+                if mid_price <= 0 and bid > 0 and ask > 0:
+                    mid_price = (bid + ask) / 2.0
+
+                expiration = getattr(contract, "expiration", None)
+                expiry_dt = None
+                if isinstance(expiration, datetime):
+                    expiry_dt = expiration
+                elif isinstance(expiration, str):
+                    try:
+                        expiry_dt = datetime.fromisoformat(expiration)
+                    except ValueError:
+                        expiry_dt = expiration
+
+                rows.append(
+                    {
+                        "symbol": getattr(contract, "symbol", "SPY"),
+                        "strike": float(getattr(contract, "strike", 0.0) or 0.0),
+                        "expiry": expiry_dt if expiry_dt is not None else expiration,
+                        "option_type": str(getattr(contract, "option_type", "")).lower(),
+                        "bid": bid,
+                        "ask": ask,
+                        "mid_price": mid_price,
+                        "spread": max(0.0, ask - bid),
+                        "volume": int(getattr(contract, "volume", 0) or 0),
+                        "open_interest": int(getattr(contract, "open_interest", 0) or 0),
+                        "timestamp": now,
+                    }
+                )
+
+            return rows if rows else chain_data
+        except Exception:
+            return chain_data
+
+    @staticmethod
+    def _normalize_chain_rows(chain_source: Any) -> list[dict[str, Any]]:
+        """Normalize option-chain payloads (DataFrame/list) into row dicts."""
+        if chain_source is None:
+            return []
+        if isinstance(chain_source, list):
+            return [row for row in chain_source if isinstance(row, dict)]
+        to_dict = getattr(chain_source, "to_dict", None)
+        if callable(to_dict):
+            try:
+                records = chain_source.to_dict("records")
+                return [row for row in records if isinstance(row, dict)]
+            except Exception:
+                return []
+        return []
 
     def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:  # noqa: E501
         """Convert one option-chain row into an observe-mode liquidity payload."""
@@ -1259,25 +1499,47 @@ class CustomMetricsOrchestrator(QObject):
         updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))  # noqa: E501
 
         try:
-            chain_df = self._load_options_chain_dataframe()
-            if chain_df is None or chain_df.empty:
+            chain_source = self._load_options_chain_dataframe()
+            rows = self._normalize_chain_rows(chain_source)
+            if not rows:
                 raise ValueError("SPY options chain unavailable")
 
             anchor = self.current_metrics.get("OGL")
             if not isinstance(anchor, (int, float)) or anchor <= 0:
                 spot = self._get_spy_spot()
-                anchor = spot if spot is not None else float(chain_df["strike"].median())
+                if spot is not None:
+                    anchor = spot
+                else:
+                    strikes = [
+                        float(row.get("strike"))
+                        for row in rows
+                        if isinstance(row.get("strike"), (int, float))
+                    ]
+                    if not strikes:
+                        raise ValueError("SPY options chain unavailable")
+                    anchor = float(np.median(np.asarray(strikes, dtype=float)))
 
             now = datetime.now(timezone.utc)
-            candidate_df = chain_df.copy()
-            candidate_df["_distance"] = (candidate_df["strike"].astype(float) - float(anchor)).abs()
-            candidate_df = candidate_df.sort_values(["_distance", "expiry", "option_type"]).head(6)
+            candidate_rows = sorted(
+                rows,
+                key=lambda row: (
+                    abs(float(row.get("strike") or 0.0) - float(anchor)),
+                    str(row.get("expiry") or ""),
+                    str(row.get("option_type") or ""),
+                ),
+            )[:6]
 
             thresholds = self._get_liquidity_thresholds()
             candidates = [
                 self._build_liquidity_candidate(row, now, thresholds)
-                for _, row in candidate_df.iterrows()
+                for row in candidate_rows
             ]
+
+            source_name = (
+                "SpyderN03_OptionsChainManager"
+                if not isinstance(chain_source, list)
+                else "SpyderB40_TradierClient"
+            )
 
             updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {
                 "feed": "liquidity_diagnostics",
@@ -1287,7 +1549,7 @@ class CustomMetricsOrchestrator(QObject):
                 "published_ts": now.isoformat(),
                 "data": {
                     "symbol": "SPY",
-                    "source": "SpyderN03_OptionsChainManager",
+                    "source": source_name,
                     "anchor_strike": float(anchor),
                     "candidate_count": len(candidates),
                     "candidates": candidates,
@@ -1562,6 +1824,13 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["VRP"] = atm_iv - hv20 if hv20 is not None else float("nan")
             return True
         except Exception as e:
+            if self._is_transient_options_unavailable(str(e)):
+                self._log_deduped_issue(
+                    channel="options_analytics_deferred",
+                    message=f"Options analytics deferred: {e}",
+                    level="info",
+                )
+                return False
             errors.append(f"options analytics update failed: {e}")
             return False
 
@@ -1596,6 +1865,13 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
             return True
         except Exception as e:
+            if self._is_transient_options_unavailable(str(e)):
+                self._log_deduped_issue(
+                    channel="vol_surface_deferred",
+                    message=f"Vol surface deferred: {e}",
+                    level="info",
+                )
+                return False
             errors.append(f"vol surface update failed: {e}")
             return False
 
@@ -1641,7 +1917,7 @@ class CustomMetricsOrchestrator(QObject):
             self.stress_history.append((datetime.now(timezone.utc), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
 
-            self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
+            self.logger.debug("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
 
         # Adjust update frequency if needed
         if new_interval != self.current_update_interval:
@@ -1649,7 +1925,7 @@ class CustomMetricsOrchestrator(QObject):
             self.update_timer.setInterval(new_interval * 1000)
             self.last_frequency_change = datetime.now(timezone.utc)
 
-            self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
+            self.logger.debug("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""

@@ -6,7 +6,7 @@ This update stabilizes the deterministic regime-v2 contract tests so they pass b
 
 Scope of functional change:
 - Stabilized D30 mapping assertions in:
-  - Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py
+  - Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py
 
 Scope of evidence/docs:
 - Packaging notes:
@@ -26,7 +26,7 @@ This patch removes that fragility by:
 
 ### Deterministic contract file (isolated)
 Command:
-/home/adam/Projects/Spyder/.venv/bin/python -m pytest Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py -q -o addopts=''
+/home/adam/Projects/Spyder/.venv/bin/python -m pytest Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py -q -o addopts=''
 
 Result:
 - 8 passed
@@ -58,7 +58,7 @@ Coverage result:
 
 - Branch currently contains many unrelated changes.
 - Recommended commit scope for this session:
-  - Spyder/SpyderT_Testing/test_regime_v2_deterministic_contract.py
+  - Spyder/SpyderT_Testing/SpyderT184_RegimeV2DeterministicContract.py
   - 07-Tasks-DONE/2026-04-30-regime-v2-pr-packaging.md
   - 07-Tasks-DONE/2026-04-30-regime-v2-pr-body.md
 

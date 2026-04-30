@@ -325,9 +325,8 @@ class BlackSwanIndicator:
             )
 
             _swan_key = (round(result.overall_score, 2), status.value)
-            _log_swan = self.logger.info if _swan_key != getattr(self, "_last_swan_key", None) else self.logger.debug  # noqa: E501
             self._last_swan_key = _swan_key
-            _log_swan(f"SWAN Score calculated: {result.overall_score:.2f} ({status.value})")
+            self.logger.debug(f"SWAN Score calculated: {result.overall_score:.2f} ({status.value})")
             return result
 
         except Exception as e:

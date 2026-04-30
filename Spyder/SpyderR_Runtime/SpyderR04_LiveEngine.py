@@ -331,7 +331,7 @@ class LiveEngine:
         # env) are refused to avoid swapping broker identity mid-session.
         self._register_hot_reload_callback()
 
-        self.logger.info("LiveEngine initialized for account %s", config.account_id)
+        self.logger.debug("LiveEngine initialized for account %s", config.account_id)
 
     # A24 (v14): fields whose change requires a full restart, not a reload.
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
@@ -393,7 +393,7 @@ class LiveEngine:
             bool: True if initialization successful
         """
         try:
-            self.logger.info("Initializing live engine...")
+            self.logger.debug("Initializing live engine...")
 
             # Verify broker connection
             if not self._verify_broker_connection():
@@ -415,7 +415,7 @@ class LiveEngine:
             self._start_monitoring()
 
             self.state = ExecutionState.CONNECTED
-            self.logger.info("Live engine initialized successfully")
+            self.logger.debug("Live engine initialized successfully")
             return True
 
         except Exception as e:
@@ -437,7 +437,8 @@ class LiveEngine:
 
             # Perform pre-trading checks
             if not self._perform_pre_trading_checks():
-                self.logger.error("Pre-trading checks failed")
+                mode_label = "Paper" if self._mode_name() == "paper" else "Live"
+                self.logger.error("%s pre-trading checks failed", mode_label)
                 return False
 
             # Create trading session

@@ -59,7 +59,7 @@ import threading
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -356,6 +356,8 @@ class OrderManager:
         self._execution_session_id = str(uuid.uuid4())
         self._liquidity_feed_events: list[dict[str, Any]] = []
         self._liquidity_feed_max = 1000
+        self._execution_quality_policy = self._load_execution_quality_policy()
+        self._execution_quality_window_seconds = 300
 
         self.logger.info("OrderManager initialized (Tradier API)")
 
@@ -440,6 +442,40 @@ class OrderManager:
                 )
 
             self._record_liquidity_feed(order, gate_passed=True, reasons=[])
+
+            blocked, reasons = self._evaluate_execution_quality_gate()
+            if blocked:
+                with self._order_lock:
+                    order.state = OrderState.REJECTED
+                    order.error_message = "; ".join(reasons)
+                    order.updated_at = datetime.now(timezone.utc)
+                    self.metrics["orders_rejected"] += 1
+
+                self._record_execution_feed(
+                    order=order,
+                    lifecycle_event=EventType.ORDER_REJECTED,
+                    reject_reason=f"execution_quality_block: {'; '.join(reasons)}",
+                )
+                try:
+                    event_manager = get_event_manager()
+                    event_manager.emit(
+                        EventType.KILL_SWITCH,
+                        {
+                            "type": "execution_quality_breach",
+                            "reasons": reasons,
+                            "order_id": order.order_id,
+                        },
+                        priority="high",
+                    )
+                except Exception:
+                    pass
+                return OrderResult(
+                    success=False,
+                    order_id=order.order_id,
+                    operation="submit",
+                    message="Execution quality gate blocked order",
+                    error_code="EXECUTION_QUALITY_BLOCK",
+                )
 
             # Route to correct Tradier method
             response = self._route_order(order)
@@ -1979,6 +2015,86 @@ class OrderManager:
             )
 
         return len(reasons) > 0, reasons
+
+    def _load_execution_quality_policy(self) -> dict[str, Any]:
+        """Load execution quality thresholds from config manager when available."""
+        defaults = {
+            "max_slippage_bps": 25.0,
+            "max_fill_latency_ms": 2500.0,
+            "max_reject_rate_5m": 0.08,
+            "halt_on_quality_breach": True,
+        }
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+            cfg = get_config_manager()
+            exec_cfg = cfg.get("autonomous_readiness.execution", {})
+            if isinstance(exec_cfg, dict):
+                merged = dict(defaults)
+                merged.update({
+                    "max_slippage_bps": float(exec_cfg.get("max_slippage_bps", defaults["max_slippage_bps"])),
+                    "max_fill_latency_ms": float(exec_cfg.get("max_fill_latency_ms", defaults["max_fill_latency_ms"])),
+                    "max_reject_rate_5m": float(exec_cfg.get("max_reject_rate_5m", defaults["max_reject_rate_5m"])),
+                    "halt_on_quality_breach": bool(exec_cfg.get("halt_on_quality_breach", defaults["halt_on_quality_breach"])),
+                })
+                return merged
+        except Exception:
+            pass
+        return defaults
+
+    def _evaluate_execution_quality_gate(self) -> tuple[bool, list[str]]:
+        """Block new orders when execution telemetry breaches quality thresholds."""
+        policy = self._execution_quality_policy
+        if not policy.get("halt_on_quality_breach", False):
+            return False, []
+
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(seconds=self._execution_quality_window_seconds)
+
+        slippage_limit = float(policy.get("max_slippage_bps", 25.0))
+        latency_limit = float(policy.get("max_fill_latency_ms", 2500.0))
+        reject_limit = float(policy.get("max_reject_rate_5m", 0.08))
+
+        recent = []
+        with self._order_lock:
+            recent = list(self._execution_feed_events)
+
+        total = 0
+        rejects = 0
+        reasons: list[str] = []
+
+        for payload in reversed(recent):
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(data, dict):
+                continue
+            published = data.get("published_ts") or payload.get("published_ts")
+            try:
+                ts = datetime.fromisoformat(published) if published else None
+            except Exception:
+                ts = None
+            if ts is None or ts < window_start:
+                continue
+
+            total += 1
+            if data.get("reject_flag") is True:
+                rejects += 1
+
+            slippage = data.get("slippage_bps")
+            if isinstance(slippage, (int, float)) and slippage > slippage_limit:
+                reasons.append(f"slippage_bps {slippage:.2f} > {slippage_limit:.2f}")
+
+            latency = data.get("fill_latency_ms")
+            if isinstance(latency, (int, float)) and latency > latency_limit:
+                reasons.append(f"fill_latency_ms {latency:.0f} > {latency_limit:.0f}")
+
+        if total > 0:
+            reject_rate = rejects / total
+            if reject_rate > reject_limit:
+                reasons.append(f"reject_rate_5m {reject_rate:.2%} > {reject_limit:.2%}")
+
+        if reasons:
+            return True, sorted(set(reasons))
+
+        return False, []
 
     def _record_liquidity_feed(self, order: Order, gate_passed: bool, reasons: list[str]) -> dict[str, Any]:  # noqa: E501
         """Create and store unified liquidity telemetry envelope."""

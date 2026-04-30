@@ -553,6 +553,9 @@ class SpyderTradingDashboard(QMainWindow):
         self._execution_telemetry_lock = threading.Lock()
         self._execution_telemetry_events: deque[dict] = deque(maxlen=200)
         self._execution_telemetry_handler_id = None
+        self._risk_alert_handler_id = None
+        self._last_entry_block_message = ""
+        self._last_entry_block_ts = 0.0
 
         # Widget storage
         self.symbol_widgets = {}
@@ -572,6 +575,7 @@ class SpyderTradingDashboard(QMainWindow):
         self._error_count = 0
         self._system_log_flush_pending = False
         self._automation_log_flush_pending = False
+        self._veto_controls_enabled = self._load_veto_controls_state()
 
         # Initialize UI elements that will be created in setup methods
         self.connection_status_label = None
@@ -619,6 +623,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.refresh_orders_btn = None
         self.trade_audit_btn = None
         self.decision_log_btn = None
+        self.veto_toggle_btn = None
         self.readiness_btn = None
         self.readiness_status_label = None
         self.greek_bars = None
@@ -629,7 +634,10 @@ class SpyderTradingDashboard(QMainWindow):
         self.canvas = None
         # Event-clock display UI elements (Phase 5-A)
         self.event_clock_panel = None
+        self.signal_flow_heartbeat_label = None
         self.event_clock_compact_label = None
+        self.entry_block_compact_label = None
+        self.trading_window_compact_label = None
         self.event_clock_state_label = None
         self.event_clock_policy_label = None
         self.event_clock_windows_label = None
@@ -1328,6 +1336,16 @@ class SpyderTradingDashboard(QMainWindow):
         self.event_clock_strategies_label = QLabel("Allowlist: None")
         self.event_clock_strategies_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")  # noqa: E501
         layout.addWidget(self.event_clock_strategies_label)
+
+        # Manual override toggle
+        self.event_clock_override_active = False
+        self.event_clock_override_button = QPushButton("Manual Blackout: OFF")
+        self.event_clock_override_button.setCheckable(True)
+        self.event_clock_override_button.clicked.connect(self._toggle_event_clock_override)
+        self.event_clock_override_button.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: 10px;"
+        )
+        layout.addWidget(self.event_clock_override_button)
   # noqa: W293
         panel.setLayout(layout)
         self.event_clock_panel = panel
@@ -3256,6 +3274,17 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("Trading already active")
             return
 
+        if not is_market_hours():
+            self.add_system_log(
+                "⛔ Trading start blocked: market is closed (outside RTH)"
+            )
+            QMessageBox.warning(
+                self,
+                "Market Closed",
+                "Trading start blocked: market is closed (outside regular trading hours).",
+            )
+            return
+
         if self._startup_readiness_state.get("safe_fallback_applied", False):
             self.add_system_log(
                 "⚠️ Safe mode reminder: automation fallback is active from startup readiness validation"  # noqa: E501
@@ -3299,7 +3328,17 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             data_status = self.data_status_label.text()
-            if data_status not in ["LIVE", "LIVE DATA", "LIVE - REAL"]:
+            normalized_status = str(data_status or "").strip().upper()
+            live_equivalent_statuses = {
+                "LIVE",
+                "LIVE DATA",
+                "LIVE - REAL",
+                "REAL",
+                "REAL-TIME",
+                "REAL TIME",
+                "PAPER",
+            }
+            if normalized_status not in live_equivalent_statuses:
                 QMessageBox.warning(
                     self,
                     "No Live Data",
@@ -3326,6 +3365,10 @@ class SpyderTradingDashboard(QMainWindow):
 
         mode_label = self.trading_mode.value
         self.add_system_log(f"{mode_label} trading started successfully via SessionSupervisor")
+        if self.trading_mode == TradingMode.PAPER and not is_market_hours():
+            self.add_system_log(
+                "ℹ️ After-hours: paper session active; order entry may be gated by market-hours policy"
+            )
         self.add_automation_log(f"TRADING ACTIVE [{mode_label}] - Unified session started")
 
         # Unified paper mode does not emit the legacy Qt worker's first UI
@@ -3466,6 +3509,7 @@ class SpyderTradingDashboard(QMainWindow):
             "event_clock_enabled": event_enabled,
             "event_clock_state": event_name,
             "is_weekend": et_now.weekday() >= 5,
+            "is_market_hours": is_market_hours(et_now),
             "checked_at_et": et_now.isoformat(),
         }
 
@@ -3477,6 +3521,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         if bool(snapshot.get("is_weekend", False)):
             reasons.append("Market is closed (weekend)")
+        if not bool(snapshot.get("is_market_hours", True)):
+            reasons.append("Market is closed (outside regular trading hours)")
 
         startup_state = snapshot.get("startup_state", {})
         if isinstance(startup_state, dict):
@@ -3491,7 +3537,16 @@ class SpyderTradingDashboard(QMainWindow):
             reasons.append("Market data feed is disconnected")
 
         data_label = str(snapshot.get("data_status_label", "")).strip().upper()
-        if data_label and data_label not in {"LIVE", "LIVE DATA", "LIVE - REAL", "REAL"}:
+        live_equivalent_statuses = {
+            "LIVE",
+            "LIVE DATA",
+            "LIVE - REAL",
+            "REAL",
+            "REAL-TIME",
+            "REAL TIME",
+            "PAPER",
+        }
+        if data_label and data_label not in live_equivalent_statuses:
             warnings.append(f"Data status is {data_label} (not explicit LIVE)")
 
         if bool(snapshot.get("event_clock_enabled", True)):
@@ -4299,12 +4354,12 @@ class SpyderTradingDashboard(QMainWindow):
               are computed at the open from the prior session's H/L/C.</li>
           <li><b>Proximity filter</b> — current SPY price must be within an ATR-based
               distance to a resistance (fade-resistance) or support (fade-support) level.</li>
-          <li><b>Confirmation</b> — recent price action must show stalling behaviour
-              (wick rejection, MACD divergence, volume fade) at that level.</li>
-          <li><b>Regime gate</b> — signal is suppressed in strong-trend regimes
-              (ADX &gt; threshold, HMM trending state).</li>
-          <li><b>Score</b> — final confidence score (0–100) blends proximity,
-              confirmation strength and regime favourability.</li>
+          <li><b>Core inputs</b> — S08 scores the setup using regime label,
+              ATR-normalised distance, RSI confirmation and net dealer GEX context.</li>
+          <li><b>Penalties / vetoes</b> — score is reduced during event-window or
+              edge-of-day periods, and when VIX is elevated/backwardated.</li>
+          <li><b>Score</b> — final confidence score (0–100) with fire threshold at
+              <code>MIN_FIRE_SCORE=60</code>.</li>
           <li><b>Downstream</b> — D25 reads the signal each tick; if <code>fired</code>
               and score exceeds the threshold, it biases credit-spread selection toward
               the fade side (bear-call on fade-resistance, bull-put on fade-support).</li>
@@ -5551,6 +5606,27 @@ class SpyderTradingDashboard(QMainWindow):
         _et_tz = pytz.timezone("US/Eastern")
         current_time = datetime.now(_et_tz).strftime("%Y-%m-%d   %H:%M:%S  ET")
         self.datetime_label.setText(current_time)
+        self._update_trading_window_compact_label()
+
+    def _update_trading_window_compact_label(self) -> None:
+        """Update compact RTH status badge shown beside FLOW/EC/BLOCK."""
+        try:
+            label = getattr(self, "trading_window_compact_label", None)
+            if label is None:
+                return
+
+            if is_market_hours():
+                label.setText("RTH: OPEN")
+                label.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 12px; font-weight: normal;"
+                )
+            else:
+                label.setText("RTH: CLOSED")
+                label.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 12px; font-weight: normal;"
+                )
+        except Exception as exc:
+            self.logger.debug("Could not update RTH compact label: %s", exc)
 
     def confirm_close_strategy(self, strategy_data: dict):
         """Show confirmation dialog before closing strategy"""
@@ -5713,6 +5789,15 @@ class SpyderTradingDashboard(QMainWindow):
                 handler_type=0,
             )
             self.logger.info("✅ Subscribed to TRADE events for execution-health display")
+
+            # Subscribe to risk alerts so trust/risk gate blocks are visible in dashboard logs.
+            self._risk_alert_handler_id = event_manager.subscribe(
+                EventType.RISK_ALERT,
+                self._handle_risk_alert_event,
+                name="G05_RiskAlertDisplay",
+                handler_type=0,
+            )
+            self.logger.info("✅ Subscribed to RISK_ALERT events for entry-block visibility")
         except Exception as e:
             self.logger.warning("⚠️ Event subscription failed (non-blocking): %s", e)
 
@@ -5793,6 +5878,56 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self.execution_reject_rate_value.setText(f"{reject_rate * 100.0:.1f}%")
         self.execution_partial_fill_value.setText(f"{partial_ratio * 100.0:.1f}%")
+
+    def _handle_risk_alert_event(self, event: dict) -> None:
+        """Display entry-gate/risk-gate block reasons in dashboard system status."""
+        try:
+            event_payload = event
+            if hasattr(event, "data") and isinstance(getattr(event, "data", None), dict):
+                event_payload = getattr(event, "data")  # noqa: B009
+
+            if not isinstance(event_payload, dict):
+                return
+
+            reason = str(event_payload.get("reason", "")).strip().lower()
+            if reason not in {"entry_trust_gate_rejected", "validate_signal_rejected"}:
+                return
+
+            detail = str(event_payload.get("message") or event_payload.get("detail") or reason).strip()
+            now = time.monotonic()
+            digest = f"{reason}:{detail}"
+
+            # Avoid flooding the operator log when strategies emit repeated blocks.
+            if digest == self._last_entry_block_message and (now - self._last_entry_block_ts) < 15.0:
+                return
+
+            self._last_entry_block_message = digest
+            self._last_entry_block_ts = now
+
+            compact_text = detail if detail else reason
+            if len(compact_text) > 64:
+                compact_text = compact_text[:61] + "..."
+            compact_display = f"BLOCK: {compact_text}"
+
+            QTimer.singleShot(0, lambda: self.log_system_message(
+                f"⛔ Entry blocked ({reason}): {detail}"
+            ))
+            QTimer.singleShot(0, lambda: self._update_entry_block_compact_label(compact_display))
+        except Exception as e:
+            self.logger.debug("Risk-alert display error (non-blocking): %s", e)
+
+    def _update_entry_block_compact_label(self, text: str) -> None:
+        """Update compact toolbar label showing latest entry-block reason."""
+        try:
+            label = getattr(self, "entry_block_compact_label", None)
+            if label is None:
+                return
+            message = str(text or "").strip() or "BLOCK: -"
+            label.setText(message)
+            label.setToolTip(message)
+            label.setStyleSheet("color: #f5a623; font-size: 12px; font-weight: bold;")
+        except Exception as e:
+            self.logger.debug("Entry-block compact label update failed: %s", e)
 
     def _handle_risk_event(self, event: dict) -> None:
         """Handle RISK events and update event-clock display.
@@ -5891,6 +6026,39 @@ class SpyderTradingDashboard(QMainWindow):
                 self.event_clock_strategies_label.setText(strategies_text)
         except Exception as e:
             self.logger.debug("Display update error (non-blocking): %s", e)
+
+    def _toggle_event_clock_override(self) -> None:
+        """Toggle manual event-clock blackout override and notify scheduler."""
+        try:
+            active = bool(self.event_clock_override_button.isChecked())
+            self.event_clock_override_active = active
+            label = "Manual Blackout: ON" if active else "Manual Blackout: OFF"
+            self.event_clock_override_button.setText(label)
+
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+            event_manager = EventManager.get_instance()
+
+            if active:
+                payload = {
+                    "state": "live",
+                    "event_id": "manual_override",
+                    "event_type": "manual_blackout",
+                    "allowed_strategies": [],
+                    "max_size_multiplier": 0.0,
+                }
+                event_manager.emit(
+                    EventType.RISK,
+                    {"type": "event_clock_manual_override", "payload": payload},
+                    priority="high",
+                )
+            else:
+                event_manager.emit(
+                    EventType.RISK,
+                    {"type": "event_clock_manual_clear", "payload": {}},
+                    priority="high",
+                )
+        except Exception as exc:
+            self.logger.debug("Manual event-clock override failed: %s", exc)
 
     def update_risk_parameters(self, params: dict) -> None:
         """Receive updated risk parameters from the G09 Risk Levels dialog.
@@ -6092,6 +6260,132 @@ class SpyderTradingDashboard(QMainWindow):
         new_mode = "DEBUG" if self.system_log_mode == "NORMAL" else "NORMAL"
         self._set_system_log_verbosity(new_mode, announce=True)
 
+    def _resolve_veto_profile_path(self) -> Path:
+        """Resolve config profile path used by the dashboard veto toggle."""
+        import os
+
+        profile = str(os.environ.get("ENVIRONMENT", "development")).strip().lower()
+        config_dir = project_root / "config"
+
+        if profile in {"live", "production", "prod"}:
+            return config_dir / "production.json"
+
+        return config_dir / "development.json"
+
+    def _load_veto_controls_state(self) -> bool:
+        """Load unified veto-enabled state from config profile with env fallback."""
+        import os
+
+        default_enabled = True
+        profile_path = self._resolve_veto_profile_path()
+
+        if profile_path.exists():
+            try:
+                data = json.loads(profile_path.read_text(encoding="utf-8"))
+                values = [
+                    bool(data.get("enable_x16_veto", default_enabled)),
+                    bool(data.get("enable_y03_trade_veto", default_enabled)),
+                    bool(data.get("enable_y05_veto_consumption", default_enabled)),
+                ]
+                return all(values)
+            except Exception:
+                pass
+
+        def _env_bool(name: str, default: bool) -> bool:
+            raw = os.environ.get(name)
+            if raw is None:
+                return default
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+        return all(
+            [
+                _env_bool("ENABLE_X16_VETO", default_enabled),
+                _env_bool("ENABLE_Y03_TRADE_VETO", default_enabled),
+                _env_bool("ENABLE_Y05_VETO_CONSUMPTION", default_enabled),
+            ]
+        )
+
+    def _apply_veto_toggle_button_state(self) -> None:
+        """Render veto button state and styling in Advanced Controls."""
+        btn = getattr(self, "veto_toggle_btn", None)
+        if btn is None:
+            return
+
+        enabled = bool(getattr(self, "_veto_controls_enabled", True))
+        btn.setChecked(enabled)
+
+        if enabled:
+            btn.setText("VETO: ENABLED")
+            btn.setStyleSheet(
+                "background-color: #0D7A33; color: white; font-size: 12px; "
+                "padding: 0 12px; border: 1px solid #1FA44C; border-radius: 3px;"
+            )
+            btn.setToolTip("X16/Y03/Y05 veto path is enabled")
+        else:
+            btn.setText("VETO: DISABLED")
+            btn.setStyleSheet(
+                "background-color: #A94442; color: white; font-size: 12px; "
+                "padding: 0 12px; border: 1px solid #C96865; border-radius: 3px;"
+            )
+            btn.setToolTip("X16/Y03/Y05 veto path is disabled")
+
+    def _persist_veto_controls_state(self, enabled: bool) -> tuple[bool, str]:
+        """Persist veto state to profile JSON, env vars, and ConfigManager cache."""
+        import os
+
+        profile_path = self._resolve_veto_profile_path()
+        payload = {
+            "enable_x16_veto": enabled,
+            "enable_y03_trade_veto": enabled,
+            "enable_y05_veto_consumption": enabled,
+        }
+
+        try:
+            if profile_path.exists():
+                data = json.loads(profile_path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    data = {}
+            else:
+                data = {}
+
+            data.update(payload)
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+            profile_path.write_text(f"{json.dumps(data, indent=2)}\n", encoding="utf-8")
+
+            value = "true" if enabled else "false"
+            os.environ["ENABLE_X16_VETO"] = value
+            os.environ["ENABLE_Y03_TRADE_VETO"] = value
+            os.environ["ENABLE_Y05_VETO_CONSUMPTION"] = value
+
+            try:
+                from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+                cfg = get_config_manager()
+                cfg.update(payload, source="dashboard")
+            except Exception:
+                pass
+
+            return True, str(profile_path)
+        except Exception as exc:
+            return False, str(exc)
+
+    def _toggle_veto_controls(self) -> None:
+        """Toggle veto controls used by X16/Y03/Y05 and persist the setting."""
+        next_state = not bool(getattr(self, "_veto_controls_enabled", True))
+        success, detail = self._persist_veto_controls_state(next_state)
+
+        if not success:
+            self.add_system_log(f"⚠️ Failed to update veto controls: {detail}")
+            self._apply_veto_toggle_button_state()
+            return
+
+        self._veto_controls_enabled = next_state
+        self._apply_veto_toggle_button_state()
+
+        state_text = "ENABLED" if next_state else "DISABLED"
+        self.add_system_log(f"Veto controls {state_text} (saved: {detail})")
+        self.add_system_log("ℹ️ Restart autonomous agents/session to apply veto changes")
+
     def setup_white_tooltips(self):
         """Apply the white-tooltip theme to this window (delegates to module helper)."""
         try:
@@ -6113,10 +6407,21 @@ class SpyderTradingDashboard(QMainWindow):
         }
 
         try:
+            import os
             from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 
             cfg = get_config_manager()
-            mode = str(cfg.get("trading.mode", "paper")).strip().lower()
+
+            env_mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()
+            if env_mode in {"paper", "sandbox", "live", "production"}:
+                mode = "live" if env_mode in {"live", "production"} else "paper"
+            else:
+                runtime_paper_mode = cfg.get("runtime.paper_mode", None)
+                if isinstance(runtime_paper_mode, bool):
+                    mode = "paper" if runtime_paper_mode else "live"
+                else:
+                    mode = str(cfg.get("trading.mode", "paper")).strip().lower()
+
             automation_enabled = bool(cfg.get("automation.enabled", True))
 
             warnings = []
@@ -6125,6 +6430,13 @@ class SpyderTradingDashboard(QMainWindow):
                 result = cfg.validate_autonomous_readiness_config(cfg.config_data, mode)
                 warnings = list(result.get("warnings", []))
                 errors = list(result.get("errors", []))
+
+            # Startup readiness should explicitly reflect market-hours state so
+            # operators can reconcile startup status with start-button gating.
+            if not is_market_hours():
+                rth_warning = "Market is closed (outside regular trading hours)"
+                if rth_warning not in warnings:
+                    warnings.append(rth_warning)
 
             safe_fallback = (mode != "live") and (not automation_enabled) and len(errors) > 0
             live_blocking = (mode == "live") and len(errors) > 0
@@ -6189,6 +6501,11 @@ class SpyderTradingDashboard(QMainWindow):
             self.system_logs.append(
                 f"[{startup_hms}] ✅ STARTUP READINESS: mode={mode} warnings={len(warnings)} errors={len(errors)}"  # noqa: E501
             )
+            if warnings:
+                warning_text = "; ".join(str(w) for w in warnings[:3])
+                self.system_logs.append(
+                    f"[{startup_hms}] ⚠️ STARTUP READINESS WARNING(S): {warning_text}"
+                )
 
     def _emit_startup_readiness_logs(self) -> None:
         """Emit readiness state to visible logs and button styling after widgets exist."""
@@ -6227,6 +6544,9 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log(
                 f"✅ Startup readiness validated (mode={mode}, warnings={len(warnings)}, errors={len(errors)})"  # noqa: E501
             )
+            if warnings:
+                warning_text = "; ".join(str(w) for w in warnings[:3])
+                self.add_system_log(f"⚠️ Startup readiness warning(s): {warning_text}")
 
     # ------------------------------------------------------------------
     # Snapshot persistence — save symbol values on exit, restore on open

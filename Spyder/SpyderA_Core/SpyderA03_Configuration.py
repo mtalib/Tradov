@@ -416,6 +416,8 @@ class ConfigManager:
                 "enabled": True,
             },
             "autonomous_readiness": {
+                "lean_mode": True,
+                "observe_only_agents": True,
                 "liquidity": {
                     "enabled": True,
                     "max_spread_pct": 0.12,
@@ -1201,6 +1203,8 @@ class ConfigManager:
             fallback=-0.20,
         )
 
+        require_bool("autonomous_readiness.observe_only_agents")
+
         require_float_range("autonomous_readiness.execution.max_slippage_bps", 1, 200)
         require_int_range("autonomous_readiness.execution.max_fill_latency_ms", 100, 20000)
         require_float_range("autonomous_readiness.execution.max_partial_fill_ratio", 0.00, 1.00)
@@ -1496,6 +1500,8 @@ class ConfigManager:
         """Apply documented env overrides for autonomous readiness settings."""
         effective = copy.deepcopy(config)
         env_key_to_path = {
+            "SPYDER_LEAN_MODE": "autonomous_readiness.lean_mode",
+            "SPYDER_OBSERVE_ONLY_AGENTS": "autonomous_readiness.observe_only_agents",
             "SPYDER_LIQUIDITY_ENABLED": "autonomous_readiness.liquidity.enabled",
             "SPYDER_LIQUIDITY_MAX_SPREAD_PCT": "autonomous_readiness.liquidity.max_spread_pct",
             "SPYDER_LIQUIDITY_MAX_SPREAD_ABS": "autonomous_readiness.liquidity.max_spread_abs",

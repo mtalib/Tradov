@@ -29,6 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import logging
+import os
 from pathlib import Path
 import json
 
@@ -402,6 +403,8 @@ class Scheduler:
         self._event_clock_manual_state: dict[str, Any] | None = None
         self._last_event_clock_state: str | None = None
         self._load_event_clock_config()
+        self._event_clock_handler_id: str | None = None
+        self._register_event_clock_handlers()
 
         # Performance metrics
         self.metrics = {
@@ -507,6 +510,16 @@ class Scheduler:
                     )
                 ),
             })
+            calendar_path = (
+                event_cfg.get("calendar_path")
+                or event_cfg.get("calendar_file")
+                or os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    "config",
+                    "event_clock_calendar.json",
+                )
+            )
+            self._load_event_calendar_file(calendar_path)
             self.logger.info("Event-clock config loaded from A03 validation")
         except Exception as e:
             self.logger.warning("Event-clock config load skipped; using defaults: %s", e)
@@ -525,6 +538,37 @@ class Scheduler:
             self._on_job_missed,
             EVENT_JOB_MISSED
         )
+
+    def _register_event_clock_handlers(self) -> None:
+        """Subscribe to event-clock manual override events."""
+        try:
+            if self.event_manager is None:
+                return
+            self._event_clock_handler_id = self.event_manager.subscribe(
+                EventType.RISK,
+                self._handle_event_clock_event,
+                name="A04_EventClockOverride",
+                handler_type=0,
+            )
+        except Exception as exc:
+            self.logger.debug("Event-clock handler registration failed: %s", exc)
+
+    def _handle_event_clock_event(self, event: Any) -> None:
+        """Handle manual event-clock override requests from the UI."""
+        try:
+            payload = getattr(event, "data", None) or {}
+            if not isinstance(payload, dict):
+                return
+            event_type = str(payload.get("type", "")).strip().lower()
+            if event_type == "event_clock_manual_override":
+                override = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+                self.set_event_clock_manual_state(override)
+                self.publish_event_clock_state(force_emit=True)
+            elif event_type == "event_clock_manual_clear":
+                self.set_event_clock_manual_state(None)
+                self.publish_event_clock_state(force_emit=True)
+        except Exception as exc:
+            self.logger.debug("Event-clock override handling failed: %s", exc)
 
     def _schedule_default_tasks(self):
         """Schedule default system tasks"""
@@ -1306,6 +1350,23 @@ class Scheduler:
     # ==========================================================================
     # EVENT CLOCK (P0-3)
     # ==========================================================================
+    def _load_event_calendar_file(self, calendar_path: str | None) -> None:
+        """Load a static event-calendar file for blackout enforcement."""
+        if not calendar_path:
+            return
+
+        path = Path(calendar_path)
+        if not path.is_absolute():
+            path = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / path
+
+        try:
+            with path.open(encoding="utf-8") as f:
+                data = json.load(f)
+            events = data.get("events") if isinstance(data, dict) else data
+            if isinstance(events, list):
+                self.set_event_clock_events(events)
+        except Exception as exc:
+            self.logger.warning("Event-clock calendar load failed (%s): %s", path, exc)
     def set_event_clock_events(self, events: list[dict[str, Any]]) -> None:
         """Set high-impact calendar events used by event-clock state logic.
 

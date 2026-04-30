@@ -121,7 +121,7 @@ try:
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
-    logging.info("⚠️ Some Spyder modules not available: %s", e)
+    logging.debug("Optional Spyder modules not available for DayProfitTarget: %s", e)
     SPYDER_MODULES_AVAILABLE = False
 
 # A22 (v14): Decimal-backed Money lives in its own try so the day's P&L

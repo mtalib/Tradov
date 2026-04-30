@@ -433,7 +433,7 @@ class DataValidator:
         # Event manager integration
         self.event_manager = get_event_manager()
 
-        self.logger.info("Data validator initialized")
+        self.logger.debug("Data validator initialized")
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -456,7 +456,7 @@ class DataValidator:
             # Start proactive staleness watcher for trading-critical symbols
             self.register_staleness_watch(_TRADING_WATCH_SYMBOLS, TRADING_STALE_SECONDS)
 
-            self.logger.info("Data validator initialized successfully")
+            self.logger.debug("Data validator initialized successfully")
             return True
 
         except Exception as e:

@@ -186,17 +186,8 @@ def build_center_panel(dashboard: Any) -> QWidget:
     separator_label.setStyleSheet(f"color: {COLORS['text_dim']};")
     center_container.addWidget(separator_label)
 
-    strategy_section = QHBoxLayout()
-    strategy_section.setSpacing(5)
-    strategy_label = QLabel("CURRENT ACTIVE STRATEGY: ")
-    strategy_label.setStyleSheet(f"color: {COLORS['text']};")
-    strategy_section.addWidget(strategy_label)
-
-    dashboard.strategy_value = QLabel("—")
-    dashboard.strategy_value.setStyleSheet(f"color: {COLORS['cyan']};")
-    strategy_section.addWidget(dashboard.strategy_value)
-
-    strategy_section.addSpacing(15)
+    status_section = QHBoxLayout()
+    status_section.setSpacing(8)
 
     dashboard.chart_toggle_btn = QPushButton("📊")
     dashboard.chart_toggle_btn.setFixedSize(30, 30)
@@ -221,9 +212,61 @@ def build_center_panel(dashboard: Any) -> QWidget:
             }}
         """)
     dashboard.chart_toggle_btn.clicked.connect(dashboard.toggle_chart)
-    strategy_section.addWidget(dashboard.chart_toggle_btn)
+    status_section.addWidget(dashboard.chart_toggle_btn)
 
-    center_container.addLayout(strategy_section)
+    separator_label2 = QLabel("|")
+    separator_label2.setStyleSheet(f"color: {COLORS['text_dim']};")
+    status_section.addWidget(separator_label2)
+
+    # Move FLOW / EC / BLOCK badges into the center status strip to avoid
+    # crowding the top toolbar.
+    try:
+        _flow_interval_s = float(os.getenv("SPYDER_D31_SIGNAL_FLOW_LOG_INTERVAL_S", "300"))
+    except (TypeError, ValueError):
+        _flow_interval_s = 300.0
+    if _flow_interval_s <= 0:
+        _flow_interval_s = 300.0
+    _flow_interval_m = max(1, int(round(_flow_interval_s / 60.0)))
+
+    if getattr(dashboard, "signal_flow_heartbeat_label", None) is None:
+        dashboard.signal_flow_heartbeat_label = QLabel(f"FLOW:{_flow_interval_m}m")
+        dashboard.signal_flow_heartbeat_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
+        )
+        dashboard.signal_flow_heartbeat_label.setToolTip(
+            f"D31 signal-flow heartbeat interval ({int(_flow_interval_s)}s)"
+        )
+    status_section.addWidget(dashboard.signal_flow_heartbeat_label)
+
+    if getattr(dashboard, "event_clock_compact_label", None) is None:
+        dashboard.event_clock_compact_label = QLabel("EC: CLEAR")
+        dashboard.event_clock_compact_label.setStyleSheet(
+            f"color: {COLORS['positive']}; font-size: 13px; font-weight: normal;"
+        )
+        dashboard.event_clock_compact_label.setToolTip("Event Clock status")
+    status_section.addWidget(dashboard.event_clock_compact_label)
+
+    if getattr(dashboard, "entry_block_compact_label", None) is None:
+        dashboard.entry_block_compact_label = QLabel("BLOCK: -")
+        dashboard.entry_block_compact_label.setMinimumWidth(260)
+        dashboard.entry_block_compact_label.setMaximumWidth(260)
+        dashboard.entry_block_compact_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
+        )
+        dashboard.entry_block_compact_label.setToolTip("Latest entry block reason")
+    status_section.addWidget(dashboard.entry_block_compact_label)
+
+    if getattr(dashboard, "trading_window_compact_label", None) is None:
+        dashboard.trading_window_compact_label = QLabel("RTH: ?")
+        dashboard.trading_window_compact_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
+        )
+        dashboard.trading_window_compact_label.setToolTip(
+            "Regular trading hours gate status"
+        )
+    status_section.addWidget(dashboard.trading_window_compact_label)
+
+    center_container.addLayout(status_section)
 
     regime_layout.addLayout(center_container)
     regime_layout.addStretch()
@@ -922,6 +965,28 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     diagnostics_row.addWidget(execution_group)
 
     layout.addLayout(diagnostics_row)
+
+    veto_row = QHBoxLayout()
+    veto_row.setSpacing(6)
+
+    dashboard.veto_toggle_btn = QPushButton()
+    dashboard.veto_toggle_btn.setCheckable(True)
+    dashboard.veto_toggle_btn.setFixedHeight(26)
+    dashboard.veto_toggle_btn.setFixedWidth(220)
+    dashboard.veto_toggle_btn.clicked.connect(dashboard._toggle_veto_controls)
+    dashboard._apply_veto_toggle_button_state()
+    veto_row.addWidget(dashboard.veto_toggle_btn)
+
+    veto_scope_label = QLabel(
+        "SpyderX16 Veto  +  SpyderY03 Trade Veto  +  SpyderY05 Consumption Veto"
+    )
+    veto_scope_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; font-weight: 600;")
+    veto_scope_label.setWordWrap(False)
+    veto_row.addWidget(veto_scope_label, 1)
+
+    veto_row.addStretch(1)
+    layout.addLayout(veto_row)
+
     layout.addStretch(1)
 
     dashboard.chart_hidden_controls_panel.setLayout(layout)
@@ -1472,11 +1537,38 @@ def build_toolbar(dashboard: Any) -> QWidget:
     dashboard.data_status_container.mousePressEvent = dashboard._toggle_data_display
 
     # Compact always-visible Event Clock badge; full details are in the hidden-controls panel.
-    dashboard.event_clock_compact_label = QLabel("EC: CLEAR")
-    dashboard.event_clock_compact_label.setStyleSheet(
-        f"color: {COLORS['positive']}; font-size: 13px; font-weight: normal;"
-    )
-    dashboard.event_clock_compact_label.setToolTip("Event Clock status")
+    try:
+        _flow_interval_s = float(_os.getenv("SPYDER_D31_SIGNAL_FLOW_LOG_INTERVAL_S", "300"))
+    except (TypeError, ValueError):
+        _flow_interval_s = 300.0
+    if _flow_interval_s <= 0:
+        _flow_interval_s = 300.0
+    _flow_interval_m = max(1, int(round(_flow_interval_s / 60.0)))
+
+    if getattr(dashboard, "signal_flow_heartbeat_label", None) is None:
+        dashboard.signal_flow_heartbeat_label = QLabel(f"FLOW:{_flow_interval_m}m")
+        dashboard.signal_flow_heartbeat_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
+        )
+        dashboard.signal_flow_heartbeat_label.setToolTip(
+            f"D31 signal-flow heartbeat interval ({int(_flow_interval_s)}s)"
+        )
+
+    if getattr(dashboard, "event_clock_compact_label", None) is None:
+        dashboard.event_clock_compact_label = QLabel("EC: CLEAR")
+        dashboard.event_clock_compact_label.setStyleSheet(
+            f"color: {COLORS['positive']}; font-size: 13px; font-weight: normal;"
+        )
+        dashboard.event_clock_compact_label.setToolTip("Event Clock status")
+
+    if getattr(dashboard, "entry_block_compact_label", None) is None:
+        dashboard.entry_block_compact_label = QLabel("BLOCK: -")
+        dashboard.entry_block_compact_label.setMinimumWidth(260)
+        dashboard.entry_block_compact_label.setMaximumWidth(260)
+        dashboard.entry_block_compact_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
+        )
+        dashboard.entry_block_compact_label.setToolTip("Latest entry block reason")
 
     # Market Data Provider (label click = switch provider, ⚡ click = connect/disconnect)
     dashboard.mkt_provider_container = QWidget()
@@ -1530,7 +1622,6 @@ def build_toolbar(dashboard: Any) -> QWidget:
     right_section.addWidget(dashboard.api_status_container)
     right_section.addWidget(dashboard.mkt_provider_container)
     right_section.addWidget(dashboard.data_status_container)
-    right_section.addWidget(dashboard.event_clock_compact_label)
 
     layout.addLayout(right_section)
 

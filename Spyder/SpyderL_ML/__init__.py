@@ -59,7 +59,7 @@ except Exception as _e:
 try:
     from .SpyderL12_RandomForestEnsemble import SpyderRandomForestEnsemble
 except Exception as _e:
-    _logger.warning("SpyderL12_RandomForestEnsemble not available: %s", _e)
+    _logger.debug("Optional module SpyderL12_RandomForestEnsemble not available: %s", _e)
     SpyderRandomForestEnsemble = None  # type: ignore
 
 # SpyderL13_LSTMPricer imports PyTorch which takes 3-5 seconds on cold start.

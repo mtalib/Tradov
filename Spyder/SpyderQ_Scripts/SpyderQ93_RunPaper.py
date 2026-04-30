@@ -259,15 +259,27 @@ def run_session(
         if strategy_runner is not None:
             try:
                 result = strategy_runner.tick()
+                top_no_entry = str(result.get("top_no_entry_reason") or "")
                 if verbose or result.get("opens_this_tick") or result.get("closes_this_tick"):
-                    _logger.info(
-                        "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f",
-                        result.get("spy_price", 0.0),
-                        result.get("open_positions", 0),
-                        result.get("opens_this_tick", 0),
-                        result.get("closes_this_tick", 0),
-                        result.get("sim_pnl", 0.0),
-                    )
+                    if result.get("opens_this_tick", 0) == 0 and top_no_entry:
+                        _logger.info(
+                            "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f no_entry=%s",
+                            result.get("spy_price", 0.0),
+                            result.get("open_positions", 0),
+                            result.get("opens_this_tick", 0),
+                            result.get("closes_this_tick", 0),
+                            result.get("sim_pnl", 0.0),
+                            top_no_entry,
+                        )
+                    else:
+                        _logger.info(
+                            "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f",
+                            result.get("spy_price", 0.0),
+                            result.get("open_positions", 0),
+                            result.get("opens_this_tick", 0),
+                            result.get("closes_this_tick", 0),
+                            result.get("sim_pnl", 0.0),
+                        )
             except Exception as exc:  # pylint: disable=broad-except
                 _logger.exception("Strategy runner tick failed: %s", exc)
 
@@ -289,6 +301,16 @@ def run_session(
             closed = strategy_runner.close_all_positions(reason="session_end")
             if closed:
                 _logger.info("Session-end: force-closed %d open sim position(s)", closed)
+            replay_report = strategy_runner.flush_deferred_sandbox_replay()
+            if replay_report:
+                _logger.info(
+                    "Deferred sandbox replay report: processed=%s sent=%s failed=%s pending=%s path=%s",
+                    replay_report.get("processed", 0),
+                    replay_report.get("sent", 0),
+                    replay_report.get("failed", 0),
+                    replay_report.get("pending_total", 0),
+                    replay_report.get("report_path", ""),
+                )
         except Exception as exc:  # pylint: disable=broad-except
             _logger.exception("Strategy runner shutdown failed: %s", exc)
 

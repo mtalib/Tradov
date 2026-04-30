@@ -69,7 +69,7 @@ try:
     SUPERQT_AVAILABLE = True
 except ImportError:
     SUPERQT_AVAILABLE = False
-    logging.info("Warning: superqt not available. Install with: pip install superqt")
+    logging.debug("Optional dependency superqt not available. Install with: pip install superqt")
 
 # ==============================================================================
 # LOCAL IMPORTS

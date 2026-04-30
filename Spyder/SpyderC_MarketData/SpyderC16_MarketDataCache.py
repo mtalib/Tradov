@@ -236,7 +236,7 @@ class MarketDataCache:
         self._cleanup_thread: threading.Thread | None = None
         self._running = False
 
-        self.logger.info("Market Data Cache initialized")
+        self.logger.debug("Market Data Cache initialized")
 
     # ==========================================================================
     # INITIALIZATION
@@ -293,7 +293,7 @@ class MarketDataCache:
                 ''')
 
                 conn.commit()
-                self.logger.info("SQLite database initialized")
+                self.logger.debug("SQLite database initialized")
 
         except Exception as e:
             self.logger.error("Database initialization failed: %s", e, exc_info=True)
@@ -317,7 +317,7 @@ class MarketDataCache:
         if self.config['preload']['enabled']:
             self._preload_cache()
 
-        self.logger.info("Market Data Cache started")
+        self.logger.debug("Market Data Cache started")
 
     def stop(self):
         """Stop the cache system"""

@@ -321,8 +321,8 @@ class SpyderAdvancedModelsEngine:
             max_workers=2, thread_name_prefix="AdvancedModels"
         )
 
-        self.logger.info("✅ SpyderAdvancedModelsEngine initialized")
-        self.logger.info(
+        self.logger.debug("✅ SpyderAdvancedModelsEngine initialized")
+        self.logger.debug(
             "⚠️ Regime switching functions removed - now handled by L09_UnifiedRegimeEngine"
         )
 

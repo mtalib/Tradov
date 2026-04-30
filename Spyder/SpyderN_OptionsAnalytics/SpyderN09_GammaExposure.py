@@ -268,7 +268,7 @@ class GammaExposureCalculator:
         self.calculation_times: deque = deque(maxlen=100)
         self.last_update_time: datetime | None = None
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN CALCULATIONS

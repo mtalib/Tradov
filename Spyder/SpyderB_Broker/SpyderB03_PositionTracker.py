@@ -112,7 +112,7 @@ class PositionTracker:
         )
         self._reconciliation_thread.start()
 
-        self.logger.info("Background threads started")
+        self.logger.debug("Background threads started")
 
     def _stop_background_threads(self):
         """Stop all background threads."""
@@ -141,7 +141,7 @@ class PositionTracker:
         self._running = True
         self._shutdown_event.clear()
         self._start_background_threads()
-        self.logger.info("PositionTracker started")
+        self.logger.debug("PositionTracker started")
 
     def stop(self) -> None:
         """Stop all background monitoring threads gracefully."""
@@ -202,7 +202,7 @@ class PositionTracker:
                     }
                     for sym, pos in restored.items()
                 }
-            self.logger.info("Loaded %d persisted positions from %s", len(self.positions), target)
+            self.logger.debug("Loaded %d persisted positions from %s", len(self.positions), target)
             return True
         except Exception as exc:
             self.logger.error("load_state failed for %s: %s", target, exc)
@@ -271,7 +271,7 @@ class PositionTracker:
                     tolerance,
                 )
         if not divergence:
-            self.logger.info("PositionTracker reconciliation OK (symbols=%d)", len(symbols))
+            self.logger.debug("PositionTracker reconciliation OK (symbols=%d)", len(symbols))
         return not divergence
 
     # ==========================================================================

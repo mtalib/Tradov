@@ -58,7 +58,7 @@ try:
 
     CONSOLIDATED_MODULES_AVAILABLE = True
 except ImportError:
-    logging.info("Warning: Consolidated V-series modules not available")
+    logging.debug("Optional consolidated V-series modules not available")
     CONSOLIDATED_MODULES_AVAILABLE = False
     # Define fallback types so class definitions don't fail
     RiskParameters = None  # type: ignore

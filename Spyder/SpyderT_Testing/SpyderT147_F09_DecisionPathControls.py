@@ -135,3 +135,46 @@ def test_f09_dealer_short_gamma_near_flip_blocks_entry():
     assert failures[0].result == FilterResult.FAIL
     assert result.overall_result == FilterResult.FAIL
 
+
+def test_f09_pivot_overlay_blocks_direction_conflict_for_bull_put():
+    ef = EntryFilters(_MockConfigManager())
+    params = _base_params()
+    params['pivot_mr_signal'] = {
+        'direction': 'fade_resistance',
+        'score': 74,
+        'fired': True,
+        'nearest_level_name': 'R2',
+        'nearest_level_price': 716.89,
+        'atr_distance': 0.42,
+        'penalties': [],
+    }
+
+    result = ef.assess_entry(params)
+
+    pivot_failures = [c for c in result.checks if c.filter_type == FilterType.PIVOT_OVERLAY]
+    assert len(pivot_failures) >= 1
+    assert any(c.result == FilterResult.FAIL for c in pivot_failures)
+    assert any('pivot_block_reason=pivot_direction_conflict' in c.message for c in pivot_failures)
+    assert result.overall_result == FilterResult.FAIL
+
+
+def test_f09_pivot_overlay_passes_when_aligned_for_bull_put():
+    ef = EntryFilters(_MockConfigManager())
+    params = _base_params()
+    params['pivot_mr_signal'] = {
+        'direction': 'fade_support',
+        'score': 78,
+        'fired': True,
+        'nearest_level_name': 'S1',
+        'nearest_level_price': 709.23,
+        'atr_distance': 0.36,
+        'penalties': [],
+    }
+
+    result = ef.assess_entry(params)
+
+    pivot_checks = [c for c in result.checks if c.filter_type == FilterType.PIVOT_OVERLAY]
+    assert len(pivot_checks) >= 1
+    assert any(c.result == FilterResult.PASS for c in pivot_checks)
+    assert result.overall_result == FilterResult.PASS
+

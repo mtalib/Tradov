@@ -41,6 +41,8 @@ from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
     PivotMRInputs,
     PivotDirection,
     MIN_FIRE_SCORE,
+    CENTER_BOUNCE_LONG_TAG,
+    CENTER_BOUNCE_SHORT_TAG,
 )
 
 
@@ -106,8 +108,9 @@ class TestNoFireConditions:
         assert result.fired is False
 
     def test_price_inside_pivot_bands_no_breach(self, engine, pivots):
-        # 588 sits between S1=583.33 and R1=592.33 — nothing breached.
-        result = engine.evaluate(_baseline_inputs(pivots, spot_price=588.0))
+        # 590 sits between S1=583.33 and R1=592.33 and is not near central P,
+        # so neither outer-band nor center-pivot triggers should activate.
+        result = engine.evaluate(_baseline_inputs(pivots, spot_price=590.0))
         assert result.fired is False
         assert result.direction == PivotDirection.NONE
 
@@ -195,6 +198,41 @@ class TestFadeSupport:
             pivots, spot_price=579.0, rsi=50.0
         ))
         assert oversold.score - neutral.score == 10
+
+
+# ==============================================================================
+# CENTER-PIVOT ROTATION PATH
+# ==============================================================================
+class TestCenterPivotRotation:
+    """Cases where price rotates around central pivot P (no R/S breach)."""
+
+    def test_center_pivot_neutral_bull_rotation_can_fire(self, engine, pivots):
+        result = engine.evaluate(_baseline_inputs(
+            pivots,
+            spot_price=587.72,      # near P=587.67 (within 0.20 ATR)
+            rsi=56.0,               # bullish micro-bias
+            regime_label="RANGE",
+            net_gex=2.0e9,
+        ))
+        assert result.fired is True
+        assert result.direction == PivotDirection.FADE_SUPPORT
+        assert result.nearest_level_name == "P"
+        assert result.score >= MIN_FIRE_SCORE
+        assert CENTER_BOUNCE_LONG_TAG in result.reasons
+
+    def test_center_pivot_neutral_bear_rotation_can_fire(self, engine, pivots):
+        result = engine.evaluate(_baseline_inputs(
+            pivots,
+            spot_price=587.60,      # near P=587.67 (within 0.20 ATR)
+            rsi=44.0,               # bearish micro-bias
+            regime_label="RANGE",
+            net_gex=2.0e9,
+        ))
+        assert result.fired is True
+        assert result.direction == PivotDirection.FADE_RESISTANCE
+        assert result.nearest_level_name == "P"
+        assert result.score >= MIN_FIRE_SCORE
+        assert CENTER_BOUNCE_SHORT_TAG in result.reasons
 
 
 # ==============================================================================

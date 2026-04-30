@@ -107,7 +107,7 @@ class PaperBroker:
             except Exception as exc:
                 self.logger.warning("PaperBroker: could not subscribe to MARKET_DATA: %s", exc)
 
-        self.logger.info(
+        self.logger.debug(
             "PaperBroker created (fill_delay=%.2fs balance=%.0f slippage=%dbps)",
             fill_delay_s,
             account_balance,
@@ -120,7 +120,7 @@ class PaperBroker:
 
     def start(self) -> bool:
         self._running = True
-        self.logger.info("PaperBroker started")
+        self.logger.debug("PaperBroker started")
         return True
 
     def stop(self) -> None:

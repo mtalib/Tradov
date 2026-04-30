@@ -161,8 +161,9 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
     MIN_POSITION_SIZE = 1        # Minimum 1 contract
     MAX_POSITION_SIZE = 50       # Maximum per-trade
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, enable_veto_consumption: bool = True, **kwargs: Any):
         super().__init__(**kwargs)
+        self._enable_veto_consumption = enable_veto_consumption
 
         # State
         self._pending_signals: list[dict[str, Any]] = []
@@ -205,7 +206,8 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         self.subscribe("signals.validated")
         self.subscribe("strategy.allocation")
         self.subscribe("risk.circuit_breaker")
-        self.subscribe("risk.veto")
+        if self._enable_veto_consumption:
+            self.subscribe("risk.veto")
         self.subscribe("market.analysis")
 
     def on_wake(self, session: MarketSession) -> None:
@@ -516,7 +518,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
             self._circuit_breaker_state = message.get("payload", {}).get(
                 "new_state", "normal"
             )
-        elif topic == "risk.veto":
+        elif topic == "risk.veto" and self._enable_veto_consumption:
             # Remove vetoed signals from pending
             vetoed_id = message.get("payload", {}).get("signal_id", "")
             self._pending_signals = [

@@ -73,6 +73,7 @@ def _make_orchestrator():
     orchestrator_cls = _get_strategy_orchestrator_class()
     orchestrator = orchestrator_cls(event_manager=_StubEventManager())
     orchestrator.error_handler = SimpleNamespace(handle_error=lambda *a, **k: None)
+    orchestrator.lean_mode = False
     return orchestrator
 
 

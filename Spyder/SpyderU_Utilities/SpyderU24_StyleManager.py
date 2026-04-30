@@ -44,7 +44,7 @@ try:
     QDARKSTYLE_AVAILABLE = True
 except ImportError:
     QDARKSTYLE_AVAILABLE = False
-    logging.info("Warning: qdarkstyle not available. Install with: pip install qdarkstyle")
+    logging.debug("Optional dependency qdarkstyle not available. Install with: pip install qdarkstyle")
 
 # QtAwesome icons integration
 try:
@@ -52,7 +52,7 @@ try:
     QTAWESOME_AVAILABLE = True
 except ImportError:
     QTAWESOME_AVAILABLE = False
-    logging.info("Warning: qtawesome not available. Install with: pip install qtawesome")
+    logging.debug("Optional dependency qtawesome not available. Install with: pip install qtawesome")
 
 # ==============================================================================
 # LOCAL IMPORTS
