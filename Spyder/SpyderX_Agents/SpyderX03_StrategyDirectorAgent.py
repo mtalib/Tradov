@@ -218,9 +218,11 @@ if _PYDANTIC_AVAILABLE:
         exit_conditions: dict = _PField(default_factory=lambda: {"target": 0.5, "stop": -0.5})
         adjustment_rules: dict = _PField(default_factory=dict)
 
-        @_fv("confidence")
+        @_fv("confidence", mode="before")
         @classmethod
         def clamp_confidence(cls, v: float) -> float:  # type: ignore[misc]
+            # Run before field constraints so out-of-range values are clamped
+            # rather than rejected (Pydantic v2 validators default to mode='after').
             return max(0.0, min(1.0, float(v)))
 else:
     StrategyAIResponse = None  # type: ignore[assignment,misc]
