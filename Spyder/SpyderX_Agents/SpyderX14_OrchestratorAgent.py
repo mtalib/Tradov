@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
@@ -45,6 +45,13 @@ except ImportError:
     import gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+
+# LangGraph — stateful multi-agent orchestration (TradingAgents-inspired)
+try:
+    from langgraph.graph import StateGraph, END, START  # type: ignore[import]
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_AVAILABLE = False
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -98,6 +105,29 @@ MIN_AGENT_CONFIDENCE = 0.3
 MAX_AGENT_TIMEOUT = 5.0  # seconds
 COOPERATION_REWARD = 1.0
 COMPETITION_PENALTY = -0.5
+
+
+# ==============================================================================
+# LANGGRAPH STATE (TradingAgents-inspired stateful pipeline)
+# ==============================================================================
+class OrchestrationState(TypedDict):
+    """Typed state passed between LangGraph orchestration nodes.
+
+    Nodes:
+        analyst    → collects raw agent outputs in parallel
+        debate     → classifies outputs into bull/bear/hold camps
+        strategist → weights + consensus from meta-learning
+        risk       → conflict detection + final decision creation
+    """
+
+    market_state: dict       # raw market conditions dict
+    query: str               # decision query, e.g. "should_enter_iron_condor"
+    timeout: float           # per-agent timeout in seconds
+    agent_outputs: list      # list[AgentOutput] populated by analyst node
+    debate: dict             # bull/bear camp summary from debate node
+    weights: dict            # agent weight map from strategist node
+    consensus: dict          # consensus dict from _build_consensus
+    decision: Any            # OrchestratorDecision | None set by risk node
 
 
 # ==============================================================================
@@ -351,6 +381,9 @@ class SpyderX14_OrchestratorAgent:
         # Threading for parallel agent execution
         self.executor = ThreadPoolExecutor(max_workers=len(self.agents))
 
+        # LangGraph orchestration pipeline (TradingAgents-inspired)
+        self._graph = self._build_orchestration_graph() if LANGGRAPH_AVAILABLE else None
+
         # Load saved weights if available
         self._load_saved_state()
 
@@ -453,6 +486,32 @@ class SpyderX14_OrchestratorAgent:
         try:
             start_time = datetime.now(timezone.utc)
 
+            # --- LangGraph path (TradingAgents-inspired stateful pipeline) ---
+            if self._graph is not None:
+                initial_state: OrchestrationState = {
+                    "market_state": market_state,
+                    "query": query,
+                    "timeout": timeout,
+                    "agent_outputs": [],
+                    "debate": {},
+                    "weights": {},
+                    "consensus": {},
+                    "decision": None,
+                }
+                result = await self._graph.ainvoke(initial_state)
+                decision = result.get("decision")
+                if decision is not None:
+                    processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    self.logger.info(
+                        "LangGraph orchestrated decision in %.2fs — "
+                        "%d agents, confidence: %.0f%%",
+                        processing_time,
+                        len(result.get("agent_outputs", [])),
+                        decision.confidence * 100,
+                    )
+                    return decision
+
+            # --- Fallback: existing meta-learning path ---
             # Collect agent outputs in parallel
             agent_outputs = await self._collect_agent_outputs(
                 market_state, query, timeout
@@ -1017,6 +1076,132 @@ class SpyderX14_OrchestratorAgent:
 
         except Exception as e:
             self.logger.error("Failed to save state: %s", e)
+
+    # ==========================================================================
+    # LANGGRAPH PIPELINE (TradingAgents-inspired stateful orchestration)
+    # ==========================================================================
+
+    def _build_orchestration_graph(self) -> Any:
+        """Build and compile the LangGraph orchestration pipeline.
+
+        Pipeline: analyst → debate → strategist → risk → END
+
+        Returns:
+            Compiled ``CompiledGraph`` ready for ``ainvoke``, or ``None`` if
+            LangGraph is not available.
+        """
+        if not LANGGRAPH_AVAILABLE:
+            return None
+        try:
+            builder = StateGraph(OrchestrationState)
+            builder.add_node("analyst", self._analyst_node)
+            builder.add_node("debate", self._debate_node)
+            builder.add_node("strategist", self._strategist_node)
+            builder.add_node("risk", self._risk_node)
+            builder.add_edge(START, "analyst")
+            builder.add_edge("analyst", "debate")
+            builder.add_edge("debate", "strategist")
+            builder.add_edge("strategist", "risk")
+            builder.add_edge("risk", END)
+            return builder.compile()
+        except Exception as exc:
+            self.logger.warning("Failed to compile LangGraph pipeline: %s", exc)
+            return None
+
+    async def _analyst_node(self, state: OrchestrationState) -> dict:
+        """LangGraph node — collect raw outputs from all active X-agents.
+
+        Mirrors the TradingAgents Analyst Team stage: each specialist agent
+        produces an independent assessment that feeds into the debate stage.
+        """
+        outputs = await self._collect_agent_outputs(
+            state["market_state"], state["query"], state.get("timeout", MAX_AGENT_TIMEOUT)
+        )
+        valid = [
+            o for o in outputs
+            if o is not None and o.confidence >= MIN_AGENT_CONFIDENCE
+        ]
+        return {"agent_outputs": valid}
+
+    def _debate_node(self, state: OrchestrationState) -> dict:
+        """LangGraph node — classify agent signals into bull/bear/hold camps.
+
+        Mirrors the TradingAgents Bull/Bear Researcher debate stage without an
+        additional LLM call: the agent signals themselves constitute the
+        adversarial evidence. The resulting ``debate`` dict is injected into the
+        strategist's reasoning context.
+        """
+        outputs: list = state.get("agent_outputs", [])
+        _bullish = {"buy", "long", "bullish", "enter", "call", "iron_condor"}
+        _bearish = {"sell", "short", "bearish", "exit", "put", "hedge"}
+
+        bull_agents, bear_agents, hold_agents = [], [], []
+        for o in outputs:
+            pred = str(o.prediction).lower()
+            if any(b in pred for b in _bullish):
+                bull_agents.append(o)
+            elif any(b in pred for b in _bearish):
+                bear_agents.append(o)
+            else:
+                hold_agents.append(o)
+
+        debate = {
+            "bull_count": len(bull_agents),
+            "bear_count": len(bear_agents),
+            "hold_count": len(hold_agents),
+            "bull_avg_confidence": (
+                sum(o.confidence for o in bull_agents) / len(bull_agents)
+                if bull_agents else 0.0
+            ),
+            "bear_avg_confidence": (
+                sum(o.confidence for o in bear_agents) / len(bear_agents)
+                if bear_agents else 0.0
+            ),
+            "bull_agents": [o.agent_id for o in bull_agents],
+            "bear_agents": [o.agent_id for o in bear_agents],
+            "hold_agents": [o.agent_id for o in hold_agents],
+        }
+        return {"debate": debate}
+
+    async def _strategist_node(self, state: OrchestrationState) -> dict:
+        """LangGraph node — compute dynamic weights + build consensus.
+
+        Mirrors the TradingAgents Trader stage: synthesises the analyst and
+        debate evidence into a weighted consensus action.
+        """
+        outputs: list = state.get("agent_outputs", [])
+        if not outputs:
+            return {
+                "weights": {},
+                "consensus": {"action": "hold", "confidence": 0.0, "reasoning": [], "vote_distribution": {}},
+            }
+        weights = await self._calculate_dynamic_weights(state["market_state"], outputs)
+        consensus = self._build_consensus(outputs, weights)
+
+        # Annotate consensus with debate context
+        debate = state.get("debate", {})
+        if debate:
+            consensus["debate_context"] = debate
+
+        return {"weights": weights, "consensus": consensus}
+
+    def _risk_node(self, state: OrchestrationState) -> dict:
+        """LangGraph node — conflict detection and final decision creation.
+
+        Mirrors the TradingAgents Risk/Portfolio Manager stage: validates the
+        proposed action and produces the authoritative ``OrchestratorDecision``.
+        """
+        outputs: list = state.get("agent_outputs", [])
+        consensus: dict = state.get("consensus", {"action": "hold", "confidence": 0.0})
+        weights: dict = state.get("weights", {})
+
+        if not outputs:
+            return {"decision": self._create_fallback_decision("No valid agent outputs")}
+
+        conflicts = self._detect_conflicts(outputs, consensus)
+        decision = self._create_orchestrated_decision(consensus, conflicts, outputs, weights)
+        self._update_performance_tracking(decision, outputs)
+        return {"decision": decision}
 
 
 # ==============================================================================
