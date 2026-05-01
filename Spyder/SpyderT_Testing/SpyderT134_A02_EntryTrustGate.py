@@ -277,3 +277,83 @@ def test_a02_process_signal_passes_when_strategy_is_allowlisted_for_regime():
 
     assert result is True
     assert engine.order_queue.qsize() == 1
+
+
+def test_a02_decision_pipeline_runs_in_strict_order(monkeypatch):
+    engine = _make_engine(_healthy_conditions())
+    signal = {
+        'symbol': 'SPY',
+        'action': 'BUY',
+        'quantity': 1,
+        'price': 2.10,
+        'strategy_type': 'bull_put_spread',
+    }
+
+    calls = []
+
+    monkeypatch.setattr(engine, '_passes_data_gate', lambda *a, **k: (calls.append('data') or (True, '')))
+    monkeypatch.setattr(engine, '_passes_regime_gate', lambda *a, **k: (calls.append('regime') or (True, '')))
+    monkeypatch.setattr(engine, '_passes_strategy_gate', lambda *a, **k: (calls.append('strategy') or (True, '')))
+    monkeypatch.setattr(engine, '_passes_risk_gate', lambda *a, **k: (calls.append('risk') or (True, '')))
+    monkeypatch.setattr(engine, '_queue_execution_from_signal', lambda *a, **k: (calls.append('execution') or (True, '')))
+
+    ok, reason = engine._run_decision_flow_pipeline('bull_put_spread', signal)
+
+    assert ok is True
+    assert reason == ''
+    assert calls == ['data', 'regime', 'strategy', 'risk', 'execution']
+
+
+def test_a02_decision_pipeline_short_circuits_on_data_gate_failure(monkeypatch):
+    engine = _make_engine(_healthy_conditions())
+    signal = {
+        'symbol': 'SPY',
+        'action': 'BUY',
+        'quantity': 1,
+        'price': 2.10,
+        'strategy_type': 'bull_put_spread',
+    }
+
+    calls = []
+
+    monkeypatch.setattr(engine, '_passes_data_gate', lambda *a, **k: (calls.append('data') or (False, 'stale_quote')))
+    monkeypatch.setattr(engine, '_passes_regime_gate', lambda *a, **k: (calls.append('regime') or (True, '')))
+
+    ok, reason = engine._run_decision_flow_pipeline('bull_put_spread', signal)
+
+    assert ok is False
+    assert 'data_gate:stale_quote' in reason
+    assert calls == ['data']
+
+
+def test_a02_decision_pipeline_halts_on_crisis_regime():
+    conditions = _healthy_conditions()
+    conditions['regime'] = 'crisis'
+    engine = _make_engine(conditions)
+    signal = {
+        'symbol': 'SPY',
+        'action': 'BUY',
+        'quantity': 1,
+        'price': 2.10,
+        'strategy_type': 'bull_put_spread',
+    }
+
+    result = engine.process_signal('bull_put_spread', signal)
+
+    assert result is False
+    assert engine.order_queue.qsize() == 0
+
+
+def test_a02_decision_pipeline_requires_limit_price_for_execution():
+    engine = _make_engine(_healthy_conditions())
+    signal = {
+        'symbol': 'SPY',
+        'action': 'BUY',
+        'quantity': 1,
+        'strategy_type': 'bull_put_spread',
+    }
+
+    result = engine.process_signal('bull_put_spread', signal)
+
+    assert result is False
+    assert engine.order_queue.qsize() == 0

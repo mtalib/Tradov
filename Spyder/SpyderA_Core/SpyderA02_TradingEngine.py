@@ -117,6 +117,12 @@ CLEANUP_INTERVAL = 300  # 5 minutes
 STATE_SAVE_INTERVAL = 60  # seconds
 MAX_ORDER_RETRIES = 3
 ORDER_RETRY_DELAY = 1  # seconds
+DEFAULT_PERMITTED_PIPELINE_STRATEGIES = (
+    "iron_condor",
+    "credit_spread",
+    "iron_butterfly",
+    "bull_put_spread",
+)
 
 # ==============================================================================
 # ENUMS
@@ -364,6 +370,10 @@ class TradingEngine:
         self._entry_filter_gate: Any | None = None
         self._metrics_orchestrator: Any | None = None
         self._regime_policy: dict[str, Any] | None = None
+        self._decision_flow_traces: deque[dict[str, Any]] = deque(maxlen=500)
+        self.max_concurrent_strategies = int(
+            self.config.get('max_concurrent_strategies', 2)
+        )
 
         # Worker threads
         self._monitor_thread = None
@@ -1159,32 +1169,18 @@ class TradingEngine:
                 self.logger.error("Invalid signal from strategy %s", strategy_id)
                 return False
 
-            gate_ok, gate_reason = self._passes_entry_trust_gate(strategy_id, signal)
-            if not gate_ok:
+            pipeline_ok, pipeline_reason = self._run_decision_flow_pipeline(strategy_id, signal)
+            if not pipeline_ok:
                 self.logger.warning(
-                    "Signal rejected by entry trust gate (%s): %s",
+                    "Signal rejected by decision flow pipeline (%s): %s",
                     strategy_id,
-                    gate_reason,
+                    pipeline_reason,
                 )
-                return False
-
-            # Risk check
-            if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
-                self.logger.warning("Signal rejected by risk manager: %s", signal)
                 return False
 
             # Update strategy metrics
             strategy_info.last_signal = datetime.now(timezone.utc)
             strategy_info.signal_count += 1
-
-            # Create order from signal
-            order = self._create_order_from_signal(strategy_id, signal)
-            if not order:
-                return False
-
-            # Queue order for execution
-            priority = 1 if signal.get('urgent', False) else 5
-            self.order_queue.put((priority, order.order_id, order))
 
             self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))  # noqa: E501
 
@@ -1195,7 +1191,7 @@ class TradingEngine:
                     {
                         'strategy_id': strategy_id,
                         'signal': signal,
-                        'order_id': order.order_id,
+                        'order_id': None,
                         'timestamp': datetime.now(timezone.utc)
                     }
                 )
@@ -1207,6 +1203,236 @@ class TradingEngine:
             self.error_handler.handle_error(e, f"process_signal.{strategy_id}")
             self._increment_strategy_error(strategy_id, str(e))
             return False
+
+    def _record_decision_flow_trace(self, trace: dict[str, Any]) -> None:
+        """Store and publish decision-flow telemetry for auditability."""
+        self._decision_flow_traces.append(trace)
+        if not self.event_manager:
+            return
+
+        try:
+            self.event_manager.emit(
+                EventType.SYSTEM,
+                {
+                    'type': 'decision_flow_pipeline',
+                    'payload': trace,
+                    'timestamp': datetime.now(timezone.utc),
+                },
+            )
+        except Exception as exc:
+            self.logger.debug("Decision flow telemetry emit failed: %s", exc)
+
+    def _extract_signal_regime(
+        self,
+        signal: dict[str, Any],
+        market_conditions: dict[str, Any],
+    ) -> str:
+        """Extract normalized regime label from signal metadata and market state."""
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        return str(
+            signal.get('regime')
+            or metadata.get('regime')
+            or market_conditions.get('regime')
+            or market_conditions.get('current_regime')
+            or market_conditions.get('market_regime')
+            or market_conditions.get('breadth_regime')
+            or ''
+        ).strip().lower()
+
+    def _passes_data_gate(
+        self,
+        strategy_id: str,
+        signal: dict[str, Any],
+        market_conditions: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Gate 1: F09 data/market-structure checks."""
+        entry_gate = self._get_entry_filter_gate()
+        if entry_gate is None or not market_conditions:
+            return True, ""
+
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        action = str(signal.get('action') or signal.get('side') or metadata.get('action') or '').strip().lower()  # noqa: E501
+        params = {
+            'strategy_type': signal.get('strategy_type') or metadata.get('strategy_type') or strategy_id,
+            'position_type': signal.get('position_type') or metadata.get('position_type') or '',
+            'direction': signal.get('direction') or metadata.get('direction') or signal.get('bias') or metadata.get('bias') or action,
+            'action': action,
+            'market_conditions': market_conditions,
+            'event_clock_state': (
+                signal.get('event_clock_state')
+                or metadata.get('event_clock_state')
+                or market_conditions.get('event_clock_state')
+                or {}
+            ),
+            'current_time': datetime.now(timezone.utc),
+        }
+
+        try:
+            checks = []
+            checks.extend(entry_gate._check_time_filters(params))
+            checks.extend(entry_gate._check_data_quality_filter(params))
+            checks.extend(entry_gate._check_vix_term_structure_filter())
+            checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
+            if not self.lean_mode:
+                checks.extend(entry_gate._check_vol_surface_structure_filter(params))
+                checks.extend(entry_gate._check_dealer_flow_filter(params))
+        except Exception as exc:
+            self.logger.debug("A02: data gate failed open: %s", exc, exc_info=True)
+            return True, ""
+
+        failures = []
+        for check in checks:
+            result = getattr(check, 'result', None)
+            if getattr(result, 'value', result) == 'fail':
+                failures.append(str(getattr(check, 'message', 'data_gate_failed')))
+
+        if failures:
+            return False, '; '.join(failures)
+        return True, ""
+
+    def _passes_regime_gate(
+        self,
+        signal: dict[str, Any],
+        market_conditions: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Gate 2: explicit crisis/event hard-halt + regime policy gate."""
+        raw_regime = self._extract_signal_regime(signal, market_conditions)
+        hard_halt_regimes = {'crisis', 'crisis_mode', 'event', 'event_transition'}
+        if raw_regime in hard_halt_regimes:
+            return False, f"regime_halt:{raw_regime}"
+        return self._passes_regime_policy_gate(signal, market_conditions)
+
+    def _passes_strategy_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Gate 3: enforce permitted strategy set."""
+        cfg = self.config.get('decision_flow', {})
+        configured = cfg.get('permitted_strategies', []) if isinstance(cfg, dict) else []
+        allowed_tokens = [
+            str(token).strip().lower()
+            for token in (configured or list(DEFAULT_PERMITTED_PIPELINE_STRATEGIES))
+            if str(token).strip()
+        ]
+        if not allowed_tokens:
+            return True, ""
+
+        metadata = signal.get('metadata') if isinstance(signal.get('metadata'), dict) else {}
+        strategy_name = str(
+            signal.get('strategy_type')
+            or signal.get('strategy_id')
+            or metadata.get('strategy_type')
+            or metadata.get('strategy_id')
+            or strategy_id
+        ).strip().lower()
+        if not strategy_name:
+            return False, "strategy_gate:missing_strategy"
+
+        for token in allowed_tokens:
+            if token in strategy_name:
+                return True, ""
+        return False, f"strategy_gate:not_permitted:{strategy_name}"
+
+    def _passes_risk_gate(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Gate 4: max-concurrency + E01 risk validation + optional Greek caps."""
+        active_strategies = [
+            s for s in self.strategies.values()
+            if s.state == StrategyState.ACTIVE
+        ]
+        if len(active_strategies) > self.max_concurrent_strategies:
+            return (
+                False,
+                f"risk_gate:max_concurrent_strategies:{len(active_strategies)}/{self.max_concurrent_strategies}",
+            )
+
+        if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
+            return False, "risk_gate:risk_manager_reject"
+
+        if self.has_risk_manager and hasattr(self.risk_manager, 'get_portfolio_greeks'):
+            try:
+                greeks = self.risk_manager.get_portfolio_greeks() or {}
+            except Exception:
+                greeks = {}
+
+            greek_limits = self.config.get('portfolio_greek_limits', {})
+            if isinstance(greek_limits, dict):
+                for greek_name in ('delta', 'gamma', 'theta', 'vega'):
+                    limit = greek_limits.get(greek_name)
+                    greek_value = greeks.get(greek_name)
+                    if limit is None or greek_value is None:
+                        continue
+                    if abs(float(greek_value)) > abs(float(limit)):
+                        return False, f"risk_gate:greek_limit:{greek_name}:{greek_value}>{limit}"
+
+        return True, ""
+
+    def _queue_execution_from_signal(self, strategy_id: str, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Gate 5: enforce limit-order execution and enqueue the order."""
+        execution_signal = dict(signal)
+        execution_signal['order_type'] = signal.get('order_type', 'LIMIT')
+        if str(execution_signal['order_type']).upper() != 'LIMIT':
+            execution_signal['order_type'] = 'LIMIT'
+
+        if execution_signal.get('price') is None:
+            return False, 'execution_gate:missing_limit_price'
+
+        order = self._create_order_from_signal(strategy_id, execution_signal)
+        if not order:
+            return False, 'execution_gate:order_create_failed'
+
+        priority = 1 if signal.get('urgent', False) else 5
+        self.order_queue.put((priority, order.order_id, order))
+        return True, ""
+
+    def _run_decision_flow_pipeline(
+        self,
+        strategy_id: str,
+        signal: dict[str, Any],
+        include_execution: bool = True,
+    ) -> tuple[bool, str]:
+        """Run strict gate order for each signal.
+
+        When include_execution is False, only Data->Regime->Strategy->Risk
+        gates are evaluated and no order is created/queued.
+        """
+        trace: dict[str, Any] = {
+            'pipeline': 'decision_flow_v1',
+            'strategy_id': strategy_id,
+            'symbol': signal.get('symbol'),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'gates': [],
+        }
+
+        market_conditions = self._get_current_market_conditions()
+
+        gate_sequence = [
+            ('data_gate', lambda: self._passes_data_gate(strategy_id, signal, market_conditions)),
+            ('regime_gate', lambda: self._passes_regime_gate(signal, market_conditions)),
+            ('strategy_gate', lambda: self._passes_strategy_gate(strategy_id, signal)),
+            ('risk_gate', lambda: self._passes_risk_gate(strategy_id, signal)),
+        ]
+        if include_execution:
+            gate_sequence.append(
+                ('execution_gate', lambda: self._queue_execution_from_signal(strategy_id, signal))
+            )
+
+        for order, (gate_name, gate_fn) in enumerate(gate_sequence, start=1):
+            gate_ok, gate_reason = gate_fn()
+            trace['gates'].append(
+                {
+                    'order': order,
+                    'name': gate_name,
+                    'status': 'pass' if gate_ok else 'fail',
+                    'reason': gate_reason,
+                }
+            )
+            if not gate_ok:
+                trace['result'] = 'halted'
+                trace['halt_reason'] = f"{gate_name}:{gate_reason}"
+                self._record_decision_flow_trace(trace)
+                return False, trace['halt_reason']
+
+        trace['result'] = 'executed' if include_execution else 'gates_passed'
+        trace['halt_reason'] = ''
+        self._record_decision_flow_trace(trace)
+        return True, ""
 
     def _validate_signal(self, signal: dict[str, Any]) -> bool:
         """Validate signal has required fields"""

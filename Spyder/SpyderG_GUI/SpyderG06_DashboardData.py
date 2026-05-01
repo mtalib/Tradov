@@ -69,23 +69,32 @@ MARKET_SYMBOLS: dict[str, list[str]] = get_market_overview_symbols()
 
 # Symbol descriptions for tooltips
 SYMBOL_DESCRIPTIONS = {
-    # S&P Core
+    # Major Indices
+    "DIA": "SPDR Dow Jones Industrial Average ETF",
     "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
-    "SPX": "S&P 500 Index - Cash index value",
+    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
+    "IWM": "iShares Russell 2000 ETF - Small caps",
+    # Market Breadth
+    "$TICK": "NYSE Tick Index - Upticks minus downticks",
+    "$TRIN": "Arms Index - Advance/Decline volume ratio",
+    "$ADD": "Advance-Decline Line - Net advancing issues",
+    "NYMO": "NYSE McClellan Oscillator - Breadth momentum",
+    "CPC": "CBOE Put/Call Ratio - Equity options only",
+    "SKEW": "CBOE Skew Index - Tail risk measure",
+    "$VOLD": "NYSE Up/Down Volume Delta - Intraday breadth",
+    "XLK": "Technology Select Sector SPDR ETF",
+    "XLF": "Financial Select Sector SPDR ETF",
+    "TNX": "CBOE 10-Year Treasury Yield Index",
+    "RVOL": "Relative Volume - Current vs average volume",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
     "VIX9D": "CBOE 9-Day Volatility Index - Short-term IV; leads VIX turns by 1–2 sessions",
     "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
     "VVIX": "VIX of VIX - Volatility of volatility index",
-    # Market Internals
-    "$TICK": "NYSE Tick Index - Upticks minus downticks",
-    "$TRIN": "Arms Index - Advance/Decline volume ratio",
-    "$ADD": "Advance-Decline Line - Net advancing issues",
-    "CPC": "CBOE Put/Call Ratio - Equity options only",
-    "SKEW": "CBOE Skew Index - Tail risk measure",
-    # Major Indices
-    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
-    "IWM": "iShares Russell 2000 ETF - Small caps",
+    # Options Analytics
+    "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
+    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",  # noqa: E501
+    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",  # noqa: E501
     # Bonds & Credit
     "TLT": "iShares 20+ Year Treasury Bond ETF",
     "HYG": "iShares High Yield Corporate Bond ETF - Credit stress indicator; widens before LQD",
@@ -99,12 +108,12 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "WRS": "Weighted Regime Score - Composite market regime signal",
+    "PSR": "Probabilistic Sharpe Ratio - Strategy edge confidence",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
     "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
-    # Options Analytics
-    "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
-    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",  # noqa: E501
-    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",  # noqa: E501
+    # Hidden / backend-only
+    "SPX": "S&P 500 Index - Cash index value",
 }
 
 

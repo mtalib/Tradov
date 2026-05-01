@@ -319,6 +319,12 @@ class LiveEngine:
         self._regime_metrics: dict[str, Any] = {}
         self._positions_cache_lock = threading.Lock()
 
+        # Optional A02 gate bridge: run decision-flow gates before R04 checks.
+        self.trading_engine = None
+        self._a02_decision_gate_enabled = (
+            os.environ.get("R04_USE_A02_DECISION_FLOW_GATE", "false").strip().lower() == "true"
+        )
+
         # H05 TradingSessionDB — live database.  Injected by R12
         # SessionSupervisor via set_session_db() after construction.
         # Records every confirmed fill so live history is persisted in an
@@ -332,6 +338,53 @@ class LiveEngine:
         self._register_hot_reload_callback()
 
         self.logger.debug("LiveEngine initialized for account %s", config.account_id)
+
+    def set_trading_engine(self, trading_engine: Any) -> None:
+        """Attach TradingEngine for optional A02 decision-flow preflight gating."""
+        self.trading_engine = trading_engine
+
+    def _run_a02_decision_gate(self, order: dict[str, Any]) -> tuple[bool, str]:
+        """Optionally run A02 Data->Regime->Strategy->Risk gates before R04 checks."""
+        if not self._a02_decision_gate_enabled:
+            return True, ""
+
+        engine = self.trading_engine
+        if engine is None:
+            return True, ""
+
+        gate_fn = getattr(engine, "_run_decision_flow_pipeline", None)
+        if gate_fn is None:
+            return True, ""
+
+        strategy_id = str(
+            order.get("strategy_id")
+            or order.get("strategy")
+            or order.get("source")
+            or "live_engine"
+        )
+        side = str(order.get("side") or order.get("action") or "buy").strip().lower()
+        action = "SELL" if side.startswith("sell") else "BUY"
+        signal = {
+            "symbol": order.get("symbol"),
+            "action": action,
+            "quantity": int(order.get("quantity", 0) or 0),
+            "price": order.get("price") or order.get("limit_price"),
+            "strategy_type": strategy_id,
+            "metadata": {
+                "strategy_id": strategy_id,
+                "strategy_type": strategy_id,
+                "source": "R04_LiveEngine",
+            },
+        }
+
+        try:
+            gate_ok, gate_reason = gate_fn(strategy_id, signal, include_execution=False)
+            if gate_ok:
+                return True, ""
+            return False, str(gate_reason)
+        except Exception as exc:
+            self.logger.warning("A02 decision-flow preflight failed open: %s", exc)
+            return True, ""
 
     # A24 (v14): fields whose change requires a full restart, not a reload.
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
@@ -685,6 +738,17 @@ class LiveEngine:
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
                 return {"status": "rejected", "reason": f"Trading not active: {self.state.value}"}
+
+            # Optional A02 preflight gate bridge (Data->Regime->Strategy->Risk).
+            a02_ok, a02_reason = self._run_a02_decision_gate(order)
+            if not a02_ok:
+                self.logger.warning("Live engine A02 gate blocked order: %s", a02_reason)
+                self._event_manager.emit(
+                    EventType.RISK_VIOLATION,
+                    {"symbol": order.get("symbol"), "reason": a02_reason},
+                    source="LiveEngine.a02_decision_gate",
+                )
+                return {"status": "rejected", "reason": a02_reason}
 
             # Regime gate — SWAN / GEX / DIX (mirrors paper engine R08)
             regime_ok, regime_reason = self._regime_allows_entry()
@@ -2385,6 +2449,7 @@ def create_live_engine(
     event_manager: Any = None,
     fill_reconciler: Any = None,
     position_tracker: Any = None,
+    trading_engine: Any = None,
 ) -> LiveEngine:
     """
     Factory function to create live engine.
@@ -2412,9 +2477,22 @@ def create_live_engine(
         require_confirmation=config.get("require_confirmation", True),
     )
 
-    return LiveEngine(broker, risk_manager, live_config, telegram_bot=telegram_bot,
-                      event_manager=event_manager, fill_reconciler=fill_reconciler,
-                      position_tracker=position_tracker)
+    engine = LiveEngine(
+        broker,
+        risk_manager,
+        live_config,
+        telegram_bot=telegram_bot,
+        event_manager=event_manager,
+        fill_reconciler=fill_reconciler,
+        position_tracker=position_tracker,
+    )
+    if trading_engine is not None:
+        engine.set_trading_engine(trading_engine)
+
+    if bool(config.get("use_a02_decision_flow_gate", False)):
+        engine._a02_decision_gate_enabled = True
+
+    return engine
 
 
 # ==============================================================================

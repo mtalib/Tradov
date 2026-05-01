@@ -34,13 +34,12 @@ class SymbolDefinition:
 
 
 CATEGORY_ORDER: tuple[str, ...] = (
-    "S&P CORE",
-    "VOLATILITY",
-    "MARKET INTERNALS",
     "MAJOR INDICES",
+    "MARKET INTERNALS",
+    "VOLATILITY",
+    "OPTIONS ANALYTICS",
     "BONDS & CREDIT",
     "CORRELATIONS",
-    "OPTIONS ANALYTICS",
     "CUSTOM METRICS",
 )
 
@@ -50,24 +49,21 @@ CATEGORY_ORDER: tuple[str, ...] = (
 # - symbol is the dashboard/display key after remaps.
 # - backend_symbol supports legacy market-data group naming (e.g. TICK-NYSE).
 SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
-    SymbolDefinition("SPY", "S&P CORE", True, "quote", provider_symbol="SPY", backend_symbol="SPY"),
-    SymbolDefinition("SPX", "S&P CORE", True, "quote", provider_symbol="SPX", backend_symbol="SPX"),
+    SymbolDefinition("DIA", "MAJOR INDICES", True, "quote", provider_symbol="DIA", backend_symbol="DIA"),
+    SymbolDefinition("SPY", "MAJOR INDICES", True, "quote", provider_symbol="SPY", backend_symbol="SPY"),
+    SymbolDefinition("SPX", "S&P CORE", False, "quote", provider_symbol="SPX", backend_symbol="SPX"),
 
     SymbolDefinition("VIX", "VOLATILITY", True, "quote", provider_symbol="VIX", backend_symbol="VIX"),
     SymbolDefinition("VIX9D", "VOLATILITY", True, "quote", provider_symbol="VIX9D", backend_symbol="VIX9D"),
     SymbolDefinition("VXV", "VOLATILITY", True, "quote", provider_symbol="VXV", backend_symbol="VXV"),
     SymbolDefinition("VVIX", "VOLATILITY", True, "quote", provider_symbol="VVIX", backend_symbol="VVIX"),
+    SymbolDefinition("SKEW", "VOLATILITY", True, "quote", provider_symbol="SKEW", backend_symbol="SKEW"),
 
     SymbolDefinition("$TICK", "MARKET INTERNALS", True, "event-only", backend_symbol="TICK-NYSE"),
     SymbolDefinition("$TRIN", "MARKET INTERNALS", True, "event-only", backend_symbol="TRIN-NYSE"),
     SymbolDefinition("$ADD", "MARKET INTERNALS", True, "event-only", backend_symbol="ADD-NYSE"),
     SymbolDefinition("NYMO", "MARKET INTERNALS", True, "event-only", optional=True),
-    SymbolDefinition("CPC", "MARKET INTERNALS", True, "computed", backend_symbol="CPC"),
-    SymbolDefinition("SKEW", "MARKET INTERNALS", True, "quote", provider_symbol="SKEW", backend_symbol="SKEW"),
     SymbolDefinition("$VOLD", "MARKET INTERNALS", True, "event-only", optional=True),
-    SymbolDefinition("XLK", "MARKET INTERNALS", True, "quote", provider_symbol="XLK", optional=True),
-    SymbolDefinition("XLF", "MARKET INTERNALS", True, "quote", provider_symbol="XLF", optional=True),
-    SymbolDefinition("TNX", "MARKET INTERNALS", True, "event-only", optional=True),
     SymbolDefinition("RVOL", "MARKET INTERNALS", True, "computed", optional=True),
 
     SymbolDefinition("QQQ", "MAJOR INDICES", True, "quote", provider_symbol="QQQ", backend_symbol="QQQ"),
@@ -76,15 +72,19 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("TLT", "BONDS & CREDIT", True, "quote", provider_symbol="TLT", backend_symbol="TLT"),
     SymbolDefinition("HYG", "BONDS & CREDIT", True, "quote", provider_symbol="HYG"),
     SymbolDefinition("LQD", "BONDS & CREDIT", True, "quote", provider_symbol="LQD", backend_symbol="LQD"),
+    SymbolDefinition("TNX", "BONDS & CREDIT", True, "event-only", optional=True),
 
     # DXY is represented by UUP at quote-fetch time.
     SymbolDefinition("DXY", "CORRELATIONS", True, "proxy", provider_symbol="UUP", backend_symbol="DXY"),
     SymbolDefinition("GLD", "CORRELATIONS", True, "quote", provider_symbol="GLD", backend_symbol="GLD"),
     SymbolDefinition("USO", "CORRELATIONS", True, "quote", provider_symbol="USO", backend_symbol="USO"),
+    SymbolDefinition("XLK", "CORRELATIONS", True, "quote", provider_symbol="XLK", optional=True),
+    SymbolDefinition("XLF", "CORRELATIONS", True, "quote", provider_symbol="XLF", optional=True),
 
     SymbolDefinition("IVR", "OPTIONS ANALYTICS", True, "event-only", optional=True),
     SymbolDefinition("ATM_IV", "OPTIONS ANALYTICS", True, "event-only", optional=True),
     SymbolDefinition("VRP", "OPTIONS ANALYTICS", True, "event-only", optional=True),
+    SymbolDefinition("CPC", "OPTIONS ANALYTICS", True, "computed", backend_symbol="CPC"),
 
     SymbolDefinition("GEX", "CUSTOM METRICS", True, "event-only", optional=True),
     SymbolDefinition("DEX", "CUSTOM METRICS", True, "event-only", optional=True),
