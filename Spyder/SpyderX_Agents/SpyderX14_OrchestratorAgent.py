@@ -358,6 +358,13 @@ class SpyderX14_OrchestratorAgent:
 
         # Agent registry
         self.agents = self._initialize_agents()
+        self._registered_agent_count = len(self.agents)
+        self._effective_agent_count = max(1, self._registered_agent_count)
+        if self._registered_agent_count == 0:
+            self.logger.warning(
+                "No X-agents registered; starting in fallback mode "
+                "with safe single-worker defaults."
+            )
         self.agent_states = {agent_id: AgentState.ACTIVE for agent_id in self.agents}
         self.agent_performance = {
             agent_id: AgentPerformance(agent_id=agent_id) for agent_id in self.agents
@@ -365,7 +372,7 @@ class SpyderX14_OrchestratorAgent:
 
         # Meta-learning components
         self.meta_network = MetaLearningNetwork(
-            n_agents=len(self.agents), state_dim=100
+            n_agents=self._effective_agent_count, state_dim=100
         ).to(self.device)
         self.meta_optimizer = optim.Adam(self.meta_network.parameters(), lr=3e-4)
 
@@ -379,7 +386,7 @@ class SpyderX14_OrchestratorAgent:
         self.weight_history = defaultdict(lambda: deque(maxlen=1000))
 
         # Threading for parallel agent execution
-        self.executor = ThreadPoolExecutor(max_workers=len(self.agents))
+        self.executor = ThreadPoolExecutor(max_workers=self._effective_agent_count)
 
         # LangGraph orchestration pipeline (TradingAgents-inspired)
         self._graph = self._build_orchestration_graph() if LANGGRAPH_AVAILABLE else None
@@ -413,7 +420,7 @@ class SpyderX14_OrchestratorAgent:
         """Initialize reinforcement learning components."""
         try:
             # Create environment
-            self.rl_env = DummyVecEnv([lambda: OrchestratorEnv(len(self.agents))])
+            self.rl_env = DummyVecEnv([lambda: OrchestratorEnv(self._effective_agent_count)])
 
             # Create PPO model
             self.rl_model = PPO(
