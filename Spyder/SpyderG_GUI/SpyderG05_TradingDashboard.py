@@ -5686,7 +5686,7 @@ class SpyderTradingDashboard(QMainWindow):
                 "&bull; Strategy = SpyderD07_BearCallSpread"
             ),
             "RANGE": (
-                "<b>RANGE / NEUTRAL REGIME</b><br><br>"
+                "<b>RANGE REGIME</b><br><br>"
                 "<b>Trigger (all):</b><br>"
                 "&bull; SPY within 1.0 ATR of EMA50<br>"
                 "&bull; Term structure not stressed (VIX9D &le; VIX or VIX &le; VXV)<br>"
@@ -5862,12 +5862,20 @@ class SpyderTradingDashboard(QMainWindow):
         else:
             self.tradeable_pill.setText("TRADEABLE")
         self.tradeable_pill.setStyleSheet(ss)
+        import os as _os
+        _pivot_enabled = _os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
         _STRATEGY_LIST = (
             "<b>Permitted strategies:</b><br>"
             "&bull; <b>BULL:</b> SpyderD06_BullPutSpread<br>"
             "&bull; <b>BEAR:</b> SpyderD07_BearCallSpread<br>"
             "&bull; <b>RANGE:</b> SpyderD02_IronCondor<br>"
             "&bull; <b>VOLATILE:</b> SpyderD10_IronButterfly"
+            + (
+                "<br>&bull; <b>SIDEWAYS:</b> SpyderD34_PivotMeanReversion"
+                if _pivot_enabled else ""
+            )
         )
         if "HALT" in tradeable:
             self.tradeable_pill.setToolTip(

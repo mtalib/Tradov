@@ -440,6 +440,17 @@ class RiskManager:
     # LIFECYCLE MANAGEMENT
     # ==========================================================================
 
+    def mark_account_synced(self) -> None:
+        """Force-mark account state as synced.
+
+        Call this from paper/test harnesses after ``start()`` when the broker
+        does not support a real balance fetch and the cold-start gate would
+        otherwise block all signals indefinitely.
+        """
+        with self._risk_lock:
+            self._account_state_synced = True
+        self.logger.info("RiskManager: account state force-synced (paper/test mode)")
+
     async def start(self) -> bool:
         """
         Start the risk manager.
@@ -1362,6 +1373,17 @@ class RiskManager:
         except Exception as e:
             self.logger.error("Tradier balance fetch failed: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_request_account_summary")
+            # If the broker is not a live TradierClient (e.g. PaperBroker, stub),
+            # a failed balance call must not permanently lock the cold-start gate —
+            # it would silently block all signals for the entire session.
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierClient  # noqa: PLC0415
+            if not isinstance(self.tradier_client, TradierClient):
+                self.logger.warning(
+                    "RiskManager: non-Tradier broker balance call failed; "
+                    "marking account synced to unblock cold-start gate."
+                )
+                with self._risk_lock:
+                    self._account_state_synced = True
             return
 
         balances = (response or {}).get("balances") or {}

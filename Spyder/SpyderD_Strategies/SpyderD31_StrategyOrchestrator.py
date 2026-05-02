@@ -787,7 +787,7 @@ class StrategyOrchestrator:
         }
         # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
         # default lean posture remains the 4-strategy v5 contract; setting
-        # SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true allows D30 to swap NEUTRAL →
+        # SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true allows D30 to swap RANGE →
         # PivotMeanReversion when the S08 pivot signal is firing, otherwise
         # falls back to IronCondor for the same regime.
         if os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in {
@@ -3358,6 +3358,8 @@ class StrategyOrchestrator:
             return "iron_condor"
         if "iron_butterfly" in text or "spyderd10" in text or text == "d10":
             return "iron_butterfly"
+        if "pivot_mean_reversion" in text or "d34_pivotmr" in text or text == "d34":
+            return "pivot_mean_reversion"
         return text
 
     @staticmethod
@@ -3400,6 +3402,7 @@ class StrategyOrchestrator:
             "renaissance_mean_reversion": {"mean_reversion_spreads", "mean_reversion"},
             "opening_range_breakout": {"trend_breakout_calls", "breakout_calls"},
             "vix_hedging": {"protective_put_overlay", "protective_put"},
+            "pivot_mean_reversion": {"d34_pivotmr", "pivot_mr", "d34"},
         }
 
         for token in list(tokens):

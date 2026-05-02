@@ -326,11 +326,12 @@ class SessionSupervisor:
         try:
             from Spyder.SpyderE_Risk.SpyderE24_DataFreshnessMonitor import create_freshness_monitor
             self.freshness_monitor = create_freshness_monitor(
-                symbols=self.symbols, event_manager=self.em
+                symbols=self.symbols, event_manager=self.em,
+                startup_grace_s=30.0,  # suppress DATA_STALE for 30s on startup
             )
             self.freshness_monitor.start()
             self._components.append(self.freshness_monitor)
-            self.logger.debug("✅ DataFreshnessMonitor started")
+            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=30s)")
             return True
         except Exception as exc:
             self.logger.error("❌ DataFreshnessMonitor failed: %s", exc)
@@ -418,6 +419,11 @@ class SessionSupervisor:
             if not started:
                 self.logger.error("❌ RiskManager.start() returned False")
                 return False
+            # In paper mode the broker is a PaperBroker with no live Tradier account.
+            # Force-mark the cold-start gate so signals are not silently dropped
+            # even if the balance call succeeded (belt-and-suspenders).
+            if self.mode != "live":
+                self.risk.mark_account_synced()
             # R12-B1: register a sync stop shim so the component loop can
             # signal shutdown and join threads (RiskManager.stop is async).
             _risk = self.risk

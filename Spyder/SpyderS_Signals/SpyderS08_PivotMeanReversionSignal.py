@@ -218,11 +218,11 @@ class PivotMeanReversionSignal:
                 continue
             if side == "above" and spot >= lvl:
                 dist = (spot - lvl) / atr
-                if best is None or dist > best[2]:
+                if best is None or dist < best[2]:   # closest breached level
                     best = (k, float(lvl), float(dist))
             elif side == "below" and spot <= lvl:
                 dist = (lvl - spot) / atr   # positive when below support
-                if best is None or dist > best[2]:
+                if best is None or dist < best[2]:   # closest breached level
                     best = (k, float(lvl), float(dist))
         return best
 
