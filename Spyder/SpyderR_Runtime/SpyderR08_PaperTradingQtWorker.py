@@ -203,6 +203,13 @@ class PaperTradingQtWorker(QObject):
         # in logs/decisions/YYYY-MM-DD.jsonl for EOD gate-by-gate review.
         self._poll_seq: int = 0
 
+        # Track quote staleness for SPY quote.last and preserve the latest
+        # spread-entry rejection reason for decision-log observability.
+        self._last_quote_last: float | None = None
+        self._last_quote_mid: float | None = None
+        self._stale_last_counter: int = 0
+        self._last_spread_reject_reason: str = ""
+
         # Phase 2 IV-rank gate: rolling ATM IV history keyed by nothing (just
         # a flat deque of the ATM short-put IVs observed across polls). Used
         # by _iv_gate_allows_entry() to decide whether premium is rich enough.
@@ -933,6 +940,34 @@ class PaperTradingQtWorker(QObject):
         bid = float(quote.get("bid", 0))
         ask = float(quote.get("ask", 0))
 
+        mid_price = 0.0
+        if bid > 0 and ask > 0:
+            mid_price = (bid + ask) / 2.0
+
+        # Quote hygiene:
+        # 1) if last is missing/non-positive, fall back to NBBO mid.
+        # 2) if last is unchanged for multiple polls while mid keeps moving,
+        #    treat last as stale and switch to mid for signal generation.
+        if last_price <= 0 and mid_price > 0:
+            last_price = mid_price
+
+        if last_price > 0 and mid_price > 0:
+            if (
+                self._last_quote_last is not None
+                and abs(last_price - self._last_quote_last) < 1e-9
+                and self._last_quote_mid is not None
+                and abs(mid_price - self._last_quote_mid) > 1e-6
+            ):
+                self._stale_last_counter += 1
+            else:
+                self._stale_last_counter = 0
+
+            if self._stale_last_counter >= 3:
+                last_price = mid_price
+
+        self._last_quote_last = float(quote.get("last", 0) or 0.0)
+        self._last_quote_mid = mid_price if mid_price > 0 else None
+
         if last_price <= 0:
             return
 
@@ -974,6 +1009,7 @@ class PaperTradingQtWorker(QObject):
             "daily_loss_ok": None,
             "regime_ok": None,
             "regime_reason": None,
+            "selector_feature_flag": None,
             "swan": self._regime_scalar(self._regime_metrics.get("SWAN")),
             "dix": self._regime_scalar(self._regime_metrics.get("DIX")),
             "gex": self._regime_scalar(self._regime_metrics.get("GEX")),
@@ -1030,6 +1066,8 @@ class PaperTradingQtWorker(QObject):
                 })
 
             if signal == "BUY" and self._position_qty == 0:
+                if os.environ.get("SPYDER_ENABLE_BULL_CALL_SPREAD", "0") == "1":
+                    _dec["selector_feature_flag"] = "SPYDER_ENABLE_BULL_CALL_SPREAD"
                 if daily_loss_actual >= daily_loss_limit:
                     self.status_update.emit(
                         f"⛔ BUY blocked — daily loss ${daily_loss_actual:,.2f} "
@@ -1063,7 +1101,11 @@ class PaperTradingQtWorker(QObject):
                             if os.environ.get("SPYDER_OPTIONS_LIVE_PAPER", "0") == "1":
                                 _opened = self._try_open_spread("bullish", last_price)
                                 _dec["action"] = "SPREAD_OPENED" if _opened else "SPREAD_REJECTED"
-                                _dec["action_detail"] = "bull_put"
+                                _dec["action_detail"] = (
+                                    "bull_put"
+                                    if _opened
+                                    else f"bull_put:{self._last_spread_reject_reason or 'unknown'}"
+                                )
                             else:
                                 self._shadow_log_credit_spread(last_price)
                                 self._execute_paper_buy(entry_price)
@@ -1071,6 +1113,8 @@ class PaperTradingQtWorker(QObject):
             elif signal == "SELL" and os.environ.get(
                 "SPYDER_OPTIONS_LIVE_PAPER", "0"
             ) == "1":
+                if os.environ.get("SPYDER_ENABLE_BEAR_PUT_SPREAD", "0") == "1":
+                    _dec["selector_feature_flag"] = "SPYDER_ENABLE_BEAR_PUT_SPREAD"
                 # Phase 4: in live-paper options mode, SELL signal is a
                 # bearish opinion → open a bear-call credit spread (subject
                 # to all the same gates). Shares are never traded in this mode.
@@ -1099,7 +1143,11 @@ class PaperTradingQtWorker(QObject):
                         else:
                             _opened = self._try_open_spread("bearish", last_price)
                             _dec["action"] = "SPREAD_OPENED" if _opened else "SPREAD_REJECTED"
-                            _dec["action_detail"] = "bear_call"
+                            _dec["action_detail"] = (
+                                "bear_call"
+                                if _opened
+                                else f"bear_call:{self._last_spread_reject_reason or 'unknown'}"
+                            )
             elif signal == "SELL" and self._position_qty > 0:
                 # Legacy share mode: exits always permitted — only reduce risk.
                 self._execute_paper_sell(bid if bid > 0 else last_price)
@@ -1218,14 +1266,20 @@ class PaperTradingQtWorker(QObject):
 
     def _get_risk_limit(self, key: str, default: float) -> float:
         """Extract a risk limit from the (possibly nested) _risk_params dict."""
+        value = float(default)
         # Nested layout from G09.get_parameters: params["global"][key]
         global_block = self._risk_params.get("global", {})
         if isinstance(global_block, dict) and key in global_block:
-            return float(global_block[key])
+            value = float(global_block[key])
         # Flat layout from load_default_risk_parameters
-        if key in self._risk_params:
-            return float(self._risk_params[key])
-        return default
+        elif key in self._risk_params:
+            value = float(self._risk_params[key])
+
+        # Never allow more than 2 concurrent spreads in paper mode.
+        if key == "max_open_positions":
+            return float(max(1, min(2, int(value))))
+
+        return value
 
     def _fetch_leg_mids(
         self,
@@ -1845,6 +1899,7 @@ class PaperTradingQtWorker(QObject):
         status update explaining the block — callers do not need to log.
         """
         label = "bull-put" if direction == "bullish" else "bear-call"
+        self._last_spread_reject_reason = ""
 
         # Time-of-day gate: block new entries after 3:45 PM ET (no point
         # opening a multi-day position in the final 15 min of the session).
@@ -1859,6 +1914,7 @@ class PaperTradingQtWorker(QObject):
                     f"⛔ {label} blocked — no new entries after 3:45 PM ET "
                     f"(current {et_now.strftime('%H:%M')} ET)"
                 )
+                self._last_spread_reject_reason = "outside_entry_window"
                 return False
         except Exception:
             pass  # ZoneInfo unavailable — skip time gate
@@ -1871,6 +1927,7 @@ class PaperTradingQtWorker(QObject):
                 f"⛔ {label} blocked — entry cooldown "
                 f"({remaining}s remaining)"
             )
+            self._last_spread_reject_reason = "entry_cooldown_active"
             return False
 
         spread = self._select_credit_spread(spy_price, direction=direction)
@@ -1879,6 +1936,7 @@ class PaperTradingQtWorker(QObject):
                 f"⛔ {label} blocked — could not resolve a valid "
                 "spread from chain"
             )
+            self._last_spread_reject_reason = "spread_resolution_failed"
             return False
 
         iv_ok, iv_reason = self._iv_gate_allows_entry(
@@ -1889,14 +1947,16 @@ class PaperTradingQtWorker(QObject):
                 f"⛔ {label} blocked by IV gate — {iv_reason}"
             )
             self._arm_candidate(direction, spread, f"IV: {iv_reason}")
+            self._last_spread_reject_reason = "iv_gate_failed"
             return False
 
-        max_open = int(self._get_risk_limit("max_open_positions", 1))
+        max_open = int(self._get_risk_limit("max_open_positions", 2))
         if len(self._open_spreads) >= max_open:
             self.status_update.emit(
                 f"⛔ {label} blocked — {len(self._open_spreads)}/{max_open} "
                 "open spread cap reached"
             )
+            self._last_spread_reject_reason = "max_open_spreads_reached"
             return False
 
         if self._spread_already_open(spread):
@@ -1906,6 +1966,7 @@ class PaperTradingQtWorker(QObject):
                 f"{leg}{spread['short_strike']:.0f}/{spread['long_strike']:.0f} "
                 "already open"
             )
+            self._last_spread_reject_reason = "duplicate_spread"
             return False
 
         sized_qty = self._size_spread_qty(spread)
@@ -1917,10 +1978,12 @@ class PaperTradingQtWorker(QObject):
                 f"⛔ {label} blocked by Greeks gate — {greeks_reason}"
             )
             self._arm_candidate(direction, spread, f"Greeks: {greeks_reason}")
+            self._last_spread_reject_reason = "greeks_gate_failed"
             return False
 
         # All gates passed — any parked armed candidate is superseded.
         self._armed_candidate = None
+        self._last_spread_reject_reason = ""
         return self._execute_paper_credit_spread(spread, qty=sized_qty)
 
     def _arm_candidate(self, direction: str, spread: dict, reason: str) -> None:
@@ -2003,7 +2066,7 @@ class PaperTradingQtWorker(QObject):
             return False
 
         # Also guard the position cap — a different path may have filled it.
-        max_open = int(self._get_risk_limit("max_open_positions", 1))
+        max_open = int(self._get_risk_limit("max_open_positions", 2))
         if len(self._open_spreads) >= max_open:
             self.status_update.emit(
                 f"⏳ ARMED {label} waiting — position cap "

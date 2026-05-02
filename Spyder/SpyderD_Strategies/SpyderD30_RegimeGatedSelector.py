@@ -144,7 +144,7 @@ def _get_l09_to_d30_regime_map() -> dict:
         if L09_AVAILABLE:
             _L09_TO_D30_REGIME_MAP = {
                 L09MarketRegime.BULL_TRENDING: MarketRegime.BULL,
-                L09MarketRegime.BEAR_TRENDING: MarketRegime.CRISIS,
+                L09MarketRegime.BEAR_TRENDING: MarketRegime.CHOP,
                 L09MarketRegime.SIDEWAYS_RANGE: MarketRegime.CHOP,
                 L09MarketRegime.HIGH_VOLATILITY: MarketRegime.CHOP,
                 L09MarketRegime.LOW_VOLATILITY: MarketRegime.BULL,
@@ -164,6 +164,8 @@ def _get_l09_to_d30_regime_map() -> dict:
 # Strategy Types
 class StrategyType(Enum):
     """Available strategy types."""
+    BULL_CALL_SPREAD = "bull_call_spread"
+    BEAR_PUT_SPREAD = "bear_put_spread"
     BULL_PUT_SPREAD = "bull_put_spread"
     BEAR_CALL_SPREAD = "bear_call_spread"
     IRON_CONDOR = "iron_condor"
@@ -191,6 +193,14 @@ class TransitionState(Enum):
 DEFAULT_CONFIDENCE_THRESHOLD = 0.70  # 70% confidence required to switch
 DEFAULT_MIN_REGIME_DURATION = 5  # Minimum days in regime before switching
 DEFAULT_TRANSITION_PERIOD = 3  # Days to transition between strategies
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean environment flag with safe defaults."""
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on", "y"}
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -228,6 +238,7 @@ class StrategySelection:
     transition_state: TransitionState
     transition_progress: float  # 0-1, progress of transition
     reason: str  # Explanation for selection
+    selector_feature_flag: str | None = None  # Explicit flag that influenced selection
     expected_performance: dict[str, float] | None = None  # Expected metrics
 
 @dataclass
@@ -582,6 +593,10 @@ class RegimeGatedSelector:
         else:
             self.lean_mode = bool(lean_mode)
 
+        # Optional strategy alternatives remain disabled by default until paper validation.
+        self.enable_bull_call_spread = _env_flag("SPYDER_ENABLE_BULL_CALL_SPREAD", default=False)
+        self.enable_bear_put_spread = _env_flag("SPYDER_ENABLE_BEAR_PUT_SPREAD", default=False)
+
         # HMM Regime Detector (E21 — fallback)
         self.hmm_detector: HMMRegimeDetector | None = None
 
@@ -790,6 +805,7 @@ class RegimeGatedSelector:
         """Select strategy using lean L09 regime consensus."""
         l09_regime = consensus.regime
         confidence = consensus.confidence
+        selector_feature_flag: str | None = None
 
         if l09_regime == L09MarketRegime.EVENT_TRANSITION:
             strategy = StrategyType.NO_TRADE
@@ -798,17 +814,30 @@ class RegimeGatedSelector:
             strategy = StrategyType.NO_TRADE
             reason = "Crisis regime — halt new entries"
         elif l09_regime == L09MarketRegime.BULL_TRENDING:
-            strategy = StrategyType.BULL_PUT_SPREAD
-            reason = "Bull trend — Bull Put Spread"
+            if self.enable_bull_call_spread:
+                strategy = StrategyType.BULL_CALL_SPREAD
+                reason = "Bull trend — Bull Call Spread (feature-flag enabled)"
+                selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
+            else:
+                strategy = StrategyType.BULL_PUT_SPREAD
+                reason = "Bull trend — Bull Put Spread"
         elif l09_regime == L09MarketRegime.BEAR_TRENDING:
-            strategy = StrategyType.BEAR_CALL_SPREAD
-            reason = "Bear trend — Bear Call Spread"
+            if self.enable_bear_put_spread:
+                strategy = StrategyType.BEAR_PUT_SPREAD
+                reason = "Bear trend — Bear Put Spread (feature-flag enabled)"
+                selector_feature_flag = "SPYDER_ENABLE_BEAR_PUT_SPREAD"
+            else:
+                strategy = StrategyType.BEAR_CALL_SPREAD
+                reason = "Bear trend — Bear Call Spread"
         elif l09_regime == L09MarketRegime.SIDEWAYS_RANGE:
             strategy = StrategyType.IRON_CONDOR
             reason = "Range/calm — Iron Condor"
         elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
             strategy = StrategyType.IRON_BUTTERFLY
             reason = "High-vol mean reversion — Iron Butterfly"
+        elif l09_regime == L09MarketRegime.UNKNOWN:
+            strategy = StrategyType.NO_TRADE
+            reason = "Unknown regime (missing/unavailable data) — halt new entries"
         else:
             strategy = StrategyType.IRON_CONDOR
             reason = "Fallback neutral posture — Iron Condor"
@@ -830,15 +859,18 @@ class RegimeGatedSelector:
                     f"score={score} level={level_name or '-'}"
                 )
 
+        regime_map = _get_l09_to_d30_regime_map()
+        current_regime = regime_map.get(l09_regime, MarketRegime.UNKNOWN)
         selection = StrategySelection(
             timestamp=consensus.timestamp,
-            current_regime=MarketRegime.UNKNOWN,
+            current_regime=current_regime,
             selected_strategy=strategy,
             previous_strategy=self.current_strategy,
             confidence=confidence,
             transition_state=TransitionState.STABLE,
             transition_progress=1.0,
             reason=reason,
+            selector_feature_flag=selector_feature_flag,
         )
 
         self.previous_strategy = self.current_strategy
@@ -1215,7 +1247,8 @@ class RegimeGatedSelector:
                 'confidence': sel.confidence,
                 'transition_state': sel.transition_state.value,
                 'transition_progress': sel.transition_progress,
-                'reason': sel.reason
+                'reason': sel.reason,
+                'selector_feature_flag': sel.selector_feature_flag,
             }
             for sel in history
         ])

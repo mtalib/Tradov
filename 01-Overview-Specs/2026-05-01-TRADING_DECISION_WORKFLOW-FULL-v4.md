@@ -1,8 +1,17 @@
-# Trading Decision Workflow (Full) — v3
+# Trading Decision Workflow (Full) — v4
 
-Last Updated: 2026-04-30
+Last Updated: 2026-05-01
 Status: Design Specification (Deterministic)
 Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
+
+## Change Log
+
+| Version | Date | Changes |
+|---|---|---|
+| v1 | 2026-04-28 | Initial draft |
+| v2 | 2026-04-29 | Added pivot overlay section (Rule 6.1) |
+| v3 | 2026-04-30 | Added cross-symbol weighting (5.1) and exact regime-key matrix (5.2) |
+| v4 | 2026-05-01 | Added dashboard display field naming and 18-combination reference matrix (5.3) |
 
 ## 1) Objective
 
@@ -263,6 +272,67 @@ This is the exact regime-key version requested for implementation/reference alig
 | crisis_turbulent | SPY, VIX, VVIX, $TICK, $ADD, $TRIN | SWAN, CHEX, BREADTH_REGIME, YIELD_INVERTED, YIELD_SLOPE | VIX9D > VIX (Term Structure Inversion) -> HARD HALT / KILL-SWITCH | Prefer hard-block posture; strongest dependence on data_quality_feed, stress metrics, and internals where available |
 | event_transition | SPY, VIX, VIX9D, QQQ, IWM, XLK, XLF | BREADTH_REGIME, DIX, GEX, YIELD_10Y, AAII_BULLISH, AAII_BEARISH, NAAIM_EXPOSURE | Calendar Proximity (for example +/-30 mins of FOMC) -> HARD HALT / NO TRADE | Event-clock style caution: maintain confirmation gates, reduce trust in stale/aging surface inputs, and avoid over-reliance on any single macro print |
 
+### 5.3) Dashboard Display Field Names and 18-Combination Reference Matrix
+
+#### Field Name Decisions (Final — 2026-05-01)
+
+| Internal Name | Dashboard Display Label | Source |
+|---|---|---|
+| Regime (L09 output) | **Regime** | SpyderL09_UnifiedRegimeEngine |
+| Directional Bias | **Bias** | SpyderR08 `_regime_preferred_direction()` |
+| Exec Bucket (D30 output) | **Strategy Stance** | SpyderD30_RegimeGatedSelector |
+| Policy Key (D31 gate) | **Strategy Gate** | SpyderD31_StrategyOrchestrator |
+
+#### Strategy Stance Display Values
+
+| Internal Value | Dashboard Display Value |
+|---|---|
+| BULL | BULLISH |
+| CHOP | CHOPPY |
+| CRISIS | CRISIS |
+| UNKNOWN | UNKNOWN |
+
+#### Bias Display Values
+
+| Value | Meaning |
+|---|---|
+| BULLISH | DIX > 0.45 — institutional dark pool flow net bullish |
+| BEARISH | DIX < 0.35 — institutional dark pool flow net bearish |
+| NEUTRAL | GEX > 0 AND SWAN < 1.0 — dealers long gamma, no tail stress |
+| NONE | DIX in ambiguous range (0.35–0.45) or conditions unclear — no directional lean |
+| RISK-OFF | CRISIS or EVENT regime — bias computation bypassed, hard halt in effect |
+
+#### Complete 18-Combination Reference Matrix
+
+| # | Regime | Bias | Strategy Stance | Strategy Gate | Tradeable |
+|---|---|---|---|---|---|
+| 1 | BULL | BULLISH | BULLISH | Bull Trend | ✅ |
+| 2 | BULL | BEARISH | BULLISH | Bull Trend | ✅ |
+| 3 | BULL | NEUTRAL | BULLISH | Bull Trend | ✅ |
+| 4 | BULL | NONE | BULLISH | Bull Trend | ✅ |
+| 5 | BEAR | BULLISH | CHOPPY | Bear Trend | ✅ |
+| 6 | BEAR | BEARISH | CHOPPY | Bear Trend | ✅ |
+| 7 | BEAR | NEUTRAL | CHOPPY | Bear Trend | ✅ |
+| 8 | BEAR | NONE | CHOPPY | Bear Trend | ✅ |
+| 9 | RANGE | BULLISH | CHOPPY | Range Calm | ✅ |
+| 10 | RANGE | BEARISH | CHOPPY | Range Calm | ✅ |
+| 11 | RANGE | NEUTRAL | CHOPPY | Range Calm | ✅ |
+| 12 | RANGE | NONE | CHOPPY | Range Calm | ✅ |
+| 13 | VOLATILE | BULLISH | CHOPPY | High Vol | ✅ |
+| 14 | VOLATILE | BEARISH | CHOPPY | High Vol | ✅ |
+| 15 | VOLATILE | NEUTRAL | CHOPPY | High Vol | ✅ |
+| 16 | VOLATILE | NONE | CHOPPY | High Vol | ✅ |
+| 17 | CRISIS | RISK-OFF | CRISIS | Crisis | 🚫 HALT |
+| 18 | EVENT | RISK-OFF | CRISIS | Event | 🚫 HALT |
+
+#### Notes on the Matrix
+
+- **Rows 1–4 (BULL)**: Regime is always BULLISH stance regardless of Bias — Bias only influences internal spread direction selection inside R08, not the posture displayed.
+- **Rows 5–16 (BEAR / RANGE / VOLATILE)**: All share CHOPPY stance — distinguished from each other by Strategy Gate.
+- **NONE Bias (rows 4, 8, 12, 16)**: DIX/GEX data unavailable, feature flag off, or DIX in the ambiguous 0.35–0.45 band. Trading continues normally — Bias is informational only.
+- **RISK-OFF Bias (rows 17–18)**: Forced state; normal bias computation is bypassed entirely in halt regimes.
+- **Bias does not gate execution**: Strategy Gate and Strategy Stance are the authoritative execution controls. Bias is operator-facing context only.
+
 ## 6) Strategy Gating and Concurrency Rules
 
 ### Hard Policy
@@ -340,9 +410,11 @@ This is the exact regime-key version requested for implementation/reference alig
 
 ## 11) Notes
 
-This v2 specification defines the deterministic workflow and detection logic only. It is the source policy for subsequent implementation updates in:
+This v4 specification defines the deterministic workflow, detection logic, and dashboard display contract. It is the source policy for subsequent implementation updates in:
 
 - SpyderL09_UnifiedRegimeEngine.py
 - SpyderD30_RegimeGatedSelector.py
 - SpyderF09_EntryFilters.py
 - SpyderD31_StrategyOrchestrator.py
+- SpyderG05_TradingDashboard.py (dashboard display — section 5.3)
+- SpyderR08_PaperTradingQtWorker.py (Bias computation)

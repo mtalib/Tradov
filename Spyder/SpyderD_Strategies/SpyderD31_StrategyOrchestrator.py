@@ -1044,6 +1044,7 @@ class StrategyOrchestrator:
                         )
                     except Exception:
                         pass
+                return False
 
             # Validate connectivity if available
             if self.connectivity_manager:
@@ -1055,11 +1056,15 @@ class StrategyOrchestrator:
             # Initialize market regime detection
             self._update_market_regime()
 
+            # Start monitoring threads — must be set True BEFORE
+            # _configure_strategies_for_regime so that add_strategy() calls
+            # strategy.start() and transitions each strategy to STRATEGY_ACTIVE.
+            # (Without this, all strategies stay STRATEGY_INACTIVE and silently
+            # discard every MARKET_DATA event — no signals, no trades.)
+            self.orchestration_active = True
+
             # Load optimal strategy configuration for current regime
             self._configure_strategies_for_regime()
-
-            # Start monitoring threads
-            self.orchestration_active = True
             self.shutdown_event.clear()
 
             self.orchestration_thread = threading.Thread(target=self._orchestration_loop, daemon=True)  # noqa: E501
@@ -3307,13 +3312,64 @@ class StrategyOrchestrator:
 
         if "bull_put_spread" in text or "spyderd06" in text or text == "d06":
             return "bull_put_spread"
+        if "bull_call_spread" in text or "spyderd15" in text or text == "d15":
+            return "bull_call_spread"
         if "bear_call_spread" in text or "spyderd07" in text or text == "d07":
             return "bear_call_spread"
+        if "bear_put_spread" in text or "spyderd16" in text or text == "d16":
+            return "bear_put_spread"
         if "iron_condor" in text or "spyderd02" in text or text == "d02":
             return "iron_condor"
         if "iron_butterfly" in text or "spyderd10" in text or text == "d10":
             return "iron_butterfly"
         return text
+
+    @staticmethod
+    def _strategy_policy_match_tokens(value: Any) -> set[str]:
+        """Generate robust strategy tokens for regime-policy allow/block matching."""
+        base = str(value or "").strip().lower()
+        if not base:
+            return set()
+
+        text = base.replace("-", "_").replace(" ", "_")
+        tokens: set[str] = {text}
+
+        # Include D31/F09 normalized names for stable comparisons.
+        normalized = StrategyOrchestrator._normalise_strategy_type_for_entry_gate(text)
+        if normalized:
+            tokens.add(normalized)
+
+        # Common strategy naming drifts across config/runtime modules.
+        rewrites = (
+            ("_credit_spread", "_spread"),
+            ("_debit_spread", "_spread"),
+            ("_defined_risk", ""),
+            ("_overlay", ""),
+            ("_engine", ""),
+            ("_strategy", ""),
+        )
+        for token in list(tokens):
+            for old, new in rewrites:
+                if old in token:
+                    tokens.add(token.replace(old, new))
+
+        aliases = {
+            "bull_put_spread": {"bull_put_credit_spread", "credit_spread_bull_put", "bull_put"},
+            "bull_call_spread": {"bull_call", "call_debit_spread", "debit_spread_bull_call"},
+            "bear_call_spread": {"bear_call_credit_spread", "credit_spread_bear_call", "bear_call"},
+            "bear_put_spread": {"bear_put", "put_debit_spread", "debit_spread_bear_put"},
+            "iron_condor": {"iron_condor_defined_risk"},
+            "iron_butterfly": {"short_duration_defined_risk"},
+            "rsi_mean_reversion": {"mean_reversion_spreads", "mean_reversion"},
+            "renaissance_mean_reversion": {"mean_reversion_spreads", "mean_reversion"},
+            "opening_range_breakout": {"trend_breakout_calls", "breakout_calls"},
+            "vix_hedging": {"protective_put_overlay", "protective_put"},
+        }
+
+        for token in list(tokens):
+            tokens.update(aliases.get(token, set()))
+
+        return {tok for tok in tokens if tok}
 
     @staticmethod
     def _format_pivot_log_context(pivot_signal: dict[str, Any] | None) -> str:
@@ -3480,6 +3536,9 @@ class StrategyOrchestrator:
             "sideways_high_vol": "high_vol_mean_reversion",
             "crisis": "crisis_turbulent",
             "recovery": "event_transition",
+            # Gap fixes: previously unmapped — fail-safe to nearest policy key
+            "low_volatility": "bull_trend",  # L09 ML path; D30 maps to BULL bucket
+            "unknown": "crisis_turbulent",   # data-unavailable state; hard-block for safety
         }
         regime_key = raw_regime if raw_regime in regimes else regime_aliases.get(raw_regime, "")
         regime_cfg = regimes.get(regime_key, {}) if regime_key else {}
@@ -3497,6 +3556,7 @@ class StrategyOrchestrator:
             or metadata.get("strategy_id")
             or ""
         ).strip().lower()
+        strategy_tokens = self._strategy_policy_match_tokens(strategy_name)
 
         allowed = regime_cfg.get("allowed_strategies", [])
         if isinstance(allowed, list) and allowed:
@@ -3505,9 +3565,17 @@ class StrategyOrchestrator:
 
             allow_match = False
             for token in allowed:
-                token_str = str(token).strip().lower()
-                if token_str and token_str in strategy_name:
-                    allow_match = True
+                allowed_tokens = self._strategy_policy_match_tokens(token)
+                if not allowed_tokens:
+                    continue
+                for allowed_token in allowed_tokens:
+                    if any(
+                        (allowed_token in strategy_token) or (strategy_token in allowed_token)
+                        for strategy_token in strategy_tokens
+                    ):
+                        allow_match = True
+                        break
+                if allow_match:
                     break
             if not allow_match:
                 return False, f"regime_policy:not_allowed_strategy:{strategy_name}:{regime_key}"
@@ -3516,9 +3584,13 @@ class StrategyOrchestrator:
             blocked = regime_cfg.get("blocked_strategies", [])
             if isinstance(blocked, list):
                 for token in blocked:
-                    token_str = str(token).strip().lower()
-                    if token_str and token_str in strategy_name:
-                        return False, f"regime_policy:blocked_strategy:{token_str}:{regime_key}"
+                    blocked_tokens = self._strategy_policy_match_tokens(token)
+                    if any(
+                        (blocked_token in strategy_token) or (strategy_token in blocked_token)
+                        for blocked_token in blocked_tokens
+                        for strategy_token in strategy_tokens
+                    ):
+                        return False, f"regime_policy:blocked_strategy:{str(token).strip().lower()}:{regime_key}"
 
         return True, ""
 

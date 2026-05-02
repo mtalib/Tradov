@@ -5397,10 +5397,8 @@ class SpyderTradingDashboard(QMainWindow):
                         "breadth_regime": regime,
                     })
 
-        # Update the MARKET REGIME label from live S07 metrics.
-        regime_label, regime_color = self._derive_regime_label(metrics)
-        self.regime_value.setText(regime_label)
-        self.regime_value.setStyleSheet(f"color: {regime_color};")
+        # Update the 5-pill regime bar from live S07 metrics.
+        self.update_regime_pills(metrics)
 
         # Sync REGIME traffic-light button in the SIGNAL MONITOR panel.
         if self.signal_panel is not None:
@@ -5413,8 +5411,10 @@ class SpyderTradingDashboard(QMainWindow):
                 v = e.get("value", default)
                 return default if (isinstance(v, float) and math.isnan(v)) else float(v)
 
+            # Use the cached regime value (set by update_regime_pills) for the signal panel.
+            _regime_for_panel = getattr(self, "_regime_value", "—")
             self.signal_panel.update_regime(
-                regime_label,
+                _regime_for_panel,
                 _sv("SWAN", 1.9),
                 _sv("DIX", 42.0),
                 _sv("SKEW", 120.0),
@@ -5539,6 +5539,361 @@ class SpyderTradingDashboard(QMainWindow):
         if dix >= 43 and swan < 1.92:
             return "NEUTRAL BULL", COLORS["positive"]
         return "NEUTRAL", COLORS["warning"]
+
+    # ──────────────────────────────────────────────────────────────────
+    # Regime pill bar — 5-field display (REGIME / BIAS / STANCE / GATE / TRADEABLE)
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _pill_stylesheet(category: str) -> tuple[str, str]:
+        """Return (stylesheet, fg_color) for the given semantic pill category.
+
+        The stylesheet sets white for the static label text; callers should
+        wrap the dynamic value in a <span style="color: {fg};"> tag so the
+        label and value are two-toned (white label, semantic-colour value).
+
+        Categories (case-insensitive):
+            bull / bullish   → green
+            bear / bearish   → red
+            range / neutral / choppy / none  → orange
+            crisis / event / halt / risk-off → purple
+            tradeable (✔ suffix) → green
+            default → grey (initial / unknown)
+        """
+        c = category.lower()
+        if any(k in c for k in ("bull", "bullish")):
+            bg, border, fg = "#1a4a1a", "#2d8a2d", "#5ddb5d"
+        elif any(k in c for k in ("bear", "bearish")):
+            bg, border, fg = "#4a1a1a", "#8a2d2d", "#e05555"
+        elif any(k in c for k in ("crisis", "event", "halt", "risk-off")):
+            bg, border, fg = "#3a1055", "#9a30dd", "#cc88ff"
+        elif c == "none" or c.endswith(": none"):
+            bg, border, fg = "#1e1e1e", "#444444", "#888888"
+        elif any(k in c for k in ("range", "neutral", "choppy", "volatile", "cautious")):
+            bg, border, fg = "#3a2800", "#8a5a00", "#e09020"
+        elif "✔" in category or c in ("ok", "yes"):
+            bg, border, fg = "#1a4a1a", "#2d8a2d", "#5ddb5d"
+        else:
+            bg, border, fg = "#1e1e1e", "#444444", "#aaaaaa"
+        stylesheet = (
+            f"color: white; background-color: {bg}; "
+            f"border: 1px solid {border}; border-radius: 4px; "
+            "padding: 2px 10px; font-size: 13px;"
+        )
+        return stylesheet, fg
+
+    def update_regime_pills(self, metrics: dict) -> None:
+        """Derive all 5 regime-bar pill values from S07 metrics and update the bar.
+
+        Mapping:
+          REGIME  — canonical label (BULL / BEAR / RANGE / VOLATILE / CRISIS / EVENT)
+          BIAS    — directional bias (BULLISH / BEARISH / NEUTRAL / NONE / RISK-OFF)
+          STANCE  — strategy stance from D30 (BULLISH / CHOPPY / CRISIS)
+          GATE    — policy gate label (Bull Trend / Bear Trend / Range Calm /
+                                       High Vol / Crisis / Event)
+          TRADEABLE — ✔  or  ⚠ HALT
+        """
+        import math
+
+        if not hasattr(self, "regime_pill"):
+            # Pills not yet built (dashboard not fully initialised).
+            return
+
+        def _val(key: str, default: float) -> float:
+            entry = metrics.get(key)
+            if not isinstance(entry, dict):
+                return default
+            v = entry.get("value", default)
+            if isinstance(v, float) and math.isnan(v):
+                return default
+            return float(v)
+
+        swan = _val("SWAN", 1.9)
+        dix  = _val("DIX",  42.0)
+        skew = _val("SKEW", 120.0)
+        gex  = _val("GEX",  0.0)
+
+        # ── Canonical regime ────────────────────────────────────────────
+        if swan >= 2.0:
+            regime = "CRISIS"
+        elif swan >= 1.95 or skew >= 150:
+            regime = "VOLATILE"
+        elif skew >= 140 and dix < 42:
+            regime = "RANGE"
+        elif dix >= 46 and gex >= 0 and swan < 1.9:
+            regime = "BULL"
+        elif dix <= 40 and swan >= 1.85:
+            regime = "BEAR"
+        elif dix >= 43 and swan < 1.92:
+            regime = "BULL"
+        else:
+            regime = "RANGE"
+
+        # ── Bias (directional signal from DIX / SWAN) ───────────────────
+        if regime == "CRISIS":
+            bias = "RISK-OFF"
+        elif dix >= 46 and swan < 1.9:
+            bias = "BULLISH"
+        elif dix <= 40 and swan >= 1.85:
+            bias = "BEARISH"
+        elif dix >= 43:
+            bias = "BULLISH"
+        else:
+            bias = "NONE"
+
+        # ── Strategy Stance (D30 mapping) ───────────────────────────────
+        if regime == "BULL":
+            stance = "BULLISH"
+        elif regime == "CRISIS":
+            stance = "CRISIS"
+        else:
+            stance = "CHOPPY"
+
+        # ── Strategy Gate (D31 policy bucket) ───────────────────────────
+        _gate_map = {
+            "BULL":     "BULL TREND",
+            "BEAR":     "BEAR TREND",
+            "RANGE":    "RANGE CALM",
+            "VOLATILE": "HIGH VOL",
+            "CRISIS":   "CRISIS",
+            "EVENT":    "EVENT",
+        }
+        gate = _gate_map.get(regime, "RANGE CALM")
+
+        # ── Tradeable ───────────────────────────────────────────────────
+        tradeable = "⚠ HALT" if regime in ("CRISIS", "EVENT") else "OK"
+
+        # ── Descriptive tooltips (dynamic — updated each refresh cycle) ──────
+        _REGIME_TIPS: dict[str, str] = {
+            "BULL": (
+                "<b>BULL REGIME</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY &gt; SPY EMA50<br>"
+                "&bull; VIX &lt; VIX EMA50<br>"
+                "&bull; Not EVENT and not CRISIS<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = BULL<br>"
+                "&bull; Strategy = SpyderD06_BullPutSpread"
+            ),
+            "BEAR": (
+                "<b>BEAR REGIME</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY &lt; SPY EMA50<br>"
+                "&bull; VIX &gt; VIX EMA50<br>"
+                "&bull; Not EVENT and not CRISIS<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = BEAR<br>"
+                "&bull; Strategy = SpyderD07_BearCallSpread"
+            ),
+            "RANGE": (
+                "<b>RANGE / NEUTRAL REGIME</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY within 1.0 ATR of EMA50<br>"
+                "&bull; Term structure not stressed (VIX9D &le; VIX or VIX &le; VXV)<br>"
+                "&bull; Not EVENT and not CRISIS<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = RANGE<br>"
+                "&bull; Strategy = SpyderD02_IronCondor"
+            ),
+            "VOLATILE": (
+                "<b>VOLATILE REGIME</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY ATR% &ge; 1.5%<br>"
+                "&bull; VIX Percentile &ge; 80th OR VIX &ge; 25<br>"
+                "&bull; Not EVENT and not CRISIS<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = VOLATILE<br>"
+                "&bull; Strategy = SpyderD10_IronButterfly"
+            ),
+            "CRISIS": (
+                "<b>CRISIS REGIME &mdash; HARD HALT</b><br><br>"
+                "<b>Trigger (any one):</b><br>"
+                "&bull; VIX9D &gt; VIX (front-vol inversion)<br>"
+                "&bull; VIX &ge; 35<br>"
+                "&bull; SPY drop &le; &minus;1.25% AND VIX change &ge; +4 pts<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = CRISIS<br>"
+                "&bull; Hard halt / kill-switch &mdash; no new entries"
+            ),
+            "EVENT": (
+                "<b>EVENT REGIME &mdash; NO TRADE</b><br><br>"
+                "<b>Trigger:</b><br>"
+                "&bull; Event clock state in {pre, live, post}<br>"
+                "&bull; OR &le; 30 min to high-impact macro event<br><br>"
+                "<b>Action:</b><br>"
+                "&bull; Regime = EVENT<br>"
+                "&bull; Hard halt &mdash; no new strategy entries"
+            ),
+        }
+        _BIAS_TIPS: dict[str, str] = {
+            "BULLISH": (
+                "<b>BULLISH BIAS</b><br><br>"
+                "<b>Source:</b> DIX &gt; 0.45<br>"
+                "Institutional dark pool flow is net bullish<br><br>"
+                "<b>Effect:</b> R08 selects the bullish leg variant within the active strategy<br>"
+                "(e.g. favours tighter put-side strikes on a Bull Put Spread)<br><br>"
+                "<b>Does not gate execution</b> &mdash; Strategy Gate and Stance control whether a trade fires"
+            ),
+            "BEARISH": (
+                "<b>BEARISH BIAS</b><br><br>"
+                "<b>Source:</b> DIX &lt; 0.35<br>"
+                "Institutional dark pool flow is net bearish<br><br>"
+                "<b>Effect:</b> R08 selects the bearish leg variant within the active strategy<br>"
+                "(e.g. favours tighter call-side strikes on a Bear Call Spread)<br><br>"
+                "<b>Does not gate execution</b> &mdash; Strategy Gate and Stance control whether a trade fires"
+            ),
+            "NEUTRAL": (
+                "<b>NEUTRAL BIAS</b><br><br>"
+                "<b>Source:</b> GEX &gt; 0 AND SWAN &lt; 1.0<br>"
+                "Dealers are long gamma; no tail stress detected<br><br>"
+                "<b>Effect:</b> R08 uses balanced / symmetric strike selection<br><br>"
+                "<b>Does not gate execution</b> &mdash; Strategy Gate and Stance control whether a trade fires"
+            ),
+            "NEUTRAL BULL": (
+                "<b>NEUTRAL BULL BIAS</b><br><br>"
+                "<b>Source:</b> GEX &gt; 0 AND SWAN &lt; 1.0, with mild bullish DIX lean<br><br>"
+                "<b>Effect:</b> R08 uses a slightly bullish strike offset within the active strategy<br><br>"
+                "<b>Does not gate execution</b> &mdash; Strategy Gate and Stance control whether a trade fires"
+            ),
+            "NONE": (
+                "<b>NO BIAS</b><br><br>"
+                "<b>Source:</b> DIX in ambiguous range (0.35&ndash;0.45) or data unavailable<br>"
+                "No reliable directional lean detected<br><br>"
+                "<b>Effect:</b> R08 falls back to symmetric / default strike selection<br><br>"
+                "Trading continues normally &mdash; Strategy Gate and Stance remain authoritative"
+            ),
+            "RISK-OFF": (
+                "<b>RISK-OFF BIAS</b><br><br>"
+                "<b>Source:</b> CRISIS or EVENT regime active<br>"
+                "Bias computation is bypassed entirely in halt regimes<br><br>"
+                "<b>Effect:</b> None &mdash; hard halt is already in force; no new entries permitted"
+            ),
+        }
+        _STANCE_TIPS: dict[str, str] = {
+            "BULLISH": (
+                "<b>BULLISH STANCE</b><br><br>"
+                "D30 maps BULL regime &rarr; BULLISH stance<br><br>"
+                "<b>Permitted strategy:</b> SpyderD06_BullPutSpread"
+            ),
+            "CHOPPY": (
+                "<b>CHOPPY STANCE</b><br><br>"
+                "D30 maps BEAR / RANGE / VOLATILE &rarr; CHOPPY stance<br>"
+                "Specific strategy is determined by Strategy Gate:<br><br>"
+                "&bull; BEAR &rarr; SpyderD07_BearCallSpread<br>"
+                "&bull; RANGE &rarr; SpyderD02_IronCondor<br>"
+                "&bull; VOLATILE &rarr; SpyderD10_IronButterfly"
+            ),
+            "CRISIS": (
+                "<b>CRISIS STANCE</b><br><br>"
+                "D30 maps CRISIS / EVENT &rarr; CRISIS stance<br><br>"
+                "<i>Hard halt &mdash; no new entries permitted</i>"
+            ),
+        }
+        _GATE_TIPS: dict[str, str] = {
+            "BULL TREND": (
+                "<b>BULL TREND GATE</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY &gt; SPY EMA50<br>"
+                "&bull; VIX &lt; VIX EMA50<br><br>"
+                "<b>Active strategy:</b> SpyderD06_BullPutSpread<br>"
+                "Max 2 concurrent strategies"
+            ),
+            "BEAR TREND": (
+                "<b>BEAR TREND GATE</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY &lt; SPY EMA50<br>"
+                "&bull; VIX &gt; VIX EMA50<br><br>"
+                "<b>Active strategy:</b> SpyderD07_BearCallSpread<br>"
+                "Max 2 concurrent strategies"
+            ),
+            "RANGE CALM": (
+                "<b>RANGE CALM GATE</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY within 1.0 ATR of EMA50<br>"
+                "&bull; Term structure not stressed (VIX9D &le; VIX)<br><br>"
+                "<b>Active strategy:</b> SpyderD02_IronCondor<br>"
+                "Max 2 concurrent strategies"
+            ),
+            "HIGH VOL": (
+                "<b>HIGH VOLATILITY GATE</b><br><br>"
+                "<b>Trigger (all):</b><br>"
+                "&bull; SPY ATR% &ge; 1.5%<br>"
+                "&bull; VIX Percentile &ge; 80th OR VIX &ge; 25<br><br>"
+                "<b>Active strategy:</b> SpyderD10_IronButterfly<br>"
+                "Max 2 concurrent strategies"
+            ),
+            "CRISIS": (
+                "<b>CRISIS GATE &mdash; HARD HALT</b><br><br>"
+                "VIX9D &gt; VIX or VIX &ge; 35 or joint price-vol shock<br><br>"
+                "<i>All entry strategies deactivated &mdash; kill-switch posture</i>"
+            ),
+            "EVENT": (
+                "<b>EVENT GATE &mdash; NO TRADE</b><br><br>"
+                "Calendar proximity to high-impact macro event (&le; 30 min window)<br><br>"
+                "<i>All entry strategies deactivated &mdash; no new entries</i>"
+            ),
+        }
+
+        # ── Apply styles — label in white, dynamic value in semantic colour ──
+        self._regime_value = regime
+        ss, fg = self._pill_stylesheet(regime)
+        self.regime_pill.setText(f'REGIME: <span style="color: {fg};">{regime}</span>')
+        self.regime_pill.setStyleSheet(ss)
+        self.regime_pill.setToolTip(_REGIME_TIPS.get(regime, f"<b>Regime:</b> {regime}"))
+
+        ss, fg = self._pill_stylesheet(bias)
+        self.bias_pill.setText(f'BIAS: <span style="color: {fg};">{bias}</span>')
+        self.bias_pill.setStyleSheet(ss)
+        self.bias_pill.setToolTip(_BIAS_TIPS.get(bias, f"<b>Bias:</b> {bias}"))
+
+        ss, fg = self._pill_stylesheet(stance)
+        self.stance_pill.setText(f'STRATEGY STANCE: <span style="color: {fg};">{stance}</span>')
+        self.stance_pill.setStyleSheet(ss)
+        self.stance_pill.setToolTip(_STANCE_TIPS.get(stance, f"<b>Strategy stance:</b> {stance}"))
+
+        ss, fg = self._pill_stylesheet(gate)
+        self.gate_pill.setText(f'STRATEGY GATE: <span style="color: {fg};">{gate}</span>')
+        self.gate_pill.setStyleSheet(ss)
+        self.gate_pill.setToolTip(_GATE_TIPS.get(gate, f"<b>Strategy gate:</b> {gate}"))
+
+        ss, fg = self._pill_stylesheet(tradeable)
+        if "HALT" in tradeable:
+            self.tradeable_pill.setText(f'TRADEABLE <span style="color: {fg};">⚠ HALT</span>')
+        else:
+            self.tradeable_pill.setText("TRADEABLE")
+        self.tradeable_pill.setStyleSheet(ss)
+        _STRATEGY_LIST = (
+            "<b>Permitted strategies:</b><br>"
+            "&bull; <b>BULL:</b> SpyderD06_BullPutSpread<br>"
+            "&bull; <b>BEAR:</b> SpyderD07_BearCallSpread<br>"
+            "&bull; <b>RANGE:</b> SpyderD02_IronCondor<br>"
+            "&bull; <b>VOLATILE:</b> SpyderD10_IronButterfly"
+        )
+        if "HALT" in tradeable:
+            self.tradeable_pill.setToolTip(
+                "<b>HALTED &mdash; NO NEW ENTRIES</b><br><br>"
+                f"Regime: {regime} &mdash; all entry pipelines blocked<br><br>"
+                + _STRATEGY_LIST
+            )
+        else:
+            self.tradeable_pill.setToolTip(
+                "<b>TRADEABLE</b><br><br>"
+                + _STRATEGY_LIST
+                + "<br><br>"
+                "<b>Concurrency limit:</b> Max 1 strategy open at a time<br>"
+                "New entries are permitted under the active Strategy Gate"
+            )
+
+        # ── Row background: purple for CRISIS / EVENT, normal otherwise ─
+        if hasattr(self, "regime_bar_widget") and self.regime_bar_widget is not None:
+            if regime in ("CRISIS", "EVENT"):
+                self.regime_bar_widget.setStyleSheet(
+                    "background-color: #2a0a3a; border: 1px solid #6a2a9a;"
+                )
+            else:
+                self.regime_bar_widget.setStyleSheet(
+                    f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};"
+                )
 
     def start_market_worker(self):
         """Start the enhanced market worker with heartbeat monitoring"""
@@ -6006,17 +6361,18 @@ class SpyderTradingDashboard(QMainWindow):
                     f"color: {state_color}; font-size: 13px; font-weight: normal;"
                 )
   # noqa: W293
-            # Update policy label
+            # Update policy label (and windows if separate, or combined if single-line mode)
             policy_text = f"{'Enabled' if state.enabled else 'Disabled'} | Sources: {state.sources}"
-            if self.event_clock_policy_label:
-                self.event_clock_policy_label.setText(policy_text)
-  # noqa: W293
-            # Update compact detail line (window + size + allowlist)
             windows_text = (
                 f"Window -{state.blackout_pre_minutes}m/+{state.blackout_post_minutes}m"
                 f" | Size {state.max_size_multiplier:.0%}"
                 f" | Allowlist {', '.join(state.allowed_strategies) if state.allowed_strategies else 'None'}"
             )
+            if self.event_clock_policy_label:
+                if self.event_clock_windows_label is None:
+                    self.event_clock_policy_label.setText(f"{policy_text} | {windows_text}")
+                else:
+                    self.event_clock_policy_label.setText(policy_text)
             if self.event_clock_windows_label:
                 self.event_clock_windows_label.setText(windows_text)
   # noqa: W293

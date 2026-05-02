@@ -143,52 +143,84 @@ def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QW
     return panel
 
 
+def _regime_sep() -> "QLabel":
+    """Thin dim separator bar used between regime pills."""
+    lbl = QLabel("  |  ")
+    lbl.setStyleSheet("color: #444; font-size: 12px;")
+    return lbl
+
+
 def build_center_panel(dashboard: Any) -> QWidget:
     """Create the center panel containing chart, positions, logs, and signals."""
     panel = QWidget()
     layout = QVBoxLayout()
 
-    regime_widget = QWidget()
-    regime_widget.setStyleSheet(
+    # ── Regime bar (replaces old single "MARKET REGIME" label) ────────
+    # Stores a reference so update_regime_pills() can change the row background
+    # colour when CRISIS / EVENT is detected.
+    dashboard.regime_bar_widget = QWidget()
+    dashboard.regime_bar_widget.setStyleSheet(
         f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};",
     )
-    regime_widget.setFixedHeight(40)
+    dashboard.regime_bar_widget.setFixedHeight(40)
     regime_layout = QHBoxLayout()
+    regime_layout.setContentsMargins(6, 0, 6, 0)
+    regime_layout.setSpacing(0)
 
-    regime_layout.addStretch()
-
-    center_container = QHBoxLayout()
-    center_container.setSpacing(20)
-
+    # Left anchor: "SPY - 5 MIN"
     spy_label = QLabel("SPY - 5 MIN")
-    spy_label.setStyleSheet(
-        f"color: {COLORS['text']}; font-size: 13px;",
+    spy_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px;")
+    regime_layout.addWidget(spy_label)
+
+    regime_layout.addWidget(_regime_sep())
+    regime_layout.addStretch(1)
+
+    # ── 5 regime pill labels ────────────────────────────────────────────
+    _PILL_INIT_SS = (
+        "color: #aaaaaa; background-color: #1e1e1e; "
+        "border: 1px solid #444; border-radius: 4px; "
+        "padding: 2px 10px; font-size: 13px;"
     )
-    center_container.addWidget(spy_label)
 
-    separator_label0 = QLabel("|")
-    separator_label0.setStyleSheet(f"color: {COLORS['text_dim']};")
-    center_container.addWidget(separator_label0)
+    dashboard.regime_pill = QLabel("REGIME: —")
+    dashboard.regime_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.regime_pill.setToolTip("Market regime from L09 detection pipeline")
+    regime_layout.addWidget(dashboard.regime_pill)
 
-    regime_section = QHBoxLayout()
-    regime_section.setSpacing(5)
-    regime_label = QLabel("MARKET REGIME: ")
-    regime_label.setStyleSheet(f"color: {COLORS['text']};")
-    regime_section.addWidget(regime_label)
+    regime_layout.addWidget(_regime_sep())
 
-    dashboard.regime_value = QLabel("—")
-    dashboard.regime_value.setStyleSheet(f"color: {COLORS['cyan']};")
-    regime_section.addWidget(dashboard.regime_value)
+    dashboard.bias_pill = QLabel("BIAS: —")
+    dashboard.bias_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.bias_pill.setToolTip(
+        "Directional bias derived from DIX / GEX / SWAN — informational only"
+    )
+    regime_layout.addWidget(dashboard.bias_pill)
 
-    center_container.addLayout(regime_section)
+    regime_layout.addWidget(_regime_sep())
 
-    separator_label = QLabel("|")
-    separator_label.setStyleSheet(f"color: {COLORS['text_dim']};")
-    center_container.addWidget(separator_label)
+    dashboard.stance_pill = QLabel("STRATEGY STANCE: —")
+    dashboard.stance_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.stance_pill.setToolTip("Strategy stance produced by D30 regime selector")
+    regime_layout.addWidget(dashboard.stance_pill)
 
-    status_section = QHBoxLayout()
-    status_section.setSpacing(8)
+    regime_layout.addWidget(_regime_sep())
 
+    dashboard.gate_pill = QLabel("STRATEGY GATE: —")
+    dashboard.gate_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.gate_pill.setToolTip("Strategy gate / policy bucket from D31 orchestrator")
+    regime_layout.addWidget(dashboard.gate_pill)
+
+    regime_layout.addWidget(_regime_sep())
+
+    dashboard.tradeable_pill = QLabel("TRADEABLE: —")
+    dashboard.tradeable_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.tradeable_pill.setToolTip("Whether new entries are permitted right now")
+    regime_layout.addWidget(dashboard.tradeable_pill)
+
+    regime_layout.addStretch(1)
+    regime_layout.addWidget(_regime_sep())
+
+    # Chart toggle button (kept at right of bar)
     dashboard.chart_toggle_btn = QPushButton("📊")
     dashboard.chart_toggle_btn.setFixedSize(30, 30)
     dashboard.chart_toggle_btn.setToolTip("Toggle SPY Chart (5-min)")
@@ -212,14 +244,12 @@ def build_center_panel(dashboard: Any) -> QWidget:
             }}
         """)
     dashboard.chart_toggle_btn.clicked.connect(dashboard.toggle_chart)
-    status_section.addWidget(dashboard.chart_toggle_btn)
+    regime_layout.addWidget(dashboard.chart_toggle_btn)
 
-    separator_label2 = QLabel("|")
-    separator_label2.setStyleSheet(f"color: {COLORS['text_dim']};")
-    status_section.addWidget(separator_label2)
+    dashboard.regime_bar_widget.setLayout(regime_layout)
+    layout.addWidget(dashboard.regime_bar_widget)
 
-    # Move FLOW / EC / BLOCK badges into the center status strip to avoid
-    # crowding the top toolbar.
+    # ── Create FLOW / EC / BLOCK / RTH labels (mounted in bottom bar) ──
     try:
         _flow_interval_s = float(os.getenv("SPYDER_D31_SIGNAL_FLOW_LOG_INTERVAL_S", "300"))
     except (TypeError, ValueError):
@@ -236,7 +266,6 @@ def build_center_panel(dashboard: Any) -> QWidget:
         dashboard.signal_flow_heartbeat_label.setToolTip(
             f"D31 signal-flow heartbeat interval ({int(_flow_interval_s)}s)"
         )
-    status_section.addWidget(dashboard.signal_flow_heartbeat_label)
 
     if getattr(dashboard, "event_clock_compact_label", None) is None:
         dashboard.event_clock_compact_label = QLabel("EC: CLEAR")
@@ -244,7 +273,6 @@ def build_center_panel(dashboard: Any) -> QWidget:
             f"color: {COLORS['positive']}; font-size: 13px; font-weight: normal;"
         )
         dashboard.event_clock_compact_label.setToolTip("Event Clock status")
-    status_section.addWidget(dashboard.event_clock_compact_label)
 
     if getattr(dashboard, "entry_block_compact_label", None) is None:
         dashboard.entry_block_compact_label = QLabel("BLOCK: -")
@@ -254,7 +282,6 @@ def build_center_panel(dashboard: Any) -> QWidget:
             f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: normal;"
         )
         dashboard.entry_block_compact_label.setToolTip("Latest entry block reason")
-    status_section.addWidget(dashboard.entry_block_compact_label)
 
     if getattr(dashboard, "trading_window_compact_label", None) is None:
         dashboard.trading_window_compact_label = QLabel("RTH: ?")
@@ -264,15 +291,11 @@ def build_center_panel(dashboard: Any) -> QWidget:
         dashboard.trading_window_compact_label.setToolTip(
             "Regular trading hours gate status"
         )
-    status_section.addWidget(dashboard.trading_window_compact_label)
 
-    center_container.addLayout(status_section)
-
-    regime_layout.addLayout(center_container)
-    regime_layout.addStretch()
-
-    regime_widget.setLayout(regime_layout)
-    layout.addWidget(regime_widget)
+    # Keep regime_value as a hidden compat shim so any legacy code that writes
+    # self.regime_value.setText(...) does not crash (it just goes nowhere).
+    dashboard.regime_value = QLabel()
+    dashboard.regime_value.hide()
 
     # Create once here so the chart-hidden controls panel can mount a shared
     # two-state system-log mode control.
@@ -349,6 +372,20 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.refresh_orders_btn.setToolTip("Fetch live orders & positions from Tradier")
     dashboard.refresh_orders_btn.clicked.connect(dashboard._refresh_positions_table)
     pos_toolbar_layout.addWidget(dashboard.refresh_orders_btn)
+
+    # ── FLOW / EC / BLOCK / RTH chips (moved from centre top bar) ──────
+    _chip_ss = (
+        "color: {color}; background-color: #1e1e1e; "
+        "border: 1px solid #444; border-radius: 3px; "
+        "padding: 1px 5px; font-size: 11px;"
+    )
+    pos_toolbar_layout.addWidget(QLabel("  "))  # small gap
+
+    pos_toolbar_layout.addWidget(dashboard.signal_flow_heartbeat_label)
+    pos_toolbar_layout.addWidget(dashboard.event_clock_compact_label)
+    pos_toolbar_layout.addWidget(dashboard.entry_block_compact_label)
+    pos_toolbar_layout.addWidget(dashboard.trading_window_compact_label)
+    del _chip_ss  # declared for intent only; labels already styled above
     positions_layout.addWidget(pos_toolbar)
 
     # All portfolio-strip labels are now None — data is surfaced via the
@@ -725,7 +762,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     controls_row.setContentsMargins(0, 0, 0, 0)
     controls_row.setSpacing(6)
 
-    system_log_settings_label = QLabel("SYSTEM LOG SETTINGS:")
+    system_log_settings_label = QLabel("SYSTEM LOG MODE:")
     system_log_settings_label.setStyleSheet(
         f"color: {COLORS['text']}; font-size: 12px; font-weight: normal;"
     )
@@ -742,47 +779,35 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     controls_row.addStretch()
     layout.addLayout(controls_row)
 
-    event_clock_group = QGroupBox("EVENT-CLOCK STATUS")
-    event_clock_group.setStyleSheet(f"""
-        QGroupBox {{
-            color: {COLORS["text"]};
-            border: 1px solid {COLORS["border"]};
-            border-radius: 4px;
-            margin-top: 5px;
-            padding-top: 5px;
-            background-color: {COLORS["panel"]};
-            font-weight: normal;
-            font-size: 11px;
-        }}
-        QGroupBox::title {{
-            subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 3px 0 3px;
-        }}
-    """)
-    event_clock_layout = QVBoxLayout()
-    event_clock_layout.setContentsMargins(5, 5, 5, 5)
-    event_clock_layout.setSpacing(1)
+    event_clock_row = QHBoxLayout()
+    event_clock_row.setContentsMargins(0, 0, 0, 0)
+    event_clock_row.setSpacing(6)
+
+    event_clock_label = QLabel("EVENT-CLOCK STATUS:")
+    event_clock_label.setStyleSheet(
+        f"color: {COLORS['text']}; font-size: 12px; font-weight: normal;"
+    )
+    event_clock_row.addWidget(event_clock_label)
 
     dashboard.event_clock_state_label = QLabel("✓ CLEAR")
     dashboard.event_clock_state_label.setStyleSheet(
         f"color: {COLORS['positive']}; font-size: 12px;"
     )
-    event_clock_layout.addWidget(dashboard.event_clock_state_label)
+    event_clock_row.addWidget(dashboard.event_clock_state_label)
 
-    dashboard.event_clock_policy_label = QLabel("Enabled | Sources: calendar+manual")
-    dashboard.event_clock_policy_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px;")
-    event_clock_layout.addWidget(dashboard.event_clock_policy_label)
+    dashboard.event_clock_policy_label = QLabel(
+        "Enabled | Sources: calendar+manual | Window -30m/+30m | Size 25% | Allowlist None"
+    )
+    dashboard.event_clock_policy_label.setStyleSheet(
+        f"color: {COLORS['text']}; font-size: 12px;"
+    )
+    event_clock_row.addWidget(dashboard.event_clock_policy_label, 1)
 
-    dashboard.event_clock_windows_label = QLabel("Window -30m/+30m | Size 25% | Allowlist None")
-    dashboard.event_clock_windows_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px;")
-    event_clock_layout.addWidget(dashboard.event_clock_windows_label)
-
+    dashboard.event_clock_windows_label = None
     dashboard.event_clock_strategies_label = None
+    dashboard.event_clock_panel = None
 
-    event_clock_group.setLayout(event_clock_layout)
-    dashboard.event_clock_panel = event_clock_group
-    layout.addWidget(event_clock_group)
+    layout.addLayout(event_clock_row)
 
     readiness_row = QHBoxLayout()
     readiness_row.setSpacing(6)
@@ -804,7 +829,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
         QSizePolicy.Policy.Preferred,
     )
     dashboard.readiness_status_label.setStyleSheet(
-        "color: white; font-size: 13px; font-weight: 600;"
+        "color: white; font-size: 12px; font-weight: normal;"
     )
     readiness_row.addWidget(dashboard.readiness_status_label, 1)  # stretch=1 → fills remaining width  # noqa: E501
 
@@ -877,8 +902,8 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     liquidity_layout.setHorizontalSpacing(8)
     liquidity_layout.setVerticalSpacing(3)
 
-    label_style = f"color: {COLORS['text']}; font-size: 11px;"
-    value_style = f"color: {COLORS['cyan']}; font-size: 11px;"
+    label_style = f"color: {COLORS['text']}; font-size: 12px;"
+    value_style = f"color: {COLORS['cyan']}; font-size: 12px;"
 
     liquidity_candidates_lbl = QLabel("Candidates")
     liquidity_candidates_lbl.setStyleSheet(label_style)
@@ -930,8 +955,8 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     execution_layout.setHorizontalSpacing(8)
     execution_layout.setVerticalSpacing(3)
 
-    exec_label_style = f"color: {COLORS['text']}; font-size: 11px;"
-    exec_value_style = f"color: {COLORS['cyan']}; font-size: 11px;"
+    exec_label_style = f"color: {COLORS['text']}; font-size: 12px;"
+    exec_value_style = f"color: {COLORS['cyan']}; font-size: 12px;"
 
     execution_slippage_lbl = QLabel("Slippage")
     execution_slippage_lbl.setStyleSheet(exec_label_style)
@@ -980,7 +1005,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     veto_scope_label = QLabel(
         "SpyderX16 Veto  +  SpyderY03 Trade Veto  +  SpyderY05 Consumption Veto"
     )
-    veto_scope_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; font-weight: 600;")
+    veto_scope_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px; font-weight: normal;")
     veto_scope_label.setWordWrap(False)
     veto_row.addWidget(veto_scope_label, 1)
 

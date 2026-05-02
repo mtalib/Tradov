@@ -55,7 +55,9 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
 
     SymbolDefinition("VIX", "VOLATILITY", True, "quote", provider_symbol="VIX", backend_symbol="VIX"),
     SymbolDefinition("VIX9D", "VOLATILITY", True, "quote", provider_symbol="VIX9D", backend_symbol="VIX9D"),
-    SymbolDefinition("VXV", "VOLATILITY", True, "quote", provider_symbol="VXV", backend_symbol="VXV"),
+    # VXV (CBOE 3-Month Vol) is not available via Tradier; mark optional so a missing
+    # quote does not produce a blank/stale widget — the widget will render "N/A" instead.
+    SymbolDefinition("VXV", "VOLATILITY", True, "event-only", backend_symbol="VXV", optional=True),
     SymbolDefinition("VVIX", "VOLATILITY", True, "quote", provider_symbol="VVIX", backend_symbol="VVIX"),
     SymbolDefinition("SKEW", "VOLATILITY", True, "quote", provider_symbol="SKEW", backend_symbol="SKEW"),
 
