@@ -531,6 +531,11 @@ VOLATILITY_REGIME_LOOKBACK = 20  # Days for volatility regime
 TREND_DETECTION_PERIODS = [5, 10, 20]  # Moving average periods
 VIX_REGIME_THRESHOLDS = {'low': 15, 'normal': 20, 'high': 30, 'extreme': 40}
 
+# Per-symbol rolling tick buffer used by _classify_market_regime_unified to
+# compute SPY EMA50 / ATR14 and VIX EMA50. Sized to comfortably cover the
+# longest indicator window with headroom; bounded to keep cache memory cheap.
+_MARKET_TICK_BUFFER = 200
+
 # Strategy allocation limits
 MAX_STRATEGY_ALLOCATION = 0.4  # Maximum 40% to any single strategy
 MIN_STRATEGY_ALLOCATION = 0.05  # Minimum 5% allocation
@@ -1989,7 +1994,7 @@ class StrategyOrchestrator:
             else:
                 for _vix_key in ("VIX", "^VIX", "CBOE:VIX"):
                     _vix_entry = self.market_data_cache.get(_vix_key)
-                    if isinstance(_vix_entry, list) and _vix_entry:
+                    if isinstance(_vix_entry, (list, deque)) and _vix_entry:
                         _last = _vix_entry[-1]
                         _v = (
                             _last.get("close") or _last.get("price") or _last.get("last")
@@ -2973,11 +2978,30 @@ class StrategyOrchestrator:
             return
         data = event.data
         if isinstance(data, dict):
-            # Preserve non-market feed fields (e.g., event_clock_state) while updating ticks.
-            existing = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
-            merged = dict(existing)
-            merged.update(data)
-            self.market_data_cache = merged
+            if not isinstance(self.market_data_cache, dict):
+                self.market_data_cache = {}
+            symbol = data.get("symbol")
+            tick = data.get("tick")
+            if isinstance(symbol, str) and isinstance(tick, dict):
+                # _classify_market_regime_unified reads market_data_cache["SPY"] /
+                # ["VIX"] / ["VIX9D"] as a list of tick dicts to compute EMA50 and
+                # ATR14. C01 publishes one tick per event under {symbol, tick};
+                # bucket per-symbol into a bounded rolling window so the regime
+                # detector sees a real series instead of an empty list.
+                bucket = self.market_data_cache.get(symbol)
+                if not isinstance(bucket, deque):
+                    bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+                    self.market_data_cache[symbol] = bucket
+                bucket.append(tick)
+            else:
+                # Non-tick payloads (e.g. C12 dark-pool block_trade events,
+                # event_clock_state). Merge top-level keys but leave per-symbol
+                # buckets untouched — and skip {'symbol', 'tick'} so a malformed
+                # tick payload can't corrupt the regime cache.
+                for key, value in data.items():
+                    if key in {"symbol", "tick"}:
+                        continue
+                    self.market_data_cache[key] = value
         else:
             self.market_data_cache = data
         self.last_market_update = datetime.now(timezone.utc)
