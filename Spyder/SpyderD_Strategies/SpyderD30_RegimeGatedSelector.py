@@ -170,6 +170,7 @@ class StrategyType(Enum):
     BEAR_CALL_SPREAD = "bear_call_spread"
     IRON_CONDOR = "iron_condor"
     IRON_BUTTERFLY = "iron_butterfly"
+    PIVOT_MEAN_REVERSION = "pivot_mean_reversion"
     NO_TRADE = "no_trade"
     CALENDAR_SPREADS = "calendar_spreads"  # Optimal for Bull regime
     IRON_CONDORS = "iron_condors"  # Optimal for Chop regime
@@ -596,6 +597,12 @@ class RegimeGatedSelector:
         # Optional strategy alternatives remain disabled by default until paper validation.
         self.enable_bull_call_spread = _env_flag("SPYDER_ENABLE_BULL_CALL_SPREAD", default=False)
         self.enable_bear_put_spread = _env_flag("SPYDER_ENABLE_BEAR_PUT_SPREAD", default=False)
+        # When enabled, NEUTRAL/SIDEWAYS_RANGE swaps from IronCondor → D34
+        # PivotMeanReversion if the S08 pivot signal is firing on this tick.
+        # Pivot signal is supplied to _select_lean_strategy via pivot_signal arg.
+        self.enable_pivot_mean_reversion = _env_flag(
+            "SPYDER_ENABLE_PIVOT_MEAN_REVERSION", default=False
+        )
 
         # HMM Regime Detector (E21 — fallback)
         self.hmm_detector: HMMRegimeDetector | None = None
@@ -830,8 +837,16 @@ class RegimeGatedSelector:
                 strategy = StrategyType.BEAR_CALL_SPREAD
                 reason = "Bear trend — Bear Call Spread"
         elif l09_regime == L09MarketRegime.SIDEWAYS_RANGE:
-            strategy = StrategyType.IRON_CONDOR
-            reason = "Range/calm — Iron Condor"
+            pivot_fired = (
+                isinstance(pivot_signal, dict) and bool(pivot_signal.get("fired", False))
+            )
+            if self.enable_pivot_mean_reversion and pivot_fired:
+                strategy = StrategyType.PIVOT_MEAN_REVERSION
+                reason = "Range/calm — Pivot Mean Reversion (pivot signal firing)"
+                selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+            else:
+                strategy = StrategyType.IRON_CONDOR
+                reason = "Range/calm — Iron Condor"
         elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
             strategy = StrategyType.IRON_BUTTERFLY
             reason = "High-vol mean reversion — Iron Butterfly"

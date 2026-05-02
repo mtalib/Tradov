@@ -785,6 +785,18 @@ class StrategyOrchestrator:
             "IronButterfly",
             "IronButterflyStrategy",
         }
+        # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
+        # default lean posture remains the 4-strategy v5 contract; setting
+        # SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true allows D30 to swap NEUTRAL →
+        # PivotMeanReversion when the S08 pivot signal is firing, otherwise
+        # falls back to IronCondor for the same regime.
+        if os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }:
+            self.lean_strategy_allowlist.update({
+                "PivotMeanReversion",
+                "PivotMeanReversionStrategy",
+            })
 
         # Portfolio state
         self.active_strategies: dict[str, BaseStrategy] = {}
