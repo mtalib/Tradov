@@ -101,6 +101,9 @@ CANONICAL_MODULES: dict[str, str] = {
     "X16 MetaCoordinator": "SpyderX_Agents.SpyderX16_MetaCoordinator",
     "Y03 RiskSentinelAgent": "SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent",
     "Y05 ExecutionOptimizerAgent": "SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent",
+    # v27 SPEC-15 — async-from-thread helper used by Y01/Y02/Y03/Y04/Y06 to
+    # avoid bare asyncio.run() in long-lived per-tick handlers.
+    "U50 AsyncBridge": "SpyderU_Utilities.SpyderU50_AsyncBridge",
 }
 
 VETO_KEYS = (
@@ -597,6 +600,56 @@ class TestVetoConfigAndWiring:
             pytest.skip(f"Y05 unavailable: {exc}")
 
         assert "enable_veto_consumption" in sig.parameters
+
+
+class TestSpec15AsyncBridgeWiring:
+    """v27 SPEC-15 regression guard: per-tick handlers in Y01-Y04 / Y06 must
+    NOT use bare ``asyncio.run()`` (which raises RuntimeError when nested under
+    an existing event loop, e.g. when X14 orchestrator drives the agents).
+    They must route through ``SpyderU50_AsyncBridge.run_coro_in_thread``.
+    """
+
+    AFFECTED_AGENTS = (
+        ("SpyderY_AutoAgents.SpyderY01_MarketSenseAgent",      "Y01"),
+        ("SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent",    "Y02"),
+        ("SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent",     "Y03"),
+        ("SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent",     "Y04"),
+        ("SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent",     "Y06"),
+    )
+
+    def test_async_bridge_helper_is_importable(self):
+        try:
+            from SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+        except Exception as exc:
+            pytest.fail(
+                f"SPEC-15: SpyderU50_AsyncBridge.run_coro_in_thread missing: {exc}"
+            )
+        assert callable(run_coro_in_thread)
+
+    @pytest.mark.parametrize("dotted,label", AFFECTED_AGENTS)
+    def test_y_series_agent_uses_async_bridge_not_bare_asyncio_run(
+        self, dotted: str, label: str
+    ):
+        """Each affected Y-agent must reference run_coro_in_thread in its source
+        and must NOT contain a bare ``asyncio.run(...)`` call (the SPEC-15
+        regression — bare asyncio.run breaks under nested event loops).
+        """
+        import importlib
+        try:
+            mod = importlib.import_module(dotted)
+            src = inspect.getsource(mod)
+        except Exception as exc:
+            pytest.skip(f"{label} unavailable for source inspection: {exc}")
+
+        assert "run_coro_in_thread" in src, (
+            f"SPEC-15 regression: {label} no longer references "
+            f"SpyderU50_AsyncBridge.run_coro_in_thread. Reverting to bare "
+            f"asyncio.run() will RuntimeError when nested under X14's loop."
+        )
+        assert "asyncio.run(" not in src, (
+            f"SPEC-15 regression: {label} contains a bare asyncio.run() call. "
+            f"All per-tick async invocations must route through run_coro_in_thread."
+        )
 
 
 # ==============================================================================
