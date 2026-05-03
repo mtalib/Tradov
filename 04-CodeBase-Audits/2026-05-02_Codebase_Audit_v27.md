@@ -72,7 +72,7 @@ the bottom for the precise list of edited files.
 | SPEC-4 | Phase 6a (FIX-4): drop POST/PUT/DELETE from urllib3 retry. Phase 6b: B40 auto-generates uuid `tag` for every place_order / place_multileg_order |
 | SPEC-5 | D31 `_classify_market_regime_unified` fails closed to `MarketRegime.CRISIS` when SPY cache has <2 closes |
 | SPEC-6 | R12 `_start_orchestrator` constructs and wires `OrderManager` (mid-price walk path live in production) |
-| SPEC-7 | (deferred — large refactor; SPEC-4 phase 6b auto-tag substitutes for the immediate idempotency need) |
+| SPEC-7 | **PENDING (downgraded HIGH→MEDIUM)** — phantom-order reconciliation still possible. SPEC-4 phase 6b auto-tag closes the duplicate-fill blast radius (the catastrophic outcome) but does NOT fix local "ghost" orders left in PENDING state with no `tradier_order_id` after a hung broker call. Not a live-launch blocker now, but should ship in post-launch hardening. |
 | SPEC-8 | B02 `submit_limit_with_walk` polls until cancel-confirmed (or fill) before submitting next ping; returns immediately on fill-during-cancel race |
 | SPEC-9 | E01 `_calculate_risk_metrics` reads `daily_pnl` from `_cached_account_balances["close_pl" / "day_change"]`; `_handle_position_update` no longer overwrites PnL with 0.0 when payload lacks the field |
 | SPEC-10 | E01 `_request_account_summary` fail-closed when `tradier_client is None` AND `TRADING_MODE=live` |
@@ -280,7 +280,7 @@ If any caller already runs from an asyncio loop (X14 orchestrator does), this ra
 | B40 retry layer safe for POST/PUT/DELETE | — | ✅ **PHASE 6a FIXED THIS SESSION** (FIX-4); phase 6b/6c open | SPEC-4 |
 | D31 SPY price cold-start fallback | ⚠️ memo | ✅ **CLOSED** | SPEC-5 — fail-closed to CRISIS |
 | R12 wires `set_order_manager()` | — | ✅ **CLOSED** | SPEC-6 — mid-price walk live |
-| B02 stage-then-commit on order submission | — | ⚠️ deferred — SPEC-4 phase 6b auto-tag covers immediate idempotency need | SPEC-7 |
+| B02 stage-then-commit on order submission | — | ⚠️ **PENDING** — duplicate-fill risk closed (SPEC-4 phase 6b), but phantom/ghost-order reconciliation remains. Severity downgraded HIGH→MEDIUM; not a live-launch blocker. | SPEC-7 |
 | B02 cancel/replace serialization | — | ✅ **CLOSED** | SPEC-8 — poll-until-confirmed |
 | E01 daily-loss kill switch enforceable in live | — | ✅ **CLOSED** | SPEC-9 — broker close_pl |
 | E01 cold-start fail-closed when broker missing | — | ✅ **CLOSED** | SPEC-10 |
@@ -382,10 +382,28 @@ If any caller already runs from an asyncio loop (X14 orchestrator does), this ra
 ---
 
 ### SPEC-7 — B02 stage-then-commit on order submission
-**Priority:** HIGH
+**Priority:** ~~HIGH~~ **MEDIUM** (downgraded post-sprint — see status below)
+**Status:** **PENDING.** Not closed in the v27 sprint.
 **Affected:** `Spyder/SpyderB_Broker/SpyderB02_OrderManager.py`
 
-**Spec:**
+**Reassessment after sprint (2026-05-03):**
+SPEC-4 phase 6b (auto-tag every order) closed the **catastrophic** outcome
+of this defect — duplicate fills are no longer possible because Tradier
+dedupes by `tag`. However, SPEC-7's other failure mode is still open:
+
+- An order is locally inserted into `self._orders` *before* `_route_order()`
+  returns (B02:412, 786, 878, 975).
+- If the REST call hangs / is killed mid-flight, the JSON state on disk
+  shows a PENDING order with no `tradier_order_id`.
+- That order can never be cancelled (no broker id), shows as PENDING
+  forever in the dashboard, and pollutes reconciliation.
+- Operators cannot tell whether the order is actually live at the broker
+  or not.
+
+So the **live-launch blocker is gone**, but a real correctness defect
+remains. Suitable for the post-launch hardening sprint.
+
+**Spec (unchanged from original):**
 1. Introduce `self._pending_orders: dict[str, Order]` for orders that have not yet received a broker order id.
 2. Move all `self._orders[order_id] = order` assignments at submit-paths 412/786/878/975 to *after* `_extract_order_id` succeeds.
 3. On submit-path exception, leave the order in `_pending_orders` with a TTL of 60 s and a reconcile worker that polls Tradier for matching `tag` to recover the broker order id.
@@ -591,8 +609,8 @@ A06 MasterController, A02 TradingEngine, A05 EventManager, A03 Configuration, B0
 - CR-2 (B40 retry on POST), CR-3 (D31 SPY=500 fallback), CR-4 (R12 missing wiring), H-3 (E01 daily-loss unenforceable), H-4 (E01 cold-start live fail-open), H-7 (E03 stop fallback masks broker rejection).
 
 **Recommendation (revised after sprint closure):**
-1. ✅ All 18 v27 SPECs landed in this session (only SPEC-7 stage-then-commit deferred — SPEC-4 phase 6b auto-tag covers the immediate idempotency need).
+1. ✅ 17 of 18 v27 SPECs landed in this session. **SPEC-7 (B02 stage-then-commit) remains PENDING** — but its severity is downgraded HIGH→MEDIUM because SPEC-4 phase 6b (auto-tag) closed the catastrophic-outcome path (duplicate fills). The remaining defect is local "ghost" orders left in PENDING state with no broker order id after a hung REST call — a correctness/observability bug, not a money-loss bug. Not a live-launch blocker.
 2. ✅ All 6 sprint test files (T186–T191) GREEN: 23 passed / 2 skipped (out-of-scope decisions documented inline).
 3. ✅ Test gate cleared: full suite at end-of-session shows zero regressions vs v26 baseline (10,056 passed pre-session → equal-or-better post-session, after SPEC-1 closes the 17 weekend tests).
 4. **Live-launch path:** continue paper soak for ≥3 trading sessions to validate SPEC-9 daily-loss circuit, SPEC-13 stop-loss rejection alerts, and SPEC-12 dispatch-executor responsiveness in real conditions. Then flip `TRADING_MODE=live` with $1k probe size for the first session.
-5. **Follow-up sprint (post-launch, optional):** SPEC-7 stage-then-commit refactor; SPEC-4 phase 6c idempotent-retry-by-tag verification.
+5. **Follow-up sprint (post-launch, recommended):** SPEC-7 stage-then-commit refactor (closes ghost-order reconciliation); SPEC-4 phase 6c idempotent-retry-by-tag verification.
