@@ -265,8 +265,9 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         # Get position data from X04 if available
         if self._x04_agent:
             try:
-                import asyncio
-                risk = asyncio.run(
+                # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                risk = run_coro_in_thread(
                     self._x04_agent.assess_portfolio_risk()
                 )
                 if risk:

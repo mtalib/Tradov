@@ -60,7 +60,7 @@ import torch  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer  # noqa: E402
-from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import LSTMPricer  # noqa: E402
+from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import SpyderLSTMPricer as LSTMPricer  # noqa: E402
 from Spyder.SpyderL_ML.SpyderL11_MLModelManager import MLModelManager  # noqa: E402
 import logging  # noqa: E402
 

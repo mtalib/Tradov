@@ -1680,18 +1680,22 @@ class LiveEngine:
         )
 
     def _check_position_size_limit(self) -> SafetyCheck:
+        # v27 fix: previously returned PASSED unconditionally, giving the
+        # FALSE impression of safety coverage. Defer the actual gate to
+        # E01.validate_signal (which enforces max_position_size + concentration)
+        # and surface this as WARNING so operators see the missing native check.
         return SafetyCheck(
             check_name="position_size",
-            result=SafetyCheckResult.PASSED,
-            message="Position sizes within limits",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native position-size check is a stub; relying on E01.validate_signal",
             timestamp=datetime.now(_ET),
         )
 
     def _check_portfolio_exposure(self) -> SafetyCheck:
         return SafetyCheck(
             check_name="portfolio_exposure",
-            result=SafetyCheckResult.PASSED,
-            message="Portfolio exposure within limits",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native portfolio-exposure check is a stub; relying on E01.validate_signal",
             timestamp=datetime.now(_ET),
         )
 
@@ -1705,10 +1709,13 @@ class LiveEngine:
         )
 
     def _check_market_volatility(self) -> SafetyCheck:
+        # v27 fix: previously PASSED unconditionally. Surface as WARNING so
+        # the missing native check is visible — actual VIX gating lives in
+        # D31._classify_market_regime_unified and E09 VolatilityRiskManager.
         return SafetyCheck(
             check_name="volatility",
-            result=SafetyCheckResult.PASSED,
-            message="Volatility within normal range",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native volatility check is a stub; relying on D31 regime gating + E09",
             timestamp=datetime.now(_ET),
         )
 
@@ -1881,11 +1888,20 @@ class LiveEngine:
 
         Writes ~/.spyder_kill_lock containing {reason, ts, account_id}.
         The launcher refuses to start while this file is present.
+
+        v27 SPEC-19: paper mode normally skips the lock-file (so dev iteration
+        is not blocked), but operators can opt in via
+        ``SPYDER_KILL_LOCK_FORCE=1`` to drill the live-mode persistence path
+        before launch.
         """
         account_id = str(getattr(self.config, "account_id", "unknown") or "unknown")
-        if account_id.upper().startswith("PAPER"):
+        force = os.environ.get("SPYDER_KILL_LOCK_FORCE", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if account_id.upper().startswith("PAPER") and not force:
             self.logger.critical(
-                "🔓 Paper mode kill-switch: lock file persistence skipped (reason=%s)",
+                "🔓 Paper mode kill-switch: lock file persistence skipped (reason=%s). "
+                "Set SPYDER_KILL_LOCK_FORCE=1 to drill the live-mode lock-file path.",
                 reason,
             )
             return

@@ -712,9 +712,19 @@ class PivotMeanReversionStrategy(BaseStrategy):
         self._bar_buffer = bars[-200:]
 
     def _bar_session_bars(self) -> list[IntradayBar]:
-        """Return bars from today's session only (for VWAP)."""
-        today = date.today()
-        return [b for b in self._bar_buffer if b.timestamp.date() == today]
+        """Return bars from today's session only (for VWAP).
+
+        v27 fix: compare against ET date, not local server tz. ``date.today()``
+        returns the host wallclock date; if the host is in UTC, after 20:00 ET
+        the day boundary rolls before NYSE close, dropping every session bar
+        and zeroing VWAP — killing PMR signals across EOT close.
+        """
+        today_et = datetime.now(tz=ET).date()
+        return [
+            b for b in self._bar_buffer
+            if (b.timestamp.astimezone(ET).date() if b.timestamp.tzinfo else b.timestamp.date())
+            == today_et
+        ]
 
     def _refresh_daily_pivots(self, market_data: pd.DataFrame) -> None:
         """Recompute daily pivots from yesterday's OHLC (once per session)."""

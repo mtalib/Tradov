@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import timedelta, timezone
 import uuid
+from collections import deque  # v27 SPEC-18: bounded history
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -189,7 +190,9 @@ class MACrossoverStrategy(BaseStrategy):
         self.slow_ema: pd.Series | None = None
         self.current_ma_state: MAState = MAState.CONVERGING
         self.last_crossover_bar = -1
-        self.crossover_history: list[dict] = []
+        # v27 SPEC-18: bounded history. WHIPSAW_LOOKBACK is the max referenced
+        # window; 1000 entries gives plenty of headroom for slicing.
+        self.crossover_history: deque = deque(maxlen=1000)
 
         # Configuration
         self.fast_period = resolved_config.get('fast_period', FAST_EMA_PERIOD)
@@ -279,8 +282,10 @@ class MACrossoverStrategy(BaseStrategy):
             return 0.0
 
         # Count recent crossovers
+        # v27 SPEC-18: deque doesn't support slicing — materialize tail.
+        _history_list = list(self.crossover_history)
         recent_crossovers = [
-            cross for cross in self.crossover_history[-WHIPSAW_LOOKBACK:]
+            cross for cross in _history_list[-WHIPSAW_LOOKBACK:]
             if (datetime.now(timezone.utc) - cross['time']).seconds < 3600  # Within 1 hour
         ]
 

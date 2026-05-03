@@ -211,6 +211,11 @@ class MasterController:
 
         # Component references
         self.components = {}
+        # v27 SPEC-3: lock around components dict to prevent torn reads /
+        # KeyError-during-iteration when parallel startup phases mutate while
+        # the health-monitor thread reads. RLock so the same thread can call
+        # nested helpers (like _initialize_component) without deadlocking.
+        self._components_lock = threading.RLock()
         # N04 OptionsGreeksCalculator singleton — wired after Risk Management phase
         self._n04_calculator: Any | None = None
 
@@ -662,7 +667,9 @@ class MasterController:
             # Import and initialize the actual module
             component = self._initialize_component(module_id)
             if component:
-                self.components[module_id] = component
+                # v27 SPEC-3: serialize writes against parallel startup phases.
+                with self._components_lock:
+                    self.components[module_id] = component
                 module.status = ModuleStatus.RUNNING
                 logger.info("✓ Module started: %s", module_id)
                 return True
@@ -1148,17 +1155,19 @@ class MasterController:
         module = self.modules[module_id]
 
         try:
-            # Stop the actual component
-            if module_id in self.components:
-                # Call cleanup method if available
-                component = self.components[module_id]
+            # v27 SPEC-3: read+delete must be atomic against parallel startup.
+            with self._components_lock:
+                component = self.components.get(module_id)
+                if component is not None:
+                    del self.components[module_id]
+            # Call cleanup method if available (released lock — these can block).
+            if component is not None:
                 if hasattr(component, "stop_all"):
                     component.stop_all()
                 elif hasattr(component, "stop"):
                     component.stop()
                 elif hasattr(component, "shutdown"):
                     component.shutdown()
-                del self.components[module_id]
 
             module.status = ModuleStatus.STOPPED
             logger.info("✓ Module stopped: %s", module_id)
@@ -1585,9 +1594,36 @@ class MasterController:
                 try:
                     while self.trading_enabled:
                         try:
+                            # v27 SPEC-14: pull real positions from B03 and
+                            # NLV from E01 cached balances each cycle. Passing
+                            # [] and 0.0 forever meant E19 never detected
+                            # breaches.
+                            positions: list = []
+                            portfolio_value: float = 0.0
+                            try:
+                                pt = self.components.get("B03_PositionTracker")
+                                if pt is not None and hasattr(pt, "positions"):
+                                    pos_data = pt.positions
+                                    if isinstance(pos_data, dict):
+                                        positions = list(pos_data.values())
+                                    elif isinstance(pos_data, list):
+                                        positions = pos_data
+                            except Exception as _pt_exc:
+                                logger.debug("E19 monitor: position pull failed: %s", _pt_exc)
+                            try:
+                                rm = self.components.get("E01_RiskManager")
+                                if rm is not None:
+                                    cached = getattr(rm, "_cached_account_balances", {}) or {}
+                                    portfolio_value = float(
+                                        cached.get("net_liquidation", 0.0) or 0.0
+                                    )
+                            except Exception as _nlv_exc:
+                                logger.debug("E19 monitor: NLV pull failed: %s", _nlv_exc)
+
                             profile = _loop.run_until_complete(
                                 e19.calculate_unified_risk_profile(
-                                    positions=[], portfolio_value=0.0
+                                    positions=positions,
+                                    portfolio_value=portfolio_value,
                                 )
                             )
                             if profile and getattr(profile, "breach_count", 0) > 0:
@@ -1607,7 +1643,11 @@ class MasterController:
             logger.info("E19 portfolio risk monitor thread started (60s interval)")
 
         # Start strategy components
-        for module_id, component in self.components.items():
+        # v27 SPEC-3: snapshot under lock, then iterate without holding it
+        # (strategy.start() may block; we don't want to serialize startups).
+        with self._components_lock:
+            _strategy_snapshot = list(self.components.items())
+        for module_id, component in _strategy_snapshot:
             if module_id.startswith("D") and hasattr(component, "start"):
                 try:
                     component.start()
@@ -1902,10 +1942,11 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
 
-                now = datetime.now(timezone.utc)
+                # v27 FIX: market open/close are ET — UTC was 4-5h offset.
+                now = _now_et()
                 date_key = now.date()
 
-                # Market open at 9:30 AM
+                # Market open at 9:30 AM ET
                 open_key = (date_key, "open")
                 if (
                     open_key not in _fired
@@ -1916,7 +1957,7 @@ if __name__ == "__main__":
                     master.handle_market_open()
                     _fired.add(open_key)
 
-                # Market close at 4:00 PM
+                # Market close at 4:00 PM ET
                 close_key = (date_key, "close")
                 if (
                     close_key not in _fired

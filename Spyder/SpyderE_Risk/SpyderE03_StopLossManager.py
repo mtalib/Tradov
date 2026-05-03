@@ -990,8 +990,32 @@ class StopLossManager:
                 return False
 
         except Exception as e:
-            self.logger.error("Error submitting stop to broker: %s", e)
-            stop_order.status = StopStatus.ACTIVE  # Fallback to manual monitoring
+            # v27 SPEC-13: do NOT silently downgrade to ACTIVE — that leaves
+            # the position believing it has a working stop while the broker has
+            # nothing. Mark REJECTED and emit a RISK_ALERT so operators see the
+            # unstopped position.
+            self.logger.error(
+                "Stop submission failed; marking REJECTED (was silently ACTIVE pre-v27): %s",
+                e,
+            )
+            stop_order.status = StopStatus.REJECTED
+            if self.event_manager is not None:
+                try:
+                    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
+                    self.event_manager.emit(
+                        EventType.RISK_VIOLATION,
+                        {
+                            "severity": "high",
+                            "kind": "stop_loss_rejected",
+                            "stop_order_id": stop_order.order_id,
+                            "position_id": stop_order.position_id,
+                            "reason": str(e),
+                        },
+                        source="StopLossManager",
+                    )
+                except Exception:
+                    # Event-bus failure must not mask the original error.
+                    pass
             return False
 
     def _modify_stop_with_broker(self, stop_order: StopOrder) -> bool:

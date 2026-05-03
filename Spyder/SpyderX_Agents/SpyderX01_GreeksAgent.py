@@ -1998,12 +1998,19 @@ class GreeksAgent:
             self.logger.error("Background workers shutdown failed: %s", e)
 
     def _market_context_worker(self):
-        """Background worker to update market context."""
+        """Background worker to update market context.
+
+        v27 SPEC-15: hold one persistent event loop for the lifetime of the
+        thread instead of asyncio.run() per cycle. The previous pattern
+        created and destroyed an event loop every 5 minutes.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             while not self._shutdown_event.is_set():
                 try:
                     # Update market context every 5 minutes
-                    asyncio.run(self._update_market_context())
+                    loop.run_until_complete(self._update_market_context())
                     self._shutdown_event.wait(300)  # 5 minutes
                 except Exception as e:
                     self.logger.error("Market context update failed: %s", e)
@@ -2011,6 +2018,11 @@ class GreeksAgent:
 
         except Exception as e:
             self.logger.error("Market context worker failed: %s", e)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
 
     def _performance_monitor_worker(self):
         """Background worker to monitor model performance."""

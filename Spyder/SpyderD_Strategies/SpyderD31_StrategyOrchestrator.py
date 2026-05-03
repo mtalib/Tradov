@@ -900,6 +900,16 @@ class StrategyOrchestrator:
         self.market_data_cache = {}
         self.last_market_update = None
 
+        # v27 SPEC-12: dedicated thread pool for non-blocking dispatch.
+        # _on_strategy_signal runs on the EventManager dispatcher thread; the
+        # broker call inside _dispatch_approved_signal can take up to 30s,
+        # which would freeze every other STRATEGY_SIGNAL / MARKET_DATA dispatch.
+        # Routing dispatch through this pool returns the bus thread immediately.
+        from concurrent.futures import ThreadPoolExecutor
+        self._dispatch_executor = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="D31-dispatch"
+        )
+
         # Performance attribution
         self.performance_history = deque(maxlen=1000)
         self.strategy_correlations = {}
@@ -2071,6 +2081,27 @@ class StrategyOrchestrator:
         """Classify regime via L09 UnifiedRegimeEngine when injected; else inline heuristic."""
         self._last_l09_confidence = 0.0
 
+        # v27 SPEC-5: fail closed when SPY cache is cold (boot, reconnect, feed
+        # gap). Returning a fabricated regime locks the system into wrong
+        # strategies for the cold-start window — the documented "no strategies
+        # fire" pathology. CRISIS maps via D31's regime alias to
+        # crisis_turbulent → no-trade, which is the safe behavior.
+        spy_ticks = self.market_data_cache.get("SPY", [])
+        spy_closes = [
+            t.get("close", t.get("price"))
+            for t in spy_ticks
+            if isinstance(t, dict)
+        ]
+        spy_closes = [
+            float(c) for c in spy_closes if isinstance(c, (int, float))
+        ]
+        if len(spy_closes) < 2:
+            self.logger.warning(
+                "D31 regime: SPY cache has %d closes (<2) — failing closed to CRISIS",
+                len(spy_closes),
+            )
+            return MarketRegime.CRISIS
+
         if self._l09_engine is not None:
             try:
                 from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (  # noqa: PLC0415
@@ -2095,7 +2126,10 @@ class StrategyOrchestrator:
                     return float("nan")
                 # Build MarketConditions from cached SPY + VIX ticks
                 spy_ticks = self.market_data_cache.get("SPY", [])
-                spy_price, spy_change_pct = 500.0, 0.0
+                # v27 SPEC-5: do NOT fall back to a hardcoded $500 — that
+                # fabricates regime classification on cold start. Use NaN as the
+                # sentinel and fail closed below if the cache lacks ≥2 closes.
+                spy_price, spy_change_pct = float("nan"), 0.0
                 closes = [
                     t.get("close", t.get("price", 0.0))
                     for t in spy_ticks if isinstance(t, dict)
@@ -2104,6 +2138,17 @@ class StrategyOrchestrator:
                 if len(closes) >= 2:
                     spy_price = closes[-1]
                     spy_change_pct = (closes[-1] - closes[0]) / closes[0] * 100.0
+                else:
+                    # v27 SPEC-5: SPY cache cold (boot, reconnect, or feed gap)
+                    # → fail closed to CRISIS so D31's regime alias maps to
+                    # crisis_turbulent → no-trade. This closes the documented
+                    # "no strategies fire" pathology.
+                    self.logger.warning(
+                        "D31 regime classification: SPY cache has %d closes (<2) — "
+                        "failing closed to CRISIS regime",
+                        len(closes),
+                    )
+                    return MarketRegime.CRISIS
 
                 spy_ema50 = _ema(closes, 50)
 
@@ -2139,6 +2184,15 @@ class StrategyOrchestrator:
                     for t in vix_ticks if isinstance(t, dict)
                 ]
                 vix_values = [float(v) for v in vix_values if isinstance(v, (int, float))]
+                # v27 SPEC-5: VIX is required for risk-on/risk-off discrimination.
+                # If the VIX cache is cold, fail closed rather than running L09
+                # on SPY-only data.
+                if not vix_values:
+                    self.logger.warning(
+                        "D31 regime classification: VIX cache empty — "
+                        "failing closed to CRISIS regime"
+                    )
+                    return MarketRegime.CRISIS
                 vix_ema50 = _ema(vix_values, 50)
 
                 vix9d = _last_close(self.market_data_cache.get("VIX9D", []) or self.market_data_cache.get("^VIX9D", []))
@@ -3015,8 +3069,31 @@ class StrategyOrchestrator:
                         continue
                     self.market_data_cache[key] = value
         else:
-            self.market_data_cache = data
+            # v27 SPEC-16: do NOT replace the entire cache with a non-dict
+            # payload — that would wipe every per-symbol bucket and re-trigger
+            # the cold-start CRISIS regime. Drop the malformed event with a
+            # warning instead.
+            self.logger.warning(
+                "D31 _on_market_data_event: ignoring non-dict event payload "
+                "(type=%s) — would have corrupted per-symbol cache",
+                type(data).__name__,
+            )
+            return
         self.last_market_update = datetime.now(timezone.utc)
+
+        # v27 SPEC-11: regime is a hot-path concern. Recompute regime up to
+        # once every REGIME_UPDATE_THROTTLE_SECONDS (15s) per market-data event
+        # instead of waiting for the 30-min orchestration loop. Any regime
+        # transition detected here propagates immediately to subsequent
+        # strategy gating.
+        try:
+            now_ts = self.last_market_update
+            last_ts = getattr(self, "_last_regime_update_ts", None)
+            if last_ts is None or (now_ts - last_ts).total_seconds() >= 15:
+                self._update_market_regime()
+                self._last_regime_update_ts = now_ts
+        except Exception as _regime_exc:
+            self.logger.debug("D31 per-tick regime update failed: %s", _regime_exc)
 
         # Feed every active strategy so it can generate signals autonomously.
         if not self.active_strategies:
@@ -3251,7 +3328,18 @@ class StrategyOrchestrator:
         if approved:
             self._signal_flow_counts["approved"] += 1
             self.logger.info("Strategy signal approved for dispatch | %s", pivot_context)
-            self._dispatch_approved_signal(signal)
+            # v27 SPEC-12: dispatch on a worker thread so the EventManager
+            # dispatcher thread isn't frozen for ≤30s on a slow broker call.
+            try:
+                self._dispatch_executor.submit(self._dispatch_approved_signal, signal)
+            except Exception as _disp_exc:
+                # Pool unavailable (e.g. shut down) — fall back to inline so we
+                # don't silently drop an approved signal.
+                self.logger.warning(
+                    "D31 dispatch executor unavailable, falling back to inline: %s",
+                    _disp_exc,
+                )
+                self._dispatch_approved_signal(signal)
 
     def _get_entry_filter_gate(self) -> Any | None:
         """Lazily build the F09 gate used for market-structure trust checks."""

@@ -1228,8 +1228,41 @@ class OrderManager:
                 # ── 2. IOC-ping: cancel the resting order, advance price, resubmit ──
                 # Cancelling rather than modifying prevents HFT algorithms from
                 # detecting a slowly-creeping resting order and stepping in front.
+                #
+                # v27 SPEC-8: poll until cancel-confirmed (or fill) before
+                # submitting the next ping. The previous code blindly issued
+                # cancel + submit-new in sequence; if the resting limit filled
+                # in the millisecond between those calls, we'd end up with
+                # 2× quantity at a worse price.
                 if current_order_id:
                     self.cancel_order(current_order_id)
+                    _confirm_deadline = time.monotonic() + 2.0
+                    _filled_during_cancel = False
+                    while time.monotonic() < _confirm_deadline:
+                        _refreshed = self.refresh_order(current_order_id)
+                        if _refreshed is None:
+                            break
+                        if _refreshed.state == OrderState.FILLED:
+                            self.logger.info(
+                                "MidWalk: order %s filled during cancel attempt — "
+                                "returning fill, NOT submitting replacement",
+                                current_order_id,
+                            )
+                            _filled_during_cancel = True
+                            break
+                        if _refreshed.state in (
+                            OrderState.CANCELLED, OrderState.REJECTED, OrderState.EXPIRED,
+                        ):
+                            break
+                        time.sleep(0.1)
+                    if _filled_during_cancel:
+                        return OrderResult(
+                            success=True,
+                            order_id=current_order_id,
+                            tradier_order_id=_refreshed.tradier_order_id,
+                            operation="submit_limit_with_walk",
+                            message="Filled during cancel race",
+                        )
 
                 limit_price = round(limit_price + (step if is_buy else -step), 2)
                 self.logger.info(

@@ -620,19 +620,33 @@ class RiskManager:
             self.logger.info("Position monitoring stopped")
 
     def _position_monitoring_loop(self):
-        """Position monitoring loop."""
-        while not self._shutdown_event.is_set():
+        """Position monitoring loop.
+
+        v27 SPEC-15: hold a single persistent event loop for the lifetime of
+        the thread instead of asyncio.run() per cycle. The previous pattern
+        created and destroyed an event loop every 30s, breaking any client
+        that caches a loop (Tradier websocket, aiohttp sessions).
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # Request position updates on the persistent loop.
+                    loop.run_until_complete(self._request_positions())
+
+                    # Wait for next update.
+                    self._shutdown_event.wait(self.config.position_update_interval)
+
+                except Exception as e:
+                    self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
+                    self.error_handler.handle_error(e, "_position_monitoring_loop")
+                    self._shutdown_event.wait(1.0)  # Wait before retry.
+        finally:
             try:
-                # Request position updates.
-                asyncio.run(self._request_positions())
-
-                # Wait for next update.
-                self._shutdown_event.wait(self.config.position_update_interval)
-
-            except Exception as e:
-                self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
-                self.error_handler.handle_error(e, "_position_monitoring_loop")
-                self._shutdown_event.wait(1.0)  # Wait before retry.
+                loop.close()
+            except Exception:
+                pass
 
     def _send_risk_notifications(self, risk_metrics: RiskMetrics):
         """
@@ -1360,6 +1374,16 @@ class RiskManager:
     async def _request_account_summary(self):
         """Fetch account balances from Tradier and push through the handler."""
         if self.tradier_client is None:
+            # v27 SPEC-10: in live mode, refuse to mark synced when no broker
+            # client is configured. The cold-start guard must remain active so
+            # validate_signal rejects every signal — silently failing open here
+            # would let degraded boots approve orders against a zero baseline.
+            if os.environ.get("TRADING_MODE", "paper").lower() == "live":
+                self.logger.error(
+                    "RiskManager: TRADING_MODE=live but tradier_client is None — "
+                    "leaving cold-start guard engaged; all signals will be rejected."
+                )
+                return
             self.logger.debug(
                 "RiskManager: tradier_client not configured — running standalone; "
                 "marking account state synced so signals are not cold-start rejected."
@@ -1446,14 +1470,33 @@ class RiskManager:
 
             # Update position
             with self._risk_lock:
+                # v27 SPEC-9: the Tradier positions endpoint does NOT return
+                # UnrealizedPNL / RealizedPNL fields. Writing 0.0 every cycle
+                # destroyed any PnL value cached from another source, masking
+                # daily-loss limits. Preserve existing PnL when the payload
+                # omits the field; only write when explicitly present.
+                existing = self._positions.get(symbol)
+                if "UnrealizedPNL" in data:
+                    unrealized_pnl = float(data["UnrealizedPNL"])
+                elif existing is not None:
+                    unrealized_pnl = existing.unrealized_pnl
+                else:
+                    unrealized_pnl = 0.0
+                if "RealizedPNL" in data:
+                    realized_pnl = float(data["RealizedPNL"])
+                elif existing is not None:
+                    realized_pnl = existing.realized_pnl
+                else:
+                    realized_pnl = 0.0
+
                 position = Position(
                     symbol=symbol,
                     quantity=int(data.get("Position", 0)),
                     market_price=float(data.get("MarketPrice", 0.0)),
                     market_value=float(data.get("MarketValue", 0.0)),
                     average_fill_price=float(data.get("AverageCost", 0.0)),
-                    unrealized_pnl=float(data.get("UnrealizedPNL", 0.0)),
-                    realized_pnl=float(data.get("RealizedPNL", 0.0)),
+                    unrealized_pnl=unrealized_pnl,
+                    realized_pnl=realized_pnl,
                     currency=data.get("Currency", "USD"),
                     security_type=data.get("SecurityType", "STK"),
                     expiry=data.get("ExpirationDate"),
@@ -1518,8 +1561,24 @@ class RiskManager:
             # Calculate total exposure
             total_exposure = sum(abs(pos.market_value) for pos in self._positions.values())
 
-            # Calculate daily PnL
-            daily_pnl = sum(pos.unrealized_pnl + pos.realized_pnl for pos in self._positions.values())  # noqa: E501
+            # v27 SPEC-9: source daily P&L from the Tradier balances endpoint
+            # (close_pl / day_change), NOT from summing local Position.unrealized_pnl
+            # +realized_pnl. The positions endpoint does not return PnL fields,
+            # so the local sum was always 0.0 — silently disabling the daily-loss
+            # kill switch. Fall back to the legacy local sum only when the
+            # broker-fed value is unavailable (e.g. paper-mode boot before the
+            # first balance fetch).
+            cached_balances = getattr(self, "_cached_account_balances", {}) or {}
+            broker_daily_pnl = cached_balances.get("close_pl")
+            if broker_daily_pnl is None:
+                broker_daily_pnl = cached_balances.get("day_change")
+            if broker_daily_pnl is not None:
+                daily_pnl = float(broker_daily_pnl)
+            else:
+                daily_pnl = sum(
+                    pos.unrealized_pnl + pos.realized_pnl
+                    for pos in self._positions.values()
+                )
 
             # Calculate concentration
             max_concentration = 0.0

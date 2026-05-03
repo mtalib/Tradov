@@ -284,8 +284,9 @@ class SpyderY02_StrategyPilotAgent(BaseAutoAgent):
         base_allocation = {}
         if self._x03_agent:
             try:
-                import asyncio
-                result = asyncio.run(
+                # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                result = run_coro_in_thread(
                     self._x03_agent.select_strategy(regime=self._current_regime)
                 )
                 if result:

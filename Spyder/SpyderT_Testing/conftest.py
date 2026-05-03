@@ -40,6 +40,71 @@ collect_ignore = [
 
 
 # ==============================================================================
+# v27 SPEC-1: pin trading-day for entry-trust-gate / Go-No-Go tests
+# ==============================================================================
+# F09 EntryFilters._check_market_conditions checks current_time.weekday() against
+# self.restricted_days (default [5, 6] = Sat/Sun). On weekend CI runs, every
+# entry-trust-gate / Go-No-Go test rejects with "Weekend - markets closed",
+# masking real regressions. This fixture monkeypatches EntryFilters so
+# restricted_days is empty for the affected test files.
+#
+# Affected files (per v27 audit):
+#   T134_A02_EntryTrustGate, T141_D31_EntryTrustGate, T153_G05_GoNoGoCheck,
+#   T179_T54_T142_IsolationRegression, T183_Phase2SymbolCatalog
+@pytest.fixture(autouse=True)
+def _spec1_disable_weekend_filter_for_trust_gate_tests(request, monkeypatch):
+    """v27 SPEC-1: tests that depend on RTH must not be calendar-flaky."""
+    affected_modules = (
+        "SpyderT134_A02_EntryTrustGate",
+        "SpyderT141_D31_EntryTrustGate",
+        "SpyderT153_G05_GoNoGoCheck",
+        "SpyderT179_T54_T142_IsolationRegression",
+        "SpyderT183_Phase2SymbolCatalog",
+    )
+    test_module_name = request.module.__name__ if request.module else ""
+    if not any(name in test_module_name for name in affected_modules):
+        return
+
+    try:
+        from Spyder.SpyderF_Analysis import SpyderF09_EntryFilters as _f09
+    except Exception:
+        return  # Module not importable; nothing to patch.
+
+    original_init = _f09.EntryFilters.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        # Disable weekend / day-of-week gate so the test isn't calendar-flaky.
+        self.restricted_days = []
+
+    monkeypatch.setattr(_f09.EntryFilters, "__init__", _patched_init)
+
+    # G05 Go/No-Go path uses its own snapshot with is_weekend / is_market_hours
+    # fields populated from datetime.now(US/Eastern). Force those to RTH values.
+    try:
+        from Spyder.SpyderG_GUI import SpyderG05_TradingDashboard as _g05
+    except Exception:
+        return
+    if hasattr(_g05, "SpyderTradingDashboard") and hasattr(
+        _g05.SpyderTradingDashboard, "_build_preopen_check_snapshot"
+    ):
+        _orig_snapshot = _g05.SpyderTradingDashboard._build_preopen_check_snapshot
+
+        def _patched_snapshot(self):
+            snap = _orig_snapshot(self)
+            if isinstance(snap, dict):
+                snap["is_weekend"] = False
+                snap["is_market_hours"] = True
+            return snap
+
+        monkeypatch.setattr(
+            _g05.SpyderTradingDashboard,
+            "_build_preopen_check_snapshot",
+            _patched_snapshot,
+        )
+
+
+# ==============================================================================
 # TRADIER FIXTURES
 # ==============================================================================
 

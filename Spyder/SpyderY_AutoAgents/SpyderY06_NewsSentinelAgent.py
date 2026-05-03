@@ -221,8 +221,9 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         """Fetch latest news from available sources."""
         if self._x11_agent:
             try:
-                import asyncio
-                news = asyncio.run(
+                # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                news = run_coro_in_thread(
                     self._x11_agent.get_latest_news(symbol="SPY")
                 )
 

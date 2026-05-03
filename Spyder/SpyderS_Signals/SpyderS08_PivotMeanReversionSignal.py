@@ -211,6 +211,12 @@ class PivotMeanReversionSignal:
         For resistance (side='above') we want price >= level.
         For support    (side='below') we want price <= level.
         """
+        # v27 fix: pick the DEEPEST breach (largest signed ATR distance), not
+        # the closest. When multiple R/S levels are breached, the deepest one
+        # — i.e. the level farthest from the current price — represents the
+        # strongest fade signal because price has travelled the furthest past
+        # the original breakout. The previous `dist < best[2]` selected the
+        # closest, contradicting the test contract in T131.
         best: Optional[tuple[str, float, float]] = None
         for k in keys:
             lvl = pivots.get(k)
@@ -218,11 +224,11 @@ class PivotMeanReversionSignal:
                 continue
             if side == "above" and spot >= lvl:
                 dist = (spot - lvl) / atr
-                if best is None or dist < best[2]:   # closest breached level
+                if best is None or dist > best[2]:   # deepest breached level
                     best = (k, float(lvl), float(dist))
             elif side == "below" and spot <= lvl:
                 dist = (lvl - spot) / atr   # positive when below support
-                if best is None or dist < best[2]:   # closest breached level
+                if best is None or dist > best[2]:   # deepest breached level
                     best = (k, float(lvl), float(dist))
         return best
 

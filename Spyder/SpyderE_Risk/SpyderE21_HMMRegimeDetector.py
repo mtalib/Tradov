@@ -57,6 +57,7 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timezone
 import warnings
+from collections import deque  # v27 SPEC-18: bounded histories
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -249,8 +250,11 @@ class HMMRegimeDetector:
         self.training_result: HMMTrainingResult | None = None
 
         # Historical tracking
-        self.regime_history: list[tuple[datetime, MarketRegime]] = []
-        self.prediction_history: list[RegimePrediction] = []
+        # v27 SPEC-18: bounded histories — prediction_history grows ~390/day
+        # during market hours; an unbounded list would OOM on multi-week soak.
+        # 2000 entries ≈ 5 trading days of context at 1/min cadence.
+        self.regime_history: deque = deque(maxlen=2000)
+        self.prediction_history: deque = deque(maxlen=2000)
 
         # State tracking
         self.current_regime: MarketRegime = MarketRegime.UNKNOWN
@@ -317,9 +321,9 @@ class HMMRegimeDetector:
                     features
                 )
 
-            # Initialize regime tracking
-            self.regime_history = []
-            self.prediction_history = []
+            # Initialize regime tracking (v27 SPEC-18: bounded — see __init__)
+            self.regime_history = deque(maxlen=2000)
+            self.prediction_history = deque(maxlen=2000)
 
             self.logger.info("HMM Regime Detector initialized successfully")
             return True

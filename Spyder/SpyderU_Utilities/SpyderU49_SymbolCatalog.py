@@ -209,7 +209,12 @@ def get_worker_live_data_keys() -> set[str]:
         remap.get(provider_symbol, provider_symbol)
         for provider_symbol in get_quote_symbol_basket(include_deprecated=False)
     }
-    keys.update({"CPC", "RVOL"})
+    # v27 fix: VXV (CBOE 3-Month Vol) is event-only at the catalog level
+    # because Tradier doesn't quote it directly, but it IS written to live_data
+    # by an event/derived producer (G18 worker emits a synthetic VXV when
+    # available). Include it in the worker keys set so widget-binding stays
+    # consistent and T183 catalog test matches reality.
+    keys.update({"CPC", "RVOL", "VXV"})
     return keys
 
 

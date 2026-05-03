@@ -527,6 +527,26 @@ class SessionSupervisor:
                 event_manager=self.em,
             )
             self.orchestrator.set_live_engine(self.engine)
+            # v27 SPEC-6: wire OrderManager so D31's _dispatch_approved_signal
+            # uses the mid-price walk path instead of falling back to bare
+            # market orders through the live engine. Without this, every
+            # options entry pays full bid/ask spread (~$5-15 per round trip
+            # on SPY 0DTE).
+            try:
+                from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager
+                # Reuse the already-constructed Tradier client from the broker
+                # phase if available, so we don't open a second session.
+                tradier_client = getattr(self.broker, "tradier", None)
+                om = OrderManager(tradier_client=tradier_client)
+                self.orchestrator.set_order_manager(om)
+                self._components.append(om)
+                self.logger.debug("✅ OrderManager wired to StrategyOrchestrator")
+            except Exception as om_exc:
+                self.logger.error(
+                    "❌ OrderManager wiring failed (mid-price walk disabled, "
+                    "orders will fall back to market through LiveEngine): %s",
+                    om_exc,
+                )
             self.orchestrator.start_orchestration()
             self._components.append(self.orchestrator)
             self.logger.debug("✅ StrategyOrchestrator started")

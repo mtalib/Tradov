@@ -565,12 +565,20 @@ class TradierClient:
         """
         session = requests.Session()
 
-        # Configure retry strategy
+        # Configure retry strategy.
+        #
+        # v27 SPEC-4 phase 6a: only idempotent HTTP methods are auto-retried.
+        # POST/PUT/DELETE are EXCLUDED — a 5xx response on an order-mutating
+        # request may have actually succeeded at the broker, and a urllib3
+        # auto-retry would produce duplicate fills (or a duplicate cancel
+        # racing a fresh fill). Application-level retries for order endpoints
+        # must use the Tradier ``tag`` field for idempotent dedup
+        # (see SPEC-4 phase 6b/6c).
         retry_strategy = Retry(
             total=MAX_RETRIES,
             backoff_factor=RETRY_BACKOFF,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"]
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
         )
 
         # Mount retry adapter
@@ -980,9 +988,14 @@ class TradierClient:
         if stop_price is not None:
             payload["stop"] = stop_price
 
-        # P0-9: Tradier idempotency tag — prevents duplicate fills on retry.
-        if tag is not None:
-            payload["tag"] = tag
+        # P0-9 / v27 SPEC-4 phase 6b: Tradier idempotency tag — prevents
+        # duplicate fills on application-level retries. If the caller did
+        # not supply a tag, auto-generate a uuid-based one so EVERY order
+        # carries an idempotency key. Tradier dedupes within ≤24h on tag.
+        if tag is None:
+            import uuid
+            tag = f"spyder-{uuid.uuid4().hex[:16]}"
+        payload["tag"] = tag
 
         return self._make_request(
             "POST",
@@ -1878,8 +1891,11 @@ class TradierClient:
         if price is not None:
             payload["price"] = str(price)
 
-        if tag:
-            payload["tag"] = tag
+        # v27 SPEC-4 phase 6b: auto-generate idempotency tag if caller omitted.
+        if not tag:
+            import uuid
+            tag = f"spyder-multileg-{uuid.uuid4().hex[:16]}"
+        payload["tag"] = tag
 
         # Add legs as indexed arrays
         for i, leg in enumerate(legs):

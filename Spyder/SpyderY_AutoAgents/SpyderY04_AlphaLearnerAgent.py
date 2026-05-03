@@ -378,8 +378,9 @@ class SpyderY04_AlphaLearnerAgent(BaseAutoAgent):
         """Optimize hyperparameters for a model."""
         if self._x05_agent and hasattr(self._x05_agent, "optimize_model"):
             try:
-                import asyncio
-                result = asyncio.run(
+                # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                result = run_coro_in_thread(
                     self._x05_agent.optimize_model(model_name=task.model_name)
                 )
                 task.result = f"Optimization complete: {result}"

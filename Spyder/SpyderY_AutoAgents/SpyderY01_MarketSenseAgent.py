@@ -314,8 +314,10 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         # Try to get full analysis from X13
         if self._x13_agent:
             try:
-                import asyncio
-                analysis = asyncio.run(
+                # v27 SPEC-15: use AsyncBridge helper to avoid RuntimeError
+                # when caller is inside an existing event loop (X14 orch).
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                analysis = run_coro_in_thread(
                     self._x13_agent.analyze_market(symbol="SPY")
                 )
                 if analysis:
