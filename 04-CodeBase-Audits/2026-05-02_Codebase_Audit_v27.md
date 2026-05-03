@@ -588,6 +588,12 @@ RED tests drafted at `Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.p
 | `Spyder/SpyderU_Utilities/SpyderU49_SymbolCatalog.py` | T183 fix (VXV in worker live data keys) |
 | `Spyder/SpyderT_Testing/conftest.py` | SPEC-1 (autouse fixture: F09 weekend filter + G05 GoNoGo snapshot) |
 | `Spyder/SpyderS_Signals/SpyderS08_PivotMeanReversionSignal.py` | bonus fix — `_closest_breached_level` was picking closest instead of deepest, contradicting the test contract. Pre-existing T131 failure that had been masked by the 17 weekend failures. |
+| `Spyder/SpyderT_Testing/SpyderT186_E01_ColdStartFailClosed.py` | NEW — SPEC-10 test fixture (3 tests; 3 GREEN after SPEC-10) |
+| `Spyder/SpyderT_Testing/SpyderT187_D31_ColdStartRegimeUnknown.py` | NEW — SPEC-5 test fixture (5 tests; 3 GREEN, 2 skipped scope-decisions: VIX-empty gating + dispatch-time gating both ruled out of SPEC-5 scope) |
+| `Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.py` | NEW — SPEC-6 test fixture (3 tests; 3 GREEN after SPEC-6) |
+| `Spyder/SpyderT_Testing/SpyderT189_E03_StopLossBrokerRejection.py` | NEW — SPEC-13 test fixture (4 tests; 4 GREEN after SPEC-13) |
+| `Spyder/SpyderT_Testing/SpyderT190_E01_DailyLossFromBrokerPnL.py` | NEW — SPEC-9 test fixture (3 tests; 3 GREEN after SPEC-9) |
+| `Spyder/SpyderT_Testing/SpyderT191_B40_RetryIdempotency.py` | NEW — SPEC-4 test fixture (7 tests; 7 GREEN after SPEC-4 phase 6a + 6b) |
 
 ---
 
