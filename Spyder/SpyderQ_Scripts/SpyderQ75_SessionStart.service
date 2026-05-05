@@ -1,0 +1,22 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Service: SpyderQ75_SessionStart.service
+# Group: Q (Scripts/Services)
+# Purpose: Ensure SpyderQ74_SpyderMain.service is active before market open.
+#          Triggered by SpyderQ75_SessionStart.timer at 08:55 ET weekdays.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Session Start — ensure main service is running
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=adam
+Group=adam
+# Start the main service if it is not already running.
+ExecStart=/bin/systemctl start SpyderQ74_SpyderMain.service
+# Log the ensure-running attempt (non-fatal if already active).
+ExecStartPost=/bin/bash -c 'systemctl is-active --quiet SpyderQ74_SpyderMain.service && echo "Spyder main service active at session start" || echo "WARNING: Spyder main service not active after start attempt"'

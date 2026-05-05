@@ -15,6 +15,7 @@ This ensures the GUI launches properly after establishing reliable broker connec
 """
 
 import importlib.util
+import os
 import sys
 import logging
 import signal
@@ -392,6 +393,8 @@ class SpyderApplication:
         self.event_manager: Any = None
         self.connection_manager: Any = None
         self.client: Any = None
+        self.telegram_bot: Any = None
+        self.session_supervisor: Any = None
         self.gui_app: Any = None
         self.main_window: Any = None
 
@@ -561,6 +564,89 @@ class SpyderApplication:
 
             self.client = None  # Tradier client (set by dashboard connection)
 
+            # Initialize Telegram bot (optional). This enables outbound alerts
+            # and inbound operator commands when A01 is used as entrypoint.
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+            chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+            if bot_token and chat_id and self.event_manager is not None:
+                try:
+                    from Spyder.SpyderJ_Alerts.SpyderJ05_TelegramBot import TelegramBot
+
+                    self.telegram_bot = TelegramBot(
+                        bot_token=bot_token,
+                        chat_id=chat_id,
+                        event_manager=self.event_manager,
+                    )
+                    self.telegram_bot.start()
+                    self.logger.info("✅ Telegram bot initialized from A01")
+                except Exception as e:
+                    self.logger.warning(
+                        "Telegram bot initialization failed in A01: %s", e, exc_info=True
+                    )
+            elif bot_token and chat_id and self.event_manager is None:
+                self.logger.warning(
+                    "Telegram env present, but EventManager unavailable; "
+                    "Telegram bot not initialized"
+                )
+            else:
+                self.logger.info("ℹ️ Telegram bot not configured for A01 startup")
+
+            # Optionally autostart SessionSupervisor from A01. This is useful
+            # for icon-launch workflows that rely on Telegram /status and
+            # /resume gates checking session_supervisor state.
+            autostart_raw = os.environ.get(
+                "SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR", "0"
+            ).strip().lower()
+            should_autostart = autostart_raw in ("1", "true", "yes", "on")
+            if should_autostart:
+                mode = os.environ.get("SPYDER_A01_AUTOSTART_MODE", "paper").strip().lower()
+                if mode not in ("paper", "live"):
+                    self.logger.warning(
+                        "Invalid SPYDER_A01_AUTOSTART_MODE=%s, falling back to paper",
+                        mode,
+                    )
+                    mode = "paper"
+
+                # Never autostart live mode unless explicitly allowed.
+                if mode == "live":
+                    allow_live = os.environ.get(
+                        "SPYDER_A01_ALLOW_LIVE_AUTOSTART", "0"
+                    ).strip().lower() in ("1", "true", "yes", "on")
+                    if not allow_live:
+                        self.logger.warning(
+                            "Live autostart requested but blocked. "
+                            "Set SPYDER_A01_ALLOW_LIVE_AUTOSTART=1 to enable. "
+                            "Falling back to paper mode."
+                        )
+                        mode = "paper"
+
+                try:
+                    from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                        create_session_supervisor,
+                    )
+
+                    self.session_supervisor = create_session_supervisor(mode=mode)
+                    if self.session_supervisor.start():
+                        self.logger.info(
+                            "✅ SessionSupervisor autostarted from A01 (mode=%s)",
+                            mode,
+                        )
+                    else:
+                        self.logger.warning(
+                            "SessionSupervisor autostart failed from A01 (mode=%s)",
+                            mode,
+                        )
+                        self.session_supervisor = None
+                except Exception as exc:
+                    self.logger.warning(
+                        "SessionSupervisor autostart exception in A01: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                    self.session_supervisor = None
+            else:
+                self.logger.info("ℹ️ SessionSupervisor autostart disabled in A01")
+
             self.logger.info("✅ Core systems initialized successfully!")
 
             # Log which optional capabilities are available before the event loop starts
@@ -661,6 +747,15 @@ class SpyderApplication:
                 self.logger.info(
                     "ℹ️ Dashboard will manage its own connection."
                 )
+
+                # If A01 pre-started a SessionSupervisor (SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR=1),
+                # inject it into the dashboard so G05 reuses it instead of creating a second
+                # instance (which would fail to bind the healthz port).
+                if self.session_supervisor is not None:
+                    self.main_window._session_supervisor = self.session_supervisor
+                    self.logger.info(
+                        "✅ A01 SessionSupervisor injected into dashboard — reusing existing session"
+                    )
 
                 self.main_window.show()
                 self.logger.info("✅ Real Trading Dashboard launched successfully!")
@@ -796,6 +891,24 @@ class SpyderApplication:
                 except Exception as e:
                     self.logger.warning("Broker disconnect error: %s", e, exc_info=True)
 
+            # Stop Telegram bot worker/poller threads
+            if self.telegram_bot:
+                try:
+                    self.telegram_bot.stop()
+                    self.logger.info("📨 Telegram bot stopped")
+                except Exception as e:
+                    self.logger.warning("Telegram bot stop error: %s", e, exc_info=True)
+
+            # Stop unified session supervisor if A01 started it.
+            if self.session_supervisor:
+                try:
+                    self.session_supervisor.stop(flatten=False)
+                    self.logger.info("🧭 SessionSupervisor stopped")
+                except Exception as e:
+                    self.logger.warning("SessionSupervisor stop error: %s", e, exc_info=True)
+                finally:
+                    self.session_supervisor = None
+
             # Cleanup GUI
             if self.gui_app:
                 try:
@@ -806,9 +919,30 @@ class SpyderApplication:
             self.logger.info("✅ Shutdown complete")
 
 
+def _load_runtime_dotenv(startup_log: logging.Logger) -> None:
+    """Load runtime .env settings when running the A01 entrypoint directly."""
+    try:
+        from dotenv import load_dotenv
+
+        env_path = project_root / ".env"
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=False)
+            startup_log.info("Loaded environment from %s", env_path)
+        else:
+            startup_log.info("No .env file found at %s", env_path)
+    except ImportError:
+        startup_log.warning(
+            "python-dotenv not installed; relying on pre-exported environment variables"
+        )
+    except Exception as exc:
+        startup_log.warning("Failed to load .env: %s", exc)
+
+
 def main() -> int:
     """Main entry point for SPYDER application with PROVEN race condition fix."""
     _startup_log = logging.getLogger("SpyderA01_Main")
+
+    _load_runtime_dotenv(_startup_log)
 
     _startup_log.info("=" * 70)
     _startup_log.info("SPYDER - Autonomous Options Trading System v1.0")

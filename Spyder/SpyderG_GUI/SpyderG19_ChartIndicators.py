@@ -151,7 +151,7 @@ def _compute_pivot_levels(
         r3=prev_high + 2 * (pivot - prev_low),
         s1=(2 * pivot) - prev_high,
         s2=pivot - rng,
-        s3=prev_low - 2 * (pivot - prev_low),
+        s3=prev_low - 2 * (prev_high - pivot),
     )
 
 

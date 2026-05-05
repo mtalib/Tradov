@@ -1,0 +1,23 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Unit: SpyderQ79_MondayStart.timer
+# Group: Q (Scripts/Services)
+# Purpose: Ensure the Spyder main service is started for the Monday session
+#          after the weekend stop.  Fires at 08:55 ET Monday — functionally
+#          equivalent to SpyderQ75_SessionStart.timer but kept separate so
+#          Monday-specific readiness logic can be added without touching the
+#          generic weekday timer.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Monday Session Start Timer — 08:55 ET
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+
+[Timer]
+OnCalendar=Mon *-*-* 08:55:00 America/New_York
+Persistent=false
+Unit=SpyderQ75_SessionStart.service
+
+[Install]
+WantedBy=timers.target

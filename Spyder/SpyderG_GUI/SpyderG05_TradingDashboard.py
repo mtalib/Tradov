@@ -480,6 +480,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Toolbar proxy multipliers (configurable with safe defaults).
         self._dji_from_spx_multiplier = self._load_dji_proxy_multiplier()
+        # Per-symbol stale-data log throttling for Market Overview rows.
+        self._stale_symbol_log_ts: dict[str, float] = {}
 
         # System log verbosity mode (NORMAL suppresses routine signal chatter,
         # DEBUG restores full stream for diagnostics).
@@ -621,6 +623,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.unrealized_value = None
         self.pnl_table = None
         self.refresh_orders_btn = None
+        self.recent_trades_history_btn = None
         self.trade_audit_btn = None
         self.decision_log_btn = None
         self.veto_toggle_btn = None
@@ -655,6 +658,7 @@ class SpyderTradingDashboard(QMainWindow):
         self._closed_trades_cache: list = []
         # Decision Log dialog singleton (None when closed).
         self._decision_log_dialog = None
+        self._recent_trades_dialog = None
         # Phase 3: portfolio-aggregate Greeks labels (all None — data lives in
         # _portfolio_summary_cache and is surfaced via the popup dialog).
         self.port_delta_label = None
@@ -962,11 +966,33 @@ class SpyderTradingDashboard(QMainWindow):
                 self.connection_info.last_successful_data = freshest_quote_time
                 self.connection_info.data_was_live = True
 
+            # Detect per-symbol stale quotes relative to this fetch. Tradier can
+            # occasionally return a lagging quote for one symbol in an otherwise
+            # fresh basket; avoid showing that value as if it were current.
+            stale_symbols: set[str] = set()
+            fetch_time = _datetime_from_epoch_ms(live_data.get("_fetch_time_ms"))
+            if fetch_time is not None:
+                for symbol in ("DIA",):
+                    entry = live_data.get(symbol)
+                    if not isinstance(entry, dict):
+                        continue
+                    quote_time = _datetime_from_epoch_ms(entry.get("timestamp_ms"))
+                    if quote_time is None:
+                        continue
+                    quote_age_seconds = (fetch_time - quote_time).total_seconds()
+                    if quote_age_seconds > REALTIME_QUOTE_MAX_AGE_SECONDS:
+                        stale_symbols.add(symbol)
+                        widget = self.symbol_widgets.get(symbol)
+                        if widget is not None:
+                            widget.set_unavailable("STALE")
+
             # Update symbol widgets — delegate to update_data() so each widget's
             # symbol-specific formatting and colour logic is applied correctly
             # (e.g. $TICK/$ADD as signed integers, $TRIN colour-coded by value).
             for symbol, data in live_data.items():
                 if not isinstance(data, dict):
+                    continue
+                if symbol in stale_symbols:
                     continue
                 if symbol in self.symbol_widgets:
                     self.symbol_widgets[symbol].update_data(data)
@@ -1007,64 +1033,103 @@ class SpyderTradingDashboard(QMainWindow):
     def update_toolbar_with_real_data(self, live_data):
         """Update toolbar indices with real data"""
         try:
-            # SPX — use real SPX index value directly
-            spx_src = live_data.get("SPX") or live_data.get("SPY")
-            spx_mult = 1 if "SPX" in live_data else 10
-            if spx_src:
+            fetch_time = _datetime_from_epoch_ms(live_data.get("_fetch_time_ms"))
+
+            def _clear_pair(value_attr: str, change_attr: str) -> None:
+                if hasattr(self, value_attr):
+                    getattr(self, value_attr).setText("")
+                if hasattr(self, change_attr):
+                    widget = getattr(self, change_attr)
+                    widget.setText("")
+                    widget.setStyleSheet("color: #888888;")
+
+            def _is_fresh(symbol: str, entry: dict | None) -> bool:
+                if not isinstance(entry, dict):
+                    return False
+                last = entry.get("last")
+                if not isinstance(last, (int, float)) or last == 0.0:
+                    return False
+                # Outside market hours the data file has no live fetch timestamp
+                # (_fetch_time_ms absent) — EOD / snapshot data is intentionally
+                # old, so bypass the freshness check and show any non-zero value.
+                if fetch_time is None:
+                    return True
+                quote_time = _datetime_from_epoch_ms(entry.get("timestamp_ms"))
+                if quote_time is None:
+                    return False
+                age_seconds = abs((fetch_time - quote_time).total_seconds())
+                # Some direct index feeds ($DJI, SPX) can be delayed versus
+                # ETF/equity quote cadence. Keep strict-direct behavior (no
+                # proxy/fallback), but allow a symbol-specific freshness window.
+                max_age_seconds = REALTIME_QUOTE_MAX_AGE_SECONDS
+                if symbol in ("$DJI", "SPX"):
+                    max_age_seconds = 1800.0
+                return age_seconds <= max_age_seconds
+
+            # S&P: strict direct index only.
+            spx_src = live_data.get("SPX")
+            if _is_fresh("SPX", spx_src):
                 if hasattr(self, "spx_value"):
-                    self.spx_value.setText(f" {spx_src['last'] * spx_mult:.0f}")
+                    self.spx_value.setText(f" {spx_src['last']:.0f}")
                 if hasattr(self, "spx_change"):
-                    change = spx_src["change"] * spx_mult
+                    change = spx_src["change"]
                     pct = spx_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.spx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.spx_change.setStyleSheet(f"color: {color};")
+            else:
+                _clear_pair("spx_value", "spx_change")
 
-            # COMP (NASDAQ Composite) — Tradier has no IXIC symbol.
-            # QQQ ETF * 37.5 is the closest available proxy (~23,079 vs actual ~23,111).
-            ndx_src = live_data.get("QQQ")
-            ndx_mult = 37.5
-            if ndx_src:
+            # NASDAQ headline: strict NDX only.
+            ndx_src = live_data.get("NDX")
+            if _is_fresh("NDX", ndx_src):
                 if hasattr(self, "comp_value"):
-                    self.comp_value.setText(f" {ndx_src['last'] * ndx_mult:,.0f}")
+                    self.comp_value.setText(f" {ndx_src['last']:,.0f}")
                 if hasattr(self, "comp_change"):
-                    change = ndx_src["change"] * ndx_mult
+                    change = ndx_src["change"]
                     pct = ndx_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.comp_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.comp_change.setStyleSheet(f"color: {color};")
+            else:
+                _clear_pair("comp_value", "comp_change")
 
-            # DJI — remove DIA quote dependency from G18 worker basket.
-            # Approximate Dow from SPX with a stable scaling factor.
-            dji_src = live_data.get("SPX")
-            dji_mult = self._dji_from_spx_multiplier
-            if dji_src:
+            # DOW: strict $DJI only.
+            dji_src = live_data.get("$DJI")
+            if _is_fresh("$DJI", dji_src):
                 if hasattr(self, "dji_value"):
-                    self.dji_value.setText(f" {dji_src['last'] * dji_mult:,.0f}")
+                    self.dji_value.setText(f" {dji_src['last']:,.0f}")
                 if hasattr(self, "dji_change"):
-                    change = dji_src["change"] * dji_mult
+                    change = dji_src["change"]
                     pct = dji_src["change_pct"]
                     sign = "+" if change >= 0 else ""
                     self.dji_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
                     color = "#00ff41" if change >= 0 else "#FF073A"
                     self.dji_change.setStyleSheet(f"color: {color};")
+            else:
+                _clear_pair("dji_value", "dji_change")
 
-            # RUT proxy — remove direct RUT dependency and derive from IWM.
-            rut_src = live_data.get("IWM")
-            rut_mult = 10
-            if rut_src:
-                rut_last = rut_src["last"] * rut_mult
+            # Russell 2K: strict RUT only.
+            rut_src = live_data.get("RUT")
+            if _is_fresh("RUT", rut_src):
+                rut_last = rut_src["last"]
                 if hasattr(self, "rut_value"):
                     self.rut_value.setText(f" {rut_last:,.0f}")
                 if hasattr(self, "rut_change"):
-                    pct = rut_src.get("change_pct") or 0.0
-                    change = rut_src["change"] * rut_mult
-                    sign = "+" if change >= 0 else ""
-                    self.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                    color = "#00ff41" if change >= 0 else "#FF073A"
-                    self.rut_change.setStyleSheet(f"color: {color};")
+                    if not bool(rut_src.get("change_available", True)):
+                        self.rut_change.setText("  --")
+                        self.rut_change.setStyleSheet("color: #888888;")
+                    else:
+                        pct = rut_src.get("change_pct") or 0.0
+                        change = rut_src["change"]
+                        sign = "+" if change >= 0 else ""
+                        self.rut_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
+                        color = "#00ff41" if change >= 0 else "#FF073A"
+                        self.rut_change.setStyleSheet(f"color: {color};")
+            else:
+                _clear_pair("rut_value", "rut_change")
 
         except Exception as e:
             self.logger.debug("Toolbar update error: %s", e)
@@ -2201,7 +2266,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         try:
             self.positions_table.clear()
-            has_rows = self._add_recent_trade_rows(limit=3) > 0
+            has_rows = False
 
             data = self._order_manager.fetch_orders_and_positions()
 
@@ -2225,6 +2290,143 @@ class SpyderTradingDashboard(QMainWindow):
 
         except Exception as exc:
             self.add_system_log(f"❌ Refresh failed: {exc}")
+
+    def _get_recent_trades(self, limit: int = 30) -> list[dict]:
+        """Return most-recent closed trades for the current mode (paper/live)."""
+        db = self._get_mode_session_db()
+        if db is None:
+            return []
+
+        try:
+            trades = db.get_recent_trades(limit=max(1, int(limit)))
+            return trades if isinstance(trades, list) else []
+        except Exception as exc:
+            self.add_system_log(f"⚠️ Could not load recent trades: {exc}")
+            return []
+
+    def _open_recent_trades_history_dialog(self) -> None:
+        """Open (or raise) a dialog showing the last 30 closed trades."""
+        trades = self._get_recent_trades(limit=30)
+
+        existing = getattr(self, "_recent_trades_dialog", None)
+        if existing is not None and existing.isVisible():
+            self._populate_recent_trades_table(existing, trades)
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        dlg = QDialog(self)
+        mode_name = "PAPER" if self.trading_mode == TradingMode.PAPER else "LIVE"
+        dlg.setWindowTitle(f"Recent Trade History - {mode_name}")
+        dlg.setMinimumSize(980, 520)
+        dlg.resize(980, 520)
+        dlg.setStyleSheet(
+            f"background-color: {COLORS['background']}; color: {COLORS['text']};"
+        )
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+
+        subtitle = QLabel("Showing last 30 closed trades")
+        subtitle.setStyleSheet("font-size: 12px; color: #b8b8b8;")
+        layout.addWidget(subtitle)
+
+        table = QTableWidget(0, 6, dlg)
+        table.setHorizontalHeaderLabels(["Timestamp", "Symbol", "Action", "Qty", "Price", "Realized P&L"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        table.setAlternatingRowColors(True)
+        table.setStyleSheet(
+            f"QTableWidget {{ background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; }}"
+            f"QHeaderView::section {{ background-color: {COLORS['panel']}; color: {COLORS['text']}; "
+            f"padding: 4px 6px; border: none; border-bottom: 1px solid {COLORS['border']}; }}"
+        )
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(table)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(28)
+        close_btn.setStyleSheet(
+            f"font-size: 12px; padding: 0 12px; background-color: {COLORS['panel']};"
+            f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
+        )
+        close_btn.clicked.connect(dlg.close)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg._recent_trades_table = table
+        dlg.finished.connect(lambda *_: setattr(self, "_recent_trades_dialog", None))
+        self._recent_trades_dialog = dlg
+
+        self._populate_recent_trades_table(dlg, trades)
+        dlg.show()
+
+    def _populate_recent_trades_table(self, dialog: QDialog, trades: list[dict]) -> None:
+        """Populate the on-demand recent trades dialog table."""
+        table = getattr(dialog, "_recent_trades_table", None)
+        if table is None:
+            return
+
+        table.setRowCount(0)
+        for trade in trades:
+            raw_ts = str(trade.get("timestamp", "") or "")
+            try:
+                ts_text = datetime.fromisoformat(raw_ts).strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                ts_text = raw_ts[:19].replace("T", " ") if raw_ts else "--"
+
+            symbol = str(trade.get("symbol", "-") or "-")
+            trade_type = str(trade.get("trade_type", "") or "").upper()
+            side = str(trade.get("side", "") or "").upper()
+            action = trade_type or side or "TRADE"
+            qty = int(float(trade.get("quantity", 0) or 0))
+            price = float(trade.get("price", 0.0) or 0.0)
+            realized_pnl = float(trade.get("realized_pnl", 0.0) or 0.0)
+
+            row = table.rowCount()
+            table.insertRow(row)
+
+            values = [
+                ts_text,
+                symbol,
+                action,
+                str(qty),
+                f"${price:,.2f}",
+                f"${realized_pnl:+,.2f}",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if col in (3, 4, 5):
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+                elif col == 2:
+                    item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter))
+
+                if col == 5:
+                    if realized_pnl > 0:
+                        item.setForeground(QColor(COLORS["positive"]))
+                    elif realized_pnl < 0:
+                        item.setForeground(QColor(COLORS["negative"]))
+
+                table.setItem(row, col, item)
+
+        if table.rowCount() <= 0:
+            table.setRowCount(1)
+            empty = QTableWidgetItem("No recent closed trades found")
+            empty.setForeground(QColor(COLORS["text_dim"]))
+            table.setItem(0, 0, empty)
+            for col in range(1, 6):
+                table.setItem(0, col, QTableWidgetItem(""))
 
     def _add_order_row(self, order: dict) -> None:
         """Add a single Tradier order dict as a top-level row in positions_table."""
@@ -2523,7 +2725,6 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.positions_table.clear()
         today = _date.today()
-        recent_trades_count = self._add_recent_trade_rows(limit=3)
 
         if armed_candidate:
             ac_structure = str(armed_candidate.get("structure", "SPREAD")).replace("_", " ").upper()
@@ -2562,8 +2763,6 @@ class SpyderTradingDashboard(QMainWindow):
                 QModelIndex(),
                 True,
             )
-            if recent_trades_count <= 0:
-                empty.setText(0, "Paper trading - no open spreads or recent trades")
             return
 
         for sp in spreads_detail:
@@ -3088,7 +3287,7 @@ class SpyderTradingDashboard(QMainWindow):
                             f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {_rc}; text-align: right;"  # noqa: E501
                         )
         saved_account = self._account_snapshot_by_mode.get(new_mode)
-        if isinstance(saved_account, dict) and saved_account:
+        if new_mode != TradingMode.PAPER and isinstance(saved_account, dict) and saved_account:
             self._apply_account_snapshot(saved_account)
 
         self._refresh_pnl_table(self._pnl_stats_by_mode.get(new_mode, {}))
@@ -5613,8 +5812,87 @@ class SpyderTradingDashboard(QMainWindow):
         skew = _val("SKEW", 120.0)
         gex  = _val("GEX",  0.0)
 
+        # Determine whether S07 is actually providing SWAN and DIX, or whether
+        # we are running on cold defaults (i.e. S07 not running / no data yet).
+        _swan_live = isinstance(metrics.get("SWAN"), dict) and metrics["SWAN"].get("value") is not None
+        _dix_live  = isinstance(metrics.get("DIX"),  dict) and metrics["DIX"].get("value")  is not None
+        _s07_live  = _swan_live and _dix_live
+
+        # ── Sticky regime state (persists across S07 outage gaps) ──────────
+        # Initialise on first call.
+        if not hasattr(self, "_regime_sticky"):
+            self._regime_sticky: str | None = None   # last regime produced by S07
+            self._bias_sticky:   str | None = None   # last bias produced by S07
+        # Candidate debounce for VIX-only fallback (avoids second-by-second flips).
+        if not hasattr(self, "_vix_candidate_regime"):
+            self._vix_candidate_regime: str  = "RANGE"
+            self._vix_candidate_bias:   str  = "NONE"
+            self._vix_candidate_count:  int  = 0
+        _VIX_COMMIT_CYCLES = 3  # require 3 consecutive same-value reads (~3 s)
+
+        # ── VIX-based candidate regime (always computed for debounce logic) ──
+        _vix_new_regime = "RANGE"
+        _vix_new_bias   = "NONE"
+        try:
+            import json as _j
+            _ld_path = self.data_file
+            if _ld_path.exists():
+                with open(_ld_path) as _f:
+                    _ld = _j.load(_f)
+                def _ql(key: str) -> float | None:
+                    e = _ld.get(key)
+                    return float(e["last"]) if isinstance(e, dict) and e.get("last") else None
+                def _qc(key: str) -> float:
+                    e = _ld.get(key)
+                    return float(e.get("change_pct", 0.0)) if isinstance(e, dict) else 0.0
+                _vix    = _ql("VIX")  or 0.0
+                _vix9d  = _ql("VIX9D") or 0.0
+                _spx_cp = _qc("SPX")   # SPX day-change %
+                # VIX9D > VIX = term-structure inversion → panic/crisis signal
+                _inverted = _vix9d > 0.0 and _vix > 0.0 and _vix9d > _vix
+                if _inverted or _vix >= 35:
+                    _vix_new_regime = "CRISIS"
+                    _vix_new_bias   = "RISK-OFF"
+                elif _vix >= 25:
+                    _vix_new_regime = "VOLATILE"
+                    _vix_new_bias   = "BEARISH" if _spx_cp < -0.5 else "NONE"
+                elif _spx_cp <= -1.5:
+                    # Strong bear: requires larger threshold than a -0.4% tick
+                    _vix_new_regime = "BEAR"
+                    _vix_new_bias   = "BEARISH"
+                elif _spx_cp >= 1.0 and _vix < 20:
+                    # Strong bull: requires > +1% with VIX calm
+                    _vix_new_regime = "BULL"
+                    _vix_new_bias   = "BULLISH"
+                else:
+                    _vix_new_regime = "RANGE"
+                    _vix_new_bias   = "BEARISH" if _spx_cp < -0.3 else ("BULLISH" if _spx_cp > 0.4 else "NONE")
+        except Exception:
+            pass
+
+        # Debounce: only commit to a new VIX regime after _VIX_COMMIT_CYCLES consecutive matches.
+        if _vix_new_regime == self._vix_candidate_regime:
+            self._vix_candidate_count = min(self._vix_candidate_count + 1, _VIX_COMMIT_CYCLES)
+        else:
+            self._vix_candidate_regime = _vix_new_regime
+            self._vix_candidate_bias   = _vix_new_bias
+            self._vix_candidate_count  = 1
+
+        _vix_regime = self._vix_candidate_regime if self._vix_candidate_count >= _VIX_COMMIT_CYCLES else (
+            self._regime_sticky or "RANGE"
+        )
+        _vix_bias = self._vix_candidate_bias if self._vix_candidate_count >= _VIX_COMMIT_CYCLES else (
+            self._bias_sticky or "NONE"
+        )
+
         # ── Canonical regime ────────────────────────────────────────────
-        if swan >= 2.0:
+        if not _s07_live:
+            # Prefer last-known-good S07 regime over VIX fallback.
+            if self._regime_sticky is not None:
+                regime = self._regime_sticky
+            else:
+                regime = _vix_regime
+        elif swan >= 2.0:
             regime = "CRISIS"
         elif swan >= 1.95 or skew >= 150:
             regime = "VOLATILE"
@@ -5630,7 +5908,12 @@ class SpyderTradingDashboard(QMainWindow):
             regime = "RANGE"
 
         # ── Bias (directional signal from DIX / SWAN) ───────────────────
-        if regime == "CRISIS":
+        if not _s07_live:
+            if self._bias_sticky is not None:
+                bias = self._bias_sticky
+            else:
+                bias = _vix_bias if regime != "CRISIS" else "RISK-OFF"
+        elif regime == "CRISIS":
             bias = "RISK-OFF"
         elif dix >= 46 and swan < 1.9:
             bias = "BULLISH"
@@ -5640,6 +5923,11 @@ class SpyderTradingDashboard(QMainWindow):
             bias = "BULLISH"
         else:
             bias = "NONE"
+
+        # Save this cycle's S07-derived result as the sticky fallback for gaps.
+        if _s07_live:
+            self._regime_sticky = regime
+            self._bias_sticky   = bias
 
         # ── Strategy Stance (D30 mapping) ───────────────────────────────
         if regime == "BULL":
@@ -6823,13 +7111,13 @@ class SpyderTradingDashboard(QMainWindow):
         return state
 
     def _load_dji_proxy_multiplier(self) -> float:
-        """Read configurable DJI proxy scale (SPX -> DJI) from A03 config."""
-        default_multiplier = 6.9
+        """Read configurable DJI proxy scale (DIA -> DJI) from A03 config."""
+        default_multiplier = 101.2
         try:
             from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 
             cfg = get_config_manager()
-            configured = cfg.get("dashboard.toolbar.dji_from_spx_multiplier", default_multiplier)
+            configured = cfg.get("dashboard.toolbar.dji_from_dia_multiplier", default_multiplier)
             multiplier = float(configured)
             if multiplier <= 0:
                 return default_multiplier
@@ -6987,6 +7275,9 @@ class SpyderTradingDashboard(QMainWindow):
                 mode.value: dict(self._account_snapshot_by_mode.get(mode, {}))
                 for mode in TradingMode
             }
+            # PAPER account labels are simulation/UI state and may be stale at startup;
+            # avoid restoring them from snapshots.
+            account_by_mode[TradingMode.PAPER.value] = {}
             pnl_stats_by_mode = {
                 mode.value: dict(self._pnl_stats_by_mode.get(mode, {}))
                 for mode in TradingMode
@@ -7042,6 +7333,8 @@ class SpyderTradingDashboard(QMainWindow):
                         mode = TradingMode(mode_name)
                     except Exception:
                         continue
+                    if mode == TradingMode.PAPER:
+                        continue
                     if isinstance(values, dict):
                         self._account_snapshot_by_mode[mode] = dict(values)
 
@@ -7058,7 +7351,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             if not data:
                 saved_account = self._account_snapshot_by_mode.get(self.trading_mode)
-                if isinstance(saved_account, dict) and saved_account:
+                if self.trading_mode != TradingMode.PAPER and isinstance(saved_account, dict) and saved_account:
                     self._apply_account_snapshot(saved_account)
                 return
 
@@ -7098,7 +7391,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             # Apply saved account values for the active mode after symbols restore.
             saved_account = self._account_snapshot_by_mode.get(self.trading_mode)
-            if isinstance(saved_account, dict) and saved_account:
+            if self.trading_mode != TradingMode.PAPER and isinstance(saved_account, dict) and saved_account:
                 self._apply_account_snapshot(saved_account)
         except Exception as _restore_err:  # noqa: BLE001
             logger.warning("Could not restore dashboard snapshot: %s", _restore_err)

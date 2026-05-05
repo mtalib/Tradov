@@ -384,6 +384,18 @@ def build_center_panel(dashboard: Any) -> QWidget:
     pos_toolbar_layout.addWidget(dashboard.signal_flow_heartbeat_label)
     pos_toolbar_layout.addWidget(dashboard.event_clock_compact_label)
     pos_toolbar_layout.addWidget(dashboard.entry_block_compact_label)
+    if getattr(dashboard, "recent_trades_history_btn", None) is None:
+        dashboard.recent_trades_history_btn = QPushButton("Trade History")
+        dashboard.recent_trades_history_btn.setFixedHeight(20)
+        dashboard.recent_trades_history_btn.setStyleSheet(
+            f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
+            f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
+        )
+        dashboard.recent_trades_history_btn.setToolTip("Show last 30 closed trades")
+        dashboard.recent_trades_history_btn.clicked.connect(
+            dashboard._open_recent_trades_history_dialog
+        )
+    pos_toolbar_layout.addWidget(dashboard.recent_trades_history_btn)
     pos_toolbar_layout.addWidget(dashboard.trading_window_compact_label)
     del _chip_ss  # declared for intent only; labels already styled above
     positions_layout.addWidget(pos_toolbar)

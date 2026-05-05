@@ -1,0 +1,22 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Unit: SpyderQ77_Preflight.timer
+# Group: Q (Scripts/Services)
+# Purpose: Trigger the standalone preflight health-check script each weekday
+#          at 08:50 ET (5 min before the in-app A04 check at 08:55) as a
+#          host-layer redundancy gate.  If the check fails, the main service
+#          is NOT started by SpyderQ75_SessionStart.timer.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Preflight Health-Check Timer — weekday 08:50 ET
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:50:00 America/New_York
+Persistent=false
+Unit=SpyderQ77_Preflight.service
+
+[Install]
+WantedBy=timers.target

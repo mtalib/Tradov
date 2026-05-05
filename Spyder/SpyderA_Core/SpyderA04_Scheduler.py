@@ -370,6 +370,17 @@ class Scheduler:
         # Trading windows
         self.trading_windows: dict[str, TradingWindow] = {}
         self._init_default_windows()
+        self.session_window_config: dict[str, Any] = {
+            "primary_start_et": "09:30",
+            "primary_end_et": "16:15",
+            "first_entry_not_before_et": "09:35",
+            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "broker_cutoff_et": "16:00",
+            "broker_cutoff_buffer_minutes": 10,
+            "pin_risk_monitor_end_et": "17:30",
+            "fail_closed_if_cutoff_unknown_live": True,
+        }
+        self._load_session_window_config()
 
         # Market calendar
         self.market_calendar = MarketCalendar()
@@ -439,7 +450,7 @@ class Scheduler:
         self.trading_windows["regular_market"] = TradingWindow(
             name="Regular Market Hours",
             start_time=time(9, 30),
-            end_time=time(16, 0),
+            end_time=time(16, 15),
             enabled=True
         )
 
@@ -454,8 +465,8 @@ class Scheduler:
         # Closing range window
         self.trading_windows["closing_range"] = TradingWindow(
             name="Closing Range",
-            start_time=time(15, 30),
-            end_time=time(16, 0),
+            start_time=time(15, 45),
+            end_time=time(16, 15),
             enabled=True
         )
 
@@ -466,6 +477,58 @@ class Scheduler:
             end_time=time(9, 30),
             enabled=False
         )
+
+    def _load_session_window_config(self) -> None:
+        """Load autonomous session-window policy from A03 readiness config."""
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cm = get_config_manager()
+            mode = str(cm.get("trading.mode", "paper") or "paper")
+            base_config = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}
+            readiness = cm.validate_autonomous_readiness_config(base_config, mode)
+            session_cfg = (
+                readiness.get("effective", {})
+                .get("autonomous_readiness", {})
+                .get("session_window", {})
+            )
+
+            if isinstance(session_cfg, dict):
+                merged_cfg = dict(self.session_window_config)
+                merged_cfg.update(session_cfg)
+                self.session_window_config = merged_cfg
+
+                start_time = self._time_from_hhmm(str(merged_cfg.get("primary_start_et", "09:30")), time(9, 30))
+                end_time = self._time_from_hhmm(str(merged_cfg.get("primary_end_et", "16:15")), time(16, 15))
+                close_start = self._minutes_before(end_time, 30)
+
+                self.trading_windows["regular_market"].start_time = start_time
+                self.trading_windows["regular_market"].end_time = end_time
+                self.trading_windows["closing_range"].start_time = close_start
+                self.trading_windows["closing_range"].end_time = end_time
+
+                self.logger.info(
+                    "Loaded session_window config: start=%s end=%s cutoff=%s",
+                    merged_cfg.get("primary_start_et"),
+                    merged_cfg.get("primary_end_et"),
+                    merged_cfg.get("zero_dte_no_new_risk_cutoff_et"),
+                )
+        except Exception as e:
+            self.logger.warning("Session-window config load skipped; using defaults: %s", e)
+
+    def _time_from_hhmm(self, value: str, fallback: time) -> time:
+        """Parse HH:MM into a time object with fallback on parse errors."""
+        try:
+            parsed = datetime.strptime(value.strip(), "%H:%M")
+            return time(parsed.hour, parsed.minute)
+        except Exception:
+            return fallback
+
+    def _minutes_before(self, ref: time, minutes: int) -> time:
+        """Return a clock time that is N minutes before ref time."""
+        dt_ref = datetime.combine(date.today(), ref)
+        dt_new = dt_ref - timedelta(minutes=max(0, int(minutes)))
+        return dt_new.time()
 
     def _load_event_clock_config(self):
         """Load event-clock policy from validated A03 autonomous readiness config."""
@@ -572,13 +635,24 @@ class Scheduler:
 
     def _schedule_default_tasks(self):
         """Schedule default system tasks"""
+        regular_window = self.trading_windows.get("regular_market")
+        market_open_time = regular_window.start_time if regular_window else time(9, 30)
+        market_close_time = regular_window.end_time if regular_window else time(16, 15)
+        position_check_time = self._minutes_before(market_close_time, POSITION_CHECK_BEFORE_CLOSE_MINUTES)
+        broker_cutoff_time = self._time_from_hhmm(
+            str(self.session_window_config.get("broker_cutoff_et", "16:00")),
+            time(16, 0),
+        )
+        broker_cutoff_buffer = int(self.session_window_config.get("broker_cutoff_buffer_minutes", 10) or 10)
+        flatten_guard_time = self._minutes_before(broker_cutoff_time, broker_cutoff_buffer)
+
         # Market open/close events
         self.add_task(
             task_id="market_open",
             func=self._on_market_open,
             schedule_type=ScheduleType.CRON,
-            hour=9,
-            minute=30,
+            hour=market_open_time.hour,
+            minute=market_open_time.minute,
             day_of_week="mon-fri",
             description="Market open event"
         )
@@ -587,8 +661,8 @@ class Scheduler:
             task_id="market_close",
             func=self._on_market_close,
             schedule_type=ScheduleType.CRON,
-            hour=16,
-            minute=0,
+            hour=market_close_time.hour,
+            minute=market_close_time.minute,
             day_of_week="mon-fri",
             description="Market close event"
         )
@@ -598,10 +672,21 @@ class Scheduler:
             task_id="position_check_before_close",
             func=self._position_check_before_close,
             schedule_type=ScheduleType.CRON,
-            hour=15,
-            minute=45,
+            hour=position_check_time.hour,
+            minute=position_check_time.minute,
             day_of_week="mon-fri",
             description="Check positions before market close"
+        )
+
+        # Broker cutoff guard: flatten at-risk short options before broker cutoff.
+        self.add_task(
+            task_id="broker_cutoff_flatten_guard",
+            func=self._on_broker_cutoff_flatten_guard,
+            schedule_type=ScheduleType.CRON,
+            hour=flatten_guard_time.hour,
+            minute=flatten_guard_time.minute,
+            day_of_week="mon-fri",
+            description="Flatten at-risk short options before broker cutoff"
         )
 
         # Daily cleanup
@@ -639,8 +724,8 @@ class Scheduler:
             task_id="preflight_health_check",
             func=self._on_preflight_health_check,
             schedule_type=ScheduleType.CRON,
-            hour=9,
-            minute=15,
+            hour=8,
+            minute=55,
             day_of_week="mon-fri",
             description="Pre-flight health check — broker/API/risk validation before open"
         )
@@ -651,9 +736,19 @@ class Scheduler:
             func=self._on_closing_range_risk_check,
             schedule_type=ScheduleType.CRON,
             hour=15,
-            minute="30,35,40,45,50,55",
+            minute="45,50,55",
             day_of_week="mon-fri",
             description="Escalated risk check during closing range (3:30–4:00 PM ET)"
+        )
+
+        self.add_task(
+            task_id="closing_range_risk_check_late",
+            func=self._on_closing_range_risk_check,
+            schedule_type=ScheduleType.CRON,
+            hour=16,
+            minute="0,5,10",
+            day_of_week="mon-fri",
+            description="Escalated risk check during SPY options close window (4:00–4:15 PM ET)"
         )
 
         # EOD report trigger — fires after fills settle post-close
@@ -662,9 +757,31 @@ class Scheduler:
             func=self._on_eod_report,
             schedule_type=ScheduleType.CRON,
             hour=16,
-            minute=15,
+            minute=16,
             day_of_week="mon-fri",
             description="End-of-day report generation trigger"
+        )
+
+        # EOW summary — Friday 16:20 ET primary dispatch
+        self.add_task(
+            task_id="eow_report_friday",
+            func=self._on_eow_report,
+            schedule_type=ScheduleType.CRON,
+            hour=16,
+            minute=20,
+            day_of_week="fri",
+            description="End-of-week P/L summary and weekly ops report (Friday primary)"
+        )
+
+        # EOW summary fallback — Saturday 08:00 ET in case Friday run missed
+        self.add_task(
+            task_id="eow_report_saturday_fallback",
+            func=self._on_eow_report,
+            schedule_type=ScheduleType.CRON,
+            hour=8,
+            minute=0,
+            day_of_week="sat",
+            description="End-of-week P/L summary fallback (Saturday 08:00 ET)"
         )
 
         # Scheduler heartbeat — continuous liveness signal (every 1 min)
@@ -1074,6 +1191,24 @@ class Scheduler:
             }
         )
 
+    def _on_broker_cutoff_flatten_guard(self):
+        """Emit flatten request before broker at-risk cutoff with configured buffer."""
+        now_et = datetime.now(EASTERN_TZ)
+        self.logger.warning("Broker cutoff flatten guard triggered at %s", now_et.isoformat())
+
+        self.event_manager.emit(
+            EventType.FLATTEN_REQUEST,
+            {
+                'type': 'broker_cutoff_flatten_guard',
+                'reason': 'broker_cutoff_protection',
+                'timestamp': now_et,
+                'details': {
+                    'broker_cutoff_et': self.session_window_config.get('broker_cutoff_et', '16:00'),
+                    'buffer_minutes': int(self.session_window_config.get('broker_cutoff_buffer_minutes', 10) or 10),
+                },
+            }
+        )
+
     def _on_premarket_warmup(self):
         """Warm up data pipeline 30 minutes before market open"""
         self.logger.info("Pre-market data warmup triggered")
@@ -1086,18 +1221,78 @@ class Scheduler:
         )
 
     def _on_preflight_health_check(self):
-        """Broker/API/risk validation 15 minutes before market open"""
+        """Broker/API/risk validation 15 minutes before market open.
+
+        Publishes a SYSTEM event and dispatches a preflight summary to
+        Telegram so operators are notified of system readiness before the
+        session starts.
+        """
         self.logger.info("Pre-flight health check triggered")
+        now_et = datetime.now(EASTERN_TZ)
         self.event_manager.emit(
             EventType.SYSTEM,
             {
                 'type': 'preflight_health_check',
-                'timestamp': datetime.now(EASTERN_TZ)
+                'timestamp': now_et,
             }
+        )
+        # Dispatch Go/No-Go result to Telegram (best-effort; no crash on failure).
+        try:
+            self._dispatch_preflight_telegram(now_et)
+        except Exception as exc:
+            self.logger.warning("Preflight Telegram dispatch failed: %s", exc)
+
+    def _dispatch_preflight_telegram(self, now_et: datetime) -> None:
+        """Attempt to read the latest Go/No-Go result and send it via Telegram."""
+        import json as _json
+        from pathlib import Path as _Path
+
+        project_root = _Path(__file__).resolve().parent.parent.parent
+        reports_dir = project_root / "market_data" / "go_no_go_reports"
+        date_str = now_et.strftime("%Y-%m-%d")
+
+        go_no_go_status = "UNKNOWN"
+        go_no_go_detail = "No Go/No-Go report found for today."
+
+        if reports_dir.exists():
+            day_reports = sorted(reports_dir.glob(f"go_no_go_{date_str}*.json"))
+            if day_reports:
+                try:
+                    data = _json.loads(day_reports[-1].read_text(encoding="utf-8"))
+                    go_no_go_status = str(data.get("status", "UNKNOWN")).upper()
+                    checks = data.get("checks", {})
+                    failed = [k for k, v in checks.items() if isinstance(v, dict) and not v.get("passed", True)]
+                    go_no_go_detail = (
+                        f"Checks passed: {len(checks) - len(failed)}/{len(checks)}"
+                        + (f"\nFailed: {', '.join(failed)}" if failed else "")
+                    )
+                except Exception as exc:
+                    self.logger.debug("Preflight Go/No-Go report parse error: %s", exc)
+
+        icon = {"GO": "✅", "NO-GO": "🚫", "CONDITIONAL-GO": "⚠️"}.get(go_no_go_status, "🔔")
+        msg = (
+            f"{icon} <b>PREFLIGHT CHECK ({go_no_go_status})</b>\n"
+            f"Time (ET): {now_et.strftime('%Y-%m-%d %H:%M')}\n"
+            f"{go_no_go_detail}\n"
+            "Session opens at 09:30 ET."
+        )
+
+        # Reach Telegram bot via event bus so we don't create a hard import cycle.
+        self.event_manager.emit(
+            EventType.SYSTEM,
+            {
+                "type": "telegram_send",
+                "text": msg,
+                "message": msg,
+                "priority": "high",
+                "source": "preflight_health_check",
+            },
         )
 
     def _on_closing_range_risk_check(self):
         """Escalated risk check during the 3:30–4:00 PM closing range"""
+        if not self.is_in_trading_window("closing_range"):
+            return
         self.logger.info("Closing range risk check triggered")
         self.event_manager.emit(
             EventType.RISK,
@@ -1145,6 +1340,133 @@ class Scheduler:
             )
         except Exception as exc:
             self.logger.error("EOD review generation failed: %s", exc)
+
+        # Generate supplementary daily artifacts.
+        self._write_session_summary_artifact()
+        self._write_pnl_drawdown_artifact()
+
+    def _write_session_summary_artifact(self) -> None:
+        """Write `market_data/session_summary_{date}.json` for the trading day."""
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        now_et = datetime.now(EASTERN_TZ)
+        date_str = now_et.strftime("%Y-%m-%d")
+        project_root = _Path(__file__).resolve().parent.parent.parent
+        out_dir = project_root / "market_data"
+        out_path = out_dir / f"session_summary_{date_str}.json"
+
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                get_session_supervisor,
+            )
+            supervisor = get_session_supervisor()
+        except Exception:
+            supervisor = None
+
+        mode = os.environ.get("TRADING_MODE", "paper").upper()
+        is_running = bool(supervisor and getattr(supervisor, "is_running", False))
+        active_strategies: list[str] = []
+        try:
+            orchestrator = getattr(supervisor, "strategy_orchestrator", None) if supervisor else None
+            if orchestrator and hasattr(orchestrator, "get_active_strategies"):
+                active_strategies = list(orchestrator.get_active_strategies() or [])
+        except Exception:
+            pass
+
+        payload = {
+            "date": date_str,
+            "mode": mode,
+            "session_running": is_running,
+            "active_strategies": active_strategies,
+            "generated_at": now_et.isoformat(),
+        }
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=out_dir, suffix=".tmp", delete=False
+            ) as tmp:
+                _json.dump(payload, tmp, indent=2)
+                tmp_path = _Path(tmp.name)
+            tmp_path.replace(out_path)
+            self.logger.info("Session summary artifact saved: %s", out_path)
+        except Exception as exc:
+            self.logger.error("Failed to write session summary artifact: %s", exc)
+
+    def _write_pnl_drawdown_artifact(self) -> None:
+        """Write `market_data/pnl_and_drawdown_{date}.json` at EOD."""
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        now_et = datetime.now(EASTERN_TZ)
+        date_str = now_et.strftime("%Y-%m-%d")
+        project_root = _Path(__file__).resolve().parent.parent.parent
+        out_dir = project_root / "market_data"
+        out_path = out_dir / f"pnl_and_drawdown_{date_str}.json"
+
+        realized_pl = 0.0
+        unrealized_pl = 0.0
+        max_drawdown = 0.0
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                get_session_supervisor,
+            )
+            supervisor = get_session_supervisor()
+            risk = getattr(supervisor, "risk", None) if supervisor else None
+            if risk is not None:
+                realized_pl = float(getattr(risk, "daily_pnl", 0.0) or 0.0)
+                max_drawdown = float(getattr(risk, "max_intraday_drawdown", 0.0) or 0.0)
+        except Exception:
+            pass
+
+        payload = {
+            "date": date_str,
+            "realized_pl_day": realized_pl,
+            "unrealized_carry": unrealized_pl,
+            "net_pl_day": realized_pl + unrealized_pl,
+            "max_intraday_drawdown": max_drawdown,
+            "generated_at": now_et.isoformat(),
+        }
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=out_dir, suffix=".tmp", delete=False
+            ) as tmp:
+                _json.dump(payload, tmp, indent=2)
+                tmp_path = _Path(tmp.name)
+            tmp_path.replace(out_path)
+            self.logger.info("P&L+drawdown artifact saved: %s", out_path)
+        except Exception as exc:
+            self.logger.error("Failed to write P&L/drawdown artifact: %s", exc)
+
+    def _on_eow_report(self) -> None:
+        """End-of-week summary: trigger Telegram EOW dispatch + weekly ops report."""
+        self.logger.info("EOW report task triggered")
+        now_et = datetime.now(EASTERN_TZ)
+
+        # Emit event so Telegram bot (listening for telegram_send or eow events)
+        # can also trigger from an external scheduler if needed.
+        week_key = now_et.strftime("%G-W%V")
+        self.event_manager.emit(
+            EventType.SYSTEM,
+            {
+                "type": "eow_report_request",
+                "week_key": week_key,
+                "timestamp": now_et,
+            },
+        )
+
+        # Generate the weekly ops report Markdown artifact.
+        try:
+            from Spyder.SpyderK_Reports.SpyderK02_DailyTradingReport import (
+                create_daily_report_generator,
+            )
+            generator = create_daily_report_generator()
+            generator.generate_weekly_ops_report(week_key)
+        except Exception as exc:
+            self.logger.error("Weekly ops report generation failed: %s", exc)
 
     def _on_heartbeat(self):
         """Scheduler liveness heartbeat — runs every minute for external monitoring"""
@@ -1308,7 +1630,7 @@ class Scheduler:
     def schedule_data_update(self, interval_minutes: int = 5) -> bool:
         """Schedule periodic data updates (only fires during regular market hours)"""
         def update_data():
-            if not self.market_calendar.is_market_open():
+            if not self.is_in_trading_window("regular_market"):
                 return
             self.event_manager.emit(
                 EventType.SYSTEM,
@@ -1329,7 +1651,7 @@ class Scheduler:
     def schedule_risk_check(self, interval_minutes: int = 15) -> bool:
         """Schedule periodic risk checks (only fires during regular market hours)"""
         def check_risk():
-            if not self.market_calendar.is_market_open():
+            if not self.is_in_trading_window("regular_market"):
                 return
             self.event_manager.emit(
                 EventType.RISK,

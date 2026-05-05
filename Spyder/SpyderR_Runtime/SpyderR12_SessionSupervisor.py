@@ -127,6 +127,7 @@ class SessionSupervisor:
         self.exit_monitor: Any = None
         # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
         self.liveness: Any = None
+        self._flatten_request_handler_id: Optional[str] = None
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -246,6 +247,13 @@ class SessionSupervisor:
         # ---- Phase 4/4 — process cleanup ----
         # Note: the EventManager is a shared singleton — we do NOT stop it here.
         # Its lifecycle is managed by the process (Python GC / main thread shutdown).
+        if self.em is not None and self._flatten_request_handler_id:
+            try:
+                self.em.unsubscribe(self._flatten_request_handler_id)
+            except Exception as exc:
+                self.logger.warning("Failed to unsubscribe FLATTEN_REQUEST handler: %s", exc)
+            finally:
+                self._flatten_request_handler_id = None
         self.logger.info("SHUTDOWN_PHASE_4_PROCESS_END")
 
         self.logger.info("SessionSupervisor stopped.")
@@ -293,10 +301,15 @@ class SessionSupervisor:
 
     def _start_event_manager(self) -> bool:
         try:
-            from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType, get_event_manager
             self.em = get_event_manager()
             if not self.em.is_running:
                 self.em.start()
+            if self._flatten_request_handler_id is None:
+                self._flatten_request_handler_id = self.em.subscribe(
+                    EventType.FLATTEN_REQUEST,
+                    self._on_flatten_request,
+                )
             self.logger.debug("✅ EventManager started")
             return True
         except Exception as exc:
@@ -527,6 +540,12 @@ class SessionSupervisor:
                 event_manager=self.em,
             )
             self.orchestrator.set_live_engine(self.engine)
+            # Inject the already-started and (if non-live) force-synced RiskManager so
+            # D31's lazy resolver doesn't create a second fresh un-synced instance and
+            # reject every signal with risk_state_cold.
+            if self.risk is not None and hasattr(self.orchestrator, "set_risk_manager"):
+                self.orchestrator.set_risk_manager(self.risk)
+                self.logger.debug("✅ RiskManager injected into StrategyOrchestrator")
             # v27 SPEC-6: wire OrderManager so D31's _dispatch_approved_signal
             # uses the mid-price walk path instead of falling back to bare
             # market orders through the live engine. Without this, every
@@ -839,6 +858,101 @@ class SessionSupervisor:
                     )
         except Exception as exc:
             self.logger.warning("_flatten_positions raised: %s", exc)
+
+    def _on_flatten_request(self, event: Any) -> None:
+        """Handle FLATTEN_REQUEST events from scheduler/risk layers."""
+        payload = (getattr(event, "data", None) or {}) if event is not None else {}
+        flatten_type = str(payload.get("type") or "").strip().lower()
+        reason = str(payload.get("reason") or "flatten_request")
+
+        self.logger.warning(
+            "Received FLATTEN_REQUEST type=%s reason=%s",
+            flatten_type or "unspecified",
+            reason,
+        )
+
+        if flatten_type == "broker_cutoff_flatten_guard":
+            closed = self._flatten_at_risk_short_options(reason=reason)
+            self.logger.warning(
+                "Broker cutoff flatten guard closed %d at-risk short option symbol(s)",
+                closed,
+            )
+            return
+
+        self._flatten_positions()
+
+    def _flatten_at_risk_short_options(self, reason: str) -> int:
+        """Best-effort flatten of short option positions only."""
+        try:
+            pos_resp = self.broker.get_positions()
+            if isinstance(pos_resp, list):
+                raw: list[Any] = pos_resp
+            else:
+                raw = (pos_resp.get("positions") or {}).get("position", [])
+                if isinstance(raw, dict):
+                    raw = [raw]
+
+            if not raw:
+                self.logger.info("_flatten_at_risk_short_options: no open positions")
+                return 0
+
+            closed = 0
+            for pos in raw:
+                symbol = str(pos.get("symbol") or "").strip()
+                qty = self._safe_int(pos.get("quantity", 0))
+
+                if not symbol or qty >= 0:
+                    continue
+                if not self._looks_like_option_symbol(symbol):
+                    continue
+
+                try:
+                    if hasattr(self.broker, "close_position_verified"):
+                        result = self.broker.close_position_verified(
+                            symbol,
+                            timeout_s=10.0,
+                            urgency="IMMEDIATE",
+                            reason=reason,
+                        )
+                        status = (result or {}).get("status")
+                        if status == "verified":
+                            closed += 1
+                        else:
+                            self.logger.error(
+                                "At-risk short option flatten unverified for %s: %s",
+                                symbol,
+                                (result or {}).get("reason"),
+                            )
+                    else:
+                        self.broker.close_position(
+                            symbol,
+                            urgency="IMMEDIATE",
+                            reason=reason,
+                        )
+                        closed += 1
+                except Exception as exc:
+                    self.logger.error("Failed to flatten at-risk short option %s: %s", symbol, exc)
+
+            return closed
+        except Exception as exc:
+            self.logger.error("_flatten_at_risk_short_options failed: %s", exc)
+            return 0
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        """Convert mixed quantity payloads from broker responses into int."""
+        try:
+            return int(float(value))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _looks_like_option_symbol(symbol: str) -> bool:
+        """Heuristic option symbol check for OCC/Tradier-style contracts."""
+        upper = symbol.upper()
+        if "_" in upper:
+            return True
+        return len(upper) >= 15 and ("C" in upper or "P" in upper)
 
 
 # ==============================================================================

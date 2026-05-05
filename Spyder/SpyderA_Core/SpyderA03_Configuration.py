@@ -418,6 +418,16 @@ class ConfigManager:
             "autonomous_readiness": {
                 "lean_mode": True,
                 "observe_only_agents": True,
+                "session_window": {
+                    "primary_start_et": "09:30",
+                    "primary_end_et": "16:15",
+                    "first_entry_not_before_et": "09:35",
+                    "zero_dte_no_new_risk_cutoff_et": "15:45",
+                    "broker_cutoff_et": "16:00",
+                    "broker_cutoff_buffer_minutes": 10,
+                    "pin_risk_monitor_end_et": "17:30",
+                    "fail_closed_if_cutoff_unknown_live": True,
+                },
                 "liquidity": {
                     "enabled": True,
                     "max_spread_pct": 0.12,
@@ -1183,6 +1193,51 @@ class ConfigManager:
                 else:
                     errors.append(message)
 
+        def require_time_string(path: str):
+            value = self._get_nested_path_value(effective, path)
+            if not isinstance(value, str) or re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value.strip()) is None:
+                errors.append(f"{path} must be HH:MM (24h)")
+
+        require_time_string("autonomous_readiness.session_window.primary_start_et")
+        require_time_string("autonomous_readiness.session_window.primary_end_et")
+        require_time_string("autonomous_readiness.session_window.first_entry_not_before_et")
+        require_time_string("autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et")
+        require_time_string("autonomous_readiness.session_window.broker_cutoff_et")
+        require_time_string("autonomous_readiness.session_window.pin_risk_monitor_end_et")
+        require_int_range("autonomous_readiness.session_window.broker_cutoff_buffer_minutes", 0, 120)
+        require_bool("autonomous_readiness.session_window.fail_closed_if_cutoff_unknown_live")
+
+        try:
+            session_cfg = self._get_nested_path_value(effective, "autonomous_readiness.session_window", {})
+            if isinstance(session_cfg, dict):
+                start_et = datetime.strptime(str(session_cfg.get("primary_start_et", "09:30")), "%H:%M").time()
+                end_et = datetime.strptime(str(session_cfg.get("primary_end_et", "16:15")), "%H:%M").time()
+                first_entry_et = datetime.strptime(
+                    str(session_cfg.get("first_entry_not_before_et", "09:35")),
+                    "%H:%M",
+                ).time()
+                no_new_risk_et = datetime.strptime(
+                    str(session_cfg.get("zero_dte_no_new_risk_cutoff_et", "15:45")),
+                    "%H:%M",
+                ).time()
+                broker_cutoff_et = datetime.strptime(
+                    str(session_cfg.get("broker_cutoff_et", "16:00")),
+                    "%H:%M",
+                ).time()
+
+                if start_et >= end_et:
+                    errors.append("autonomous_readiness.session_window.primary_start_et must be before primary_end_et")
+                if first_entry_et < start_et:
+                    errors.append("autonomous_readiness.session_window.first_entry_not_before_et must be >= primary_start_et")
+                if first_entry_et > end_et:
+                    errors.append("autonomous_readiness.session_window.first_entry_not_before_et must be <= primary_end_et")
+                if no_new_risk_et > end_et:
+                    errors.append("autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et must be <= primary_end_et")
+                if broker_cutoff_et > end_et:
+                    warnings.append("autonomous_readiness.session_window.broker_cutoff_et is after primary_end_et")
+        except Exception:
+            errors.append("autonomous_readiness.session_window contains invalid time ordering")
+
         require_float_range("autonomous_readiness.liquidity.max_spread_pct", 0.01, 0.50)
         require_float_range("autonomous_readiness.liquidity.max_spread_abs", 0.01, 2.00)
         require_int_range("autonomous_readiness.liquidity.max_quote_age_ms", 100, 10000)
@@ -1502,6 +1557,14 @@ class ConfigManager:
         env_key_to_path = {
             "SPYDER_LEAN_MODE": "autonomous_readiness.lean_mode",
             "SPYDER_OBSERVE_ONLY_AGENTS": "autonomous_readiness.observe_only_agents",
+            "SPYDER_SESSION_PRIMARY_START_ET": "autonomous_readiness.session_window.primary_start_et",
+            "SPYDER_SESSION_PRIMARY_END_ET": "autonomous_readiness.session_window.primary_end_et",
+            "SPYDER_FIRST_ENTRY_NOT_BEFORE_ET": "autonomous_readiness.session_window.first_entry_not_before_et",
+            "SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET": "autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et",  # noqa: E501
+            "SPYDER_BROKER_CUTOFF_ET": "autonomous_readiness.session_window.broker_cutoff_et",
+            "SPYDER_BROKER_CUTOFF_BUFFER_MINUTES": "autonomous_readiness.session_window.broker_cutoff_buffer_minutes",  # noqa: E501
+            "SPYDER_PIN_RISK_MONITOR_END_ET": "autonomous_readiness.session_window.pin_risk_monitor_end_et",  # noqa: E501
+            "SPYDER_FAIL_CLOSED_IF_CUTOFF_UNKNOWN_LIVE": "autonomous_readiness.session_window.fail_closed_if_cutoff_unknown_live",  # noqa: E501
             "SPYDER_LIQUIDITY_ENABLED": "autonomous_readiness.liquidity.enabled",
             "SPYDER_LIQUIDITY_MAX_SPREAD_PCT": "autonomous_readiness.liquidity.max_spread_pct",
             "SPYDER_LIQUIDITY_MAX_SPREAD_ABS": "autonomous_readiness.liquidity.max_spread_abs",

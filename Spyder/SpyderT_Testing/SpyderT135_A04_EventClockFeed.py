@@ -194,3 +194,28 @@ def test_event_clock_high_impact_only_ignores_non_high_events():
 
     payload = scheduler.publish_event_clock_state(now=now, force_emit=True)
     assert payload["data"]["state"] == "clear"
+
+
+def test_preflight_dispatch_emits_telegram_send_with_text_and_message_keys():
+    em = _DummyEventManager()
+    scheduler = Scheduler(event_manager=em)
+
+    scheduler._dispatch_preflight_telegram(now_et=_et_now())
+
+    telegram_events = [
+        payload for (_, payload) in em.events
+        if isinstance(payload, dict) and payload.get("type") == "telegram_send"
+    ]
+    assert telegram_events
+    event = telegram_events[-1]
+    assert isinstance(event.get("text"), str) and event.get("text")
+    assert isinstance(event.get("message"), str) and event.get("message")
+
+
+def test_regular_market_default_start_is_0930(monkeypatch):
+    monkeypatch.setenv("SPYDER_SESSION_PRIMARY_START_ET", "09:30")
+    scheduler = Scheduler(event_manager=_DummyEventManager())
+    regular = scheduler.trading_windows.get("regular_market")
+    assert regular is not None
+    assert regular.start_time.hour == 9
+    assert regular.start_time.minute == 30

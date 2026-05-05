@@ -105,6 +105,8 @@ HEARTBEAT_LOG_INTERVAL = 1800     # 30 minutes between "healthy" log messages
 
 REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cycles + Tradier timeout  # noqa: E501
 REALTIME_SENTINEL_SYMBOLS = get_realtime_sentinel_symbols()
+DIA_REFETCH_MAX_AGE_SECONDS = 20.0
+DIRECT_INDEX_REFRESH_SYMBOLS: tuple[str, ...] = ("DIA", "RUT")
 
 # Options-chain fetch deduplication.
 # The SPY chain is expensive (~200-400ms, Tradier rate-limited).  Multiple
@@ -116,6 +118,11 @@ REALTIME_SENTINEL_SYMBOLS = get_realtime_sentinel_symbols()
 _CHAIN_LOCK: threading.Lock = threading.Lock()
 _CHAIN_TTL: float = 30.0
 _CHAIN_CACHE: dict = {}  # keys: "contracts", "put_vol", "call_vol", "expiry", "ts"
+
+# RUT historical previous-close cache.
+# Tradier returns change=None for RUT; we fetch its prev-day close once per
+# session via the historical quotes endpoint so we can derive change/change_pct.
+_RUT_PREVCLOSE_CACHE: dict = {"prevclose": 0.0, "date": ""}
 
 
 def _get_cached_chain(
@@ -185,6 +192,78 @@ _QUOTE_SYMBOL_BASKET: tuple[str, ...] = tuple(get_quote_symbol_basket())
 def _build_quote_symbol_basket() -> list[str]:
     """Return one canonical quote basket for slow, fast, and EOD fetch paths."""
     return list(_QUOTE_SYMBOL_BASKET)
+
+
+def _quote_to_live_entry(q: dict) -> tuple[str, dict] | None:
+    """Normalize a Tradier quote payload into a live_data entry."""
+    sym = q.get("symbol", "")
+    last = float(q.get("last") or q.get("close") or 0.0)
+    raw_change = q.get("change")
+    raw_change_pct = q.get("change_percentage")
+    change_available = not (raw_change is None and raw_change_pct is None)
+    change = float(raw_change or 0.0)
+    change_pct = float(raw_change_pct or 0.0)
+    if change == 0.0 and last > 0.0:
+        prevclose = float(q.get("prevclose") or 0.0)
+        if prevclose > 0.0:
+            change = last - prevclose
+            change_pct = (change / prevclose) * 100.0
+            change_available = True
+
+    timestamp_ms = _freshest_quote_timestamp_ms(q)
+    if timestamp_ms is None:
+        # Some index symbols (notably NDX/RUT on Tradier) return 0 for
+        # trade/bid/ask dates. Use wall-clock fetch time so freshness checks
+        # and UI age logic still work.
+        timestamp_ms = int(time.time() * 1000)
+    if not last:
+        return None
+
+    key = _SYMBOL_REMAP.get(sym, sym)
+    return key, {
+        "last": last,
+        "change": change,
+        "change_pct": change_pct,
+        "change_available": change_available,
+        "timestamp_ms": timestamp_ms,
+    }
+
+
+def _is_symbol_stale(live_data: dict, symbol: str, reference_epoch_ms: int, max_age_seconds: float) -> bool:
+    """Return True when a symbol quote is missing or older than max_age_seconds."""
+    entry = live_data.get(symbol)
+    if not isinstance(entry, dict):
+        return True
+
+    ts_ms = _coerce_epoch_ms(entry.get("timestamp_ms"))
+    if ts_ms is None:
+        return True
+
+    age_seconds = max(0.0, (reference_epoch_ms - ts_ms) / 1000.0)
+    return age_seconds > max_age_seconds
+
+
+def _refetch_single_symbol_quote(client: "TradierClient", live_data: dict, symbol: str) -> bool:
+    """Fetch one symbol directly from Tradier and upsert into live_data."""
+    try:
+        raw = client.get_quotes([symbol])
+        quotes_raw = raw.get("quotes", {}).get("quote", [])
+        if isinstance(quotes_raw, dict):
+            quotes_raw = [quotes_raw]
+
+        for q in quotes_raw:
+            if str(q.get("symbol", "")).upper() != symbol.upper():
+                continue
+            normalized = _quote_to_live_entry(q)
+            if normalized is None:
+                continue
+            key, entry = normalized
+            live_data[key] = entry
+            return True
+    except Exception:
+        return False
+
+    return False
 
 
 # ==============================================================================
@@ -569,25 +648,10 @@ class ThreadSafeMarketDataWorker(QObject):
                 # Remap Tradier symbols to dashboard widget keys where needed
                 for q in quotes_raw:
                     sym = q.get("symbol", "")
-                    last = float(q.get("last") or q.get("close") or 0.0)
-                    change = float(q.get("change") or 0.0)
-                    change_pct = float(q.get("change_percentage") or 0.0)
-                    # Tradier returns null change for index symbols (e.g. SPX).
-                    # Fall back to last - prevclose so CHG/CHG% display correctly.
-                    if change == 0.0 and last > 0.0:
-                        prevclose = float(q.get("prevclose") or 0.0)
-                        if prevclose > 0.0:
-                            change = last - prevclose
-                            change_pct = (change / prevclose) * 100.0
-                    timestamp_ms = _freshest_quote_timestamp_ms(q)
-                    if last:
-                        key = _SYMBOL_REMAP.get(sym, sym)
-                        live_data[key] = {
-                            "last": last,
-                            "change": change,
-                            "change_pct": change_pct,
-                            "timestamp_ms": timestamp_ms,
-                        }
+                    normalized = _quote_to_live_entry(q)
+                    if normalized is not None:
+                        key, entry = normalized
+                        live_data[key] = entry
                     if sym == "SPY":
                         _spy_q_slow = q
                 # --- RVOL: relative volume vs expected volume at this session fraction ---
@@ -615,6 +679,51 @@ class ThreadSafeMarketDataWorker(QObject):
                     # time we successfully called Tradier, not Tradier's quote
                     # timestamps (which can lag in quiet markets).
                     live_data["_fetch_time_ms"] = int(_time.time() * 1000)
+
+                    # Keep sparse index symbols authoritative from direct quotes.
+                    for _sym in DIRECT_INDEX_REFRESH_SYMBOLS:
+                        _refetch_single_symbol_quote(client, live_data, _sym)
+
+                    # Patch RUT change/change_pct using cached historical prev-close
+                    # when Tradier returns null for those fields (its normal behaviour).
+                    # Priority: (1) historical cache, (2) infer from IWM change_pct.
+                    _rut_entry = live_data.get("RUT")
+                    if isinstance(_rut_entry, dict) and not _rut_entry.get("change_available"):
+                        _rut_prev = _RUT_PREVCLOSE_CACHE.get("prevclose", 0.0)
+                        _rut_last = _rut_entry.get("last", 0.0)
+                        if _rut_prev > 0.0 and _rut_last > 0.0:
+                            _rut_chg = _rut_last - _rut_prev
+                            _rut_chg_pct = (_rut_chg / _rut_prev) * 100.0
+                            live_data["RUT"] = {
+                                **_rut_entry,
+                                "change": round(_rut_chg, 2),
+                                "change_pct": round(_rut_chg_pct, 2),
+                                "change_available": True,
+                            }
+                        else:
+                            # Fallback: IWM tracks RUT 1:1 in percentage terms
+                            _iwm = live_data.get("IWM", {})
+                            if isinstance(_iwm, dict) and _iwm.get("change_available") and _rut_last > 0.0:
+                                _iwm_pct = _iwm.get("change_pct", 0.0)
+                                _rut_chg_from_iwm = round(_rut_last * _iwm_pct / (100.0 + _iwm_pct), 2)
+                                live_data["RUT"] = {
+                                    **_rut_entry,
+                                    "change": _rut_chg_from_iwm,
+                                    "change_pct": round(_iwm_pct, 2),
+                                    "change_available": True,
+                                }
+
+                    # DIA can occasionally lag or be omitted in basket responses.
+                    # Repair with a direct one-symbol quote fetch instead of proxying.
+                    if _is_symbol_stale(
+                        live_data,
+                        "DIA",
+                        int(live_data["_fetch_time_ms"]),
+                        DIA_REFETCH_MAX_AGE_SECONDS,
+                    ):
+                        if _refetch_single_symbol_quote(client, live_data, "DIA"):
+                            logger.debug("DIA refreshed via direct single-symbol Tradier quote fetch")
+
                     self.data_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(self.data_file, "w") as f:
                         _json.dump(live_data, f)
@@ -660,7 +769,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
             try:
                 import pytz as _pytz
-                from datetime import date as _date, datetime as _dt, timezone
+                from datetime import date as _date, datetime as _dt
                 _et_now = _dt.now(_pytz.timezone("US/Eastern"))
                 _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
                 if _et_now < _market_open_et:
@@ -688,7 +797,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Pivots must use yesterday's H/L/C (fixed for the whole session).
             # We try a 5-day lookback so weekends/holidays are handled correctly.
             try:
-                from datetime import date as _date2, timedelta as _td, timezone
+                from datetime import date as _date2, timedelta as _td
                 _prev_start = (_date2.today() - _td(days=5)).isoformat()
                 _prev_end   = (_date2.today() - _td(days=1)).isoformat()
                 _hist_resp = client.get_historical_quotes(
@@ -709,6 +818,51 @@ class ThreadSafeMarketDataWorker(QObject):
                         }, _pf)
             except Exception:
                 pass  # non-critical — pivot fallback is today's intraday range
+
+            # --- Fetch RUT previous-day close for day-change derivation ---
+            # Tradier does not return change/prevclose for RUT in its quote
+            # endpoint; pull it from historical data once per session.
+            try:
+                from datetime import date as _date3, timedelta as _td3
+                _today_str = _date3.today().isoformat()
+                if _RUT_PREVCLOSE_CACHE.get("date") != _today_str:
+                    _rut_prev_start = (_date3.today() - _td3(days=5)).isoformat()
+                    _rut_prev_end   = (_date3.today() - _td3(days=1)).isoformat()
+                    # Try RUT direct first; fall back to IWM (tracks RUT) if Tradier
+                    # does not support historical quotes for index symbols.
+                    _rut_prevclose_found = False
+                    for _rut_hist_sym in ("RUT", "IWM"):
+                        try:
+                            _rut_hist_resp = client.get_historical_quotes(
+                                _rut_hist_sym, interval="daily",
+                                start=_rut_prev_start, end=_rut_prev_end,
+                            )
+                        except Exception:
+                            continue
+                        _rut_hist_day = _rut_hist_resp.get("history", {}).get("day", None)
+                        if isinstance(_rut_hist_day, list) and _rut_hist_day:
+                            _rut_hist_day = _rut_hist_day[-1]
+                        if isinstance(_rut_hist_day, dict) and _rut_hist_day.get("close"):
+                            _raw_close = float(_rut_hist_day["close"])
+                            # IWM closes at ~1/5 of RUT; scale up so delta math
+                            # is correct against the raw RUT quote (~2800).
+                            if _rut_hist_sym == "IWM" and _raw_close < 500:
+                                # Derive scaling factor: RUT / IWM ≈ live ratio
+                                _live_rut = (live_data.get("RUT") or {}).get("last", 0.0)
+                                _live_iwm = (live_data.get("IWM") or {}).get("last", 0.0)
+                                if _live_rut > 0 and _live_iwm > 0:
+                                    _scale = _live_rut / _live_iwm
+                                    _raw_close = _raw_close * _scale
+                                else:
+                                    continue  # can't scale without live prices
+                            _RUT_PREVCLOSE_CACHE["prevclose"] = round(_raw_close, 2)
+                            _RUT_PREVCLOSE_CACHE["date"] = _today_str
+                            _rut_prevclose_found = True
+                            break
+                    if not _rut_prevclose_found:
+                        logger.warning("RUT: could not derive prev-close — day change will show as --")
+            except Exception:
+                pass  # non-critical
         except Exception:
             pass
 
@@ -754,25 +908,10 @@ class ThreadSafeMarketDataWorker(QObject):
             _spy_q_raw: dict = {}
             for q in quotes_raw:
                 sym = q.get("symbol", "")
-                last = float(q.get("last") or q.get("close") or 0.0)
-                change = float(q.get("change") or 0.0)
-                change_pct = float(q.get("change_percentage") or 0.0)
-                # Tradier returns null change for index symbols (e.g. SPX).
-                # Fall back to last - prevclose so CHG/CHG% display correctly.
-                if change == 0.0 and last > 0.0:
-                    prevclose = float(q.get("prevclose") or 0.0)
-                    if prevclose > 0.0:
-                        change = last - prevclose
-                        change_pct = (change / prevclose) * 100.0
-                timestamp_ms = _freshest_quote_timestamp_ms(q)
-                if last:
-                    key = _SYMBOL_REMAP.get(sym, sym)
-                    existing[key] = {
-                        "last": last,
-                        "change": change,
-                        "change_pct": change_pct,
-                        "timestamp_ms": timestamp_ms,
-                    }
+                normalized = _quote_to_live_entry(q)
+                if normalized is not None:
+                    key, entry = normalized
+                    existing[key] = entry
                     updated = True
                 if sym == "SPY":
                     _spy_q_raw = q
@@ -798,9 +937,55 @@ class ThreadSafeMarketDataWorker(QObject):
             except Exception:
                 pass
 
+            # Keep sparse index symbols authoritative from direct quotes, even
+            # when basket responses are temporarily sparse.
+            for _sym in DIRECT_INDEX_REFRESH_SYMBOLS:
+                if _refetch_single_symbol_quote(client, existing, _sym):
+                    updated = True
+
+            # Patch RUT change/change_pct from historical prev-close cache.
+            # Falls back to IWM change_pct when historical cache is unavailable.
+            _rut_e = existing.get("RUT")
+            if isinstance(_rut_e, dict) and not _rut_e.get("change_available"):
+                _rut_p = _RUT_PREVCLOSE_CACHE.get("prevclose", 0.0)
+                _rut_last_f = _rut_e.get("last", 0.0)
+                if _rut_p > 0.0 and _rut_last_f > 0.0:
+                    _rc = _rut_last_f - _rut_p
+                    existing["RUT"] = {
+                        **_rut_e,
+                        "change": round(_rc, 2),
+                        "change_pct": round((_rc / _rut_p) * 100.0, 2),
+                        "change_available": True,
+                    }
+                    updated = True
+                else:
+                    # IWM fallback: RUT and IWM have identical daily %change
+                    _iwm_f = existing.get("IWM", {})
+                    if isinstance(_iwm_f, dict) and _iwm_f.get("change_available") and _rut_last_f > 0.0:
+                        _iwm_pct_f = _iwm_f.get("change_pct", 0.0)
+                        _rc_f = round(_rut_last_f * _iwm_pct_f / (100.0 + _iwm_pct_f), 2)
+                        existing["RUT"] = {
+                            **_rut_e,
+                            "change": _rc_f,
+                            "change_pct": round(_iwm_pct_f, 2),
+                            "change_available": True,
+                        }
+                        updated = True
+
             if updated:
                 import time as _time_fast
                 existing["_fetch_time_ms"] = int(_time_fast.time() * 1000)
+
+                # Keep DIA direct (no proxy): if batch data is stale/missing, pull DIA alone.
+                if _is_symbol_stale(
+                    existing,
+                    "DIA",
+                    int(existing["_fetch_time_ms"]),
+                    DIA_REFETCH_MAX_AGE_SECONDS,
+                ):
+                    if _refetch_single_symbol_quote(client, existing, "DIA"):
+                        logger.debug("DIA refreshed in fast-fetch via direct single-symbol Tradier quote fetch")
+
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.data_file, "w") as _f:
                     _json.dump(existing, _f)
@@ -872,19 +1057,24 @@ class ThreadSafeMarketDataWorker(QObject):
                     }
             if live_data:
                 import time as _time
+                _now_ms = int(_time.time() * 1000)
                 _snapshot_meta = {
                     "_eod_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "_eod_fetched_ts": int(_time.time()),
                 }
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
+                # Include _fetch_time_ms so the toolbar freshness check has a
+                # reference time; SPX/$DJI use a 1800 s window so they display
+                # even when Tradier returns a lagging index timestamp.
+                _live_data_out = {**live_data, "_fetch_time_ms": _now_ms}
                 with open(self.data_file, "w") as _f:
-                    _json.dump(live_data, _f)
+                    _json.dump(_live_data_out, _f)
                 # Write a dedicated EOD snapshot so the dashboard can display
                 # yesterday's closing prices immediately at next startup,
                 # before the Tradier API call completes.
                 _snapshot_file = self.data_file.parent / "eod_snapshot.json"
                 with open(_snapshot_file, "w") as _sf:
-                    _json.dump({**live_data, **_snapshot_meta}, _sf)
+                    _json.dump({**_live_data_out, **_snapshot_meta}, _sf)
                 logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])  # noqa: E501
                 self.market_data_status_changed.emit("EOD")
                 self.eod_snapshot_fetched.emit(True)

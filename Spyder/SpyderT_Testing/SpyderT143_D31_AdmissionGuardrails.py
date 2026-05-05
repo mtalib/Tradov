@@ -3,6 +3,7 @@
 
 import importlib
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -101,3 +102,32 @@ def test_d31_rejects_add_strategy_when_horizon_bucket_cap_reached():
     # Adding a swing bucket strategy should fail when only one bucket is allowed.
     with pytest.raises(ValueError, match="Horizon-bucket limit reached"):
         orchestrator.add_strategy(MockCalendarSpreadStrategy, config={}, initial_allocation=0.1)
+
+
+def test_d31_dispatch_midwalk_handles_result_without_message_attribute():
+    """Regression: mid-walk result objects may not include a .message field."""
+    orchestrator = _make_orchestrator()
+
+    # Force path-1 dispatch via order manager using bid/ask quotes.
+    orchestrator._order_manager = SimpleNamespace(
+        submit_limit_with_walk=MagicMock(
+            return_value=SimpleNamespace(success=True, error_code=None)
+        )
+    )
+    orchestrator._record_signal_dispatch_outcome = MagicMock()
+    orchestrator._record_signal_drop = MagicMock()
+
+    signal = {
+        "symbol": "SPY",
+        "quantity": 1,
+        "action": "buy",
+        "strategy_id": "TestStrategy",
+        "bid": 1.0,
+        "ask": 1.2,
+    }
+
+    orchestrator._dispatch_approved_signal(signal)
+
+    orchestrator._order_manager.submit_limit_with_walk.assert_called_once()
+    orchestrator._record_signal_dispatch_outcome.assert_called_once_with("dispatch_submitted")
+    orchestrator._record_signal_drop.assert_not_called()

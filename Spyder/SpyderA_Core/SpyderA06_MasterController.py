@@ -152,6 +152,7 @@ class SystemConfig:
     enable_paper_trading: bool
     enable_ml_predictions: bool
     enable_risk_management: bool
+    autonomous_session: dict[str, Any]
     enable_x16_veto: bool = True
     enable_y03_trade_veto: bool = True
     enable_y05_veto_consumption: bool = True
@@ -249,6 +250,15 @@ class MasterController:
             # Use default configuration
             config_data = self._get_default_config()
 
+        autonomous_session = config_data.get("autonomous_session")
+        if not isinstance(autonomous_session, dict):
+            readiness_cfg = config_data.get("autonomous_readiness", {})
+            if isinstance(readiness_cfg, dict):
+                maybe_session = readiness_cfg.get("session_window")
+                autonomous_session = maybe_session if isinstance(maybe_session, dict) else None
+        if not isinstance(autonomous_session, dict):
+            autonomous_session = self._get_default_autonomous_session()
+
         return SystemConfig(
             trading_mode=TradingMode(config_data.get("trading_mode", "paper")),
             environment=config_data.get("environment", "development"),
@@ -266,10 +276,24 @@ class MasterController:
             enable_paper_trading=config_data.get("enable_paper_trading", True),
             enable_ml_predictions=config_data.get("enable_ml_predictions", True),
             enable_risk_management=config_data.get("enable_risk_management", True),
+            autonomous_session=autonomous_session,
             enable_x16_veto=config_data.get("enable_x16_veto", True),
             enable_y03_trade_veto=config_data.get("enable_y03_trade_veto", True),
             enable_y05_veto_consumption=config_data.get("enable_y05_veto_consumption", True),
         )
+
+    def _get_default_autonomous_session(self) -> dict[str, Any]:
+        """Default autonomous session controls for SPY options."""
+        return {
+            "primary_start_et": "09:30",
+            "primary_end_et": "16:15",
+            "first_entry_not_before_et": "09:35",
+            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "broker_cutoff_et": "16:00",
+            "broker_cutoff_buffer_minutes": 10,
+            "pin_risk_monitor_end_et": "17:30",
+            "fail_closed_if_cutoff_unknown_live": True,
+        }
 
     def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration — env vars take precedence over hardcoded defaults."""
@@ -295,10 +319,53 @@ class MasterController:
             "enable_paper_trading": True,
             "enable_ml_predictions": True,
             "enable_risk_management": True,
+            "autonomous_session": {
+                "primary_start_et": os.environ.get("SPYDER_SESSION_PRIMARY_START_ET", "09:30"),
+                "primary_end_et": os.environ.get("SPYDER_SESSION_PRIMARY_END_ET", "16:15"),
+                "first_entry_not_before_et": os.environ.get("SPYDER_FIRST_ENTRY_NOT_BEFORE_ET", "09:35"),
+                "zero_dte_no_new_risk_cutoff_et": os.environ.get("SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET", "15:45"),
+                "broker_cutoff_et": os.environ.get("SPYDER_BROKER_CUTOFF_ET", "16:00"),
+                "broker_cutoff_buffer_minutes": int(os.environ.get("SPYDER_BROKER_CUTOFF_BUFFER_MINUTES", "10")),
+                "pin_risk_monitor_end_et": os.environ.get("SPYDER_PIN_RISK_MONITOR_END_ET", "17:30"),
+                "fail_closed_if_cutoff_unknown_live": _env_bool("SPYDER_FAIL_CLOSED_IF_CUTOFF_UNKNOWN_LIVE", True),
+            },
             "enable_x16_veto": _env_bool("ENABLE_X16_VETO", True),
             "enable_y03_trade_veto": _env_bool("ENABLE_Y03_TRADE_VETO", True),
             "enable_y05_veto_consumption": _env_bool("ENABLE_Y05_VETO_CONSUMPTION", True),
         }
+
+    def _session_time(self, key: str, default_hhmm: str) -> dt_time:
+        """Read HH:MM from autonomous session config with safe fallback."""
+        raw = self.config.autonomous_session.get(key, default_hhmm)
+        try:
+            parsed = datetime.strptime(str(raw).strip(), "%H:%M")
+            return dt_time(parsed.hour, parsed.minute)
+        except Exception:
+            parsed = datetime.strptime(default_hhmm, "%H:%M")
+            return dt_time(parsed.hour, parsed.minute)
+
+    def _in_primary_trading_window(self, now_et: datetime | None = None) -> bool:
+        """Return True when current ET time is in configured primary trading window."""
+        now = now_et or _now_et()
+        current_time = now.time()
+        start_et = self._session_time("primary_start_et", "09:30")
+        end_et = self._session_time("primary_end_et", "16:15")
+        return start_et <= current_time < end_et
+
+    def _is_live_mode(self) -> bool:
+        """Return True when controller runs in live trading mode."""
+        return self.config.trading_mode == TradingMode.LIVE
+
+    def _has_valid_broker_cutoff(self) -> bool:
+        """Validate configured broker cutoff time for fail-closed live gating."""
+        try:
+            raw = self.config.autonomous_session.get("broker_cutoff_et")
+            if raw is None:
+                return False
+            datetime.strptime(str(raw).strip(), "%H:%M")
+            return True
+        except Exception:
+            return False
 
     # ==================================================================================
     # MODULE REGISTRY
@@ -1395,8 +1462,8 @@ class MasterController:
 
         # Define market hours (US Eastern Time)
         pre_market_start = dt_time(4, 0)
-        market_open = dt_time(9, 30)
-        market_close = dt_time(16, 0)
+        market_open = self._session_time("primary_start_et", "09:30")
+        market_close = self._session_time("primary_end_et", "16:15")
         after_hours_end = dt_time(20, 0)
 
         # Determine market state
@@ -1520,6 +1587,22 @@ class MasterController:
 
         if self.trading_enabled:
             logger.info("Trading already enabled")
+            return
+
+        self._update_market_state()
+        if self.market_state != MarketState.MARKET_OPEN or not self._in_primary_trading_window():
+            logger.warning(
+                "Trading gate denied: market_state=%s in_primary_window=%s",
+                self.market_state.value,
+                self._in_primary_trading_window(),
+            )
+            return
+
+        fail_closed = bool(
+            self.config.autonomous_session.get("fail_closed_if_cutoff_unknown_live", True)
+        )
+        if self._is_live_mode() and fail_closed and not self._has_valid_broker_cutoff():
+            logger.error("Trading gate denied in live mode: broker cutoff config missing/invalid")
             return
 
         logger.info("Enabling trading")
@@ -1946,22 +2029,27 @@ if __name__ == "__main__":
                 now = _now_et()
                 date_key = now.date()
 
-                # Market open at 9:30 AM ET
+                # Market open at configured session start (ET)
                 open_key = (date_key, "open")
+                session_open = master._session_time("primary_start_et", "09:30")
                 if (
                     open_key not in _fired
-                    and now.hour == 9
-                    and now.minute >= 30
+                    and now.hour == session_open.hour
+                    and now.minute >= session_open.minute
                     and master.market_state != MarketState.MARKET_OPEN
                 ):
                     master.handle_market_open()
                     _fired.add(open_key)
 
-                # Market close at 4:00 PM ET
+                # Market close at configured session close (ET)
                 close_key = (date_key, "close")
+                session_close = master._session_time("primary_end_et", "16:15")
                 if (
                     close_key not in _fired
-                    and now.hour >= 16
+                    and (
+                        now.hour > session_close.hour
+                        or (now.hour == session_close.hour and now.minute >= session_close.minute)
+                    )
                     and master.market_state == MarketState.MARKET_OPEN
                 ):
                     master.handle_market_close()

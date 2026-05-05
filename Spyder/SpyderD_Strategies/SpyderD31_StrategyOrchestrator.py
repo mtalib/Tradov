@@ -41,13 +41,29 @@ import inspect  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
+import re  # noqa: E402
 from collections import deque, defaultdict  # noqa: E402
-from datetime import datetime, timedelta, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone, time as dt_time  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from typing import Any  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et as _d31_now_et
+except ImportError:
+    try:
+        import pytz as _d31_pytz
+
+        def _d31_now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_d31_pytz.timezone("US/Eastern"))
+
+    except ImportError:
+        import zoneinfo as _d31_zoneinfo
+
+        def _d31_now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_d31_zoneinfo.ZoneInfo("America/New_York"))
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -514,8 +530,12 @@ except ImportError as e:
 # ==============================================================================
 
 # Portfolio management
+# Two-slot concurrency model: one long-term/swing strategy + one intraday/0DTE strategy
+# may run simultaneously. Each slot must occupy a different horizon bucket
+# (ultra_short for 0DTE/1DTE; short or swing for multi-day).
+# Override via env: SPYDER_MAX_CONCURRENT_STRATEGIES, SPYDER_MAX_ACTIVE_HORIZON_BUCKETS.
 MAX_CONCURRENT_STRATEGIES = 2
-MAX_ACTIVE_HORIZON_BUCKETS = 1
+MAX_ACTIVE_HORIZON_BUCKETS = 2  # one ultra_short (0DTE/1DTE) + one short/swing
 DEFAULT_BASE_CAPITAL = 100000  # $100K base allocation
 REBALANCE_FREQUENCY_MINUTES = 30  # Rebalance every 30 minutes
 STRATEGY_HEALTH_CHECK_INTERVAL = 60  # Check health every minute
@@ -784,6 +804,14 @@ class StrategyOrchestrator:
             "IronCondorStrategy",
             "IronButterfly",
             "IronButterflyStrategy",
+            # 0DTE / 1DTE short-term slot (ultra_short horizon bucket)
+            "ZeroDTE",
+            "ZeroDTEStrategy",
+            "SpecializedZeroDTE",
+            "SpecializedZeroDTEStrategy",
+            # Long-term swing slot (swing horizon bucket)
+            "CalendarSpread",
+            "CalendarSpreadStrategy",
         }
         # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
         # default lean posture remains the 4-strategy v5 contract; setting
@@ -861,6 +889,9 @@ class StrategyOrchestrator:
         self._entry_filter_gate: Any | None = None
         self._metrics_orchestrator: Any | None = None
         self._regime_policy: dict[str, Any] | None = None
+        self._session_window_policy: dict[str, Any] = self._load_session_window_policy()
+        self._pin_risk_window_state: str = "inactive"
+        self._pin_risk_last_emit_ts: float = 0.0
 
         # B5: Two distinct pause flags so DATA_FRESH can clear the stale-data
         # pause without also clearing a KILL_SWITCH halt (which is sticky and
@@ -928,7 +959,78 @@ class StrategyOrchestrator:
         # Setup event subscriptions
         self._setup_event_subscriptions()
 
+        # Pre-warm the regime cache so startup doesn't fail-closed to CRISIS
+        # before the first MARKET_DATA event arrives.
+        self._seed_cache_from_disk()
+
         self.logger.debug(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")  # noqa: E501
+
+    def _seed_cache_from_disk(self) -> None:
+        """Warm-start market_data_cache from live_data.json and spy_prev_day.json.
+
+        Reads the last known SPY/VIX prices written by G18 MarketDataWorker and
+        inserts synthetic tick rows so the regime classifier has ≥2 closes
+        from the very first evaluation cycle, avoiding the startup CRISIS.
+        """
+        from pathlib import Path as _Path
+        import json as _json
+
+        _data_dir = _Path.home() / "Projects" / "Spyder" / "market_data"
+
+        # Try to get current SPY/VIX from live_data.json
+        _spy_last = None
+        _vix_last = None
+        try:
+            _ld_file = _data_dir / "live_data.json"
+            if _ld_file.exists():
+                with open(_ld_file) as _f:
+                    _ld = _json.load(_f)
+                _spy_e = _ld.get("SPY")
+                _vix_e = _ld.get("VIX")
+                if isinstance(_spy_e, dict) and _spy_e.get("last"):
+                    _spy_last = float(_spy_e["last"])
+                if isinstance(_vix_e, dict) and _vix_e.get("last"):
+                    _vix_last = float(_vix_e["last"])
+        except Exception:
+            pass
+
+        # Try to get SPY prev-day close from spy_prev_day.json
+        _spy_prev_close = None
+        try:
+            _pd_file = _data_dir / "spy_prev_day.json"
+            if _pd_file.exists():
+                with open(_pd_file) as _f:
+                    _pd = _json.load(_f)
+                if _pd.get("close"):
+                    _spy_prev_close = float(_pd["close"])
+        except Exception:
+            pass
+
+        # Seed SPY cache with 2 entries: prev-day close + current last
+        # The regime classifier needs ≥2 closes to compute change%.
+        if _spy_last is not None:
+            if not isinstance(self.market_data_cache, dict):
+                self.market_data_cache = {}
+            _spy_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+            if _spy_prev_close is not None:
+                _spy_bucket.append({"close": _spy_prev_close, "price": _spy_prev_close, "symbol": "SPY"})
+            else:
+                # No prev-day file: insert a synthetic previous tick slightly
+                # below current so the regime can compute a direction.
+                _spy_bucket.append({"close": _spy_last * 0.999, "price": _spy_last * 0.999, "symbol": "SPY"})
+            _spy_bucket.append({"close": _spy_last, "price": _spy_last, "symbol": "SPY"})
+            self.market_data_cache["SPY"] = _spy_bucket
+            self.logger.info(
+                "D31 cache seeded from disk: SPY prev=%.2f current=%.2f",
+                _spy_bucket[0]["close"],
+                _spy_last,
+            )
+
+        # Seed VIX cache with a single entry (prevents VIX-empty CRISIS)
+        if _vix_last is not None:
+            _vix_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+            _vix_bucket.append({"close": _vix_last, "price": _vix_last, "symbol": "VIX"})
+            self.market_data_cache["VIX"] = _vix_bucket
 
     def _record_signal_drop(
         self,
@@ -2088,13 +2190,11 @@ class StrategyOrchestrator:
         # crisis_turbulent → no-trade, which is the safe behavior.
         spy_ticks = self.market_data_cache.get("SPY", [])
         spy_closes = [
-            t.get("close", t.get("price"))
+            self._coerce_float(t.get("close", t.get("price")))
             for t in spy_ticks
             if isinstance(t, dict)
         ]
-        spy_closes = [
-            float(c) for c in spy_closes if isinstance(c, (int, float))
-        ]
+        spy_closes = [float(c) for c in spy_closes if c is not None]
         if len(spy_closes) < 2:
             self.logger.warning(
                 "D31 regime: SPY cache has %d closes (<2) — failing closed to CRISIS",
@@ -2121,8 +2221,9 @@ class StrategyOrchestrator:
                     for item in reversed(series):
                         if isinstance(item, dict):
                             value = item.get("close") or item.get("price") or item.get("last")
-                            if isinstance(value, (int, float)):
-                                return float(value)
+                            numeric = self._coerce_float(value)
+                            if numeric is not None:
+                                return float(numeric)
                     return float("nan")
                 # Build MarketConditions from cached SPY + VIX ticks
                 spy_ticks = self.market_data_cache.get("SPY", [])
@@ -2131,10 +2232,10 @@ class StrategyOrchestrator:
                 # sentinel and fail closed below if the cache lacks ≥2 closes.
                 spy_price, spy_change_pct = float("nan"), 0.0
                 closes = [
-                    t.get("close", t.get("price", 0.0))
+                    self._coerce_float(t.get("close", t.get("price", 0.0)))
                     for t in spy_ticks if isinstance(t, dict)
                 ]
-                closes = [float(c) for c in closes if isinstance(c, (int, float))]
+                closes = [float(c) for c in closes if c is not None]
                 if len(closes) >= 2:
                     spy_price = closes[-1]
                     spy_change_pct = (closes[-1] - closes[0]) / closes[0] * 100.0
@@ -2157,8 +2258,10 @@ class StrategyOrchestrator:
                 if len(spy_ticks) >= 2:
                     highs = [t.get("high") for t in spy_ticks if isinstance(t, dict)]
                     lows = [t.get("low") for t in spy_ticks if isinstance(t, dict)]
-                    highs = [float(v) for v in highs if isinstance(v, (int, float))]
-                    lows = [float(v) for v in lows if isinstance(v, (int, float))]
+                    highs = [self._coerce_float(v) for v in highs]
+                    lows = [self._coerce_float(v) for v in lows]
+                    highs = [float(v) for v in highs if v is not None]
+                    lows = [float(v) for v in lows if v is not None]
                     if highs and lows and len(highs) == len(lows) and len(closes) >= 2:
                         tr_values: list[float] = []
                         for idx in range(1, min(len(highs), len(lows), len(closes))):
@@ -2180,10 +2283,10 @@ class StrategyOrchestrator:
                 if not vix_ticks:
                     vix_ticks = self.market_data_cache.get("^VIX", [])
                 vix_values = [
-                    t.get("close", t.get("price", 0.0))
+                    self._coerce_float(t.get("close", t.get("price", 0.0)))
                     for t in vix_ticks if isinstance(t, dict)
                 ]
-                vix_values = [float(v) for v in vix_values if isinstance(v, (int, float))]
+                vix_values = [float(v) for v in vix_values if v is not None]
                 # v27 SPEC-5: VIX is required for risk-on/risk-off discrimination.
                 # If the VIX cache is cold, fail closed rather than running L09
                 # on SPY-only data.
@@ -2310,14 +2413,18 @@ class StrategyOrchestrator:
         if self.lean_mode:
             if regime in {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}:
                 return {}
-            if regime in {MarketRegime.BULL_LOW_VOL, MarketRegime.BULL_HIGH_VOL}:
-                return {"BullPutSpread": 1.0}
+            # Each regime returns two strategies so D31 can fill both concurrent
+            # slots: one ultra_short (0DTE/1DTE) and one short/swing.
+            if regime == MarketRegime.BULL_LOW_VOL:
+                return {"BullPutSpread": 0.55, "ZeroDTE": 0.45}
+            if regime == MarketRegime.BULL_HIGH_VOL:
+                return {"BullPutSpread": 0.50, "ZeroDTE": 0.50}
             if regime in {MarketRegime.BEAR_LOW_VOL, MarketRegime.BEAR_HIGH_VOL}:
-                return {"BearCallSpread": 1.0}
+                return {"BearCallSpread": 0.55, "ZeroDTE": 0.45}
             if regime == MarketRegime.SIDEWAYS_LOW_VOL:
-                return {"IronCondor": 1.0}
+                return {"IronCondor": 0.55, "CalendarSpread": 0.45}
             if regime == MarketRegime.SIDEWAYS_HIGH_VOL:
-                return {"IronButterfly": 1.0}
+                return {"IronButterfly": 0.55, "ZeroDTE": 0.45}
             return {}
 
         # Strategy weights by regime (this would be backtested/optimized)
@@ -3048,17 +3155,30 @@ class StrategyOrchestrator:
                 self.market_data_cache = {}
             symbol = data.get("symbol")
             tick = data.get("tick")
-            if isinstance(symbol, str) and isinstance(tick, dict):
-                # _classify_market_regime_unified reads market_data_cache["SPY"] /
-                # ["VIX"] / ["VIX9D"] as a list of tick dicts to compute EMA50 and
-                # ATR14. C01 publishes one tick per event under {symbol, tick};
-                # bucket per-symbol into a bounded rolling window so the regime
-                # detector sees a real series instead of an empty list.
-                bucket = self.market_data_cache.get(symbol)
-                if not isinstance(bucket, deque):
-                    bucket = deque(maxlen=_MARKET_TICK_BUFFER)
-                    self.market_data_cache[symbol] = bucket
-                bucket.append(tick)
+            if isinstance(symbol, str):
+                row: dict[str, Any] | None = None
+
+                if isinstance(tick, dict):
+                    row = dict(tick)
+                else:
+                    # Some producers publish flat payloads like
+                    # {"symbol":"SPY","price":...} instead of {"tick": {...}}.
+                    # Normalize that shape into a tick row so regime cache can warm.
+                    candidate = {
+                        key: data.get(key)
+                        for key in ("open", "high", "low", "close", "price", "last", "bid", "ask", "volume")
+                        if key in data
+                    }
+                    if candidate:
+                        row = candidate
+
+                if isinstance(row, dict):
+                    row.setdefault("symbol", symbol)
+                    bucket = self.market_data_cache.get(symbol)
+                    if not isinstance(bucket, deque):
+                        bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+                        self.market_data_cache[symbol] = bucket
+                    bucket.append(row)
             else:
                 # Non-tick payloads (e.g. C12 dark-pool block_trade events,
                 # event_clock_state). Merge top-level keys but leave per-symbol
@@ -3080,6 +3200,10 @@ class StrategyOrchestrator:
             )
             return
         self.last_market_update = datetime.now(timezone.utc)
+        try:
+            self._emit_pin_risk_window_events()
+        except Exception as _pin_exc:
+            self.logger.debug("D31 pin-risk window monitor failed: %s", _pin_exc)
 
         # v27 SPEC-11: regime is a hot-path concern. Recompute regime up to
         # once every REGIME_UPDATE_THROTTLE_SECONDS (15s) per market-data event
@@ -3094,6 +3218,25 @@ class StrategyOrchestrator:
                 self._last_regime_update_ts = now_ts
         except Exception as _regime_exc:
             self.logger.debug("D31 per-tick regime update failed: %s", _regime_exc)
+
+        # v28 COLD-START RECOVERY: if no strategies have been registered yet
+        # (e.g. startup CRISIS fail-closed cleared by fresh market data) and
+        # the current regime is now tradeable, trigger strategy configuration
+        # immediately rather than waiting for the next 30-min orchestration cycle.
+        if not self.active_strategies:
+            _cur_regime = self.market_regime.current_regime
+            _non_tradeable = {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}
+            if _cur_regime not in _non_tradeable:
+                try:
+                    self._configure_strategies_for_regime()
+                    self.logger.info(
+                        "D31 warm-up: bootstrapped strategies for regime %s",
+                        _cur_regime.value,
+                    )
+                except Exception as _cfg_exc:
+                    self.logger.debug(
+                        "D31 warm-up strategy configure failed: %s", _cfg_exc
+                    )
 
         # Feed every active strategy so it can generate signals autonomously.
         if not self.active_strategies:
@@ -3189,6 +3332,31 @@ class StrategyOrchestrator:
             except Exception as exc:
                 self.logger.error("Failed to emit dry-run ORDER_REJECTED: %s", exc, exc_info=True)
             return
+
+        if isinstance(signal, dict):
+            session_gate_ok, session_gate_reason = self._passes_session_window_gate(signal)
+            if not session_gate_ok:
+                self._record_signal_drop(
+                    "pre_risk",
+                    "session_window_gate",
+                    signal=signal,
+                    detail=session_gate_reason,
+                )
+                self.logger.warning(
+                    "Strategy signal rejected by session window gate: %s",
+                    session_gate_reason,
+                )
+                self._emit_event_safe(
+                    EventType.RISK,
+                    {
+                        "type": "session_window_gate_rejected",
+                        "severity": "warning",
+                        "reason": session_gate_reason,
+                        "signal": signal,
+                    },
+                    severity="warning",
+                )
+                return
 
         market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
         pivot_context = self._format_pivot_log_context(
@@ -3625,6 +3793,334 @@ class StrategyOrchestrator:
         except Exception:
             return True
 
+    def _load_session_window_policy(self) -> dict[str, Any]:
+        """Load autonomous session window policy with safe defaults."""
+        policy: dict[str, Any] = {
+            "primary_start_et": "09:30",
+            "primary_end_et": "16:15",
+            "first_entry_not_before_et": "09:35",
+            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "broker_cutoff_et": "16:00",
+            "broker_cutoff_buffer_minutes": 10,
+            "pin_risk_monitor_end_et": "17:30",
+            "fail_closed_if_cutoff_unknown_live": True,
+        }
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            candidate = cfg.get("autonomous_readiness.session_window", {})
+            if isinstance(candidate, dict):
+                merged = dict(policy)
+                merged.update(candidate)
+                policy = merged
+        except Exception:
+            pass
+
+        return policy
+
+    @staticmethod
+    def _parse_hhmm(value: Any, fallback: str) -> dt_time:
+        """Parse HH:MM strings into ET clock-time values."""
+        raw = str(value or fallback).strip()
+        try:
+            parsed = datetime.strptime(raw, "%H:%M")
+            return parsed.time()
+        except Exception:
+            parsed = datetime.strptime(fallback, "%H:%M")
+            return parsed.time()
+
+    def _session_time(self, key: str, fallback: str) -> dt_time:
+        """Read a session policy HH:MM value from cached D31 policy."""
+        return self._parse_hhmm(self._session_window_policy.get(key, fallback), fallback)
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        """Coerce values to float, returning None on parse errors."""
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_date(value: Any) -> datetime.date | None:
+        """Parse date-like values from common ISO formats."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        text = str(value).strip()
+        if not text:
+            return None
+        text = text.split("T", 1)[0]
+        try:
+            return datetime.strptime(text, "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    def _is_live_mode(self) -> bool:
+        """Return True when runtime is configured for live trading."""
+        return str(os.environ.get("TRADING_MODE", "paper")).strip().lower() == "live"
+
+    def _has_valid_broker_cutoff(self) -> bool:
+        """Check whether broker cutoff is present and parseable."""
+        raw = self._session_window_policy.get("broker_cutoff_et")
+        if raw is None:
+            return False
+        try:
+            _ = datetime.strptime(str(raw).strip(), "%H:%M")
+            return True
+        except Exception:
+            return False
+
+    def _is_short_option_entry(self, signal: dict[str, Any]) -> bool:
+        """Identify short option entry intent from signal payload."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        action = str(
+            signal.get("action")
+            or signal.get("side")
+            or metadata.get("action")
+            or metadata.get("side")
+            or ""
+        ).strip().lower()
+        if action not in {"sell", "sell_to_open", "short"}:
+            return False
+
+        option_symbol = str(signal.get("option_symbol") or metadata.get("option_symbol") or "").strip()
+        symbol = str(signal.get("symbol") or metadata.get("symbol") or "").strip()
+        has_option_hint = bool(option_symbol) or bool(re.search(r"[CP]\d{8}$", symbol))
+        return has_option_hint
+
+    def _is_opening_trade_signal(self, signal: dict[str, Any]) -> bool:
+        """Identify signals that open new risk and should respect first-entry embargo."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        action = str(
+            signal.get("action")
+            or signal.get("side")
+            or metadata.get("action")
+            or metadata.get("side")
+            or ""
+        ).strip().lower()
+        opening_actions = {
+            "buy",
+            "buy_to_open",
+            "sell_to_open",
+            "enter",
+            "open",
+            "long",
+            "short",
+            "bot",
+            "sld",
+        }
+        return action in opening_actions
+
+    def _is_zero_dte_signal(self, signal: dict[str, Any], now_et: datetime) -> bool:
+        """Best-effort 0DTE detection from signal metadata."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+
+        for key in ("dte", "days_to_expiry", "days_to_expiration"):
+            candidate = self._coerce_float(signal.get(key))
+            if candidate is None:
+                candidate = self._coerce_float(metadata.get(key))
+            if candidate is not None:
+                return candidate <= 0.0
+
+        for key in ("expiry", "expiration", "expiry_date", "expiration_date"):
+            candidate = self._coerce_date(signal.get(key))
+            if candidate is None:
+                candidate = self._coerce_date(metadata.get(key))
+            if candidate is not None:
+                return candidate == now_et.date()
+
+        return False
+
+    def _passes_session_window_gate(self, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Apply configured session window + 0DTE cutoff controls."""
+        now_et = _d31_now_et()
+        if now_et.weekday() >= 5:
+            return False, "session_window:weekend_block"
+
+        start_et = self._session_time("primary_start_et", "09:30")
+        end_et = self._session_time("primary_end_et", "16:15")
+        current_time = now_et.time()
+        if current_time < start_et or current_time >= end_et:
+            return False, "session_window:outside_primary_window"
+
+        first_entry_not_before = self._session_time("first_entry_not_before_et", "09:35")
+        if self._is_opening_trade_signal(signal) and current_time < first_entry_not_before:
+            return False, "session_window:first_entry_embargo"
+
+        fail_closed_live = bool(self._session_window_policy.get("fail_closed_if_cutoff_unknown_live", True))
+        if self._is_live_mode() and fail_closed_live and not self._has_valid_broker_cutoff():
+            return False, "session_window:missing_broker_cutoff_live"
+
+        if self._is_short_option_entry(signal) and self._is_zero_dte_signal(signal, now_et):
+            cutoff = self._session_time("zero_dte_no_new_risk_cutoff_et", "15:45")
+            if current_time >= cutoff:
+                return False, "session_window:zero_dte_short_cutoff"
+
+        return True, ""
+
+    @staticmethod
+    def _extract_option_strike(option_symbol: str) -> float | None:
+        """Parse strike from OCC-style option symbols ending with C/P########."""
+        match = re.search(r"[CP](\d{8})$", str(option_symbol).strip())
+        if not match:
+            return None
+        try:
+            return int(match.group(1)) / 1000.0
+        except Exception:
+            return None
+
+    def _get_spy_last_price(self) -> float | None:
+        """Read latest SPY last-price from cached market data buckets."""
+        bucket = self.market_data_cache.get("SPY") if isinstance(self.market_data_cache, dict) else None
+        if isinstance(bucket, deque) and bucket:
+            last_tick = bucket[-1]
+            if isinstance(last_tick, dict):
+                for key in ("last", "close", "price"):
+                    value = self._coerce_float(last_tick.get(key))
+                    if value is not None and value > 0:
+                        return value
+        return None
+
+    def _count_at_risk_short_options(self, now_et: datetime) -> int:
+        """Best-effort count of unresolved short 0DTE options near the money."""
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import get_session_supervisor
+
+            supervisor = get_session_supervisor()
+        except Exception:
+            return 0
+
+        if supervisor is None:
+            return 0
+
+        position_tracker = getattr(supervisor, "position_tracker", None)
+        if position_tracker is None and hasattr(supervisor, "engine"):
+            position_tracker = getattr(getattr(supervisor, "engine"), "position_tracker", None)
+        if position_tracker is None:
+            return 0
+
+        raw_positions = getattr(position_tracker, "positions", None)
+        if isinstance(raw_positions, dict):
+            positions = list(raw_positions.values())
+        elif isinstance(raw_positions, list):
+            positions = raw_positions
+        else:
+            positions = []
+
+        spy_last = self._get_spy_last_price()
+        at_risk_count = 0
+        for position in positions:
+            if isinstance(position, dict):
+                quantity = self._coerce_float(position.get("quantity"))
+                option_symbol = str(position.get("option_symbol") or position.get("symbol") or "")
+                expiry = self._coerce_date(
+                    position.get("expiry")
+                    or position.get("expiration")
+                    or position.get("expiry_date")
+                    or position.get("expiration_date")
+                )
+            else:
+                quantity = self._coerce_float(getattr(position, "quantity", None))
+                option_symbol = str(
+                    getattr(position, "option_symbol", "")
+                    or getattr(position, "symbol", "")
+                )
+                expiry = self._coerce_date(
+                    getattr(position, "expiry", None)
+                    or getattr(position, "expiration", None)
+                    or getattr(position, "expiry_date", None)
+                    or getattr(position, "expiration_date", None)
+                )
+
+            if quantity is None or quantity >= 0:
+                continue
+            if not option_symbol:
+                continue
+            if expiry is not None and expiry != now_et.date():
+                continue
+
+            strike = self._extract_option_strike(option_symbol)
+            if strike is None or spy_last is None or spy_last <= 0:
+                at_risk_count += 1
+                continue
+
+            distance_pct = abs(spy_last - strike) / max(spy_last, 1e-6)
+            if distance_pct <= 0.003:
+                at_risk_count += 1
+
+        return at_risk_count
+
+    def _emit_event_safe(self, event_type: Any, payload: dict[str, Any], severity: str = "normal") -> None:
+        """Emit events through whichever EventManager API is available."""
+        if self.event_manager is None:
+            return
+
+        try:
+            if hasattr(self.event_manager, "emit"):
+                priority = EventPriority.NORMAL
+                if severity in {"warning", "high"}:
+                    priority = EventPriority.HIGH
+                elif severity in {"critical", "emergency"}:
+                    priority = EventPriority.CRITICAL
+                self.event_manager.emit(event_type, payload, priority=priority, source="StrategyOrchestrator")
+                return
+        except Exception:
+            pass
+
+        try:
+            self.event_manager.publish(event_type, payload)
+        except Exception:
+            pass
+
+    def _emit_pin_risk_window_events(self) -> None:
+        """Emit post-close assignment-risk state and escalations during pin-risk window."""
+        now_et = _d31_now_et()
+        end_et = self._session_time("primary_end_et", "16:15")
+        monitor_end_et = self._session_time("pin_risk_monitor_end_et", "17:30")
+        current_time = now_et.time()
+
+        in_window = (current_time >= end_et) and (current_time < monitor_end_et) and (now_et.weekday() < 5)
+        new_state = "monitoring" if in_window else "inactive"
+        if new_state != self._pin_risk_window_state:
+            self._pin_risk_window_state = new_state
+            self._emit_event_safe(
+                EventType.RISK,
+                {
+                    "type": "pin_risk_window_state",
+                    "state": new_state,
+                    "timestamp_et": now_et.isoformat(),
+                },
+                severity="high" if in_window else "normal",
+            )
+
+        if not in_window:
+            return
+
+        at_risk_count = self._count_at_risk_short_options(now_et)
+        if at_risk_count <= 0:
+            return
+
+        now_mono = time.monotonic()
+        if now_mono - self._pin_risk_last_emit_ts < 60.0:
+            return
+        self._pin_risk_last_emit_ts = now_mono
+
+        payload = {
+            "type": "pin_risk_unresolved_shorts",
+            "severity": "critical",
+            "count": at_risk_count,
+            "timestamp_et": now_et.isoformat(),
+            "message": "Unresolved short option exposure detected in post-close assignment window",
+        }
+        self._emit_event_safe(EventType.RISK_VIOLATION, payload, severity="critical")
+        self._emit_event_safe(EventType.ALERT, payload, severity="critical")
+
     def _passes_regime_policy_gate(
         self,
         signal: dict[str, Any],
@@ -3861,12 +4357,24 @@ class StrategyOrchestrator:
                     option_symbol=option_symbol or None,
                     strategy_name=strategy_id or None,
                 )
-                if walk_result.success:
+                walk_success = bool(getattr(walk_result, "success", False))
+                if not walk_success and isinstance(walk_result, dict):
+                    walk_success = bool(walk_result.get("success", False))
+                walk_message = getattr(walk_result, "message", None)
+                if walk_message is None and isinstance(walk_result, dict):
+                    walk_message = walk_result.get("message")
+                if walk_message is None:
+                    walk_message = str(walk_result)
+                walk_error_code = getattr(walk_result, "error_code", None)
+                if walk_error_code is None and isinstance(walk_result, dict):
+                    walk_error_code = walk_result.get("error_code")
+
+                if walk_success:
                     self.logger.info(
                         "MidWalk filled: symbol=%s qty=%d %s | %s",
                         symbol,
                         quantity,
-                        walk_result.message,
+                        walk_message,
                         pivot_context,
                     )
                     self._record_signal_dispatch_outcome("dispatch_submitted")
@@ -3874,8 +4382,8 @@ class StrategyOrchestrator:
                     self.logger.warning(
                         "MidWalk did not fill: symbol=%s reason=%s error=%s | %s",
                         symbol,
-                        walk_result.message,
-                        walk_result.error_code,
+                        walk_message,
+                        walk_error_code,
                         pivot_context,
                     )
                     self._record_signal_dispatch_outcome("dispatch_rejected")

@@ -1,0 +1,21 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Unit: SpyderQ76_SessionStop.timer
+# Group: Q (Scripts/Services)
+# Purpose: Gracefully stop the Spyder main service after the EOD report window
+#          (Friday 16:25 ET) so the process does not idle over the weekend.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Session Stop Timer — Friday 16:25 ET weekend shutdown
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+
+[Timer]
+# Fire Fridays only at 16:25 America/New_York (after EOD + EOW summaries finish)
+OnCalendar=Fri *-*-* 16:25:00 America/New_York
+Persistent=false
+Unit=SpyderQ76_SessionStop.service
+
+[Install]
+WantedBy=timers.target

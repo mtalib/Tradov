@@ -1,0 +1,20 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Service: SpyderQ76_SessionStop.service
+# Group: Q (Scripts/Services)
+# Purpose: Gracefully stop SpyderQ74_SpyderMain.service on Fridays after
+#          the EOD + EOW reporting window.
+#          Triggered by SpyderQ76_SessionStop.timer at 16:25 ET Friday.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Session Stop — Friday weekend shutdown
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+
+[Service]
+Type=oneshot
+User=adam
+Group=adam
+# Stop the main service gracefully; ignore error if already stopped.
+ExecStart=/bin/bash -c 'systemctl is-active --quiet SpyderQ74_SpyderMain.service && systemctl stop SpyderQ74_SpyderMain.service && echo "Spyder main service stopped for weekend" || echo "Spyder main service was not running"'

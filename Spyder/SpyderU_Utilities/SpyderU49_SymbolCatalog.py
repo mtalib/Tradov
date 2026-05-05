@@ -52,6 +52,9 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("DIA", "MAJOR INDICES", True, "quote", provider_symbol="DIA", backend_symbol="DIA"),
     SymbolDefinition("SPY", "MAJOR INDICES", True, "quote", provider_symbol="SPY", backend_symbol="SPY"),
     SymbolDefinition("SPX", "S&P CORE", False, "quote", provider_symbol="SPX", backend_symbol="SPX"),
+    SymbolDefinition("$DJI", None, False, "quote", provider_symbol="$DJI"),
+    SymbolDefinition("NDX", None, False, "quote", provider_symbol="NDX"),
+    SymbolDefinition("RUT", None, False, "quote", provider_symbol="RUT"),
 
     SymbolDefinition("VIX", "VOLATILITY", True, "quote", provider_symbol="VIX", backend_symbol="VIX"),
     SymbolDefinition("VIX9D", "VOLATILITY", True, "quote", provider_symbol="VIX9D", backend_symbol="VIX9D"),
