@@ -77,7 +77,10 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("TLT", "BONDS & CREDIT", True, "quote", provider_symbol="TLT", backend_symbol="TLT"),
     SymbolDefinition("HYG", "BONDS & CREDIT", True, "quote", provider_symbol="HYG"),
     SymbolDefinition("LQD", "BONDS & CREDIT", True, "quote", provider_symbol="LQD", backend_symbol="LQD"),
-    SymbolDefinition("TNX", "BONDS & CREDIT", True, "event-only", optional=True),
+    # $TNX is Tradier's CBOE 10-Year Treasury Yield index symbol.
+    # Using "proxy" so _build_quote_symbol_basket() includes "$TNX" in every
+    # fetch and _quote_to_live_entry remaps it to the display key "TNX".
+    SymbolDefinition("TNX", "BONDS & CREDIT", True, "proxy", provider_symbol="$TNX", optional=True),
 
     # DXY is represented by UUP at quote-fetch time.
     SymbolDefinition("DXY", "CORRELATIONS", True, "proxy", provider_symbol="UUP", backend_symbol="DXY"),
