@@ -378,12 +378,20 @@ class GEXDEXCalculator:
             from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
             gex_calc = GammaExposureCalculator()
             result = gex_calc.get_spy_gex_summary()
+            n_strikes = result.get("num_strikes", 0)
+            if n_strikes == 0:
+                # OPRA stream not yet active — fall through so the chain
+                # fallback (N03 → Tradier B40) computes a real GEX instead
+                # of propagating the zero that N09 returns without live data.
+                raise DataUnavailableError(
+                    "SpyderN09 returned 0 strikes — OPRA stream not active; using chain fallback"
+                )
             return {
                 "gex": result.get("net_gex_billions", 0.0),
                 "dex": result.get("net_dex_millions", 0.0),
                 "ogl": result.get("max_gamma_strike", spot_price or 0.0),
                 "timestamp": datetime.now(timezone.utc),
-                "num_strikes": result.get("num_strikes", 0),
+                "num_strikes": n_strikes,
                 "data_source": "SpyderN09_GammaExposure",
             }
         except Exception as e:

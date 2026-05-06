@@ -331,6 +331,19 @@ class CustomMetricsOrchestrator(QObject):
         _a39 = 2.0 / (39 + 1)
         self._nymo_alpha_fast: float = _a19
         self._nymo_alpha_slow: float = _a39
+        # Restore persisted NYMO EMA state so the warm-up survives restarts.
+        _nymo_cache_path = pathlib.Path("data/cache/nymo_ema_state.json")
+        if _nymo_cache_path.exists():
+            try:
+                _nymo_state = json.loads(_nymo_cache_path.read_text())
+                _f = _nymo_state.get("ema_fast")
+                _s = _nymo_state.get("ema_slow")
+                if isinstance(_f, (int, float)) and math.isfinite(_f):
+                    self._nymo_ema_fast = float(_f)
+                if isinstance(_s, (int, float)) and math.isfinite(_s):
+                    self._nymo_ema_slow = float(_s)
+            except Exception:
+                pass
 
         # Metrics history for trend analysis
         self.metrics_history: list[MetricSnapshot] = []
@@ -928,7 +941,16 @@ class CustomMetricsOrchestrator(QObject):
         """Update SWAN metrics"""
         try:
             if self.swan_indicator:
-                swan_result = self.swan_indicator.calculate_swan_score()
+                # Pass live TICK/ADD/TRIN breadth data into the SWAN internals
+                # component so the score reflects current market breadth.
+                _mi: dict[str, float] = {}
+                for _k in ("TICK", "ADD", "TRIN"):
+                    _v = updated_metrics.get(_k)
+                    if isinstance(_v, (int, float)) and math.isfinite(_v):
+                        _mi[_k.lower()] = float(_v)
+                swan_result = self.swan_indicator.calculate_swan_score(
+                    market_internals_override=_mi or None
+                )
                 updated_metrics["SWAN"] = swan_result.overall_score
 
                 # Emit detailed SWAN signal
@@ -1099,6 +1121,16 @@ class CustomMetricsOrchestrator(QObject):
                     updated_metrics["NYMO"] = round(
                         self._nymo_ema_fast - self._nymo_ema_slow, 1
                     )
+                    # Persist EMA state so the NYMO warm-up survives process restarts.
+                    try:
+                        _nymo_save = pathlib.Path("data/cache/nymo_ema_state.json")
+                        _nymo_save.parent.mkdir(parents=True, exist_ok=True)
+                        _nymo_save.write_text(json.dumps({
+                            "ema_fast": self._nymo_ema_fast,
+                            "ema_slow": self._nymo_ema_slow,
+                        }))
+                    except Exception:
+                        pass
                 else:
                     updated_metrics["NYMO"] = self.current_metrics.get("NYMO", float("nan"))
 
@@ -1617,6 +1649,26 @@ class CustomMetricsOrchestrator(QObject):
         cache_path.write_text(json.dumps(history))
 
         iv_values = [float(entry["iv"]) for entry in history if entry.get("iv") is not None]
+        # Seed with one year of VIX closing prices when live history is thin.
+        # VIX level ≈ 30-day ATM IV (both expressed in percent), making it a
+        # suitable proxy until enough real ATM_IV samples accumulate daily.
+        if len(iv_values) < 5:
+            try:
+                import yfinance as yf
+                vix_df = yf.Ticker("^VIX").history(period="1y")["Close"]
+                if not vix_df.empty:
+                    seed = [
+                        {"date": str(idx.date()), "iv": float(v)}
+                        for idx, v in zip(vix_df.index, vix_df.values)
+                    ]
+                    # Prepend seed; real observations at the tail take priority.
+                    history = (seed + history)[-252:]
+                    cache_path.write_text(json.dumps(history))
+                    iv_values = [
+                        float(e["iv"]) for e in history if e.get("iv") is not None
+                    ]
+            except Exception:
+                pass
         if len(iv_values) < 5:
             return float("nan")
 
@@ -1660,9 +1712,15 @@ class CustomMetricsOrchestrator(QObject):
 
     def _get_options_tradier_client(self):
         """Return a cached Tradier client for options analytics calls."""
+        trading_mode = os.getenv("TRADING_MODE", "paper").strip().lower()
+        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
         api_key = os.getenv("TRADIER_API_KEY", "").strip()
         account_id = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
-        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
+
+        if trading_mode == "paper":
+            api_key = (os.getenv("TRADIER_SANDBOX_API_KEY", "").strip() or api_key)
+            account_id = (os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip() or account_id)
+            environment_name = "sandbox"
 
         if not api_key or not account_id:
             return None

@@ -255,9 +255,16 @@ class BlackSwanIndicator:
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
-    def calculate_swan_score(self) -> BlackSwanResult:
+    def calculate_swan_score(self, market_internals_override: dict | None = None) -> BlackSwanResult:
         """
         Calculate the complete Black Swan risk score.
+
+        Args:
+            market_internals_override: Optional dict with real-time breadth
+                internals (keys: ``tick``, ``add``, ``trin``) supplied by S07.
+                When provided, these values are incorporated into the
+                market-internals component score alongside the existing
+                term-structure and breadth signals.
 
         Returns:
             BlackSwanResult with score (1-5) and component breakdown
@@ -288,7 +295,7 @@ class BlackSwanIndicator:
             component_scores["liquidity"] = liquidity_score
 
             # 4. Market Internals Component
-            internals_score = self._calculate_internals_score(market_data)
+            internals_score = self._calculate_internals_score(market_data, market_internals_override)
             component_scores["market_internals"] = internals_score
 
             # Calculate weighted overall score
@@ -526,7 +533,7 @@ class BlackSwanIndicator:
             details={"dxy": dxy},
         )
 
-    def _calculate_internals_score(self, data: dict) -> ComponentScore:
+    def _calculate_internals_score(self, data: dict, market_internals_override: dict | None = None) -> ComponentScore:  # noqa: E501
         """Calculate market internals component score.
 
         Uses VIX term-structure (VIX9D / VIX ratio) as a proxy for near-term
@@ -587,6 +594,61 @@ class BlackSwanIndicator:
             details["breadth_ratio"] = round(breadth, 3)
             details["breadth"] = breadth_desc
 
+        # ── Live breadth internals: TICK, ADD, TRIN (supplied by S07) ────────
+        # Real-time NYSE breadth indicators are injected by S07 when the
+        # TradingView client is active.  S03 cannot fetch these directly.
+        if market_internals_override:
+            _sub: list[float] = []
+            _int_details: dict = {}
+            _tick = market_internals_override.get("tick")
+            _add  = market_internals_override.get("add")
+            _trin = market_internals_override.get("trin")
+            if _tick is not None:
+                # Below −1000: panic selling → 4.5
+                # −1000 to −600: broad selling → 2.5–4.5 linear
+                # Above +800: strong breadth thrust → 1.0 (bullish)
+                # Otherwise neutral → 1.5
+                if _tick <= -1000:
+                    _ts = 4.5
+                elif _tick <= -600:
+                    _ts = 2.5 + (abs(_tick) - 600) / 400.0 * 2.0
+                elif _tick >= 800:
+                    _ts = 1.0
+                else:
+                    _ts = 1.5
+                _sub.append(_ts)
+                _int_details["tick"] = round(_tick, 0)
+            if _add is not None:
+                if _add <= -2000:
+                    _as = 4.5
+                elif _add <= -1000:
+                    _as = 2.5 + (abs(_add) - 1000) / 1000.0 * 2.0
+                elif _add >= 1000:
+                    _as = 1.0
+                else:
+                    _as = 1.5
+                _sub.append(_as)
+                _int_details["add"] = round(_add, 0)
+            if _trin is not None:
+                # Above 3.0: extreme selling volume → 4.5
+                # 2.0–3.0:  strong selling → 3.0–4.5
+                # Below 0.5: extreme buying rush (blow-off risk) → 2.0
+                # 0.5–2.0:  normal → 1.0 + trin (1.5–3.0 linear)
+                if _trin >= 3.0:
+                    _tr = 4.5
+                elif _trin >= 2.0:
+                    _tr = 3.0 + (_trin - 2.0)
+                elif _trin <= 0.5:
+                    _tr = 2.0
+                else:
+                    _tr = 1.0 + _trin
+                _sub.append(_tr)
+                _int_details["trin"] = round(_trin, 2)
+            if _sub:
+                _live_score = float(np.mean(_sub))
+                scores.append(max(1.0, min(5.0, _live_score)))
+                details["live_internals"] = _int_details
+
         if scores:
             raw_score = float(np.mean(scores))
         else:
@@ -597,7 +659,12 @@ class BlackSwanIndicator:
         if scores:
             ts_part = details.get("term_structure", "")
             br_part = details.get("breadth", "")
-            description = "; ".join(filter(None, [ts_part, br_part]))
+            live_part = (
+                "Internals: " + ", ".join(f"{k}={v}" for k, v in details["live_internals"].items())
+                if "live_internals" in details
+                else ""
+            )
+            description = "; ".join(filter(None, [ts_part, br_part, live_part]))
         else:
             description = "Market internals: insufficient data"
 
