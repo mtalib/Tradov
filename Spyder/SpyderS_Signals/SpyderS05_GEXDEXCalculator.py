@@ -94,6 +94,11 @@ class GEXDEXCalculator:
         self.logger = logging.getLogger(__name__)
         self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
+        # Cache SPY expirations for the trading day — the list only changes
+        # at most once per day, so re-fetching every 60-second GEX cycle
+        # creates unnecessary /options/expirations calls that trigger timeouts.
+        self._cached_expirations: list[str] = []
+        self._expirations_cache_date: str = ""  # "YYYY-MM-DD" of last fetch
 
     # ------------------------------------------------------------------
     # Public API
@@ -441,18 +446,28 @@ class GEXDEXCalculator:
 
             client = create_tradier_client_from_env()
 
-            # Get available SPY expirations
-            exps_resp = client.get_option_expirations("SPY")
-            exps = exps_resp.get("expirations", {}).get("date", [])
-            if not exps:
-                raise DataUnavailableError("No SPY expirations returned from Tradier")
-            if isinstance(exps, str):
-                exps = [exps]
+            # Get available SPY expirations — cache for the trading day to
+            # avoid a /options/expirations HTTP round-trip every 60-second cycle.
+            today_str = str(_date.today())
+            if self._expirations_cache_date != today_str or not self._cached_expirations:
+                exps_resp = client.get_option_expirations("SPY")
+                exps = exps_resp.get("expirations", {}).get("date", [])
+                if not exps:
+                    raise DataUnavailableError("No SPY expirations returned from Tradier")
+                if isinstance(exps, str):
+                    exps = [exps]
+                self._cached_expirations = list(exps)
+                self._expirations_cache_date = today_str
+                self.logger.debug("Cached %d SPY expirations for %s", len(exps), today_str)
+            else:
+                self.logger.debug("Using cached SPY expirations (%d dates)",
+                                  len(self._cached_expirations))
 
             # Pick the soonest future expiration (but at least 1 day out)
-            today_str = str(_date.today())
-            future_exps = sorted(e for e in exps if e > today_str)
+            future_exps = sorted(e for e in self._cached_expirations if e > today_str)
             if not future_exps:
+                # Cache might be stale (all cached expirations have passed) — force refresh
+                self._expirations_cache_date = ""
                 raise DataUnavailableError("No future SPY expirations available from Tradier")
             nearest = future_exps[0]
 
