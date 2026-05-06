@@ -323,6 +323,11 @@ class CustomMetricsOrchestrator(QObject):
         self._vol_surface_builder = None
         self._n09_gex_analyzer = None
         self._n11_flow_analyzer = None
+        # HV20 daily cache — historical volatility changes at most once per
+        # trading day, so we skip the expensive /v1/markets/history call on
+        # every 60-second cycle and only refetch when the calendar date changes.
+        self._hv20_cache: float | None = None
+        self._hv20_cache_date: str = ""
         # Running EMA state for NYMO proxy (McClellan Oscillator approximation).
         # NYMO ≈ EMA(19) − EMA(39) of the NYSE A-D (ADD) series.
         self._nymo_ema_fast: float = float("nan")  # 19-bar EMA of ADD
@@ -1680,7 +1685,15 @@ class CustomMetricsOrchestrator(QObject):
         return max(0.0, min(100.0, ((current_iv - low_iv) / (high_iv - low_iv)) * 100.0))
 
     def _compute_hv20(self, tradier_client: Any) -> float | None:
-        """Compute 20-day historical volatility as an annualized percent."""
+        """Compute 20-day historical volatility as an annualized percent.
+
+        Result is cached for the remainder of the calendar day to avoid
+        repeated /v1/markets/history calls on every 60-second update cycle.
+        """
+        today_str = datetime.now(timezone.utc).date().isoformat()
+        if self._hv20_cache_date == today_str and self._hv20_cache is not None:
+            return self._hv20_cache
+
         try:
             end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=40)
@@ -1691,7 +1704,7 @@ class CustomMetricsOrchestrator(QObject):
                 end=end_date.isoformat(),
             )
         except Exception:
-            return None
+            return self._hv20_cache  # return last known value on transient failure
 
         days = response.get("history", {}).get("day", [])
         closes = []
@@ -1708,7 +1721,10 @@ class CustomMetricsOrchestrator(QObject):
         if log_returns.size == 0:
             return None
 
-        return float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
+        result = float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
+        self._hv20_cache = result
+        self._hv20_cache_date = today_str
+        return result
 
     def _get_options_tradier_client(self):
         """Return a cached Tradier client for options analytics calls."""
