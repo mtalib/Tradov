@@ -5676,12 +5676,9 @@ class SpyderTradingDashboard(QMainWindow):
         """Slot for SpyderS07 CustomMetricsOrchestrator.metrics_updated signal.
 
         S07 emits a nested dict: {"GEX": {"value": <float>, ...}, "DEX": {...}, ...}
-        The widget expects {last, change, change_pct} in the units its own
-        _update_custom_indicator() expects:
-          - GEX: raw dollars (widget divides by 1e9 to display "B")
-          - DEX: raw dollars (widget divides by 1e6 to display "M")
-          - OGL, DIX, SWAN: stored and displayed as-is
-          - TICK → "$TICK", ADD → "$ADD", TRIN → "$TRIN": market internals
+        The widget expects raw-dollar values that it then divides by 1e9/"M" to format:
+          - GEX: billions (S05 contract) → ×1e9 here → raw dollars → widget ÷1e9 → "B"
+          - DEX: millions (S05 contract) → ×1e6 here → raw dollars → widget ÷1e6 → "M"
         """
         for s07_key, (widget_key, scale) in self._S07_METRIC_ROUTING.items():
             entry = metrics.get(s07_key)

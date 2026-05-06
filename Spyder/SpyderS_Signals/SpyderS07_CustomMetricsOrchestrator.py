@@ -860,8 +860,8 @@ class CustomMetricsOrchestrator(QObject):
         try:
             if self.gex_calculator:
                 gex_data = self.gex_calculator.calculate_all()
-                updated_metrics["GEX"] = gex_data.get("gex", 0) / 1e9  # Convert to billions
-                updated_metrics["DEX"] = gex_data.get("dex", 0) / 1e6  # Convert to millions
+                updated_metrics["GEX"] = gex_data.get("gex", 0)   # S05 returns billions already
+                updated_metrics["DEX"] = gex_data.get("dex", 0)   # S05 returns millions already
                 updated_metrics["OGL"] = gex_data.get("ogl", 585.5)
                 updated_metrics["VEX"] = gex_data.get("vex", 0.0)   # Vanna Exposure ($M/vol-pt)
                 updated_metrics["CHEX"] = gex_data.get("chex", 0.0)  # Charm Exposure (Δ/day)
