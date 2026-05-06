@@ -389,7 +389,10 @@ class DataFeedManager:
         # emits MARKET_DATA ticks for strategy/risk pipelines.
         self._quote_client: Any = None
         self._last_quote_poll_monotonic: float = 0.0
-        self._quote_poll_interval_s: float = 1.0
+        self._quote_poll_interval_s: float = max(
+            1.0,
+            float(os.environ.get("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", "5.0")),
+        )
         self._quote_client_failed: bool = False
 
         # Error tracking
@@ -1007,7 +1010,8 @@ class DataFeedManager:
             trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
             env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
 
-            if trading_mode == "paper":
+            if trading_mode == "paper" and env_raw != "live":
+                # Paper mode + sandbox data: use sandbox credentials and endpoint.
                 api_key = (
                     os.environ.get("TRADIER_SANDBOX_API_KEY")
                     or os.environ.get("TRADIER_API_KEY")
@@ -1020,6 +1024,8 @@ class DataFeedManager:
                 )
                 environment = TradingEnvironment.SANDBOX
             else:
+                # Live data (or paper+live): respect TRADIER_ENVIRONMENT so
+                # TRADING_MODE=paper TRADIER_ENVIRONMENT=live hits api.tradier.com.
                 api_key = os.environ.get("TRADIER_API_KEY", "")
                 account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
                 environment = TradingEnvironment.LIVE if env_raw == "live" else TradingEnvironment.SANDBOX

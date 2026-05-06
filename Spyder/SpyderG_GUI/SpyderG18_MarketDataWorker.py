@@ -76,11 +76,13 @@ try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
         TradingEnvironment,
+        create_tradier_client_from_env,
     )
     TRADIER_AVAILABLE = True
 except ImportError:
     TradierClient = None  # type: ignore
     TradingEnvironment = None  # type: ignore
+    create_tradier_client_from_env = None  # type: ignore
     TRADIER_AVAILABLE = False
 
 try:
@@ -123,6 +125,10 @@ _CHAIN_CACHE: dict = {}  # keys: "contracts", "put_vol", "call_vol", "expiry", "
 # Tradier returns change=None for RUT; we fetch its prev-day close once per
 # session via the historical quotes endpoint so we can derive change/change_pct.
 _RUT_PREVCLOSE_CACHE: dict = {"prevclose": 0.0, "date": ""}
+_SPY_PREVDAY_FETCH_CACHE: dict = {"date": ""}
+_SPY_TIMESALES_FETCH_CACHE: dict = {"last_fetch_mono": 0.0}
+
+SPY_TIMESALES_FETCH_INTERVAL_SECONDS = 60.0
 
 
 def _get_cached_chain(
@@ -331,6 +337,28 @@ def _freshest_live_data_timestamp(live_data: dict) -> datetime | None:
     return freshest
 
 
+def _build_market_data_client() -> "TradierClient | None":
+    """Build a Tradier client for market data that respects TRADIER_ENVIRONMENT.
+
+    Unlike _resolve_tradier_client_config (which forces sandbox in paper mode),
+    this function always honours TRADIER_ENVIRONMENT so that a
+    ``TRADING_MODE=paper TRADIER_ENVIRONMENT=live`` configuration routes market
+    data requests to api.tradier.com instead of sandbox.tradier.com.
+
+    Returns:
+        Configured TradierClient, or None if Tradier is unavailable or
+        credentials are not set.
+    """
+    if not TRADIER_AVAILABLE or create_tradier_client_from_env is None:
+        return None
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415
+        load_dotenv(override=True)
+        return create_tradier_client_from_env()
+    except Exception:
+        return None
+
+
 def check_api_connection():
     """Check if Tradier API is reachable.
 
@@ -380,6 +408,30 @@ def check_api_connection():
 
     except Exception as e:
         return False, f"API check failed: {e}"
+
+
+def _resolve_tradier_client_config() -> tuple[str, str, "TradingEnvironment"] | tuple[None, None, None]:
+    """Resolve Tradier credentials/environment with paper-mode sandbox override."""
+    trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+    api_key = os.environ.get("TRADIER_API_KEY", "")
+    account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+    env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+
+    if trading_mode == "paper":
+        api_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
+        account_id = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
+        env_enum = TradingEnvironment.SANDBOX
+    else:
+        env_enum = (
+            TradingEnvironment.LIVE
+            if env_str == "live"
+            else TradingEnvironment.SANDBOX
+        )
+
+    if not api_key or not account_id:
+        return None, None, None
+
+    return api_key, account_id, env_enum
 
 
 # ==============================================================================
@@ -532,29 +584,10 @@ class ThreadSafeMarketDataWorker(QObject):
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
-            if not api_key or not account_id:
+            api_key, account_id, env_enum = _resolve_tradier_client_config()
+            if not api_key or not account_id or env_enum is None:
                 return
-            env_enum = (
-                TradingEnvironment.LIVE
-                if env_str.lower() == "live"
-                else TradingEnvironment.SANDBOX
-            )
-            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
-
-            # Prefer sandbox-specific creds in paper mode; fall back to main creds.
-            if trading_mode == "paper":
-                paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
-                paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
-                client = TradierClient(
-                    api_key=paper_key,
-                    account_id=paper_acct,
-                    environment=TradingEnvironment.SANDBOX,
-                )
-            else:
-                client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
 
             bal = client.get_account_balances()
             account_data = bal.get("balances", {})
@@ -578,16 +611,9 @@ class ThreadSafeMarketDataWorker(QObject):
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
-            if not api_key or not account_id:
+            api_key, account_id, env_enum = _resolve_tradier_client_config()
+            if not api_key or not account_id or env_enum is None:
                 return
-            env_enum = (
-                TradingEnvironment.LIVE
-                if env_str.lower() == "live"
-                else TradingEnvironment.SANDBOX
-            )
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
 
             # --- Fetch account balance ---
@@ -598,13 +624,9 @@ class ThreadSafeMarketDataWorker(QObject):
             trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
             try:
                 if trading_mode == "paper":
-                    # Prefer sandbox-specific creds; fall back to main creds so the
-                    # balance always loads even when TRADIER_SANDBOX_* vars are absent.
-                    paper_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
-                    paper_acct = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
                     paper_client = TradierClient(
-                        api_key=paper_key,
-                        account_id=paper_acct,
+                        api_key=api_key,
+                        account_id=account_id,
                         environment=TradingEnvironment.SANDBOX,
                     )
                     bal = paper_client.get_account_balances()
@@ -639,7 +661,10 @@ class ThreadSafeMarketDataWorker(QObject):
             # --- Fetch live quotes and write to data_file ---
             symbols = _build_quote_symbol_basket()
             try:
-                raw = client.get_quotes(symbols)
+                # Use market-data client (respects TRADIER_ENVIRONMENT) so that
+                # paper+live config fetches real quotes from api.tradier.com.
+                mkt_client = _build_market_data_client() or client
+                raw = mkt_client.get_quotes(symbols)
                 quotes_raw = raw.get("quotes", {}).get("quote", [])
                 if isinstance(quotes_raw, dict):
                     quotes_raw = [quotes_raw]
@@ -774,22 +799,33 @@ class ThreadSafeMarketDataWorker(QObject):
                 _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
                 if _et_now < _market_open_et:
                     raise StopIteration  # skip fetch — bars don't exist yet
+                _last_chart_fetch = float(_SPY_TIMESALES_FETCH_CACHE.get("last_fetch_mono", 0.0) or 0.0)
+                _now_mono = time.monotonic()
+                if (_now_mono - _last_chart_fetch) < SPY_TIMESALES_FETCH_INTERVAL_SECONDS:
+                    raise StopIteration
                 today_open = f"{_date.today().isoformat()} 09:30"
                 ts_resp = client.get_time_sales(
                     "SPY", interval="5min", start=today_open, session_filter="open",
                 )
-                candles_raw = (
-                    ts_resp.get("series", {}).get("data", [])
-                )
+                # Guard against Tradier returning {"series": null} early in the
+                # session (first few bars not yet available).  series may be None
+                # or a string "null"; treat both as "no data yet".
+                _series = ts_resp.get("series") if isinstance(ts_resp, dict) else None
+                if not isinstance(_series, dict):
+                    raise StopIteration  # no bars available yet — try again next heartbeat
+                candles_raw = _series.get("data", [])
                 if isinstance(candles_raw, dict):
                     candles_raw = [candles_raw]
+                # Always advance the throttle timestamp so we don't hammer the API
+                # even when bars aren't available yet.
+                _SPY_TIMESALES_FETCH_CACHE["last_fetch_mono"] = _now_mono
                 if candles_raw:
                     chart_file = self.data_file.parent / "spy_5min_chart.json"
                     with open(chart_file, "w") as f:
                         import json as _json2
                         _json2.dump(candles_raw, f)
             except StopIteration:
-                pass  # before 9:30 ET — no bars yet
+                pass  # before 9:30 ET or no bars yet — try again next heartbeat
             except Exception:
                 pass
 
@@ -798,6 +834,9 @@ class ThreadSafeMarketDataWorker(QObject):
             # We try a 5-day lookback so weekends/holidays are handled correctly.
             try:
                 from datetime import date as _date2, timedelta as _td
+                _today_str = _date2.today().isoformat()
+                if _SPY_PREVDAY_FETCH_CACHE.get("date") == _today_str:
+                    raise StopIteration
                 _prev_start = (_date2.today() - _td(days=5)).isoformat()
                 _prev_end   = (_date2.today() - _td(days=1)).isoformat()
                 _hist_resp = client.get_historical_quotes(
@@ -816,6 +855,9 @@ class ThreadSafeMarketDataWorker(QObject):
                             "low":   float(_hist_day["low"]),
                             "close": float(_hist_day["close"]),
                         }, _pf)
+                    _SPY_PREVDAY_FETCH_CACHE["date"] = _today_str
+            except StopIteration:
+                pass
             except Exception:
                 pass  # non-critical — pivot fallback is today's intraday range
 
@@ -878,17 +920,11 @@ class ThreadSafeMarketDataWorker(QObject):
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
-            if not api_key or not account_id:
+            # Use market-data client (respects TRADIER_ENVIRONMENT) so that
+            # paper+live config fetches quotes from api.tradier.com.
+            client = _build_market_data_client()
+            if client is None:
                 return
-            env_enum = (
-                TradingEnvironment.LIVE
-                if env_str.lower() == "live"
-                else TradingEnvironment.SANDBOX
-            )
-            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
             symbols = _build_quote_symbol_basket()
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -1015,19 +1051,13 @@ class ThreadSafeMarketDataWorker(QObject):
             if not TRADIER_AVAILABLE:
                 self.eod_snapshot_fetched.emit(False)
                 return
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
-            if not api_key or not account_id:
+            # Use market-data client (respects TRADIER_ENVIRONMENT) so that
+            # paper+live config fetches EOD quotes from api.tradier.com.
+            client = _build_market_data_client()
+            if client is None:
                 logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")  # noqa: E501
                 self.eod_snapshot_fetched.emit(False)
                 return
-            env_enum = (
-                TradingEnvironment.LIVE
-                if env_str.lower() == "live"
-                else TradingEnvironment.SANDBOX
-            )
-            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
             symbols = _build_quote_symbol_basket()
             raw = client.get_quotes(symbols)
             quotes_raw = raw.get("quotes", {}).get("quote", [])
@@ -1075,6 +1105,35 @@ class ThreadSafeMarketDataWorker(QObject):
                 _snapshot_file = self.data_file.parent / "eod_snapshot.json"
                 with open(_snapshot_file, "w") as _sf:
                     _json.dump({**_live_data_out, **_snapshot_meta}, _sf)
+
+                # Persist per-symbol EOD close snapshots used by startup workflows
+                # and operational audit checks.
+                _symbol_prev_files = {
+                    "SPY": "spy_prev_day.json",
+                    "SPX": "spx_prev_day.json",
+                    "$DJI": "dji_prev_day.json",
+                }
+                for _sym, _fname in _symbol_prev_files.items():
+                    _entry = _live_data_out.get(_sym)
+                    if not isinstance(_entry, dict):
+                        continue
+                    _last = float(_entry.get("last") or 0.0)
+                    if _last <= 0.0:
+                        continue
+                    _prev_file = self.data_file.parent / _fname
+                    with open(_prev_file, "w") as _pf:
+                        _json.dump(
+                            {
+                                "date": _snapshot_meta["_eod_date"],
+                                "close": _last,
+                                "change": float(_entry.get("change") or 0.0),
+                                "change_pct": float(_entry.get("change_pct") or 0.0),
+                                "timestamp_ms": _entry.get("timestamp_ms"),
+                                "source": "tradier_eod_snapshot",
+                            },
+                            _pf,
+                        )
+
                 logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])  # noqa: E501
                 self.market_data_status_changed.emit("EOD")
                 self.eod_snapshot_fetched.emit(True)

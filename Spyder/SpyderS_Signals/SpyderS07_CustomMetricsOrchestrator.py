@@ -1717,10 +1717,15 @@ class CustomMetricsOrchestrator(QObject):
         api_key = os.getenv("TRADIER_API_KEY", "").strip()
         account_id = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
 
-        if trading_mode == "paper":
+        if trading_mode == "paper" and environment_name != "live":
+            # Paper mode + sandbox data: use sandbox credentials/endpoint.
             api_key = (os.getenv("TRADIER_SANDBOX_API_KEY", "").strip() or api_key)
             account_id = (os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip() or account_id)
             environment_name = "sandbox"
+        elif trading_mode == "paper":
+            # Paper mode + live data (TRADIER_ENVIRONMENT=live): use production
+            # credentials so market data fetches go to api.tradier.com.
+            pass  # environment_name already "live"; keep production api_key/account_id
 
         if not api_key or not account_id:
             return None
