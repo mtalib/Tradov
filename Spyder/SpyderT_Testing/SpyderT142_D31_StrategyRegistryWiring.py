@@ -44,6 +44,8 @@ def test_d31_registry_includes_first_wave_base_strategies():
         "PivotMeanReversion",
         "EvolvedCreditSpread",
         "VIXHedging",
+        "BullCallSpread",
+        "BearPutSpread",
     }
 
     missing = expected - set(orchestrator.available_strategies)
@@ -97,6 +99,40 @@ def test_d31_current_regime_weights_are_registry_reachable_and_constructible():
         except TypeError:
             instance = cls(event_manager=_StubEventManager(), risk_profile=risk_profile, config={})
         assert instance is not None, f"Failed to construct weighted strategy: {name}"
+
+
+def test_d31_lean_allowlist_enables_debit_spread_extensions_via_feature_flags(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_BULL_CALL_SPREAD", "true")
+    monkeypatch.setenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "BullCallSpread" in orchestrator.lean_strategy_allowlist
+    assert "BearPutSpread" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "BullCallSpread" in orchestrator.available_strategies
+    assert "BearPutSpread" in orchestrator.available_strategies
+
+
+def test_d31_lean_allowlist_keeps_debit_spread_extensions_disabled_without_flags(monkeypatch):
+    monkeypatch.delenv("SPYDER_ENABLE_BULL_CALL_SPREAD", raising=False)
+    monkeypatch.delenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", raising=False)
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "BullCallSpread" not in orchestrator.lean_strategy_allowlist
+    assert "BearPutSpread" not in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "BullCallSpread" not in orchestrator.available_strategies
+    assert "BearPutSpread" not in orchestrator.available_strategies
 
 
 def test_d31_evolved_credit_spread_adapter_maps_native_signal_to_base_signal():

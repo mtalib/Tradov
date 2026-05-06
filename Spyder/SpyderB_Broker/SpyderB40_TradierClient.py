@@ -137,7 +137,7 @@ TRADIER_SANDBOX_URL = "https://sandbox.tradier.com/v1"
 TRADIER_STREAM_URL = "https://stream.tradier.com/v1"
 TRADIER_WS_URL = "wss://ws.tradier.com/v1"
 TRADIER_SANDBOX_WS_URL = "wss://sandbox-ws.tradier.com/v1"
-DEFAULT_TIMEOUT = 30  # seconds (sandbox can be slow; 10 s was too tight)
+DEFAULT_TIMEOUT = 60  # seconds (21-symbol live basket can take >30 s under load)
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # exponential backoff factor
 WS_PING_INTERVAL = 30  # seconds between WebSocket pings
@@ -611,6 +611,8 @@ class TradierClient:
         # (see SPEC-4 phase 6b/6c).
         retry_strategy = Retry(
             total=MAX_RETRIES,
+            read=0,               # never retry on read timeout — return immediately so
+                                  # the caller can use stale data instead of hanging 3×60 s
             backoff_factor=RETRY_BACKOFF,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS"],

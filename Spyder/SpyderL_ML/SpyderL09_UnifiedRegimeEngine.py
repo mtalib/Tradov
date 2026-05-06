@@ -586,9 +586,49 @@ class SignalRegimeDetector:
             'gex_suppression': -2.0,     # Billion
             'swan_crisis': 3.0,
             'swan_elevated': 2.0,
+            'swan_hysteresis': 0.05,
             'skew_high': 120.0,
             'skew_low': 90.0
         }
+        self._swan_band: str = "normal"
+
+    def _classify_swan_band(self, swan_score: float) -> str:
+        """Classify SWAN into stable trading bands with light hysteresis.
+
+        The intent is to prevent regime jitter from intra-band SWAN noise.
+        Trading impact should only change when the score crosses key bands.
+        """
+        elevated = self.thresholds['swan_elevated']
+        crisis = self.thresholds['swan_crisis']
+        hysteresis = self.thresholds['swan_hysteresis']
+
+        previous_band = self._swan_band
+
+        if previous_band == "crisis":
+            if swan_score < (crisis - hysteresis):
+                self._swan_band = "elevated" if swan_score >= elevated else "normal"
+        elif previous_band == "elevated":
+            if swan_score >= (crisis + hysteresis):
+                self._swan_band = "crisis"
+            elif swan_score < (elevated - hysteresis):
+                self._swan_band = "normal"
+        else:
+            if swan_score >= (crisis + hysteresis):
+                self._swan_band = "crisis"
+            elif swan_score >= (elevated + hysteresis):
+                self._swan_band = "elevated"
+            else:
+                self._swan_band = "normal"
+
+        if self._swan_band != previous_band:
+            self.logger.info(
+                "SWAN trading band transition: %s -> %s (score=%.2f)",
+                previous_band,
+                self._swan_band,
+                swan_score,
+            )
+
+        return self._swan_band
 
     def detect_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:
         """Detect regime based on signal analysis"""
@@ -668,6 +708,7 @@ class SignalRegimeDetector:
         dix = signals['dix']
         gex = signals['gex']
         swan = signals['swan']
+        swan_band = self._classify_swan_band(swan)
         signals['skew']
         signals['volume_ratio']
         price_change = signals['price_change']
@@ -675,9 +716,9 @@ class SignalRegimeDetector:
         regime_scores = defaultdict(float)
 
         # Crisis detection (highest priority)
-        if swan >= self.thresholds['swan_crisis'] or vix > 40:
+        if swan_band == "crisis" or vix > 40:
             regime_scores[MarketRegime.CRISIS_MODE] += 3.0
-        elif swan >= self.thresholds['swan_elevated'] or vix > self.thresholds['vix_high']:
+        elif swan_band == "elevated" or vix > self.thresholds['vix_high']:
             regime_scores[MarketRegime.HIGH_VOLATILITY] += 2.0
 
         # Volatility regime analysis

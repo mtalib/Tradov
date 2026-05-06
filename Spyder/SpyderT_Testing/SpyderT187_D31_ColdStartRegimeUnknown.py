@@ -42,6 +42,12 @@ class _StubEM:
     def publish(self, *a, **k): return None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_decision_audit(tmp_path, monkeypatch):
+    """Redirect D31 decision-audit log to a temp dir for the duration of each test."""
+    monkeypatch.setenv("SPYDER_D31_SIGNAL_DROP_AUDIT_DIR", str(tmp_path))
+
+
 def _make_orchestrator():
     mod = importlib.import_module(
         "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator"

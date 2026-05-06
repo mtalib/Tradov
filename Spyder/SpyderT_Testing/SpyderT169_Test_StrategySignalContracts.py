@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from datetime import datetime, timedelta
 
 import pandas as pd
+import pytest
 
 from Spyder.SpyderD_Strategies.SpyderD12_RSIMeanReversion import (
     RSIMeanReversionStrategy,
@@ -20,6 +21,12 @@ from Spyder.SpyderD_Strategies.SpyderD13_MACrossover import (
 )
 from Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpreadStrategy
 from Spyder.SpyderD_Strategies.SpyderD19_JadeLizard import JadeLizardStrategy, JadeLizardState
+
+
+@pytest.fixture(autouse=True)
+def _isolate_decision_audit(tmp_path, monkeypatch):
+    """Redirect D31 decision-audit log to a temp dir for the duration of each test."""
+    monkeypatch.setenv("SPYDER_D31_SIGNAL_DROP_AUDIT_DIR", str(tmp_path))
 
 
 def _get_strategy_orchestrator_class():

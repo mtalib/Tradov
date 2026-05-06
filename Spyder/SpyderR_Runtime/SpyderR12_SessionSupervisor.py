@@ -101,6 +101,7 @@ class SessionSupervisor:
     ) -> None:
         self.logger = SpyderLogger.get_logger(__name__)
         self.mode = mode
+        self.session_id: str = ""
         self.dry_run: bool = dry_run
         self.skip_orphan_sweep: bool = skip_orphan_sweep
         self.symbols: List[str] = symbols or [
@@ -144,7 +145,13 @@ class SessionSupervisor:
         Returns:
             ``True`` on success, ``False`` if any required component fails.
         """
-        self.logger.debug("SessionSupervisor.start() — mode=%s symbols=%s", self.mode, self.symbols)
+        self.session_id = f"{self.mode}-{uuid.uuid4().hex[:12]}"
+        self.logger.debug(
+            "SessionSupervisor.start() — mode=%s symbols=%s session_id=%s",
+            self.mode,
+            self.symbols,
+            self.session_id,
+        )
         if self.dry_run:
             self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
 
@@ -539,6 +546,12 @@ class SessionSupervisor:
                 allocation_method=allocation_method,
                 event_manager=self.em,
             )
+            if hasattr(self.orchestrator, "set_decision_audit_context"):
+                self.orchestrator.set_decision_audit_context(
+                    run_mode=self.mode,
+                    source_context="session_supervisor",
+                    session_id=self.session_id or f"{self.mode}-unknown",
+                )
             self.orchestrator.set_live_engine(self.engine)
             # Inject the already-started and (if non-live) force-synced RiskManager so
             # D31's lazy resolver doesn't create a second fresh un-synced instance and
@@ -567,6 +580,11 @@ class SessionSupervisor:
                     om_exc,
                 )
             self.orchestrator.start_orchestration()
+            if hasattr(self.orchestrator, "emit_decision_audit_marker"):
+                self.orchestrator.emit_decision_audit_marker(
+                    "session_started",
+                    detail=f"mode={self.mode}; source=session_supervisor",
+                )
             self._components.append(self.orchestrator)
             self.logger.debug("✅ StrategyOrchestrator started")
             return True

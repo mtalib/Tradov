@@ -175,13 +175,16 @@ def build_center_panel(dashboard: Any) -> QWidget:
     regime_layout.addWidget(_regime_sep())
     regime_layout.addStretch(1)
 
-    # ── 5 regime pill labels ────────────────────────────────────────────
+    # ── Regime-bar pill labels ──────────────────────────────────────────
     _PILL_INIT_SS = (
         "color: #aaaaaa; background-color: #1e1e1e; "
         "border: 1px solid #444; border-radius: 4px; "
         "padding: 2px 10px; font-size: 13px;"
     )
 
+    # Order follows the decision-flow narrative: REGIME → STRESS → STANCE → GATE
+    # (policy/posture state) → ENTRY (the only runtime observation,
+    # which also carries the HALT visual that the legacy TRADEABLE pill used to).
     dashboard.regime_pill = QLabel("REGIME: —")
     dashboard.regime_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.regime_pill.setToolTip("Market regime from L09 detection pipeline")
@@ -189,50 +192,53 @@ def build_center_panel(dashboard: Any) -> QWidget:
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.bias_pill = QLabel("BIAS: —")
-    dashboard.bias_pill.setStyleSheet(_PILL_INIT_SS)
-    dashboard.bias_pill.setToolTip(
-        "Directional bias derived from DIX / GEX / SWAN — informational only"
-    )
-    regime_layout.addWidget(dashboard.bias_pill)
+    dashboard.stress_pill = QLabel("STRESS: —")
+    dashboard.stress_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.stress_pill.setToolTip("S07 stress level from SWAN bands")
+    regime_layout.addWidget(dashboard.stress_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.stance_pill = QLabel("STRATEGY STANCE: —")
+    dashboard.stance_pill = QLabel("STANCE: —")
     dashboard.stance_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.stance_pill.setToolTip("Strategy stance produced by D30 regime selector")
     regime_layout.addWidget(dashboard.stance_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.gate_pill = QLabel("STRATEGY GATE: —")
+    dashboard.gate_pill = QLabel("GATE: —")
     dashboard.gate_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.gate_pill.setToolTip("Strategy gate / policy bucket from D31 orchestrator")
     regime_layout.addWidget(dashboard.gate_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.tradeable_pill = QLabel("TRADEABLE: —")
-    dashboard.tradeable_pill.setStyleSheet(_PILL_INIT_SS)
-    dashboard.tradeable_pill.setToolTip("Whether new entries are permitted right now")
-    regime_layout.addWidget(dashboard.tradeable_pill)
+    # ENTRY pill — execution-truth badge sourced from D31.get_dispatch_state(),
+    # with regime-driven HALT priority. v12: absorbed the legacy TRADEABLE pill;
+    # its permitted-strategy list and concurrency context now live in this tooltip.
+    # Last in the bar because it is the only runtime observation; everything to
+    # its left is policy/posture state.
+    dashboard.dispatch_pill = QLabel("ENTRY: —")
+    dashboard.dispatch_pill.setStyleSheet(_PILL_INIT_SS)
+    dashboard.dispatch_pill.setToolTip(
+        "Live entry state from D31 (FLOWING / IDLE / BLOCKED / ERROR / HALT)"
+    )
+    regime_layout.addWidget(dashboard.dispatch_pill)
 
     regime_layout.addStretch(1)
-    regime_layout.addWidget(_regime_sep())
 
-    # Chart toggle button (kept at right of bar)
+    # Chart toggle button (mounted near RTH chip in position toolbar)
     dashboard.chart_toggle_btn = QPushButton("📊")
-    dashboard.chart_toggle_btn.setFixedSize(30, 30)
-    dashboard.chart_toggle_btn.setToolTip("Toggle SPY Chart (5-min)")
+    dashboard.chart_toggle_btn.setFixedSize(20, 20)
+    dashboard.chart_toggle_btn.setToolTip("Toggle SPY Chart / Advanced Controls")
     dashboard.chart_toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['panel']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 3px;
                 color: {COLORS['cyan']};
-                font-size: 16px;
-                padding: 2px;
-                margin-top: -3px;
+                font-size: 12px;
+                padding: 0px;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['border']};
@@ -244,7 +250,6 @@ def build_center_panel(dashboard: Any) -> QWidget:
             }}
         """)
     dashboard.chart_toggle_btn.clicked.connect(dashboard.toggle_chart)
-    regime_layout.addWidget(dashboard.chart_toggle_btn)
 
     dashboard.regime_bar_widget.setLayout(regime_layout)
     layout.addWidget(dashboard.regime_bar_widget)
@@ -397,6 +402,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
         )
     pos_toolbar_layout.addWidget(dashboard.recent_trades_history_btn)
     pos_toolbar_layout.addWidget(dashboard.trading_window_compact_label)
+    pos_toolbar_layout.addWidget(dashboard.chart_toggle_btn)
     del _chip_ss  # declared for intent only; labels already styled above
     positions_layout.addWidget(pos_toolbar)
 
@@ -1422,7 +1428,7 @@ def build_toolbar(dashboard: Any) -> QWidget:
     layout.addStretch(7)
 
     # Center section with market indices — order matches standard convention:
-    # DOW → S&P 500 (SPX) → NASDAQ (COMP) → Russell 2000 (RUT)
+    # DOW → S&P 500 (SPX) → NASDAQ (NDX) → Russell 2000 (RUT)
     center_section = QHBoxLayout()
     center_section.setSpacing(5)
 
@@ -1469,27 +1475,24 @@ def build_toolbar(dashboard: Any) -> QWidget:
     center_section.addLayout(spx_container)
     center_section.addSpacing(10)
 
-    # COMP (NASDAQ Composite — QQQ ETF × 37.5 proxy; IXIC not on Tradier)
-    comp_container = QHBoxLayout()
-    comp_container.setSpacing(0)
-    comp_label = QLabel("COMP:")
-    comp_label.setStyleSheet(f"color: {COLORS['text']};")
-    comp_label.setToolTip(
-        "NASDAQ Composite Index (3,000+ stocks)\n"
-        "Source: QQQ ETF × 37.5  (Tradier IXIC/COMP not available)"
-    )
-    comp_container.addWidget(comp_label)
+    # NDX (NASDAQ-100 — direct Tradier index)
+    ndx_container = QHBoxLayout()
+    ndx_container.setSpacing(0)
+    ndx_label = QLabel("NDX:")
+    ndx_label.setStyleSheet(f"color: {COLORS['text']};")
+    ndx_label.setToolTip("NASDAQ-100 Index — direct from Tradier")
+    ndx_container.addWidget(ndx_label)
 
-    dashboard.comp_value = QLabel(" ---")
-    dashboard.comp_value.setStyleSheet(f"color: {COLORS['text']};")
-    dashboard.comp_value.setToolTip("NASDAQ Composite (QQQ ETF × 37.5 proxy)")
-    comp_container.addWidget(dashboard.comp_value)
+    dashboard.ndx_value = QLabel(" ---")
+    dashboard.ndx_value.setStyleSheet(f"color: {COLORS['text']};")
+    dashboard.ndx_value.setToolTip("NASDAQ-100 Index (direct from Tradier)")
+    ndx_container.addWidget(dashboard.ndx_value)
 
-    dashboard.comp_change = QLabel("")
-    dashboard.comp_change.setStyleSheet(f"color: {COLORS['positive']};")
-    comp_container.addWidget(dashboard.comp_change)
+    dashboard.ndx_change = QLabel("")
+    dashboard.ndx_change.setStyleSheet(f"color: {COLORS['positive']};")
+    ndx_container.addWidget(dashboard.ndx_change)
 
-    center_section.addLayout(comp_container)
+    center_section.addLayout(ndx_container)
     center_section.addSpacing(10)
 
     # RUT (Russell 2000 — IWM ETF × 10 proxy)

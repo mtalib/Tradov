@@ -1,6 +1,6 @@
-# Trading Decision Workflow (Full) — v9
+# Trading Decision Workflow (Full) — v10
 
-Last Updated: 2026-05-05
+Last Updated: 2026-05-06
 Status: Design + As-Implemented Verification Specification
 Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 
@@ -21,6 +21,7 @@ Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 | v11 | 2026-05-05 | Corrected concurrency contract to **2 slots** (one long-term/swing + one intraday/0DTE); replaces all v5 "max 1" references throughout. Code (`MAX_CONCURRENT_STRATEGIES = 2`, `MAX_ACTIVE_HORIZON_BUCKETS = 2`) was already correct — only documentation was stale. |
 | v12 | 2026-05-05 | Replaced informational BIAS pill with execution-truth **DISPATCH** pill (closes §10.4 item #3). New `D31.get_dispatch_state()` API powers the pill (4 states: FLOWING / IDLE / BLOCKED / ERROR; 120s recency window). Section 5.3 reference matrix collapses from 18 rows to 6 (BIAS column removed). Section 5.4 updated with DISPATCH pill display spec. T195 added as regression guard (16 tests, GREEN). |
 | v13 | 2026-05-05 | Merged TRADEABLE pill into DISPATCH. The legacy TRADEABLE pill carried a green "permitted" or purple "⚠ HALT" indicator and a permitted-strategies tooltip; both are now absorbed by DISPATCH. **HALT** added as a 5th DISPATCH state (purple, top priority) that fires when REGIME is CRISIS or EVENT. Permitted-strategy list and concurrency context appended to DISPATCH tooltip in every state. Pill-bar reduces from 5 pills to 4: REGIME / STRATEGY STANCE / STRATEGY GATE / DISPATCH. |
+| v14 | 2026-05-06 | Re-audited trading-decision path on branch `fix/audit-v14-all`. Found and fixed a real regression: D31 dispatch path could emit `dispatch_exception` when `_record_signal_dispatch_outcome` is monkeypatched with a one-arg callable in tests (TypeError from unexpected `signal=` kwarg). Added safe wrapper usage in D31 dispatch path. Regression suite re-run: T193/T194/T195 = 28 passed. |
 
 ## 1) Objective
 
@@ -831,3 +832,32 @@ Therefore the matrix cardinality is:
 - Normal regimes: 4 regimes x 4 DISPATCH states = 16
 - Halt regimes: 2 regimes x 1 forced DISPATCH state = 2
 - Total = 18 combinations
+
+### 10.7) 2026-05-06 Re-Audit Verdict (Code + Tests)
+
+Audit scope (this revision):
+
+- D31 strategy signal hot path (pre-risk gates, risk gate, dispatch)
+- R12 orchestration wiring (risk manager injection)
+- E01 risk gate cold-state behavior
+- D30 deterministic regime-to-strategy mapping (including hard-halt routing)
+- G05 dispatch-state observability coupling
+
+Findings summary:
+
+| Area | Verdict | Evidence |
+|---|---|---|
+| `risk_state_cold` startup blocker | No active blocker in R12 path | R12 injects synced risk manager into D31 via `set_risk_manager`; T194 passes |
+| CRISIS/EVENT halt policy | Enforced | D30 maps EVENT/CRISIS to `NO_TRADE`; D31 treats CRISIS/EVENT as non-tradeable regime buckets |
+| Dispatch observability | Enforced | D31 `get_dispatch_state()` present and consumed by G05 DISPATCH pill |
+| Dispatch robustness | **Fixed in this revision** | D31 now calls `_record_signal_dispatch_outcome_safe(...)` to avoid TypeError-based `dispatch_exception` regressions |
+
+Targeted validation executed:
+
+- Command: `/home/adam/Projects/Spyder/.venv/bin/python -m pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py Spyder/SpyderT_Testing/SpyderT194_R12_RiskManagerInjection.py Spyder/SpyderT_Testing/SpyderT195_D31_DispatchStateBadge.py`
+- Result: **28 passed** in 6.60s.
+
+Conclusion:
+
+- No remaining code-level **hard blocker** was found in the audited trading-decision pipeline after the D31 dispatch regression fix in v14.
+- Expected guardrails can still block entries by policy (`entry_trust_gate`, session windows, stale data, regime-policy mismatch); these are intentional risk controls, not defects.

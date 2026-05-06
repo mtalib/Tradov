@@ -360,11 +360,12 @@ def _build_market_data_client() -> "TradierClient | None":
 
 
 def check_api_connection():
-    """Check if Tradier API is reachable.
+    """Check if Tradier market-data endpoint (api.tradier.com) is reachable.
 
-    Respects TRADING_MODE: when set to 'paper', uses TRADIER_SANDBOX_API_KEY and
-    TRADIER_SANDBOX_ACCOUNT_ID against the sandbox endpoint regardless of
-    TRADIER_ENVIRONMENT, matching the credential routing used by _fetch_balance_only.
+    Always probes the live endpoint via TRADIER_ENVIRONMENT because market data
+    is always fetched from api.tradier.com regardless of TRADING_MODE.  The
+    sandbox endpoint is only used for paper account balance reads and is not a
+    meaningful connectivity signal for quote delivery.
 
     Returns:
         Tuple of (connected: bool, mode: str)
@@ -376,33 +377,13 @@ def check_api_connection():
                 load_dotenv(override=True)
             except ImportError:
                 pass
-            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
-
-            if trading_mode == "paper":
-                # In paper mode always use sandbox credentials and endpoint.
-                api_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
-                account_id = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
-                env_enum = TradingEnvironment.SANDBOX
-                mode_label = "PAPER"
-            else:
-                env_enum = (
-                    TradingEnvironment.LIVE
-                    if env.lower() == "live"
-                    else TradingEnvironment.SANDBOX
-                )
-                mode_label = "SANDBOX" if env.lower() != "live" else "LIVE"
-
-            if api_key and account_id:
-                client = TradierClient(
-                    api_key=api_key,
-                    account_id=account_id,
-                    environment=env_enum,
-                )
-                if client.test_connection():
-                    return True, f"Tradier API ({mode_label})"
+            # Always use the market-data client which respects TRADIER_ENVIRONMENT.
+            # This verifies the endpoint that actually serves quotes/chains.
+            client = _build_market_data_client()
+            if client is not None and client.test_connection():
+                trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
+                mode_label = "PAPER" if trading_mode == "paper" else "LIVE"
+                return True, f"Tradier API ({mode_label})"
 
         return False, "Tradier API not configured"
 
@@ -707,7 +688,7 @@ class ThreadSafeMarketDataWorker(QObject):
 
                     # Keep sparse index symbols authoritative from direct quotes.
                     for _sym in DIRECT_INDEX_REFRESH_SYMBOLS:
-                        _refetch_single_symbol_quote(client, live_data, _sym)
+                        _refetch_single_symbol_quote(mkt_client, live_data, _sym)
 
                     # Patch RUT change/change_pct using cached historical prev-close
                     # when Tradier returns null for those fields (its normal behaviour).
@@ -746,7 +727,7 @@ class ThreadSafeMarketDataWorker(QObject):
                         int(live_data["_fetch_time_ms"]),
                         DIA_REFETCH_MAX_AGE_SECONDS,
                     ):
-                        if _refetch_single_symbol_quote(client, live_data, "DIA"):
+                        if _refetch_single_symbol_quote(mkt_client, live_data, "DIA"):
                             logger.debug("DIA refreshed via direct single-symbol Tradier quote fetch")
 
                     self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -770,7 +751,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Uses the module-level _get_cached_chain() so concurrent callers share
             # one API round-trip per _CHAIN_TTL window (30 s).
             try:
-                chain_result = _get_cached_chain(client)
+                chain_result = _get_cached_chain(mkt_client)
                 if chain_result is not None:
                     _contracts, put_vol, call_vol, _target_exp = chain_result
                     if call_vol > 0:
@@ -804,7 +785,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 if (_now_mono - _last_chart_fetch) < SPY_TIMESALES_FETCH_INTERVAL_SECONDS:
                     raise StopIteration
                 today_open = f"{_date.today().isoformat()} 09:30"
-                ts_resp = client.get_time_sales(
+                ts_resp = mkt_client.get_time_sales(
                     "SPY", interval="5min", start=today_open, session_filter="open",
                 )
                 # Guard against Tradier returning {"series": null} early in the
@@ -839,7 +820,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     raise StopIteration
                 _prev_start = (_date2.today() - _td(days=5)).isoformat()
                 _prev_end   = (_date2.today() - _td(days=1)).isoformat()
-                _hist_resp = client.get_historical_quotes(
+                _hist_resp = mkt_client.get_historical_quotes(
                     "SPY", interval="daily", start=_prev_start, end=_prev_end,
                 )
                 _hist_day = _hist_resp.get("history", {}).get("day", None)
@@ -875,7 +856,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     _rut_prevclose_found = False
                     for _rut_hist_sym in ("RUT", "IWM"):
                         try:
-                            _rut_hist_resp = client.get_historical_quotes(
+                            _rut_hist_resp = mkt_client.get_historical_quotes(
                                 _rut_hist_sym, interval="daily",
                                 start=_rut_prev_start, end=_rut_prev_end,
                             )

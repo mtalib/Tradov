@@ -30,6 +30,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+@pytest.fixture(autouse=True)
+def _isolate_decision_audit(tmp_path, monkeypatch):
+    """Redirect D31 decision-audit log to a temp dir for the duration of each test."""
+    monkeypatch.setenv("SPYDER_D31_SIGNAL_DROP_AUDIT_DIR", str(tmp_path))
 
 # --------------------------------------------------------------------------
 # SPEC-6 PART 1: R12 wires both LiveEngine and OrderManager

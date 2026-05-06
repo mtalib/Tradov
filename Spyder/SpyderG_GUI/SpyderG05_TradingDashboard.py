@@ -452,6 +452,7 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self.market_worker = None
         self.market_thread = None
+        self._market_data_initialized = False  # True after first data_updated signal
 
         # Paper trading worker (created lazily by _start_paper_trading)
         self._paper_worker = None
@@ -1882,6 +1883,9 @@ class SpyderTradingDashboard(QMainWindow):
     @Slot(dict)
     def on_market_data_updated(self, data: dict):
         """Handle market data updates from the market worker."""
+        if not self._market_data_initialized:
+            self._market_data_initialized = True
+            self.add_system_log("✅ Market data loaded — system ready")
         handle_market_data_updated(self, data)
 
     @Slot(str)
@@ -3586,6 +3590,15 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("Trading already active")
             return
 
+        if not self._market_data_initialized:
+            self.add_system_log("⏳ Start trading blocked: market data not yet received")
+            QMessageBox.information(
+                self,
+                "Market Data Loading",
+                "Market data is still loading.\n\nPlease wait a moment, then click Start Trading again.",
+            )
+            return
+
         if not is_market_hours():
             self.add_system_log(
                 "⛔ Trading start blocked: market is closed (outside RTH)"
@@ -3676,7 +3689,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.start_btn.setText("PAPER ACTIVE" if self.trading_mode == TradingMode.PAPER else "TRADING ACTIVE")  # noqa: E501
 
         mode_label = self.trading_mode.value
-        self.add_system_log(f"{mode_label} trading started successfully via SessionSupervisor")
+        self.add_system_log(f"🚀 {mode_label} trading started — market data confirmed live")
         if self.trading_mode == TradingMode.PAPER and not is_market_hours():
             self.add_system_log(
                 "ℹ️ After-hours: paper session active; order entry may be gated by market-hours policy"

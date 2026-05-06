@@ -185,3 +185,39 @@ def test_d30_consensus_mapping_is_restricted_to_four_strategies_and_halts() -> N
     assert selector.select_strategy_from_consensus(_consensus_for(volatile_regime)).selected_strategy.value == "iron_butterfly"
     assert selector.select_strategy_from_consensus(_consensus_for(crisis_regime)).selected_strategy.value == "no_trade"
     assert selector.select_strategy_from_consensus(_consensus_for(event_regime)).selected_strategy.value == "no_trade"
+
+
+def test_d30_consensus_mapping_enables_bull_call_spread_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BULL_CALL_SPREAD", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    bull_regime = _regime_member(d30.L09MarketRegime, "BULL_TRENDING", "BULL")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=bull_regime,
+            confidence=0.90,
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+
+    assert selection.selected_strategy.value == "bull_call_spread"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BULL_CALL_SPREAD"
+
+
+def test_d30_consensus_mapping_enables_bear_put_spread_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    bear_regime = _regime_member(d30.L09MarketRegime, "BEAR_TRENDING", "BEAR")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=bear_regime,
+            confidence=0.90,
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+
+    assert selection.selected_strategy.value == "bear_put_spread"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BEAR_PUT_SPREAD"

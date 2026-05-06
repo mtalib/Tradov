@@ -146,6 +146,12 @@ try:
     BearCallSpreadStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"
     )
+    BullCallSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD35_BullCallSpread", "BullCallSpreadStrategy"
+    )
+    BearPutSpreadStrategy = _optional_strategy(
+        "Spyder.SpyderD_Strategies.SpyderD36_BearPutSpread", "BearPutSpreadStrategy"
+    )
     OpeningRangeBreakoutStrategy = _optional_strategy(
         "Spyder.SpyderD_Strategies.SpyderD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"
     )
@@ -479,7 +485,13 @@ try:
             return False, ""
 
     # Event management
-    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager  # noqa: E501
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import (
+        EventManager,
+        Event,
+        EventType,
+        EventPriority,
+        get_event_manager,
+    )
 
     # Connectivity integration
     from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState  # noqa: E501
@@ -510,6 +522,7 @@ except ImportError as e:
     EventManager = None  # type: ignore[assignment]
     Event = None  # type: ignore[assignment]
     EventType = None  # type: ignore[assignment]
+    EventPriority = None  # type: ignore[assignment]
     get_event_manager = None  # type: ignore[assignment]
 
     # Fallback enums
@@ -536,6 +549,9 @@ except ImportError as e:
 # Override via env: SPYDER_MAX_CONCURRENT_STRATEGIES, SPYDER_MAX_ACTIVE_HORIZON_BUCKETS.
 MAX_CONCURRENT_STRATEGIES = 2
 MAX_ACTIVE_HORIZON_BUCKETS = 2  # one ultra_short (0DTE/1DTE) + one short/swing
+# v9 §10.4 dispatch-state pill (G05 DISPATCH badge): recency window in seconds
+# for FLOWING/BLOCKED/ERROR classification. Beyond this, state collapses to IDLE.
+DISPATCH_STATE_RECENCY_S = 120.0
 DEFAULT_BASE_CAPITAL = 100000  # $100K base allocation
 REBALANCE_FREQUENCY_MINUTES = 30  # Rebalance every 30 minutes
 STRATEGY_HEALTH_CHECK_INTERVAL = 60  # Check health every minute
@@ -825,6 +841,20 @@ class StrategyOrchestrator:
                 "PivotMeanReversion",
                 "PivotMeanReversionStrategy",
             })
+        if os.getenv("SPYDER_ENABLE_BULL_CALL_SPREAD", "").strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }:
+            self.lean_strategy_allowlist.update({
+                "BullCallSpread",
+                "BullCallSpreadStrategy",
+            })
+        if os.getenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "").strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }:
+            self.lean_strategy_allowlist.update({
+                "BearPutSpread",
+                "BearPutSpreadStrategy",
+            })
 
         # Portfolio state
         self.active_strategies: dict[str, BaseStrategy] = {}
@@ -920,6 +950,20 @@ class StrategyOrchestrator:
         self._signal_drop_audit_dir: str = str(
             os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT_DIR", os.path.join("logs", "decisions"))
         )
+        self._signal_drop_audit_partition_mode: str = str(
+            os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT_PARTITION_MODE", "auto")
+        ).strip().lower()
+        self._audit_run_mode: str = "unknown"
+        self._audit_source_context: str = "unknown"
+        self._audit_session_id: str = f"d31-{uuid.uuid4().hex[:12]}"
+
+        # v9 §10.4: state powering G05 DISPATCH pill. All timestamps are
+        # time.monotonic() so they are immune to wall-clock jumps. Lock-free:
+        # writes are single-statement and reads tolerate transient None.
+        self._last_drop_event: dict[str, Any] | None = None
+        self._last_dispatch_ok_ts: float | None = None
+        self._last_dispatch_strategy: str | None = None
+        self._last_dispatch_error: dict[str, Any] | None = None
 
         # Y02 StrategyPilotAgent advisory: tracks the last time each strategy type
         # received an LLM-validated approval on the agent bus.  Updated by
@@ -1049,6 +1093,21 @@ class StrategyOrchestrator:
             signal=signal,
             detail=detail,
         )
+        # v9 §10.4: dispatch-state pill input. dispatch_exception is a system
+        # error, everything else is a guardrail block.
+        now_mono = time.monotonic()
+        if stage == "dispatch" and reason == "dispatch_exception":
+            self._last_dispatch_error = {
+                "reason": reason,
+                "detail": detail or "",
+                "monotonic_ts": now_mono,
+            }
+        else:
+            self._last_drop_event = {
+                "stage": stage,
+                "reason": reason,
+                "monotonic_ts": now_mono,
+            }
         self._log_signal_flow_summary_if_due()
 
     @staticmethod
@@ -1057,6 +1116,188 @@ class StrategyOrchestrator:
         if isinstance(signal, dict):
             return signal.get(key, default)
         return getattr(signal, key, default)
+
+    def _extract_pivot_signal_payload(
+        self,
+        signal: Any,
+        market_conditions: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Extract a normalized pivot payload from signal/market context."""
+        candidates: list[Any] = []
+
+        if isinstance(signal, dict):
+            for key in ("pivot_signal", "pivot_mr_signal", "pivot"):
+                candidates.append(signal.get(key))
+        else:
+            for key in ("pivot_signal", "pivot_mr_signal", "pivot"):
+                candidates.append(getattr(signal, key, None))
+
+        if isinstance(market_conditions, dict):
+            for key in ("pivot_signal", "pivot_mr_signal", "pivot"):
+                candidates.append(market_conditions.get(key))
+
+        payload: dict[str, Any] = {}
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                payload = candidate
+                break
+
+        if not payload and isinstance(signal, dict):
+            inferred = {
+                "fired": signal.get("fired"),
+                "direction": signal.get("direction"),
+                "score": signal.get("score"),
+                "nearest_level_name": signal.get("nearest_level_name") or signal.get("nearest_level"),
+                "atr_distance": signal.get("atr_distance"),
+            }
+            if any(value is not None for value in inferred.values()):
+                payload = inferred
+
+        if not payload:
+            return {}
+
+        return {
+            "fired": payload.get("fired"),
+            "direction": payload.get("direction"),
+            "score": payload.get("score"),
+            "nearest_level_name": payload.get("nearest_level_name") or payload.get("nearest_level"),
+            "atr_distance": payload.get("atr_distance"),
+        }
+
+    @staticmethod
+    def _format_pivot_log_context(pivot_payload: dict[str, Any] | None) -> str:
+        """Create compact, stable pivot context for logs and diagnostics."""
+        if not isinstance(pivot_payload, dict) or not pivot_payload:
+            return "pivot_signal=none"
+
+        fired = pivot_payload.get("fired")
+        direction = pivot_payload.get("direction")
+        score = pivot_payload.get("score")
+        nearest_level = pivot_payload.get("nearest_level_name")
+        atr_distance = pivot_payload.get("atr_distance")
+
+        return (
+            "pivot_signal("
+            f"fired={fired}, "
+            f"direction={direction}, "
+            f"score={score}, "
+            f"nearest_level={nearest_level}, "
+            f"atr_distance={atr_distance}"
+            ")"
+        )
+
+    def set_decision_audit_context(
+        self,
+        run_mode: str | None = None,
+        source_context: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Set stable run metadata attached to every decision-audit record."""
+        if run_mode:
+            self._audit_run_mode = str(run_mode)
+        if source_context:
+            self._audit_source_context = str(source_context)
+        if session_id:
+            self._audit_session_id = str(session_id)
+
+    def _resolve_signal_audit_file_path(self, now_utc: datetime) -> str:
+        """Resolve the daily decision-log path with optional run-mode partitioning.
+
+        Partition policy:
+        - ``flat``: always write to ``<base>/<YYYY-MM-DD>.jsonl``
+        - ``auto`` (default): for SessionSupervisor-owned paper/live runs, write to
+          ``<base>/<run_mode>/<YYYY-MM-DD>.jsonl``; otherwise keep flat path.
+        """
+        day_key = now_utc.strftime("%Y-%m-%d")
+        base_dir = self._signal_drop_audit_dir
+
+        if self._signal_drop_audit_partition_mode == "flat":
+            return os.path.join(base_dir, f"{day_key}.jsonl")
+
+        run_mode = str(self._audit_run_mode or "").strip().lower()
+        source_ctx = str(self._audit_source_context or "").strip().lower()
+        if run_mode in {"paper", "live"} and source_ctx == "session_supervisor":
+            return os.path.join(base_dir, run_mode, f"{day_key}.jsonl")
+
+        return os.path.join(base_dir, f"{day_key}.jsonl")
+
+    def emit_decision_audit_marker(self, event: str, detail: str = "") -> None:
+        """Append a non-signal marker to decision logs for session boundaries."""
+        if not self._signal_drop_audit_enabled:
+            return
+        try:
+            now_utc = datetime.now(timezone.utc)
+            file_path = self._resolve_signal_audit_file_path(now_utc)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            record = {
+                "ts_utc": now_utc.isoformat(),
+                "component": "D31",
+                "event": event,
+                "detail": detail,
+                "run_mode": self._audit_run_mode,
+                "source_context": self._audit_source_context,
+                "session_id": self._audit_session_id,
+            }
+            with open(file_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        except Exception as exc:
+            self.logger.debug("D31: failed to persist audit marker: %s", exc)
+
+        if event == "session_started":
+            self._purge_old_decision_logs()
+
+    def _purge_old_decision_logs(self, retention_days: int = 7) -> None:
+        """Delete decision-log JSONL files older than *retention_days* days.
+
+        Scans the base audit directory (and one level of subdirectories for
+        run-mode partitions such as ``paper/`` and ``live/``) for files whose
+        name matches ``YYYY-MM-DD.jsonl`` and removes any that are strictly
+        older than *retention_days* calendar days relative to today (UTC).
+        """
+        try:
+            cutoff = datetime.now(timezone.utc).date() - timedelta(days=retention_days)
+            base_dir = self._signal_drop_audit_dir
+            if not os.path.isdir(base_dir):
+                return
+
+            scan_dirs = [base_dir]
+            for entry in os.scandir(base_dir):
+                if entry.is_dir():
+                    scan_dirs.append(entry.path)
+
+            import re as _re
+            _date_pattern = _re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
+            purged = 0
+            for scan_dir in scan_dirs:
+                try:
+                    for fname in os.listdir(scan_dir):
+                        m = _date_pattern.match(fname)
+                        if not m:
+                            continue
+                        try:
+                            from datetime import date as _date
+                            file_date = _date.fromisoformat(m.group(1))
+                        except ValueError:
+                            continue
+                        if file_date < cutoff:
+                            try:
+                                os.remove(os.path.join(scan_dir, fname))
+                                purged += 1
+                            except OSError as rm_exc:
+                                self.logger.debug(
+                                    "D31: could not remove old decision log %s: %s",
+                                    fname, rm_exc,
+                                )
+                except OSError:
+                    pass
+
+            if purged:
+                self.logger.info(
+                    "D31: purged %d decision log file(s) older than %d days",
+                    purged, retention_days,
+                )
+        except Exception as exc:
+            self.logger.debug("D31: _purge_old_decision_logs failed: %s", exc)
 
     def _persist_signal_drop_audit(
         self,
@@ -1071,9 +1312,8 @@ class StrategyOrchestrator:
 
         try:
             now_utc = datetime.now(timezone.utc)
-            day_key = now_utc.strftime("%Y-%m-%d")
-            os.makedirs(self._signal_drop_audit_dir, exist_ok=True)
-            file_path = os.path.join(self._signal_drop_audit_dir, f"{day_key}.jsonl")
+            file_path = self._resolve_signal_audit_file_path(now_utc)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
             payload = signal if isinstance(signal, dict) else {}
             pivot_payload = self._extract_pivot_signal_payload(payload) if payload else None
@@ -1083,6 +1323,9 @@ class StrategyOrchestrator:
                 "ts_utc": now_utc.isoformat(),
                 "component": "D31",
                 "event": "signal_dropped",
+                "run_mode": self._audit_run_mode,
+                "source_context": self._audit_source_context,
+                "session_id": self._audit_session_id,
                 "stage": stage,
                 "reason": reason,
                 "detail": detail or "",
@@ -1106,11 +1349,100 @@ class StrategyOrchestrator:
         except Exception as exc:
             self.logger.debug("D31: failed to persist signal-drop audit: %s", exc)
 
-    def _record_signal_dispatch_outcome(self, outcome: str) -> None:
+    def _record_signal_dispatch_outcome(
+        self,
+        outcome: str,
+        signal: Any | None = None,
+    ) -> None:
         """Track order-routing outcomes for approved signals."""
         if outcome in self._signal_flow_counts:
             self._signal_flow_counts[outcome] += 1
+        # v9 §10.4: stamp last successful dispatch for DISPATCH pill FLOWING state.
+        if outcome == "dispatch_submitted":
+            self._last_dispatch_ok_ts = time.monotonic()
+            if signal is not None:
+                strategy_type = self._signal_value(signal, "strategy_type")
+                if strategy_type:
+                    self._last_dispatch_strategy = str(strategy_type)
         self._log_signal_flow_summary_if_due()
+
+    def _record_signal_dispatch_outcome_safe(
+        self,
+        outcome: str,
+        signal: Any | None = None,
+    ) -> None:
+        """Record dispatch outcomes without failing when patched call signatures differ.
+
+        Some tests monkeypatch ``_record_signal_dispatch_outcome`` with a
+        single-argument callable. Calling it with ``signal=...`` would raise a
+        ``TypeError`` and incorrectly surface as a dispatch exception.
+        """
+        try:
+            self._record_signal_dispatch_outcome(outcome, signal=signal)
+        except TypeError:
+            self._record_signal_dispatch_outcome(outcome)
+
+    def get_dispatch_state(self) -> dict[str, Any]:
+        """Return current dispatch state for the G05 DISPATCH pill (v9 §10.4).
+
+        Priority: ERROR > BLOCKED > FLOWING > IDLE. State is bounded by
+        ``DISPATCH_STATE_RECENCY_S`` (default 120s); older events collapse to
+        IDLE so the pill does not show stale verdicts after the system recovers.
+
+        Returns a dict with keys:
+            ``state``  — one of ``"FLOWING"``, ``"IDLE"``, ``"BLOCKED"``, ``"ERROR"``
+            ``reason`` — human-readable detail (e.g. ``"risk_gate:risk_state_cold"``,
+                         ``"last dispatched: bull_put_spread"``, ``"no signals in last 120s"``)
+            ``age_s``  — seconds since the event, or ``None`` for IDLE
+        """
+        now = time.monotonic()
+        recency = DISPATCH_STATE_RECENCY_S
+
+        last_err = self._last_dispatch_error
+        if last_err is not None and (now - last_err["monotonic_ts"]) <= recency:
+            err_reason = last_err["reason"]
+            detail = last_err.get("detail")
+            if detail:
+                err_reason = f"{err_reason}: {detail}"
+            return {
+                "state": "ERROR",
+                "reason": err_reason,
+                "age_s": now - last_err["monotonic_ts"],
+            }
+
+        last_ok = self._last_dispatch_ok_ts
+        last_drop = self._last_drop_event
+
+        ok_recent = last_ok is not None and (now - last_ok) <= recency
+        drop_recent = (
+            last_drop is not None
+            and (now - last_drop["monotonic_ts"]) <= recency
+        )
+
+        # FLOWING wins when a successful dispatch is at least as recent as the
+        # most recent guardrail drop within the recency window.
+        if ok_recent and (
+            not drop_recent or last_ok >= last_drop["monotonic_ts"]
+        ):
+            strat = self._last_dispatch_strategy or "unknown"
+            return {
+                "state": "FLOWING",
+                "reason": f"last dispatched: {strat}",
+                "age_s": now - last_ok,
+            }
+
+        if drop_recent:
+            return {
+                "state": "BLOCKED",
+                "reason": f"{last_drop['stage']}:{last_drop['reason']}",
+                "age_s": now - last_drop["monotonic_ts"],
+            }
+
+        return {
+            "state": "IDLE",
+            "reason": f"no signals in last {int(recency)}s",
+            "age_s": None,
+        }
 
     def _log_signal_flow_summary_if_due(self, force: bool = False) -> None:
         """Emit periodic counters so operators can diagnose no-trade sessions."""
@@ -2799,6 +3131,8 @@ class StrategyOrchestrator:
                 'Straddle': StraddleStrategy,
                 'BullPutSpread': BullPutSpreadStrategy,
                 'BearCallSpread': BearCallSpreadStrategy,
+                'BullCallSpread': BullCallSpreadStrategy,
+                'BearPutSpread': BearPutSpreadStrategy,
                 'OpeningRangeBreakout': OpeningRangeBreakoutStrategy,
                 'GreeksBased': GreeksBasedStrategy,
                 'SpecializedZeroDTE': SpecializedZeroDTEStrategy,
@@ -3334,60 +3668,63 @@ class StrategyOrchestrator:
             return
 
         if isinstance(signal, dict):
-            session_gate_ok, session_gate_reason = self._passes_session_window_gate(signal)
-            if not session_gate_ok:
+            gate_ok, gate_stage, gate_reason, gate_detail = self._evaluate_pre_risk_signal_gates(signal)
+            if not gate_ok:
                 self._record_signal_drop(
-                    "pre_risk",
-                    "session_window_gate",
+                    gate_stage,
+                    gate_reason,
                     signal=signal,
-                    detail=session_gate_reason,
+                    detail=gate_detail,
                 )
-                self.logger.warning(
-                    "Strategy signal rejected by session window gate: %s",
-                    session_gate_reason,
-                )
-                self._emit_event_safe(
-                    EventType.RISK,
-                    {
-                        "type": "session_window_gate_rejected",
-                        "severity": "warning",
-                        "reason": session_gate_reason,
-                        "signal": signal,
-                    },
-                    severity="warning",
-                )
-                return
+                if gate_reason == "session_window_gate":
+                    self.logger.warning(
+                        "Strategy signal rejected by session window gate: %s",
+                        gate_detail,
+                    )
+                    self._emit_event_safe(
+                        EventType.RISK,
+                        {
+                            "type": "session_window_gate_rejected",
+                            "severity": "warning",
+                            "reason": gate_detail,
+                            "signal": signal,
+                        },
+                        severity="warning",
+                    )
+                    return
 
-        market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
+                if gate_reason == "entry_trust_gate":
+                    pivot_context = self._format_pivot_log_context(
+                        self._extract_pivot_signal_payload(signal)
+                    )
+                    self.logger.warning(
+                        "Strategy signal rejected by entry trust gate: %s | %s",
+                        gate_detail,
+                        pivot_context,
+                    )
+                    if self.event_manager:
+                        try:
+                            risk_alert_type = (
+                                getattr(EventType, "RISK_ALERT", None)
+                                or getattr(EventType, "RISK", None)
+                                or "RISK_ALERT"
+                            )
+                            self.event_manager.publish(
+                                risk_alert_type,
+                                {
+                                    "severity": "warning",
+                                    "reason": "entry_trust_gate_rejected",
+                                    "message": gate_detail,
+                                    "signal": signal,
+                                },
+                            )
+                        except Exception:
+                            pass
+                    return
+
         pivot_context = self._format_pivot_log_context(
             self._extract_pivot_signal_payload(signal)
         )
-        if not market_gate_ok:
-            self._record_signal_drop(
-                "pre_risk",
-                "entry_trust_gate",
-                signal=signal,
-                detail=market_gate_reason,
-            )
-            self.logger.warning(
-                "Strategy signal rejected by entry trust gate: %s | %s",
-                market_gate_reason,
-                pivot_context,
-            )
-            if self.event_manager:
-                try:
-                    self.event_manager.publish(
-                        EventType.RISK_ALERT,
-                        {
-                            "severity": "warning",
-                            "reason": "entry_trust_gate_rejected",
-                            "message": market_gate_reason,
-                            "signal": signal,
-                        },
-                    )
-                except Exception:
-                    pass
-            return
 
         # P1-03: risk_manager is cached on self; lazy-resolve once if not yet wired.
         if self.risk_manager is None:
@@ -3480,8 +3817,13 @@ class StrategyOrchestrator:
                 except Exception:
                     pass
             try:
+                risk_alert_type = (
+                    getattr(EventType, "RISK_ALERT", None)
+                    or getattr(EventType, "RISK", None)
+                    or "RISK_ALERT"
+                )
                 self.event_manager.publish(
-                    EventType.RISK_ALERT,
+                    risk_alert_type,
                     {"severity": "warning", "reason": "validate_signal_rejected", "signal": signal},
                 )
             except Exception:
@@ -3526,10 +3868,12 @@ class StrategyOrchestrator:
         config_manager = None
         try:
             from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
             config_manager = get_config_manager()
         except Exception:
             try:
                 from SpyderA_Core.SpyderA03_Configuration import get_config_manager  # type: ignore[no-redef]
+
                 config_manager = get_config_manager()
             except Exception:
                 config_manager = None
@@ -3539,154 +3883,57 @@ class StrategyOrchestrator:
             return None
 
         try:
-            self._entry_filter_gate = EntryFilters(config_manager)
+            self._entry_filter_gate = EntryFilters(config_manager=config_manager)
         except Exception as exc:
-            self.logger.debug("D31: failed to initialize EntryFilters gate: %s", exc)
+            self.logger.debug("D31: failed to initialize EntryFilters: %s", exc, exc_info=True)
             self._entry_filter_gate = None
+
         return self._entry_filter_gate
 
-    def _get_current_market_conditions(self) -> dict[str, Any]:
-        """Fetch the latest S07 market conditions for trust-policy gating."""
-        if self._metrics_orchestrator is None:
-            try:
-                from Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # noqa: E501
-            except ImportError:
-                try:
-                    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import get_metrics_orchestrator  # type: ignore[no-redef]  # noqa: E501
-                except ImportError:
-                    self.logger.debug("D31: S07 metrics orchestrator unavailable")
-                    return {}
-
-            try:
-                self._metrics_orchestrator = get_metrics_orchestrator()
-            except Exception as exc:
-                self.logger.debug("D31: failed to get S07 metrics orchestrator: %s", exc)
-                return {}
-
-        try:
-            conditions = self._metrics_orchestrator.get_current_market_conditions()
-        except Exception as exc:
-            self.logger.debug("D31: failed to read S07 market conditions: %s", exc)
-            return {}
-
-        return conditions if isinstance(conditions, dict) else {}
-
     @staticmethod
-    def _extract_pivot_signal_payload(signal: Any, market_conditions: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        """Extract SpyderS08 pivot payload from signal/metadata/market context."""
-        if not isinstance(signal, dict):
-            return None
-
-        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
-        market_conditions = market_conditions if isinstance(market_conditions, dict) else {}
-
-        candidates = (
-            signal.get("pivot_mr_signal"),
-            signal.get("s08_pivot_signal"),
-            metadata.get("pivot_mr_signal"),
-            metadata.get("s08_pivot_signal"),
-            market_conditions.get("pivot_mr_signal"),
-            market_conditions.get("s08_pivot_signal"),
-            market_conditions.get("pivot_signal"),
-        )
-
-        for candidate in candidates:
-            if isinstance(candidate, dict):
-                return candidate
-        return None
-
-    @staticmethod
-    def _normalise_strategy_type_for_entry_gate(value: Any) -> str:
-        """Normalize strategy labels/IDs into F09 strategy_type names."""
-        text = str(value or "").strip().lower()
-        if not text:
+    def _normalise_strategy_type_for_entry_gate(strategy_type: Any) -> str:
+        """Normalize strategy identifiers so gate/policy matching is deterministic."""
+        if strategy_type is None:
             return ""
 
-        if "bull_put_spread" in text or "spyderd06" in text or text == "d06":
-            return "bull_put_spread"
-        if "bull_call_spread" in text or "spyderd15" in text or text == "d15":
-            return "bull_call_spread"
-        if "bear_call_spread" in text or "spyderd07" in text or text == "d07":
-            return "bear_call_spread"
-        if "bear_put_spread" in text or "spyderd16" in text or text == "d16":
-            return "bear_put_spread"
-        if "iron_condor" in text or "spyderd02" in text or text == "d02":
-            return "iron_condor"
-        if "iron_butterfly" in text or "spyderd10" in text or text == "d10":
-            return "iron_butterfly"
-        if "pivot_mean_reversion" in text or "d34_pivotmr" in text or text == "d34":
-            return "pivot_mean_reversion"
-        return text
+        normalized = str(strategy_type).strip().lower()
+        if not normalized:
+            return ""
 
-    @staticmethod
-    def _strategy_policy_match_tokens(value: Any) -> set[str]:
-        """Generate robust strategy tokens for regime-policy allow/block matching."""
-        base = str(value or "").strip().lower()
-        if not base:
-            return set()
-
-        text = base.replace("-", "_").replace(" ", "_")
-        tokens: set[str] = {text}
-
-        # Include D31/F09 normalized names for stable comparisons.
-        normalized = StrategyOrchestrator._normalise_strategy_type_for_entry_gate(text)
-        if normalized:
-            tokens.add(normalized)
-
-        # Common strategy naming drifts across config/runtime modules.
-        rewrites = (
-            ("_credit_spread", "_spread"),
-            ("_debit_spread", "_spread"),
-            ("_defined_risk", ""),
-            ("_overlay", ""),
-            ("_engine", ""),
-            ("_strategy", ""),
-        )
-        for token in list(tokens):
-            for old, new in rewrites:
-                if old in token:
-                    tokens.add(token.replace(old, new))
+        normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+        normalized = re.sub(r"_v\d+$", "", normalized)
 
         aliases = {
-            "bull_put_spread": {"bull_put_credit_spread", "credit_spread_bull_put", "bull_put"},
-            "bull_call_spread": {"bull_call", "call_debit_spread", "debit_spread_bull_call"},
-            "bear_call_spread": {"bear_call_credit_spread", "credit_spread_bear_call", "bear_call"},
-            "bear_put_spread": {"bear_put", "put_debit_spread", "debit_spread_bear_put"},
-            "iron_condor": {"iron_condor_defined_risk"},
-            "iron_butterfly": {"short_duration_defined_risk"},
-            "rsi_mean_reversion": {"mean_reversion_spreads", "mean_reversion"},
-            "renaissance_mean_reversion": {"mean_reversion_spreads", "mean_reversion"},
-            "opening_range_breakout": {"trend_breakout_calls", "breakout_calls"},
-            "vix_hedging": {"protective_put_overlay", "protective_put"},
-            "pivot_mean_reversion": {"d34_pivotmr", "pivot_mr", "d34"},
+            "bull_put_spread": "bull_put_credit_spread",
+            "bear_call_spread": "bear_call_credit_spread",
+            "iron_condor": "iron_condor_defined_risk",
         }
+        return aliases.get(normalized, normalized)
 
-        for token in list(tokens):
-            tokens.update(aliases.get(token, set()))
+    def _strategy_policy_match_tokens(self, strategy_name: Any) -> set[str]:
+        """Build normalized tokens for regime policy strategy allow/block matching."""
+        if strategy_name is None:
+            return set()
 
-        return {tok for tok in tokens if tok}
+        raw = str(strategy_name).strip().lower()
+        if not raw:
+            return set()
 
-    @staticmethod
-    def _format_pivot_log_context(pivot_signal: dict[str, Any] | None) -> str:
-        """Format concise S08 pivot context for D31 decision logs."""
-        if not isinstance(pivot_signal, dict):
-            return "pivot=n/a"
+        compact = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+        compact_no_version = re.sub(r"_v\d+$", "", compact)
+        normalized = self._normalise_strategy_type_for_entry_gate(compact_no_version)
 
-        direction = str(pivot_signal.get("direction", "none"))
-        score = int(pivot_signal.get("score", 0) or 0)
-        fired = bool(pivot_signal.get("fired", False))
-        level_name = str(pivot_signal.get("nearest_level_name", "") or "-")
-        atr_distance = pivot_signal.get("atr_distance")
-        penalties = pivot_signal.get("penalties") or []
-        penalty_excerpt = str(penalties[0]) if penalties else ""
+        tokens: set[str] = {compact, compact_no_version, normalized}
 
-        return (
-            f"pivot=fired:{fired} direction:{direction} score:{score} "
-            f"level:{level_name} atr_distance:{atr_distance} penalty:{penalty_excerpt}"
-        )
+        if normalized.endswith("_credit_spread"):
+            tokens.add("credit_spread")
+        if normalized.endswith("_debit_spread"):
+            tokens.add("debit_spread")
+
+        return {token for token in tokens if token}
 
     def _passes_entry_trust_gate(self, signal: Any) -> tuple[bool, str]:
-        """Apply F09's trust-policy checks to the live D31 signal path."""
+        """Apply F09 structural trust filters and regime policy gate."""
         if not isinstance(signal, dict):
             return True, ""
 
@@ -3694,7 +3941,20 @@ class StrategyOrchestrator:
         if entry_gate is None:
             return True, ""
 
-        market_conditions = self._get_current_market_conditions()
+        signal_market_conditions = signal.get("market_conditions")
+        if isinstance(signal_market_conditions, dict):
+            market_conditions = signal_market_conditions
+        else:
+            cache_conditions = self.market_data_cache.get("market_conditions") if isinstance(self.market_data_cache, dict) else {}  # noqa: E501
+            market_conditions = cache_conditions if isinstance(cache_conditions, dict) else {}
+            if not market_conditions and self._metrics_orchestrator is not None:
+                try:
+                    metrics_conditions = self._metrics_orchestrator.get_current_market_conditions()
+                except Exception:
+                    metrics_conditions = {}
+                if isinstance(metrics_conditions, dict):
+                    market_conditions = metrics_conditions
+
         if not market_conditions:
             return True, ""
 
@@ -3748,6 +4008,22 @@ class StrategyOrchestrator:
             return self._passes_regime_policy_gate(signal, market_conditions)
 
         return False, "; ".join(str(check.message) for check in failures)
+
+    def _evaluate_pre_risk_signal_gates(self, signal: dict[str, Any]) -> tuple[bool, str, str, str]:
+        """Evaluate pre-risk policy gates and return canonical drop metadata.
+
+        Returns:
+            (is_allowed, stage, reason, detail)
+        """
+        session_gate_ok, session_gate_reason = self._passes_session_window_gate(signal)
+        if not session_gate_ok:
+            return False, "pre_risk", "session_window_gate", session_gate_reason
+
+        market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
+        if not market_gate_ok:
+            return False, "pre_risk", "entry_trust_gate", market_gate_reason
+
+        return True, "", "", ""
 
     def _get_regime_policy(self) -> dict[str, Any]:
         """Load six-regime policy from config manager or repo config file."""
@@ -4377,7 +4653,7 @@ class StrategyOrchestrator:
                         walk_message,
                         pivot_context,
                     )
-                    self._record_signal_dispatch_outcome("dispatch_submitted")
+                    self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
                 else:
                     self.logger.warning(
                         "MidWalk did not fill: symbol=%s reason=%s error=%s | %s",
@@ -4386,7 +4662,7 @@ class StrategyOrchestrator:
                         walk_error_code,
                         pivot_context,
                     )
-                    self._record_signal_dispatch_outcome("dispatch_rejected")
+                    self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
                 return  # Mid-price path handled — do not send a market order
 
             # ── Path 2: market order via live engine ─────────────────────────
@@ -4419,7 +4695,7 @@ class StrategyOrchestrator:
                     reason,
                     pivot_context,
                 )
-                self._record_signal_dispatch_outcome("dispatch_rejected")
+                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
             else:
                 self.logger.info(
                     "Market order dispatched: symbol=%s qty=%d status=%s | %s",
@@ -4428,7 +4704,7 @@ class StrategyOrchestrator:
                     status,
                     pivot_context,
                 )
-                self._record_signal_dispatch_outcome("dispatch_submitted")
+                self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
 
         except Exception as exc:
             self.logger.error(

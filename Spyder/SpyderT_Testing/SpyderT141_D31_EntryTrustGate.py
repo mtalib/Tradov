@@ -5,7 +5,18 @@ import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+
+
+@pytest.fixture(autouse=True)
+def _isolate_decision_audit(tmp_path, monkeypatch):
+    """Redirect D31 decision-audit log to a temp dir for the duration of each test.
+
+    Prevents tests from polluting the production ``logs/decisions/`` JSONL files.
+    """
+    monkeypatch.setenv("SPYDER_D31_SIGNAL_DROP_AUDIT_DIR", str(tmp_path))
 
 
 def _get_strategy_orchestrator_class():
@@ -49,14 +60,11 @@ class _MockConfigManager:
 class _StubEventManager:
     def __init__(self):
         self.handlers = {}
+        self.emit = MagicMock()
         self.publish = MagicMock()
 
     def subscribe(self, event_type, handler):
         self.handlers.setdefault(event_type, []).append(handler)
-
-    def emit(self, *args, **kwargs):
-        return None
-
 
 class _StubMetricsOrchestrator:
     def __init__(self, conditions):
@@ -107,7 +115,7 @@ def _healthy_conditions():
     }
 
 
-def _make_orchestrator(conditions):
+def _make_orchestrator(conditions, tmp_path=None):
     StrategyOrchestrator = _get_strategy_orchestrator_class()
     orchestrator = StrategyOrchestrator(event_manager=_StubEventManager())
     orchestrator.lean_mode = False
@@ -115,6 +123,14 @@ def _make_orchestrator(conditions):
     orchestrator._metrics_orchestrator = _StubMetricsOrchestrator(conditions)
     orchestrator.risk_manager = _ApprovedRiskManager()
     orchestrator._dispatch_approved_signal = MagicMock()
+    # Bypass the time-of-day / calendar session gate so tests run at any time.
+    orchestrator._passes_session_window_gate = lambda _sig: (True, "")
+    # Run dispatch synchronously so assertions don't race the ThreadPoolExecutor.
+    orchestrator._dispatch_executor = SimpleNamespace(submit=lambda fn, *args: fn(*args))
+    # Redirect decision audit log to an isolated temp directory so tests do
+    # not pollute the production logs/decisions/ JSONL files.
+    if tmp_path is not None:
+        orchestrator._signal_drop_audit_dir = str(tmp_path)
     return orchestrator
 
 
@@ -289,3 +305,64 @@ def test_d31_dispatches_signal_when_strategy_is_allowlisted_for_regime():
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
     orchestrator._dispatch_approved_signal.assert_called_once_with(signal)
+
+
+def test_d31_on_strategy_signal_session_window_rejection_emits_risk_event_and_pre_risk_drop():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._passes_session_window_gate = MagicMock(return_value=(False, "zero_dte_short_cutoff"))
+    orchestrator._passes_entry_trust_gate = MagicMock(return_value=(True, ""))
+
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+    assert orchestrator._last_drop_event is not None
+    assert orchestrator._last_drop_event['stage'] == 'pre_risk'
+    assert orchestrator._last_drop_event['reason'] == 'session_window_gate'
+    orchestrator._passes_entry_trust_gate.assert_not_called()
+
+    assert orchestrator.event_manager.emit.called
+    emitted_payload = orchestrator.event_manager.emit.call_args.args[1]
+    assert emitted_payload['type'] == 'session_window_gate_rejected'
+    assert emitted_payload['reason'] == 'zero_dte_short_cutoff'
+    assert emitted_payload['signal'] == signal
+
+
+def test_d31_on_strategy_signal_entry_trust_rejection_emits_risk_alert_and_pre_risk_drop():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._passes_session_window_gate = MagicMock(return_value=(True, ""))
+    orchestrator._passes_entry_trust_gate = MagicMock(return_value=(False, "market_structure_untrusted"))
+    orchestrator.risk_manager = MagicMock()
+
+    signal = {
+        'strategy_id': 'bull_put_spread',
+        'strategy_type': 'bull_put_spread',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+    assert orchestrator._last_drop_event is not None
+    assert orchestrator._last_drop_event['stage'] == 'pre_risk'
+    assert orchestrator._last_drop_event['reason'] == 'entry_trust_gate'
+    orchestrator.risk_manager.validate_signal.assert_not_called()
+
+    orchestrator.event_manager.publish.assert_called_once()
+    publish_payload = orchestrator.event_manager.publish.call_args.args[1]
+    assert publish_payload['reason'] == 'entry_trust_gate_rejected'
+    assert publish_payload['message'] == 'market_structure_untrusted'
+    assert publish_payload['signal'] == signal

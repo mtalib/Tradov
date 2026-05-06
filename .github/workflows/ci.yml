@@ -5,6 +5,8 @@ on:
     branches: ["master", "feature/**", "fix/**", "hotfix/**"]
   pull_request:
     branches: ["master"]
+  schedule:
+    - cron: "15 6 * * *"
 
 # Cancel in-progress runs on the same branch to save resources
 concurrency:
@@ -41,10 +43,10 @@ jobs:
             --output-format github
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Job 2: Test — pytest
+  # Job 2: Fast tests — pytest (behavior validation)
   # ─────────────────────────────────────────────────────────────────────────────
-  test:
-    name: Test (pytest)
+  test-fast:
+    name: Test fast (pytest, no coverage gate)
     runs-on: ubuntu-latest
     needs: lint
 
@@ -70,7 +72,7 @@ jobs:
       - name: Create required directories
         run: mkdir -p logs
 
-      - name: Run tests (no coverage threshold in CI — report only)
+      - name: Run tests (fast path, no coverage gate)
         run: |
           python -m pytest \
             --no-cov \
@@ -88,12 +90,152 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-log
+          name: test-fast-log
           path: test-results.txt
           retention-days: 7
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Job 3: Security scan (bandit) — non-blocking, report only
+  # Job 3: PR-focused tests — only changed test files
+  # Runs on pull requests to provide very fast, scoped feedback.
+  # ─────────────────────────────────────────────────────────────────────────────
+  test-pr-focused:
+    name: Test PR-focused (changed tests only)
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install core dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-core.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install trading dependencies (no heavy ML)
+        run: |
+          pip install -r requirements-trading.txt || true
+
+      - name: Create required directories
+        run: mkdir -p logs
+
+      - name: Run changed tests only
+        shell: bash
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          CHANGED_TESTS=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -E '^Spyder/SpyderT_Testing/.*\.py$' || true)
+
+          if [[ -z "$CHANGED_TESTS" ]]; then
+            echo "No changed test files in this PR. Skipping focused pytest run." | tee test-pr-focused-results.txt
+            exit 0
+          fi
+
+          echo "Changed test files:"
+          echo "$CHANGED_TESTS"
+
+          python -m pytest \
+            --no-cov \
+            --tb=short \
+            --timeout=60 \
+            -q \
+            $CHANGED_TESTS \
+            2>&1 | tee test-pr-focused-results.txt
+
+      - name: Summarise PR-focused test results
+        if: always()
+        run: |
+          tail -20 test-pr-focused-results.txt || true
+
+      - name: Upload PR-focused test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pr-focused-log
+          path: test-pr-focused-results.txt
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 4: Full coverage governance — pytest with global fail-under
+  # Runs only on master pushes and nightly schedule; avoids blocking focused PRs.
+  # ─────────────────────────────────────────────────────────────────────────────
+  test-coverage-full:
+    name: Test full (coverage gate)
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install core dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-core.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install trading dependencies (no heavy ML)
+        run: |
+          pip install -r requirements-trading.txt || true
+
+      - name: Create required directories
+        run: mkdir -p logs
+
+      - name: Run full tests (coverage gate from pytest.ini)
+        run: |
+          python -m pytest \
+            --tb=short \
+            --timeout=120 \
+            -q \
+            2>&1 | tee test-coverage-results.txt
+
+      - name: Summarise coverage run
+        if: always()
+        run: |
+          tail -20 test-coverage-results.txt || true
+
+      - name: Upload coverage run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-coverage-full-log
+          path: test-coverage-results.txt
+          retention-days: 7
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 5: Security scan (bandit) — non-blocking, report only
   # ─────────────────────────────────────────────────────────────────────────────
   security:
     name: Security scan (bandit)
