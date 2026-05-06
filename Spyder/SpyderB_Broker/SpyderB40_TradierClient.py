@@ -93,6 +93,7 @@ except ImportError:
 import asyncio
 import threading
 from typing import Any
+from collections import defaultdict
 from collections.abc import Callable
 from enum import Enum
 from dataclasses import dataclass, field
@@ -126,6 +127,7 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
 from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
 from Spyder.SpyderU_Utilities.SpyderU45_RetryWithBackoff import retry_async
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import is_tradier_active_window
 
 # ==============================================================================
 # CONSTANTS
@@ -141,6 +143,7 @@ RETRY_BACKOFF = 2.0  # exponential backoff factor
 WS_PING_INTERVAL = 30  # seconds between WebSocket pings
 WS_PING_TIMEOUT = 10   # seconds to wait for pong response
 SESSION_TTL = 270.0    # session token refresh threshold (4.5 min; Tradier TTL is 5 min)
+TIMEOUT_METRICS_WINDOW_SECONDS = 300.0
 
 
 def _is_opra_vetter_required() -> bool:
@@ -156,6 +159,38 @@ def _is_opra_vetter_required() -> bool:
 # MODULE LOGGER
 # ==============================================================================
 logger = SpyderLogger.get_logger(__name__)
+
+# Rolling timeout counters for objective endpoint-level stability checks.
+_TIMEOUT_METRICS_LOCK = threading.Lock()
+_TIMEOUT_METRICS = {
+    "window_start_mono": time.monotonic(),
+    "counts": defaultdict(int),
+}
+
+
+def _record_timeout_metric(endpoint: str, kind: str) -> None:
+    """Record timeout-like transport failures and emit 5-minute summaries."""
+    now_mono = time.monotonic()
+    with _TIMEOUT_METRICS_LOCK:
+        window_start = float(_TIMEOUT_METRICS.get("window_start_mono", now_mono))
+        elapsed = now_mono - window_start
+        counts = _TIMEOUT_METRICS["counts"]
+
+        # Emit summary for the completed window before accounting new event.
+        if elapsed >= TIMEOUT_METRICS_WINDOW_SECONDS and counts:
+            summary = ", ".join(
+                f"{k}={v}" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            )
+            logger.warning(
+                "Tradier transport timeout summary (last %ds): %s",
+                int(TIMEOUT_METRICS_WINDOW_SECONDS),
+                summary,
+            )
+            counts.clear()
+            _TIMEOUT_METRICS["window_start_mono"] = now_mono
+
+        key = f"{kind}:{endpoint}"
+        counts[key] += 1
 
 # ==============================================================================
 # ENUMS
@@ -600,7 +635,8 @@ class TradierClient:
         endpoint: str,
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
-        json_data: dict[str, Any] | None = None
+        json_data: dict[str, Any] | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         """
         Make HTTP request to Tradier API.
@@ -633,7 +669,7 @@ class TradierClient:
                 params=params,
                 data=data,
                 json=json_data,
-                timeout=self.timeout
+                timeout=timeout if timeout is not None else self.timeout
             )
 
             # Handle different status codes
@@ -691,11 +727,13 @@ class TradierClient:
                 raise TradierAPIError(error_msg)
 
         except requests.exceptions.Timeout:
+            _record_timeout_metric(endpoint, "timeout")
             error_msg = f"Request timeout after {self.timeout}s: {endpoint}"
             logger.warning(error_msg)  # transient; full traceback is noise
             raise TradierAPIError(error_msg)  # noqa: B904
 
         except requests.exceptions.ConnectionError as e:
+            _record_timeout_metric(endpoint, "connection")
             # Includes ReadTimeoutError wrapped by urllib3 after max retries.
             # Log as warning — these are transient network conditions on sandbox.
             detail = str(e).strip()
@@ -703,7 +741,7 @@ class TradierClient:
                 detail = "request failed"
             else:
                 detail = detail.splitlines()[0]
-            error_msg = f"Connection error: {detail}"
+            error_msg = f"Connection error on {endpoint}: {detail}"
             logger.warning(error_msg)
             raise TradierAPIError(error_msg)  # noqa: B904
 
@@ -712,10 +750,11 @@ class TradierClient:
             raise  # Re-raise Tradier-specific errors without wrapping
 
         except requests.exceptions.RetryError as e:
+            _record_timeout_metric(endpoint, "retry")
             # RetryError wraps repeated 5xx/gateway-timeout responses from upstream.
             # Logged as warning — transient sandbox/network condition, not a code bug.
             first_line = str(e).splitlines()[0] if str(e) else "max retries exceeded"
-            error_msg = f"Transient retry error: {first_line}"
+            error_msg = f"Transient retry error on {endpoint}: {first_line}"
             logger.warning(error_msg)
             raise TradierAPIError(error_msg) from e  # noqa: B904
 
@@ -1488,7 +1527,9 @@ class TradierClient:
             params["option_type"] = option_type.lower()
 
         logger.debug("Fetching option chain with greeks for %s exp %s", symbol, expiration)
-        response = self._make_request("GET", "/markets/options/chains", params=params)
+        # SPY chains with greeks can be 180+ contracts — allow 60 s to avoid
+        # spurious ReadTimeoutError on slow Tradier responses.
+        response = self._make_request("GET", "/markets/options/chains", params=params, timeout=60)
 
         raw = self._parse_greeks_from_chain(response, symbol)
 
@@ -1608,7 +1649,13 @@ class TradierClient:
         if rejected:
             total = rejected + len(result)
             reject_ratio = (rejected / total) if total > 0 else 0.0
-            log_fn = logger.warning if reject_ratio >= 0.05 else logger.info
+            is_after_hours = not bool(is_tradier_active_window())
+            if reject_ratio >= 0.05:
+                log_fn = logger.warning
+            elif is_after_hours:
+                log_fn = logger.debug
+            else:
+                log_fn = logger.info
             log_fn(
                 "_parse_greeks_from_chain: dropped %d/%d contracts for %s "
                 "(crossed markets / invalid Greeks)",

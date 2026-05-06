@@ -830,6 +830,25 @@ class TelegramBot:
 
             return True
 
+        except requests.exceptions.ConnectionError as ce:
+            # TCP-level reset (ECONNRESET 104) — Telegram closes idle keep-alive
+            # connections after ~5 minutes.  Recreate the session so the retry
+            # uses a fresh connection rather than the stale pooled socket.
+            self.stats.messages_failed += 1
+            self.stats.last_error = str(ce)
+            self.stats.total_errors += 1
+            if message.retry_count < MAX_RETRIES:
+                message.retry_count += 1
+                try:
+                    self.session.close()
+                except Exception:
+                    pass
+                self.session = self._create_session()
+                time.sleep(RETRY_DELAY * message.retry_count)
+                return self._send_message_now(message)
+            self.logger.error("Failed to send message: %s", ce)
+            return False
+
         except requests.exceptions.RequestException as e:
             self.logger.error("Failed to send message: %s", e)
             self.stats.messages_failed += 1
