@@ -397,6 +397,22 @@ class GEXDEXCalculator:
         except Exception as e:
             logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)  # noqa: E501
 
+        # Resolve spot_price from the live market-data snapshot when the caller
+        # didn't supply one.  Without a valid spot, _compute_from_chain defaults
+        # to spot=1.0 which makes GEX ~730² ≈ 533,000× too small (rounds to 0.0B).
+        _resolved_spot = spot_price
+        if _resolved_spot is None:
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _live = _json.loads(_Path("market_data/live_data.json").read_text())
+                _spy_q = _live.get("SPY", {})
+                _last = _spy_q.get("last") or _spy_q.get("close")
+                if _last and float(_last) > 0:
+                    _resolved_spot = float(_last)
+            except Exception:
+                pass
+
         # Fallback: SpyderN03 options chain manager (preferred over deprecated B30)
         try:
             from SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager import OptionsChainManager
@@ -404,7 +420,13 @@ class GEXDEXCalculator:
             chain_df = chain_mgr.get_chain("SPY")
             if chain_df.empty:
                 raise DataUnavailableError("SpyderN03_OptionsChainManager returned empty chain for SPY")  # noqa: E501
-            return self._compute_from_chain(chain_df, spot_price)
+            # If the chain has all-zero gamma (e.g., Tradier sandbox upstream),
+            # fall through to the B40 path which has a BSM gamma fallback.
+            if chain_df["gamma"].fillna(0).abs().sum() == 0:
+                raise DataUnavailableError(
+                    "SpyderN03 chain has all-zero gamma — deferring to B40 BSM fallback"
+                )
+            return self._compute_from_chain(chain_df, _resolved_spot)
         except DataUnavailableError:
             pass  # fall through to Tradier direct fetch below
         except Exception as e:
